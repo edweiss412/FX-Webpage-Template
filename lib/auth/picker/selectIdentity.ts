@@ -36,7 +36,11 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
   const slug = formData.get("slug");
   const shareToken = formData.get("shareToken");
   const crewMemberId = formData.get("crewMemberId");
-  if (typeof slug !== "string" || typeof shareToken !== "string" || typeof crewMemberId !== "string") {
+  if (
+    typeof slug !== "string" ||
+    typeof shareToken !== "string" ||
+    typeof crewMemberId !== "string"
+  ) {
     return { ok: false, code: "PICKER_INVALID_INPUT" };
   }
   // Task 12 (R4-HIGH-1): preserve the active-section deep-link through the
@@ -64,7 +68,9 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
   return result;
 }
 
-export async function selectIdentityCore(input: SelectIdentityInput): Promise<SelectIdentityResult> {
+export async function selectIdentityCore(
+  input: SelectIdentityInput,
+): Promise<SelectIdentityResult> {
   try {
     return await selectIdentityCoreImpl(input);
   } catch {

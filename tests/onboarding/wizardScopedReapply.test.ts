@@ -63,7 +63,10 @@ function deps(
       wizardSessionId: W1,
       stagedId: STAGED,
     })),
-    discardStagedUnlocked: vi.fn(async () => ({ outcome: "discarded" as const, variant: "try_again" as const })),
+    discardStagedUnlocked: vi.fn(async () => ({
+      outcome: "discarded" as const,
+      variant: "try_again" as const,
+    })),
     ...overrides,
   };
 }
@@ -492,12 +495,12 @@ function pendingSync(overrides: Partial<PendingSyncForApply> = {}): PendingSyncF
     wizardSessionId: W1,
     baseModifiedTime: null,
     stagedModifiedTime: "2026-05-18T12:00:00.000Z",
-    parseResult: ({
+    parseResult: {
       show: { title: "Demo Show" },
       crewMembers: [],
       rooms: [],
       warnings: [],
-    } as unknown) as PendingSyncForApply["parseResult"],
+    } as unknown as PendingSyncForApply["parseResult"],
     triggeredReviewItems: [],
     reviewItemsCorrupt: false,
     parseResultCorrupt: false,

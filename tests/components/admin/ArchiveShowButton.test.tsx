@@ -47,7 +47,9 @@ describe("ArchiveShowButton — two-tap, isPending-safe (Task 7.2)", () => {
 
     const confirm = getByTestId("archive-show-confirm-button");
     // Curly apostrophe per DESIGN typography; normalize for the assertion.
-    expect((confirm.textContent ?? "").replace(/’/g, "'")).toContain(CONFIRM_COPY.replace(/’/g, "'"));
+    expect((confirm.textContent ?? "").replace(/’/g, "'")).toContain(
+      CONFIRM_COPY.replace(/’/g, "'"),
+    );
     expect(action).not.toHaveBeenCalled();
   });
 

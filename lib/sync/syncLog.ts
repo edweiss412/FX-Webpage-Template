@@ -27,21 +27,14 @@ function warningsFor(entry: SyncLogEntry): Array<Record<string, unknown>> {
   return [{ ...entry.payload, outcome: entry.outcome, code: entry.code ?? null }];
 }
 
-export function makePostgresSyncLogSink(
-  sql: SyncLogSql,
-): (entry: SyncLogEntry) => Promise<void> {
+export function makePostgresSyncLogSink(sql: SyncLogSql): (entry: SyncLogEntry) => Promise<void> {
   return async (entry) => {
     await sql.unsafe(
       `
         insert into public.sync_log (drive_file_id, status, message, parse_warnings)
         values ($1, $2, $3, $4::jsonb)
       `,
-      [
-        entry.driveFileId,
-        statusFor(entry),
-        messageFor(entry),
-        warningsFor(entry),
-      ],
+      [entry.driveFileId, statusFor(entry), messageFor(entry), warningsFor(entry)],
     );
   };
 }

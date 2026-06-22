@@ -76,16 +76,14 @@ export async function CurrentShareLinkPanel({
         data-testid="admin-current-share-link-panel"
         className="flex w-full max-w-md flex-col gap-2 rounded-sm border border-border bg-surface p-tile-pad"
       >
-        <h3 className="text-sm font-semibold text-text-strong">
-          Current share-link
-        </h3>
+        <h3 className="text-sm font-semibold text-text-strong">Current share-link</h3>
         <p
           data-testid="admin-current-share-link-unavailable"
           role="status"
           className="text-sm text-text-subtle"
         >
-          The share-link is unavailable right now. Refresh the page; if the
-          problem repeats, rotate to mint a new link.
+          The share-link is unavailable right now. Refresh the page; if the problem repeats, rotate
+          to mint a new link.
         </p>
         {actions}
       </div>
@@ -99,9 +97,7 @@ export async function CurrentShareLinkPanel({
       data-testid="admin-current-share-link-panel"
       className="flex w-full max-w-md flex-col gap-2 rounded-sm border border-border bg-surface p-tile-pad"
     >
-      <h3 className="text-sm font-semibold text-text-strong">
-        Current share-link
-      </h3>
+      <h3 className="text-sm font-semibold text-text-strong">Current share-link</h3>
       <p className="text-xs text-text-subtle">
         Send this URL to the crew. Rotate to mint a new one if it leaks.
       </p>

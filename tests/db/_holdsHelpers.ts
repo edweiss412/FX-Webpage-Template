@@ -19,7 +19,11 @@ import postgres, { type Sql, type TransactionSql } from "postgres";
 import type { CrewMemberRow, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { runPhase2 } from "@/lib/sync/phase2";
 
-import { crew as crewRow, parseResult as buildParseResult, phase2Tx } from "@/tests/sync/_holdAwareTestkit";
+import {
+  crew as crewRow,
+  parseResult as buildParseResult,
+  phase2Tx,
+} from "@/tests/sync/_holdAwareTestkit";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??
@@ -148,7 +152,9 @@ export async function readChangeLog(
   showId: string,
   filter?: { change_kind?: string; entity_ref?: string; status?: string },
 ): Promise<ChangeLogRow & { all: ChangeLogRow[] }>;
-export async function readChangeLog(showId: string): Promise<ChangeLogRow & { all: ChangeLogRow[] }>;
+export async function readChangeLog(
+  showId: string,
+): Promise<ChangeLogRow & { all: ChangeLogRow[] }>;
 export async function readChangeLog(
   showId: string,
   filter?: { change_kind?: string; entity_ref?: string; status?: string },
@@ -193,7 +199,10 @@ export async function readCrew(showId: string): Promise<CrewMemberDbRow[]> {
       from public.crew_members where show_id = ${showId} order by name`) as unknown as CrewMemberDbRow[];
 }
 
-export async function readCrewByName(showId: string, name: string): Promise<CrewMemberDbRow | null> {
+export async function readCrewByName(
+  showId: string,
+  name: string,
+): Promise<CrewMemberDbRow | null> {
   const rows = await readCrew(showId);
   return rows.find((r) => r.name === name) ?? null;
 }
@@ -226,7 +235,10 @@ export async function readHoldsByShow(showId: string): Promise<SyncHoldRow[]> {
 }
 
 /** Run `body` as role=authenticated with ADMIN JWT claims (the real PostgREST authed-admin path). */
-export async function asAdminTx<T>(body: (tx: TransactionSql) => Promise<T>, conn: Sql = sql): Promise<T> {
+export async function asAdminTx<T>(
+  body: (tx: TransactionSql) => Promise<T>,
+  conn: Sql = sql,
+): Promise<T> {
   return conn.begin(async (tx) => {
     await tx`select set_config('role', 'authenticated', true)`;
     await tx`select set_config('request.jwt.claims', ${ADMIN_CLAIMS}, true)`;
@@ -291,7 +303,10 @@ export async function seedMi11Hold(
     values (${show.showId}, ${show.driveFileId}, 'crew_email', ${opts.entityKey},
             ${sql.json(opts.heldValue as never)}, ${sql.json(opts.proposedValue as never)},
             ${opts.baseModifiedTime}::timestamptz, 'mi11_pending', 'system')
-    returning id, base_modified_time`) as unknown as Array<{ id: string; base_modified_time: string | Date }>;
+    returning id, base_modified_time`) as unknown as Array<{
+    id: string;
+    base_modified_time: string | Date;
+  }>;
   return {
     id: row!.id,
     baseModifiedTime: new Date(row!.base_modified_time).toISOString(),

@@ -148,9 +148,7 @@ function deepMergeObjects<T extends object>(base: T, override: DeepPartial<T>): 
  * producing a fully-typed ProjectedRoomRow[].
  */
 function completeRooms(partialRooms: DeepPartial<ProjectedRoomRow>[]): ProjectedRoomRow[] {
-  return partialRooms.map((partial) =>
-    deepMergeObjects<ProjectedRoomRow>(DEFAULT_ROOM, partial),
-  );
+  return partialRooms.map((partial) => deepMergeObjects<ProjectedRoomRow>(DEFAULT_ROOM, partial));
 }
 
 // ---------------------------------------------------------------------------

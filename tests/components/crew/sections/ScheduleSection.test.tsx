@@ -27,7 +27,7 @@ const DATES = {
 const ALL_DATES = [DATES.travelIn, DATES.set, ...DATES.showDays, DATES.travelOut];
 const base = makeShowForViewer({ show: { dates: DATES } });
 const baseCrew = base.crewMembers[0]!;
-function withRestriction(r: any) {
+function withRestriction(r: (typeof baseCrew)["dateRestriction"]) {
   return { ...base, crewMembers: [{ ...baseCrew, id: "c1", dateRestriction: r }] };
 }
 
@@ -48,7 +48,7 @@ test("unknown_asterisk → unconfirmed placeholder, ZERO day cards, NO date text
 test("explicit → intersection against the FULL aggregate; none → all aggregate days", () => {
   const explicit = render(
     <ScheduleSection
-      data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]] })}
+      data={withRestriction({ kind: "explicit", days: [DATES.travelIn, DATES.showDays[0]!] })}
       viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
       showId={SHOW_ID}
@@ -113,7 +113,9 @@ test("today-pin uses show timezone, not UTC date", () => {
 // default fixture has rooms:[] + no loadIn → all anchors absent → no card.
 // A room WITH times → anchors present → the card renders.
 // ---------------------------------------------------------------------------
-function withRooms(rooms: any[]) {
+function withRooms(
+  rooms: NonNullable<NonNullable<Parameters<typeof makeShowForViewer>[0]>["rooms"]>,
+) {
   return makeShowForViewer({ show: { dates: DATES }, rooms });
 }
 
@@ -124,7 +126,14 @@ test("anchors present → right column renders a 'Daily call times' SectionCard 
   const { container } = render(
     <ScheduleSection
       data={withRooms([
-        { id: "r1", kind: "gs", name: "Hall A", set_time: "9:00 AM", show_time: "7:00 PM", strike_time: "11:00 PM" },
+        {
+          id: "r1",
+          kind: "gs",
+          name: "Hall A",
+          set_time: "9:00 AM",
+          show_time: "7:00 PM",
+          strike_time: "11:00 PM",
+        },
       ])}
       viewer={{ kind: "admin" }}
       today={TODAY}

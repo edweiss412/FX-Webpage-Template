@@ -57,7 +57,9 @@ function b64(value: string): string {
 
 function signIntent(payload: { slug: string; shareToken: string; exp: number }): string {
   const body = b64(JSON.stringify(payload));
-  const sig = createHmac("sha256", Buffer.from(SIGNING_KEY, "hex")).update(body).digest("base64url");
+  const sig = createHmac("sha256", Buffer.from(SIGNING_KEY, "hex"))
+    .update(body)
+    .digest("base64url");
   return `${body}.${sig}`;
 }
 
@@ -155,7 +157,9 @@ describe("/api/auth/picker-bootstrap", () => {
     const res = await GET(request());
 
     expect(res.status).toBe(302);
-    expect(new URL(res.headers.get("location") ?? "").pathname).toBe("/show/sample-show/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345");
+    expect(new URL(res.headers.get("location") ?? "").pathname).toBe(
+      "/show/sample-show/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345",
+    );
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("__Host-fxav_picker=");
     const rawCookie = /__Host-fxav_picker=([^;]+)/.exec(setCookie)?.[1];

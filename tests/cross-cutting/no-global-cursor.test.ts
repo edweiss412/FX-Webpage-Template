@@ -39,13 +39,20 @@ function semanticFixture(name: string): { path: string; source: string } {
   return { path, source: read(path) };
 }
 
-function sortPairs<T extends { table_name: string; column_name: string }>(pairs: readonly T[]): T[] {
+function sortPairs<T extends { table_name: string; column_name: string }>(
+  pairs: readonly T[],
+): T[] {
   return [...pairs].sort((left, right) =>
-    `${left.table_name}.${left.column_name}`.localeCompare(`${right.table_name}.${right.column_name}`),
+    `${left.table_name}.${left.column_name}`.localeCompare(
+      `${right.table_name}.${right.column_name}`,
+    ),
   );
 }
 
-function diffWatermarkParity(spec: ReturnType<typeof extractWatermarkSymbolsFromSpec>, plan: ReturnType<typeof extractWatermarkSymbolsFromSpec>): string[] {
+function diffWatermarkParity(
+  spec: ReturnType<typeof extractWatermarkSymbolsFromSpec>,
+  plan: ReturnType<typeof extractWatermarkSymbolsFromSpec>,
+): string[] {
   const diffs: string[] = [];
   for (const key of ["authoritativeGatingWatermarks", "displayOnlyTimestamps"] as const) {
     const specValues = new Set(spec[key]);
@@ -85,7 +92,9 @@ describe("X.4 no-global-cursor audit", () => {
     const fromSpec = extractWatermarkSymbolsFromSpec(read(specPath));
     const fromPlan = extractWatermarkSymbolsFromSpec(read(planPath));
 
-    expect(Array.from(AUTHORITATIVE_GATING_WATERMARKS)).toEqual(fromSpec.authoritativeGatingWatermarks);
+    expect(Array.from(AUTHORITATIVE_GATING_WATERMARKS)).toEqual(
+      fromSpec.authoritativeGatingWatermarks,
+    );
     expect(Array.from(DISPLAY_ONLY_TIMESTAMPS)).toEqual(fromSpec.displayOnlyTimestamps);
     expect(Array.from(SYNC_ENTRY_POINTS)).toEqual(fromSpec.syncEntryPoints);
     expect(BANNED_COMBOS).toContainEqual(["last", "watermark"]);
@@ -101,8 +110,12 @@ describe("X.4 no-global-cursor audit", () => {
     const fromPlan = extractWatermarkSymbolsFromSpec(driftedPlan);
 
     // Failure mode: an extractor that filters stale names from both sides would hide this spec/plan drift.
-    expect(diffWatermarkParity(fromSpec, fromPlan)).toContain("+missing_in_plan:pending_syncs.base_modified_time");
-    expect(diffWatermarkParity(fromSpec, fromPlan)).toContain("-extra_in_plan:shows.base_modified_time");
+    expect(diffWatermarkParity(fromSpec, fromPlan)).toContain(
+      "+missing_in_plan:pending_syncs.base_modified_time",
+    );
+    expect(diffWatermarkParity(fromSpec, fromPlan)).toContain(
+      "-extra_in_plan:shows.base_modified_time",
+    );
   });
 
   test("schema layer allows only generated watermark columns and rejects app_settings cursor columns", () => {
@@ -130,7 +143,10 @@ describe("X.4 no-global-cursor audit", () => {
   });
 
   test("semantic layer rejects singleton/env/module/untyped cursor sources", () => {
-    expectSemanticFail("bad-app-settings-cursor.ts", /forbidden source 'app_settings\.processed_at'/);
+    expectSemanticFail(
+      "bad-app-settings-cursor.ts",
+      /forbidden source 'app_settings\.processed_at'/,
+    );
     expectSemanticFail("bad-env-watermark.ts", /forbidden source 'process\.env\.LAST_WATERMARK'/);
     expectSemanticFail("bad-module-const-checkpoint.ts", /forbidden source 'module\.CHECKPOINT'/);
     expectSemanticFail("bad-untyped-any.ts", /could not be resolved to a per-row column/);
@@ -139,9 +155,18 @@ describe("X.4 no-global-cursor audit", () => {
   });
 
   test("semantic layer distinguishes display-only timestamps from gating watermarks", () => {
-    expectSemanticFail("bad-display-only-in-sync-decision.fixture", /display-only timestamp 'shows\.last_synced_at'/);
-    expectSemanticFail("bad-display-only-parsed-at.fixture", /display-only timestamp 'pending_syncs\.parsed_at'/);
-    expectSemanticFail("bad-display-only-last-attempt-at.fixture", /display-only timestamp 'pending_ingestions\.last_attempt_at'/);
+    expectSemanticFail(
+      "bad-display-only-in-sync-decision.fixture",
+      /display-only timestamp 'shows\.last_synced_at'/,
+    );
+    expectSemanticFail(
+      "bad-display-only-parsed-at.fixture",
+      /display-only timestamp 'pending_syncs\.parsed_at'/,
+    );
+    expectSemanticFail(
+      "bad-display-only-last-attempt-at.fixture",
+      /display-only timestamp 'pending_ingestions\.last_attempt_at'/,
+    );
   });
 
   test("semantic layer accepts per-row apply/discard and asset CAS forms", () => {
@@ -155,7 +180,10 @@ describe("X.4 no-global-cursor audit", () => {
   });
 
   test("semantic layer rejects fresh-read CAS and uncovered gating watermark reads independently", () => {
-    expectSemanticFail("bad-uuid-cas-against-fresh-read.fixture", /compares pending_syncs\.staged_id against a fresh-read value/);
+    expectSemanticFail(
+      "bad-uuid-cas-against-fresh-read.fixture",
+      /compares pending_syncs\.staged_id against a fresh-read value/,
+    );
     expectSemanticFail(
       "bad-uuid-cas-revision-id-against-fresh-read.fixture",
       /compares shows\.diagrams->>snapshot_revision_id against a fresh-read value/,
@@ -175,7 +203,10 @@ describe("X.4 no-global-cursor audit", () => {
       /gating watermark shows\.diagrams->>snapshot_revision_id is read by applyStagedParse but never enforced/,
     );
     // Failure mode: untyped any must be rejected by type provenance, not only by literal "as any" text.
-    expectSemanticFail("bad-implicit-any-expected.fixture", /could not be resolved to a per-row column/);
+    expectSemanticFail(
+      "bad-implicit-any-expected.fixture",
+      /could not be resolved to a per-row column/,
+    );
   });
 
   test("semantic coverage sweep is scoped to write sinks on the same table", () => {
@@ -184,12 +215,27 @@ describe("X.4 no-global-cursor audit", () => {
   });
 
   test("semantic precheck fails loudly for missing or ambiguous sync entry points", () => {
-    expectSemanticFail("bad-missing-entry-point.fixture", /zero declarations\): runScheduledCronSync/);
+    expectSemanticFail(
+      "bad-missing-entry-point.fixture",
+      /zero declarations\): runScheduledCronSync/,
+    );
     // Failure mode: arbitrary renamed entry points must fail even when the new name avoids the old "Renamed" substring.
-    expectSemanticFail("bad-missing-entry-point-v2.fixture", /zero declarations\): runScheduledCronSync/);
-    expectSemanticFail("bad-ambiguous-entry-point.fixture", /multiple declarations\): runScheduledCronSync \(2 matches\)/);
-    expectSemanticFail("bad-missing-applyStagedParse-entry-point.fixture", /zero declarations\): applyStagedParse/);
-    expectSemanticFail("bad-missing-discardStagedParse-entry-point.fixture", /zero declarations\): discardStagedParse/);
+    expectSemanticFail(
+      "bad-missing-entry-point-v2.fixture",
+      /zero declarations\): runScheduledCronSync/,
+    );
+    expectSemanticFail(
+      "bad-ambiguous-entry-point.fixture",
+      /multiple declarations\): runScheduledCronSync \(2 matches\)/,
+    );
+    expectSemanticFail(
+      "bad-missing-applyStagedParse-entry-point.fixture",
+      /zero declarations\): applyStagedParse/,
+    );
+    expectSemanticFail(
+      "bad-missing-discardStagedParse-entry-point.fixture",
+      /zero declarations\): discardStagedParse/,
+    );
     // Failure mode: import-only/type-only declarations must not satisfy the semantic entry-point precheck.
     expectSemanticFail("bad-import-only-entry.fixture", /zero declarations\): applyStagedParse/);
   });

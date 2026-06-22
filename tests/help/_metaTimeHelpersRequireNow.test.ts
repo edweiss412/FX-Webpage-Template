@@ -50,10 +50,7 @@ type Violation = {
   reason: string;
 };
 
-type FunctionLikeNode =
-  | ts.FunctionDeclaration
-  | ts.FunctionExpression
-  | ts.ArrowFunction;
+type FunctionLikeNode = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction;
 
 function hasModifier(
   node: { modifiers?: ts.NodeArray<ts.ModifierLike> },
@@ -100,9 +97,7 @@ function checkFunctionLike(
     // practice, a body wall-clock call is itself the violation — but we
     // still surface a precise reason that distinguishes "no `now` plumbing"
     // from "has plumbing but ignored it".)
-    const nowParam = node.parameters.find(
-      (p) => ts.isIdentifier(p.name) && p.name.text === "now",
-    );
+    const nowParam = node.parameters.find((p) => ts.isIdentifier(p.name) && p.name.text === "now");
     if (!nowParam) {
       violations.push({
         file: filename,
@@ -119,9 +114,7 @@ function checkFunctionLike(
   }
 
   // 3. If a `now: Date` parameter exists, it must be required and Date-typed.
-  const nowParam = node.parameters.find(
-    (p) => ts.isIdentifier(p.name) && p.name.text === "now",
-  );
+  const nowParam = node.parameters.find((p) => ts.isIdentifier(p.name) && p.name.text === "now");
   if (nowParam) {
     const typeText = nowParam.type?.getText(sf) ?? "";
     if (!typeText.includes("Date")) {
@@ -254,19 +247,11 @@ type LocalFunctionEntry =
  * adversarial review should flag the call site.
  */
 function scanSource(src: string, filename: string): Violation[] {
-  const sf = ts.createSourceFile(
-    filename,
-    src,
-    ts.ScriptTarget.Latest,
-    /* setParentNodes */ true,
-  );
+  const sf = ts.createSourceFile(filename, src, ts.ScriptTarget.Latest, /* setParentNodes */ true);
   const violations: Violation[] = [];
   const localFunctions = new Map<string, LocalFunctionEntry>();
 
-  const resolveLocal = (
-    name: string,
-    seen = new Set<string>(),
-  ): LocalFunctionBinding | null => {
+  const resolveLocal = (name: string, seen = new Set<string>()): LocalFunctionBinding | null => {
     if (seen.has(name)) return null;
     seen.add(name);
     const entry = localFunctions.get(name);
@@ -325,10 +310,7 @@ function scanSource(src: string, filename: string): Violation[] {
       for (const decl of node.declarationList.declarations) {
         const initializer = decl.initializer ? unwrap(decl.initializer) : undefined;
         if (!initializer) continue;
-        if (
-          ts.isArrowFunction(initializer) ||
-          ts.isFunctionExpression(initializer)
-        ) {
+        if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
           const name = ts.isIdentifier(decl.name) ? decl.name.text : "(destructured)";
           checkFunctionLike(initializer, sf, name, filename, violations);
           continue;
@@ -395,9 +377,7 @@ function scanSource(src: string, filename: string): Violation[] {
 
 function collectViolations(): Violation[] {
   const violations: Violation[] = [];
-  const entries = readdirSync(LIB_TIME_DIR).filter(
-    (f) => /\.ts$/.test(f) && !EXEMPT_FILES.has(f),
-  );
+  const entries = readdirSync(LIB_TIME_DIR).filter((f) => /\.ts$/.test(f) && !EXEMPT_FILES.has(f));
 
   for (const filename of entries) {
     const fullPath = join(LIB_TIME_DIR, filename);
@@ -411,9 +391,7 @@ function collectViolations(): Violation[] {
 describe("lib/time/* helpers must require a `now: Date` parameter (R2 structural defense)", () => {
   it("walks lib/time/*.ts (excluding now.ts) and asserts no wall-clock-defaulting helpers exist", () => {
     const violations = collectViolations();
-    const report = violations
-      .map((v) => `  - ${v.file}::${v.fn} — ${v.reason}`)
-      .join("\n");
+    const report = violations.map((v) => `  - ${v.file}::${v.fn} — ${v.reason}`).join("\n");
     expect(violations, `Found ${violations.length} violation(s):\n${report}`).toEqual([]);
   });
 

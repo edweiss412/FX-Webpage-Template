@@ -22,13 +22,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { TransactionSql } from "postgres";
 
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
-import {
-  asAdminTx,
-  closeMi11Helpers,
-  mi11Sql,
-  seedCrew,
-  seedShow,
-} from "@/tests/db/_mi11Helpers";
+import { asAdminTx, closeMi11Helpers, mi11Sql, seedCrew, seedShow } from "@/tests/db/_mi11Helpers";
 
 // Call the MI-11 RPCs binding the timestamp args as ($N::text)::timestamptz so
 // postgres.js does NOT coerce the bound string through JS `Date` (which drops
@@ -154,7 +148,9 @@ describe("readShowChangeFeed gate.baseModifiedTime preserves microseconds (P5-F4
     const { entries } = await readShowChangeFeed(show.showId);
     const token = entries.find((e) => e.status === "pending")!.gate!.baseModifiedTime!;
 
-    const res = await asAdminTx((tx) => callRejectExact(tx, entries.find((e) => e.status === "pending")!.gate!.holdId, token));
+    const res = await asAdminTx((tx) =>
+      callRejectExact(tx, entries.find((e) => e.status === "pending")!.gate!.holdId, token),
+    );
     expect(res).toEqual({ ok: true }); // NOT MI11_TARGET_MOVED
 
     await mi11Sql`delete from public.shows where id = ${show.showId}`;

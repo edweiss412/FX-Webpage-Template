@@ -7,10 +7,7 @@ import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/admin/per-show-panel/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/admin/per-show-panel/page.mdx"), "utf8");
 
 describe("/help/admin/per-show-panel (E.8)", () => {
   it("renders without throwing through the real MDX pipeline (E.5 precedent — MDXProvider load-bearing for RefAnchor / Callout / etc.)", async () => {
@@ -46,9 +43,7 @@ describe("/help/admin/per-show-panel (E.8)", () => {
   it('has a plain <h2 id="staged-review-card"> (kebab non-catalog anchor → plain <h2>, NOT <RefAnchor>; D.5 regex restricts RefAnchor to catalog-code shape)', () => {
     expect(src).toMatch(/<h2[^>]*id=["']staged-review-card["']/);
     // negative: must NOT use RefAnchor for this id
-    expect(src).not.toMatch(
-      /<RefAnchor[^>]*id=["']staged-review-card["']/,
-    );
+    expect(src).not.toMatch(/<RefAnchor[^>]*id=["']staged-review-card["']/);
   });
 
   it('has a plain <h2 id="sync-health"> (kebab non-catalog anchor → plain <h2>, NOT <RefAnchor>)', () => {

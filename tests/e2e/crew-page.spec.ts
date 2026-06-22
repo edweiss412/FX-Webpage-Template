@@ -685,18 +685,14 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
       await gotoSection(page, section);
       const cols760 = page.getByTestId(colTestId);
       const colCount = await cols760.count();
-      expect(
-        colCount,
-        `${section} section must render at least one ${colTestId}`,
-      ).toBeGreaterThan(0);
+      expect(colCount, `${section} section must render at least one ${colTestId}`).toBeGreaterThan(
+        0,
+      );
       if (colCount >= 2) {
         const a = await rectOf(cols760.nth(0));
         const b = await rectOf(cols760.nth(1));
         // Side-by-side (second column starts to the right of the first).
-        expect(
-          b.left,
-          `@760px ${section} columns are side-by-side`,
-        ).toBeGreaterThan(a.left + 1);
+        expect(b.left, `@760px ${section} columns are side-by-side`).toBeGreaterThan(a.left + 1);
         // Equal-height (grid align-items:stretch). Both must be non-trivial first.
         expect(a.height, `${section} col A must have non-zero height`).toBeGreaterThan(1);
         expect(b.height, `${section} col B must have non-zero height`).toBeGreaterThan(1);
@@ -715,10 +711,9 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
         const a = await rectOf(cols390.nth(0));
         const b = await rectOf(cols390.nth(1));
         // Stacked: column 2's top is at/below column 1's bottom.
-        expect(
-          b.top,
-          `@390px ${section} columns stack (col2 below col1)`,
-        ).toBeGreaterThanOrEqual(a.bottom - TOL);
+        expect(b.top, `@390px ${section} columns stack (col2 below col1)`).toBeGreaterThanOrEqual(
+          a.bottom - TOL,
+        );
         // Same left edge (single column).
         expect(
           Math.abs(a.left - b.left),
@@ -806,20 +801,18 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
 
     // The Today section renders its blocks directly under the section root; the
     // last one with non-zero size is the visually-lowest content block.
-    const blockRects: Rect[] = await page
-      .getByTestId("section-today")
-      .evaluate((el) =>
-        Array.from(el.querySelectorAll(":scope > *"))
-          .map((c) => (c as HTMLElement).getBoundingClientRect())
-          .map((r) => ({
-            top: r.top,
-            left: r.left,
-            right: r.right,
-            bottom: r.bottom,
-            width: r.width,
-            height: r.height,
-          })),
-      );
+    const blockRects: Rect[] = await page.getByTestId("section-today").evaluate((el) =>
+      Array.from(el.querySelectorAll(":scope > *"))
+        .map((c) => (c as HTMLElement).getBoundingClientRect())
+        .map((r) => ({
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        })),
+    );
     const sized = blockRects.filter((r) => r.height > 0 && r.width > 0);
     expect(sized.length, "Today section must render at least one block").toBeGreaterThan(0);
     const lastBottom = Math.max(...sized.map((r) => r.bottom));
@@ -828,20 +821,18 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
     // fixed bar's top (the `<main>` bottom gutter guarantees the gap).
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForTimeout(50);
-    const afterScroll: Rect[] = await page
-      .getByTestId("section-today")
-      .evaluate((el) =>
-        Array.from(el.querySelectorAll(":scope > *"))
-          .map((c) => (c as HTMLElement).getBoundingClientRect())
-          .map((r) => ({
-            top: r.top,
-            left: r.left,
-            right: r.right,
-            bottom: r.bottom,
-            width: r.width,
-            height: r.height,
-          })),
-      );
+    const afterScroll: Rect[] = await page.getByTestId("section-today").evaluate((el) =>
+      Array.from(el.querySelectorAll(":scope > *"))
+        .map((c) => (c as HTMLElement).getBoundingClientRect())
+        .map((r) => ({
+          top: r.top,
+          left: r.left,
+          right: r.right,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        })),
+    );
     const sizedAfter = afterScroll.filter((r) => r.height > 0 && r.width > 0);
     const lastBottomAfter = Math.max(...sizedAfter.map((r) => r.bottom));
     const barTopAfter = (await rectOf(bottomBar)).top;
@@ -901,7 +892,8 @@ test.describe("crew redesign layout invariants (§4.9 / test 12)", () => {
  * end-states (the racy mid-opacity sample adds no reliable signal). Tracked as a
  * crew-redesign close-out note, not a silent cap.
  */
-test.describe.skip("crew redesign §4.10 transition audit (compound, real browser / test 14)", () => {
+test.describe
+  .skip("crew redesign §4.10 transition audit (compound, real browser / test 14)", () => {
   test.setTimeout(180_000);
   const TOL = 0.5;
   // 220ms = --duration-normal (CrewSectionTransition). A ~70ms partial tick lands
@@ -913,9 +905,7 @@ test.describe.skip("crew redesign §4.10 transition audit (compound, real browse
   let shareToken = "";
 
   /** opacity (number) of the first crew-section-transition wrapper, or null if absent. */
-  async function transitionOpacity(
-    page: import("@playwright/test").Page,
-  ): Promise<number | null> {
+  async function transitionOpacity(page: import("@playwright/test").Page): Promise<number | null> {
     return page.evaluate(() => {
       const el = document.querySelector('[data-testid="crew-section-transition"]');
       if (!el) return null;
@@ -1002,7 +992,9 @@ test.describe.skip("crew redesign §4.10 transition audit (compound, real browse
     if (testInfo.project.name !== "mobile-safari") return;
 
     await gotoSettled(page, "today");
-    const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme ?? "light");
+    const themeBefore = await page.evaluate(
+      () => document.documentElement.dataset.theme ?? "light",
+    );
 
     // Start the swap, advance a partial tick so we are MID-crossfade…
     await page.getByTestId("crew-sub-nav").locator('[data-section="venue"]').first().click();
@@ -1022,9 +1014,7 @@ test.describe.skip("crew redesign §4.10 transition audit (compound, real browse
     // The section crossfade must NOT be stuck/aborted by the theme write: settle it.
     await page.clock.runFor(CROSSFADE_MS + 180);
     await expect(page.getByTestId("section-venue")).toBeVisible();
-    await expect
-      .poll(async () => transitionOpacity(page), { timeout: 5000 })
-      .toBe(1); // crossfade completed (not stuck below 1)
+    await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1); // crossfade completed (not stuck below 1)
     // Theme stayed flipped through the crossfade settle.
     const themeFinal = await page.evaluate(() => document.documentElement.dataset.theme ?? "light");
     expect(themeFinal, "theme persists through the crossfade settle").toBe(themeAfter);
@@ -1102,9 +1092,10 @@ test.describe.skip("crew redesign §4.10 transition audit (compound, real browse
     await expect(page.getByTestId("right-now-hero")).toHaveCount(0);
     await expect.poll(async () => transitionOpacity(page), { timeout: 5000 }).toBe(1);
     // No §8.2 unreachable-transition error fired during the unmount race.
-    expect(heroErrors, `no RightNowHero §8.2 console error during the swap; got ${heroErrors.join(" | ")}`).toEqual(
-      [],
-    );
+    expect(
+      heroErrors,
+      `no RightNowHero §8.2 console error during the swap; got ${heroErrors.join(" | ")}`,
+    ).toEqual([]);
   });
 });
 
@@ -1149,7 +1140,6 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
 
   let slug = "";
   let shareToken = "";
-  let showId = "";
   let previewCrewId = "";
 
   /**
@@ -1176,7 +1166,6 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     if (testInfo.project.name !== "mobile-safari") return; // single-writer: mobile-safari only
     const seeded = await lookupSeededShow();
     slug = seeded.slug;
-    showId = seeded.showId;
     shareToken = await lookupShareToken(seeded.showId);
     // A real crew member of this published+non-archived show for the preview-as
     // route. The LEAD qualifies and is guaranteed present by lookupSeededShow.
@@ -1205,7 +1194,7 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     const ssrHtml = (await venueResp!.text()) ?? "";
     expect(
       ssrHtml,
-      'section-venue must be present in the SERVER-rendered HTML (SSR deep-link, not a client effect)',
+      "section-venue must be present in the SERVER-rendered HTML (SSR deep-link, not a client effect)",
     ).toContain('data-testid="section-venue"');
     expect(ssrHtml, "crew-shell must be server-rendered too").toContain('data-testid="crew-shell"');
 
@@ -1344,10 +1333,9 @@ test.describe("crew redesign nav addressability + preview-as + footer report (Ta
     await page.setViewportSize({ width: 390, height: 844 });
 
     // ?s=venue → the preview renders the redesigned CrewShell with Venue active.
-    const resp = await page.goto(
-      `/admin/show/${slug}/preview/${previewCrewId}?s=venue`,
-      { waitUntil: "domcontentloaded" },
-    );
+    const resp = await page.goto(`/admin/show/${slug}/preview/${previewCrewId}?s=venue`, {
+      waitUntil: "domcontentloaded",
+    });
     expect(resp?.status(), "admin preview-as route must render").toBe(200);
 
     // The redesigned shell — NOT the retired flat `tile-grid` body.

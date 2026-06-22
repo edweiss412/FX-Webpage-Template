@@ -99,9 +99,7 @@ vi.mock("@/lib/supabase/server", () => ({
 
 const { POST: subscriberTokenPost } = await import("@/app/api/realtime/subscriber-token/route");
 const { GET: showVersionGet } = await import("@/app/api/show/[slug]/version/route");
-const { GET: diagramAssetGet } = await import(
-  "@/app/api/asset/diagram/[show]/[rev]/[key]/route"
-);
+const { GET: diagramAssetGet } = await import("@/app/api/asset/diagram/[show]/[rev]/[key]/route");
 const { GET: reelAssetGet } = await import("@/app/api/asset/reel/[show]/route");
 const { GET: agendaAssetGet } = await import("@/app/api/asset/agenda/[show]/[id]/route");
 const { POST: reportPost } = await import("@/app/api/report/route");

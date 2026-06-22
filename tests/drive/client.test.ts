@@ -51,7 +51,10 @@ describe("getDriveClient", () => {
     });
     expect(driveMock).toHaveBeenCalledWith({
       version: "v3",
-      auth: { kind: "auth", options: { credentials: SERVICE_ACCOUNT, scopes: GOOGLE_DRIVE_SCOPES } },
+      auth: {
+        kind: "auth",
+        options: { credentials: SERVICE_ACCOUNT, scopes: GOOGLE_DRIVE_SCOPES },
+      },
     });
   });
 

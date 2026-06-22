@@ -34,18 +34,14 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
 
     it("isCheckpointStale takes a `now: Date` parameter", () => {
       // Signature must accept now: Date (threaded from caller, not Date.now()).
-      expect(src).toMatch(
-        /export\s+function\s+isCheckpointStale\s*\([^)]*\bnow\s*:\s*Date\b/,
-      );
+      expect(src).toMatch(/export\s+function\s+isCheckpointStale\s*\([^)]*\bnow\s*:\s*Date\b/);
     });
 
     it("isCheckpointStale does NOT call Date.now() or new Date()", () => {
       // After migration, the helper consumes `now.getTime()` only.
       // The file-level scan in tests/help/_metaServerTimeGuard.test.ts is
       // broader; this assertion pins the specific function body shape.
-      const fnMatch = src.match(
-        /export\s+function\s+isCheckpointStale[\s\S]*?\n\}/,
-      );
+      const fnMatch = src.match(/export\s+function\s+isCheckpointStale[\s\S]*?\n\}/);
       expect(fnMatch).not.toBeNull();
       const body = fnMatch![0];
       expect(body).not.toMatch(/\bDate\.now\s*\(/);
@@ -77,15 +73,11 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
     const src = read("lib/admin/showDisplay.ts");
 
     it("formatRelative takes a `now: Date` parameter", () => {
-      expect(src).toMatch(
-        /function\s+formatRelative\s*\([^)]*\bnow\s*:\s*Date\b/,
-      );
+      expect(src).toMatch(/function\s+formatRelative\s*\([^)]*\bnow\s*:\s*Date\b/);
     });
 
     it("formatRelative does NOT call Date.now() or new Date() inside its body", () => {
-      const fnMatch = src.match(
-        /function\s+formatRelative[\s\S]*?\n\}/,
-      );
+      const fnMatch = src.match(/function\s+formatRelative[\s\S]*?\n\}/);
       expect(fnMatch).not.toBeNull();
       const body = fnMatch![0];
       expect(body).not.toMatch(/\bDate\.now\s*\(/);
@@ -96,16 +88,12 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
 
     it("ShowsTable (live formatRelative consumer) receives `now: Date` as a prop", () => {
       const tableSrc = read("components/admin/ShowsTable.tsx");
-      expect(tableSrc).toMatch(
-        /ShowsTableProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/,
-      );
+      expect(tableSrc).toMatch(/ShowsTableProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/);
     });
 
     it("NeedsAttentionInbox (live formatRelative consumer) receives `now: Date` as a prop", () => {
       const inboxSrc = read("components/admin/NeedsAttentionInbox.tsx");
-      expect(inboxSrc).toMatch(
-        /NeedsAttentionInboxProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/,
-      );
+      expect(inboxSrc).toMatch(/NeedsAttentionInboxProps\s*=\s*\{[\s\S]*?\bnow\s*:\s*Date\b/);
     });
   });
 
@@ -137,15 +125,11 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
     });
 
     it("formatRelative takes a `now: Date` parameter", () => {
-      expect(src).toMatch(
-        /function\s+formatRelative\s*\([^)]*\bnow\s*:\s*Date\b/,
-      );
+      expect(src).toMatch(/function\s+formatRelative\s*\([^)]*\bnow\s*:\s*Date\b/);
     });
 
     it("formatRelative does NOT call Date.now() or new Date() inside its body", () => {
-      const fnMatch = src.match(
-        /function\s+formatRelative[\s\S]*?\n\}/,
-      );
+      const fnMatch = src.match(/function\s+formatRelative[\s\S]*?\n\}/);
       expect(fnMatch).not.toBeNull();
       const body = fnMatch![0];
       expect(body).not.toMatch(/\bDate\.now\s*\(/);

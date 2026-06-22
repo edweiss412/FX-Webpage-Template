@@ -31,7 +31,11 @@
  */
 import { useState } from "react";
 
-import { ReportModal, type ReportAutocapture, type ReportSurface } from "@/components/shared/ReportModal";
+import {
+  ReportModal,
+  type ReportAutocapture,
+  type ReportSurface,
+} from "@/components/shared/ReportModal";
 
 export type ReportButtonProps = {
   surface: ReportSurface;

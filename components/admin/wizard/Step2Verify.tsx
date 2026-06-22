@@ -85,10 +85,7 @@ type FormState =
 
 function formatTotals(totals: OnboardingScanTotals): number {
   return (
-    totals.staged +
-    totals.hard_failed +
-    totals.skipped_non_sheet +
-    (totals.live_row_conflict ?? 0)
+    totals.staged + totals.hard_failed + totals.skipped_non_sheet + (totals.live_row_conflict ?? 0)
   );
 }
 
@@ -121,9 +118,7 @@ export function Step2Verify() {
       return;
     }
     intervalRef.current = setInterval(() => {
-      setElapsedSeconds(
-        Math.floor((Date.now() - state.startedAt) / 1000),
-      );
+      setElapsedSeconds(Math.floor((Date.now() - state.startedAt) / 1000));
     }, 1000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
@@ -168,15 +163,13 @@ export function Step2Verify() {
       }
       setState({
         kind: "error",
-        copy:
-          "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.",
+        copy: "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.",
         code: null,
       });
     } catch {
       setState({
         kind: "error",
-        copy:
-          "We could not reach Drive just now. Check your connection and try again.",
+        copy: "We could not reach Drive just now. Check your connection and try again.",
         code: null,
       });
     }
@@ -200,10 +193,7 @@ export function Step2Verify() {
           Step 2 of 3
         </p>
         <div className="flex items-center gap-2">
-          <h2
-            id="wizard-step2-heading"
-            className="text-2xl font-semibold text-text-strong"
-          >
+          <h2 id="wizard-step2-heading" className="text-2xl font-semibold text-text-strong">
             Verify your folder
           </h2>
           <HelpTooltip
@@ -211,9 +201,8 @@ export function Step2Verify() {
             testId="help-affordance--wizard-step2--tooltip"
           >
             <p>
-              Paste the URL of the Drive folder you shared in step 1. We
-              read every Google Sheet inside that folder, then walk you
-              through any that need a closer look in step 3.
+              Paste the URL of the Drive folder you shared in step 1. We read every Google Sheet
+              inside that folder, then walk you through any that need a closer look in step 3.
             </p>
             <p className="mt-2">
               <a
@@ -227,8 +216,8 @@ export function Step2Verify() {
           </HelpTooltip>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
-          Paste the link to the folder you just shared. We will read what is
-          inside and bring it in for review.
+          Paste the link to the folder you just shared. We will read what is inside and bring it in
+          for review.
         </p>
       </header>
 
@@ -237,10 +226,7 @@ export function Step2Verify() {
         noValidate
         className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
       >
-        <label
-          htmlFor="wizard-step2-folder-url"
-          className="text-sm font-semibold text-text-strong"
-        >
+        <label htmlFor="wizard-step2-folder-url" className="text-sm font-semibold text-text-strong">
           Folder link
         </label>
         <input
@@ -272,17 +258,11 @@ export function Step2Verify() {
           data-testid="wizard-step2-progress"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text"
         >
-          <p className="font-semibold text-text-strong">
-            Looking through your folder…
-          </p>
+          <p className="font-semibold text-text-strong">Looking through your folder…</p>
           <p className="break-all text-text-subtle">{state.folderUrl}</p>
-          <p
-            className="tabular-nums text-text-subtle"
-            data-testid="wizard-step2-elapsed"
-          >
-            {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} so far. We
-            keep going until we have read every sheet. Large folders can take a
-            minute.
+          <p className="tabular-nums text-text-subtle" data-testid="wizard-step2-elapsed">
+            {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} so far. We keep going until we
+            have read every sheet. Large folders can take a minute.
           </p>
         </div>
       ) : null}

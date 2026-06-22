@@ -12,6 +12,8 @@ describe("post-pivot admin crew loader", () => {
     const source = readFileSync(file, "utf8");
     expect(source).not.toMatch(/loadShowCrewWithAuth/);
     expect(source).not.toMatch(/CrewRowForLinkPanel/);
-    expect(source).not.toMatch(/current_token_version|max_issued_version|revoked_below_version|authMissing/);
+    expect(source).not.toMatch(
+      /current_token_version|max_issued_version|revoked_below_version|authMissing/,
+    );
   });
 });

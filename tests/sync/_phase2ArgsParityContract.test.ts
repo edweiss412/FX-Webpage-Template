@@ -43,7 +43,8 @@ function extractSuccessTailAfterPhase2(src: string, marker: string): string {
   const returnIndex = src.indexOf("return ", staleCloseIndex);
   if (returnIndex === -1) throw new Error(`Success return not found after marker: ${marker}`);
   const returnEndIndex = src.indexOf(";", returnIndex);
-  if (returnEndIndex === -1) throw new Error(`Success return end not found after marker: ${marker}`);
+  if (returnEndIndex === -1)
+    throw new Error(`Success return end not found after marker: ${marker}`);
   return src.slice(staleCloseIndex + 1, returnEndIndex + 1);
 }
 
@@ -138,15 +139,9 @@ function objectKeysForAwaitedCall(tail: string, callName: string): string[] | nu
 describe("first-seen auto-publish cron/retry parity contract", () => {
   test("retry passes the same Phase 2 args and post-Phase-2 tail shape as cron", () => {
     const cronSource = readFileSync(join(root, "lib/sync/runScheduledCronSync.ts"), "utf8");
-    const retrySource = readFileSync(
-      join(root, "lib/sync/runManualStageForFirstSeen.ts"),
-      "utf8",
-    );
+    const retrySource = readFileSync(join(root, "lib/sync/runManualStageForFirstSeen.ts"), "utf8");
 
-    const cronArgs = extractObjectAfter(
-      cronSource,
-      "const phase2 = await runPhase2_unlocked(",
-    );
+    const cronArgs = extractObjectAfter(cronSource, "const phase2 = await runPhase2_unlocked(");
     const retryArgs = extractObjectAfter(
       retrySource,
       "const phase2 = await (deps.runPhase2 ?? runPhase2)(tx,",

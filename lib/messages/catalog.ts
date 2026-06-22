@@ -2516,8 +2516,7 @@ export const MESSAGE_CATALOG = {
   PICKER_REMOVED_FROM_ROSTER_BANNER: {
     code: "PICKER_REMOVED_FROM_ROSTER_BANNER",
     dougFacing: null,
-    crewFacing:
-      "Your selection is no longer on the roster. Pick your name again.",
+    crewFacing: "Your selection is no longer on the roster. Pick your name again.",
     followUp: "Crew → pick name or text Doug",
     helpfulContext: null,
     title: null,

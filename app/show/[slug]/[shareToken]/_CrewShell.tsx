@@ -320,7 +320,7 @@ export async function CrewShell({
         // with this content edge (Task 8.5). The remaining utilities are
         // page-container-specific (flex column, section gap, vertical rhythm,
         // mobile bottom-bar clearance).
-        className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-[calc(theme(spacing.tap-min)+env(safe-area-inset-bottom)+1rem)] sm:pt-8 min-[720px]:pb-8`}
+        className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] sm:pt-8 min-[720px]:pb-8`}
       >
         <CrewSectionTransition sectionId={activeSection}>{sectionBody}</CrewSectionTransition>
       </main>

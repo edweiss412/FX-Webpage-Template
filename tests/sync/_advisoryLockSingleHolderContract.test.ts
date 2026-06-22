@@ -104,7 +104,8 @@ const lockHolderRegistry = [
   {
     path: "app/api/admin/pending-ingestions/[id]/retry/route.ts",
     holder: "handleLivePendingIngestionRetry",
-    layer: "bootstraps drive_file_id read-only, then delegates mutations to a nonblocking show lock",
+    layer:
+      "bootstraps drive_file_id read-only, then delegates mutations to a nonblocking show lock",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
@@ -421,7 +422,9 @@ describe("M6 advisory-lock single-holder contract", () => {
 
   test("abandoned onboarding finalize cleanup documents its direct lock topology", () => {
     const source = read("lib/onboarding/sessionLifecycle.ts");
-    const cleanupSource = source.slice(source.indexOf("export async function cleanupAbandonedFinalize"));
+    const cleanupSource = source.slice(
+      source.indexOf("export async function cleanupAbandonedFinalize"),
+    );
 
     expect(source).toContain("hashtext('finalize:' ||");
     expect(source).toContain("hashtext('show:' || $1)");

@@ -162,12 +162,7 @@ type RpcEnvelope = {
 // wrong RPC, the action would revalidate and report ok — Doug could
 // believe a revoke succeeded when no revoke happened. Invariant 9:
 // infra faults must NOT become benign signals.
-const UPSERT_STATUS_SET = new Set([
-  "ok",
-  "already_active",
-  "re_add_required",
-  "invalid_email",
-]);
+const UPSERT_STATUS_SET = new Set(["ok", "already_active", "re_add_required", "invalid_email"]);
 const REVOKE_STATUS_SET = new Set(["ok", "last_admin_lockout", "invalid_email"]);
 
 function translateUpsertResult(

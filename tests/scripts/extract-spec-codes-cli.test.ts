@@ -91,46 +91,38 @@ TEST_FIXTURE_CODE: "Fixture helpful context."
 `;
 
 describe("scripts/extract-spec-codes.ts CLI exit-code contract", () => {
-  test(
-    "exits NON-ZERO with the error on stderr when the spec file is missing (pinned: synchronous throw is not swallowed)",
-    () => {
-      // Concrete failure mode caught: a refactor to `async function main()`
-      // invoked as bare `main();` (the X.6 "void main" class) would swallow
-      // the ENOENT rejection and exit 0 — gen:spec-codes would then
-      // "succeed" in CI while generating nothing.
-      const { run, readOutput, cleanup } = runExtractSpecCodes();
-      try {
-        expect(run.code).not.toBe(0);
-        expect(run.stderr).toMatch(/ENOENT/);
-        expect(run.stderr).toContain(SPEC_RELATIVE_PATH);
-        expect(readOutput()).toBeNull();
-      } finally {
-        cleanup();
-      }
-    },
-    60_000,
-  );
+  test("exits NON-ZERO with the error on stderr when the spec file is missing (pinned: synchronous throw is not swallowed)", () => {
+    // Concrete failure mode caught: a refactor to `async function main()`
+    // invoked as bare `main();` (the X.6 "void main" class) would swallow
+    // the ENOENT rejection and exit 0 — gen:spec-codes would then
+    // "succeed" in CI while generating nothing.
+    const { run, readOutput, cleanup } = runExtractSpecCodes();
+    try {
+      expect(run.code).not.toBe(0);
+      expect(run.stderr).toMatch(/ENOENT/);
+      expect(run.stderr).toContain(SPEC_RELATIVE_PATH);
+      expect(readOutput()).toBeNull();
+    } finally {
+      cleanup();
+    }
+  }, 60_000);
 
-  test(
-    "exits 0 and writes the generated catalog when the spec parses (positive control for the exit-code pin)",
-    () => {
-      const { run, readOutput, cleanup } = runExtractSpecCodes((cwd) => {
-        const specPath = join(cwd, SPEC_RELATIVE_PATH);
-        mkdirSync(dirname(specPath), { recursive: true });
-        writeFileSync(specPath, MINIMAL_SPEC);
-      });
-      try {
-        expect(run.stderr).toBe("");
-        expect(run.code).toBe(0);
-        expect(run.stdout).toContain("Generated");
-        const output = readOutput();
-        expect(output).not.toBeNull();
-        expect(output).toContain('"TEST_FIXTURE_CODE"');
-        expect(output).toContain('"Fixture helpful context."');
-      } finally {
-        cleanup();
-      }
-    },
-    60_000,
-  );
+  test("exits 0 and writes the generated catalog when the spec parses (positive control for the exit-code pin)", () => {
+    const { run, readOutput, cleanup } = runExtractSpecCodes((cwd) => {
+      const specPath = join(cwd, SPEC_RELATIVE_PATH);
+      mkdirSync(dirname(specPath), { recursive: true });
+      writeFileSync(specPath, MINIMAL_SPEC);
+    });
+    try {
+      expect(run.stderr).toBe("");
+      expect(run.code).toBe(0);
+      expect(run.stdout).toContain("Generated");
+      const output = readOutput();
+      expect(output).not.toBeNull();
+      expect(output).toContain('"TEST_FIXTURE_CODE"');
+      expect(output).toContain('"Fixture helpful context."');
+    } finally {
+      cleanup();
+    }
+  }, 60_000);
 });

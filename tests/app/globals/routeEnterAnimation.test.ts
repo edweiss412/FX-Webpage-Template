@@ -5,5 +5,7 @@ it("globals.css defines a route-enter animation gated by reduced-motion", () => 
   expect(css).toMatch(/@keyframes route-enter/);
   expect(css).toMatch(/\.route-enter\s*\{[^}]*animation:\s*route-enter/);
   // reduced-motion guard disables it
-  expect(css).toMatch(/prefers-reduced-motion:\s*reduce[\s\S]*\.route-enter\s*\{\s*animation:\s*none/);
+  expect(css).toMatch(
+    /prefers-reduced-motion:\s*reduce[\s\S]*\.route-enter\s*\{\s*animation:\s*none/,
+  );
 });

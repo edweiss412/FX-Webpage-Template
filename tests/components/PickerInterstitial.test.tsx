@@ -54,12 +54,8 @@ const CLAIMED_ROW = {
 
 describe("<PickerInterstitial>", () => {
   test("renders the who-are-you heading + sub-instruction", () => {
-    const { getByTestId } = render(
-      <PickerInterstitial {...baseProps} roster={[ACTIVE_ROW]} />,
-    );
-    expect(getByTestId("picker-question-heading").textContent).toContain(
-      "Who are you?",
-    );
+    const { getByTestId } = render(<PickerInterstitial {...baseProps} roster={[ACTIVE_ROW]} />);
+    expect(getByTestId("picker-question-heading").textContent).toContain("Who are you?");
     expect(getByTestId("picker-sub-instruction")).toBeTruthy();
   });
 
@@ -79,8 +75,7 @@ describe("<PickerInterstitial>", () => {
     // form at a different URL.
     expect(form.getAttribute("action") ?? "").toMatch(/^javascript:/);
     const fieldOf = (n: string) =>
-      (form.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)
-        ?.value;
+      (form.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)?.value;
     expect(fieldOf("slug")).toBe(baseProps.slug);
     expect(fieldOf("shareToken")).toBe(baseProps.shareToken);
     expect(fieldOf("crewMemberId")).toBe(ACTIVE_ROW.id);
@@ -88,9 +83,7 @@ describe("<PickerInterstitial>", () => {
   });
 
   test("claimed row deactivates: data-claimed=true + lock glyph + GET form to /auth/sign-in (P-R35)", () => {
-    const { getAllByTestId } = render(
-      <PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} />,
-    );
+    const { getAllByTestId } = render(<PickerInterstitial {...baseProps} roster={[CLAIMED_ROW]} />);
     const row = getAllByTestId("picker-roster-row")[0] as HTMLButtonElement;
     expect(row.getAttribute("data-claimed")).toBe("true");
     const form = row.closest("form")!;
@@ -114,10 +107,7 @@ describe("<PickerInterstitial>", () => {
 
   test("LEAD role chip uses accent treatment; non-LEAD uses muted treatment", () => {
     const { getAllByTestId } = render(
-      <PickerInterstitial
-        {...baseProps}
-        roster={[ACTIVE_ROW, CLAIMED_ROW]}
-      />,
+      <PickerInterstitial {...baseProps} roster={[ACTIVE_ROW, CLAIMED_ROW]} />,
     );
     const rows = getAllByTestId("picker-roster-row") as HTMLButtonElement[];
     expect(rows.length).toBe(2);
@@ -138,20 +128,11 @@ describe("<PickerInterstitial>", () => {
     ] as const;
     for (const code of codes) {
       const { getByTestId, unmount } = render(
-        <PickerInterstitial
-          {...baseProps}
-          roster={[ACTIVE_ROW]}
-          banner={code}
-        />,
+        <PickerInterstitial {...baseProps} roster={[ACTIVE_ROW]} banner={code} />,
       );
-      expect(getByTestId("picker-banner").textContent).toContain(
-        MESSAGE_CATALOG[code].crewFacing!,
-      );
+      expect(getByTestId("picker-banner").textContent).toContain(MESSAGE_CATALOG[code].crewFacing!);
       // No raw code in DOM (AGENTS.md invariant 5).
-      const html = getByTestId("picker-banner").outerHTML.replace(
-        /data-testid="[^"]*"/g,
-        "",
-      );
+      const html = getByTestId("picker-banner").outerHTML.replace(/data-testid="[^"]*"/g, "");
       expect(html).not.toContain(code);
       unmount();
     }
@@ -173,27 +154,18 @@ describe("<PickerInterstitial>", () => {
       expectedCrewMemberId: ACTIVE_ROW.id,
     };
     const { container } = render(
-      <PickerInterstitial
-        {...baseProps}
-        roster={[ACTIVE_ROW]}
-        staleCleanupHint={hint}
-      />,
+      <PickerInterstitial {...baseProps} roster={[ACTIVE_ROW]} staleCleanupHint={hint} />,
     );
-    const cleanup = container.querySelector(
-      '[data-testid="stale-cleanup-auto-submit"]',
-    )!;
+    const cleanup = container.querySelector('[data-testid="stale-cleanup-auto-submit"]')!;
     const fieldOf = (n: string) =>
-      (cleanup.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)
-        ?.value;
+      (cleanup.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)?.value;
     expect(fieldOf("showId")).toBe(baseProps.showId);
     expect(fieldOf("expectedEpoch")).toBe(String(hint.expectedEpoch));
     expect(fieldOf("expectedCrewMemberId")).toBe(hint.expectedCrewMemberId);
   });
 
   test("roster row carries min-h-tap-min for the 44px floor (Playwright validates real layout)", () => {
-    const { getAllByTestId } = render(
-      <PickerInterstitial {...baseProps} roster={[ACTIVE_ROW]} />,
-    );
+    const { getAllByTestId } = render(<PickerInterstitial {...baseProps} roster={[ACTIVE_ROW]} />);
     const row = getAllByTestId("picker-roster-row")[0] as HTMLButtonElement;
     // jsdom can't compute applied 44px height — the Playwright dimensional-
     // invariants test in tests/e2e asserts the real rendered floor. Here

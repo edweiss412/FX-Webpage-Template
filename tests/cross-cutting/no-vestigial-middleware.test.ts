@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 /**
  * Phase 0.A close-out finding (2026-05-27): a vestigial `middleware.ts` left

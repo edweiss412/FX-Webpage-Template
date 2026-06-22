@@ -26,7 +26,8 @@ function renderTravel(data: ShowForViewer) {
 
 describe("TravelSection — flight card", () => {
   it("renders a round-trip as two separate legs (arrival, departure)", () => {
-    const flight = "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
+    const flight =
+      "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
     const { getByTestId } = renderTravel(baseData({ viewerFlightInfo: flight }));
     const card = getByTestId("travel-flight");
     // Derive expected legs from the data source (anti-tautology), not hardcoded.
@@ -41,32 +42,45 @@ describe("TravelSection — flight card", () => {
   });
 
   it("renders a one-way (no ' | ') as a single leg", () => {
-    const { getByTestId } = renderTravel(baseData({ viewerFlightInfo: "EWR-FLL UNITED 5/13 HQQ79F" }));
-    expect(within(getByTestId("travel-flight")).getAllByTestId("travel-flight-leg")).toHaveLength(1);
+    const { getByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: "EWR-FLL UNITED 5/13 HQQ79F" }),
+    );
+    expect(within(getByTestId("travel-flight")).getAllByTestId("travel-flight-leg")).toHaveLength(
+      1,
+    );
   });
 
-  it.each([null, "", "   ", "TBD", "N/A", "https://aa.com/checkin", "drive.google.com/file/d/abc123"])(
-    "hides the card for blank/sentinel/URL-only %p (strips/filters to empty → no card)",
-    (v) => {
-      // NB: a BARE airline domain (aa.com/checkin) is NOT here — it RENDERS
-      // (tested separately). These are schemed + scheme-less-Google URL-only.
-      const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: v }));
-      expect(queryByTestId("travel-flight")).toBeNull();
-    },
-  );
+  it.each([
+    null,
+    "",
+    "   ",
+    "TBD",
+    "N/A",
+    "https://aa.com/checkin",
+    "drive.google.com/file/d/abc123",
+  ])("hides the card for blank/sentinel/URL-only %p (strips/filters to empty → no card)", (v) => {
+    // NB: a BARE airline domain (aa.com/checkin) is NOT here — it RENDERS
+    // (tested separately). These are schemed + scheme-less-Google URL-only.
+    const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: v }));
+    expect(queryByTestId("travel-flight")).toBeNull();
+  });
 
   it("a URL-only flight + no transport/hotels → section-empty renders, NOT a titled empty card", () => {
     // Catches an impl that computes showFlight BEFORE the strip/filter: it would
     // render a titled-but-empty "Your flight" card AND wrongly suppress the
     // section empty-state (since a present card would make allHidden false).
-    const { queryByTestId } = renderTravel(baseData({ viewerFlightInfo: "https://aa.com/checkin" }));
+    const { queryByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: "https://aa.com/checkin" }),
+    );
     expect(queryByTestId("travel-flight")).toBeNull();
     expect(queryByTestId("section-empty")).toBeInTheDocument();
   });
 
   it("strips a schemed URL from a leg but keeps the real text", () => {
     const { getByTestId } = renderTravel(
-      baseData({ viewerFlightInfo: "EWR-FLL UNITED https://aa.com/checkin HQQ79F | FLL-EWR JET BLUE OSUULZ" }),
+      baseData({
+        viewerFlightInfo: "EWR-FLL UNITED https://aa.com/checkin HQQ79F | FLL-EWR JET BLUE OSUULZ",
+      }),
     );
     const card = getByTestId("travel-flight");
     expect(card).not.toHaveTextContent("https://");
@@ -78,7 +92,10 @@ describe("TravelSection — flight card", () => {
     // stripAgendaUrls strips scheme-less drive/docs.google.com too — an impl that
     // only strips https?:// would render this Google link in the crew DOM.
     const { getByTestId } = renderTravel(
-      baseData({ viewerFlightInfo: "EWR-FLL UNITED drive.google.com/file/d/abc123 HQQ79F | FLL-EWR JET BLUE OSUULZ" }),
+      baseData({
+        viewerFlightInfo:
+          "EWR-FLL UNITED drive.google.com/file/d/abc123 HQQ79F | FLL-EWR JET BLUE OSUULZ",
+      }),
     );
     const card = getByTestId("travel-flight");
     expect(card).not.toHaveTextContent("drive.google.com");
@@ -112,7 +129,9 @@ describe("TravelSection — flight card", () => {
   });
 
   it("flight present + transport/hotels empty → flight card, NO section-empty", () => {
-    const { getByTestId, queryByTestId } = renderTravel(baseData({ viewerFlightInfo: "EWR-FLL UNITED HQQ79F" }));
+    const { getByTestId, queryByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: "EWR-FLL UNITED HQQ79F" }),
+    );
     expect(getByTestId("travel-flight")).toBeInTheDocument();
     expect(queryByTestId("section-empty")).toBeNull();
   });

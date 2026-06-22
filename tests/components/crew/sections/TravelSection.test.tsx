@@ -21,7 +21,9 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
       license_plate: "ABC123",
       color: "Black",
       parking: "Lot A",
-      schedule: [{ stage: "load-in", date: "2026-05-13", time: "8AM", assigned_names: ["someone"] }],
+      schedule: [
+        { stage: "load-in", date: "2026-05-13", time: "8AM", assigned_names: ["someone"] },
+      ],
       notes: "N",
     },
     hotelReservations: [

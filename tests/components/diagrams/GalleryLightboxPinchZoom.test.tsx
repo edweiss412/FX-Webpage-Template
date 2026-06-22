@@ -168,22 +168,12 @@ function simulateGestureEnd(scale: number): void {
 // instance the components see, so hooks behave normally.
 vi.mock("react-zoom-pan-pinch", async () => {
   const React = await import("react");
-  function TransformWrapper(
-    props: Record<string, unknown> & { children?: React.ReactNode },
-  ) {
+  function TransformWrapper(props: Record<string, unknown> & { children?: React.ReactNode }) {
     libState.lastWrapperProps = props;
-    return React.createElement(
-      "div",
-      { "data-testid": "rzpp-wrapper" },
-      props.children,
-    );
+    return React.createElement("div", { "data-testid": "rzpp-wrapper" }, props.children);
   }
   function TransformComponent({ children }: { children?: React.ReactNode }) {
-    return React.createElement(
-      "div",
-      { "data-testid": "rzpp-component" },
-      children,
-    );
+    return React.createElement("div", { "data-testid": "rzpp-component" }, children);
   }
   function useTransformEffect(cb: TransformEffectCb): void {
     React.useEffect(() => {
@@ -288,9 +278,7 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     // always returns to 1x regardless of current scale.
     simulateScale(3.5);
     await waitFor(() => {
-      const dcZoomed = libState.lastWrapperProps?.doubleClick as
-        | { mode?: string }
-        | undefined;
+      const dcZoomed = libState.lastWrapperProps?.doubleClick as { mode?: string } | undefined;
       expect(dcZoomed?.mode).toBe("reset");
     });
   });
@@ -317,7 +305,7 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     // would produce 1.693 under additive math (the R10 bug).
     expect(dc?.mode).toBe("zoomIn");
     expect(dc?.step).toBe(1);
-    expect((1 + (dc?.step ?? 0))).toBe(2);
+    expect(1 + (dc?.step ?? 0)).toBe(2);
     expect(dc?.step).not.toBeCloseTo(Math.LN2, 3);
   });
 

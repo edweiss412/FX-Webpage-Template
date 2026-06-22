@@ -37,37 +37,19 @@ function jsonResponse(status: number, body: unknown): Response {
 
 describe("ReportButton", () => {
   test("crew surface renders 'Something looks wrong?' button", () => {
-    render(
-      <ReportButton
-        surface="crew"
-        surfaceId="footer-crew"
-        showId={SHOW_ID}
-      />,
-    );
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW_ID} />);
     const button = screen.getByTestId("report-button-trigger");
     expect(button.textContent).toMatch(/something looks wrong/i);
   });
 
   test("admin surface renders 'Report this' button", () => {
-    render(
-      <ReportButton
-        surface="admin"
-        surfaceId="admin-card-123"
-        showId={SHOW_ID}
-      />,
-    );
+    render(<ReportButton surface="admin" surfaceId="admin-card-123" showId={SHOW_ID} />);
     const button = screen.getByTestId("report-button-trigger");
     expect(button.textContent).toMatch(/report this/i);
   });
 
   test("trigger button has min 44px tap target", () => {
-    render(
-      <ReportButton
-        surface="crew"
-        surfaceId="footer-crew"
-        showId={SHOW_ID}
-      />,
-    );
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW_ID} />);
     const button = screen.getByTestId("report-button-trigger");
     // We assert via the canonical Tailwind class rather than computed
     // style — jsdom doesn't run the Tailwind v4 compile step. The class
@@ -76,26 +58,14 @@ describe("ReportButton", () => {
   });
 
   test("modal not rendered until trigger is clicked", () => {
-    render(
-      <ReportButton
-        surface="crew"
-        surfaceId="footer-crew"
-        showId={SHOW_ID}
-      />,
-    );
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW_ID} />);
     expect(screen.queryByTestId("report-modal-root")).toBeNull();
     fireEvent.click(screen.getByTestId("report-button-trigger"));
     expect(screen.getByTestId("report-modal-root")).toBeTruthy();
   });
 
   test("clicking close on modal hides it again", () => {
-    render(
-      <ReportButton
-        surface="crew"
-        surfaceId="footer-crew"
-        showId={SHOW_ID}
-      />,
-    );
+    render(<ReportButton surface="crew" surfaceId="footer-crew" showId={SHOW_ID} />);
     fireEvent.click(screen.getByTestId("report-button-trigger"));
     expect(screen.getByTestId("report-modal-root")).toBeTruthy();
     fireEvent.click(screen.getByTestId("report-modal-close"));
@@ -135,11 +105,7 @@ describe("ReportButton", () => {
 
   test("different surfaceId values get independent sessionStorage scope", () => {
     const { container: c1 } = render(
-      <ReportButton
-        surface="crew"
-        surfaceId="surf-a"
-        showId={SHOW_ID}
-      />,
+      <ReportButton surface="crew" surfaceId="surf-a" showId={SHOW_ID} />,
     );
     fireEvent.click(c1.querySelector('[data-testid="report-button-trigger"]') as HTMLButtonElement);
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "from A" } });

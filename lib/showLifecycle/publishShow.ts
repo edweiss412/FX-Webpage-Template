@@ -1,4 +1,9 @@
-import { callLifecycleRpc, defaultRpc, type LifecycleRpc, type LifecycleResult } from "@/lib/showLifecycle/_shared";
+import {
+  callLifecycleRpc,
+  defaultRpc,
+  type LifecycleRpc,
+  type LifecycleResult,
+} from "@/lib/showLifecycle/_shared";
 
 export type { LifecycleResult } from "@/lib/showLifecycle/_shared";
 

@@ -29,7 +29,7 @@ const parseResult = {
 describe("PARSE_ERROR_LAST_GOOD producer", () => {
   test("a hard_fail transition upserts a PARSE_ERROR_LAST_GOOD admin_alert with sheet_name", async () => {
     const upsertAdminAlert = vi.fn(async () => "alert-1");
-    const tx = ({
+    const tx = {
       async queryOne<T>(sql: string) {
         if (sql.includes("from public.shows where drive_file_id")) {
           return { archived: false } as T;
@@ -45,9 +45,9 @@ describe("PARSE_ERROR_LAST_GOOD producer", () => {
         priorParseResult: parseResult,
       })),
       upsertAdminAlert,
-    } as unknown) as LockedShowTx<SyncPipelineTx>;
+    } as unknown as LockedShowTx<SyncPipelineTx>;
     const file = fileMeta("drive-file-1");
-    const deps = ({
+    const deps = {
       perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "cron" as const })),
       captureBinding: vi.fn(async () => ({
         bindingToken: "binding-1",
@@ -62,7 +62,7 @@ describe("PARSE_ERROR_LAST_GOOD producer", () => {
         failedCodes: ["MI-4_NO_CREW"],
         message: "Crew missing",
       })),
-    } as unknown) as ProcessOneFileDeps;
+    } as unknown as ProcessOneFileDeps;
 
     const prepared = await prepareProcessOneFile(
       "drive-file-1",

@@ -297,7 +297,8 @@ describe("OAuth sign-out route", () => {
       new NextRequest("https://crew.fxav.test/auth/sign-out", {
         method: "POST",
         headers: {
-          cookie: "__Host-fxav_picker=signed; sb-test-auth-token=auth; sb-test-auth-token-code-verifier=pkce",
+          cookie:
+            "__Host-fxav_picker=signed; sb-test-auth-token=auth; sb-test-auth-token-code-verifier=pkce",
         },
       }),
     );

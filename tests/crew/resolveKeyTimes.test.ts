@@ -34,17 +34,45 @@ describe("resolveKeyTimes — determinism (§9 test 20)", () => {
   // names (rooms query has no ORDER BY); flaky screenshot baselines.
 
   it("(a) multiple gs rooms in varying order → name-sorted-first gs room's times, identically", () => {
-    const alpha = room({ id: "id-a", name: "Alpha GS", kind: "gs", set_time: "9:00 AM", show_time: "1:00 PM", strike_time: "8:00 PM" });
-    const zulu = room({ id: "id-z", name: "Zulu GS", kind: "gs", set_time: "7:00 AM", show_time: "11:00 AM", strike_time: "6:00 PM" });
+    const alpha = room({
+      id: "id-a",
+      name: "Alpha GS",
+      kind: "gs",
+      set_time: "9:00 AM",
+      show_time: "1:00 PM",
+      strike_time: "8:00 PM",
+    });
+    const zulu = room({
+      id: "id-z",
+      name: "Zulu GS",
+      kind: "gs",
+      set_time: "7:00 AM",
+      show_time: "11:00 AM",
+      strike_time: "6:00 PM",
+    });
     const forward = resolveKeyTimes(dates(), [alpha, zulu]);
     const reversed = resolveKeyTimes(dates(), [zulu, alpha]);
-    expect(forward).toEqual({ set: alpha.set_time, show: alpha.show_time, strike: alpha.strike_time });
+    expect(forward).toEqual({
+      set: alpha.set_time,
+      show: alpha.show_time,
+      strike: alpha.strike_time,
+    });
     expect(forward).toEqual(reversed); // order-independent
   });
 
   it("(b) no gs room → name-sorted-first room (kind rank gs<breakout<additional, then name)", () => {
-    const breakout = room({ id: "id-b", name: "Breakout B", kind: "breakout", show_time: "2:00 PM" });
-    const additional = room({ id: "id-x", name: "Aux A", kind: "additional", show_time: "3:00 PM" });
+    const breakout = room({
+      id: "id-b",
+      name: "Breakout B",
+      kind: "breakout",
+      show_time: "2:00 PM",
+    });
+    const additional = room({
+      id: "id-x",
+      name: "Aux A",
+      kind: "additional",
+      show_time: "3:00 PM",
+    });
     const r = resolveKeyTimes(dates(), [additional, breakout]);
     expect(r.show).toBe(breakout.show_time);
   });
@@ -65,7 +93,13 @@ describe("resolveKeyTimes — determinism (§9 test 20)", () => {
   });
 
   it("dates.loadIn takes Set precedence over GS set_time", () => {
-    const gs = room({ id: "id-g", name: "GS", kind: "gs", set_time: "9:00 AM", show_time: "1:00 PM" });
+    const gs = room({
+      id: "id-g",
+      name: "GS",
+      kind: "gs",
+      set_time: "9:00 AM",
+      show_time: "1:00 PM",
+    });
     const r = resolveKeyTimes(dates({ loadIn: "8:30 AM" }), [gs]);
     expect(r.set).toBe("8:30 AM"); // dates.loadIn wins
     expect(r.show).toBe(gs.show_time);
@@ -79,13 +113,27 @@ describe("resolveKeyTimes — determinism (§9 test 20)", () => {
   });
 
   it("embedded TBD/N/A/TBA token → anchor absent (live-data §3)", () => {
-    const gs = room({ id: "id-t", name: "GS", kind: "gs", set_time: "TBD", show_time: "10/20 @ TBD", strike_time: "8:00 PM" });
+    const gs = room({
+      id: "id-t",
+      name: "GS",
+      kind: "gs",
+      set_time: "TBD",
+      show_time: "10/20 @ TBD",
+      strike_time: "8:00 PM",
+    });
     const r = resolveKeyTimes(dates(), [gs]);
     expect(r).toEqual({ strike: gs.strike_time });
   });
 
   it("partial strip: GS with set+strike but no show_time → Show omitted (the common live case)", () => {
-    const gs = room({ id: "id-e", name: "GS", kind: "gs", set_time: "9:00 AM", show_time: null, strike_time: "8:00 PM" });
+    const gs = room({
+      id: "id-e",
+      name: "GS",
+      kind: "gs",
+      set_time: "9:00 AM",
+      show_time: null,
+      strike_time: "8:00 PM",
+    });
     const r = resolveKeyTimes(dates(), [gs]);
     expect(r).toEqual({ set: gs.set_time, strike: gs.strike_time }); // Show absent
   });

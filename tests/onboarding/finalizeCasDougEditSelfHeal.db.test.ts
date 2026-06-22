@@ -127,7 +127,12 @@ const NEW_CREW_NAMES = CREW_T2.map((c) => c.name).filter(
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {
-  const probe = postgres(LOCAL_URL, { max: 4, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(LOCAL_URL, {
+    max: 4,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   sql = probe;
   dbUp = true;
@@ -402,9 +407,10 @@ describe("B→D Doug-edit self-heal convergence (spec §3.4 bounded staleness, r
         leftoverHoldAssertionFailed = true;
       }
       expect(leftoverHoldAssertionFailed).toBe(true);
-      await sql!.unsafe(`delete from public.sync_holds where show_id = $1 and created_by = 'test-seed'`, [
-        show.id,
-      ]);
+      await sql!.unsafe(
+        `delete from public.sync_holds where show_id = $1 and created_by = 'test-seed'`,
+        [show.id],
+      );
       expect(await openHoldCount(show.id)).toBe(0);
     },
   );

@@ -37,10 +37,7 @@ export function decodeRunOfShow(raw: unknown): {
   if (raw === null) return { value: null, corrupt: false };
 
   // Layer 1: top-level must be a plain object (not array, not primitive).
-  if (
-    typeof raw !== "object" ||
-    Array.isArray(raw)
-  ) {
+  if (typeof raw !== "object" || Array.isArray(raw)) {
     return { value: null, corrupt: true };
   }
 
@@ -66,11 +63,7 @@ export function decodeRunOfShow(raw: unknown): {
     const validEntries: AgendaEntry[] = [];
     for (const entryRaw of dayRaw) {
       // Entry must be a plain, non-null object.
-      if (
-        entryRaw === null ||
-        typeof entryRaw !== "object" ||
-        Array.isArray(entryRaw)
-      ) {
+      if (entryRaw === null || typeof entryRaw !== "object" || Array.isArray(entryRaw)) {
         corrupt = true;
         continue;
       }
@@ -79,11 +72,7 @@ export function decodeRunOfShow(raw: unknown): {
 
       // `title` must be a non-empty string that passes the real-title gate.
       const title = entry["title"];
-      if (
-        typeof title !== "string" ||
-        title === "" ||
-        shouldHideGenericOptional(title)
-      ) {
+      if (typeof title !== "string" || title === "" || shouldHideGenericOptional(title)) {
         corrupt = true;
         continue;
       }

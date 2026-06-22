@@ -37,9 +37,9 @@ export function StaleReadyToPublish({ sessionId }: StaleReadyToPublishProps) {
           Setup is paused. Your shows are ready but have not gone live yet.
         </h2>
         <p className="max-w-prose text-base text-text-subtle">
-          All sheets have been processed and are waiting to be published. You
-          can finish publishing them now, or, if something has changed and you
-          would rather start over, discard this setup and run it again.
+          All sheets have been processed and are waiting to be published. You can finish publishing
+          them now, or, if something has changed and you would rather start over, discard this setup
+          and run it again.
         </p>
       </header>
 
@@ -54,8 +54,8 @@ export function StaleReadyToPublish({ sessionId }: StaleReadyToPublishProps) {
           Finish publishing
         </h3>
         <p className="max-w-prose text-sm text-text-subtle">
-          Retry the final publish step. If it succeeded this time, your
-          shows go live and the setup wizard closes.
+          Retry the final publish step. If it succeeded this time, your shows go live and the setup
+          wizard closes.
         </p>
         <RunFinalCASButton sessionId={sessionId} />
       </section>
@@ -71,9 +71,8 @@ export function StaleReadyToPublish({ sessionId }: StaleReadyToPublishProps) {
           Discard and start fresh
         </h3>
         <p className="max-w-prose text-sm text-text-subtle">
-          If something has changed and you would rather start over, you can
-          discard this setup. The shows from this wizard run are deleted; any
-          shows you already had live are not touched.
+          If something has changed and you would rather start over, you can discard this setup. The
+          shows from this wizard run are deleted; any shows you already had live are not touched.
         </p>
         <CleanupAbandonedFinalizeButton sessionId={sessionId} />
       </section>

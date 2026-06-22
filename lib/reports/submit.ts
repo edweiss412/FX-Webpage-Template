@@ -85,9 +85,7 @@ export type ReportShowContext = {
   last_synced_at: string | null;
 };
 
-type ReportShowContextResult =
-  | { state: "found"; show: ReportShowContext }
-  | { state: "missing" };
+type ReportShowContextResult = { state: "found"; show: ReportShowContext } | { state: "missing" };
 
 type ReportShowContextInput = ReportShowContext | ReportShowContextResult;
 
@@ -125,7 +123,9 @@ export class ReportSubmitInfraError extends Error {
 }
 
 type SubmitReportSql = {
-  begin: <T>(fn: (tx: { unsafe: (sql: string, params?: never[]) => Promise<unknown[]> }) => Promise<T>) => Promise<T>;
+  begin: <T>(
+    fn: (tx: { unsafe: (sql: string, params?: never[]) => Promise<unknown[]> }) => Promise<T>,
+  ) => Promise<T>;
   unsafe: (sql: string, params?: never[]) => Promise<unknown[]>;
   end: (opts?: { timeout?: number }) => Promise<void>;
 };
@@ -160,7 +160,8 @@ function reporterFor(auth: ReportAuthContext): {
 } {
   if (auth.kind === "admin") {
     const email = canonicalize(auth.email);
-    if (!email) throw new ReportSubmitInfraError("submitReport", new Error("admin reporter email is empty"));
+    if (!email)
+      throw new ReportSubmitInfraError("submitReport", new Error("admin reporter email is empty"));
     return { kind: "admin", identity: email, reportedByKind: "admin", reportedBy: email };
   }
   return {
@@ -287,17 +288,13 @@ function driveFileIdFromFieldRef(fieldRef: RequestBody["fieldRef"]): string | nu
   return typeof value === "string" && value.trim() ? value : null; // canonicalize-exempt: Drive file id formatting, not email normalization.
 }
 
-function showDriveFileId(
-  body: RequestBody,
-  showContext?: ReportShowContextInput,
-): string | null {
-  return driveFileIdFromFieldRef(body.fieldRef) ?? foundShowContext(showContext)?.drive_file_id ?? null;
+function showDriveFileId(body: RequestBody, showContext?: ReportShowContextInput): string | null {
+  return (
+    driveFileIdFromFieldRef(body.fieldRef) ?? foundShowContext(showContext)?.drive_file_id ?? null
+  );
 }
 
-function lastSyncTimestamp(
-  body: RequestBody,
-  showContext?: ReportShowContextInput,
-): string | null {
+function lastSyncTimestamp(body: RequestBody, showContext?: ReportShowContextInput): string | null {
   return body.lastSyncTimestamp ?? foundShowContext(showContext)?.last_synced_at ?? null;
 }
 
@@ -404,7 +401,11 @@ export function buildCrewIssueBody(
   ].join("\n");
 }
 
-function issueInput(auth: ReportAuthContext, body: RequestBody, showContext?: ReportShowContextResult): {
+function issueInput(
+  auth: ReportAuthContext,
+  body: RequestBody,
+  showContext?: ReportShowContextResult,
+): {
   title: string;
   body: string;
   labels: string[];
@@ -444,7 +445,9 @@ async function reserveReport(
   });
 
   if (!acquired.acquired) {
-    return dispatchExisting(await readExistingReport(db, body.idempotency_key)) ?? { state: "in_flight" };
+    return (
+      dispatchExisting(await readExistingReport(db, body.idempotency_key)) ?? { state: "in_flight" }
+    );
   }
 
   const quota = await enforceQuota(db, reporter.kind, reporter.identity);
@@ -559,7 +562,8 @@ async function dispatchAfterMissedRecovery(
     | undefined;
 
   if (!row || !row.within_horizon) return horizonExpiredResponse();
-  if (row.github_issue_url) return { status: 200, body: successBody(auth, "recovered", row.github_issue_url) };
+  if (row.github_issue_url)
+    return { status: 200, body: successBody(auth, "recovered", row.github_issue_url) };
   if (row.lease_live) return inFlightResponse();
   return inFlightResponse();
 }
@@ -660,7 +664,8 @@ export async function resolveStateGatedAlert(
     opts.alertCode,
     opts.context,
   );
-  if (firstGate) return { status: opts.responseStatus, body: { ok: false, code: opts.responseCode } };
+  if (firstGate)
+    return { status: opts.responseStatus, body: { ok: false, code: opts.responseCode } };
 
   const firstState = await readStateGatedAlertState(db, idempotencyKey);
   const firstResult = resultForStateGatedAlertState(auth, firstState);
@@ -940,14 +945,16 @@ export async function submitReport(
   deps: SubmitReportDeps = {},
 ): Promise<SubmitReportResult> {
   const sql =
-    deps.sql ?? (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as SubmitReportSql);
+    deps.sql ??
+    (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as SubmitReportSql);
   try {
     try {
       let reservation: ReservationResult;
       try {
         reservation = await sql.begin(async (tx) => reserveReport(postgresAdapter(tx), auth, body));
       } catch (cause) {
-        if (cause instanceof QuotaDeniedRollback) return quotaDeniedResponse(reporterFor(auth).kind);
+        if (cause instanceof QuotaDeniedRollback)
+          return quotaDeniedResponse(reporterFor(auth).kind);
         throw cause;
       }
 

@@ -68,10 +68,6 @@ export type ApplyParseResultArgs = {
   };
 };
 
-function namesFrom(parseResult: ParseResult): string[] {
-  return parseResult.crewMembers.map((member) => member.name);
-}
-
 function difference(left: string[], right: string[]): string[] {
   const rightSet = new Set(right);
   return left.filter((value) => !rightSet.has(value));

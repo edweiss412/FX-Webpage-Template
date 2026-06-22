@@ -136,7 +136,13 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
         liveCrewByName: new Map([["Alice", aliceLive]]),
         baseModifiedTime: MT,
@@ -177,7 +183,13 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
         liveCrewByName: new Map([["Alice", aliceLive]]),
         baseModifiedTime: MT,
@@ -248,7 +260,13 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "alice@old", new_email: "x@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "alice@old",
+            new_email: "x@new",
+          },
         ],
         liveCrewByName: new Map([["Alice", aliceLive]]),
         baseModifiedTime: MT,
@@ -258,8 +276,14 @@ describe("hold-aware apply — a pre-existing live owner is NEVER deleted by any
       // pre-existing live Carol who also carries x@new → the reservation collides with a LIVE owner.
       await applyParseResult(applyTx(tx), {
         driveFileId,
-        parseResult: parseResult([crew("Alice", { email: "x@new" }), crew("Carol", { email: "x@new" })]),
-        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive), prevMember(carolRow, carolLive)]),
+        parseResult: parseResult([
+          crew("Alice", { email: "x@new" }),
+          crew("Carol", { email: "x@new" }),
+        ]),
+        snapshot: snapshot(showId, [
+          prevMember(aliceRow, aliceLive),
+          prevMember(carolRow, carolLive),
+        ]),
         holds: { port: holdPort(tx), baseModifiedTime: MT2 },
       });
 

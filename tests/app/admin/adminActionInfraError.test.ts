@@ -25,9 +25,8 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/requireAdmin", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/auth/requireAdmin")>(
-    "@/lib/auth/requireAdmin",
-  );
+  const actual =
+    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
   return {
     ...actual,
     requireAdminIdentity: async () => {
@@ -40,9 +39,8 @@ vi.mock("@/lib/auth/requireAdmin", async () => {
 // Use the REAL AdminEmailsInfraError class so `instanceof` in the action
 // catch matches; only the two mutation functions are stubbed.
 vi.mock("@/lib/data/adminEmails", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/data/adminEmails")>(
-    "@/lib/data/adminEmails",
-  );
+  const actual =
+    await vi.importActual<typeof import("@/lib/data/adminEmails")>("@/lib/data/adminEmails");
   return {
     ...actual,
     addAdminEmail: async (opts: unknown) => {
@@ -58,9 +56,7 @@ vi.mock("@/lib/data/adminEmails", async () => {
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
-const { addAdminAction, revokeAdminAction } = await import(
-  "@/app/admin/settings/admins/actions"
-);
+const { addAdminAction, revokeAdminAction } = await import("@/app/admin/settings/admins/actions");
 const { AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
 const { AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
@@ -118,7 +114,9 @@ describe("admin write actions — symmetric infra_error (Task 6.4)", () => {
   test("addAdminAction: a Next control-flow throw propagates (not swallowed as infra_error)", async () => {
     // Next's redirect()/notFound() throw a digest error; the action's
     // catch must rethrow anything that isn't AdminEmailsInfraError.
-    const digest = Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/x;307;" });
+    const digest = Object.assign(new Error("NEXT_REDIRECT"), {
+      digest: "NEXT_REDIRECT;replace;/x;307;",
+    });
     mockState.addAdminEmailImpl = async () => {
       throw digest;
     };

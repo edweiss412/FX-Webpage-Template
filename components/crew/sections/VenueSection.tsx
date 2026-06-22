@@ -151,7 +151,12 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   // push rows we want; empty strings here would also reflow out inside FactRows.
   const factRows: FactRow[] = [];
   if (loadingDock) {
-    factRows.push({ k: "Loading dock", v: loadingDock, sub: "Service entrance", icon: <DockIcon /> });
+    factRows.push({
+      k: "Loading dock",
+      v: loadingDock,
+      sub: "Service entrance",
+      icon: <DockIcon />,
+    });
   }
   if (parking) {
     factRows.push({ k: "Parking", v: parking, icon: <CarIcon /> });

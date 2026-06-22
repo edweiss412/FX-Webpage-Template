@@ -17,10 +17,15 @@ function sqlString(value: string): string {
 }
 
 function jwt(email?: string): string {
-  return JSON.stringify(email ? { email, app_metadata: { role: "crew" } } : { app_metadata: { role: "crew" } });
+  return JSON.stringify(
+    email ? { email, app_metadata: { role: "crew" } } : { app_metadata: { role: "crew" } },
+  );
 }
 
-function seedShowSql(driveFileId: string, options: { published?: boolean; archived?: boolean } = {}) {
+function seedShowSql(
+  driveFileId: string,
+  options: { published?: boolean; archived?: boolean } = {},
+) {
   return `
     insert into public.shows (
       drive_file_id, slug, title, client_label, template_version, published, archived
@@ -66,7 +71,9 @@ describe("my_share_tokens_for_email RPC", () => {
       rollback;
     `);
 
-    expect(out.split("\n").sort()).toEqual([`${prefix}-alice-a:true`, `${prefix}-alice-b:true`].sort());
+    expect(out.split("\n").sort()).toEqual(
+      [`${prefix}-alice-a:true`, `${prefix}-alice-b:true`].sort(),
+    );
   });
 
   test("returns only the signed-in user's rows and empty set when no email claim exists", () => {

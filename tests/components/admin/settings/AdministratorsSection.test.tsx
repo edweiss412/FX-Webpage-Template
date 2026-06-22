@@ -64,7 +64,11 @@ describe("AdministratorsSection (Task 6.2)", () => {
     const rows = [
       row({ email: "alice@example.com" }),
       row({ email: "bob@example.com" }),
-      row({ email: "carol@example.com", revoked_at: "2026-05-10T00:00:00.000Z", revoked_by: "x@example.com" }),
+      row({
+        email: "carol@example.com",
+        revoked_at: "2026-05-10T00:00:00.000Z",
+        revoked_by: "x@example.com",
+      }),
     ];
     render(
       <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,

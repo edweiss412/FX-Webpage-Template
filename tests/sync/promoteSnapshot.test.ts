@@ -81,7 +81,8 @@ describe("promoteSnapshotUpload", () => {
     const storage = {
       list: vi.fn(async (prefix: string) => {
         if (prefix === tempPrefix) return [`${tempPrefix}a.png`, `${tempPrefix}b.png`];
-        if (prefix === canonicalPrefix) return [`${canonicalPrefix}a.png`, `${canonicalPrefix}b.png`];
+        if (prefix === canonicalPrefix)
+          return [`${canonicalPrefix}a.png`, `${canonicalPrefix}b.png`];
         return [];
       }),
       move: vi.fn(async (from: string, to: string) => void moves.push({ from, to })),

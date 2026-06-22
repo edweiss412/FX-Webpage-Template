@@ -54,7 +54,9 @@ async function setup(tx: Sql) {
   await writeMi11Holds(holdPort(tx), {
     showId,
     driveFileId,
-    mi11Items: [{ id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" }],
+    mi11Items: [
+      { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+    ],
     liveCrewByName: new Map([["Alice", aliceLive]]),
     baseModifiedTime: MT,
   });
@@ -81,7 +83,11 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
 
       const holds = await readHolds(tx, showId);
       expect(holds).toHaveLength(1);
-      expect(holds[0]!.proposed_value).toEqual({ disposition: "rename", name: "Alicia", email: "a@new" });
+      expect(holds[0]!.proposed_value).toEqual({
+        disposition: "rename",
+        name: "Alicia",
+        email: "a@new",
+      });
       expect(new Date(holds[0]!.base_modified_time as unknown as string).toISOString()).toBe(MT2);
     });
   });
@@ -107,7 +113,11 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
       expect(alice.role).toBe("A2"); // non-identity followed the sheet
 
       const holds = await readHolds(tx, showId);
-      expect(holds[0]!.proposed_value).toEqual({ disposition: "rename", name: "Alicia", email: "a@new" });
+      expect(holds[0]!.proposed_value).toEqual({
+        disposition: "rename",
+        name: "Alicia",
+        email: "a@new",
+      });
     });
   });
 
@@ -127,7 +137,11 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
       const holds = await readHolds(tx, showId);
       // The fold consumed Alicia → proposed is the rename; reservation_collisions must be EMPTY so
       // Phase-3 Approve does not reject the valid folded rename with IDENTITY_WOULD_COLLIDE.
-      expect(holds[0]!.proposed_value).toEqual({ disposition: "rename", name: "Alicia", email: "a@new" });
+      expect(holds[0]!.proposed_value).toEqual({
+        disposition: "rename",
+        name: "Alicia",
+        email: "a@new",
+      });
       expect(holds[0]!.reservation_collisions).toEqual([]);
     });
   });
@@ -137,7 +151,10 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
       const { showId, driveFileId, aliceLive, aliceRow } = await setup(tx);
       // Alice STILL present (no rename fold — she keeps her own row at a@new) AND a distinct Alicia
       // also claims a@new → genuine reservation collision, recorded.
-      const next = parseResult([crew("Alice", { email: "a@new" }), crew("Alicia", { email: "a@new" })]);
+      const next = parseResult([
+        crew("Alice", { email: "a@new" }),
+        crew("Alicia", { email: "a@new" }),
+      ]);
       await applyParseResult(applyTx(tx), {
         driveFileId,
         parseResult: next,
@@ -164,7 +181,13 @@ describe("hold-aware apply — held-crew rename fold (Task 2.5, F8 + R9)", () =>
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
         liveCrewByName: new Map([["Alice", aliceLive]]),
         baseModifiedTime: MT,

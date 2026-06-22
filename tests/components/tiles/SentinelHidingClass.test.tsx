@@ -304,7 +304,15 @@ describe("§8.3 sentinel-hiding — Transportation (TravelSection)", () => {
       parking: "Lot 5",
       notes: "Park in the back lot",
     });
-    for (const v of ["Manny Driver", "555-1234", "Sprinter Van", "ABC-1234", "Black", "Lot 5", "Park in the back lot"]) {
+    for (const v of [
+      "Manny Driver",
+      "555-1234",
+      "Sprinter Van",
+      "ABC-1234",
+      "Black",
+      "Lot 5",
+      "Park in the back lot",
+    ]) {
       expect(c.textContent ?? "").toContain(v);
     }
   });
@@ -454,7 +462,14 @@ describe("§8.3 sentinel-hiding — Venue (VenueSection)", () => {
 describe("§8.3 actionable-link guard — Key contacts (CrewSection → PersonRow)", () => {
   function contact(over: Partial<ContactRow>) {
     const contacts: ContactRow[] = [
-      { kind: "venue", name: "Stella the FOH Manager", email: null, phone: null, notes: null, ...over },
+      {
+        kind: "venue",
+        name: "Stella the FOH Manager",
+        email: null,
+        phone: null,
+        notes: null,
+        ...over,
+      },
     ];
     return render(
       <CrewSection
@@ -489,7 +504,11 @@ describe("§8.3 actionable-link guard — Key contacts (CrewSection → PersonRo
   }
 
   test("non-sentinel contact phone/email/notes render (anti-tautology)", () => {
-    const c = contact({ phone: "555-1234", email: "stella@venue.example", notes: "Loading dock combo" });
+    const c = contact({
+      phone: "555-1234",
+      email: "stella@venue.example",
+      notes: "Loading dock combo",
+    });
     expect(html(c)).toContain("tel:5551234");
     expect(html(c)).toContain("mailto:stella@venue.example");
     expect(c.textContent ?? "").toContain("Loading dock combo");
@@ -610,7 +629,12 @@ describe("§8.3 sentinel-hiding — Scope cards (GearSection)", () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
-  function budget(financials: { po: string; proposal: string; invoice: string; invoice_notes: string }) {
+  function budget(financials: {
+    po: string;
+    proposal: string;
+    invoice: string;
+    invoice_notes: string;
+  }) {
     return render(
       <BudgetSection
         data={makeShowForViewer({ financials })}
@@ -623,7 +647,12 @@ describe("§8.3 sentinel-hiding — Financials (BudgetSection)", () => {
 
   for (const sentinel of SENTINELS) {
     test(`every financials field = "${sentinel}" → empty-state, no value`, () => {
-      const c = budget({ po: sentinel, proposal: sentinel, invoice: sentinel, invoice_notes: sentinel });
+      const c = budget({
+        po: sentinel,
+        proposal: sentinel,
+        invoice: sentinel,
+        invoice_notes: sentinel,
+      });
       expect(c.querySelector('[data-testid="section-empty"]')).toBeTruthy();
       if (sentinel.trim().length > 0) expect(html(c)).not.toContain(sentinel);
     });
@@ -666,7 +695,10 @@ describe("§8.3 sentinel-hiding — Pack-list taxonomy (GearSection)", () => {
         data={makeShowForViewer({
           show: { schedule_phases: { [TODAY_ISO]: ["Set"] } },
           pullSheet: [
-            { caseLabel: "FOH Rack", items: [{ qty: 1, cat: null, subCat: null, item: "FOH Mixer", ...item }] },
+            {
+              caseLabel: "FOH Rack",
+              items: [{ qty: 1, cat: null, subCat: null, item: "FOH Mixer", ...item }],
+            },
           ],
         })}
         viewer={ADMIN}

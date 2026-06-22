@@ -104,8 +104,7 @@ export function PublishShowButton({ publishAction, slug }: PublishShowButtonProp
           data-testid="publish-show-not-found"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          We couldn&rsquo;t find this show anymore. Refresh the page and try
-          again.
+          We couldn&rsquo;t find this show anymore. Refresh the page and try again.
         </p>
       ) : null}
 
@@ -115,8 +114,8 @@ export function PublishShowButton({ publishAction, slug }: PublishShowButtonProp
           data-testid="publish-show-generic-error"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
         >
-          Publishing didn&rsquo;t go through. Try again in a moment; if it keeps
-          failing, contact the developer.
+          Publishing didn&rsquo;t go through. Try again in a moment; if it keeps failing, contact
+          the developer.
         </p>
       ) : null}
     </div>

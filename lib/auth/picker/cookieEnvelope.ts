@@ -52,11 +52,16 @@ function isValidEnvelope(value: unknown): value is PickerEnvelope {
 export function encodePickerCookie(env: PickerEnvelope, signingKey: string): string {
   const working: PickerEnvelope = {
     v: 1,
-    selections: Object.fromEntries(Object.entries(env.selections).map(([showId, entry]) => [showId, { ...entry }])),
+    selections: Object.fromEntries(
+      Object.entries(env.selections).map(([showId, entry]) => [showId, { ...entry }]),
+    ),
   };
   let payload = JSON.stringify(working);
 
-  while (`${COOKIE_NAME}=${base64url(Buffer.from(payload))}.${hmac(payload, signingKey)}`.length > MAX_COOKIE_VALUE_BYTES) {
+  while (
+    `${COOKIE_NAME}=${base64url(Buffer.from(payload))}.${hmac(payload, signingKey)}`.length >
+    MAX_COOKIE_VALUE_BYTES
+  ) {
     const oldest = Object.entries(working.selections).sort(([, a], [, b]) => a.t - b.t)[0];
     if (!oldest) break;
     delete working.selections[oldest[0]];
@@ -66,7 +71,10 @@ export function encodePickerCookie(env: PickerEnvelope, signingKey: string): str
   return `${base64url(Buffer.from(payload))}.${hmac(payload, signingKey)}`;
 }
 
-export function decodePickerCookie(raw: string | undefined, signingKey: string): PickerEnvelope | null {
+export function decodePickerCookie(
+  raw: string | undefined,
+  signingKey: string,
+): PickerEnvelope | null {
   if (!raw) return null;
   const parts = raw.split(".");
   if (parts.length !== 2) return null;

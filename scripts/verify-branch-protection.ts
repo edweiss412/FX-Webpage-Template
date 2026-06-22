@@ -37,7 +37,10 @@ type VerifyResult = {
 const DEFAULT_REPORT_PATH = "artifacts/branch-protection-report.json";
 const ADMIN_ALERT_SKIP_PREFIX = "[verify-branch-protection] admin_alerts insertion skipped:";
 
-function configuredToken(env: Record<string, string | undefined>): { token: string | null; source: "app" | "pat" | null } {
+function configuredToken(env: Record<string, string | undefined>): {
+  token: string | null;
+  source: "app" | "pat" | null;
+} {
   if (env.GH_APP_TOKEN) return { token: env.GH_APP_TOKEN, source: "app" };
   if (env.BRANCH_PROTECTION_PAT) return { token: env.BRANCH_PROTECTION_PAT, source: "pat" };
   return { token: null, source: null };
@@ -52,7 +55,10 @@ function writeJsonReport(path: string, body: unknown): void {
   writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`);
 }
 
-async function defaultUpsertAdminAlert(payload: AlertPayload, client?: AdminAlertClient): Promise<unknown> {
+async function defaultUpsertAdminAlert(
+  payload: AlertPayload,
+  client?: AdminAlertClient,
+): Promise<unknown> {
   if (!client) {
     const unavailableReason = localSupabaseReason(process.env.SUPABASE_URL);
     if (unavailableReason) {
@@ -82,7 +88,12 @@ function localSupabaseReason(rawUrl: string | undefined): string | null {
 
 function errorReason(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
+  if (
+    typeof error === "object" &&
+    error &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
     return error.message;
   }
   return String(error);
@@ -110,11 +121,19 @@ async function requestJson(
 }
 
 function contextsFromLegacy(body: Record<string, unknown>): string[] {
-  const checks = body.required_status_checks as { contexts?: unknown; checks?: unknown } | undefined;
-  const contexts = Array.isArray(checks?.contexts) ? checks.contexts.filter((entry): entry is string => typeof entry === "string") : [];
+  const checks = body.required_status_checks as
+    | { contexts?: unknown; checks?: unknown }
+    | undefined;
+  const contexts = Array.isArray(checks?.contexts)
+    ? checks.contexts.filter((entry): entry is string => typeof entry === "string")
+    : [];
   const appChecks = Array.isArray(checks?.checks)
     ? checks.checks
-        .map((entry) => (typeof entry === "object" && entry && "context" in entry ? (entry as { context?: unknown }).context : null))
+        .map((entry) =>
+          typeof entry === "object" && entry && "context" in entry
+            ? (entry as { context?: unknown }).context
+            : null,
+        )
         .filter((entry): entry is string => typeof entry === "string")
     : [];
   return unique([...contexts, ...appChecks]);
@@ -124,7 +143,10 @@ function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values));
 }
 
-function legacyFailures(body: Record<string, unknown>, requiredStatusChecks: readonly string[]): string[] {
+function legacyFailures(
+  body: Record<string, unknown>,
+  requiredStatusChecks: readonly string[],
+): string[] {
   const failures: string[] = [];
   const required = body.required_status_checks as { strict?: unknown } | undefined;
   if (required?.strict !== true) failures.push(`strict:${String(required?.strict)}`);
@@ -137,7 +159,8 @@ function legacyFailures(body: Record<string, unknown>, requiredStatusChecks: rea
     | undefined;
   const count = Number(reviews?.required_approving_review_count ?? 0);
   if (count < 1) failures.push(`review_count:${count} < 1`);
-  if (reviews?.dismiss_stale_reviews !== true) failures.push(`dismiss_stale_reviews:${String(reviews?.dismiss_stale_reviews)}`);
+  if (reviews?.dismiss_stale_reviews !== true)
+    failures.push(`dismiss_stale_reviews:${String(reviews?.dismiss_stale_reviews)}`);
   const admins = body.enforce_admins as { enabled?: unknown } | boolean | undefined;
   const adminsEnabled = typeof admins === "boolean" ? admins : admins?.enabled;
   if (adminsEnabled !== true) failures.push(`enforce_admins:${String(adminsEnabled)}`);
@@ -152,12 +175,21 @@ function rulesetTargetsMain(ruleset: Record<string, unknown>): boolean {
   const conditions = ruleset.conditions as { ref_name?: { include?: unknown } } | undefined;
   const include = conditions?.ref_name?.include;
   if (!Array.isArray(include)) return false;
-  return include.some((entry) => entry === "refs/heads/main" || entry === "main" || entry === "~DEFAULT_BRANCH");
+  return include.some(
+    (entry) => entry === "refs/heads/main" || entry === "main" || entry === "~DEFAULT_BRANCH",
+  );
 }
 
-function rulesetFailures(body: Record<string, unknown>, requiredStatusChecks: readonly string[]): string[] {
-  const rulesets = (Array.isArray(body.rulesets) ? body.rulesets : Array.isArray(body) ? body : []) as Record<string, unknown>[];
-  const ruleset = rulesets.find((entry) => entry.enforcement === "active" && rulesetTargetsMain(entry));
+function rulesetFailures(
+  body: Record<string, unknown>,
+  requiredStatusChecks: readonly string[],
+): string[] {
+  const rulesets = (
+    Array.isArray(body.rulesets) ? body.rulesets : Array.isArray(body) ? body : []
+  ) as Record<string, unknown>[];
+  const ruleset = rulesets.find(
+    (entry) => entry.enforcement === "active" && rulesetTargetsMain(entry),
+  );
   if (!ruleset) return ["+missing_main_ruleset"];
   const rules = Array.isArray(ruleset.rules) ? (ruleset.rules as Record<string, unknown>[]) : [];
   const status = rules.find((rule) => rule.type === "required_status_checks")?.parameters as
@@ -170,7 +202,9 @@ function rulesetFailures(body: Record<string, unknown>, requiredStatusChecks: re
   }
   const contexts = Array.isArray(status.required_status_checks)
     ? status.required_status_checks
-        .map((entry) => (typeof entry === "object" && entry ? (entry as { context?: unknown }).context : null))
+        .map((entry) =>
+          typeof entry === "object" && entry ? (entry as { context?: unknown }).context : null,
+        )
         .filter((entry): entry is string => typeof entry === "string")
     : [];
   for (const check of requiredStatusChecks) {
@@ -181,8 +215,13 @@ function rulesetFailures(body: Record<string, unknown>, requiredStatusChecks: re
     | undefined;
   const count = Number(pr?.required_approving_review_count ?? 0);
   if (count < 1) failures.push(`review_count:${count} < 1`);
-  if (pr?.dismiss_stale_reviews_on_push !== true) failures.push(`dismiss_stale_reviews:${String(pr?.dismiss_stale_reviews_on_push)}`);
-  if (ruleset.bypass_actors && Array.isArray(ruleset.bypass_actors) && ruleset.bypass_actors.length > 0) {
+  if (pr?.dismiss_stale_reviews_on_push !== true)
+    failures.push(`dismiss_stale_reviews:${String(pr?.dismiss_stale_reviews_on_push)}`);
+  if (
+    ruleset.bypass_actors &&
+    Array.isArray(ruleset.bypass_actors) &&
+    ruleset.bypass_actors.length > 0
+  ) {
     failures.push("enforce_admins:false");
   }
   const deletion = rules.find((rule) => rule.type === "deletion");
@@ -192,7 +231,10 @@ function rulesetFailures(body: Record<string, unknown>, requiredStatusChecks: re
   return failures;
 }
 
-async function emitAlert(client: AdminAlertClient | undefined, payload: AlertPayload): Promise<void> {
+async function emitAlert(
+  client: AdminAlertClient | undefined,
+  payload: AlertPayload,
+): Promise<void> {
   try {
     await defaultUpsertAdminAlert(payload, client);
   } catch (error) {
@@ -224,7 +266,8 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
       p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
       p_context: context,
     });
-    if (options.writeReport !== false) writeJsonReport(reportPath, { status: "auth_failed", context });
+    if (options.writeReport !== false)
+      writeJsonReport(reportPath, { status: "auth_failed", context });
     return { ok: false, failures: ["auth_failed"], authFailure: true };
   }
 
@@ -243,7 +286,8 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
       p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
       p_context: context,
     });
-    if (options.writeReport !== false) writeJsonReport(reportPath, { status: "auth_failed", context });
+    if (options.writeReport !== false)
+      writeJsonReport(reportPath, { status: "auth_failed", context });
     return { ok: false, failures: ["auth_failed"], authFailure: true };
   }
 
@@ -265,10 +309,14 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
         p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
         p_context: context,
       });
-      if (options.writeReport !== false) writeJsonReport(reportPath, { status: "auth_failed", context });
+      if (options.writeReport !== false)
+        writeJsonReport(reportPath, { status: "auth_failed", context });
       return { ok: false, failures: ["auth_failed"], authFailure: true };
     }
-    failures = rulesets.body && typeof rulesets.body === "object" ? rulesetFailures(rulesets.body as Record<string, unknown>, requiredStatusChecks) : ["+missing_branch_protection"];
+    failures =
+      rulesets.body && typeof rulesets.body === "object"
+        ? rulesetFailures(rulesets.body as Record<string, unknown>, requiredStatusChecks)
+        : ["+missing_branch_protection"];
   }
 
   if (failures.length > 0) {
@@ -278,7 +326,8 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
       p_code: "BRANCH_PROTECTION_DRIFT",
       p_context: context,
     });
-    if (options.writeReport !== false) writeJsonReport(reportPath, { status: "drift", failures, repo });
+    if (options.writeReport !== false)
+      writeJsonReport(reportPath, { status: "drift", failures, repo });
     return { ok: false, failures };
   }
 

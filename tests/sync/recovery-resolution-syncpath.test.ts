@@ -7,7 +7,6 @@ import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 import {
   prepareProcessOneFile,
   processOneFile_unlocked,
-  STAGED_PARSE_SOURCE_GONE,
   type ProcessOneFileDeps,
   type SyncPipelineTx,
 } from "@/lib/sync/runScheduledCronSync";
@@ -136,7 +135,14 @@ describe("sync-path recovery-resolution for SYNC_PROBLEM_CODES", () => {
     const syncDeps = deps();
     const file = fileMeta();
 
-    await processOneFile_unlocked(tx, "drive-file-1", "cron", file, syncDeps, await preparedProcess(syncDeps, file));
+    await processOneFile_unlocked(
+      tx,
+      "drive-file-1",
+      "cron",
+      file,
+      syncDeps,
+      await preparedProcess(syncDeps, file),
+    );
 
     expect(tx.alerts.every((alert) => alert.resolved)).toBe(true);
   });
@@ -153,7 +159,14 @@ describe("sync-path recovery-resolution for SYNC_PROBLEM_CODES", () => {
     });
     const file = fileMeta();
 
-    await processOneFile_unlocked(tx, "drive-file-1", "cron", file, syncDeps, await preparedProcess(syncDeps, file));
+    await processOneFile_unlocked(
+      tx,
+      "drive-file-1",
+      "cron",
+      file,
+      syncDeps,
+      await preparedProcess(syncDeps, file),
+    );
 
     expect(tx.alerts).toEqual([
       { showId: "show-1", code: "DRIVE_FETCH_FAILED", resolved: true },
@@ -170,7 +183,14 @@ describe("sync-path recovery-resolution for SYNC_PROBLEM_CODES", () => {
     });
     const file = fileMeta();
 
-    await processOneFile_unlocked(tx, "drive-file-1", "cron", file, syncDeps, await preparedProcess(syncDeps, file));
+    await processOneFile_unlocked(
+      tx,
+      "drive-file-1",
+      "cron",
+      file,
+      syncDeps,
+      await preparedProcess(syncDeps, file),
+    );
 
     expect(tx.alerts).toEqual([{ showId: "show-1", code: "DRIVE_FETCH_FAILED", resolved: false }]);
   });

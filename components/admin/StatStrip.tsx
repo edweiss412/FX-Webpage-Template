@@ -48,7 +48,10 @@ function StatCell({
         </span>
         {children}
       </div>
-      <span className="text-xs font-medium uppercase text-text-subtle" style={{ letterSpacing: "var(--tracking-eyebrow)" }}>
+      <span
+        className="text-xs font-medium uppercase text-text-subtle"
+        style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+      >
         {label}
       </span>
     </div>

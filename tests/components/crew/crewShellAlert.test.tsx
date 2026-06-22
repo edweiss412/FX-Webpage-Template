@@ -34,7 +34,11 @@ vi.mock("next/navigation", () => ({
 // section's CONTENT is out of scope here — it is pinned by the section unit
 // tests and crewShellSections.test.tsx — so we mock every section to a no-op
 // marker. The producer-under-test (the alert) is untouched.
-const mockSection = (testid: string) => () => <section data-testid={testid} />;
+const mockSection = (testid: string) => {
+  const MockSection = () => <section data-testid={testid} />;
+  MockSection.displayName = `MockSection(${testid})`;
+  return MockSection;
+};
 vi.mock("@/components/crew/sections/TodaySection", () => ({
   TodaySection: mockSection("section-today"),
 }));

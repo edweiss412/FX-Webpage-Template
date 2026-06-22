@@ -162,15 +162,18 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
       const blockStart = scheduledSql.indexOf(`cron.schedule('${job.jobname}'`);
       const commandBlock = scheduledSql.slice(blockStart, blockStart + 800);
       expect(commandBlock, `${job.jobname} should use net.http_get`).toContain("net.http_get(");
-      expect(commandBlock, `${job.jobname} should not use net.http_post`).not.toContain("net.http_post(");
+      expect(commandBlock, `${job.jobname} should not use net.http_post`).not.toContain(
+        "net.http_post(",
+      );
       expect(commandBlock, `${job.jobname} should pass headers to pg_net`).toContain(
         "headers := jsonb_build_object(",
       );
       expect(commandBlock, `${job.jobname} should send Authorization`).toContain("'Authorization'");
       expect(commandBlock, `${job.jobname} should send a bearer token`).toContain("'Bearer '");
-      expect(commandBlock, `${job.jobname} should read the Vault secret at execution time`).toContain(
-        "vault.decrypted_secrets",
-      );
+      expect(
+        commandBlock,
+        `${job.jobname} should read the Vault secret at execution time`,
+      ).toContain("vault.decrypted_secrets");
       expect(commandBlock, `${job.jobname} should use a 300000ms timeout`).toContain(
         "timeout_milliseconds := 300000",
       );
@@ -182,9 +185,7 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
 
   // Layer 0a — pg_net extension installed (T2.1)
   liveDbTest("pg_net extension is installed", () => {
-    const installed = psql(
-      "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_net')",
-    );
+    const installed = psql("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_net')");
     expect(installed).toBe("t");
   });
 
@@ -215,7 +216,10 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
     const canonicalByName = new Map(CANONICAL_JOBS.map((j) => [j.jobname, j]));
     for (const row of rows) {
       const canonical = canonicalByName.get(row.jobname);
-      expect(canonical, `jobname ${row.jobname} missing from canonical pg-cron-jobs.json`).toBeDefined();
+      expect(
+        canonical,
+        `jobname ${row.jobname} missing from canonical pg-cron-jobs.json`,
+      ).toBeDefined();
       if (!canonical) continue;
       expect(row.schedule, `schedule mismatch for ${row.jobname}`).toBe(canonical.schedule);
 
@@ -244,9 +248,10 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
         row.command,
         `${row.jobname} command should use headers := jsonb_build_object(`,
       ).toContain("headers := jsonb_build_object(");
-      expect(row.command, `${row.jobname} command should contain 'Authorization' literal`).toContain(
-        "'Authorization'",
-      );
+      expect(
+        row.command,
+        `${row.jobname} command should contain 'Authorization' literal`,
+      ).toContain("'Authorization'");
       expect(row.command, `${row.jobname} command should contain 'Bearer ' literal`).toContain(
         "'Bearer '",
       );
@@ -254,10 +259,9 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
         row.command,
         `${row.jobname} command should source secret from vault.decrypted_secrets`,
       ).toContain("vault.decrypted_secrets");
-      expect(
-        row.command,
-        `${row.jobname} command should use a 300000ms pg_net timeout`,
-      ).toContain("timeout_milliseconds := 300000");
+      expect(row.command, `${row.jobname} command should use a 300000ms pg_net timeout`).toContain(
+        "timeout_milliseconds := 300000",
+      );
       expect(row.command, `${row.jobname} command should reference the canonical route`).toContain(
         canonical.route,
       );
@@ -267,19 +271,20 @@ describe("M12.1: pg-cron-coverage (live-DB introspection)", () => {
   // R25 F49 amended: snapshot-equality on the non-fxav cron set (excluding the
   // orphan T3 cleans up). Proves T3's cron.unschedule LIKE clause didn't reach
   // outside fxav_cron_* scope.
-  liveDbTest("non-fxav cron set matches snapshot (excludes cleanup-bootstrap-nonces orphan)", () => {
-    const raw = psql(
-      String.raw`SELECT coalesce(array_to_string(array_agg(jobname ORDER BY jobname), E'\n'), '') FROM cron.job WHERE jobname NOT LIKE 'fxav\_cron\_%' ESCAPE '\' AND jobname != 'cleanup-bootstrap-nonces'`,
-    );
-    const actual = raw.length === 0 ? [] : raw.split("\n");
-    expect(actual).toEqual([...EXPECTED_NON_FXAV_NON_ORPHAN_CRONS]);
-  });
+  liveDbTest(
+    "non-fxav cron set matches snapshot (excludes cleanup-bootstrap-nonces orphan)",
+    () => {
+      const raw = psql(
+        String.raw`SELECT coalesce(array_to_string(array_agg(jobname ORDER BY jobname), E'\n'), '') FROM cron.job WHERE jobname NOT LIKE 'fxav\_cron\_%' ESCAPE '\' AND jobname != 'cleanup-bootstrap-nonces'`,
+      );
+      const actual = raw.length === 0 ? [] : raw.split("\n");
+      expect(actual).toEqual([...EXPECTED_NON_FXAV_NON_ORPHAN_CRONS]);
+    },
+  );
 
   // Orphan-absent (R25 F49 + R26 F51): cleanup-bootstrap-nonces unscheduled by T3.
   liveDbTest("cleanup-bootstrap-nonces orphan cron has been unscheduled", () => {
-    const count = psql(
-      "SELECT count(*) FROM cron.job WHERE jobname = 'cleanup-bootstrap-nonces'",
-    );
+    const count = psql("SELECT count(*) FROM cron.job WHERE jobname = 'cleanup-bootstrap-nonces'");
     expect(count).toBe("0");
   });
 });

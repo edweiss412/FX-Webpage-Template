@@ -72,12 +72,8 @@ function pickVenueName(venue: unknown): string | null {
  * clients silently return an empty set — see the structural
  * negative test pinning this contract.
  */
-export async function listShowsForCrew(
-  supabase: SupabaseClient,
-): Promise<CrewShowSummary[]> {
-  const { data: tokens, error: tokenErr } = await supabase.rpc(
-    "my_share_tokens_for_email",
-  );
+export async function listShowsForCrew(supabase: SupabaseClient): Promise<CrewShowSummary[]> {
+  const { data: tokens, error: tokenErr } = await supabase.rpc("my_share_tokens_for_email");
   if (tokenErr) {
     throw new Error("listShowsForCrew: share-token lookup failed");
   }

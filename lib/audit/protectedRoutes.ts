@@ -35,7 +35,11 @@ export function auditProtectedRouteCompleteness(): string[] {
   const live = liveRouteFilesFromGit();
   for (const route of PROTECTED_ROUTES) {
     if (route.path === "middleware.ts") continue;
-    if (!live.includes(route.path) && route.path.startsWith("app/") && route.path.endsWith("/page.tsx")) {
+    if (
+      !live.includes(route.path) &&
+      route.path.startsWith("app/") &&
+      route.path.endsWith("/page.tsx")
+    ) {
       findings.push(`${route.path} is listed in PROTECTED_ROUTES but is not a live route`);
     }
   }

@@ -9,7 +9,13 @@
  */
 import { afterAll, describe, expect, it } from "vitest";
 
-import { closeHoldsHelpers, holdsSql, readChangeLog, runAutoApply, seedShowWithCrew } from "./_holdsHelpers";
+import {
+  closeHoldsHelpers,
+  holdsSql,
+  readChangeLog,
+  runAutoApply,
+  seedShowWithCrew,
+} from "./_holdsHelpers";
 
 afterAll(async () => {
   await holdsSql`delete from public.shows where drive_file_id like 'drv-%'`;
@@ -53,7 +59,13 @@ describe("cleanup_superseded_before_images (Task 4.6 / PF19)", () => {
         { name: "Bob", email: "bob@x" }, // re-add Bob too, but that's a separate Bob entity_ref change
       ],
       triggeredItems: [
-        { id: "1", invariant: "MI-12", removed_name: "Alice", added_name: "Alicia", email: "alice@old" },
+        {
+          id: "1",
+          invariant: "MI-12",
+          removed_name: "Alice",
+          added_name: "Alicia",
+          email: "alice@old",
+        },
       ],
     });
     const rbobAfter = (await readChangeLog(showId)).all.find((r) => r.id === rbob.id)!;

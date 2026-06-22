@@ -122,7 +122,10 @@ describe("approveMi11Hold — stale-target guard surfacing (Task 3.7)", () => {
     expect(res).toEqual({ ok: false, code: "MI11_TARGET_MOVED" });
     expect(rpc).toHaveBeenCalledWith(
       "mi11_approve_hold",
-      expect.objectContaining({ p_observed_modified_time: T1, p_expected_base_modified_time: EXPECTED_T0 }),
+      expect.objectContaining({
+        p_observed_modified_time: T1,
+        p_expected_base_modified_time: EXPECTED_T0,
+      }),
     );
   });
 });

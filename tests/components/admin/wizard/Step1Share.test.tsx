@@ -31,27 +31,21 @@ describe("Step1Share", () => {
   test("renders the spec §9.0 step 1 four numbered prompts verbatim", () => {
     const { container } = render(<Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />);
     const body = container.textContent ?? "";
-    expect(body).toContain(
-      "In Google Drive, find the folder where you keep your show sheets",
-    );
+    expect(body).toContain("In Google Drive, find the folder where you keep your show sheets");
     expect(body).toContain('Click "Share" on the folder');
     expect(body).toContain("Paste this email and give it Viewer access");
     expect(body).toContain('Come back here and click "I’ve shared the folder."');
   });
 
   test("renders the service-account email as visible text inside the step body", () => {
-    const { getByTestId } = render(
-      <Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />,
-    );
+    const { getByTestId } = render(<Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />);
     expect(getByTestId("wizard-step1-service-account-email").textContent).toContain(
       SERVICE_ACCOUNT_EMAIL,
     );
   });
 
   test("copy button calls navigator.clipboard.writeText with the email", async () => {
-    const { getByTestId } = render(
-      <Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />,
-    );
+    const { getByTestId } = render(<Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-step1-copy-email-button"));
     });
@@ -60,34 +54,25 @@ describe("Step1Share", () => {
   });
 
   test("copy button shows the copied-confirmation after click", async () => {
-    const { getByTestId } = render(
-      <Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />,
-    );
+    const { getByTestId } = render(<Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />);
     await act(async () => {
       fireEvent.click(getByTestId("wizard-step1-copy-email-button"));
     });
     await waitFor(() => {
-      expect(getByTestId("wizard-step1-copy-feedback").textContent ?? "").toContain(
-        "Copied",
-      );
+      expect(getByTestId("wizard-step1-copy-feedback").textContent ?? "").toContain("Copied");
     });
   });
 
   test("includes the 'What's this email?' disclosure", () => {
-    const { getByTestId } = render(
-      <Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />,
-    );
+    const { getByTestId } = render(<Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />);
     const summary = getByTestId("wizard-step1-explainer-summary");
     expect(summary.textContent ?? "").toMatch(/What['’]s this email/);
   });
 
   test("advance button is a link to /admin?step=2", () => {
-    const { getByTestId } = render(
-      <Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />,
-    );
+    const { getByTestId } = render(<Step1Share serviceAccountEmail={SERVICE_ACCOUNT_EMAIL} />);
     const advance = getByTestId("wizard-step1-advance");
     expect(advance.getAttribute("href")).toBe("/admin?step=2");
     expect(advance.textContent ?? "").toContain("I’ve shared the folder");
   });
-
 });

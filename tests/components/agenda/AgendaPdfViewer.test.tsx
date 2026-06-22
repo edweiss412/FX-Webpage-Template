@@ -109,9 +109,9 @@ describe("AgendaPdfViewer windowing (Codex R7 P1)", () => {
     expect(mountedPageCount).toBeLessThanOrEqual(3);
     // Off-window pages must be present (so scroll height stays right)
     // AND must be placeholders, not real <Page> components.
-    const offWindow = screen.getAllByTestId(/^document-stub$/)[0]?.querySelectorAll(
-      '[data-in-window="false"]',
-    );
+    const offWindow = screen
+      .getAllByTestId(/^document-stub$/)[0]
+      ?.querySelectorAll('[data-in-window="false"]');
     expect(offWindow).toBeTruthy();
     expect(offWindow!.length).toBeGreaterThan(30);
   });

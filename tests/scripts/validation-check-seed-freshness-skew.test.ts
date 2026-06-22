@@ -86,11 +86,7 @@ describe("resolveEffectiveToday — post-midnight grace gate (--combo all)", () 
 
   test("grace boundary: previous-day seed at 01:59 UTC still FRESH", () => {
     expect(
-      resolveEffectiveToday(
-        "all",
-        allRow("2026-05-27"),
-        new Date("2026-05-28T01:59:00Z"),
-      ),
+      resolveEffectiveToday("all", allRow("2026-05-27"), new Date("2026-05-28T01:59:00Z")),
     ).toBe("2026-05-27");
   });
 
@@ -99,12 +95,7 @@ describe("resolveEffectiveToday — post-midnight grace gate (--combo all)", () 
     // pass at 23:00 UTC on 2026-05-28 — ~24h stale, expected-state computed
     // for yesterday. The grace window must reject it.
     expectThrows(
-      () =>
-        resolveEffectiveToday(
-          "all",
-          allRow("2026-05-27"),
-          new Date("2026-05-28T23:00:00Z"),
-        ),
+      () => resolveEffectiveToday("all", allRow("2026-05-27"), new Date("2026-05-28T23:00:00Z")),
       "b",
       /2026-05-27/,
     );
@@ -112,12 +103,7 @@ describe("resolveEffectiveToday — post-midnight grace gate (--combo all)", () 
 
   test("grace boundary: previous-day seed at exactly 02:00 UTC FAILS (b) (grace window is [00:00, 02:00))", () => {
     expectThrows(
-      () =>
-        resolveEffectiveToday(
-          "all",
-          allRow("2026-05-27"),
-          new Date("2026-05-28T02:00:00Z"),
-        ),
+      () => resolveEffectiveToday("all", allRow("2026-05-27"), new Date("2026-05-28T02:00:00Z")),
       "b",
       /2026-05-27/,
     );
@@ -125,22 +111,13 @@ describe("resolveEffectiveToday — post-midnight grace gate (--combo all)", () 
 
   test("same-day: seed=real today at any time (15:00 UTC) resolves to today", () => {
     expect(
-      resolveEffectiveToday(
-        "all",
-        allRow("2026-05-28"),
-        new Date("2026-05-28T15:00:00Z"),
-      ),
+      resolveEffectiveToday("all", allRow("2026-05-28"), new Date("2026-05-28T15:00:00Z")),
     ).toBe("2026-05-28");
   });
 
   test("genuinely stale: seed=day N-3 FAILS (b) even inside the grace window — grace only rescues a 1-day diff", () => {
     expectThrows(
-      () =>
-        resolveEffectiveToday(
-          "all",
-          allRow("2026-05-25"),
-          new Date("2026-05-28T00:30:00Z"),
-        ),
+      () => resolveEffectiveToday("all", allRow("2026-05-25"), new Date("2026-05-28T00:30:00Z")),
       "b",
       /2026-05-25/,
     );
@@ -148,12 +125,7 @@ describe("resolveEffectiveToday — post-midnight grace gate (--combo all)", () 
 
   test("future stamp: seed dated tomorrow relative to the check clock FAILS (b) (not a real rollover)", () => {
     expectThrows(
-      () =>
-        resolveEffectiveToday(
-          "all",
-          allRow("2026-05-28"),
-          new Date("2026-05-27T00:30:00Z"),
-        ),
+      () => resolveEffectiveToday("all", allRow("2026-05-28"), new Date("2026-05-27T00:30:00Z")),
       "b",
       /2026-05-28/,
     );

@@ -170,7 +170,8 @@ class FakePhase1Tx {
   async upsertLivePendingIngestion(row: FakePendingIngestion) {
     this.operations.push(`upsertLivePendingIngestion:${row.driveFileId}`);
     this.pendingIngestions = this.pendingIngestions.filter(
-      (existing) => !(existing.driveFileId === row.driveFileId && existing.wizardSessionId === null),
+      (existing) =>
+        !(existing.driveFileId === row.driveFileId && existing.wizardSessionId === null),
     );
     this.pendingIngestions.push(row);
   }
@@ -270,7 +271,9 @@ describe("runPhase1 routing and writes", () => {
   test.each([
     [
       "MI-1_VERSION_DETECTION_FAILED",
-      parseResult({ hardErrors: [{ code: "MI-1_VERSION_DETECTION_FAILED", message: "no version" }] }),
+      parseResult({
+        hardErrors: [{ code: "MI-1_VERSION_DETECTION_FAILED", message: "no version" }],
+      }),
     ],
     ["MI-2_EMPTY_TITLE", parseResult({ show: { ...parseResult().show, title: "" } })],
     [
@@ -349,9 +352,14 @@ describe("runPhase1 routing and writes", () => {
 
   test("Task 4.2: auto-publish OFF stages a CLEAN first-seen as FIRST_SEEN_REVIEW (not auto_publish_ready)", async () => {
     const tx = new FakePhase1Tx();
-    const result = await runWith(tx, parseResult(), {}, {
-      getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
-    });
+    const result = await runWith(
+      tx,
+      parseResult(),
+      {},
+      {
+        getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
+      },
+    );
     expect(result.outcome).toBe("stage");
     expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual([
       expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" }),
@@ -364,7 +372,11 @@ describe("runPhase1 routing and writes", () => {
       tx,
       parseResult({
         warnings: [
-          { severity: "warn", code: "DIAGRAMS_EMBEDDED_NONE_FOUND", message: "No embedded diagrams were found." },
+          {
+            severity: "warn",
+            code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+            message: "No embedded diagrams were found.",
+          },
         ],
       }),
       {},
@@ -380,9 +392,14 @@ describe("runPhase1 routing and writes", () => {
   test("Task 4.2: a flag-read infra_error does NOT auto-publish — it throws (sync is retried)", async () => {
     const tx = new FakePhase1Tx();
     await expect(
-      runWith(tx, parseResult(), {}, {
-        getAutoPublishCleanFirstSeen: async () => ({ kind: "infra_error" }),
-      }),
+      runWith(
+        tx,
+        parseResult(),
+        {},
+        {
+          getAutoPublishCleanFirstSeen: async () => ({ kind: "infra_error" }),
+        },
+      ),
     ).rejects.toThrow(/Phase1InfraError|getAutoPublishCleanFirstSeen|flag read failed/);
     expect(tx.pendingSyncs).toEqual([]); // no stage, no auto-publish
   });
@@ -416,9 +433,14 @@ describe("runPhase1 routing and writes", () => {
       ],
     });
 
-    const result = await runWith(tx, withWarnings, {}, {
-      getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
-    });
+    const result = await runWith(
+      tx,
+      withWarnings,
+      {},
+      {
+        getAutoPublishCleanFirstSeen: async () => ({ kind: "value", autoPublish: false }),
+      },
+    );
     expect(result.outcome).toBe("stage");
 
     const summary = tx.pendingSyncs[0]?.warningSummary ?? "";
@@ -429,9 +451,7 @@ describe("runPhase1 routing and writes", () => {
       "Unknown role token 'XR' for 'Calvin Saller' — dropped",
     );
     // Admin-log-only info severity (TYPO_NORMALIZED) is filtered before reaching Doug.
-    expect(summary, "TYPO_NORMALIZED severity=info is filtered").not.toContain(
-      "Hotal",
-    );
+    expect(summary, "TYPO_NORMALIZED severity=info is filtered").not.toContain("Hotal");
     // No raw parser code strings ever leak through.
     expect(summary).not.toContain("UNKNOWN_FIELD");
     expect(summary).not.toContain("UNKNOWN_ROLE_TOKEN");
@@ -498,11 +518,10 @@ describe("runPhase1 routing and writes", () => {
       priorParseResult: parseResult(),
     });
 
-    const result = await runWith(
-      tx,
-      parseResult({ show: { ...parseResult().show, po: null } }),
-      { fileMeta: fileMeta(), mode: "cron" },
-    );
+    const result = await runWith(tx, parseResult({ show: { ...parseResult().show, po: null } }), {
+      fileMeta: fileMeta(),
+      mode: "cron",
+    });
 
     expect(result).toEqual({ outcome: "defer", reason: "mi8_modtime_unstable" });
     expect(tx.pendingSyncs).toEqual([]);
@@ -522,11 +541,10 @@ describe("runPhase1 routing and writes", () => {
       priorParseResult: parseResult(),
     });
 
-    const result = await runWith(
-      tx,
-      parseResult({ show: { ...parseResult().show, po: null } }),
-      { fileMeta: fileMeta(), mode: "cron" },
-    );
+    const result = await runWith(tx, parseResult({ show: { ...parseResult().show, po: null } }), {
+      fileMeta: fileMeta(),
+      mode: "cron",
+    });
 
     // The debounce still DEFERS while young; once stable, MI-8 is a field_changed notification → pass.
     expect(result.outcome).toBe("pass");
@@ -592,11 +610,10 @@ describe("runPhase1 routing and writes", () => {
         priorParseResult: parseResult(),
       });
 
-      const result = await runWith(
-        tx,
-        parseResult({ show: { ...parseResult().show, po: null } }),
-        { fileMeta: fileMeta(), mode },
-      );
+      const result = await runWith(tx, parseResult({ show: { ...parseResult().show, po: null } }), {
+        fileMeta: fileMeta(),
+        mode,
+      });
 
       if (mode === "onboarding_scan") {
         // The onboarding sentinel still stages regardless of the MI-8 change.
@@ -653,7 +670,11 @@ describe("runPhase1 routing and writes", () => {
       parseResult({ rooms: [room("General Session")] }),
     ],
     ["MI-8", parseResult(), parseResult({ show: { ...parseResult().show, po: null } })],
-    ["MI-8b", parseResult(), parseResult({ show: { ...parseResult().show, coi_status: "Approved" } })],
+    [
+      "MI-8b",
+      parseResult(),
+      parseResult({ show: { ...parseResult().show, coi_status: "Approved" } }),
+    ],
     ["MI-8c", parseResult(), parseResult({ pullSheet: null })],
     [
       "MI-9",

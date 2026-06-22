@@ -41,7 +41,10 @@ function canonicalPath(cell: string): string {
   const codeValues = Array.from(cell.matchAll(/`([^`]+)`/g), (match) => match[1] ?? "");
   if (codeValues.length === 0) return normalizeCell(cell);
   if (codeValues.length === 1) return codeValues[0]!;
-  if (codeValues[0] === "lib/sync/discard.ts" && codeValues[1] === "lib/admin/onboarding/pendingIngestionsActions.ts") {
+  if (
+    codeValues[0] === "lib/sync/discard.ts" &&
+    codeValues[1] === "lib/admin/onboarding/pendingIngestionsActions.ts"
+  ) {
     return "lib/sync/discard.ts";
   }
   if (codeValues[0] === "lib/auth/validateGoogleSession.ts" && cell.includes("WHERE email")) {
@@ -52,12 +55,7 @@ function canonicalPath(cell: string): string {
 }
 
 function splitMarkdownRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map(normalizeCell);
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(normalizeCell);
 }
 
 export function extractPlanEmailBoundaries(plan: string): EmailBoundary[] {
@@ -87,7 +85,9 @@ function key(layer: string, path: string): string {
 }
 
 function acX5Body(spec: string): string {
-  const ac = spec.match(/AC-X\.5[\s\S]*?Plan Task X\.5's boundary list is the canonical inventory\./);
+  const ac = spec.match(
+    /AC-X\.5[\s\S]*?Plan Task X\.5's boundary list is the canonical inventory\./,
+  );
   if (!ac?.[0]) throw new Error("Could not find AC-X.5 body in spec");
   return ac[0];
 }
@@ -95,7 +95,10 @@ function acX5Body(spec: string): string {
 function expandCodespan(value: string): string[] {
   const brace = value.match(/^([a-z_][a-z0-9_]*)\.\{([^}]+)\}$/i);
   if (brace?.[1] && brace[2]) {
-    return brace[2].split(",").map((part) => `${brace[1]}.${part.trim()}`).filter(Boolean);
+    return brace[2]
+      .split(",")
+      .map((part) => `${brace[1]}.${part.trim()}`)
+      .filter(Boolean);
   }
   return [value];
 }
@@ -111,7 +114,10 @@ function unmatchedSpecBoundaryKey(token: string): string {
   return key("DB write", token);
 }
 
-export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: readonly EmailBoundary[] = []): string[] {
+export function extractSpecEmailBoundaryKeys(
+  spec: string,
+  planBoundaries: readonly EmailBoundary[] = [],
+): string[] {
   const text = acX5Body(spec);
   for (const required of [
     "crew_members.email",
@@ -136,12 +142,19 @@ export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: reado
       keys.add(key("DB write", "lib/sync/applyParseResult.ts"));
       keys.add(key("Read", "lib/auth/validateGoogleSession.ts"));
       keys.add(key("Read", "RLS policies that compare auth.email to crew_members.email"));
-      keys.add(key("Schema", "crew_members.email, transportation.driver_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable"));
+      keys.add(
+        key(
+          "Schema",
+          "crew_members.email, transportation.driver_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable",
+        ),
+      );
       continue;
     }
     if (token === "admin_alerts.context.*email*") {
       keys.add(key("DB write", "lib/auth/validateGoogleSession.ts"));
-      keys.add(key("DB write", "any other admin_alerts.context write that includes an email field"));
+      keys.add(
+        key("DB write", "any other admin_alerts.context write that includes an email field"),
+      );
       continue;
     }
     if (token === "report_rate_limits.identity") {
@@ -199,7 +212,10 @@ export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: reado
   return Array.from(keys).sort();
 }
 
-export function extractEmailBoundariesFromDocs(spec: string, plan: string): ExtractedEmailBoundaries {
+export function extractEmailBoundariesFromDocs(
+  spec: string,
+  plan: string,
+): ExtractedEmailBoundaries {
   const planBoundaries = extractPlanEmailBoundaries(plan);
   return {
     specBoundaryKeys: extractSpecEmailBoundaryKeys(spec, planBoundaries),

@@ -29,8 +29,8 @@ export function ReadyToPublish({ sessionId }: ReadyToPublishProps) {
           Ready to publish. One click makes your shows live.
         </h2>
         <p className="max-w-prose text-base text-text-subtle">
-          All sheets have been processed. Click Publish to flip them visible
-          to crew and connect your folder for ongoing syncs.
+          All sheets have been processed. Click Publish to flip them visible to crew and connect
+          your folder for ongoing syncs.
         </p>
       </header>
 

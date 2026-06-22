@@ -10,7 +10,9 @@ const SHOW_ID = "show-abc";
 
 test("all scope shown to everyone; viewer's discipline first + [data-emphasis=you]; empty scope omitted incl viewer's own", () => {
   const data = makeShowForViewer({
-    rooms: [{ id: "r1", kind: "gs", name: "GS", audio: "2x SM58", video: "1x PTZ", lighting: null }],
+    rooms: [
+      { id: "r1", kind: "gs", name: "GS", audio: "2x SM58", video: "1x PTZ", lighting: null },
+    ],
     crewMembers: [
       {
         id: "c1",
@@ -25,10 +27,18 @@ test("all scope shown to everyone; viewer's discipline first + [data-emphasis=yo
     ],
   });
   const { container } = render(
-    <GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+    <GearSection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const cards = [...container.querySelectorAll('[data-testid^="gear-scope-"]')];
-  expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual(["gear-scope-audio", "gear-scope-video"]);
+  expect(cards.map((c) => c.getAttribute("data-testid"))).toEqual([
+    "gear-scope-audio",
+    "gear-scope-video",
+  ]);
   // Mock `.card-head .ico` parity: each scope card carries its leading glyph.
   for (const c of cards) {
     expect(c.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
@@ -56,14 +66,24 @@ test("no-flag viewer → default order, no emphasis; all-empty → section Empty
   expect(
     [
       ...render(
-        <GearSection data={noFlag} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+        <GearSection
+          data={noFlag}
+          viewer={{ kind: "crew", crewMemberId: "c1" }}
+          today={TODAY}
+          showId={SHOW_ID}
+        />,
       ).container.querySelectorAll('[data-testid^="gear-scope-"]'),
     ].map((c) => c.getAttribute("data-emphasis")),
   ).toEqual([null, null, null]);
   const empty = makeShowForViewer({ rooms: [], pullSheet: null, openingReelHasVideo: false });
   expect(
     render(
-      <GearSection data={empty} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+      <GearSection
+        data={empty}
+        viewer={{ kind: "crew", crewMemberId: "c1" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     ).container.querySelector('[data-testid="section-empty"]'),
   ).toBeTruthy();
 });
@@ -74,14 +94,22 @@ test("opening-reel cell is text-only (no Drive URL) AND the proxied player uses 
     openingReelHasVideo: true,
   });
   const { container } = render(
-    <GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+    <GearSection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   const html = container.innerHTML;
-  for (const leak of ["https://", "drive.google.com", "docs.google.com"]) expect(html).not.toContain(leak);
+  for (const leak of ["https://", "drive.google.com", "docs.google.com"])
+    expect(html).not.toContain(leak);
   expect(container.querySelector(`video[src="/api/asset/reel/${SHOW_ID}"]`)).toBeTruthy();
   // Mock `.card-head .ico` parity: the Opening-reel card carries its glyph.
   expect(
-    container.querySelector('[data-testid="gear-opening-reel"] [data-slot="section-card-icon"] svg'),
+    container.querySelector(
+      '[data-testid="gear-opening-reel"] [data-slot="section-card-icon"] svg',
+    ),
   ).not.toBeNull();
 });
 
@@ -93,7 +121,12 @@ test("pack list omitted when isPackListVisibleToday is false", () => {
   const withheld = makeShowForViewer({ pullSheet: [{ caseLabel: "C1", items: [] }] });
   expect(
     render(
-      <GearSection data={withheld} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+      <GearSection
+        data={withheld}
+        viewer={{ kind: "crew", crewMemberId: "c1" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
     ).container.querySelector('[data-testid="gear-pack-list"]'),
   ).toBeNull();
 });
@@ -107,7 +140,12 @@ test("a pure-URL opening reel with no video renders NO Opening reel card (whole-
     openingReelHasVideo: false,
   });
   const { container } = render(
-    <GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+    <GearSection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
   );
   expect(container.querySelector('[data-testid="gear-opening-reel"]')).toBeNull();
 });

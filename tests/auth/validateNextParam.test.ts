@@ -52,7 +52,8 @@ describe("validateNextParam", () => {
   });
 
   test("reports detailed success only for tokenized show URLs", () => {
-    const path = "/show/sample-show/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
+    const path =
+      "/show/sample-show/a1b2c3d4e5f6789012345678901234567890abcdef0123456789abcdef012345";
 
     expect(validateNextParamDetailed(path)).toEqual({ ok: true, path });
     expect(validateNextParamDetailed("/show/sample-show")).toEqual({

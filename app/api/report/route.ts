@@ -11,8 +11,7 @@ import {
 } from "@/lib/reports/submit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-const UUID_V4_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type ReportRouteDeps = {
   resolvePickerSelection: typeof resolvePickerSelection;
@@ -120,10 +119,7 @@ async function authenticateReportRequest(
     cookie: pickerCookieFromRequest(req),
   });
   if (pickerResult.kind === "resolved") {
-    const roleFlags = await deps.readCrewRoleFlags(
-      body.show_id,
-      pickerResult.crewMemberId,
-    );
+    const roleFlags = await deps.readCrewRoleFlags(body.show_id, pickerResult.crewMemberId);
     if (!roleFlags.ok) return roleFlags;
     return {
       ok: true,

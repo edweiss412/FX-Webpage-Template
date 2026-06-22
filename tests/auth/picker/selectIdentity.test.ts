@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { COOKIE_NAME, decodePickerCookie, encodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
+import {
+  COOKIE_NAME,
+  decodePickerCookie,
+  encodePickerCookie,
+} from "@/lib/auth/picker/cookieEnvelope";
 import { selectIdentity, selectIdentityCore } from "@/lib/auth/picker/selectIdentity";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
@@ -56,7 +60,8 @@ beforeEach(() => {
   cookieSet.mockReset();
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(cookies).mockResolvedValue({
-    get: (name: string) => (name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined),
+    get: (name: string) =>
+      name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined,
     set: cookieSet,
   } as never);
   vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
@@ -68,11 +73,15 @@ beforeEach(() => {
 
 describe("selectIdentityCore", () => {
   test("rejects legacy or malformed input", async () => {
-    await expect(selectIdentityCore({ showId: SHOW_ID, crewMemberId: CREW_ID } as never)).resolves.toEqual({
+    await expect(
+      selectIdentityCore({ showId: SHOW_ID, crewMemberId: CREW_ID } as never),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_INVALID_INPUT",
     });
-    await expect(selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: "not-uuid" })).resolves.toEqual({
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: "not-uuid" }),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_INVALID_INPUT",
     });
@@ -86,7 +95,9 @@ describe("selectIdentityCore", () => {
       out_rejection_code: "PICKER_INVALID_SHARE_TOKEN",
     };
 
-    await expect(selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })).resolves.toEqual({
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_INVALID_SHARE_TOKEN",
     });
@@ -99,7 +110,9 @@ describe("selectIdentityCore", () => {
       KEY,
     );
 
-    await expect(selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })).resolves.toEqual({
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({
       ok: true,
     });
 
@@ -117,7 +130,9 @@ describe("selectIdentityCore", () => {
 
   test("maps returned or thrown RPC faults to typed infra error", async () => {
     rpcError = { message: "db failed" };
-    await expect(selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })).resolves.toEqual({
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_RESOLVER_LOOKUP_FAILED",
     });
@@ -125,7 +140,9 @@ describe("selectIdentityCore", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockImplementation(() => {
       throw new Error("missing env");
     });
-    await expect(selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })).resolves.toEqual({
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_RESOLVER_LOOKUP_FAILED",
     });
@@ -134,7 +151,9 @@ describe("selectIdentityCore", () => {
 
 describe("selectIdentity FormData entry", () => {
   test("parses FormData and delegates to the core", async () => {
-    await expect(selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }))).resolves.toEqual({
+    await expect(
+      selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })),
+    ).resolves.toEqual({
       ok: true,
     });
   });
@@ -148,8 +167,12 @@ describe("selectIdentity FormData entry", () => {
     };
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    await expect(selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }))).rejects.toMatchObject({
-      digest: expect.stringContaining(`/auth/sign-in?next=${encodeURIComponent(`/show/${SLUG}/${TOKEN}`)}`),
+    await expect(
+      selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })),
+    ).rejects.toMatchObject({
+      digest: expect.stringContaining(
+        `/auth/sign-in?next=${encodeURIComponent(`/show/${SLUG}/${TOKEN}`)}`,
+      ),
     });
 
     expect(warnSpy).toHaveBeenCalledTimes(1);

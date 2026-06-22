@@ -61,9 +61,11 @@ export function KeyValueRows({ rows }: KeyValueRowsProps) {
                   should align and not shift width. tnum is a no-op on the
                   alphabetic-only values, so applying it to the shared value span
                   is safe across every consumer. */}
-              <span className="min-w-0 break-words tabular-nums">{row.v}</span>
+              <span className="min-w-0 wrap-break-word tabular-nums">{row.v}</span>
             </span>
-            {row.sub !== undefined ? <span className="text-xs text-text-subtle">{row.sub}</span> : null}
+            {row.sub !== undefined ? (
+              <span className="text-xs text-text-subtle">{row.sub}</span>
+            ) : null}
           </dd>
         </div>
       ))}

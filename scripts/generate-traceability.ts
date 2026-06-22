@@ -43,7 +43,8 @@ function extractHeadingAnchors(spec: string): TraceabilityRow[] {
       owningTasks: [],
       status: "implemented",
       evidence: "spec heading anchor",
-      notes: "Heading anchors are walked for matrix completeness; structured coverage markers own normative-unit mapping.",
+      notes:
+        "Heading anchors are walked for matrix completeness; structured coverage markers own normative-unit mapping.",
     });
   }
   return rows;
@@ -65,14 +66,17 @@ function extractSpecIdAnchors(spec: string): TraceabilityRow[] {
 
 function extractAcceptanceCriteria(spec: string): TraceabilityRow[] {
   const rows: TraceabilityRow[] = [];
-  for (const match of spec.matchAll(/-\s+(?:\*\*)?(AC-[A-Z0-9.]+)(?:\*\*)?\s+(?:\*\*)?([^—\n]+?)(?:\*\*)?\s+—?\s*([^\n]*)/g)) {
+  for (const match of spec.matchAll(
+    /-\s+(?:\*\*)?(AC-[A-Z0-9.]+)(?:\*\*)?\s+(?:\*\*)?([^—\n]+?)(?:\*\*)?\s+—?\s*([^\n]*)/g,
+  )) {
     rows.push({
       anchor: match[1]!,
       title: `${match[2]!.trim()} ${match[3] ?? ""}`.trim(),
       owningTasks: [],
       status: "implemented",
       evidence: "acceptance criterion row",
-      notes: "Historical AC rows are represented in the matrix; X.6 parity assertions audit the cross-cutting AC body contracts.",
+      notes:
+        "Historical AC rows are represented in the matrix; X.6 parity assertions audit the cross-cutting AC body contracts.",
     });
   }
   return rows;
@@ -97,9 +101,19 @@ function coverageMarkers(body: string): string[] {
   ).flat();
 }
 
-export function generateTraceability({ spec, plan }: { spec: string; plan: string }): TraceabilityMatrix {
+export function generateTraceability({
+  spec,
+  plan,
+}: {
+  spec: string;
+  plan: string;
+}): TraceabilityMatrix {
   const rowMap = new Map<string, TraceabilityRow>();
-  for (const row of [...extractHeadingAnchors(spec), ...extractSpecIdAnchors(spec), ...extractAcceptanceCriteria(spec)]) {
+  for (const row of [
+    ...extractHeadingAnchors(spec),
+    ...extractSpecIdAnchors(spec),
+    ...extractAcceptanceCriteria(spec),
+  ]) {
     rowMap.set(row.anchor, row);
   }
   if (!rowMap.has("§16") && spec.includes("§16")) {
@@ -143,7 +157,10 @@ export function generateTraceability({ spec, plan }: { spec: string; plan: strin
         row.status,
         markdownTableCell(row.evidence || "—"),
         markdownTableCell(row.notes || "—"),
-      ].join(" | ").replace(/^/, "| ").replace(/$/, " |"),
+      ]
+        .join(" | ")
+        .replace(/^/, "| ")
+        .replace(/$/, " |"),
     ),
     "",
     `Findings: ${findings.length === 0 ? "none" : findings.join(", ")}`,
@@ -189,9 +206,11 @@ function setDiff(prefix: string, expected: readonly string[], actual: readonly s
 export function parseRequiredChecksFromSpec(spec: string): string[] {
   const acX6 = spec.match(/AC-X\.6[\s\S]*?### 17\.2\.1/);
   if (!acX6?.[0]) throw new Error("Could not find AC-X.6 body");
-  return unique(Array.from(acX6[0].matchAll(/`([^`]+)`/g), (match) => match[1]!).filter((value) =>
-    /^x[1-6]-|^traceability-audit$|^verify-branch-protection-status$/.test(value),
-  ));
+  return unique(
+    Array.from(acX6[0].matchAll(/`([^`]+)`/g), (match) => match[1]!).filter((value) =>
+      /^x[1-6]-|^traceability-audit$|^verify-branch-protection-status$/.test(value),
+    ),
+  );
 }
 
 export function loadRequiredChecksFromSpec(specPath = SPEC_PATH): string[] {
@@ -200,7 +219,12 @@ export function loadRequiredChecksFromSpec(specPath = SPEC_PATH): string[] {
 
 function expectedCheckFromAcBody(spec: string, ac: string): string | null {
   const escaped = ac.replace(".", "\\.");
-  const body = spec.match(new RegExp(`(?:\\*\\*)?${escaped}(?:\\*\\*)?[\\s\\S]*?(?=\\n- (?:\\*\\*)?AC-|\\n### 17\\.2\\.1)`))?.[0] ?? "";
+  const body =
+    spec.match(
+      new RegExp(
+        `(?:\\*\\*)?${escaped}(?:\\*\\*)?[\\s\\S]*?(?=\\n- (?:\\*\\*)?AC-|\\n### 17\\.2\\.1)`,
+      ),
+    )?.[0] ?? "";
   if (/traceability/i.test(body)) return "traceability-audit";
   if (/email canonicalization/i.test(body)) return "x5-email-canonicalization";
   if (/No global cursor/i.test(body)) return "x4-no-global-cursor";
@@ -231,14 +255,20 @@ export function parseAcRequiredCheckFindings(spec: string): string[] {
 }
 
 function parseJobBlock(workflow: string, job: string): string {
-  const match = workflow.match(new RegExp(`\\n  ${job}:\\n([\\s\\S]*?)(?=\\n  [a-zA-Z0-9_-]+:\\n|\\s*$)`));
+  const match = workflow.match(
+    new RegExp(`\\n  ${job}:\\n([\\s\\S]*?)(?=\\n  [a-zA-Z0-9_-]+:\\n|\\s*$)`),
+  );
   return match?.[1] ?? "";
 }
 
-export function parseWorkflowFindings(workflow: string, requiredChecks = loadRequiredChecksFromSpec()): string[] {
+export function parseWorkflowFindings(
+  workflow: string,
+  requiredChecks = loadRequiredChecksFromSpec(),
+): string[] {
   const findings: string[] = [];
   if (workflow.includes("pull_request_target")) findings.push("+pull_request_target_used");
-  if (!workflow.includes("schedule:") || !workflow.includes("0 9 * * 1")) findings.push("+missing_schedule");
+  if (!workflow.includes("schedule:") || !workflow.includes("0 9 * * 1"))
+    findings.push("+missing_schedule");
 
   const auditJobs = requiredChecks.filter((check) => check !== "verify-branch-protection-status");
   for (const job of auditJobs) {
@@ -247,16 +277,21 @@ export function parseWorkflowFindings(workflow: string, requiredChecks = loadReq
       findings.push(`+missing_job:${job}`);
       continue;
     }
-    if (!/if:\s*github\.event_name != 'schedule'/.test(block)) findings.push(`+missing_schedule_guard:${job}`);
-    if (!block.includes("Verify generated admin tables file is fresh")) findings.push(`+missing_freshness_step:${job}`);
+    if (!/if:\s*github\.event_name != 'schedule'/.test(block))
+      findings.push(`+missing_schedule_guard:${job}`);
+    if (!block.includes("Verify generated admin tables file is fresh"))
+      findings.push(`+missing_freshness_step:${job}`);
     if (!block.includes("pnpm gen:admin-tables")) findings.push(`+missing_admin_generator:${job}`);
   }
 
   const privileged = parseJobBlock(workflow, "verify-branch-protection");
   if (!privileged) findings.push("+missing_job:verify-branch-protection");
   const privilegedDeferred = privileged ? /^\s*if:\s*false\b/m.test(privileged) : false;
-  if (privileged && !privilegedDeferred
-    && !privileged.includes("github.event_name == 'push' || github.event_name == 'schedule'")) {
+  if (
+    privileged &&
+    !privilegedDeferred &&
+    !privileged.includes("github.event_name == 'push' || github.event_name == 'schedule'")
+  ) {
     findings.push("+privileged_job_bad_if");
   }
 
@@ -267,7 +302,8 @@ export function parseWorkflowFindings(workflow: string, requiredChecks = loadReq
     for (const match of reader.matchAll(/([A-Z_]+):\s*\$\{\{\s*secrets\./g)) {
       findings.push(`+reader_uses_secret:${match[1]}`);
     }
-    if (!reader.includes("GH_TOKEN: ${{ github.token }}")) findings.push("+reader_missing_github_token");
+    if (!reader.includes("GH_TOKEN: ${{ github.token }}"))
+      findings.push("+reader_missing_github_token");
     if (!reader.includes("8 * 24 * 60 * 60")) findings.push("+reader_missing_8_day_window");
   }
   return findings;
@@ -277,20 +313,40 @@ function watermarkParityFindings(spec: string, plan: string): string[] {
   const specSymbols = extractWatermarkSymbolsFromSpec(spec);
   const planSymbols = extractPlanWatermarkSymbols(plan);
   return [
-    ...setDiff("+missing_authoritative_in_plan", specSymbols.authoritativeGatingWatermarks, planSymbols.authoritativeGatingWatermarks),
-    ...setDiff("-extra_authoritative_in_plan", planSymbols.authoritativeGatingWatermarks, specSymbols.authoritativeGatingWatermarks),
-    ...setDiff("+missing_display_only_in_plan", specSymbols.displayOnlyTimestamps, planSymbols.displayOnlyTimestamps),
-    ...setDiff("-extra_display_only_in_plan", planSymbols.displayOnlyTimestamps, specSymbols.displayOnlyTimestamps),
+    ...setDiff(
+      "+missing_authoritative_in_plan",
+      specSymbols.authoritativeGatingWatermarks,
+      planSymbols.authoritativeGatingWatermarks,
+    ),
+    ...setDiff(
+      "-extra_authoritative_in_plan",
+      planSymbols.authoritativeGatingWatermarks,
+      specSymbols.authoritativeGatingWatermarks,
+    ),
+    ...setDiff(
+      "+missing_display_only_in_plan",
+      specSymbols.displayOnlyTimestamps,
+      planSymbols.displayOnlyTimestamps,
+    ),
+    ...setDiff(
+      "-extra_display_only_in_plan",
+      planSymbols.displayOnlyTimestamps,
+      specSymbols.displayOnlyTimestamps,
+    ),
   ];
 }
 
 function collectPlanSet(plan: string, name: string): string[] {
-  const match = plan.match(new RegExp(`const\\s+${name}\\s*=\\s*new\\s+Set\\(\\[([\\s\\S]*?)\\]\\);`));
+  const match = plan.match(
+    new RegExp(`const\\s+${name}\\s*=\\s*new\\s+Set\\(\\[([\\s\\S]*?)\\]\\);`),
+  );
   if (!match?.[1]) throw new Error(`Could not find ${name} in plan`);
   return unique(Array.from(match[1].matchAll(/"([^"]+)"/g), (entry) => entry[1]!));
 }
 
-function extractPlanWatermarkSymbols(plan: string): ReturnType<typeof extractWatermarkSymbolsFromSpec> {
+function extractPlanWatermarkSymbols(
+  plan: string,
+): ReturnType<typeof extractWatermarkSymbolsFromSpec> {
   return {
     authoritativeGatingWatermarks: collectPlanSet(plan, "AUTHORITATIVE_GATING_WATERMARKS"),
     displayOnlyTimestamps: collectPlanSet(plan, "DISPLAY_ONLY_TIMESTAMPS"),
@@ -315,7 +371,8 @@ export function auditTraceability({
   const findings = [...matrix.findings];
 
   for (const row of matrix.rows) {
-    if (row.status === "MISSING" && row.notes !== "acceptance criterion") findings.push(`+missing_coverage:${row.anchor}`);
+    if (row.status === "MISSING" && row.notes !== "acceptance criterion")
+      findings.push(`+missing_coverage:${row.anchor}`);
   }
 
   const specAdminTables = extractAdminTablesFromSpec(spec);

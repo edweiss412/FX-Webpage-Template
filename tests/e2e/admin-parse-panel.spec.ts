@@ -43,10 +43,7 @@ async function lookupSeed(): Promise<{ slug: string; driveFileId: string }> {
 }
 
 async function clearPendingSyncs(driveFileId: string): Promise<void> {
-  const { error } = await admin
-    .from("pending_syncs")
-    .delete()
-    .eq("drive_file_id", driveFileId);
+  const { error } = await admin.from("pending_syncs").delete().eq("drive_file_id", driveFileId);
   if (error) throw new Error(`clearPendingSyncs failed: ${error.message}`);
 }
 
@@ -154,8 +151,7 @@ test.describe("admin parse panel — /admin/show/[slug]", () => {
 
     await Promise.all([
       page.waitForResponse(
-        (res) =>
-          res.url().includes("/api/admin/staged/") && res.url().endsWith("/apply"),
+        (res) => res.url().includes("/api/admin/staged/") && res.url().endsWith("/apply"),
       ),
       page.getByTestId("staged-review-apply").click(),
     ]);

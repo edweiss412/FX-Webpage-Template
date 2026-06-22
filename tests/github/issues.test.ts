@@ -102,7 +102,10 @@ describe("GitHub Issues client", () => {
     };
 
     await expect(
-      createIssue({ title: "Bug", body: "Body", labels: ["bug-report"] }, { octokit, env: repoEnv }),
+      createIssue(
+        { title: "Bug", body: "Body", labels: ["bug-report"] },
+        { octokit, env: repoEnv },
+      ),
     ).rejects.toBeInstanceOf(GitHubIssueInfraError);
   });
 

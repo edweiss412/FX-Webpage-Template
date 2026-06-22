@@ -24,7 +24,10 @@ function fakeTx(opts: { archived: boolean }) {
       deletedDeferrals.push(driveFileId);
     },
   };
-  return tx as unknown as LockedShowTx<SyncPipelineTx> & { calls: Calls; deletedDeferrals: string[] };
+  return tx as unknown as LockedShowTx<SyncPipelineTx> & {
+    calls: Calls;
+    deletedDeferrals: string[];
+  };
 }
 
 function fileMeta(driveFileId = "drive-1"): DriveListedFile {
@@ -54,8 +57,13 @@ describe("DEF-3 — runManualSyncForShow archived guard + manual deferral delete
 
   it("on a Held show: deletes the live deferral (R30) and clears requires_resync on a clean (applied) outcome", async () => {
     const tx = fakeTx({ archived: false });
-    const processOneFile = vi.fn(async (_id: string, _mode: unknown, _meta: unknown, deps: any) =>
-      deps.withShowLock("drive-1", async () => ({ outcome: "applied", showId: "show-1" })),
+    const processOneFile = vi.fn(
+      async (
+        _id: string,
+        _mode: unknown,
+        _meta: unknown,
+        deps: { withShowLock: <T>(key: string, fn: () => Promise<T>) => Promise<T> },
+      ) => deps.withShowLock("drive-1", async () => ({ outcome: "applied", showId: "show-1" })),
     );
     const result = await runManualSyncForShow("drive-1", "manual", {
       withPipelineLock: async (_id, fn) => fn(tx),
@@ -66,7 +74,9 @@ describe("DEF-3 — runManualSyncForShow archived guard + manual deferral delete
     });
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
     expect(tx.deletedDeferrals).toContain("drive-1"); // manual overrides auto-suppression
-    expect(tx.calls.some((c) => /update public\.shows set requires_resync = false/i.test(c.sql))).toBe(true);
+    expect(
+      tx.calls.some((c) => /update public\.shows set requires_resync = false/i.test(c.sql)),
+    ).toBe(true);
   });
 
   it("R-impl-1 TOCTOU: a recovery branch re-reads archived under ITS lock — Archive landing after preflight blocks the marked error (no shows mutation / no sync_log)", async () => {
@@ -75,7 +85,10 @@ describe("DEF-3 — runManualSyncForShow archived guard + manual deferral delete
     // between. The recovery branch must abort with SHOW_ARCHIVED_IMMUTABLE BEFORE markManualDriveError_unlocked
     // touches `shows` / writes sync_log. (Before the fix, only finalize-ownership was re-checked here.)
     let archivedReads = 0;
-    const markShowDriveError = vi.fn(async () => ({ showId: "show-1", lastSeenModifiedTime: null }));
+    const markShowDriveError = vi.fn(async () => ({
+      showId: "show-1",
+      lastSeenModifiedTime: null,
+    }));
     const insertSyncLog = vi.fn(async () => undefined);
     const tx = {
       async queryOne<T>(sql: string) {

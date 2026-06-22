@@ -13,28 +13,24 @@ const fixtureSpreadsheetId =
 const hasLiveDriveConfig = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && fixtureSpreadsheetId);
 
 describe.skipIf(!hasLiveDriveConfig)("real Drive markdown export smoke", () => {
-  test(
-    "live fixture exposes xlsx export and fetches through the bound wrapper",
-    async () => {
-      const drive = getDriveClient();
-      const metadata = await drive.files.get({
-        fileId: fixtureSpreadsheetId as string,
-        fields: "id, name, mimeType, modifiedTime, headRevisionId, exportLinks",
-        supportsAllDrives: true,
-      });
-      const bindingToken = metadata.data.headRevisionId ?? metadata.data.modifiedTime;
+  test("live fixture exposes xlsx export and fetches through the bound wrapper", async () => {
+    const drive = getDriveClient();
+    const metadata = await drive.files.get({
+      fileId: fixtureSpreadsheetId as string,
+      fields: "id, name, mimeType, modifiedTime, headRevisionId, exportLinks",
+      supportsAllDrives: true,
+    });
+    const bindingToken = metadata.data.headRevisionId ?? metadata.data.modifiedTime;
 
-      expect(bindingToken, "fixture spreadsheet must expose a bindable revision token").toBeTruthy();
-      expect(metadata.data.exportLinks).toHaveProperty(XLSX_EXPORT_MIME_TYPE);
+    expect(bindingToken, "fixture spreadsheet must expose a bindable revision token").toBeTruthy();
+    expect(metadata.data.exportLinks).toHaveProperty(XLSX_EXPORT_MIME_TYPE);
 
-      const markdown = await fetchSheetAsMarkdownAtRevision(
-        fixtureSpreadsheetId as string,
-        bindingToken as string,
-        { drive },
-      );
+    const markdown = await fetchSheetAsMarkdownAtRevision(
+      fixtureSpreadsheetId as string,
+      bindingToken as string,
+      { drive },
+    );
 
-      expect(markdown.length).toBeGreaterThan(0);
-    },
-    30_000,
-  );
+    expect(markdown.length).toBeGreaterThan(0);
+  }, 30_000);
 });

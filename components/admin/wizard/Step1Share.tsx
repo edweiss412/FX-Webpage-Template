@@ -75,10 +75,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           Step 1 of 3
         </p>
         <div className="flex items-center gap-2">
-          <h2
-            id="wizard-step1-heading"
-            className="text-2xl font-semibold text-text-strong"
-          >
+          <h2 id="wizard-step1-heading" className="text-2xl font-semibold text-text-strong">
             Share your show folder
           </h2>
           <HelpTooltip
@@ -86,10 +83,9 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             testId="help-affordance--wizard-step1--tooltip"
           >
             <p>
-              The app reads your show sheets straight from Google Drive.
-              You pick one folder and share it with the email we display
-              below. Anything you drop into that folder appears here in a
-              few minutes; nothing else on your Drive is touched.
+              The app reads your show sheets straight from Google Drive. You pick one folder and
+              share it with the email we display below. Anything you drop into that folder appears
+              here in a few minutes; nothing else on your Drive is touched.
             </p>
             <p className="mt-2">
               <a
@@ -103,15 +99,12 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           </HelpTooltip>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
-          The app reads sheets out of one Google Drive folder you pick. Share
-          that folder with the email below so the app can see what is inside.
+          The app reads sheets out of one Google Drive folder you pick. Share that folder with the
+          email below so the app can see what is inside.
         </p>
       </header>
 
-      <ol
-        data-testid="wizard-step1-steps"
-        className="flex flex-col gap-4 text-base text-text"
-      >
+      <ol data-testid="wizard-step1-steps" className="flex flex-col gap-4 text-base text-text">
         <li className="flex gap-3">
           <span
             aria-hidden="true"
@@ -120,8 +113,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             1
           </span>
           <span>
-            In Google Drive, find the folder where you keep your show sheets
-            (or make a new one).
+            In Google Drive, find the folder where you keep your show sheets (or make a new one).
           </span>
         </li>
         <li className="flex gap-3">
@@ -143,9 +135,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             </span>
             <span>Paste this email and give it Viewer access:</span>
           </div>
-          <div
-            className="ml-9 flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile) sm:flex-row sm:items-center sm:gap-4"
-          >
+          <div className="ml-9 flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile) sm:flex-row sm:items-center sm:gap-4">
             <code
               data-testid="wizard-step1-service-account-email"
               className="break-all text-sm font-medium tabular-nums text-text-strong sm:flex-1 sm:text-base"
@@ -178,9 +168,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           >
             4
           </span>
-          <span>
-            Come back here and click &quot;I&rsquo;ve shared the folder.&quot;
-          </span>
+          <span>Come back here and click &quot;I&rsquo;ve shared the folder.&quot;</span>
         </li>
       </ol>
 
@@ -195,9 +183,9 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           What&rsquo;s this email?
         </summary>
         <p className="mt-3 max-w-prose text-sm text-text-subtle">
-          It is the app&rsquo;s identity inside your Drive. It can only see
-          what you share with it, and only the folder you choose. Removing the
-          share at any time revokes the app&rsquo;s access.
+          It is the app&rsquo;s identity inside your Drive. It can only see what you share with it,
+          and only the folder you choose. Removing the share at any time revokes the app&rsquo;s
+          access.
         </p>
       </details>
 

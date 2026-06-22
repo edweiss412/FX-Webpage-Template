@@ -54,7 +54,8 @@ describe("extractAdminLogOnlyCodes — null-cell normalization (Doug AND Crew)",
   });
 
   it("respects escaped pipes (\\|) inside cells — Doug stays at cells[2] (r6 regression fixture)", () => {
-    const src = "| `X` | http_status: number \\| null, last_auth: timestamptz \\| null | (admin log only — operator) | — | Eric -> rotate creds |";
+    const src =
+      "| `X` | http_status: number \\| null, last_auth: timestamptz \\| null | (admin log only — operator) | — | Eric -> rotate creds |";
     expect(extractAdminLogOnlyCodes(src)).toEqual(["X"]);
   });
 });

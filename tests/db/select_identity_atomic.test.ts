@@ -16,7 +16,10 @@ function sqlString(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function seedShowSql(driveFileId: string, options: { archived?: boolean; published?: boolean } = {}) {
+function seedShowSql(
+  driveFileId: string,
+  options: { archived?: boolean; published?: boolean } = {},
+) {
   return `
     insert into public.shows (drive_file_id, slug, title, client_label, template_version, archived, published)
     values (

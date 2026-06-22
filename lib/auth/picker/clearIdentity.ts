@@ -63,7 +63,11 @@ export async function clearIdentityCore(input: ClearIdentityInput): Promise<Clea
 }
 
 async function clearIdentityCoreImpl(input: ClearIdentityInput): Promise<ClearIdentityResult> {
-  if (!SLUG_RE.test(input.slug) || !TOKEN_RE.test(input.shareToken) || !UUID_RE.test(input.showId)) {
+  if (
+    !SLUG_RE.test(input.slug) ||
+    !TOKEN_RE.test(input.shareToken) ||
+    !UUID_RE.test(input.showId)
+  ) {
     return { ok: false, code: "PICKER_INVALID_INPUT" };
   }
 

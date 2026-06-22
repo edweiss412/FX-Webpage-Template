@@ -136,11 +136,7 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
   );
 }
 
-export function NeedsAttentionInbox({
-  items,
-  overflowCount,
-  now,
-}: NeedsAttentionInboxProps) {
+export function NeedsAttentionInbox({ items, overflowCount, now }: NeedsAttentionInboxProps) {
   if (items.length === 0) {
     return (
       <div

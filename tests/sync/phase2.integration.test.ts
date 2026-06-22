@@ -91,11 +91,15 @@ describe("Phase 2 Task 2.10 — mixed-parse integration", () => {
       expect(rows.find((r) => r.name === "Dana")).toBeDefined();
       // (d) exactly one mi11_pending hold for Alice.
       const holds = await readHolds(tx, showId);
-      expect(holds.filter((h) => h.entity_key === "Alice" && h.kind === "mi11_pending")).toHaveLength(1);
+      expect(
+        holds.filter((h) => h.entity_key === "Alice" && h.kind === "mi11_pending"),
+      ).toHaveLength(1);
 
       const log = await readChangeLog(tx, showId);
       // (b) Dana has a crew_added row.
-      expect(log.find((r) => r.change_kind === "crew_added" && r.entity_ref === "Dana")).toBeDefined();
+      expect(
+        log.find((r) => r.change_kind === "crew_added" && r.entity_ref === "Dana"),
+      ).toBeDefined();
       // (e) no auto_apply row double-logs Alice's held email.
       expect(log.filter((r) => r.entity_ref === "Alice")).toHaveLength(0);
     });
@@ -144,7 +148,13 @@ describe("Phase 2 Task 2.10 — mixed-parse integration", () => {
         binding: { bindingToken: "t", modifiedTime: MT },
         verifyReelOnApply: false as const,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "alice@old", new_email: "x@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "alice@old",
+            new_email: "x@new",
+          },
         ] as never,
         notableItems: [] as TriggeredReviewItem[],
       });
@@ -156,7 +166,9 @@ describe("Phase 2 Task 2.10 — mixed-parse integration", () => {
 
       const log = await readChangeLog(tx, showId);
       // (b) NO crew_added show_change_log row for the never-inserted Alicia.
-      expect(log.find((r) => r.change_kind === "crew_added" && r.entity_ref === "Alicia")).toBeUndefined();
+      expect(
+        log.find((r) => r.change_kind === "crew_added" && r.entity_ref === "Alicia"),
+      ).toBeUndefined();
     });
   });
 
@@ -177,7 +189,13 @@ describe("Phase 2 Task 2.10 — mixed-parse integration", () => {
           binding: { bindingToken: "t", modifiedTime: MT },
           verifyReelOnApply: false as const,
           mi11Items: [
-            { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+            {
+              id: "1",
+              invariant: "MI-11",
+              crew_name: "Alice",
+              prior_email: "a@old",
+              new_email: "a@new",
+            },
           ] as never,
           notableItems: [] as TriggeredReviewItem[],
         }),

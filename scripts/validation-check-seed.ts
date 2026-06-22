@@ -76,7 +76,10 @@ type ValidationStateRow = {
 type LooseSupabaseClient = {
   from: (table: string) => {
     select: (cols: string) => {
-      eq: (col: string, val: unknown) => {
+      eq: (
+        col: string,
+        val: unknown,
+      ) => {
         maybeSingle: () => Promise<{
           data: unknown;
           error: { message?: string } | null;
@@ -101,7 +104,10 @@ function requireEnv(name: string): string {
 }
 
 export class CheckSeedFailure extends Error {
-  constructor(public predicate: string, msg: string) {
+  constructor(
+    public predicate: string,
+    msg: string,
+  ) {
     super(`predicate (${predicate}) — ${msg}`);
     this.name = "CheckSeedFailure";
   }
@@ -204,9 +210,7 @@ async function loadValidationState(
     .eq("key", "validation_seed")
     .maybeSingle();
   if (error) {
-    throw new Error(
-      `validation_state read failed: ${error.message ?? JSON.stringify(error)}`,
-    );
+    throw new Error(`validation_state read failed: ${error.message ?? JSON.stringify(error)}`);
   }
   if (data === null || data === undefined) return null;
   return data as ValidationStateRow;
@@ -255,12 +259,9 @@ async function runChecks(
   const validationTodayIso = resolveEffectiveToday(dispatch, row, nowUtc);
 
   // (c) combos_materialized covers the requested set
-  const requestedCombos: Combo[] =
-    dispatch === "all" ? ALL_COMBOS : [dispatch.single];
+  const requestedCombos: Combo[] = dispatch === "all" ? ALL_COMBOS : [dispatch.single];
   const materializedSet = new Set(row.combos_materialized);
-  const missingMaterialized = requestedCombos.filter(
-    (c) => !materializedSet.has(c),
-  );
+  const missingMaterialized = requestedCombos.filter((c) => !materializedSet.has(c));
   if (missingMaterialized.length > 0) {
     throw new CheckSeedFailure(
       "c",
@@ -273,27 +274,21 @@ async function runChecks(
   // any dispatch's expected state. Without this check, resolve-alias
   // would happily return stale identities while check-seed reports OK.
   const allComboSet = new Set<string>(ALL_COMBOS);
-  const extraMaterialized = row.combos_materialized.filter(
-    (c) => !allComboSet.has(c),
-  );
+  const extraMaterialized = row.combos_materialized.filter((c) => !allComboSet.has(c));
   if (extraMaterialized.length > 0) {
     throw new CheckSeedFailure(
       "c",
       `combos_materialized contains stale/unknown combos: ${extraMaterialized.join(",")}. Re-run \`pnpm validation:reseed --combo all\` (the finalizer prunes stale keys).`,
     );
   }
-  const extraAliasMap = Object.keys(row.alias_map).filter(
-    (c) => !allComboSet.has(c),
-  );
+  const extraAliasMap = Object.keys(row.alias_map).filter((c) => !allComboSet.has(c));
   if (extraAliasMap.length > 0) {
     throw new CheckSeedFailure(
       "c",
       `alias_map contains stale/unknown top-level combos: ${extraAliasMap.join(",")}.`,
     );
   }
-  const extraSeededDates = Object.keys(row.combos_seeded_dates).filter(
-    (c) => !allComboSet.has(c),
-  );
+  const extraSeededDates = Object.keys(row.combos_seeded_dates).filter((c) => !allComboSet.has(c));
   if (extraSeededDates.length > 0) {
     throw new CheckSeedFailure(
       "c",
@@ -321,9 +316,7 @@ async function runChecks(
   //     alias set from the same source predicate (o) uses below. Avoids
   //     a second source-of-truth.
   const expectedFixtures = buildFixtures(validationTodayIso);
-  const expectedByCombo = new Map<Combo, FixtureRow>(
-    expectedFixtures.map((fx) => [fx.combo, fx]),
-  );
+  const expectedByCombo = new Map<Combo, FixtureRow>(expectedFixtures.map((fx) => [fx.combo, fx]));
   for (const combo of requestedCombos) {
     const slice = row.alias_map[combo];
     if (!slice || typeof slice !== "object") {
@@ -339,9 +332,7 @@ async function runChecks(
         `Internal: no canonical fixture for combo '${combo}' (build error).`,
       );
     }
-    const expectedAliasKeys = expectedFixture.crewMembers
-      .map((c) => c.alias)
-      .sort();
+    const expectedAliasKeys = expectedFixture.crewMembers.map((c) => c.alias).sort();
     const liveAliasKeys = Object.keys(slice).sort();
     if (
       liveAliasKeys.length !== expectedAliasKeys.length ||
@@ -415,9 +406,7 @@ async function runChecks(
     }
   )
     .from("shows")
-    .select(
-      "id,drive_file_id,archived,published,dates,title,slug,venue,pull_sheet,client_label",
-    )
+    .select("id,drive_file_id,archived,published,dates,title,slug,venue,pull_sheet,client_label")
     .like("drive_file_id", "validation_%");
   if (showsRes.error) {
     throw new Error(
@@ -448,9 +437,7 @@ async function runChecks(
   //     fixture ownership. Both check-seed and the finalize prune
   //     must use the SAME ownership predicate.
   const shows = ((showsRes.data ?? []) as ShowRow[]).filter(
-    (s) =>
-      s.drive_file_id.startsWith("validation_") &&
-      s.client_label === "M12 Validation",
+    (s) => s.drive_file_id.startsWith("validation_") && s.client_label === "M12 Validation",
   );
   for (const s of shows) {
     // R19 F18 — UPPERCASE combo enum verbatim; resolve 'validation_<C>' → <C>.
@@ -478,12 +465,8 @@ async function runChecks(
   // (e.g., manual intervention, partial migration), check-seed
   // surfaces it.
   if (dispatch === "all") {
-    const expectedShowDriveIds = new Set(
-      ALL_COMBOS.map((c) => `validation_${c}`),
-    );
-    const extraShows = shows.filter(
-      (s) => !expectedShowDriveIds.has(s.drive_file_id),
-    );
+    const expectedShowDriveIds = new Set(ALL_COMBOS.map((c) => `validation_${c}`));
+    const extraShows = shows.filter((s) => !expectedShowDriveIds.has(s.drive_file_id));
     if (extraShows.length > 0) {
       throw new CheckSeedFailure(
         "n",
@@ -510,7 +493,10 @@ async function runChecks(
   )
     .from("show_share_tokens")
     .select("show_id")
-    .in("show_id", shows.map((s) => s.id));
+    .in(
+      "show_id",
+      shows.map((s) => s.id),
+    );
   if (sstRes.error) {
     throw new Error(
       `show_share_tokens read failed: ${sstRes.error.message ?? JSON.stringify(sstRes.error)}`,
@@ -549,7 +535,10 @@ async function runChecks(
     .select(
       "id,show_id,name,email,claimed_via_oauth_at,date_restriction,stage_restriction,role,role_flags",
     )
-    .in("show_id", shows.map((s) => s.id));
+    .in(
+      "show_id",
+      shows.map((s) => s.id),
+    );
   if (cmRes.error) {
     throw new Error(
       `crew_members read failed: ${cmRes.error.message ?? JSON.stringify(cmRes.error)}`,
@@ -774,9 +763,7 @@ async function runChecks(
     // (o.2 / o.3 / o.4) per-alias date_restriction / stage_restriction /
     //                  email match the canonical fixture row keyed by name.
     for (const expectedCrew of expected.crewMembers) {
-      const liveCrew = (crewByShowId.get(showId) ?? []).find(
-        (c) => c.name === expectedCrew.name,
-      );
+      const liveCrew = (crewByShowId.get(showId) ?? []).find((c) => c.name === expectedCrew.name);
       if (!liveCrew) {
         // Codex Phase 0.C R5 F1 — must NOT silently skip. Predicate (e)
         // catches non-canonical alias keys, but a manually-deleted
@@ -918,12 +905,12 @@ async function main(): Promise<void> {
     requestedCombo === "all"
       ? "all"
       : ALL_COMBOS.includes(requestedCombo as Combo)
-      ? { single: requestedCombo as Combo }
-      : (() => {
-          throw new Error(
-            `Unknown combo '${requestedCombo}'. Valid: 'all' or one of ${ALL_COMBOS.join(", ")}.`,
-          );
-        })();
+        ? { single: requestedCombo as Combo }
+        : (() => {
+            throw new Error(
+              `Unknown combo '${requestedCombo}'. Valid: 'all' or one of ${ALL_COMBOS.join(", ")}.`,
+            );
+          })();
 
   const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -932,9 +919,7 @@ async function main(): Promise<void> {
   await runChecks(supabase, dispatch, nowUtc, projectRef, j3ClaimEmail);
 
   const scope =
-    dispatch === "all"
-      ? `combos: ${ALL_COMBOS.join(",")}`
-      : `combo: ${dispatch.single}`;
+    dispatch === "all" ? `combos: ${ALL_COMBOS.join(",")}` : `combo: ${dispatch.single}`;
   process.stdout.write(`OK: seed matches today (${scope})\n`);
 }
 

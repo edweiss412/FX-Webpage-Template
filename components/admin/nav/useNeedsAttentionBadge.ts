@@ -22,8 +22,13 @@ export function useNeedsAttentionBadge(initialBadgeCount: number | null): number
 
   useEffect(() => {
     // Prop sync (router.refresh path): newest server truth — always commit.
+    // setState lives in the effect deliberately: the commit is coordinated with
+    // a token bump + in-flight fetch abort (R5-F1 race safety). A
+    // derive-during-render rewrite would have to mutate tokenRef/abortRef during
+    // render (a worse violation) and drop the abort.
     tokenRef.current += 1;
     abortRef.current?.abort();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- coordinated prop sync; see above
     setCount(initialBadgeCount);
   }, [initialBadgeCount]);
 

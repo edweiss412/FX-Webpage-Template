@@ -54,10 +54,7 @@ describe("StaleFooter — required `now` prop + deterministic-output contract (A
   });
 
   it("StaleFooter source no longer contains the `now ?? new Date()` default branch", () => {
-    const src = readFileSync(
-      join(process.cwd(), "components/shared/StaleFooter.tsx"),
-      "utf8",
-    );
+    const src = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
     const stripped = src
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .split("\n")
@@ -68,10 +65,7 @@ describe("StaleFooter — required `now` prop + deterministic-output contract (A
 
   it("every <StaleFooter ... /> JSX usage under app/ and components/ threads the `now` prop", () => {
     const violations: string[] = [];
-    const scanRoots = [
-      join(process.cwd(), "app"),
-      join(process.cwd(), "components"),
-    ];
+    const scanRoots = [join(process.cwd(), "app"), join(process.cwd(), "components")];
 
     function walk(dir: string): string[] {
       const out: string[] = [];

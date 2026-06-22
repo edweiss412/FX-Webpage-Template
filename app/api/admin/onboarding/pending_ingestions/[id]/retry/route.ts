@@ -95,7 +95,6 @@ async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   return await requireAdminIdentity();
 }
 
-
 function depsWithDefaults(deps: WizardPendingIngestionRouteDeps) {
   return {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
@@ -110,7 +109,11 @@ function depsWithDefaults(deps: WizardPendingIngestionRouteDeps) {
   };
 }
 
-function errorResponse(status: number, code: string, extra: Record<string, unknown> = {}): Response {
+function errorResponse(
+  status: number,
+  code: string,
+  extra: Record<string, unknown> = {},
+): Response {
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
@@ -141,9 +144,7 @@ async function readLockedPendingIngestion(
   );
 }
 
-async function readWizardSettings(
-  tx: WizardPendingIngestionRouteTx,
-): Promise<WizardSettingsRow> {
+async function readWizardSettings(tx: WizardPendingIngestionRouteTx): Promise<WizardSettingsRow> {
   const row = await tx.queryOne<WizardSettingsRow | null>(
     `
       select pending_wizard_session_id, pending_folder_id
@@ -176,7 +177,10 @@ async function requireCurrentWizardRow(
   tx: WizardPendingIngestionRouteTx,
   id: string,
 ): Promise<
-  | { ok: true; row: PendingIngestionRow & { wizard_session_id: string; discovered_during_folder_id: string } }
+  | {
+      ok: true;
+      row: PendingIngestionRow & { wizard_session_id: string; discovered_during_folder_id: string };
+    }
   | { ok: false; response: Response }
 > {
   const [row, settings] = await Promise.all([
@@ -300,7 +304,8 @@ async function handleAction(
   try {
     await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }

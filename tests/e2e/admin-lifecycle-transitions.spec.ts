@@ -40,7 +40,7 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedHeldShow, readShow, sqlClient, type SeededShow } from "../db/_b2Helpers";

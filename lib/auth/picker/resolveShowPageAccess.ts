@@ -1,7 +1,10 @@
 import { createHmac } from "node:crypto";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { decodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
-import { resolvePickerSelection, type ResolvePickerSelectionResult } from "@/lib/auth/picker/resolvePickerSelection";
+import {
+  resolvePickerSelection,
+  type ResolvePickerSelectionResult,
+} from "@/lib/auth/picker/resolvePickerSelection";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -14,7 +17,12 @@ export type ResolveShowPageAccessResult =
   | { kind: "unpublished" }
   | { kind: "no_auth"; showId: string; reason: "first_contact" | "google_mismatch" }
   | { kind: "epoch_stale"; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
-  | { kind: "removed_from_roster"; showId: string; expectedEpoch: number; expectedCrewMemberId: string }
+  | {
+      kind: "removed_from_roster";
+      showId: string;
+      expectedEpoch: number;
+      expectedCrewMemberId: string;
+    }
   | {
       kind: "identity_invalidated";
       showId: string;
@@ -42,7 +50,10 @@ function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString("base64url");
 }
 
-function signIntentToken(input: { slug: string; shareToken: string; exp: number }, key: string): string {
+function signIntentToken(
+  input: { slug: string; shareToken: string; exp: number },
+  key: string,
+): string {
   const payload = base64url(JSON.stringify(input));
   const sig = createHmac("sha256", Buffer.from(key, "hex")).update(payload).digest("base64url");
   return `${payload}.${sig}`;
@@ -188,7 +199,10 @@ export async function resolveShowPageAccess(_input: {
     if (!entry || entry.id !== google.viewer.crewMemberId) {
       return {
         kind: "needs_picker_bootstrap",
-        intentToken: signIntentToken({ slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 }, key),
+        intentToken: signIntentToken(
+          { slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 },
+          key,
+        ),
       };
     }
 
@@ -197,14 +211,20 @@ export async function resolveShowPageAccess(_input: {
     if (!crewClaimRow?.claimed_via_oauth_at) {
       return {
         kind: "needs_picker_bootstrap",
-        intentToken: signIntentToken({ slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 }, key),
+        intentToken: signIntentToken(
+          { slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 },
+          key,
+        ),
       };
     }
     const claimEpochMillis = Math.floor(new Date(crewClaimRow.claimed_via_oauth_at).getTime());
     if (entry.t <= claimEpochMillis) {
       return {
         kind: "needs_picker_bootstrap",
-        intentToken: signIntentToken({ slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 }, key),
+        intentToken: signIntentToken(
+          { slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 },
+          key,
+        ),
       };
     }
   }

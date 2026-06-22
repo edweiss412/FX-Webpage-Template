@@ -11,15 +11,10 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const MIGRATION = join(
-  process.cwd(),
-  "supabase/migrations/20260608000003_undo_change_rpc.sql",
-);
+const MIGRATION = join(process.cwd(), "supabase/migrations/20260608000003_undo_change_rpc.sql");
 
 function stripComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^[ \t]*--.*$/gm, "");
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*--.*$/gm, "");
 }
 
 describe("undo_change migration — advisory-lock-before-row-lock order (PF11)", () => {

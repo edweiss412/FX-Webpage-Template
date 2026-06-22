@@ -13,10 +13,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
-import {
-  PerShowCrewSection,
-  type PerShowCrewRow,
-} from "@/components/admin/PerShowCrewSection";
+import { PerShowCrewSection, type PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 
 afterEach(cleanup);
 
@@ -45,12 +42,7 @@ describe("PerShowCrewSection (post-F1: picker pivot)", () => {
   });
 
   test("role omitted when null", () => {
-    render(
-      <PerShowCrewSection
-        showId="show-1"
-        crew={[makeRow({ role: null })]}
-      />,
-    );
+    render(<PerShowCrewSection showId="show-1" crew={[makeRow({ role: null })]} />);
     const row = screen.getByTestId("per-show-crew-row");
     expect(row.textContent).toContain("Alice Adams");
     expect(row.textContent).not.toContain("Audio A1");
@@ -63,13 +55,7 @@ describe("PerShowCrewSection (post-F1: picker pivot)", () => {
   });
 
   test("crewLookupFailed=true renders warning branch with role=alert and SUPPRESSES rows + empty-state", () => {
-    render(
-      <PerShowCrewSection
-        showId="show-1"
-        crew={[makeRow()]}
-        crewLookupFailed
-      />,
-    );
+    render(<PerShowCrewSection showId="show-1" crew={[makeRow()]} crewLookupFailed />);
     const warning = screen.getByTestId("per-show-crew-lookup-failed");
     expect(warning.getAttribute("role")).toBe("alert");
     expect(screen.queryAllByTestId("per-show-crew-row")).toHaveLength(0);
@@ -80,9 +66,7 @@ describe("PerShowCrewSection (post-F1: picker pivot)", () => {
     // Structural: after F1, the rendered DOM must NOT contain the
     // legacy button affordances. This guards against an accidental
     // re-import / re-mount during the §A G-series cleanup.
-    const { container } = render(
-      <PerShowCrewSection showId="show-1" crew={[makeRow()]} />,
-    );
+    const { container } = render(<PerShowCrewSection showId="show-1" crew={[makeRow()]} />);
     expect(container.innerHTML).not.toContain("Issue ");
     expect(container.innerHTML).not.toContain("Revoke");
   });

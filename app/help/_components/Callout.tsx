@@ -37,13 +37,7 @@ const VARIANTS = {
   },
 } as const;
 
-export function Callout({
-  type,
-  children,
-}: {
-  type: keyof typeof VARIANTS;
-  children: ReactNode;
-}) {
+export function Callout({ type, children }: { type: keyof typeof VARIANTS; children: ReactNode }) {
   // Defensive: unknown type → default to "note" per spec §6.3.
   const v = VARIANTS[type] ?? VARIANTS.note;
   return (

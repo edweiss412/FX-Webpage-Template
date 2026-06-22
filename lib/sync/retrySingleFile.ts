@@ -1,9 +1,6 @@
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
-import {
-  runOnboardingScan,
-  type OnboardingScanResult,
-} from "@/lib/sync/runOnboardingScan";
+import { runOnboardingScan, type OnboardingScanResult } from "@/lib/sync/runOnboardingScan";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -40,9 +37,7 @@ type PendingIngestionRow = {
   last_error_code: string | null;
 };
 
-async function readWizardSettings(
-  tx: LockedShowTx<RetrySingleFileTx>,
-): Promise<WizardSettingsRow> {
+async function readWizardSettings(tx: LockedShowTx<RetrySingleFileTx>): Promise<WizardSettingsRow> {
   const row = await tx.queryOne<WizardSettingsRow | null>(
     `
       select pending_wizard_session_id, pending_folder_id

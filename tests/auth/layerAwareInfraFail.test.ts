@@ -76,39 +76,27 @@ describe("layer-aware test-only infra-fail hook", () => {
 
   test("page-scoped force throws page-layer gates but not layout-layer", async () => {
     nextHeaders.store.set("x-test-force-infra-fail", "page");
-    const { requireAdmin, requireAdminIdentity, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
-    await expect(requireAdminIdentity({ layer: "page" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
-    await expect(requireAdmin({ layer: "page" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
+    const { requireAdmin, requireAdminIdentity, AdminInfraError } =
+      await import("@/lib/auth/requireAdmin");
+    await expect(requireAdminIdentity({ layer: "page" })).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(requireAdmin({ layer: "page" })).rejects.toBeInstanceOf(AdminInfraError);
     // layout-layer is exempt under a page-scoped force header.
     await expect(requireAdminIdentity({ layer: "layout" })).resolves.toBeDefined();
   });
 
   test("layout-scoped force (header 'layout') throws only layout-layer", async () => {
     nextHeaders.store.set("x-test-force-infra-fail", "layout");
-    const { requireAdmin, requireAdminIdentity, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
-    await expect(requireAdminIdentity({ layer: "layout" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
-    await expect(requireAdmin({ layer: "layout" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
+    const { requireAdmin, requireAdminIdentity, AdminInfraError } =
+      await import("@/lib/auth/requireAdmin");
+    await expect(requireAdminIdentity({ layer: "layout" })).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(requireAdmin({ layer: "layout" })).rejects.toBeInstanceOf(AdminInfraError);
     // page-layer is exempt under a layout-scoped force header.
     await expect(requireAdminIdentity({ layer: "page" })).resolves.toBeDefined();
   });
 
   test("default layer is 'page'", async () => {
     nextHeaders.store.set("x-test-force-infra-fail", "page");
-    const { requireAdminIdentity, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+    const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
     await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
   });
 

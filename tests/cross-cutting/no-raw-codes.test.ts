@@ -76,7 +76,9 @@ describe("AC-X.2 AST audit fixtures", () => {
 describe("AC-X.2 repository audit", () => {
   test("app/components JSX surfaces do not render raw catalog, retired, or internal codes", () => {
     expect(
-      auditNoRawCodesInSourceFiles(undefined, buildForbiddenCodeIndex()).map(formatRawCodeViolation),
+      auditNoRawCodesInSourceFiles(undefined, buildForbiddenCodeIndex()).map(
+        formatRawCodeViolation,
+      ),
     ).toEqual([]);
   });
 
@@ -97,7 +99,11 @@ describe("AC-X.2 repository audit", () => {
     expect(workflow).toContain("x2-no-raw-codes:");
     expect(workflow).toContain("pnpm test:audit:x2-no-raw-codes");
     expect(workflow).toContain("pnpm gen:internal-code-enums");
-    expect(workflow).toContain("name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}");
-    expect(workflow).toContain("name: x2-no-raw-codes-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}");
+    expect(workflow).toContain(
+      "name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}",
+    );
+    expect(workflow).toContain(
+      "name: x2-no-raw-codes-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}",
+    );
   });
 });

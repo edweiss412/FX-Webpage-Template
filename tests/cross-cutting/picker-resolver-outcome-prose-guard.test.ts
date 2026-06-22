@@ -39,13 +39,16 @@ type Finding = {
 // banner code names like `PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER` embed the
 // reason name in uppercase; case-sensitive matching correctly skips those.
 const F3_VIOLATION_RX = /iPhone[^\n]{0,400}claimed_after_pick|claimed_after_pick[^\n]{0,400}iPhone/;
-const F3_ACCEPTABLE_RX = /needs_picker_bootstrap|resolveShowPageAccess\.ts:20[0-9]|no (?:active )?Google session/;
+const F3_ACCEPTABLE_RX =
+  /needs_picker_bootstrap|resolveShowPageAccess\.ts:20[0-9]|no (?:active )?Google session/;
 
 // F4 — Reset action + session_mismatch within 200 chars on same line.
 // Acceptable: explicit "NOT ... session_mismatch" disambiguation or epoch_stale
 // / epoch arm / epoch check qualifier in the same line.
-const F4_VIOLATION_RX = /(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)[^\n]{0,200}session_mismatch|session_mismatch[^\n]{0,200}(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)/;
-const F4_ACCEPTABLE_RX = /\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b|epoch_stale|epoch arm|epoch check/;
+const F4_VIOLATION_RX =
+  /(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)[^\n]{0,200}session_mismatch|session_mismatch[^\n]{0,200}(?:\bResetPickerEpoch(?:Button)?\b|\breset_picker_epoch_atomic\b|\bepoch[\s-]reset(?:s|ting)?\b)/;
+const F4_ACCEPTABLE_RX =
+  /\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b|epoch_stale|epoch arm|epoch check/;
 
 // F5 — bare session_mismatch without API-route qualifier in ±5-line proximity.
 // Wider window because the closing-paragraph framing for API-route reachability
@@ -53,12 +56,14 @@ const F4_ACCEPTABLE_RX = /\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\
 // Acceptable qualifiers include the API-route reachability disclaimers AND
 // explicit "NOT session_mismatch" disambiguation (the prose contrasts the
 // correct outcome with what it is NOT — same shape as F4's NOT qualifier).
-const F5_ACCEPTABLE_RX = /API[\s-]route|\/api\/|auth_email_canonical|resolvePickerSelection\.ts:122-143|API-route-only|not from (?:the )?page-route|page-route forecloses|reachable only via|unreachable from (?:the )?page-route|documentation contract|\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b/;
+const F5_ACCEPTABLE_RX =
+  /API[\s-]route|\/api\/|auth_email_canonical|resolvePickerSelection\.ts:122-143|API-route-only|not from (?:the )?page-route|page-route forecloses|reachable only via|unreachable from (?:the )?page-route|documentation contract|\bNOT\b[^\n]{0,80}session_mismatch|session_mismatch[^\n]{0,40}\bNOT\b/;
 
 // Paranoia — Rotate action + claimed_after_pick within 200 chars on same line.
 // No acceptable qualifier (flat-forbidden). Word boundaries prevent matching
 // the past-participle "rotated" in casual prose.
-const PARANOIA_VIOLATION_RX = /(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)[^\n]{0,200}claimed_after_pick|claimed_after_pick[^\n]{0,200}(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)/;
+const PARANOIA_VIOLATION_RX =
+  /(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)[^\n]{0,200}claimed_after_pick|claimed_after_pick[^\n]{0,200}(?:\bRotate(?:ShareToken)?(?:Button)?\b|\brotate_show_share_token\b)/;
 
 function collectMarkdown(target: string): string[] {
   const full = join(ROOT, target);
@@ -127,7 +132,8 @@ function scan(file: string, source: string): Finding[] {
         file,
         line: i + 1,
         subclass: "F3",
-        pattern: "iPhone + claimed_after_pick (no needs_picker_bootstrap / resolveShowPageAccess.ts:204 / 'no Google session' qualifier on same line)",
+        pattern:
+          "iPhone + claimed_after_pick (no needs_picker_bootstrap / resolveShowPageAccess.ts:204 / 'no Google session' qualifier on same line)",
         suggestion:
           "iPhone post-claim from the page-route returns `needs_picker_bootstrap` (resolveShowPageAccess.ts:204-208 — validateGoogleSession-success branch fires before resolvePickerSelection), NOT `claimed_after_pick`. The latter is reachable from the page-route only when there is no active Google session for this show.",
       });
@@ -149,12 +155,17 @@ function scan(file: string, source: string): Finding[] {
       // F4 — Reset action + session_mismatch (no NOT/epoch_stale qualifier
       // within the local chunk around the matched violation).
       const f4match = ln.match(F4_VIOLATION_RX);
-      if (f4match && f4match.index !== undefined && !F4_ACCEPTABLE_RX.test(localChunk(ln, f4match as RegExpExecArray))) {
+      if (
+        f4match &&
+        f4match.index !== undefined &&
+        !F4_ACCEPTABLE_RX.test(localChunk(ln, f4match as RegExpExecArray))
+      ) {
         findings.push({
           file,
           line: i + 1,
           subclass: "F4",
-          pattern: "Reset action + session_mismatch within 200 chars (no NOT/epoch_stale qualifier in local chunk)",
+          pattern:
+            "Reset action + session_mismatch within 200 chars (no NOT/epoch_stale qualifier in local chunk)",
           suggestion:
             "Picker-epoch reset returns `epoch_stale + PICKER_EPOCH_STALE_BANNER` per resolvePickerSelection.ts:88-90 (epoch arm fires before the claim and session-email arms); the cookie's stale `e` short-circuits the resolver. Never `session_mismatch`.",
         });
@@ -189,7 +200,10 @@ describe("picker-resolver-outcome prose guard", () => {
     }
     if (findings.length > 0) {
       const formatted = findings
-        .map((f) => `\n  [${f.subclass}] ${f.file}:${f.line}\n      pattern: ${f.pattern}\n      fix: ${f.suggestion}`)
+        .map(
+          (f) =>
+            `\n  [${f.subclass}] ${f.file}:${f.line}\n      pattern: ${f.pattern}\n      fix: ${f.suggestion}`,
+        )
         .join("\n");
       expect.fail(
         `picker-resolver-outcome prose guard found ${findings.length} violation(s):${formatted}\n\n` +

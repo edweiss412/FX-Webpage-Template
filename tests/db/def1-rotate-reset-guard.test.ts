@@ -1,13 +1,21 @@
 import { describe, it, expect } from "vitest";
 import {
-  seedArchivedShow, seedFinalizeOwnedShow, seedLiveShowWithToken, seedHeldShow, asAdminRpc, archivedImmutabilityRace, readShow,
+  seedArchivedShow,
+  seedFinalizeOwnedShow,
+  seedLiveShowWithToken,
+  seedHeldShow,
+  asAdminRpc,
+  archivedImmutabilityRace,
+  readShow,
 } from "@/tests/db/_b2Helpers";
 
 describe("DEF-1 — rotate/reset RPCs gate on published && !archived && !finalize-owned", () => {
   for (const fn of ["rotate_show_share_token", "reset_picker_epoch_atomic"] as const) {
     it(`${fn} refuses an archived show → SHOW_ARCHIVED_IMMUTABLE`, async () => {
       const { showId } = await seedArchivedShow();
-      await expect(asAdminRpc(fn, { p_show_id: showId })).rejects.toThrow(/SHOW_ARCHIVED_IMMUTABLE/);
+      await expect(asAdminRpc(fn, { p_show_id: showId })).rejects.toThrow(
+        /SHOW_ARCHIVED_IMMUTABLE/,
+      );
     });
 
     it(`${fn} refuses a finalize-owned show → FINALIZE_OWNED_SHOW`, async () => {

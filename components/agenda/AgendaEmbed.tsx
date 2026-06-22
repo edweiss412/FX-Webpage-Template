@@ -79,9 +79,7 @@ export function AgendaEmbed({ showId, agendaLinks }: AgendaEmbedProps) {
       >
         <FileText aria-hidden="true" className="size-4 text-accent-on-bg" />
         Open agenda
-        {primary.label ? (
-          <span className="text-text-subtle">· {primary.label}</span>
-        ) : null}
+        {primary.label ? <span className="text-text-subtle">· {primary.label}</span> : null}
       </button>
       {open ? (
         <AgendaSheet
@@ -94,15 +92,7 @@ export function AgendaEmbed({ showId, agendaLinks }: AgendaEmbedProps) {
   );
 }
 
-function AgendaSheet({
-  src,
-  label,
-  onClose,
-}: {
-  src: string;
-  label: string;
-  onClose: () => void;
-}) {
+function AgendaSheet({ src, label, onClose }: { src: string; label: string; onClose: () => void }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
 

@@ -1,4 +1,9 @@
-import { callLifecycleRpc, defaultRpc, type LifecycleRpc, type LifecycleResult } from "@/lib/showLifecycle/_shared";
+import {
+  callLifecycleRpc,
+  defaultRpc,
+  type LifecycleRpc,
+  type LifecycleResult,
+} from "@/lib/showLifecycle/_shared";
 import { runManualSyncForShow as defaultRunManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 
 export type { LifecycleResult } from "@/lib/showLifecycle/_shared";

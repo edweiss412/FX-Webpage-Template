@@ -111,7 +111,11 @@ function isHeroDegraded(kind: RightNowState["kind"]): boolean {
 }
 
 /** Coerce a candidate stat value to a renderable stat or null (§4.8 level-one). */
-function statOrNull(label: string, value: string | number | null, accent?: boolean): HeroStat | null {
+function statOrNull(
+  label: string,
+  value: string | number | null,
+  accent?: boolean,
+): HeroStat | null {
   if (value === null) return null;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return null;
@@ -538,10 +542,7 @@ export function RightNowHero({ context }: RightNowHeroProps) {
           {/* §4.16 stats slot — ≤3 key-values, one accented. Omitted entirely
               when empty (§4.8 level-two). */}
           {showStats ? (
-            <dl
-              data-testid="right-now-stats"
-              className="mt-4 flex flex-wrap gap-x-6 gap-y-2"
-            >
+            <dl data-testid="right-now-stats" className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
               {stats.slice(0, 3).map((stat) => (
                 <div
                   key={stat.label}

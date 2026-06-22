@@ -25,10 +25,7 @@ import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 const AUTO_REVERT_MS = 3_000;
 
 type UiState = "idle" | "confirm" | "resolving";
-type Result =
-  | { ok: true; new_epoch: number }
-  | { ok: false; code: string }
-  | null;
+type Result = { ok: true; new_epoch: number } | { ok: false; code: string } | null;
 
 export function ResetPickerEpochButton({
   showId,
@@ -102,9 +99,7 @@ export function ResetPickerEpochButton({
 
   const okMessage = result?.ok ? "Picker selections reset." : null;
   const refusedMessage =
-    result && result.ok === false
-      ? "Couldn't reset selections. Please try again."
-      : null;
+    result && result.ok === false ? "Couldn't reset selections. Please try again." : null;
   const isResolving = ui === "resolving" || isPending;
 
   // M12.7 — compact share-card labeled row (label/desc left, button right);

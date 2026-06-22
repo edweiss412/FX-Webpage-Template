@@ -8,10 +8,7 @@ import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 
-const src = readFileSync(
-  join(process.cwd(), "app/help/admin/parse-warnings/page.mdx"),
-  "utf8",
-);
+const src = readFileSync(join(process.cwd(), "app/help/admin/parse-warnings/page.mdx"), "utf8");
 
 // r2 fix: catalog helpHref is `/help/errors#CODE` for ALL Doug-facing
 // entries (per E-r1 finding 2). The parse-warnings page renders per-code
@@ -23,13 +20,8 @@ const PARSE_CODE_PATTERN = /^(WARN_|PARSE_)/;
 // Cast through MessageCatalogEntry[] mirrors tests/help/page-errors.test.tsx;
 // without it, TypeScript narrows the union to variants that lack `severity`
 // (entries that default the field) and the property access errors.
-const warningCodes = (
-  Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[]
-).filter(
-  (e) =>
-    e.severity !== "info" &&
-    e.dougFacing !== null &&
-    PARSE_CODE_PATTERN.test(e.code),
+const warningCodes = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[]).filter(
+  (e) => e.severity !== "info" && e.dougFacing !== null && PARSE_CODE_PATTERN.test(e.code),
 );
 
 describe("/help/admin/parse-warnings (E.7)", () => {
@@ -69,13 +61,11 @@ describe("/help/admin/parse-warnings (E.7)", () => {
 
   for (const entry of warningCodes) {
     it(`has a <RefAnchor id="${entry.code}"> section`, () => {
-      expect(src).toMatch(
-        new RegExp(`<RefAnchor\\s+id=["']${entry.code}["']`),
-      );
+      expect(src).toMatch(new RegExp(`<RefAnchor\\s+id=["']${entry.code}["']`));
     });
   }
 
-  it("includes a footer <Callout type=\"note\"> directing Doug to Tell Eric", () => {
+  it('includes a footer <Callout type="note"> directing Doug to Tell Eric', () => {
     expect(src).toMatch(/<Callout\s+type=["']note["']/);
   });
 

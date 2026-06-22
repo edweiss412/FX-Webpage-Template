@@ -3,7 +3,8 @@ import { normalizeTravelCell } from "@/lib/parser/blocks/travelFlights";
 
 describe("normalizeTravelCell", () => {
   it("round-trip with leading conf → conf-prefixed two legs joined by ' | '", () => {
-    const raw = "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am 3/26 AA2723 ORD - LGA 7:23am - 10:30am";
+    const raw =
+      "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am 3/26 AA2723 ORD - LGA 7:23am - 10:30am";
     expect(normalizeTravelCell(raw)).toBe(
       "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am",
     );

@@ -53,7 +53,13 @@ describe("supersession cleanup runs on BOTH applied-crew-identity writers (P4-F2
     // Start: Alice. Auto-apply rename Alice→Alicia (older crew_renamed R1, entity_ref='Alice').
     const { showId, driveFileId } = await seedShowWithCrew([{ name: "Alice", email: "alice@old" }]);
     const items: TriggeredReviewItem[] = [
-      { id: "1", invariant: "MI-12", removed_name: "Alice", added_name: "Alicia", email: "alicia@new" },
+      {
+        id: "1",
+        invariant: "MI-12",
+        removed_name: "Alice",
+        added_name: "Alicia",
+        email: "alicia@new",
+      },
     ];
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],

@@ -214,10 +214,10 @@ export async function callReject(
   holdId: string,
   expectedBase: string,
 ): Promise<{ ok: boolean; code?: string }> {
-  const [row] = await tx.unsafe(
-    `select public.mi11_reject_hold($1::uuid, $2::timestamptz) as r`,
-    [holdId, expectedBase],
-  );
+  const [row] = await tx.unsafe(`select public.mi11_reject_hold($1::uuid, $2::timestamptz) as r`, [
+    holdId,
+    expectedBase,
+  ]);
   return (row as unknown as { r: { ok: boolean; code?: string } }).r;
 }
 

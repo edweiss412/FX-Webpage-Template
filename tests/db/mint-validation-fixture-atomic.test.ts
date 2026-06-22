@@ -16,15 +16,13 @@ import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { safeValidationCleanup } from "./_validation-cleanup-helpers";
 
 const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -76,17 +74,13 @@ describe("mint_validation_fixture_atomic", () => {
   });
 
   test("happy path: mints show + crew_members + alias_map slice", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
 
     const showRow = runPsql(`
       SELECT s.drive_file_id, s.slug, s.title, s.archived::text, s.published::text
         FROM public.shows s WHERE s.drive_file_id = 'validation_R1';
     `);
-    expect(showRow).toBe(
-      "validation_R1\tvalidation-r1\tM12 Validation — R1\tfalse\ttrue",
-    );
+    expect(showRow).toBe("validation_R1\tvalidation-r1\tM12 Validation — R1\tfalse\ttrue");
 
     const crewCount = runPsql(`
       SELECT count(*)
@@ -106,9 +100,7 @@ describe("mint_validation_fixture_atomic", () => {
   });
 
   test("F19 self-heal: re-creates show_share_tokens row when removed out-of-band", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     runPsql(`
       DELETE FROM public.show_share_tokens
         WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');
@@ -119,9 +111,7 @@ describe("mint_validation_fixture_atomic", () => {
     `);
     expect(beforeCount).toBe("0");
 
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     const afterCount = runPsql(`
       SELECT count(*) FROM public.show_share_tokens
         WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1');
@@ -136,16 +126,12 @@ describe("mint_validation_fixture_atomic", () => {
   });
 
   test("F27 baseline restore: archived/published reset on every reseed", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     runPsql(`
       UPDATE public.shows SET archived = true, published = false
        WHERE drive_file_id = 'validation_R1';
     `);
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     const post = runPsql(`
       SELECT archived::text, published::text FROM public.shows WHERE drive_file_id='validation_R1';
     `);
@@ -153,17 +139,13 @@ describe("mint_validation_fixture_atomic", () => {
   });
 
   test("F11 baseline-claim reset: claimed_via_oauth_at = NULL on every reseed", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     runPsql(`
       UPDATE public.crew_members SET claimed_via_oauth_at = now()
        WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
          AND name = 'R1_alias_5a_lead';
     `);
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     const isNull = runPsql(`
       SELECT (claimed_via_oauth_at IS NULL)::text
         FROM public.crew_members
@@ -174,9 +156,7 @@ describe("mint_validation_fixture_atomic", () => {
   });
 
   test("F16 full-replace: orphan crew_members removed on reseed", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     runPsql(`
       INSERT INTO public.crew_members
         (show_id, name, email, role, role_flags, date_restriction, stage_restriction)
@@ -197,9 +177,7 @@ describe("mint_validation_fixture_atomic", () => {
     `);
     expect(beforeCount).toBe("1");
 
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     const afterCount = runPsql(`
       SELECT count(*) FROM public.crew_members
         WHERE show_id = (SELECT id FROM public.shows WHERE drive_file_id='validation_R1')
@@ -209,9 +187,7 @@ describe("mint_validation_fixture_atomic", () => {
   });
 
   test("F49: initial INSERT leaves last_seed_date NULL (singleton-creation path)", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildR1Payload()}'::jsonb);`);
     const lastSeed = runPsql(`
       SELECT (last_seed_date IS NULL)::text
         FROM public.validation_state WHERE key='validation_seed';
@@ -269,9 +245,7 @@ describe("mint_validation_fixture_atomic", () => {
       claimEmail: "fake@example.com",
     });
     expect(() =>
-      runPsql(
-        `SELECT public.mint_validation_fixture_atomic('R1', '${payload}'::jsonb);`,
-      ),
+      runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${payload}'::jsonb);`),
     ).toThrow(/placeholder\/dev-only reserved domain/);
   });
 });

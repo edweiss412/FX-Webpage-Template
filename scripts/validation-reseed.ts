@@ -120,13 +120,10 @@ async function finalizeAll(
   requiredCombos: Combo[],
   validationTodayIso: string,
 ): Promise<void> {
-  const { data, error } = await supabase.rpc(
-    "validation_finalize_all_atomic",
-    {
-      p_required_combos: requiredCombos,
-      p_validation_today_iso: validationTodayIso,
-    },
-  );
+  const { data, error } = await supabase.rpc("validation_finalize_all_atomic", {
+    p_required_combos: requiredCombos,
+    p_validation_today_iso: validationTodayIso,
+  });
   if (error) {
     throw new Error(
       `validation_finalize_all_atomic failed: ${error.message ?? JSON.stringify(error)}`,
@@ -185,8 +182,8 @@ async function main(): Promise<void> {
     requestedCombo === "all"
       ? ALL_COMBOS
       : ALL_COMBOS.includes(requestedCombo as Combo)
-      ? [requestedCombo as Combo]
-      : [];
+        ? [requestedCombo as Combo]
+        : [];
   if (combosToReseed.length === 0) {
     throw new Error(
       `Unknown combo '${requestedCombo}'. Valid: 'all' or one of ${ALL_COMBOS.join(", ")}.`,
@@ -209,9 +206,7 @@ async function main(): Promise<void> {
   }) as unknown as LooseSupabaseClient;
 
   const allFixtures = buildFixtures(validationTodayIso);
-  const fixturesByCombo = new Map<Combo, FixtureRow>(
-    allFixtures.map((fx) => [fx.combo, fx]),
-  );
+  const fixturesByCombo = new Map<Combo, FixtureRow>(allFixtures.map((fx) => [fx.combo, fx]));
 
   const seededBy = `validation-reseed cli (${process.env.USER ?? "unknown"})`;
 
@@ -222,13 +217,7 @@ async function main(): Promise<void> {
       throw new Error(`Internal error: no fixture found for combo ${combo}`);
     }
     log(`mint ${combo}…`);
-    await mintCombo(
-      supabase,
-      fixture,
-      validationTodayIso,
-      seededBy,
-      supabaseProjectRef,
-    );
+    await mintCombo(supabase, fixture, validationTodayIso, seededBy, supabaseProjectRef);
     succeeded += 1;
   }
 
@@ -240,9 +229,7 @@ async function main(): Promise<void> {
     await finalizeAll(supabase, ALL_COMBOS, validationTodayIso);
   }
 
-  process.stdout.write(
-    `seeded ${succeeded} combos at ${new Date().toISOString()}\n`,
-  );
+  process.stdout.write(`seeded ${succeeded} combos at ${new Date().toISOString()}\n`);
 }
 
 main().catch((err) => {

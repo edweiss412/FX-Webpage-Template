@@ -27,9 +27,7 @@ function resolveDatabaseUrl(): string {
     return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
   }
   if (raw.trim() === "") {
-    throw new Error(
-      "TEST_DATABASE_URL is set but empty — refuse to run destructive cleanup.",
-    );
+    throw new Error("TEST_DATABASE_URL is set but empty — refuse to run destructive cleanup.");
   }
   return raw;
 }
@@ -49,11 +47,10 @@ function assertSafeDestructiveTarget(): void {
 }
 
 function runPsqlInternal(sql: string): string {
-  return execFileSync(
-    "psql",
-    [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 /**

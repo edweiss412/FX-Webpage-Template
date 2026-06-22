@@ -9,14 +9,12 @@ class FakeRetrySingleFileTx implements RetrySingleFileTx {
   activeWizardSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
   deleteAffectsRow = true;
-  pendingRow:
-    | {
-        drive_file_id: string;
-        wizard_session_id: string;
-        discovered_during_folder_id: string;
-        last_error_code: string;
-      }
-    | null = {
+  pendingRow: {
+    drive_file_id: string;
+    wizard_session_id: string;
+    discovered_during_folder_id: string;
+    last_error_code: string;
+  } | null = {
     drive_file_id: "file-1",
     wizard_session_id: W1,
     discovered_during_folder_id: "folder-1",
@@ -87,7 +85,9 @@ describe("retrySingleFile_unlocked", () => {
       last_error_code: "MI_1_MISSING_REQUIRED_TAB",
     };
 
-    const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, { runOnboardingScan: vi.fn() });
+    const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, {
+      runOnboardingScan: vi.fn(),
+    });
 
     expect(result).toEqual({
       outcome: "not_found",

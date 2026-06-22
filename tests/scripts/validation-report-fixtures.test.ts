@@ -15,15 +15,7 @@
  */
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import {
@@ -108,33 +100,19 @@ describe("validation-report-fixtures", () => {
     });
 
     test("rejects --outcome rate-limit-crew with unknown combo", () => {
-      const res = runHarness([
-        "--outcome",
-        "rate-limit-crew",
-        "--combo",
-        "R999",
-      ]);
+      const res = runHarness(["--outcome", "rate-limit-crew", "--combo", "R999"]);
       expect(res.code).toBe(1);
       expect(res.stderr).toMatch(/R999/);
     });
 
     test("rejects --outcome lookup-inconclusive --alert-code <invalid>", () => {
-      const res = runHarness([
-        "--outcome",
-        "lookup-inconclusive",
-        "--alert-code",
-        "bogus-variant",
-      ]);
+      const res = runHarness(["--outcome", "lookup-inconclusive", "--alert-code", "bogus-variant"]);
       expect(res.code).toBe(1);
       expect(res.stderr).toMatch(/alert-code/);
     });
 
     test("rejects --force-overwrite-snapshot paired with non-rate-limit outcome", () => {
-      const res = runHarness([
-        "--outcome",
-        "in-flight",
-        "--force-overwrite-snapshot",
-      ]);
+      const res = runHarness(["--outcome", "in-flight", "--force-overwrite-snapshot"]);
       expect(res.code).toBe(1);
       expect(res.stderr).toMatch(/--force-overwrite-snapshot/);
       expect(res.stderr).toMatch(/rate-limit/);
@@ -158,12 +136,7 @@ describe("validation-report-fixtures", () => {
 
   describe("producer-state map", () => {
     test("success-admin → reports row admin shape + github_issue_url + tagged", () => {
-      const res = runHarness([
-        "--outcome",
-        "success-admin",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "success-admin", "--combo", "R1"]);
       expect(res.code).toBe(0);
       const row = runPsql(`
         SELECT reported_by_kind, (github_issue_url IS NOT NULL)::text,
@@ -183,12 +156,7 @@ describe("validation-report-fixtures", () => {
     });
 
     test("success-crew → reports row crew shape + tagged", () => {
-      const res = runHarness([
-        "--outcome",
-        "success-crew",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "success-crew", "--combo", "R1"]);
       expect(res.code).toBe(0);
       const row = runPsql(`
         SELECT reported_by_kind, (github_issue_url IS NOT NULL)::text,
@@ -196,20 +164,11 @@ describe("validation-report-fixtures", () => {
           FROM public.reports
          WHERE context->>'validation_tag' = 'm12-fixture-success-crew';
       `);
-      expect(row.split("\t")).toEqual([
-        "crew",
-        "true",
-        "m12-fixture-success-crew",
-      ]);
+      expect(row.split("\t")).toEqual(["crew", "true", "m12-fixture-success-crew"]);
     });
 
     test("in-flight → reports row with live lease (future processing_lease_until + lease_holder set)", () => {
-      const res = runHarness([
-        "--outcome",
-        "in-flight",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "in-flight", "--combo", "R1"]);
       expect(res.code).toBe(0);
       const row = runPsql(`
         SELECT (processing_lease_until > now())::text,
@@ -235,12 +194,7 @@ describe("validation-report-fixtures", () => {
     });
 
     test("rate-limit-crew → report_rate_limits row at raw UUID bucket count=4", () => {
-      const res = runHarness([
-        "--outcome",
-        "rate-limit-crew",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "rate-limit-crew", "--combo", "R1"]);
       expect(res.code).toBe(0);
       const row = runPsql(`
         SELECT count, identity
@@ -268,7 +222,9 @@ describe("validation-report-fixtures", () => {
       try {
         const res = runHarness(["--outcome", "rate-limit-crew", "--combo", "R1"]);
         expect(res.code).toBe(1);
-        expect(res.stderr).toMatch(/does NOT resolve to a crew_member on the validation fixture show/);
+        expect(res.stderr).toMatch(
+          /does NOT resolve to a crew_member on the validation fixture show/,
+        );
         // No quota row was seeded for the poisoned (R7b) UUID under R1.
         const seeded = runPsql(`
           SELECT count(*) FROM public.report_rate_limits
@@ -286,12 +242,7 @@ describe("validation-report-fixtures", () => {
     });
 
     test("lease-expired → reports row with past processing_lease_until + github_issue_url NULL", () => {
-      const res = runHarness([
-        "--outcome",
-        "lease-expired",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "lease-expired", "--combo", "R1"]);
       expect(res.code).toBe(0);
       const row = runPsql(`
         SELECT (processing_lease_until < now())::text,
@@ -305,12 +256,7 @@ describe("validation-report-fixtures", () => {
     });
 
     test("horizon-expired → reports row reapable per §13.2.3 reaper predicate (R14)", () => {
-      const res = runHarness([
-        "--outcome",
-        "horizon-expired",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "horizon-expired", "--combo", "R1"]);
       expect(res.code).toBe(0);
       // R14 — the row must match the 8.3f reaper predicate so it's a faithful
       // stale-report fixture: github_issue_url IS NULL AND created_at < now-24h
@@ -327,12 +273,7 @@ describe("validation-report-fixtures", () => {
     });
 
     test("orphaned-lost-lease → admin_alerts row with REPORT_ORPHANED_LOST_LEASE + full context", () => {
-      const res = runHarness([
-        "--outcome",
-        "orphaned-lost-lease",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "orphaned-lost-lease", "--combo", "R1"]);
       expect(res.code).toBe(0);
       const row = runPsql(`
         SELECT code,
@@ -362,12 +303,7 @@ describe("validation-report-fixtures", () => {
     });
 
     test("lookup-inconclusive (default bot-login-missing) → GLOBAL GITHUB_BOT_LOGIN_MISSING + show-scoped REPORT_LOOKUP_INCONCLUSIVE + reports row (R2 HIGH dual-write)", () => {
-      const res = runHarness([
-        "--outcome",
-        "lookup-inconclusive",
-        "--combo",
-        "R1",
-      ]);
+      const res = runHarness(["--outcome", "lookup-inconclusive", "--combo", "R1"]);
       expect(res.code).toBe(0);
       // Production handleLookupInconclusive (submit.ts:703-704,731-732) for
       // BOT_LOGIN_MISSING writes BOTH a global GITHUB_BOT_LOGIN_MISSING
@@ -428,27 +364,24 @@ describe("validation-report-fixtures", () => {
       ["duplicate-live-matches", "REPORT_DUPLICATE_LIVE_MATCHES"],
       ["open-orphan-label", "REPORT_OPEN_ORPHAN_LABEL"],
       ["inconclusive", "REPORT_LOOKUP_INCONCLUSIVE"],
-    ])(
-      "--alert-code %s → single show-scoped admin_alerts.code %s",
-      (variant, expectedCode) => {
-        const res = runHarness([
-          "--outcome",
-          "lookup-inconclusive",
-          "--alert-code",
-          variant,
-          "--combo",
-          "R1",
-        ]);
-        expect(res.code).toBe(0);
-        const rows = runPsql(`
+    ])("--alert-code %s → single show-scoped admin_alerts.code %s", (variant, expectedCode) => {
+      const res = runHarness([
+        "--outcome",
+        "lookup-inconclusive",
+        "--alert-code",
+        variant,
+        "--combo",
+        "R1",
+      ]);
+      expect(res.code).toBe(0);
+      const rows = runPsql(`
           SELECT code FROM public.admin_alerts
            WHERE context->>'validation_tag' = 'm12-fixture-lookup-inconclusive'
            ORDER BY code;
         `);
-        // Exactly one alert row, show-scoped, with the resolved code.
-        expect(rows).toBe(expectedCode);
-      },
-    );
+      // Exactly one alert row, show-scoped, with the resolved code.
+      expect(rows).toBe(expectedCode);
+    });
 
     test("--alert-code bot-login-missing → global GITHUB_BOT_LOGIN_MISSING + show-scoped REPORT_LOOKUP_INCONCLUSIVE (dual-write, R2 HIGH)", () => {
       const res = runHarness([
@@ -536,10 +469,7 @@ describe("validation-report-fixtures", () => {
         `);
 
         // Seed in shared cwd so snapshot file persists for cleanup.
-        const seedRes = runHarnessInCwd(sharedCwd, [
-          "--outcome",
-          "rate-limit-admin",
-        ]);
+        const seedRes = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seedRes.code).toBe(0);
 
         // Confirm seed wrote count=11 at the same-hour bucket
@@ -589,10 +519,7 @@ describe("validation-report-fixtures", () => {
                   date_trunc('hour', now()) - interval '3 hours', 9);
         `);
 
-        const seedRes = runHarnessInCwd(sharedCwd, [
-          "--outcome",
-          "rate-limit-admin",
-        ]);
+        const seedRes = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seedRes.code).toBe(0);
 
         const cleanupRes = runHarnessInCwd(sharedCwd, [
@@ -692,25 +619,16 @@ describe("validation-report-fixtures", () => {
   describe("F39 regression — refuse-existing-snapshot (R43 commit 80)", () => {
     test("rate-limit-admin: duplicate-seed without cleanup refuses; --force-overwrite-snapshot accepts + warns; cleanup unlinks file", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-admin-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-admin-snapshot.json");
       try {
         // First seed — snapshot file written
-        const seed1 = runHarnessInCwd(sharedCwd, [
-          "--outcome",
-          "rate-limit-admin",
-        ]);
+        const seed1 = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seed1.code).toBe(0);
         expect(existsSync(snapshotPath)).toBe(true);
         const seed1Snapshot = readFileSync(snapshotPath, "utf8");
 
         // Second seed without cleanup — must refuse
-        const seed2 = runHarnessInCwd(sharedCwd, [
-          "--outcome",
-          "rate-limit-admin",
-        ]);
+        const seed2 = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seed2.code).toBe(1);
         expect(seed2.stderr).toMatch(/snapshot file already present/);
         // Snapshot file unchanged
@@ -744,18 +662,10 @@ describe("validation-report-fixtures", () => {
 
     test("rate-limit-crew: cross-combo-clobber also refuses (file-presence-based, NOT identity-based)", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-crew-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-crew-snapshot.json");
       try {
         // First seed at R1
-        const seed1 = runHarnessInCwd(sharedCwd, [
-          "--outcome",
-          "rate-limit-crew",
-          "--combo",
-          "R1",
-        ]);
+        const seed1 = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-crew", "--combo", "R1"]);
         expect(seed1.code).toBe(0);
         expect(existsSync(snapshotPath)).toBe(true);
         const seed1Body = JSON.parse(readFileSync(snapshotPath, "utf8"));
@@ -789,18 +699,10 @@ describe("validation-report-fixtures", () => {
 
     test("rate-limit-crew: --force-overwrite-snapshot REFUSES when the existing snapshot is a different identity (R3 MED)", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-crew-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-crew-snapshot.json");
       try {
         // Seed R1 → snapshot identifies R1's crew_member_id.
-        const seed1 = runHarnessInCwd(sharedCwd, [
-          "--outcome",
-          "rate-limit-crew",
-          "--combo",
-          "R1",
-        ]);
+        const seed1 = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-crew", "--combo", "R1"]);
         expect(seed1.code).toBe(0);
         expect(JSON.parse(readFileSync(snapshotPath, "utf8")).identity).toBe(R1_CREW_ID);
 
@@ -845,10 +747,7 @@ describe("validation-report-fixtures", () => {
 
     test("rate-limit-admin: --force-overwrite-snapshot REFUSES across an hour boundary (R4 HIGH); snapshot left intact for cleanup", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-admin-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-admin-snapshot.json");
       try {
         const seed1 = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seed1.code).toBe(0);
@@ -875,9 +774,7 @@ describe("validation-report-fixtures", () => {
         expect(forced.stderr).toMatch(/across hour boundary/i);
         // The snapshot file is UNCHANGED (still records the rolled bucket) so
         // the dev can `--cleanup` to restore it before re-seeding.
-        expect(JSON.parse(readFileSync(snapshotPath, "utf8")).recorded_hour_bucket).toBe(
-          rolled,
-        );
+        expect(JSON.parse(readFileSync(snapshotPath, "utf8")).recorded_hour_bucket).toBe(rolled);
       } finally {
         // The seed1 row sits at the real current bucket; afterEach cleans the
         // canonical-admin identity, so no manual restore needed here.
@@ -903,10 +800,7 @@ describe("validation-report-fixtures", () => {
 
     test("R10 — --force-cleanup-without-snapshot REFUSES when a snapshot still exists (don't destroy a valid restore record)", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-admin-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-admin-snapshot.json");
       try {
         const seed = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seed.code).toBe(0);
@@ -948,10 +842,7 @@ describe("validation-report-fixtures", () => {
 
     test("R13 — force-cleanup with a wrong bucket FAILS (0 rows) instead of falsely reporting success", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-admin-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-admin-snapshot.json");
       try {
         const seed = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seed.code).toBe(0);
@@ -1005,10 +896,7 @@ describe("validation-report-fixtures", () => {
 
     test("R9 — a 'pending' snapshot (crash between seed and rewrite) WARNS at cleanup but still restores", () => {
       const sharedCwd = makeSharedCwd();
-      const snapshotPath = join(
-        sharedCwd,
-        ".validation-state/rate-limit-admin-snapshot.json",
-      );
+      const snapshotPath = join(sharedCwd, ".validation-state/rate-limit-admin-snapshot.json");
       try {
         const seed = runHarnessInCwd(sharedCwd, ["--outcome", "rate-limit-admin"]);
         expect(seed.code).toBe(0);
@@ -1094,10 +982,7 @@ describe("validation-report-fixtures", () => {
 
     test("combined invocation attempts BOTH sides: crew succeeds while admin refuses → exit 1", () => {
       const sharedCwd = makeSharedCwd();
-      const crewSnapshot = join(
-        sharedCwd,
-        ".validation-state/rate-limit-crew-snapshot.json",
-      );
+      const crewSnapshot = join(sharedCwd, ".validation-state/rate-limit-crew-snapshot.json");
       try {
         // Seed ONLY crew → crew snapshot exists, admin snapshot does NOT.
         const seedRes = runHarnessInCwd(sharedCwd, [
@@ -1196,12 +1081,7 @@ describe("validation-report-fixtures", () => {
     test("orphaned-lost-lease refuses when a pre-existing non-fixture alert exists; leaves it untouched", () => {
       insertNonFixtureAlert(R1_SHOW_ID, "REPORT_ORPHANED_LOST_LEASE");
       try {
-        const res = runHarness([
-          "--outcome",
-          "orphaned-lost-lease",
-          "--combo",
-          "R1",
-        ]);
+        const res = runHarness(["--outcome", "orphaned-lost-lease", "--combo", "R1"]);
         expect(res.code).toBe(1);
         expect(res.stderr).toMatch(/refusing to seed admin_alert/);
         expect(alertContextReason(R1_SHOW_ID, "REPORT_ORPHANED_LOST_LEASE")).toBe(

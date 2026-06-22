@@ -112,10 +112,14 @@ describe("resolvePickerSelection", () => {
     await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: undefined })).resolves.toEqual({
       kind: "no_selection",
     });
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: "not.a.cookie" })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: "not.a.cookie" }),
+    ).resolves.toEqual({
       kind: "no_selection",
     });
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ showId: OTHER_SHOW_ID }) })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ showId: OTHER_SHOW_ID }) }),
+    ).resolves.toEqual({
       kind: "no_selection",
     });
   });
@@ -135,7 +139,9 @@ describe("resolvePickerSelection", () => {
   test("returns epoch_stale when cookie epoch differs from show epoch", async () => {
     state.show = { picker_epoch: 2, published: true, archived: false };
 
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ e: 1 }) })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ e: 1 }) }),
+    ).resolves.toEqual({
       kind: "epoch_stale",
       expectedEpoch: 1,
       expectedCrewMemberId: CREW_ID,
@@ -159,7 +165,9 @@ describe("resolvePickerSelection", () => {
       claimed_via_oauth_at: "2026-01-16T12:00:00.123Z",
     };
 
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_123 }) })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_123 }) }),
+    ).resolves.toEqual({
       kind: "identity_invalidated",
       expectedEpoch: 1,
       expectedCrewMemberId: CREW_ID,
@@ -170,7 +178,9 @@ describe("resolvePickerSelection", () => {
   test("returns identity_invalidated/session_mismatch when active session email differs", async () => {
     state.sessionEmail = "bob@example.com";
 
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) }),
+    ).resolves.toEqual({
       kind: "identity_invalidated",
       expectedEpoch: 1,
       expectedCrewMemberId: CREW_ID,
@@ -178,27 +188,40 @@ describe("resolvePickerSelection", () => {
     });
 
     state.crew = { id: CREW_ID, email: null, claimed_via_oauth_at: null };
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) })).resolves.toMatchObject({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) }),
+    ).resolves.toMatchObject({
       kind: "identity_invalidated",
       reason: "session_mismatch",
     });
   });
 
   test("returns resolved on happy path for anonymous or matching-session callers", async () => {
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) }),
+    ).resolves.toEqual({
       kind: "resolved",
       crewMemberId: CREW_ID,
     });
 
     state.sessionEmail = "alice@example.com";
-    await expect(resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) })).resolves.toEqual({
+    await expect(
+      resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1_737_028_800_124 }) }),
+    ).resolves.toEqual({
       kind: "resolved",
       crewMemberId: CREW_ID,
     });
   });
 
   test("returns infra_error on every Supabase boundary failure", async () => {
-    for (const flag of ["throwService", "throwAuth", "authError", "showError", "crewError", "rowEmailError"] as const) {
+    for (const flag of [
+      "throwService",
+      "throwAuth",
+      "authError",
+      "showError",
+      "crewError",
+      "rowEmailError",
+    ] as const) {
       Object.assign(state, {
         sessionEmail: flag === "rowEmailError" ? "alice@example.com" : null,
         throwService: false,

@@ -52,9 +52,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vi
 let realAdmin: Awaited<ReturnType<typeof import("@supabase/supabase-js").createClient>>;
 
 beforeAll(async () => {
-  const real = await vi.importActual<typeof import("@supabase/supabase-js")>(
-    "@supabase/supabase-js",
-  );
+  const real =
+    await vi.importActual<typeof import("@supabase/supabase-js")>("@supabase/supabase-js");
   const supabaseUrl =
     process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
   const serviceKey =

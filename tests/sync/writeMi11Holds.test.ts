@@ -84,14 +84,28 @@ describe("writeMi11Holds (Task 2.2)", () => {
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
-          { id: "2", invariant: "MI-11", crew_name: "Bob", prior_email: "b@old", new_email: "b@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
+          {
+            id: "2",
+            invariant: "MI-11",
+            crew_name: "Bob",
+            prior_email: "b@old",
+            new_email: "b@new",
+          },
         ],
         liveCrewByName,
         baseModifiedTime,
       });
 
-      const rows = await tx<{ entity_key: string; kind: string; domain: string; created_by: string }[]>`
+      const rows = await tx<
+        { entity_key: string; kind: string; domain: string; created_by: string }[]
+      >`
         select entity_key, kind, domain, created_by from public.sync_holds
         where show_id = ${showId} order by entity_key
       `;
@@ -111,7 +125,13 @@ describe("writeMi11Holds (Task 2.2)", () => {
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
         liveCrewByName,
         baseModifiedTime,
@@ -136,7 +156,13 @@ describe("writeMi11Holds (Task 2.2)", () => {
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
         liveCrewByName,
         baseModifiedTime,
@@ -163,7 +189,13 @@ describe("writeMi11Holds (Task 2.2)", () => {
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
         liveCrewByName,
         baseModifiedTime,
@@ -173,7 +205,13 @@ describe("writeMi11Holds (Task 2.2)", () => {
         showId,
         driveFileId,
         mi11Items: [
-          { id: "2", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@newer" },
+          {
+            id: "2",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@newer",
+          },
         ],
         liveCrewByName,
         baseModifiedTime: secondModifiedTime,
@@ -196,7 +234,13 @@ describe("writeMi11Holds (Task 2.2)", () => {
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: null },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: null,
+          },
         ],
         liveCrewByName,
         baseModifiedTime,
@@ -232,7 +276,13 @@ describe("writeMi11Holds (Task 2.2)", () => {
           showId,
           driveFileId,
           mi11Items: [
-            { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+            {
+              id: "1",
+              invariant: "MI-11",
+              crew_name: "Alice",
+              prior_email: "a@old",
+              new_email: "a@new",
+            },
           ],
           liveCrewByName: new Map([["Alice", liveCrew("Alice", "a@old")]]),
           baseModifiedTime,

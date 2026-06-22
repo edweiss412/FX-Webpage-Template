@@ -32,9 +32,7 @@ import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
-export type AutoPublishInitial =
-  | { kind: "value"; on: boolean }
-  | { kind: "infra_error" };
+export type AutoPublishInitial = { kind: "value"; on: boolean } | { kind: "infra_error" };
 
 export type SetAutoPublishResult = { ok: true } | { ok: false };
 
@@ -66,21 +64,18 @@ export function AutoPublishToggle({ initial, setAutoPublish, icon }: AutoPublish
           </span>
         ) : null}
         <div className="min-w-0">
-          <h3 className="text-base font-semibold text-text-strong">
-            Auto-publish clean new shows
-          </h3>
+          <h3 className="text-base font-semibold text-text-strong">Auto-publish clean new shows</h3>
           <p className="mt-1 max-w-prose text-sm text-text-subtle">
-            Publish brand-new sheets automatically when they parse with no
-            warnings. You can still undo within 24 hours.
+            Publish brand-new sheets automatically when they parse with no warnings. You can still
+            undo within 24 hours.
           </p>
           {!on && !degraded ? (
             <p
               data-testid="auto-publish-off-explainer"
               className="mt-2 max-w-prose text-sm text-text-subtle"
             >
-              Off: new shows wait for your approval before going live.
-              You&rsquo;ll review each one in the inbox and publish when
-              you&rsquo;re ready.
+              Off: new shows wait for your approval before going live. You&rsquo;ll review each one
+              in the inbox and publish when you&rsquo;re ready.
             </p>
           ) : null}
           {degraded ? (

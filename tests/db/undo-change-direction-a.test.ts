@@ -45,7 +45,10 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     const bobLive = await readCrewByName(showId, "Bob");
 
     await runAutoApply(driveFileId, { crew: [{ name: "Bob", email: "bob@x" }] }); // removes Alice
-    const removed = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: "Alice" });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Alice",
+    });
 
     // Non-admin authed caller is forbidden (42501) and mutates nothing.
     const denied = await callUndoAsNonAdmin(removed.id);
@@ -96,7 +99,10 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     expect(aliceLive!.claimed_via_oauth_at).toBeNull();
 
     await runAutoApply(driveFileId, { crew: [] }); // removes Alice (now empty)
-    const removed = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: "Alice" });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Alice",
+    });
     const res = await callUndoAsAdmin(removed.id);
     expect(res.ok).toBe(true);
 
@@ -114,13 +120,22 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
 
     // Rename Alice → Alicia(alicia@new). MI-12 triggers a crew_renamed feed row (entity_ref = prior name).
     const items: TriggeredReviewItem[] = [
-      { id: "1", invariant: "MI-12", removed_name: "Alice", added_name: "Alicia", email: "alicia@new" },
+      {
+        id: "1",
+        invariant: "MI-12",
+        removed_name: "Alice",
+        added_name: "Alicia",
+        email: "alicia@new",
+      },
     ];
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
     });
-    const renamed = await readChangeLog(showId, { change_kind: "crew_renamed", entity_ref: "Alice" });
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Alice",
+    });
     expect(renamed.before_image?.id).toBe(ALICE_ID);
 
     const res = await callUndoAsAdmin(renamed.id);
@@ -143,7 +158,10 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
       { name: "Bob", email: "bob@x" },
     ]);
     await runAutoApply(driveFileId, { crew: [{ name: "Bob", email: "bob@x" }] });
-    const removed = await readChangeLog(showId, { change_kind: "crew_removed", entity_ref: "Alice" });
+    const removed = await readChangeLog(showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Alice",
+    });
     expect((await callUndoAsAdmin(removed.id)).ok).toBe(true);
     // Next sync, sheet STILL omits Alice → Alice STAYS (baseline {kind:'removal'} retains her).
     await runAutoApply(driveFileId, { crew: [{ name: "Bob", email: "bob@x" }] });
@@ -154,13 +172,22 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
   it("(b) undo-rename suppresses a DIFFERENT-named replacement (matched by baseline email)", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([{ name: "Alice", email: "alice@old" }]);
     const items: TriggeredReviewItem[] = [
-      { id: "1", invariant: "MI-12", removed_name: "Alice", added_name: "Alicia", email: "alicia@new" },
+      {
+        id: "1",
+        invariant: "MI-12",
+        removed_name: "Alice",
+        added_name: "Alicia",
+        email: "alicia@new",
+      },
     ];
     await runAutoApply(driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
     });
-    const renamed = await readChangeLog(showId, { change_kind: "crew_renamed", entity_ref: "Alice" });
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Alice",
+    });
     expect((await callUndoAsAdmin(renamed.id)).ok).toBe(true);
     // Sheet now lists the replacement under YET ANOTHER name but the same email.
     await runAutoApply(driveFileId, { crew: [{ name: "Alyx", email: "alicia@new" }] });
@@ -176,7 +203,10 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
       { name: "Bob", email: "bob@x" },
     ]);
     await runAutoApply(a.driveFileId, { crew: [{ name: "Bob", email: "bob@x" }] });
-    const removed = await readChangeLog(a.showId, { change_kind: "crew_removed", entity_ref: "Alice" });
+    const removed = await readChangeLog(a.showId, {
+      change_kind: "crew_removed",
+      entity_ref: "Alice",
+    });
     await callUndoAsAdmin(removed.id);
     await runAutoApply(a.driveFileId, {
       crew: [
@@ -189,13 +219,22 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     // rename case: sheet drops the replacement entirely → hold releases.
     const b = await seedShowWithCrew([{ name: "Alice", email: "alice@old" }]);
     const items: TriggeredReviewItem[] = [
-      { id: "1", invariant: "MI-12", removed_name: "Alice", added_name: "Alicia", email: "alicia@new" },
+      {
+        id: "1",
+        invariant: "MI-12",
+        removed_name: "Alice",
+        added_name: "Alicia",
+        email: "alicia@new",
+      },
     ];
     await runAutoApply(b.driveFileId, {
       crew: [{ name: "Alicia", email: "alicia@new" }],
       triggeredItems: items,
     });
-    const renamed = await readChangeLog(b.showId, { change_kind: "crew_renamed", entity_ref: "Alice" });
+    const renamed = await readChangeLog(b.showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Alice",
+    });
     await callUndoAsAdmin(renamed.id);
     await runAutoApply(b.driveFileId, { crew: [{ name: "Alice", email: "alice@old" }] });
     expect(await readHold(b.showId, { entity_key: "Alice" })).toBeNull(); // released

@@ -45,8 +45,8 @@ export type OpeningReelPinRow = {
 export function projectOpeningReelHasVideo(row: OpeningReelPinRow): boolean {
   return Boolean(
     row.opening_reel_drive_file_id &&
-      row.opening_reel_drive_modified_time &&
-      row.opening_reel_head_revision_id &&
-      isAllowedReelMime(row.opening_reel_mime_type),
+    row.opening_reel_drive_modified_time &&
+    row.opening_reel_head_revision_id &&
+    isAllowedReelMime(row.opening_reel_mime_type),
   );
 }

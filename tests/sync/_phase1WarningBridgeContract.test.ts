@@ -14,7 +14,9 @@ function syncLayerAppendedReviewItems(): string[] {
   const capturedCodes = match?.[1];
   expect(capturedCodes).toBeDefined();
   if (!capturedCodes) {
-    throw new Error("Missing sync-layer-appended TriggeredReviewItem comment in lib/parser/types.ts");
+    throw new Error(
+      "Missing sync-layer-appended TriggeredReviewItem comment in lib/parser/types.ts",
+    );
   }
 
   return capturedCodes

@@ -7,17 +7,9 @@ import postgres, { type Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
 import type { TriggeredReviewItem } from "@/lib/parser/types";
-import type { PreviousCrewMember } from "@/lib/sync/applyParseResult";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 
-import {
-  crew,
-  holdPort,
-  prevMember,
-  readChangeLog,
-  seedCrew,
-  seedShow,
-} from "./_holdAwareTestkit";
+import { crew, holdPort, prevMember, readChangeLog, seedCrew, seedShow } from "./_holdAwareTestkit";
 
 const DB_URL =
   process.env.TEST_DATABASE_URL ??
@@ -92,7 +84,9 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         triggeredItems: [],
         heldNames: new Set(),
       });
-      const removed = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "crew_removed")!;
+      const removed = (await readChangeLog(tx, showId)).find(
+        (r) => r.change_kind === "crew_removed",
+      )!;
       expect(removed.before_image!.claimed_via_oauth_at).toBeNull();
     });
   });
@@ -114,7 +108,9 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
         triggeredItems: items,
         heldNames: new Set(),
       });
-      const renamed = (await readChangeLog(tx, showId)).find((r) => r.change_kind === "crew_renamed")!;
+      const renamed = (await readChangeLog(tx, showId)).find(
+        (r) => r.change_kind === "crew_renamed",
+      )!;
       expect(renamed.entity_ref).toBe("Alice"); // PRIOR/old name, NOT "Dana"
       expect(renamed.before_image!.id).toBe(aliceRow.id);
       expect(renamed.before_image!.claimed_via_oauth_at).toBe(aliceRow.claimed_via_oauth_at);

@@ -46,7 +46,11 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
   it("applies the new email, deletes the hold, writes an applied mi11_approve log", async () => {
     const show = await seedShow(mi11Sql);
     await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@old" });
-    const proposed: Disposition = { disposition: "email_change", name: "Alice", email: "alice@new" };
+    const proposed: Disposition = {
+      disposition: "email_change",
+      name: "Alice",
+      email: "alice@new",
+    };
     const hold = await seedHold(mi11Sql, show, {
       entityKey: "Alice",
       heldValue: heldFromCrew("Alice", "alice@old"),
@@ -54,7 +58,9 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
     const alice = await readCrewByName(mi11Sql, show.showId, "Alice");
@@ -93,7 +99,11 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
       email: "alice@old",
       claimed: "2026-05-31T23:00:00.000Z",
     });
-    const proposed: Disposition = { disposition: "email_change", name: "Alice", email: "alice@new" };
+    const proposed: Disposition = {
+      disposition: "email_change",
+      name: "Alice",
+      email: "alice@new",
+    };
     const hold = await seedHold(mi11Sql, show, {
       entityKey: "Alice",
       heldValue: heldFromCrew("Alice", "alice@old"),
@@ -101,7 +111,9 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
     const alice = await readCrewByName(mi11Sql, show.showId, "Alice");
@@ -155,7 +167,9 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
 
     expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe("alice@old");
@@ -175,7 +189,9 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
     });
     const before = await readCrewByName(mi11Sql, show.showId, "Alice");
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: false, code: "IDENTITY_WOULD_COLLIDE" });
 
     expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toEqual(before); // byte-identical
@@ -189,7 +205,11 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
   it("empty reservation_collisions ('[]') approves normally — guard fires only when >0 (PF37 control)", async () => {
     const show = await seedShow(mi11Sql);
     await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@old" });
-    const proposed: Disposition = { disposition: "email_change", name: "Alice", email: "alice@new" };
+    const proposed: Disposition = {
+      disposition: "email_change",
+      name: "Alice",
+      email: "alice@new",
+    };
     const hold = await seedHold(mi11Sql, show, {
       entityKey: "Alice",
       heldValue: heldFromCrew("Alice", "alice@old"),
@@ -198,11 +218,15 @@ describe("mi11_approve_hold — plain email_change self-edge approve (Task 3.2)"
       reservationCollisions: [],
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
     expect((await readCrewByName(mi11Sql, show.showId, "Alice"))?.email).toBe(proposed.email);
     expect(await readHold(mi11Sql, hold.id)).toBeNull();
-    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find(
+      (r) => r.source === "mi11_approve",
+    );
     expect(row?.change_kind).toBe("crew_email_changed");
     expect(row?.status).toBe("applied");
   });
@@ -222,7 +246,9 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
     expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toBeNull(); // old gone
@@ -233,7 +259,9 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
     expect(alicia?.id).not.toBe(before?.id); // delete+insert → FRESH id, not the old PK (P3-F2, spec §5.4)
     expect(await readHold(mi11Sql, hold.id)).toBeNull();
 
-    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find(
+      (r) => r.source === "mi11_approve",
+    );
     expect(row?.change_kind).toBe("crew_renamed");
     expect(row?.status).toBe("applied");
     expect(row?.created_by).toBe(ADMIN_EMAIL);
@@ -256,7 +284,9 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
     const alicia = await readCrewByName(mi11Sql, show.showId, "Alicia");
@@ -278,13 +308,17 @@ describe("mi11_approve_hold — rename + removal dispositions (Task 3.3)", () =>
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
     expect(await readCrewByName(mi11Sql, show.showId, "Alice")).toBeNull(); // row deleted, no orphan
     expect(await readHold(mi11Sql, hold.id)).toBeNull();
 
-    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find(
+      (r) => r.source === "mi11_approve",
+    );
     expect(row?.change_kind).toBe("crew_removed");
     expect(row?.status).toBe("applied");
     expect(row?.created_by).toBe(ADMIN_EMAIL);
@@ -309,10 +343,14 @@ describe("mi11_approve_hold — before_image carries id + claimed_via_oauth_at (
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
-    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find(
+      (r) => r.source === "mi11_approve",
+    );
     expect(row?.change_kind).toBe("crew_removed");
     const before = row?.before_image as Record<string, unknown>;
     expect(before.id).toBe(seeded.id); // derived from the seeded live row (anti-tautology)
@@ -335,10 +373,14 @@ describe("mi11_approve_hold — before_image carries id + claimed_via_oauth_at (
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
-    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find(
+      (r) => r.source === "mi11_approve",
+    );
     expect(row?.change_kind).toBe("crew_renamed");
     const before = row?.before_image as Record<string, unknown>;
     expect(before.id).toBe(seeded.id); // OLD row's id, for Phase-4 undo restore (resolution #24)
@@ -360,10 +402,14 @@ describe("mi11_approve_hold — before_image carries id + claimed_via_oauth_at (
       baseModifiedTime: T0,
     });
 
-    const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+    const res = await asAdminTx((tx) =>
+      callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+    );
     expect(res).toEqual({ ok: true });
 
-    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find((r) => r.source === "mi11_approve");
+    const row = (await readChangeLogByShow(mi11Sql, show.showId)).find(
+      (r) => r.source === "mi11_approve",
+    );
     const before = row?.before_image as Record<string, unknown>;
     expect(before.id).toBe(seeded.id);
     expect(new Date(before.claimed_via_oauth_at as string).toISOString()).toBe(
@@ -378,7 +424,10 @@ describe("mi11_approve_hold — before_image carries id + claimed_via_oauth_at (
 
 describe("mi11_approve_hold — live crew row vanished before approve → fail-safe, zero mutation (P3-F3)", () => {
   for (const disp of [
-    { kind: "email_change", proposed: { disposition: "email_change", name: "Alice", email: "alice@new" } },
+    {
+      kind: "email_change",
+      proposed: { disposition: "email_change", name: "Alice", email: "alice@new" },
+    },
     { kind: "removal", proposed: { disposition: "removal" } },
     { kind: "rename", proposed: { disposition: "rename", name: "Alicia", email: "alice@new" } },
   ] as const) {
@@ -395,7 +444,9 @@ describe("mi11_approve_hold — live crew row vanished before approve → fail-s
       // Some other path deleted Alice's live crew row while the hold remained open.
       await mi11Sql`delete from public.crew_members where show_id = ${show.showId} and name = 'Alice'`;
 
-      const res = await asAdminTx((tx) => callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime));
+      const res = await asAdminTx((tx) =>
+        callApprove(tx, hold.id, hold.baseModifiedTime, hold.baseModifiedTime),
+      );
       expect(res).toEqual({ ok: false, code: "MI11_TARGET_MOVED" });
 
       // ZERO mutation: NO phantom applied log row, the hold is STILL present, no crew row created.

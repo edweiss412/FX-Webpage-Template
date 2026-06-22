@@ -19,7 +19,12 @@ describe("showSpan", () => {
     expect(hasFullShowDates(undefined)).toBe(false);
     expect(isShowLiveOnDate(null, "2026-06-03")).toBe(false);
     expect(
-      hasFullShowDates({ travelIn: "2026-06-01", set: null, showDays: [], travelOut: "2026-06-05" }),
+      hasFullShowDates({
+        travelIn: "2026-06-01",
+        set: null,
+        showDays: [],
+        travelOut: "2026-06-05",
+      }),
     ).toBe(false);
   });
 

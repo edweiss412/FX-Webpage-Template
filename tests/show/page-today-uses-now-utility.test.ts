@@ -30,9 +30,7 @@ describe("app/show/[slug]/[shareToken]/_CrewShell.tsx — render-side time migra
   it("uses await nowDate() instead of `new Date()` at the `const today =` assignment site", () => {
     // Only the precise `const today =` binding (not `const todayState`,
     // `const todayTiles`, etc.) is the migration site.
-    const todayLines = src
-      .split("\n")
-      .filter((l) => /\bconst\s+today\s*=/.test(l));
+    const todayLines = src.split("\n").filter((l) => /\bconst\s+today\s*=/.test(l));
     expect(todayLines.length).toBeGreaterThan(0);
     for (const line of todayLines) {
       expect(line).not.toContain("new Date()");

@@ -48,7 +48,7 @@ export function SectionCard({ icon, title, action, children }: SectionCardProps)
               <span
                 data-slot="section-card-icon"
                 aria-hidden="true"
-                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-[15px]"
+                className="grid size-7 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle [&_svg]:size-3.75"
               >
                 {icon}
               </span>

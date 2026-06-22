@@ -31,9 +31,7 @@ describe("crew route loading.tsx skeleton", () => {
 
   it("renders exactly the 6 base section tab placeholders", () => {
     const { getByTestId, getAllByTestId } = render(<Loading />);
-    const tabs = within(getByTestId("crew-loading-subnav")).queryAllByTestId(
-      "crew-loading-tab",
-    );
+    const tabs = within(getByTestId("crew-loading-subnav")).queryAllByTestId("crew-loading-tab");
     expect(tabs).toHaveLength(BASE_SECTION_IDS.length);
     expect(BASE_SECTION_IDS).toHaveLength(6);
     // sanity: also globally, no extra tab placeholders leaked elsewhere.

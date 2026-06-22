@@ -63,7 +63,9 @@ function collectBacktickSymbols(text: string): string[] {
 function collectLiteralStringArray(section: string, name: string): string[] | null {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = section.match(
-    new RegExp(`const\\s+${escaped}\\s*[^=]*=\\s*(?:new\\s+Set\\s*\\()?\\s*\\[([\\s\\S]*?)\\]\\s*\\)?\\s*;`),
+    new RegExp(
+      `const\\s+${escaped}\\s*[^=]*=\\s*(?:new\\s+Set\\s*\\()?\\s*\\[([\\s\\S]*?)\\]\\s*\\)?\\s*;`,
+    ),
   );
   if (!match?.[1]) return null;
   return unique(
@@ -80,17 +82,22 @@ function collectSyncEntryPoints(section: string): string[] {
     section.match(/sync entry points include ([\s\S]*?); \(3\)/) ??
     section.match(/const SYNC_ENTRY_POINTS = \[([\s\S]*?)\];/);
   if (!match?.[1]) throw new Error("Could not find AC-X.4 sync entry point list");
-  return Array.from(match[1].matchAll(/[`"']([a-zA-Z][a-zA-Z0-9_]*)[`"']/g), (entry) => entry[1]).filter(
-    (entry): entry is string => Boolean(entry),
-  );
+  return Array.from(
+    match[1].matchAll(/[`"']([a-zA-Z][a-zA-Z0-9_]*)[`"']/g),
+    (entry) => entry[1],
+  ).filter((entry): entry is string => Boolean(entry));
 }
 
 function collectAuthoritative(section: string): string[] {
   const literal = collectLiteralStringArray(section, "AUTHORITATIVE_GATING_WATERMARKS");
   if (literal) return literal;
   const match =
-    section.match(/AUTHORITATIVE_GATING_WATERMARKS[\s\S]*?valid as the RHS of a sync-decision comparison: ([\s\S]*?\)) and `DISPLAY_ONLY_TIMESTAMPS`/) ??
-    section.match(/AUTHORITATIVE_GATING_WATERMARKS[\s\S]*?\n([\s\S]*?)\n\s+\*\*DISPLAY_ONLY_TIMESTAMPS/);
+    section.match(
+      /AUTHORITATIVE_GATING_WATERMARKS[\s\S]*?valid as the RHS of a sync-decision comparison: ([\s\S]*?\)) and `DISPLAY_ONLY_TIMESTAMPS`/,
+    ) ??
+    section.match(
+      /AUTHORITATIVE_GATING_WATERMARKS[\s\S]*?\n([\s\S]*?)\n\s+\*\*DISPLAY_ONLY_TIMESTAMPS/,
+    );
   if (!match?.[1]) throw new Error("Could not find AUTHORITATIVE_GATING_WATERMARKS prose");
   return collectBacktickSymbols(match[1]);
 }
@@ -99,7 +106,9 @@ function collectDisplayOnly(section: string): string[] {
   const literal = collectLiteralStringArray(section, "DISPLAY_ONLY_TIMESTAMPS");
   if (literal) return literal;
   const match =
-    section.match(/DISPLAY_ONLY_TIMESTAMPS[\s\S]*?sync-decision comparison: ([\s\S]*?\)); a sync-decision read/) ??
+    section.match(
+      /DISPLAY_ONLY_TIMESTAMPS[\s\S]*?sync-decision comparison: ([\s\S]*?\)); a sync-decision read/,
+    ) ??
     section.match(/DISPLAY_ONLY_TIMESTAMPS[\s\S]*?\n([\s\S]*?)\n\s+\*\*Out-of-scope timestamps/);
   if (!match?.[1]) throw new Error("Could not find DISPLAY_ONLY_TIMESTAMPS prose");
   return collectBacktickSymbols(match[1]);

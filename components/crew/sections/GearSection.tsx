@@ -290,7 +290,7 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                                 {c.items.length} {c.items.length === 1 ? "item" : "items"}
                               </span>
                             </summary>
-                            <ul className="flex flex-col gap-1.5 border-t border-border px-3 py-3 text-sm text-text">
+                            <ul className="flex flex-col gap-1.5 border-t border-border p-3  text-sm text-text">
                               {c.items.map((item, itemIdx) => {
                                 const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
                                 const subCat = shouldHideGenericOptional(item.subCat)

@@ -31,11 +31,11 @@ export default function Loading() {
       <div className="flex flex-col gap-section-gap min-[1080px]:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-[20rem] w-full" />
+          <Skeleton className="h-80 w-full" />
         </div>
         <div className="flex flex-col gap-3 min-[1080px]:w-80 min-[1280px]:w-[480px]">
           <Skeleton className="h-6 w-44" />
-          <Skeleton className="h-[20rem] w-full" />
+          <Skeleton className="h-80 w-full" />
         </div>
       </div>
     </LoadingShell>

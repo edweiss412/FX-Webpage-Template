@@ -102,10 +102,7 @@ type CrewLookup =
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
 // for the §B Supabase call-boundary contract (AGENTS.md §1.9).
-export async function lookupCrewMember(
-  showId: string,
-  crewMemberId: string,
-): Promise<CrewLookup> {
+export async function lookupCrewMember(showId: string, crewMemberId: string): Promise<CrewLookup> {
   try {
     // Session-bound server client. The banner's identity label reads
     // from `crew_members.role` (display label like "A1", "Stage
@@ -127,8 +124,7 @@ export async function lookupCrewMember(
       return { kind: "not_found" };
     }
     const rawRole = (data as { role?: unknown }).role;
-    const roleLabel =
-      typeof rawRole === "string" && rawRole.length > 0 ? rawRole : null;
+    const roleLabel = typeof rawRole === "string" && rawRole.length > 0 ? rawRole : null;
     return { kind: "found", name, roleLabel };
   } catch {
     return { kind: "infra_error" };
@@ -148,9 +144,7 @@ export default async function AdminPreviewAsPage({ params, searchParams }: PageP
         data-testid="admin-preview-infra-error"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We could not load this preview
-        </h1>
+        <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
         <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
@@ -186,9 +180,7 @@ export default async function AdminPreviewAsPage({ params, searchParams }: PageP
         data-testid="admin-preview-crew-infra-error"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We could not load this preview
-        </h1>
+        <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
         <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
@@ -217,9 +209,7 @@ export default async function AdminPreviewAsPage({ params, searchParams }: PageP
         data-testid="admin-preview-data-failure"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We could not load this preview
-        </h1>
+        <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
         <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}

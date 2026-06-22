@@ -47,10 +47,7 @@ describe("META picker cookie contract", () => {
   });
 
   test("only the five approved surfaces mutate the picker cookie", () => {
-    const files = [
-      ...sourceFiles("app"),
-      ...sourceFiles("lib"),
-    ];
+    const files = [...sourceFiles("app"), ...sourceFiles("lib")];
     const offenders: string[] = [];
     for (const file of files) {
       const src = read(file);

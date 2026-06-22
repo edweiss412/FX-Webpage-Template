@@ -30,10 +30,7 @@ export function Screenshot({
   return (
     <figure className="my-4">
       <picture>
-        <source
-          media="(prefers-color-scheme: dark)"
-          srcSet={`${BASE}/${name}-dark.webp`}
-        />
+        <source media="(prefers-color-scheme: dark)" srcSet={`${BASE}/${name}-dark.webp`} />
         <img
           src={`${BASE}/${name}-light.webp`}
           alt={alt}
@@ -43,9 +40,7 @@ export function Screenshot({
         />
       </picture>
       {caption && (
-        <figcaption className="mt-2 text-xs text-text-subtle text-center">
-          {caption}
-        </figcaption>
+        <figcaption className="mt-2 text-xs text-text-subtle text-center">{caption}</figcaption>
       )}
     </figure>
   );

@@ -193,8 +193,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const isShowDay = aggregateDays(data.show.dates).some((d) => d.date === todayIso);
           const eligible =
             dateRestriction.kind === "none" ||
-            (dateRestriction.kind === "explicit" &&
-              new Set(dateRestriction.days).has(todayIso));
+            (dateRestriction.kind === "explicit" && new Set(dateRestriction.days).has(todayIso));
           const todays =
             dateRestriction.kind === "unknown_asterisk"
               ? []
@@ -329,18 +328,13 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                 ) : null}
 
                 {primaryContact ? (
-                  <div
-                    data-testid="today-card-need-something"
-                    className="flex min-w-0 flex-col"
-                  >
+                  <div data-testid="today-card-need-something" className="flex min-w-0 flex-col">
                     <div data-testid="today-need-something" className="flex flex-col">
                       <SectionCard icon={<PhoneIcon />} title="Need something">
                         <ul className="flex flex-col gap-3">
                           <PersonRow
                             person={{
-                              ...(primaryContact.name != null
-                                ? { name: primaryContact.name }
-                                : {}),
+                              ...(primaryContact.name != null ? { name: primaryContact.name } : {}),
                               fallbackLabel:
                                 primaryContact.kind === "in_house_av"
                                   ? "In-house AV"
