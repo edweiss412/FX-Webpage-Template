@@ -1039,7 +1039,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
       // Task 6: source_anchors — pass raw object to $18::jsonb (never JSON.stringify; postgres.js serializes)
-      args.sourceAnchors ?? {},
+      // Pass null (not {}) when sourceAnchors is absent: SQL uses coalesce($18::jsonb, source_anchors)
+      // so the existing column value is preserved. Cron path (sourceAnchors defined) overwrites as before.
+      args.sourceAnchors ?? null,
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -1059,7 +1061,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
       // Task 6: source_anchors — pass raw object to $17::jsonb (never JSON.stringify; postgres.js serializes)
-      args.sourceAnchors ?? {},
+      // Pass null (not {}) when sourceAnchors is absent: SQL uses coalesce($17::jsonb, source_anchors)
+      // so the existing column value is preserved. Cron path (sourceAnchors defined) overwrites as before.
+      args.sourceAnchors ?? null,
     ];
     const insertParamsForSlug = (slug: string) => [
       args.driveFileId,
@@ -1106,7 +1110,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $14::timestamptz,
                    coi_status = $15,
                    pull_sheet = $16::jsonb,
-                   source_anchors = $17::jsonb,
+                   source_anchors = coalesce($17::jsonb, source_anchors),
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
@@ -1133,7 +1137,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $15::timestamptz,
                    coi_status = $16,
                    pull_sheet = $17::jsonb,
-                   source_anchors = $18::jsonb,
+                   source_anchors = coalesce($18::jsonb, source_anchors),
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
