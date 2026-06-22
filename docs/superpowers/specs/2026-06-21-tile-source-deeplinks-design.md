@@ -1,7 +1,7 @@
 # Tile → Source-Sheet Deep Links — Design Spec
 
 - **Date:** 2026-06-21
-- **Status:** Draft (self-review + adversarial R1 & R2 applied; pending adversarial re-review)
+- **Status:** Draft (self-review + adversarial R1–R3 applied; pending adversarial re-review)
 - **Branch / worktree:** `worktree-tile-source-deeplinks`
 - **Author:** Opus 4.8 (Claude Code), orchestrated session
 
@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-Every crew-page **source-backed card** gains a subtle "In sheet ↗" link that opens the show's Google Sheet at the region the card's data was parsed from. The crew member taps it to **verify a value against the source** in one motion (e.g. "the app says my call time is 8:15 — is that really what the sheet says?").
+Every crew-page **source-backed card** gains a subtle "In sheet ↗" link that opens the show's Google Sheet at the region the card's data was parsed from (its **primary** region for the few multi-source cards — §8.2.1). The crew member taps it to **verify a value against the source** in one motion (e.g. "the app says my call time is 8:15 — is that really what the sheet says?").
 
 The link lands as precisely as the underlying sheet layout *honestly* allows — a tab + A1 **region range** for most data, a near-cell anchor for the genuinely tabular AGENDA grid — and **degrades gracefully** (range → tab → whole-spreadsheet) so it is never broken or disabled.
 
@@ -39,7 +39,7 @@ Every later section references these; do not restate literals elsewhere.
 | D2 | Why always-shown is safe | Doug already shares the raw sheet link with all crew, ungated by role. App role-gating is **additive UI**, not a boundary on the sheet. The deep link exposes nothing crew can't already open, and crew have view access (no "request access" wall). |
 | D3 | Scope | **All seven sections**; **every source-backed card** that renders parsed sheet text gets a link (§8). Composite/dashboard cards and Drive-asset embeds are explicitly out of scope (§8.3). |
 | D4 | Job | **Verify / trust** a rendered value against the source |
-| D5 | Affordance unit | **One subtle link per source-backed card**, anchored to the parser **source-region** the card renders (not per row, not per field). Cards that share a source-region share its anchor. |
+| D5 | Affordance unit | **One subtle link per source-backed card**, anchored to the card's **primary** parser source-region (§8.1.1) — not per row, not per field. The header link is **card-level**: it lands at the card's primary region. The few cards that render fields from >1 region (§8.2.1) link to their primary region; their secondary fields are **documented as not precisely anchored** (the link is scoped to the primary data). Cards that share a source-region share its anchor. |
 | D6 | Precision target | **Tier 3**: tab + A1 region range, with opportunistic near-cell anchoring only for the AGENDA grid |
 | D7 | Capture architecture | **Region-anchor pipeline**: capture `{title, gid, A1}` at the export seam, thread one anchor per parser source-region, persist in a single JSONB column, build the URL at read time |
 | D8 | Fallback ladder | resolved range → tab (`#gid=`) → whole-spreadsheet (`/edit`); link is always live |
@@ -66,6 +66,7 @@ Every later section references these; do not restate literals elsewhere.
 
 - A small spreadsheet glyph + short label ("In sheet"), **low-contrast**, placed at each **source-backed card's header** — the `SectionCard` action slot.
 - Opens `https://docs.google.com/spreadsheets/d/<drive_file_id>/edit#gid=<gid>&range=<a1>` in a **new tab** with `rel="noopener noreferrer"`. The `a1` value is stored range-only (no sheet-name prefix) and **URL-encoded** (see §5.2 / §6 Hop 5).
+- **Card-level scope.** The link lands at the card's **primary** region (§8.1.1). For the two mixed-source cards (§8.2.1) it does not precisely anchor the secondary fields (parking, internet/power, COI) — those live elsewhere in the same workbook, one scroll away. This is acceptable because the entire sheet is one click away regardless (D2); the link's value is getting the viewer to the right area, not a per-field cursor.
 - **No per-row glyphs anywhere** (D5).
 
 ### 5.2 Fallback ladder (per card) — see D8
@@ -209,7 +210,9 @@ Several regions are **composite** — the parser reads them from more than one b
 3. **Cross-tab regions → primary tab only.** `schedule`'s anchor is the AGENDA `runOfShow` grid; the secondary `dates` rows on INFO are **not** separately anchored (one anchor cannot span two gids). Documented, not silent.
 4. **Unlocatable primary → degrade.** If the primary block can't be located, the region degrades to gid-only (tab) then whole-spreadsheet (§5.2).
 
-§12 requires fixtures for each shape: single-block, same-tab union-with-overreach, and the cross-tab `schedule` case.
+**Primary-block selection (deterministic).** A region maps to its parser block(s) by the parser's semantic block **kind** (e.g. the `rooms`/`venue`/`dates` block parsers in `lib/parser/blocks/*`), **not** by tab title — so legacy-`INFO` and standardized layouts resolve to the same region id. The exact block-kind→region predicate table is pinned in the plan's first task against this contract. Within a region: (a) **ordering** — blocks are ordered by their exported `(gid, top-left-row, top-left-col)`; the union range spans the min top-left to the max bottom-right **on the primary block's tab**. (b) **Multiple matches** — the first block in that order is the primary; the union covers all same-region blocks on the primary tab. (c) **Zero matches** — the region is **omitted** from `source_anchors` (its card link degrades to whole-spreadsheet, §5.2). (d) **Cross-tab beyond `schedule`** — no other corpus region spans tabs; if one ever arises, the anchor uses the primary block's tab only (same rule as `schedule`) and the §12 region-reduction test flags the uncovered cross-tab portion.
+
+§12 requires fixtures for each shape: single-block, same-tab union-with-overreach (incl. a multi-block region), zero-match degrade, and the cross-tab `schedule` case.
 
 ### 8.2 Card → region coverage (all source-backed cards)
 
@@ -312,7 +315,7 @@ Per AGENTS.md "Every migration must reach the validation project":
 - **Unit — `buildSheetDeepLink`:** every fallback rung (range / gid-only / none / null id → null); the **`gid === 0` case** — `buildSheetDeepLink(driveFileId, { title:"INFO", gid:0, a1:"A1:B2" })` MUST emit `…/edit#gid=0&range=A1%3AB2` (not degrade); the **URL-encoding** assertion (`a1="A1:C1"` → `…&range=A1%3AC1`); empty-string inputs (`driveFileId=''` → null; `a1=''` → gid-only rung); the `a1`-without-`gid` → whole-spreadsheet invariant; the **disallowed-`title`** anchor → whole-spreadsheet. **Negative-regression:** a truthy `if (gid)` impl must fail the gid-0 test; a no-op allowlist check must fail the disallowed-title test.
 - **Export/parser — anchored-block emission:** against committed exporter fixtures (`tests/drive/exportSheetToMarkdown.test.ts`, `tests/parser/exporterFixtures.test.ts`), assert each emitted block's `{title, gid, a1}` matches expected, including a **merge-origin** case (anchor = merge top-left) and a **trimmed-block** case (origin shifted by `trimBlock`). Plus a **region-reduction** fixture set (§8.1.1): a single-block region, a same-tab **union-with-overreach** region (e.g. `rooms`/`details`/`financials` — assert `a1` is the bounding rectangle covering all the region's blocks), and the **cross-tab `schedule`** case (assert the anchor is the AGENDA `runOfShow` grid and that INFO `dates` is NOT separately anchored).
 - **Allowlist meta-test (§9):** (a) walk corpus fixtures, assert no **persisted** anchor `title` is excluded; (b) `buildSheetDeepLink` drops a hand-crafted disallowed-`title` anchor (corrupted-JSON defense); (c) master-library titles absent from the allowlist constant.
-- **Field-aware coverage parity (§8):** a walker over the rendered fixture suite that tags **every rendered source-backed datum** (not just every card) with the parser region that produces it. It asserts: (a) every rendered source-backed field maps to a known region; (b) each card's single link targets the region of its **primary** field (§8.2); (c) every card that renders fields from >1 region appears in the mixed-source registry (§8.2.1) with a **matching field set**; (d) a card with no link is on the §8.3 out-of-scope list with a composite/non-sheet rationale; (e) every region id in §8.1 is referenced by ≥1 card. Because it walks fields — not a hardcoded card list — a new SectionCard, a new rendered field, or a newly-mixed card fails the test until classified; it **cannot** pass while a visible datum is unlinked or links to a region that does not back it (this closes the round-2 card-vs-field gap).
+- **Field-aware coverage parity (§8):** a walker over the rendered fixture suite that tags **every rendered source-backed datum** (not just every card) with the parser region that produces it. It asserts: (a) every rendered source-backed field maps to a known region; (b) each card's single link targets the region of its **primary** field (§8.2); (c) every card that renders fields from >1 region appears in the mixed-source registry (§8.2.1) with a **matching field set**; (d) a card with no link is on the §8.3 out-of-scope list with a composite/non-sheet rationale; (e) every region id in §8.1 is referenced by ≥1 card. Because it walks fields — not a hardcoded card list — a new SectionCard, a new rendered field, or a newly-mixed card fails the test until classified. The guarantee is **no _undocumented_ mis-coverage**: the test fails if a visible source-backed datum is **unclassified**, a card's rendered field set **drifts** from its §8.2.1 registry entry, or a card with source-backed fields has **neither** a link **nor** an §8.3 out-of-scope rationale. Registered secondary fields on the two mixed cards are **intentionally** not precisely link-covered (the link is scoped to the primary region per §5.1/§8.2.1) — that is the documented, accepted limitation, not a silent gap. This closes the round-2 card-vs-field gap by guaranteeing every visible datum is either precisely covered or explicitly documented.
 - **Corpus regression:** for representative committed fixtures across both format eras (per D11), assert region anchors resolve to the right tab + region per §8.1.
 - **Projection guard:** `getShowForViewer` projects `drive_file_id` + `source_anchors`; assert the empty-object (`{}`) and null-`drive_file_id` paths render no broken links.
 - **Real-browser (Playwright + impeccable gate; jsdom insufficient):**
