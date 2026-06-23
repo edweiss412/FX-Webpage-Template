@@ -101,6 +101,39 @@ describe("wizard-scoped staged apply/discard routes", () => {
     errorSpy.mockRestore();
   });
 
+  // BL-APPLYSTAGED-SUPERSESSION-ROLLBACK: applyStaged now THROWS
+  // WizardSessionSupersededRollbackError on an in-apply supersession that would
+  // otherwise commit partial wizard writes (applyStaged.ts 1084/1105/1554). The
+  // wizard apply route must map that throw to 409 + a WIZARD_SESSION_SUPERSEDED_RACE
+  // alert — NOT the body-less 500 the backstop above would otherwise produce.
+  test("apply maps a thrown WizardSessionSupersededRollbackError to 409 + race alert (attempted_action apply)", async () => {
+    const tx = new FakeWizardStagedTx();
+    const alerts: Array<{ code: string; context: Record<string, unknown> }> = [];
+    const response = await handleWizardStagedApply(applyRequest(), context, {
+      ...deps(tx),
+      applyStaged: vi.fn(async () => {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: "apply",
+          supersededSessionId: W1,
+          driveFileId: "file-1",
+        });
+      }),
+      readCurrentWizardSessionId: vi.fn(async () => "99999999-9999-4999-8999-999999999999"),
+      upsertAdminAlert: vi.fn(async (input) => {
+        alerts.push({ code: input.code, context: input.context as Record<string, unknown> });
+        return "alert-id";
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      code: "WIZARD_SESSION_SUPERSEDED_RACE",
+      context: { attempted_action: "apply", drive_file_id: "file-1" },
+    });
+  });
+
   test("apply delegates to applyStaged with sourceScope wizard", async () => {
     const tx = new FakeWizardStagedTx();
     const routeDeps = deps(tx);

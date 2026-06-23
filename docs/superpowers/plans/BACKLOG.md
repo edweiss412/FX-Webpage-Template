@@ -327,7 +327,11 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
-### BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY — Retry/backoff for transient Drive throttling during the onboarding folder scan
+### BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY — ✅ RESOLVED (shared Drive-fetch-layer retry/backoff)
+
+**✅ RESOLVED (2026-06-23).** Fixed in the follow-up via the **shared Drive-fetch-layer** option (the BL's "natural home"). `lib/drive/fetch.ts` now: (a) `DriveFetchError` carries `status` (transient export 429/5xx are detectable, not flattened into the message); (b) `withDriveRetry(op, opts?)` retries ONLY transient statuses (429/500/502/503/504) with bounded exponential backoff (250/500/1000ms) + jitter, default 3 retries — non-transient errors (revision races, 404, omitted metadata) propagate immediately; (c) a named `driveFilesGet`/`driveFilesGetCall` thunk wraps every `drive.files.get` and the xlsx export `fetch` is wrapped too, so ALL callers benefit — onboarding scan + cron (`runPushSyncForShow`) + manual sync (`runManualSyncForShow`) + retry. Test injection via `DriveFetchOptions.retry` ({sleep, maxRetries, random}); 5 new `tests/drive/fetch.test.ts` cases (transient-retry-then-succeed, non-transient-no-retry, bounded-exhaustion, export-retry, export-non-transient). Two structural meta-tests updated for the new named thunk site: `_scopeCheckContract` (`driveFilesGetCall` exempt raw wrapper) + `_sharedDriveSupportContract` (`supportsAllDrives: true` inlined at the single `.files.get` site).
+
+<details><summary>Original filing</summary>
 
 **Filed:** 2026-06-22 from PR #73 (onboarding folder-scan prepare parallelization) Codex adversarial review R1 (MEDIUM).
 
@@ -335,7 +339,9 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 **Why backlog, not deferred:** No concrete trigger. On the real FXAV workload (a bounded number of shows per folder, ≤~6 Drive calls per sheet, cap-6 in-flight) a transient-throttle-induced scan failure is low-probability, and the conservative cap is the standing mitigation. A real fix needs a design call: retry-with-backoff scoped to the prepare path, vs. hardening the shared `lib/drive/fetch.ts` layer (which would also change the cron + manual-sync paths and needs the Drive error shape surfaced first — `DriveFetchError` currently flattens the HTTP status into its message, so transient detection requires carrying the status). Either path is its own focused change + tests, not in-scope for a parallelization PR.
 
-**Promotion prerequisite:** EITHER (a) an operator observes a real onboarding-scan failure traced to a transient Drive throttle/blip, OR (b) a v1.x sync-robustness milestone bundles Drive-layer retry/backoff across the onboarding + cron + manual-sync paths (the natural home, since the gap is shared).
+**Promotion prerequisite:** EITHER (a) an operator observes a real onboarding-scan failure traced to a transient Drive throttle/blip, OR (b) a v1.x sync-robustness milestone bundles Drive-layer retry/backoff across the onboarding + cron + manual-sync paths (the natural home, since the gap is shared). _(Resolved via option (b).)_
+
+</details>
 
 ---
 
@@ -356,17 +362,19 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
-### BL-APPLYSTAGED-SUPERSESSION-ROLLBACK — applyStaged returns `wizard_superseded` after partial wizard writes (in-scan-supersession partial-commit)
+### BL-APPLYSTAGED-SUPERSESSION-ROLLBACK — ✅ RESOLVED (PR for fix/applystaged-supersession-rollback)
 
-**Filed:** 2026-06-23 from PR #80 Codex adversarial-review R3 (HIGH, Finding 2). The retry path was fixed in #80 (`retrySingleFileFinalize` THROWS `WizardSessionSupersededRollbackError` on ANY scan-reported supersession so the locked tx aborts and the scan's pre-flip wizard writes roll back). The **wizard-apply / restage path has the same class and was deliberately deferred** (the retry fix is #80's core; this is a separate applyStaged-wide change).
+**✅ RESOLVED (2026-06-23).** Filed from PR #80 Codex adversarial-review R3 (HIGH, Finding 2) and fixed in the follow-up.
 
-**The bug class:** when a wizard-scoped scan/apply runs on the locked tx and the session flips AFTER a wizard write (e.g. the `pending_syncs` upsert or `pending_ingestions` delete) but BEFORE the next EXISTS-guarded statement 0-rows, the code returns `wizard_superseded` **normally**, so the enclosing `withPipelineLock` (`sql.begin`) COMMITS the already-executed partial wizard writes as residue. Confirmed in `stageWizardRestageInline` (`lib/sync/applyStaged.ts:~1554`); the same `return { outcome: "wizard_superseded", … }` shape appears at ~6 sites (`applyStaged.ts:1066, 1084, 1099, 1105, 1425, 1554`) — each must be audited for whether it can return after a wizard-scoped mutation on the locked tx.
+**The bug class:** a wizard-scoped apply/restage runs on the per-show locked tx; if the session flips AFTER a wizard-scoped write but BEFORE the next EXISTS-guarded statement 0-rows, the code RETURNED `wizard_superseded` normally → `withPostgresSyncPipelineLock` (`sql.begin`) COMMITTED the already-executed partial writes as residue.
 
-**Impact:** LOW — the leaked rows are wizard-scoped (`wizard_session_id = <stale session>`), so the F4 reap (`reapStaleOnboardingSessions`, which sweeps `wizard_session_id IS NOT NULL` stale rows) cleans them; and it only triggers on a session flip mid-apply (rare). NOT the live-null wedging class (Bug 4, fixed) — those were `wizard_session_id null` rows F4 could never sweep.
+**Audit result (parallel multi-agent + direct verification of all six `return wizard_superseded` sites in `applyStaged.ts`):**
+- **THROW (partial write precedes):** `1084` (`recordWizardApplyHardFail`'s `pending_ingestion` upsert succeeded, then `markWizardManifestHardFailed` 0-rowed), `1105` (`approveWizardPendingSync`'s `wizard_approved` UPDATE succeeded, then `markWizardManifestApplied` 0-rowed), `1554` (the restage's UNGUARDED `deleteWizardPendingSyncsExcept` — which wipes the **superseding** session's staged rows — + `deleteLivePendingIngestion` ran before the scan reported superseded).
+- **LEAVE as return (no preceding locked-tx mutation):** `1066` (first guard, after only reads), `1099` (`approveWizardPendingSync` 0-rowing = no write; the mutating `recordWizardApplyHardFail` branch returns at 1086/1088 instead), `1425` (read-only preflight in its own dedicated locked tx).
 
-**The fix (separate PR):** (a) audit each `return wizard_superseded` in applyStaged for a preceding locked-tx wizard mutation; (b) where one exists, THROW `WizardSessionSupersededRollbackError` instead so the tx aborts; (c) **the wizard-apply/staged route does NOT currently catch `WizardSessionSupersededRollbackError`** (`app/api/admin/show/staged/[stagedId]/{apply,discard}/route.ts`) — add the catch → 409 + `WIZARD_SESSION_SUPERSEDED_RACE` alert, mirroring the retry route; (d) add real-DB partial-commit regression tests (mirror `wizardSessionCasRaceDb.test.ts`'s in-scan test) for each fixed site.
+**Route topology (the original filing pointed at the wrong routes):** these throws are reached **ONLY via the WIZARD apply route** `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply` (`sourceScope: "wizard"`) — NOT the live `show/staged` routes (`sourceScope: "live"`, never hit the wizard branch). That route's catch mapped any throw to a body-less **500**; added the rollback catch → 409 + `WIZARD_SESSION_SUPERSEDED_RACE` alert (mirrors the retry route). The wizard **discard** route already caught `discardStaged`'s throws (no change). The **finalize** path uses `applyStagedCore` (not `applyStaged_unlocked`) so it never reaches these sites. Added `"apply"` to the `WizardSessionRollbackContext.attemptedAction` union.
 
-**Why backlog, not in #80:** it's an applyStaged-wide pattern change + a route-error-handling change on a separate shipped path, low-impact (F4-sweepable), and orthogonal to #80's retry fix. Promote with the applyStaged supersession-semantics review.
+**Tests:** the wizard apply route maps the thrown rollback to 409 + alert (`wizardScopedReapply.test.ts`). The throw→tx-abort→rollback mechanism is proven by PR #80's `wizardSessionCasRaceDb` in-scan real-DB test (same lock + same error). **Residual follow-up:** a dedicated real-DB apply partial-commit test (the wizard-apply route tests use a Fake tx) — the mechanism is proven by proxy + the throws are code-verified.
 
 ---
 

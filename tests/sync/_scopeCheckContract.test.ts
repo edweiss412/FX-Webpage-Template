@@ -23,6 +23,10 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "raw Drive metadata wrapper; entrypoints that process sheets must scope-check its result",
   ],
   [
+    "lib/drive/fetch.ts::driveFilesGetCall",
+    "raw transient-retry thunk over drive.files.get (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY); the named fetch* wrappers it backs are themselves exempt and their callers perform scope admission",
+  ],
+  [
     "lib/drive/fetch.ts::fetchSheetAsMarkdown",
     "test-only helper documented @internal; production sync uses revision-bound fetches",
   ],
