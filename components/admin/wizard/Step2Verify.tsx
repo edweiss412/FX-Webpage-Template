@@ -52,8 +52,12 @@ const RECOGNIZED_CODES = new Set<MessageCode>([
   "WIZARD_ISOLATION_INDEXES_MISSING",
 ]);
 
+// not-subject:M5-D8 — code-less generic fallbacks (network unreachable / unknown
+// or null code). There is no §12.4 code to route through messageFor for these;
+// the prior component used these same literals inline at the callsites.
 const GENERIC_DRIVE_ERROR =
   "We could not reach Drive just now. Check your connection and try again.";
+// not-subject:M5-D8 — generic verify fallback for a null/unrecognized code.
 const GENERIC_VERIFY_ERROR =
   "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.";
 

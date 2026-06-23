@@ -260,7 +260,7 @@ export async function handleOnboardingScan(
       const emit = (msg: ScanStreamMessage) => {
         if (canceled) return;
         try {
-          controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n"));
+          controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n")); // jsonb-text-exempt: NDJSON wire encoding for the HTTP progress stream, not a postgres.js jsonb param
         } catch {
           canceled = true;
         }
