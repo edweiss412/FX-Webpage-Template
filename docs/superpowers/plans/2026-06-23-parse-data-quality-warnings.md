@@ -41,8 +41,8 @@ This milestone **extends**:
 
 **Files:** Modify `lib/parser/blocks/crew.ts` (~`:127-143` buildCrewMember/phone); Test `tests/parser/blocks/crew.test.ts`.
 
-- [ ] **Step 1: Failing test** — fixture crew row phone `"call John"` → asserts one `FIELD_UNREADABLE` warning (`rawSnippet==="call John"`) AND the member still parses (row present, phone null/empty → no `tel:`). Negatives: `"917-331-4885"` → no warning; empty phone → no warning; whitespace → no warning. Derive expectations from the fixture. Run → FAIL.
-- [ ] **Step 2: Implement** — after computing `phoneRaw` (`crew.ts:127`), if `presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0` call `emitFieldUnreadable`. v1 scope = phone only.
+- [ ] **Step 1: Failing test** — fixture crew row phone `"call John"` → asserts one `FIELD_UNREADABLE` warning (`rawSnippet==="call John"`) AND the member still parses. **Both header paths (R-plan F2):** a CREW-header sheet AND a TECH-header sheet (both flow through the shared `buildCrewMember`) must each emit. Negatives: `"917-331-4885"` → no warning; empty phone → no warning; whitespace → no warning. Derive expectations from the fixture. Run → FAIL.
+- [ ] **Step 2: Implement** — put the predicate **inside the shared `buildCrewMember`** (called by BOTH `parseCrewBlock` and `parseTechBlock`, each of which computes its own `phoneRaw` ~`crew.ts:127` and passes it in), so both header paths share it: if `presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0` call `emitFieldUnreadable`. The aggregator + raw phone + index must be in `buildCrewMember`'s scope (thread them in if not). v1 scope = phone only.
 - [ ] **Step 3: Green** + **Step 4: Commit** `feat(parser): flag unreadable crew phone (FIELD_UNREADABLE)`.
 
 ## Task 3: Class B — `UNKNOWN_SECTION_HEADER` + registry + corpus
@@ -99,9 +99,10 @@ This milestone **extends**:
 
 **Files:** Modify `lib/admin/loadHeldShows.ts` (`:100-105` select), `components/admin/ShowsTable.tsx` (chip); Test `tests/admin/loadHeldShows...`, component.
 
-- [ ] **Step 1: Failing** — `loadHeldShows` reading seeded `shows_internal.parse_warnings` → per-show `summarizeDataGaps` summary derived from the seeded array (NOT the chip). `ShowsTable` renders the chip when `total>0`, nothing when `0`. FAIL.
-- [ ] **Step 2: Implement** — extend the `shows`+`shows_internal` read; derive the summary; render the chip near `PublishShowButton`. (Invariant-9 handling is Task 12.)
-- [ ] **Step 3: Green** + **Step 4: Commit** `feat(admin): data-gaps chip on /admin/unpublished held rows`.
+- [ ] **Step 1a: Failing (render)** — `loadHeldShows` reading seeded `shows_internal.parse_warnings` → per-show `summarizeDataGaps` summary derived from the seeded array (NOT the chip). `ShowsTable` renders the chip when `total>0`, nothing when `0`. FAIL.
+- [ ] **Step 1b: Failing (invariant 9, R-plan F1 — NOT deferred)** — the NEW `loadHeldShows` `shows_internal.parse_warnings` read returns an error AND (separately) throws → `loadHeldShows` yields a discriminable `infra_error` and `/admin/unpublished` shows a visible degraded state, NOT a silent absent-chip/`{total:0}`. FAIL.
+- [ ] **Step 2: Implement** — extend the read with `{data,error}` destructure; failure → typed `infra_error`/degraded UI (mirror `loadHeldShows`'s existing infra_error result shape); null/absent → no chip; render the chip near `PublishShowButton` otherwise. **Register the new `shows_internal` read in `tests/admin/_metaInfraContract.test.ts`** (its own row, distinct from the existing `shows` read).
+- [ ] **Step 3: Green (1a+1b + meta-contract)** + **Step 4: Commit** `feat(admin): data-gaps chip on /admin/unpublished (invariant-9 safe)`.
 
 ## Task 10: P4 — Changes-feed (no new render, confirm reuse)
 
@@ -122,8 +123,8 @@ This milestone **extends**:
 **Files:** Modify `app/admin/show/[slug]/page.tsx` (panel + `shows_internal.parse_warnings` read), extend `tests/admin/_metaInfraContract.test.ts`; Tests component + infra.
 
 - [ ] **Step 1a: Failing (render)** — per-show page with seeded `shows_internal.parse_warnings` → "Data quality" panel lists each `.message`; zero warnings → panel absent.
-- [ ] **Step 1b: Failing (invariant 9, R10 F1)** — the `shows_internal.parse_warnings` read returns an error AND (separately) throws → the surface degrades visibly (calm notice), NOT a silent absent-panel/`{total:0}`. Register the read in `_metaInfraContract`. FAIL.
-- [ ] **Step 2: Implement** — read with `{data,error}` destructure; failure → degraded notice (mirror the existing Changes-feed `SyncInfraError` degrade on this page); null/absent → no panel; render the list otherwise.
+- [ ] **Step 1b: Failing (invariant 9, R10 F1 — per-show read; the held-show read is covered in Task 9)** — the per-show page's `shows_internal.parse_warnings` read returns an error AND (separately) throws → the surface degrades visibly (calm notice), NOT a silent absent-panel/`{total:0}`. Register THIS read in `_metaInfraContract` (distinct row from Task 9's `loadHeldShows` read). FAIL.
+- [ ] **Step 2: Implement** — read with `{data,error}` destructure; failure → degraded notice (mirror the existing Changes-feed `SyncInfraError` degrade on this page, `app/admin/show/[slug]/page.tsx`); null/absent → no panel; render the list otherwise.
 - [ ] **Step 3: Green** + **Step 4: Commit** `feat(admin): per-show Data-Quality panel (invariant-9 safe)`.
 
 ## Task 13: Layout-dimensions (real-browser, mandatory)
