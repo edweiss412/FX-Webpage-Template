@@ -54,16 +54,15 @@ Common triggers:
 
 Apply and Discard work the same way as the first-seen flow. Apply replaces the live version with the staged one. Discard drops the staged version and leaves the prior approved version live.
 
-## When to Apply
+## Apply or Discard?
 
-- The change in the sheet is intentional and you want crew to see it.
-- The triggered review items match edits you remember making (or that Doug told you about).
-- The diff shown next to each item lines up with the sheet.
+| Apply when                                                  | Discard when                                                          |
+| ----------------------------------------------------------- | --------------------------------------------------------------------- |
+| The change is intentional and you want crew to see it.      | You spot a typo, a paste accident, or a row you didn't mean to touch. |
+| The triggered review items match edits you remember making. | A crew row vanished and you can't account for it.                     |
+| The diff next to each item lines up with the sheet.         | You started an edit you aren't ready to publish yet.                  |
 
-## When to Discard
-
-- You spot a typo, a paste accident, or a row you didn't mean to touch. Fix the sheet first, then let the next sync re-stage cleanly.
-- A crew row vanished and you can't account for it. Discard, investigate, edit the sheet, and let the app re-stage on the corrected version.
-- You started an edit you aren't ready to publish. Discard the staged version; the prior approved version keeps serving crew.
-
-If you're not sure, Discard is the safer of the two. The sheet stays put. The next sync will surface the same review again.
+<Callout type="tip">
+  Not sure? **Discard** is the safer choice: the sheet stays put and the next sync surfaces the same
+  review again. If the change was a mistake, fix the sheet first so it re-stages cleanly.
+</Callout>

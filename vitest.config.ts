@@ -2,17 +2,24 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import mdx from "@mdx-js/rollup";
+import remarkGfm from "remark-gfm";
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
 // those imports fail to resolve. `@mdx-js/rollup` plugs into Vitest's Vite
 // pipeline; `@next/mdx` is the production build path and stays separate.
 // Production runtime is unchanged.
+//
+// remarkGfm MUST mirror next.config.ts's createMDX remarkPlugins so the test
+// MDX pipeline renders the /help catalog tables (Chunk 2) the same way the
+// production build does — otherwise vitest would render `| a | b |` as literal
+// text and page render-tests would assert against a degraded shape.
 export default defineConfig({
   plugins: [
     mdx({
       jsxImportSource: "react",
       providerImportSource: "@mdx-js/react",
+      remarkPlugins: [remarkGfm],
     }),
   ],
   test: {

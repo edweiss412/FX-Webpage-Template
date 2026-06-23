@@ -18,11 +18,13 @@ Need to point the app at a different folder? **Re-run setup**. Your current show
 
 The badge next to the **Drive connection** heading is a one-word answer to "is the pipeline working?" It shows **Healthy** when the connection is good, and **Needs attention** when something wants a look. In plain terms, the status line underneath tells you which situation you're in:
 
-- **Connected.** The folder is being read and shows are syncing. Nothing to do.
-- **"Connection not set up."** You haven't pointed the app at a Drive folder yet. Run setup to choose one.
-- **"Connection needs attention."** The app's link to your folder lapsed or stopped, so new edits may not be syncing. Tap **Re-run setup** to reconnect — your existing shows keep all their data.
-- **"Syncing, but … shows need attention."** The folder connection itself is fine; some individual shows are failing to sync. Head to the dashboard and open the failing shows from the [Needs attention inbox](/help/admin/dashboard#pending-ingestion) — the fix is per-show, not here.
-- **"Not synced yet."** The app hasn't read the folder yet — normal right after setup, before the first poll.
+| Status line                             | What it means                                                                        | What to do                                                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Connected**                           | The folder is being read and shows are syncing.                                      | Nothing.                                                                                                                         |
+| **Connection not set up**               | You haven't pointed the app at a Drive folder yet.                                   | Run setup to choose one.                                                                                                         |
+| **Connection needs attention**          | The app's link to your folder lapsed or stopped, so new edits may not be syncing.    | Tap **Re-run setup** to reconnect; your existing shows keep all their data.                                                      |
+| **Syncing, but … shows need attention** | The folder connection itself is fine; some individual shows are failing to sync.     | Open the failing shows from the [Needs attention inbox](/help/admin/dashboard#pending-ingestion); the fix is per-show, not here. |
+| **Not synced yet**                      | The app hasn't read the folder yet; normal right after setup, before the first poll. | Nothing; the first poll will catch it.                                                                                           |
 
 If the status line says it couldn't read the connection status just now, that's a hiccup on our side, not your folder: refresh the page, and if it keeps happening, send the page link to Eric.
 
