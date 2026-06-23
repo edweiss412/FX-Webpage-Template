@@ -35,6 +35,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import {
   approveMi11Hold,
   rejectMi11Hold,
@@ -57,6 +58,11 @@ export async function mi11ApproveAction(
   const expectedBaseModifiedTime = normalizeExpectedBase(formData);
   const result = await approveMi11Hold(holdId, expectedBaseModifiedTime);
   if (result.ok) {
+    // nav-perf tag-caching (Task 9): approving an MI-11 hold applies the held crew identity change
+    // (crew_members mutate) — rendered crew DATA. The self-locking RPC committed by the time
+    // approveMi11Hold resolved, so revalidateShow here is POST-COMMIT. showId is the server-resolved
+    // id (from the hold row); skip the data-cache bust only if it could not be resolved.
+    if (result.showId) revalidateShow(result.showId);
     revalidatePath("/admin/show/[slug]", "page");
   }
   return result;
@@ -71,6 +77,10 @@ export async function mi11RejectAction(
   const expectedBaseModifiedTime = normalizeExpectedBase(formData);
   const result = await rejectMi11Hold(holdId, expectedBaseModifiedTime);
   if (result.ok) {
+    // not-subject-to-revalidate (nav-perf tag-caching Task 9): Reject SUPPRESSES a HELD identity
+    // change — the crew page was already showing the OLD identity, so the crew-facing
+    // getShowForViewer projection is UNCHANGED (no `show-${id}` bust). Only the admin feed flips the
+    // entry's status, which revalidatePath covers. (rejectMi11Hold never surfaces a showId.)
     revalidatePath("/admin/show/[slug]", "page");
   }
   return result;
@@ -88,6 +98,10 @@ export async function undoChangeAction(
   const changeLogId = String(formData.get("changeLogId") ?? "");
   const result = await undoChange(changeLogId);
   if (result.ok) {
+    // nav-perf tag-caching (Task 9): undoing a logged change reverts the crew identity it applied
+    // (crew_members + a tombstone) — rendered crew DATA. POST-COMMIT revalidate of the
+    // server-resolved show id.
+    if (result.showId) revalidateShow(result.showId);
     revalidatePath("/admin/show/[slug]", "page");
   }
   return result;

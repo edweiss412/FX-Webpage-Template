@@ -42,7 +42,9 @@
  * redeemed-link viewers don't carry a Supabase Auth session, so a cookie-
  * bound client can't read `shows_internal` under RLS for them.
  */
+import { unstable_cache } from "next/cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { showCacheTag } from "@/lib/data/showCacheTag";
 import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
 import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { deriveSchedulePhases } from "@/lib/parser";
@@ -241,7 +243,18 @@ export type ShowForViewer = {
   sourceAnchors: Record<string, SourceAnchor>;
 };
 
-export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
+/**
+ * The pure, cacheable show-data fan-out for one (show, viewer) pair — every read
+ * in §2 EXCEPT the live `viewer_version_token` RPC (which `getShowForViewer`
+ * adds back outside the cache; see spec §3.1 — caching the token = infinite
+ * realtime-refresh loop). Service-role client only; reads no cookies/headers/
+ * Date/now() so it is safe inside `unstable_cache` (callback runs outside
+ * request scope). Returns the full ShowForViewer shape MINUS the token.
+ */
+async function readShowDataForViewer(
+  showId: string,
+  viewer: Viewer,
+): Promise<Omit<ShowForViewer, "viewerVersionToken">> {
   const supabase = createSupabaseServiceRoleClient();
 
   const isAdmin = viewer.kind === "admin";
@@ -610,46 +623,20 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     }
   };
 
-  // === viewer_version_token RPC (Task 4.16 Checkpoint B SSR fence) ===
-  // Computed by public.viewer_version_token(uuid) — defined in
-  // supabase/migrations/20260501001000_internal_and_admin.sql:18-32. The
-  // function is granted EXECUTE to authenticated, anon, AND service_role,
-  // so this RPC succeeds under every viewer kind. Empty string is the
-  // "no fence" sentinel — the bridge tolerates it. HARD throw on a returned
-  // error (page cannot render without the fence) — preserved verbatim.
-  const readVersionToken = async (): Promise<string> => {
-    const versionRpc = await supabase.rpc("viewer_version_token", { p_show_id: showId });
-    if (versionRpc.error) {
-      throw new Error(
-        `getShowForViewer: viewer_version_token RPC failed: ${versionRpc.error.message}`,
-      );
-    }
-    return typeof versionRpc.data === "string" ? versionRpc.data : "";
-  };
-
   // === Parallel wave: every independent post-validation read fans out at once ===
   // Promise.all the query PROMISES (invariant 9 — they resolve, never reject;
   // each read above owns its try/catch). When !isLead the financials slot is
   // Promise.resolve(undefined) so ZERO financials reads issue. NEVER allSettled.
-  const [
-    crewMembers,
-    allHotels,
-    rooms,
-    transportation,
-    contacts,
-    runOfShowRaw,
-    viewerVersionToken,
-    financialsResult,
-  ] = await Promise.all([
-    readCrewMembers(),
-    readHotels(),
-    readRooms(),
-    readTransportation(),
-    readContacts(),
-    readRunOfShow(),
-    readVersionToken(),
-    isLead ? readFinancials() : Promise.resolve(undefined),
-  ]);
+  const [crewMembers, allHotels, rooms, transportation, contacts, runOfShowRaw, financialsResult] =
+    await Promise.all([
+      readCrewMembers(),
+      readHotels(),
+      readRooms(),
+      readTransportation(),
+      readContacts(),
+      readRunOfShow(),
+      isLead ? readFinancials() : Promise.resolve(undefined),
+    ]);
 
   const hotelReservations: HotelReservationRow[] =
     isAdmin || viewerName === null
@@ -727,7 +714,6 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     pullSheet,
     viewerName,
     viewerFlightInfo,
-    viewerVersionToken,
     diagrams,
     openingReelHasVideo,
     lastSyncedAt: (showRowDb.last_synced_at as string | null | undefined) ?? null,
@@ -740,4 +726,61 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       (showRowDb.source_anchors as Record<string, SourceAnchor> | null | undefined) ?? {},
     ...(financials ? { financials } : {}),
   };
+}
+
+// === viewer_version_token RPC (Task 4.16 Checkpoint B SSR fence) ===
+// Computed by public.viewer_version_token(uuid) — defined in
+// supabase/migrations/20260501001000_internal_and_admin.sql:18-32. The function
+// is granted EXECUTE to authenticated, anon, AND service_role, so this RPC
+// succeeds under every viewer kind. Empty string is the "no fence" sentinel —
+// the bridge tolerates it. HARD throw on a returned error (page cannot render
+// without the fence) — preserved verbatim.
+//
+// LIVE on EVERY render — NEVER cached (spec §3.1). The bridge compares this
+// live token to the rendered one and router.refresh()es on mismatch; caching it
+// would re-serve a stale token forever → infinite refresh loop.
+async function readViewerVersionToken(showId: string): Promise<string> {
+  const supabase = createSupabaseServiceRoleClient();
+  const versionRpc = await supabase.rpc("viewer_version_token", { p_show_id: showId });
+  if (versionRpc.error) {
+    throw new Error(
+      `getShowForViewer: viewer_version_token RPC failed: ${versionRpc.error.message}`,
+    );
+  }
+  return typeof versionRpc.data === "string" ? versionRpc.data : "";
+}
+
+// The cached data fan-out (spec §4.1). Per Next `unstable_cache` semantics,
+// dynamic key parts go in the keyParts array — `showId` + viewer identity make
+// distinct shows/viewers distinct cache entries (per-viewer isolation is a
+// SECURITY boundary: a collision would leak another viewer's financials). One
+// tag per show busts ALL viewers of that show on any write. `revalidate: 300`
+// is the TTL BACKSTOP (spec §4.3, defense-in-depth) — `revalidateShow` (the
+// write paths) is the PRIMARY near-zero-staleness mechanism.
+function cachedShowData(
+  showId: string,
+  viewer: Viewer,
+): Promise<Omit<ShowForViewer, "viewerVersionToken">> {
+  return unstable_cache(
+    () => readShowDataForViewer(showId, viewer),
+    [
+      "getShowForViewer",
+      showId,
+      viewer.kind,
+      viewer.kind === "admin" ? "admin" : viewer.crewMemberId,
+    ],
+    { tags: [showCacheTag(showId)], revalidate: 300 },
+  )();
+}
+
+/**
+ * Public entry point — UNCHANGED signature + return shape. The expensive data
+ * fan-out is served from `unstable_cache` (tag `show-${showId}`, 300s backstop);
+ * the `viewer_version_token` RPC is read LIVE on every call (never cached) so the
+ * realtime bridge stays correct without looping (spec §3.1).
+ */
+export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
+  const data = await cachedShowData(showId, viewer);
+  const viewerVersionToken = await readViewerVersionToken(showId);
+  return { ...data, viewerVersionToken };
 }

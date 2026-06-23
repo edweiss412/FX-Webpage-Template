@@ -1327,7 +1327,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: no shows-map entry → markShow* returns showId:null → result carries showId:null.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: null,
+    });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
@@ -1353,7 +1358,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: no shows-map entry → markShow* returns showId:null → result carries showId:null.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: null,
+    });
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
@@ -1390,7 +1400,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: existing show → markShowSheetUnavailable returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "sheet_unavailable",
@@ -1449,7 +1464,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: existing show → markShowDriveError returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "parse_error",
+      code: "SYNC_FILE_FAILED",
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "drive_error",
@@ -1548,7 +1568,8 @@ describe("processOneFile", () => {
         fileMeta("file-1"),
         syncDeps,
       ),
-    ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+      // whole-diff R2: no shows-map entry → markShowDriveError returns showId:null → result carries it.
+    ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED", showId: null });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
@@ -1585,7 +1606,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: existing show → markShowSheetUnavailable returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "sheet_unavailable",
@@ -1674,7 +1700,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: existing show → markShowDriveError returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "parse_error",
+      code: "SYNC_FILE_FAILED",
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "drive_error",
@@ -1960,7 +1991,11 @@ describe("runScheduledCronSync", () => {
     });
 
     expect(result.processed).toEqual([
-      { driveFileId: "file-a", result: { outcome: "source_gone", code: "SHEET_UNAVAILABLE" } },
+      {
+        driveFileId: "file-a",
+        // whole-diff R2: markMissingShow_unlocked carries the missing show's id (updated.showId ?? show.showId).
+        result: { outcome: "source_gone", code: "SHEET_UNAVAILABLE", showId: "show-a" },
+      },
       {
         driveFileId: "file-b",
         result: { outcome: "applied", showId: "show-b", parseWarnings: [] },

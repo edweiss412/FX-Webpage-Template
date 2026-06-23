@@ -95,6 +95,12 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
   }
 
   const count = data?.clearedShows ?? 0;
+  // not-subject-to-revalidate: reset_validation_data wipes EVERY validation show in one RPC and
+  // returns only a count (`clearedShows`), not the per-show ids the per-show `show-${id}` cache tag
+  // needs — there is no id to revalidate, and no global "all shows" tag exists. This runs ONLY on
+  // the throwaway validation project (destructiveResetAllowed gates it to VALIDATION_PROJECT_REF),
+  // where the next reseed re-renders everything and the unstable_cache 300s TTL backstops any
+  // residual stale entry. revalidatePath("/admin"/"/admin/settings") covers the admin surfaces.
   revalidatePath("/admin");
   revalidatePath("/admin/settings");
   return { ok: true, count };
@@ -164,6 +170,10 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
     );
     await finalizeFixtures(serviceClient, ALL_COMBOS, validationTodayIso);
 
+    // not-subject-to-revalidate: the full 16-combo reseed mints many shows across the throwaway
+    // validation project and returns only a `minted` count, not the per-show ids the `show-${id}`
+    // tag needs; there is no global "all shows" tag. Validation-only (destructiveResetAllowed gates
+    // it), and the unstable_cache 300s TTL backstops any residual stale entry after a fresh reseed.
     revalidatePath("/admin");
     revalidatePath("/admin/settings");
     return { ok: true, count: minted };

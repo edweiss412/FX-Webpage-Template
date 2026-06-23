@@ -5,6 +5,10 @@ import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+// not-subject-to-revalidate (nav-perf tag-caching Task 9): resetting the picker epoch mutates only
+// shows.picker_epoch — a picker/auth column NOT in the getShowForViewer DATA projection. The
+// rendered crew DATA is unchanged, so the `show-${id}` data cache need not bust.
+
 type ResetPickerEpochResult =
   | { ok: true; new_epoch: number }
   | { ok: false; code: "PICKER_RESOLVER_LOOKUP_FAILED" };

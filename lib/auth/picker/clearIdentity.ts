@@ -11,6 +11,10 @@ import {
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
+// not-subject-to-revalidate (nav-perf tag-caching Task 9): clearing the identity only deletes the
+// picker COOKIE — it writes NO database rows at all, let alone getShowForViewer DATA. Nothing to
+// revalidate; the LIVE viewerVersionToken handles any per-viewer freshness.
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const TOKEN_RE = /^[0-9a-f]{64}$/;

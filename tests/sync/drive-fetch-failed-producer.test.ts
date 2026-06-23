@@ -72,7 +72,8 @@ describe("DRIVE_FETCH_FAILED producer", () => {
     );
     const result = await processOneFile_unlocked(tx, "drive-file-1", "cron", file, deps, prepared);
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: parse_error result now carries the read-back showId (last_sync_status writer).
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED", showId: "show-1" });
     expect(upsertAdminAlert).toHaveBeenCalledWith(
       expect.objectContaining({
         showId: "show-1",

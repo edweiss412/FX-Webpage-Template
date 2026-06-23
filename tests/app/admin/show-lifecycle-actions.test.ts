@@ -41,7 +41,11 @@ vi.mock("@/lib/showLifecycle/unarchiveShow", () => ({
 }));
 
 const revalidatePath = vi.fn();
-vi.mock("next/cache", () => ({ revalidatePath: (...a: unknown[]) => revalidatePath(...a) }));
+const revalidateTag = vi.fn();
+vi.mock("next/cache", () => ({
+  revalidatePath: (...a: unknown[]) => revalidatePath(...a),
+  revalidateTag: (...a: unknown[]) => revalidateTag(...a),
+}));
 
 // Supabase server client: a `from("shows").select(...).eq(...).maybeSingle()`
 // chain whose terminal value the test controls per-case.
@@ -59,6 +63,7 @@ import {
   publishShowAction,
   unarchiveShowAction,
 } from "@/app/admin/show/[slug]/_actions";
+import { showCacheTag } from "@/lib/data/showCacheTag";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -86,6 +91,8 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(archiveShow).toHaveBeenCalledWith("show-1");
     expect(res).toEqual({ ok: true });
     expect(revalidatePath).toHaveBeenCalled();
+    // nav-perf tag-caching (Task 8): success revalidates the show's data-cache tag.
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
   });
 
   it("publishShowAction resolves slug→id, invokes publishShow, returns its typed refusal", async () => {
@@ -96,6 +103,18 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
 
     expect(publishShow).toHaveBeenCalledWith("show-2");
     expect(res).toEqual({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" });
+    // A refusal is not a rendered-data change → no revalidate.
+    expect(revalidateTag).not.toHaveBeenCalled();
+  });
+
+  it("publishShowAction on success revalidates the show data-cache tag", async () => {
+    publishShow.mockResolvedValue({ ok: true } as never);
+    maybeSingleResult.value = { data: { id: "show-9", drive_file_id: "drive-9" }, error: null };
+
+    const res = await publishShowAction("slug-9");
+
+    expect(res).toEqual({ ok: true });
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-9"), { expire: 0 });
   });
 
   it("unarchiveShowAction resolves id→drive_file_id, invokes unarchiveShow(showId, driveFileId), returns void", async () => {
@@ -108,6 +127,7 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(unarchiveShow).toHaveBeenCalledWith("show-3", "drive-3");
     expect(res).toBeUndefined();
     expect(revalidatePath).toHaveBeenCalled();
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-3"), { expire: 0 });
   });
 
   it("archiveShowAction on a missing slug → generic not-found result (NOT a retired-code messageFor path)", async () => {
