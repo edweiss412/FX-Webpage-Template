@@ -260,15 +260,10 @@ function parseV4RoomBlock(
   headerText: string,
   kind: RoomKind,
 ): { room: RoomRowInternal; nextLine: number } {
-  const room = buildEmptyRoom(kind, headerText);
-
-  // Extract dimensions from header text
-  const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(headerText);
-  if (dimMatch) room.dimensions = dimMatch[1]!;
-
-  // Extract floor from header text
-  const floorMatch = /(\d+)(?:st|nd|rd|th)\s+floor/i.exec(headerText);
-  if (floorMatch) room.floor = floorMatch[0]!;
+  const { name, dimensions, floor } = splitRoomHeader(headerText, kind);
+  const room = buildEmptyRoom(kind, name);
+  room.dimensions = dimensions;
+  room.floor = floor;
 
   let j = startLine;
 
@@ -327,14 +322,13 @@ function parseGsRoom(markdown: string): RoomRow | null {
   const gsHeaderRe = /^\|\s*GENERAL\s+SESSION\s+([^|]+?)\s*\|/m;
   const gsHeaderMatch = gsHeaderRe.exec(markdown);
   if (gsHeaderMatch && !gsHeaderMatch[0].includes("&#10;")) {
-    room.name = clean(gsHeaderMatch[1]!);
+    const split = splitRoomHeader(gsHeaderMatch[1]!, "gs");
+    room.name = split.name;
+    room.dimensions = split.dimensions;
+    room.floor = split.floor;
   } else {
     room.name = "General Session";
   }
-
-  // Extract dimensions from room name
-  const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(room.name);
-  if (dimMatch) room.dimensions = dimMatch[1]!;
 
   // Extract field values from GS-prefixed rows
   const gsFieldRe = /^\|\s*GS\s+([\w\s/]+?)\s*\|([^|]*)/gim;
@@ -402,19 +396,6 @@ function applyGsLabel(room: RoomRow, label: string, val: string | null): void {
 
 // ── Breakout room parser ──────────────────────────────────────────────────────
 
-// Derive a numberless breakout's name: drop the leading "BREAKOUT" word and the
-// "Dimensions Floor" template suffix, flattening any in-cell newline. Falls back
-// to "Breakout" if nothing real remains.
-function deriveBreakoutName(rawHeader: string): string {
-  const name = rawHeader
-    .replace(/\n/g, " ")
-    .replace(/^\s*BREAKOUT\s*/i, "")
-    .replace(/\bDimensions\s+Floor\b/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return name.length > 0 ? name : "Breakout";
-}
-
 function parseBoRooms(markdown: string): RoomRow[] {
   const rooms: RoomRow[] = [];
   const seen = new Set<string>();
@@ -433,22 +414,18 @@ function parseBoRooms(markdown: string): RoomRow[] {
     // Numbered "BREAKOUT N…" keeps its full header as the name (existing behavior);
     // numberless "BREAKOUT" derives the name from the remaining header text.
     const numbered = /^BREAKOUT\s+\d/i.test(firstLine);
-    const name = numbered ? firstLine : deriveBreakoutName(rawHeader);
+    // Split the (possibly multi-line) header into venue name + dims + floor. A
+    // numbered header that reduces to nothing keeps its raw first line so the
+    // placeholder gate below can still recognize+drop the stub.
+    const split = splitRoomHeader(rawHeader, "breakout");
+    const name = split.name || (numbered ? firstLine : "Breakout");
     const headerKey = name.toUpperCase();
 
     if (seen.has(headerKey)) continue;
 
     const room = buildEmptyRoom("breakout", name);
-    const headerLines = rawHeader.split("\n");
-    for (let k = 1; k < headerLines.length; k++) {
-      const hl = (headerLines[k] ?? "").trim();
-      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
-      if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
-      if (/floor/i.test(hl) && !room.floor) {
-        const floorMatch = /(.+?)\s*floor/i.exec(hl);
-        if (floorMatch) room.floor = floorMatch[1]!.trim();
-      }
-    }
+    room.dimensions = split.dimensions;
+    room.floor = split.floor;
 
     const blockText = extractBoBlock(markdown, m.index);
     applyBoFields(room, blockText);
@@ -471,12 +448,15 @@ function parseBoRooms(markdown: string): RoomRow[] {
   const lunchRe = /^\|\s*(LUNCH\s+ROOM[^|]*?)\s*\|/gim;
   while ((m = lunchRe.exec(markdown)) !== null) {
     const rawHeader = m[1]!.replace(/&#10;/g, "\n");
-    const firstLine = rawHeader.split("\n")[0]!.trim();
-    const headerKey = firstLine.toUpperCase();
+    const split = splitRoomHeader(rawHeader, "breakout");
+    const name = split.name || rawHeader.split("\n")[0]!.trim();
+    const headerKey = name.toUpperCase();
     if (seen.has(headerKey)) continue;
     seen.add(headerKey);
 
-    const room = buildEmptyRoom("breakout", firstLine);
+    const room = buildEmptyRoom("breakout", name);
+    room.dimensions = split.dimensions;
+    room.floor = split.floor;
     const blockText = extractBoBlock(markdown, m.index);
     applyBoFields(room, blockText);
     rooms.push(room);
@@ -613,16 +593,14 @@ function parseAdditionalRoom(markdown: string): RoomRow | null {
   const m = re.exec(markdown);
   if (!m) return null;
 
+  // Split the header the SAME way the v4 path does, so a v4 ADDITIONAL block and
+  // this v2 fallback produce the same kind+name dedup key and mergeRooms collapses
+  // them instead of emitting the room twice.
   const rawHeader = m[1]!.replace(/&#10;/g, "\n");
-  const firstLine = rawHeader.split("\n")[0]!.trim();
-  const room = buildEmptyRoom("additional", firstLine);
-
-  const headerLines = rawHeader.split("\n");
-  for (let k = 1; k < headerLines.length; k++) {
-    const hl = (headerLines[k] ?? "").trim();
-    const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
-    if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
-  }
+  const split = splitRoomHeader(rawHeader, "additional");
+  const room = buildEmptyRoom("additional", split.name);
+  room.dimensions = split.dimensions;
+  room.floor = split.floor;
 
   const blockText = extractBoBlock(markdown, m.index);
   applyBoFields(room, blockText);
@@ -636,6 +614,71 @@ function parseAdditionalRoom(markdown: string): RoomRow | null {
 }
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
+
+// Split a flattened room-header string into { name, dimensions, floor }.
+//
+// The production exporter flattens the source's single multi-line header cell
+// ("LABEL\nNAME\nDIMS\nFLOOR") into one space-joined line, so name + dimensions +
+// floor arrive FUSED (e.g. "GENERAL SESSION ADLER BALLROOM 75' x 37' x 15th Floor",
+// "BREAKOUT 1 DELAWARE 7th Floor"). Split by PATTERN, not position:
+//   1. drop the kind label prefix (GENERAL SESSION / BREAKOUT N / ADDITIONAL ROOM /
+//      LUNCH ROOM) and a stray leading separator dash ("- GRAND BALLROOM A/B");
+//   2. lift the floor ("7th Floor", "15th Floor") out;
+//   3. lift the dimensions out — everything from the first dimension token to the
+//      end, KEEPING semantic prefixes (rpas "TOTAL:" / "A/B:") and an incomplete
+//      trailing dimension ("75' x 37' x"), and DROPPING a leading hedge word
+//      ("APPROXIMATELY");
+//   4. strip leftover template placeholder words ("Dimensions"/"Floor"/"Name(s)")
+//      left behind by an unfilled stub.
+// `name` falls back to "General Session" for a GS header that reduces to nothing;
+// other kinds keep an empty name so the caller's placeholder gate can drop the stub.
+function splitRoomHeader(
+  raw: string,
+  kind: RoomKind,
+): { name: string; dimensions: string | null; floor: string | null } {
+  let s = clean(raw.replace(/&#10;/g, " ")).replace(/\s+/g, " ").trim();
+
+  // 1. kind label prefix + stray leading separator
+  s = s
+    .replace(/^(?:GENERAL\s+SESSION|BREAKOUT(?:\s+\d+)?|ADDITIONAL\s+ROOM|LUNCH\s+ROOM)\b/i, "")
+    .replace(/^[\s:–—-]+/, "")
+    .trim();
+
+  // 2. floor ("7th Floor" / "15th Floor")
+  let floor: string | null = null;
+  const floorMatch = /\b\d+\s*(?:st|nd|rd|th)\s+floor\b/i.exec(s);
+  if (floorMatch) {
+    floor = floorMatch[0].replace(/\s+/g, " ").trim();
+    s = (
+      s.slice(0, floorMatch.index) +
+      " " +
+      s.slice(floorMatch.index + floorMatch[0].length)
+    ).trim();
+  }
+
+  // 3. dimensions — first dimension token (with an optional semantic prefix) to end
+  let dimensions: string | null = null;
+  const dimStart = s.search(/(?:\b(?:TOTAL|A\/B)\s*:\s*)?\d+\s*'\s*x/i);
+  if (dimStart !== -1) {
+    dimensions = presence(
+      s
+        .slice(dimStart)
+        .replace(/^APPROXIMATELY\s+/i, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    s = s.slice(0, dimStart).trim();
+  }
+
+  // 4. leftover template placeholder words
+  let name = s
+    .replace(/\b(?:Dimensions|Floor|Name\(s\))\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!name && kind === "gs") name = "General Session";
+
+  return { name, dimensions, floor };
+}
 
 function buildEmptyRoom(kind: RoomKind, name: string): RoomRowInternal {
   return {
