@@ -170,6 +170,17 @@ export default async function AdminShowPage({
     notFound();
   }
 
+  // PERF (nav-perf phase 1, A4 part 2): once show.id is known, the changes-feed
+  // read, the crew_members read, the share-token read, and nowDate() are all
+  // independent, so they fan out in ONE Promise.all wave instead of a serial
+  // chain. Each read keeps its EXACT existing error handling INSIDE its own
+  // async closure (each resolves to a typed local result and never rejects), so
+  // Promise.all never short-circuits — a feed SyncInfraError still degrades to
+  // the calm notice (not a crash), the crew read still flips crewLookupFailed,
+  // and a token fault still yields token=null. We Promise.all the result
+  // promises (invariant 9 — destructure {data,error} at each boundary inside the
+  // closure); NEVER allSettled.
+
   // Phase 6 — the per-show changes feed (auto-applied edits + MI-11 pending holds
   // + undo/reject log). Replaces the retired live whole-parse review mount: no
   // invariant stages a whole parse anymore (§8 / resolution #21 cutover). The feed
@@ -178,59 +189,69 @@ export default async function AdminShowPage({
   // rather than surfacing an unclassified 500 (invariant 9). The page does NO
   // second query for hold/disposition data — each entry carries its own action
   // payload (gate / changeLogId) from Phase 5 (PF14).
-  let feed: Awaited<ReturnType<typeof readShowChangeFeed>> | null = null;
-  let feedInfraError = false;
-  try {
-    feed = await readShowChangeFeed(show.id);
-  } catch (err) {
-    // readShowChangeFeed wraps EVERY boundary fault as a typed SyncInfraError
-    // (invariant 9 / P5-F1). Match by instanceof OR by the typed `name` so a
-    // cross-realm instance (e.g. a duplicated module evaluation under test) is
-    // still recognized; anything else is a genuine bug and re-throws.
-    if (err instanceof SyncInfraError || (err instanceof Error && err.name === "SyncInfraError")) {
-      feedInfraError = true;
-      console.error(
-        "[/admin/show/[slug]] changes feed read failed:",
-        err instanceof Error ? err.message : String(err),
-      );
-    } else {
+  const readFeed = async (): Promise<{
+    feed: Awaited<ReturnType<typeof readShowChangeFeed>> | null;
+    feedInfraError: boolean;
+  }> => {
+    try {
+      return { feed: await readShowChangeFeed(show.id), feedInfraError: false };
+    } catch (err) {
+      // readShowChangeFeed wraps EVERY boundary fault as a typed SyncInfraError
+      // (invariant 9 / P5-F1). Match by instanceof OR by the typed `name` so a
+      // cross-realm instance (e.g. a duplicated module evaluation under test) is
+      // still recognized; anything else is a genuine bug and re-throws.
+      if (
+        err instanceof SyncInfraError ||
+        (err instanceof Error && err.name === "SyncInfraError")
+      ) {
+        console.error(
+          "[/admin/show/[slug]] changes feed read failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+        return { feed: null, feedInfraError: true };
+      }
       throw err;
     }
-  }
+  };
 
-  let crew: PerShowCrewRow[] = [];
-  let crewLookupFailed = false;
-  try {
-    const { data, error } = await supabase
-      .from("crew_members")
-      .select("id, name, role")
-      .eq("show_id", show.id)
-      .order("name", { ascending: true })
-      .returns<CrewMemberRow[]>();
-    if (error) {
-      console.error("[/admin/show/[slug]] crew_members lookup failed:", error.message);
-      crewLookupFailed = true;
-    } else {
-      crew = data ?? [];
+  const readCrew = async (): Promise<{ crew: PerShowCrewRow[]; crewLookupFailed: boolean }> => {
+    try {
+      const { data, error } = await supabase
+        .from("crew_members")
+        .select("id, name, role")
+        .eq("show_id", show.id)
+        .order("name", { ascending: true })
+        .returns<CrewMemberRow[]>();
+      if (error) {
+        console.error("[/admin/show/[slug]] crew_members lookup failed:", error.message);
+        return { crew: [], crewLookupFailed: true };
+      }
+      return { crew: data ?? [], crewLookupFailed: false };
+    } catch (err) {
+      console.error(
+        "[/admin/show/[slug]] crew_members lookup threw:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return { crew: [], crewLookupFailed: true };
     }
-  } catch (err) {
-    console.error(
-      "[/admin/show/[slug]] crew_members lookup threw:",
-      err instanceof Error ? err.message : String(err),
-    );
-    crewLookupFailed = true;
-  }
+  };
 
   // Share token (admin-only RPC). Wrapped per the CurrentShareLinkPanel
   // pattern — a thrown/absent token → no crew-link surfaces, never a dead URL.
-  let token: string | null = null;
-  try {
-    token = await loadShowShareToken(show.id);
-  } catch {
-    token = null;
-  }
+  const readToken = async (): Promise<string | null> => {
+    try {
+      return await loadShowShareToken(show.id);
+    } catch {
+      return null;
+    }
+  };
 
-  const now = await nowDate();
+  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, now] = await Promise.all([
+    readFeed(),
+    readCrew(),
+    readToken(),
+    nowDate(),
+  ]);
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still

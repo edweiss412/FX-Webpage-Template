@@ -237,6 +237,18 @@ const infraRegistry = [
       "watch-status row + per-predicate active-shows head:true counts + max last_synced_at; client construction + any await/throw → { kind:'infra_error' } (never a false Healthy)",
   },
   {
+    helper: "readAppSettingsRow",
+    path: "lib/appSettings/readAppSettingsRow.ts",
+    contract:
+      "client construction + .from() throw OR returned error OR missing row → { kind: 'infra_error' }",
+  },
+  {
+    helper: "getSettingsPageFlags",
+    path: "lib/appSettings/getSettingsPageFlags.ts",
+    contract:
+      "single 4-column app_settings read; client construction + .from() throw OR returned error OR missing row → { kind: 'infra_error' }; each flag mapped fail-closed via literal === true",
+  },
+  {
     helper: "resetValidationDataAction",
     path: "app/admin/settings/_actions/validationReset.ts",
     contract:

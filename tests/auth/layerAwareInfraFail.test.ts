@@ -40,7 +40,7 @@ const nextHeaders = vi.hoisted(() => ({
 
 const server = vi.hoisted(() => ({
   client: {
-    auth: { getUser: vi.fn() },
+    auth: { getClaims: vi.fn() },
     rpc: vi.fn(),
   },
   createSupabaseServerClient: vi.fn(),
@@ -67,10 +67,11 @@ describe("layer-aware test-only infra-fail hook", () => {
     nextHeaders.store.set("authorization", `Bearer ${SECRET}`);
     // Make the happy path succeed when the hook does NOT fire.
     server.createSupabaseServerClient.mockResolvedValue(server.client);
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: { email: "Admin@FXAV.Test " } },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: { claims: { email: "Admin@FXAV.Test " } },
       error: null,
     });
+    // Both gate RPCs (is_session_live + is_admin) return true on the happy path.
     server.client.rpc.mockResolvedValue({ data: true, error: null });
   });
 
@@ -82,6 +83,11 @@ describe("layer-aware test-only infra-fail hook", () => {
     await expect(requireAdmin({ layer: "page" })).rejects.toBeInstanceOf(AdminInfraError);
     // layout-layer is exempt under a page-scoped force header.
     await expect(requireAdminIdentity({ layer: "layout" })).resolves.toBeDefined();
+    // requireAdmin MUST forward its layer to the delegated identity gate: a
+    // layout-layer requireAdmin is exempt under a page-scoped force (Codex
+    // whole-diff R1). Without opts-forwarding the delegated gate defaults to
+    // "page" and this would wrongly reject.
+    await expect(requireAdmin({ layer: "layout" })).resolves.toBeUndefined();
   });
 
   test("layout-scoped force (header 'layout') throws only layout-layer", async () => {

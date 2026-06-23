@@ -34,6 +34,7 @@
  */
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { purgeAndRotateIfStale } from "@/lib/onboarding/sessionLifecycle";
+import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
 import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
 import { FinalizeInProgress } from "@/components/admin/FinalizeInProgress";
 import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
@@ -112,8 +113,29 @@ function DashboardWithHeader({ bucket }: { bucket?: "active" | "archived" }) {
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   await requireAdmin();
 
-  const result = await purgeAndRotateIfStale();
-  const settings = result.settings;
+  // nav-perf phase 1 (A2): purgeAndRotateIfStale opens a postgres.js transaction
+  // on EVERY /admin render, but it is a no-op unless `pending_wizard_session_at`
+  // is non-null (a stale wizard session pending rotation). The steady-state
+  // dashboard always has it NULL, so gate the heavier tx behind a single
+  // full-row read: if the cheap read confirms NULL, reuse those settings and
+  // SKIP the tx; otherwise (a session IS pending, OR the cheap read itself hit
+  // an infra fault) fall back to the original always-call behavior so a degraded
+  // read can NEVER produce a false "settled" render against a stale session.
+  let settings: Awaited<ReturnType<typeof purgeAndRotateIfStale>>["settings"];
+  let preRead: Awaited<ReturnType<typeof readAppSettingsRow>>;
+  try {
+    preRead = await readAppSettingsRow();
+  } catch {
+    // readAppSettingsRow is contractually total, but treat any thrown fault as a
+    // degraded read → fall back to the always-call behavior (no false settled).
+    preRead = { kind: "infra_error" };
+  }
+  if (preRead.kind === "value" && preRead.settings.pending_wizard_session_at === null) {
+    settings = preRead.settings;
+  } else {
+    const result = await purgeAndRotateIfStale();
+    settings = result.settings;
+  }
   const sp = await searchParams;
   // §3.1 — the dashboard show-list segment is a URL search-param threaded into
   // <Dashboard>. Only "archived" is meaningful; anything else (incl. absent)

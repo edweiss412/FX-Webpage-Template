@@ -30,6 +30,7 @@ const purgeAndRotateIfStaleMock = vi.fn();
 const requireAdminIdentityMock = vi.fn();
 const readFinalizeCheckpointMock = vi.fn();
 const onboardingWizardSpy = vi.fn();
+const readAppSettingsRowMock = vi.fn();
 
 vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
   const actual = await vi.importActual<typeof import("@/lib/onboarding/sessionLifecycle")>(
@@ -40,6 +41,15 @@ vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
     purgeAndRotateIfStale: (...args: unknown[]) => purgeAndRotateIfStaleMock(...args),
   };
 });
+
+// nav-perf phase 1 (A2): AdminPage now reads app_settings via readAppSettingsRow
+// to gate the purgeAndRotateIfStale tx. Default the cheap read to infra_error so
+// the gate FALLS BACK to always calling purgeAndRotateIfStale — preserving these
+// routing tests' purge-driven settings. The skip path (value + null pending) is
+// covered by tests/app/admin/purgeGate.test.ts.
+vi.mock("@/lib/appSettings/readAppSettingsRow", () => ({
+  readAppSettingsRow: (...args: unknown[]) => readAppSettingsRowMock(...args),
+}));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdminIdentity: () => requireAdminIdentityMock(),
@@ -161,8 +171,11 @@ beforeEach(() => {
   requireAdminIdentityMock.mockReset();
   readFinalizeCheckpointMock.mockReset();
   onboardingWizardSpy.mockReset();
+  readAppSettingsRowMock.mockReset();
   requireAdminIdentityMock.mockResolvedValue({ email: "edweiss412@gmail.com" });
   readFinalizeCheckpointMock.mockResolvedValue(null);
+  // Default: cheap read degrades → gate falls back to purgeAndRotateIfStale (today's behavior).
+  readAppSettingsRowMock.mockResolvedValue({ kind: "infra_error" });
 });
 
 afterEach(() => cleanup());
@@ -355,18 +368,25 @@ describe("AdminPage Phase 2 routing", () => {
       rotated: false,
     });
     let adminCallIndex = -1;
+    let readCallIndex = -1;
     let purgeCallIndex = -1;
     let counter = 0;
     requireAdminIdentityMock.mockImplementation(async () => {
       adminCallIndex = counter++;
       return { email: "edweiss412@gmail.com" };
     });
+    readAppSettingsRowMock.mockImplementation(async () => {
+      readCallIndex = counter++;
+      return { kind: "infra_error" }; // forces fallback to purgeAndRotateIfStale
+    });
     purgeAndRotateIfStaleMock.mockImplementation(async () => {
       purgeCallIndex = counter++;
       return { settings: FRESH_SETTINGS, rotated: false };
     });
     render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    // Auth gate runs before ANY data access (the cheap read AND the purge tx).
     expect(adminCallIndex).toBeGreaterThanOrEqual(0);
+    expect(readCallIndex).toBeGreaterThan(adminCallIndex);
     expect(purgeCallIndex).toBeGreaterThan(adminCallIndex);
   });
 });

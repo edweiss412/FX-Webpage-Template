@@ -1,0 +1,517 @@
+# Navigation Performance — Phase 1 (data-fetch parallelization + admin auth gate) — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Cut per-navigation server latency by fanning out independent server reads with `Promise.all` and removing/deduping the admin auth gate's network hops — without changing the always-fresh (`force-dynamic`) data model.
+
+**Architecture:** (A) Replace serial `await` chains in `getShowForViewer`, the admin dashboard, the settings page, and the per-show page (plus the N+1 `readfinalizeowned_b2` loop and `readShowChangeFeed`'s 3 reads) with `Promise.all` waves, preserving the per-read `{data,error}` discrimination (invariant 9). (B) In `lib/auth/requireAdmin.ts`, swap `supabase.auth.getUser()` (Auth-server round-trip) for `getClaims()` (local ES256 verify), keep the DB-backed `is_admin()` RPC, and wrap the resolution in a no-arg `React.cache()` core so the layout + page gates share one resolution per request.
+
+**Tech Stack:** Next.js 16 (App Router, RSC), React 19 (`cache()`), `@supabase/supabase-js`/`auth-js` 2.105.1 (`getClaims`), vitest 4 (node + jsdom), TypeScript.
+
+**Spec:** `docs/superpowers/specs/2026-06-22-nav-perf-phase1-data-auth.md` (Codex-approved, 4 rounds).
+
+## Global Constraints
+
+- **Invariant 9 (Supabase call-boundary):** every parallelized read keeps `{ data, error }` destructure + infra-error discrimination. `Promise.all` the **query promises** (they resolve, not reject); **never `Promise.allSettled`**. Client construction stays in `try/catch`. New Supabase call sites get a registry row in the relevant `_metaInfraContract` test.
+- **Invariant 8 (impeccable UI gate) — APPLIES (path-based):** diff touches `app/` (non-api) + `components/admin/Dashboard.tsx`; `/impeccable critique` + `/impeccable audit` (external attestation) run at close-out before the whole-diff cross-model review. Expected clean (no rendered-output change).
+- **Invariant 3 (email canonicalization):** `canonicalize()` is the only normalization surface; no inline `.toLowerCase()/.trim()`.
+- **Auth freshness — ENFORCED (spec §B1.5/§B-SEC):** `getClaims` (local verify) is paired with the REQUIRED `is_session_live()` RPC (migration `20260622000004`) so revoked/signed-out/deleted sessions redirect **immediately** — not TTL-bounded. Do NOT omit or weaken the migration/RPC. `is_admin()` keeps authorization live alongside it; both RPCs run in parallel.
+- **One migration** in Phase 1: `supabase/migrations/20260622000004_is_session_live_rpc.sql` (B1.5). Migration→validation-parity discipline (Task 3 + Task 12): apply locally + test, `pnpm gen:schema-manifest` + commit `supabase/__generated__/schema-manifest.json`, apply surgically to the validation project; the `validation-schema-parity` CI gate enforces it.
+- **TDD per task; one task per commit** (the migration may be its own commit within Task 3); conventional commits (`perf(...)`, `refactor(...)`, `test(...)`, `feat(db)` for the migration), `--no-verify` (shared hooks), trailers: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: https://claude.ai/code/session_012UbLmBoAmaFbndpRpLNwdp`.
+- **Test runner:** `pnpm exec vitest run <file>` (globals off — `import { describe, test, expect, vi, beforeEach } from "vitest"`); `fileParallelism:false`; node env by default, add `// @vitest-environment jsdom` only for React-render tests. `forbidden()`/`redirect()` are mocked to throw strings (`"forbidden()"`, `"redirect(/auth/sign-in?next=...)"`); `AdminInfraError` asserted via `rejects.toBeInstanceOf`.
+
+## File Structure
+
+- `lib/appSettings/readAppSettingsRow.ts` — **new.** `(client?) → Promise<{kind:'value'; settings: AppSettingsRow} | {kind:'infra_error'}>`. Single full-row `app_settings` select. Used by A2.
+- `lib/appSettings/getSettingsPageFlags.ts` — **new.** `(client?) → Promise<{kind:'value'; autoPublishCleanFirstSeen:boolean; alertOnSyncProblems:boolean; dailyReviewDigest:boolean; alertOnAutoPublish:boolean} | {kind:'infra_error'}>`. Single 4-column select. Used by A3.
+- `supabase/migrations/20260622000004_is_session_live_rpc.sql` — **new.** `public.is_session_live()` SECURITY DEFINER RPC (B1.5).
+- `supabase/__generated__/schema-manifest.json` — **regenerate + commit** (introspects local all-migrations-applied DB).
+- `lib/auth/requireAdmin.ts` — **modify.** getClaims + `is_session_live`+`is_admin` parallel + no-arg `cache()` core (B).
+- `lib/data/getShowForViewer.ts` — **modify.** Parallel wave (A1).
+- `lib/sync/feed/readShowChangeFeed.ts` — **modify.** Parallel 3 reads (A4).
+- `components/admin/Dashboard.tsx` — **modify.** fetchDashboardData parallelize + nowDate once + A5 Promise.all (A2/A5).
+- `app/admin/page.tsx` — **modify.** Gate `purgeAndRotateIfStale` via `readAppSettingsRow` (A2).
+- `app/admin/settings/page.tsx` — **modify.** Use `getSettingsPageFlags` + Promise.all 3 loaders (A3).
+- `app/admin/show/[slug]/page.tsx` — **modify.** Promise.all feed+crew+token; nowDate once (A4).
+- `tests/admin/_metaInfraContract.test.ts` — **modify.** Register the two new helpers.
+- New test files per task (below).
+
+---
+
+### Task 1: `readAppSettingsRow` helper (A2 dependency)
+
+**Files:**
+- Create: `lib/appSettings/readAppSettingsRow.ts`
+- Test: `tests/appSettings/readAppSettingsRow.test.ts`
+- Modify: `tests/admin/_metaInfraContract.test.ts` (registry row)
+
+**Interfaces:**
+- Produces: `readAppSettingsRow(client?: SupabaseLike): Promise<{ kind: "value"; settings: AppSettingsRow } | { kind: "infra_error" }>`. `AppSettingsRow` imported from `@/lib/onboarding/sessionLifecycle`.
+
+- [ ] **Step 1: Failing test** (`tests/appSettings/readAppSettingsRow.test.ts`)
+
+```typescript
+import { describe, test, expect, vi } from "vitest";
+import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
+
+function mockClient(result: { data: unknown; error: { message: string } | null }, opts?: { throwFrom?: boolean }) {
+  const builder = { select() { return builder; }, eq() { return builder; }, async maybeSingle() { return result; } };
+  return { from: () => { if (opts?.throwFrom) throw new Error("boom"); return builder; } } as never;
+}
+
+describe("readAppSettingsRow", () => {
+  test("returns {kind:value, settings} on a row", async () => {
+    const row = { id: "default", pending_wizard_session_at: null } as never;
+    const r = await readAppSettingsRow(mockClient({ data: row, error: null }));
+    expect(r).toEqual({ kind: "value", settings: row });
+  });
+  test("returned Supabase error → infra_error", async () => {
+    const r = await readAppSettingsRow(mockClient({ data: null, error: { message: "timeout" } }));
+    expect(r).toEqual({ kind: "infra_error" });
+  });
+  test("missing default row (data null, no error) → infra_error", async () => {
+    const r = await readAppSettingsRow(mockClient({ data: null, error: null }));
+    expect(r).toEqual({ kind: "infra_error" });
+  });
+  test("thrown from .from() → infra_error (not a crash)", async () => {
+    const r = await readAppSettingsRow(mockClient({ data: null, error: null }, { throwFrom: true }));
+    expect(r).toEqual({ kind: "infra_error" });
+  });
+});
+```
+
+- [ ] **Step 2: Run, verify fail** — `pnpm exec vitest run tests/appSettings/readAppSettingsRow.test.ts` → FAIL (module not found).
+- [ ] **Step 3: Implement** (`lib/appSettings/readAppSettingsRow.ts`)
+
+```typescript
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
+
+type Result = { kind: "value"; settings: AppSettingsRow } | { kind: "infra_error" };
+
+// Single full-row read of the app_settings singleton so a caller can decide
+// whether to invoke the heavier purgeAndRotateIfStale postgres.js tx.
+export async function readAppSettingsRow(
+  client?: ReturnType<typeof createSupabaseServiceRoleClient>,
+): Promise<Result> {
+  try {
+    const supabase = client ?? createSupabaseServiceRoleClient();
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("*")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error || !data) return { kind: "infra_error" };
+    return { kind: "value", settings: data as AppSettingsRow };
+  } catch {
+    return { kind: "infra_error" };
+  }
+}
+```
+
+- [ ] **Step 4: Run, verify pass.**
+- [ ] **Step 5: Register in `tests/admin/_metaInfraContract.test.ts`** — add a registry row mirroring existing service-role getter rows:
+
+```typescript
+{ helper: "readAppSettingsRow", path: "lib/appSettings/readAppSettingsRow.ts", contract: "client construction + .from() throw OR returned error OR missing row → { kind: 'infra_error' }" },
+```
+
+Run the meta-test: `pnpm exec vitest run tests/admin/_metaInfraContract.test.ts` → PASS (grep-shape: `{ data, error }` destructure present; construction in try).
+- [ ] **Step 6: Commit** — `perf(admin): add readAppSettingsRow single-row helper (A2 gate dependency)`
+
+---
+
+### Task 2: `getSettingsPageFlags` helper (A3 dependency)
+
+**Files:**
+- Create: `lib/appSettings/getSettingsPageFlags.ts`
+- Test: `tests/appSettings/getSettingsPageFlags.test.ts`
+- Modify: `tests/admin/_metaInfraContract.test.ts` (registry row)
+
+**Interfaces:**
+- Produces: `getSettingsPageFlags(client?): Promise<{ kind:"value"; autoPublishCleanFirstSeen:boolean; alertOnSyncProblems:boolean; dailyReviewDigest:boolean; alertOnAutoPublish:boolean } | { kind:"infra_error" }>`.
+
+- [ ] **Step 1: Failing test** — mirror Task 1's `mockClient`, asserting the 4 columns map correctly (a missing/null column coerces to `false`, matching the existing single getters' fail-closed default), returned-error → `infra_error`, thrown → `infra_error`.
+
+```typescript
+test("maps 4 columns → flags (literal true only)", async () => {
+  const row = { auto_publish_clean_first_seen: true, alert_on_sync_problems: false, daily_review_digest: true, alert_on_auto_publish: null };
+  const r = await getSettingsPageFlags(mockClient({ data: row, error: null }));
+  expect(r).toEqual({ kind: "value", autoPublishCleanFirstSeen: true, alertOnSyncProblems: false, dailyReviewDigest: true, alertOnAutoPublish: false });
+});
+test("FAIL-CLOSED: truthy non-boolean values map to false (matches existing single getters)", async () => {
+  // Codex plan R7 MEDIUM: never enable a toggle on 'false'/'true'/1/etc — only literal true.
+  const row = { auto_publish_clean_first_seen: "false", alert_on_sync_problems: 1, daily_review_digest: "true", alert_on_auto_publish: "yes" };
+  const r = await getSettingsPageFlags(mockClient({ data: row, error: null }));
+  expect(r).toEqual({ kind: "value", autoPublishCleanFirstSeen: false, alertOnSyncProblems: false, dailyReviewDigest: false, alertOnAutoPublish: false });
+});
+```
+
+- [ ] **Step 2: Run, verify fail.**
+- [ ] **Step 3: Implement** — single `.select("auto_publish_clean_first_seen, alert_on_sync_problems, daily_review_digest, alert_on_auto_publish").eq("id","default").maybeSingle()`; **map each flag with `row.<column> === true` (literal-true, FAIL-CLOSED — matches the existing single getters; never `Boolean()` coercion, which would enable on `'false'`/`1`/etc)**; `error || !data → infra_error`; `try/catch → infra_error`. (Confirm the existing single getters' exact `=== true` semantics and mirror them.)
+- [ ] **Step 4: Run, verify pass.**
+- [ ] **Step 5: Register row in `tests/admin/_metaInfraContract.test.ts`**; run meta-test → PASS.
+- [ ] **Step 6: Commit** — `perf(admin): add getSettingsPageFlags single-read helper (A3)`
+
+---
+
+### Task 3: Admin auth gate — `is_session_live` migration + getClaims + is_admin + React.cache (B + B1.5)
+
+**Files:**
+- Create: `supabase/migrations/20260622000004_is_session_live_rpc.sql`
+- Modify: `lib/auth/requireAdmin.ts`; `supabase/__generated__/schema-manifest.json` (regen)
+- Test: `tests/db/isSessionLive.test.ts` (new DB test, local Supabase); `tests/auth/requireAdmin.getClaims.test.ts` (new) + verify `tests/auth/_metaInfraContract.test.ts` passes.
+
+**Interfaces:**
+- Consumes: `getClaims()` from the cookie-bound client; `isAuthSessionMissingError` from `@/lib/auth/supabaseAuthError`; `canonicalize` from `@/lib/email/canonicalize`; `cache` from `react`; `supabase.rpc("is_session_live")` + `supabase.rpc("is_admin")`.
+- Produces: unchanged public signatures `requireAdminIdentity(opts?): Promise<AdminIdentity>`, `requireAdmin(opts?): Promise<void>`; new DB function `public.is_session_live() returns boolean`.
+
+- [ ] **Step 0a: Write the FAILING integration test FIRST (TDD red)** (`tests/db/isSessionLive.test.ts`, node env, local Supabase). **NON-tautological — exercise the REAL GoTrue revocation path** (empirically verified 2026-06-22: user `signOut()` AND `admin.deleteUser` both DELETE the `auth.sessions` row; access token carries `session_id`). Mirror `tests/data/getShowForViewer.test.ts`'s real-Supabase client style (keys from `supabase status`):
+
+```typescript
+// admin = createClient(URL, SECRET); anon = createClient(URL, PUBLISHABLE)
+const { data: cu } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+const { data: si } = await anon.auth.signInWithPassword({ email, password });
+const token = si.session.access_token;
+// authed client = createClient(URL, PUBLISHABLE, { global: { headers: { Authorization: `Bearer ${token}` } } })
+//   (apikey = publishable [Supabase-issued, gateway-accepted]; Bearer = the real session token)
+expect((await authed.rpc("is_session_live")).data).toBe(true);   // live
+await anon.auth.signOut();                                        // REAL revocation
+expect((await authed.rpc("is_session_live")).data).toBe(false);  // cut off immediately
+// second arm: fresh sign-in → admin.deleteUser → is_session_live() === false
+```
+
+Run: `pnpm exec vitest run tests/db/isSessionLive.test.ts` → **FAIL** with `function public.is_session_live() does not exist` (migration not written yet). Observe red before writing the migration. **If the real path ever returns `true` post-revocation** (storage model differs), the RPC must be adjusted (e.g. also check `not_after`/user existence) — the test drives correctness, it is not a restatement of the RPC. Cleanup users in `afterEach`.
+- [ ] **Step 0b: Write the migration + apply locally (TDD green impl)** (`supabase/migrations/20260622000004_is_session_live_rpc.sql`):
+
+```sql
+-- is_session_live(): immediate admin-session revocation for the admin gate
+-- (nav-perf phase 1, B1.5). After getClaims() verifies the JWT locally,
+-- requireAdmin calls this to confirm the session row still exists in
+-- auth.sessions (GoTrue deletes it on sign-out / global revocation), so a
+-- stolen/compromised session is cut off immediately rather than valid until
+-- token TTL. SECURITY DEFINER to read auth. Idempotent; apply-twice safe.
+create or replace function public.is_session_live()
+  returns boolean language sql stable security definer
+  set search_path = public, auth, pg_temp
+as $$
+  select exists (
+    select 1 from auth.sessions s
+     where s.id = nullif(auth.jwt() ->> 'session_id', '')::uuid
+  );
+$$;
+revoke all on function public.is_session_live() from public;
+grant execute on function public.is_session_live() to authenticated;
+```
+
+Apply via the repo's local-apply path (e.g. `psql "$DATABASE_URL" -f supabase/migrations/20260622000004_is_session_live_rpc.sql` then `notify pgrst, 'reload schema';`).
+- [ ] **Step 0c: Run the DB test → PASS (TDD green).** `pnpm exec vitest run tests/db/isSessionLive.test.ts` → PASS.
+- [ ] **Step 0d: Regen manifest + commit** — `pnpm gen:schema-manifest`; commit migration + manifest + DB test: `feat(db): is_session_live() RPC for immediate admin-session revocation`.
+
+- [ ] **Step 1: Failing tests** (`tests/auth/requireAdmin.getClaims.test.ts`) — mirror `tests/auth/requireAdmin.test.ts`'s `vi.hoisted`/`vi.mock("@/lib/supabase/server")` + `vi.mock("next/navigation")` (forbidden/redirect throw strings). Stub `client.auth.getClaims` + `client.rpc`:
+
+```typescript
+const server = vi.hoisted(() => ({
+  client: { auth: { getClaims: vi.fn() }, rpc: vi.fn() },
+  createSupabaseServerClient: vi.fn(),
+}));
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: server.createSupabaseServerClient }));
+// (reuse the existing test's next/navigation + headers mocks)
+
+beforeEach(() => {
+  server.createSupabaseServerClient.mockResolvedValue(server.client);
+  server.client.auth.getClaims.mockResolvedValue({ data: { claims: { email: "Admin@FXAV.Test " } }, error: null });
+  server.client.rpc.mockResolvedValue({ data: true, error: null });
+});
+
+test("getClaims is used, getUser is not on the gate path", async () => {
+  await requireAdminIdentity();
+  expect(server.client.auth.getClaims).toHaveBeenCalledTimes(1);
+  expect((server.client.auth as Record<string, unknown>).getUser).toBeUndefined();
+});
+test("valid admin claims + is_admin=true → returns canonical email", async () => {
+  await expect(requireAdminIdentity()).resolves.toEqual({ email: "admin@fxav.test" });
+});
+test("getClaims AuthSessionMissingError → redirectToSignIn, NOT AdminInfraError", async () => {
+  server.client.auth.getClaims.mockResolvedValue({ data: null, error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 } });
+  await expect(requireAdminIdentity()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
+});
+test("getClaims non-session returned error → AdminInfraError", async () => {
+  server.client.auth.getClaims.mockResolvedValue({ data: null, error: { name: "AuthApiError", message: "jwks fetch failed" } });
+  await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+});
+test("getClaims throws → AdminInfraError", async () => {
+  server.client.auth.getClaims.mockRejectedValue(new Error("network"));
+  await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+});
+test("no claims / null data, no error → redirectToSignIn", async () => {
+  server.client.auth.getClaims.mockResolvedValue({ data: null, error: null });
+  await expect(requireAdminIdentity()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
+});
+test("live-revocation: is_session_live=false (revoked session) → redirectToSignIn (NOT forbidden/authorized)", async () => {
+  // dispatch: session NOT live, admin true — must redirect, not forbid, not return
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve({ data: fn === "is_session_live" ? false : true, error: null }));
+  await expect(requireAdminIdentity()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
+});
+test("is_session_live RPC error → AdminInfraError", async () => {
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve(fn === "is_session_live" ? { data: null, error: new Error("boom") } : { data: true, error: null }));
+  await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+});
+test("ERROR-FIRST: is_session_live=false AND is_admin returned-error → AdminInfraError (NOT redirect)", async () => {
+  // The dangerous Promise.all combo: a revoked session must NOT mask an admin DB outage.
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve(fn === "is_session_live"
+      ? { data: false, error: null }                          // revoked session
+      : { data: null, error: new Error("admin db outage") })); // infra fault MUST win
+  await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+});
+test("live-authorization: session live but is_admin=false → forbidden()", async () => {
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve({ data: fn === "is_session_live" ? true : false, error: null }));
+  await expect(requireAdminIdentity()).rejects.toThrow("forbidden()");
+});
+test("React.cache dedup: layout + page gate in one request → 1 getClaims + 1 is_session_live + 1 is_admin", async () => {
+  await requireAdminIdentity({ layer: "layout" });
+  await requireAdminIdentity({ layer: "page" });
+  expect(server.client.auth.getClaims).toHaveBeenCalledTimes(1);
+  expect(server.client.rpc).toHaveBeenCalledTimes(2); // is_session_live + is_admin, once each (deduped); non-cached = 4
+  expect(server.client.rpc).toHaveBeenCalledWith("is_session_live");
+  expect(server.client.rpc).toHaveBeenCalledWith("is_admin");
+});
+```
+
+> **Dedup-test note:** React `cache()` scopes to a request. In a unit test there is no RSC request scope, so two calls would normally NOT dedup. To make the dedup assertion meaningful and deterministic, the implementation's cached core must be reachable through `React.cache`, AND the test must run the two calls inside a shared cache scope. Use the documented test seam: import `cache` is a no-op-per-call outside a request — therefore assert dedup via an **`unstable_expectedLoad`-free** approach: wrap the two calls with React's `cache` test scope if available, OR (fallback, deterministic) assert dedup at the integration layer by rendering a tiny RSC tree (`// @vitest-environment` not needed; use `react`'s server entry). **Implementer decision point:** if a reliable request scope can't be established in a unit test, mark this single assertion with an integration test under `tests/app/admin/` that renders the admin layout+page and counts the spy calls; do NOT weaken the other assertions. The dedup behavior is also covered structurally by the no-arg-core design (Step 3) which a reviewer can verify by inspection.
+
+- [ ] **Step 2: Run, verify fail** (getClaims not yet used).
+- [ ] **Step 3: Implement** (`lib/auth/requireAdmin.ts`) — extract the resolution into a no-arg cached core; map getClaims outcomes:
+
+```typescript
+import { cache } from "react";
+import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
+// ... existing imports (canonicalize, redirectToSignIn, forbidden, AdminInfraError, createSupabaseServerClient)
+
+const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch (err) {
+    throw new AdminInfraError(`requireAdmin: createSupabaseServerClient threw: ${String(err)}`);
+  }
+
+  // Destructure { data, error } AT the boundary (invariant 9 grep-shape).
+  let claimsData: Awaited<ReturnType<typeof supabase.auth.getClaims>>["data"];
+  let claimsError: Awaited<ReturnType<typeof supabase.auth.getClaims>>["error"];
+  try {
+    ({ data: claimsData, error: claimsError } = await supabase.auth.getClaims());
+  } catch (err) {
+    throw new AdminInfraError(`requireAdmin: getClaims threw: ${String(err)}`);
+  }
+  if (claimsError) {
+    if (isAuthSessionMissingError(claimsError)) await redirectToSignIn(); // unauthenticated → redirect
+    throw new AdminInfraError(`requireAdmin: getClaims error: ${String((claimsError as { message?: string }).message)}`);
+  }
+  const email = canonicalize((claimsData as { claims?: { email?: string } } | null)?.claims?.email);
+  if (!email) await redirectToSignIn();
+
+  // B1.5 + B2: session-freshness and admin authz, in PARALLEL (both JWT-only reads).
+  let sessionRpc: Awaited<ReturnType<typeof supabase.rpc>>;
+  let adminRpc: Awaited<ReturnType<typeof supabase.rpc>>;
+  try {
+    [sessionRpc, adminRpc] = await Promise.all([
+      supabase.rpc("is_session_live"),
+      supabase.rpc("is_admin"),
+    ]);
+  } catch (err) {
+    throw new AdminInfraError(`requireAdmin: session/admin RPC threw: ${String(err)}`);
+  }
+  // Destructure { data, error } at each boundary (invariant 9).
+  const { data: sessionLive, error: sessionError } = sessionRpc;
+  const { data: isAdmin, error: adminError } = adminRpc;
+  // ERROR-FIRST (invariant 9): a returned infra error on EITHER RPC surfaces as
+  // AdminInfraError, BEFORE any data verdict — so {sessionLive:false, adminError}
+  // does NOT collapse into a benign redirect and hide an admin DB outage.
+  if (sessionError) throw new AdminInfraError(`requireAdmin: is_session_live error: ${String((sessionError as { message?: string }).message)}`);
+  if (adminError) throw new AdminInfraError(`requireAdmin: is_admin error: ${String((adminError as { message?: string }).message)}`);
+  // Then data verdicts: session-not-live → redirect (precedence over forbidden); not-admin → forbidden.
+  if (sessionLive !== true) await redirectToSignIn();
+  if (isAdmin !== true) forbidden();
+  return { email };
+});
+
+export async function requireAdminIdentity(opts?: RequireAdminOpts): Promise<AdminIdentity> {
+  const layer = opts?.layer ?? "page";
+  // layer-specific test-infra hook stays OUTSIDE the cache (must fire per-layer)
+  let forceHeaders: Headers | undefined;
+  try { forceHeaders = await headers(); } catch { /* no-op */ }
+  maybeForceTestInfraFail(forceHeaders, layer);
+  return resolveAdminIdentity();
+}
+// requireAdmin(opts): own hooks + `await requireAdminIdentity(opts)` — forwards the layer to the delegated gate (Codex whole-diff R1 fix; prior no-opts delegation was a latent layer-drop).
+```
+
+> Preserve EXACT redirect/forbidden semantics: `redirectToSignIn()` and `forbidden()` throw (they are `Promise<never>` / never) — keep `await` on `redirectToSignIn()` and bare `forbidden()` exactly as today. Keep `{ data, error }` destructure on getClaims and the client construction in `try` so the auth meta-test grep-shape keeps matching.
+
+- [ ] **Step 4: Update meta-test + run all auth tests.** Update `tests/auth/_metaInfraContract.test.ts`'s requireAdmin behavioral describe so its mocks match the new boundaries: stub `getClaims` (not `getUser`) + `rpc("is_session_live")` + `rpc("is_admin")`, and assert the infra contract on EACH new boundary — `createSupabaseServerClient` throw, `getClaims` throw, `is_session_live` throw/returned-error, `is_admin` throw/returned-error → `requireAdmin` throws `AdminInfraError` (never `forbidden`/`redirect`). **Structural defense (Codex plan R6, error-first): add the COMBINATION row — `is_session_live=false` + `is_admin` returned-error → `AdminInfraError`, NOT redirect** — pinning that a benign revoked-session signal can never mask an admin infra fault. Update the existing `tests/auth/requireAdmin.test.ts` mock from `getUser`→`getClaims` + add `is_session_live` (keeping its assertions). Run `tests/auth/requireAdmin.getClaims.test.ts` + `tests/auth/requireAdmin.test.ts` + `tests/auth/_metaInfraContract.test.ts` + `tests/admin/no-inline-email-normalization.test.ts` → all PASS.
+- [ ] **Step 5: Commit** — `perf(auth): getClaims local verify + React.cache dedup on admin gate (keep is_admin RPC)`
+
+---
+
+### Task 4: Parallelize `getShowForViewer` reads (A1)
+
+**Files:**
+- Modify: `lib/data/getShowForViewer.ts`
+- Test: `tests/data/getShowForViewer.parallel.test.ts` (new unit test with a mocked client; the existing integration test `tests/data/getShowForViewer.test.ts` must still pass).
+
+**Interfaces:** signature unchanged: `getShowForViewer(showId, viewer): Promise<ShowForViewer>`.
+
+- [ ] **Step 1: Failing concurrency + correctness test.** Mock the supabase client with a per-table dispatcher whose tile reads return **deferred** promises (resolve on manual trigger). Assert: after `getShowForViewer` is invoked (not awaited), all independent-wave `.from(table)` calls (hotel/rooms/transportation/contacts/run_of_show + version RPC) are recorded **before** any of them resolves (proves concurrency); a serial implementation records them one-after-resolve. Also: injecting `{data:null,error}` into ONE tile read sets only that `tileErrors[id]` and leaves siblings populated (preserves discrimination); `!isLead` viewer issues **zero** financials reads.
+
+```typescript
+// Sketch: a deferred dispatcher
+function deferredClient(seed) {
+  const started: string[] = []; const gates: Record<string, () => void> = {};
+  const read = (table: string) => { started.push(table); return new Promise(res => { gates[table] = () => res(seed[table]); }); };
+  // from(table) returns a thenable whose await calls read(table); rpc(name) similar.
+  return { client, started, releaseAll: () => Object.values(gates).forEach(g => g()) };
+}
+// assert: after kicking off getShowForViewer, `started` contains all wave-2 tables BEFORE releaseAll().
+```
+
+- [ ] **Step 2: Run, verify fail** (serial impl initiates reads one at a time).
+- [ ] **Step 3: Implement** — keep crew-identity lookup (L262) + show validation (L283) sequential (fail-closed guards + role/showId). After `isLead` derived, build the wave:
+
+```typescript
+const [hotelRes, roomRes, transRes, contactsRes, rosRes, versionRpc, finRes] = await Promise.all([
+  readHotel(), readRooms(), readTransportation(), readContacts(), readRunOfShow(), readVersionToken(),
+  isLead ? readFinancials() : Promise.resolve(null),
+]);
+```
+
+Each `readX()` keeps its existing `try/catch + tileErrors[id]` (soft) or throw (hard, version RPC). Post-fetch in-memory filtering (hotel by viewerName, run_of_show by date) unchanged. The crew roster read (L346) joins the wave too. **Do not** await-then-discard financials when `!isLead` — pass `Promise.resolve(null)` so zero reads issue.
+
+- [ ] **Step 4: Run new unit test + existing integration test** (`pnpm exec vitest run tests/data/getShowForViewer.parallel.test.ts tests/data/getShowForViewer.test.ts`) → PASS. (Integration test requires local Supabase running — boot it if needed.)
+- [ ] **Step 5: Commit** — `perf(crew): parallelize getShowForViewer independent reads (preserve tileErrors + LEAD gate)`
+
+---
+
+### Task 5: Parallelize `readShowChangeFeed` 3 reads (A4 part 1)
+
+**Files:**
+- Modify: `lib/sync/feed/readShowChangeFeed.ts`
+- Test: existing `tests/sync/feed/readShowChangeFeed.test.ts` + `tests/sync/feed/readShowChangeFeed.infra.test.ts` must still pass; add a concurrency assertion to the unit test.
+
+- [ ] **Step 1: Failing concurrency test** — extend the existing test with a deferred mock asserting the 3 reads (`show_change_log` rows, count, `sync_holds`) are initiated before any resolves.
+- [ ] **Step 2: Run, verify fail.**
+- [ ] **Step 3: Implement** — `Promise.all([runFeedRead(log), runFeedRead(count), runFeedRead(holds)])`; preserve each `runFeedRead`'s typed `SyncInfraError` mapping (a returned `{error}` or thrown still maps to `SyncInfraError` with its `source`).
+- [ ] **Step 4: Run** `tests/sync/feed/readShowChangeFeed.test.ts` + `.infra.test.ts` → PASS (infra test injects error on a call index; with Promise.all all 3 fire and the error still maps to SyncInfraError).
+- [ ] **Step 5: Commit** — `perf(sync): parallelize readShowChangeFeed's 3 reads (preserve SyncInfraError)`
+
+---
+
+### Task 6: Per-show admin page parallelization (A4 part 2)
+
+**Files:**
+- Modify: `app/admin/show/[slug]/page.tsx`
+- Test: existing `tests/app/admin/perShowPage.test.tsx` must still pass; add an assertion that feed+crew+token are issued concurrently if the test harness supports it, else rely on the existing behavioral coverage + the readShowChangeFeed unit test.
+
+- [ ] **Step 1: Failing/guard test** — assert the per-show page still renders identical data and still degrades to the calm notice on `SyncInfraError` (existing test at `perShowPage.test.tsx`). Add: feed + crew + token reads all occur (spy) and an injected feed `SyncInfraError` still yields the degraded notice (not a crash) — preserving today's behavior.
+- [ ] **Step 2: Run** existing suite → confirm current green baseline.
+- [ ] **Step 3: Implement** — after `show.id` is known, `const [feed, crewRes, token] = await Promise.all([readShowChangeFeed(show.id), supabase.from("crew_members")…, loadShowShareToken(show.id)])`; resolve `nowDate()` once. Preserve each result's existing error handling (feed → degraded notice; crew `{data,error}`; token).
+- [ ] **Step 4: Run** `tests/app/admin/perShowPage.test.tsx` → PASS.
+- [ ] **Step 5: Commit** — `perf(admin): parallelize per-show page feed+crew+token reads`
+
+---
+
+### Task 7: Dashboard parallelization + A5 + purge gate (A2/A5)
+
+**Files:**
+- Modify: `components/admin/Dashboard.tsx`, `app/admin/page.tsx`
+- Test: existing `tests/admin/fetchDashboardData.test.ts` + a new gate test `tests/app/admin/purgeGate.test.ts`.
+
+- [ ] **Step 1a: Failing dashboard test** — extend `fetchDashboardData.test.ts` with a deferred mock asserting `shows`-list + `activeCount` + `archivedCount` are initiated concurrently (wave 1), and `crewTotal` + `loadNeedsAttention` run concurrently once `activeShowIds` known (wave 2); assert `nowDate()` resolved once (spy count 1 across the render path). For A5: with a fixture of **20** in-flight (unpublished) shows and `FINALIZE_OWNED_CONCURRENCY=8`, a deferred `rpc` mock tracks concurrent in-flight calls; assert **max simultaneous in-flight `readfinalizeowned_b2` ≤ 8** (NOT all 20 at once — Codex plan R1 MEDIUM bounded-fanout guard) AND that all 20 eventually resolve with correct boundary-destructured `({ data, error }) => !error && data===true` discrimination and per-call `catch → fail toward Held`.
+- [ ] **Step 1b: Failing gate test** (`tests/app/admin/purgeGate.test.ts`) — mock `readAppSettingsRow` + spy `purgeAndRotateIfStale`: (i) `pending_wizard_session_at=null` → `purgeAndRotateIfStale` NOT called, page uses pre-read settings; (ii) non-null → IS called, behavior unchanged; (iii) pre-read `infra_error` → falls back to calling `purgeAndRotateIfStale` (no false settled render).
+- [ ] **Step 2: Run, verify fail.**
+- [ ] **Step 3a: Implement Dashboard.tsx** — resolve `nowDate()` once and thread the `Date`; `Promise.all` wave 1 (shows list, activeCount, archivedCount); after `activeShowIds`, `Promise.all` wave 2 (crewTotal + loadNeedsAttention; crew paginate loop stays internally sequential but runs concurrently with these). A5 → **bounded-concurrency chunking** (NOT unbounded Promise.all):
+
+```typescript
+const FINALIZE_OWNED_CONCURRENCY = 8;
+for (let i = 0; i < inFlightIds.length; i += FINALIZE_OWNED_CONCURRENCY) {
+  const batch = inFlightIds.slice(i, i + FINALIZE_OWNED_CONCURRENCY);
+  const owned = await Promise.all(
+    batch.map((id) =>
+      supabase
+        .rpc("readfinalizeowned_b2", { p_show_id: id })
+        .then(({ data, error }) => (!error && data === true ? id : null)) // destructure at boundary (invariant 9)
+        .catch(() => null), // fail toward "Held"
+    ),
+  );
+  for (const id of owned) if (id) finalizeOwnedIds.add(id);
+}
+```
+
+Keep every supabase await inside try/catch (admin meta-test grep-shape).
+- [ ] **Step 3b: Implement app/admin/page.tsx** — call `readAppSettingsRow()`; if `kind==='value' && settings.pending_wizard_session_at===null` → use `settings`, skip `purgeAndRotateIfStale`; else (non-null OR `infra_error`) → `await purgeAndRotateIfStale()` and use its `result.settings`. Thread the resulting `settings` into the existing dispatch unchanged.
+- [ ] **Step 4: Run** `tests/admin/fetchDashboardData.test.ts` + `tests/app/admin/purgeGate.test.ts` + `tests/admin/_metaInfraContract.test.ts` → PASS.
+- [ ] **Step 5: Commit** — `perf(admin): parallelize dashboard reads, dedupe nowDate, gate purgeAndRotateIfStale, fan out finalize-owned RPC`
+
+---
+
+### Task 8: Settings page single-read + parallel loaders (A3)
+
+**Files:**
+- Modify: `app/admin/settings/page.tsx`
+- Test: existing settings-page test (if any) + a guard test asserting the four toggle initial values still render and the three top-level loaders run concurrently.
+
+- [ ] **Step 1: Failing tests** — (a) happy path: settings page derives the 4 toggle initials from `getSettingsPageFlags` (one read) and `Promise.all`s flags + `fetchDriveConnectionHealth` + `fetchEmbeddedAdminEmails`. (b) **per-toggle isolation fallback (Codex plan R9):** when `getSettingsPageFlags` returns `{kind:'infra_error'}` BUT the four single getters return a MIX (e.g. `getAutoPublishCleanFirstSeen`→`{value,true}`, `getAlertOnSyncProblems`→`{infra_error}`, others→values), assert the page renders each unaffected toggle's REAL value and only the genuinely-failing one degrades — NOT all four degraded. (c) total failure: combined `infra_error` AND all fallback getters `infra_error` → all toggles degrade gracefully (no crash).
+- [ ] **Step 2: Run, verify fail.**
+- [ ] **Step 3: Implement** — replace the 4 sequential getter awaits (L80/88/89/90). Happy path: `const [flags, driveHealth, adminEmails] = await Promise.all([getSettingsPageFlags(), fetchDriveConnectionHealth(), fetchEmbeddedAdminEmails()])`, map `flags` (kind:'value') → the 4 toggle initials. **Fallback (per-toggle isolation):** if `flags.kind === 'infra_error'`, `const [a,b,c,d] = await Promise.all([getAutoPublishCleanFirstSeen(), getAlertOnSyncProblems(), getDailyReviewDigest(), getAlertOnAutoPublish()])` and map EACH independently to its toggle initial (so a single failing column degrades only its toggle; the rest render real values). Each single getter already returns its own `{kind:'value'|'infra_error'}`.
+- [ ] **Step 4: Run** the settings test(s) → PASS.
+- [ ] **Step 5: Commit** — `perf(admin): collapse settings app_settings reads to one + parallelize loaders`
+
+---
+
+### Task 9: Full verification (suite + typecheck + lint)
+
+- [ ] **Step 1:** `pnpm exec vitest run` (full suite) → all green. Capture output.
+- [ ] **Step 2:** `pnpm exec tsc --noEmit` (or the repo's typecheck script) → no errors.
+- [ ] **Step 3:** `pnpm exec eslint .` (or repo lint script) on changed files → clean.
+- [ ] **Step 4:** If any meta-test (`tests/auth/_metaInfraContract`, `tests/admin/_metaInfraContract`, `tests/sync/_metaInfraContract`, `tests/admin/no-inline-email-normalization`) fails, fix per its message (registry row / grep-shape). Commit fixes as `test(...)`.
+- [ ] **Step 5: Commit** any incidental fixes — `test(perf): green full suite + typecheck + lint for nav phase 1`
+
+---
+
+### Task 10: Invariant 8 close-out — impeccable critique + audit (external attestation)
+
+- [ ] **Step 1:** Compute the app/components diff (`git diff origin/main...HEAD -- app components`).
+- [ ] **Step 2:** Run `/impeccable critique` on that diff (canonical v3 preflight: PRODUCT.md / DESIGN.md / register / preflight signal), via a fresh subagent (external attestation — not self-attested).
+- [ ] **Step 3:** Run `/impeccable audit` on the same diff, fresh subagent.
+- [ ] **Step 4:** Triage findings: expected clean (no rendered-output change). Any HIGH/CRITICAL → fix (it indicates an unintended render-branch change) or defer via `DEFERRED.md` with rationale. Record findings + dispositions in the PR body.
+- [ ] **Step 5: Commit** any fixes — `fix(admin): impeccable close-out fixups (nav phase 1)` (only if findings).
+
+---
+
+### Task 11: Plan/diff self-review
+
+- [ ] Re-read the spec §1-§10; confirm every workstream item (A1-A5, B1, B1.5, B2, B3, B-SEC, A2 gate) has a landed task + passing test. List any gap; add a task if missing.
+- [ ] Grep the diff for `allSettled` (must be ZERO), for bare `data` without `error` destructure on new reads, for inline `.toLowerCase()/.trim()`. Grep both docs + code for stale auth-freshness language (`bounded`/`BACKLOG`/`do not re-add` in an auth-freshness context) — the only correct uses of "bounded" are the A5 fan-out and the "ENFORCED, not bounded" statements; no bullet may describe admin-session freshness as TTL-bounded. **Confirm the ONLY migration added is `supabase/migrations/20260622000004_is_session_live_rpc.sql`**, that `supabase/__generated__/schema-manifest.json` was regenerated + committed, and that validation has been surgically updated (Task 12 step 1b). Confirm no OTHER migration files were added.
+
+---
+
+### Task 12: Close-out — cross-model whole-diff review + CI + merge (Stage 4)
+
+- [ ] **Step 1:** Whole-diff cross-model adversarial review (Codex, fresh-eyes, REVIEWER ONLY), iterate to APPROVE (no round budget). Triage via deferral discipline.
+- [ ] **Step 1b: Apply the migration to the validation project** (required for `validation-schema-parity` CI). Confirm the manifest is committed (`supabase/__generated__/schema-manifest.json` regenerated in Task 3 step 0c), then apply `is_session_live()` surgically to validation: `supabase db query --linked "<contents of 20260622000004_is_session_live_rpc.sql>"` (or `psql "$TEST_DATABASE_URL" -f …`), then `notify pgrst, 'reload schema';`. (`supabase db push` is blocked on validation per repo history — apply surgically.) If validation credentials/linking are unavailable in this environment, STOP and surface to the user — CI's `validation-schema-parity` gate will fail otherwise.
+- [ ] **Step 2:** Push branch; open PR (base `main`). Body: summary, spec/plan links, impeccable findings+dispositions, **migration note** (`is_session_live()` RPC applied to local + validation; manifest committed).
+- [ ] **Step 3:** Watch real GitHub Actions CI to green (unit-suite + meta/audit gates + `validation-schema-parity`). Reconcile if behind base (DIRTY).
+- [ ] **Step 4:** `gh pr merge --merge`; fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` == `0  0`.
+
+---
+
+## Self-Review (run after drafting — checklist)
+
+1. **Spec coverage:** A1→T4, A2→T7+T1, A3→T8+T2, A4→T5+T6, A5→T7, B1→T3, B1.5 (is_session_live migration+RPC)→T3 steps 0a-0c + impl, B2/B3→T3, B-SEC (live-auth + live-revocation tests)→T3, §6 meta-test→T1/T2/T3, §6 migration→validation→T3 step 0c + T12 step 1b, §7-closeout→T10. ✓ no gaps.
+2. **Placeholder scan:** the only soft spot is the Task 3 dedup-test request-scope seam — explicitly flagged with an implementer decision point + structural fallback (not a silent TODO). All code steps show code.
+3. **Type consistency:** `readAppSettingsRow`/`getSettingsPageFlags` return `{kind:'value'|'infra_error'}` (matches house getters); `AppSettingsRow` from `@/lib/onboarding/sessionLifecycle`; `requireAdminIdentity` signature unchanged.
+4. **Anti-tautology:** concurrency tests use deferred promises (a serial impl fails); auth tests assert against spy call-counts; settings/dashboard derive expectations from injected fixtures.
