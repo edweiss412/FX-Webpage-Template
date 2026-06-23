@@ -125,7 +125,13 @@ describe("ReapStaleSessionsButton", () => {
     fireEvent.click(getByTestId("reap-stale-sessions-button"));
     fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
     await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
-    expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-button"));
+    // Focus is restored in a post-commit useEffect (ReapStaleSessionsButton.tsx
+    // :60-69), which runs AFTER the result panel mounts. Await it via waitFor —
+    // asserting synchronously here raced the effect under full-suite CI
+    // concurrency and intermittently saw activeElement === <body>.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-button")),
+    );
   });
 
   test("the confirm panel is an inline labelled group, not an unmanaged dialog", () => {
