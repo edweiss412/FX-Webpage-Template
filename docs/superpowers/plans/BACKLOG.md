@@ -576,3 +576,29 @@ This is **pre-existing and project-wide**: `--color-accent-on-bg` is the link/em
 **Why backlog, not now:** the correct fix is at the token layer. Darkening `--color-accent-on-bg-runtime` (light) from `#c25e00` to ~`#b35600` (≈4.6:1 on `#fafaf9`) changes the orange on **every** accent-on-bg consumer (admin + crew), requires correcting the DESIGN.md §1.1/§1.2 figures, and would shift the `/admin` screenshot baselines (which the screenshot-drift gate pins) — a much larger blast radius than a content chunk, and a brand decision (it nudges the brand orange darker).
 
 **Promotion prerequisite:** a dedicated token/accessibility pass that (a) picks the darker light-mode accent-on-bg value, (b) corrects the DESIGN.md §1.1/§1.2 contrast figures to the measured values, (c) adds an `accent-on-bg`-on-`bg` row to `tests/styles/status-token-contrast.test.ts` so the link surface is pinned going forward, and (d) regenerates the `/admin` screenshot baselines via the native-amd64 workflow. Until then the underline keeps `/help` links discoverable and the deficit is a known, documented 0.4-ratio AA gap shared with the rest of the app.
+
+### BL-CREWSUBNAV-PREFETCH-ENABLEMENT — the real crew sub-nav perf win (move the projection side-effect off speculative render, then enable prefetch)
+
+**Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped C1). Phase 2 dropped the "CrewSubNav `router.push` → `<Link>`" conversion because it yields **no** navigation-speed gain: `router.push` is already a client-side soft-nav (no full reload), and prefetch — the only thing `<Link>` would add — is **barred** by the phantom-alert hazard. `components/crew/SectionChipLink.tsx` uses `<Link prefetch={false}>` for exactly this reason, and `tests/components/crew/noPrefetchAlert.test.tsx` enforces that CrewSubNav drives nav imperatively (no prefetching `<Link>`). The crew page render has a projection / `upsertAdminAlert` side-effect that a speculative prefetch would fire spuriously.
+
+**The real win:** make speculative prefetch SAFE by moving the side-effect off the speculative render path (e.g. fire the projection/alert only on a committed navigation or in a route handler, not during the RSC render that a `<Link>` hover/viewport prefetch triggers). THEN enable prefetch on `CrewSubNav` + `SectionChipLink` so the most-tapped crew nav warms its loading shell on hover — instant section switches. This is the genuine crew-nav latency win Phase 2 could not deliver.
+
+**Why backlog, not now:** needs an investigation into where the projection/`upsertAdminAlert` side-effect fires during the crew render + a design for relocating it without breaking the alert semantics — its own focused milestone (spec + plan), not a follow-up edit. Speculative on the relocation approach.
+
+**Promotion prerequisite:** confirm the exact side-effect site(s) in the crew render path; design a prefetch-safe relocation; then a milestone that relocates it, enables prefetch, and flips `noPrefetchAlert.test.tsx` from "asserts no `<Link>`" to "asserts prefetch is safe (no spurious alert on speculative render)."
+
+### BL-NAV-PERF-TAG-CACHING — tag-based caching tied to the sync write path (relax `force-dynamic` where safe)
+
+**Filed:** 2026-06-23 (nav-perf follow-up; the deferred "Should we introduce caching?" question). Every route is `force-dynamic` (a cold render per navigation). Phases 1+2 made the cold render fast + added instant feedback, but the structural ceiling is the always-dynamic model. The big win is to cache the show/crew/admin reads with `use cache` + `cacheTag(...)` and `revalidateTag(...)` from the **sync write path** (and admin mutations), so navigations serve cached data and only re-render when the underlying show actually changes.
+
+**Why backlog, not now:** caching correctness is subtle (stale-data risk on a per-show app where freshness matters), and the user explicitly deferred it ("Should we introduce caching?" → not this round). It needs its own brainstorm/spec: which routes can safely drop `force-dynamic`, the exact tag taxonomy (per-show / per-crew / admin-wide), every `revalidateTag` call site across the sync + admin-mutation surfaces, and a staleness-bound decision. Largest blast radius + the highest correctness risk of the three follow-ups.
+
+**Promotion prerequisite:** a dedicated brainstorm/spec on the cache model (tag taxonomy + every revalidate site + staleness bound + which routes opt in), reviewed for correctness before any `force-dynamic` is removed.
+
+### BL-ADMIN-NAV-BADGE-SUSPENSE-STREAMING — stream the admin nav badge counts via `<Suspense>` instead of blocking layout
+
+**Filed:** 2026-06-23 (nav-perf Phase 2 — the descoped half of E). Phase 2's E-lite parallelized the admin layout's two badge reads (`Promise.all`), so first `/admin` entry blocks on one wall-time instead of three sequential round-trips. The further win is to stream the badges entirely OUT of the blocking layout path via `<Suspense>` so the nav chrome paints immediately and the counts arrive after.
+
+**Why backlog, not now:** `components/admin/nav/AdminNav.tsx` is a `"use client"` component with a stateful refetch hook (`useNeedsAttentionBadge`), and the repo has **zero `<Suspense>` precedent** — streaming needs a server-child + slot bridge (refactor AdminNav's prop/slot contract) for a first-`/admin`-entry-only gain (the layout is reused across sibling navs, so its awaits don't re-run per nav). Invasive relative to the payoff.
+
+**Promotion prerequisite:** an established `<Suspense>` streaming pattern in the codebase + an AdminNav slot refactor that lets the badge counts arrive as a streamed server child without breaking the client-side pathname-refetch hook.
