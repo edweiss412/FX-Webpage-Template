@@ -2,7 +2,10 @@ import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { CrewMemberRow, ParsedSheet, ParseResult, RoomRow } from "@/lib/parser/types";
 import type { Phase1PendingIngestionRow, Phase1PendingSyncRow, Phase1Tx } from "@/lib/sync/phase1";
-import type { RunOnboardingScanDeps } from "@/lib/sync/runOnboardingScan";
+import {
+  ONBOARDING_PREPARE_CONCURRENCY,
+  type RunOnboardingScanDeps,
+} from "@/lib/sync/runOnboardingScan";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -562,5 +565,71 @@ describe("runOnboardingScan", () => {
       "start:file-1",
       "commit:file-1",
     ]);
+  });
+
+  test("prepares sheets concurrently (bounded) while preserving listed order", async () => {
+    vi.resetModules();
+    const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+
+    // More files than the concurrency cap so the test pins BOTH that prepare
+    // overlaps (parallel) AND that it never exceeds the cap (bounded).
+    const fileCount = ONBOARDING_PREPARE_CONCURRENCY + 4;
+    const files = Array.from({ length: fileCount }, (_, i) => file(`file-${i + 1}`));
+    const parseResults: Record<string, ParseResult> = Object.fromEntries(
+      files.map((f) => [f.driveFileId, parseResult()]),
+    );
+
+    let active = 0;
+    let maxActive = 0;
+    const completionOrder: string[] = [];
+    // Stagger per-file delays so EARLIER files (file-1 …) finish LAST. This
+    // forces preparation to complete out of input order, so the manifest-order
+    // assertion below is a real proof that the parallel prepare reassembles
+    // results by INPUT index — a completion-order implementation would scramble
+    // the manifest. (Uniform delays could let a broken impl pass by luck.)
+    const delayFor = (driveFileId: string) => {
+      const index = Number(driveFileId.replace("file-", "")); // 1-based
+      return 5 + (fileCount - index) * 4;
+    };
+    const fetchMarkdownAtRevision = vi.fn(async (driveFileId: string) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, delayFor(driveFileId)));
+      active -= 1;
+      completionOrder.push(driveFileId);
+      return `markdown:${driveFileId}`;
+    });
+
+    const result = await runOnboardingScan("folder-1", W1, {
+      tx,
+      listFolder: vi.fn(async () => files),
+      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
+        bindingToken: meta.modifiedTime,
+        modifiedTime: meta.modifiedTime,
+      })),
+      fetchMarkdownAtRevision,
+      parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
+      enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) => {
+        const driveFileId = (parsed as unknown as { markdown: string }).markdown.replace(
+          "markdown:",
+          "",
+        );
+        return parseResults[driveFileId] ?? parseResult();
+      }),
+    });
+
+    const inputOrder = files.map((f) => f.driveFileId);
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    // Parallel up to the cap, never beyond it. Sequential prepare → 1.
+    expect(maxActive).toBe(ONBOARDING_PREPARE_CONCURRENCY);
+    // Premise guard: preparation genuinely completed out of input order, so the
+    // manifest-order assertion below is a real proof, not a coincidence of
+    // uniform timing.
+    expect(completionOrder).not.toEqual(inputOrder);
+    // The lock-ordered scan phase still processes files in listed order, so the
+    // manifest order must equal the input order despite out-of-order preparation.
+    expect(tx.manifest.map((row) => row.driveFileId)).toEqual(inputOrder);
   });
 });

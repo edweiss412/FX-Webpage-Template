@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
+import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
@@ -29,6 +30,32 @@ export const WIZARD_ISOLATION_INDEXES_MISSING = "WIZARD_ISOLATION_INDEXES_MISSIN
 export const WIZARD_SESSION_SUPERSEDED_DURING_SCAN =
   "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" as const;
 export const LIVE_ROW_CONFLICT = "LIVE_ROW_CONFLICT" as const;
+
+/**
+ * Max number of sheets whose per-file preparation runs concurrently.
+ * Preparation is a pre-lock, side-effect-free Drive read phase (so it
+ * parallelizes safely; the downstream lock-ordered `scanPreparedFiles` stays
+ * strictly sequential), but the per-file unit is non-trivial: a metadata
+ * `files.get`, the xlsx-export round-trip (before-`get` + full-workbook
+ * download + after-`get`), and up to two *conditional* enrich reads — an
+ * opening-reel `files.get` and a linked-DIAGRAMS-folder `files.list`. It does
+ * NOT issue Sheets-API / embedded-image / revision reads: the onboarding
+ * `defaultDriveClient` implements only `getFile` + `listFolder`, so
+ * `extractEmbeddedImages` short-circuits (see enrichWithDrivePins.ts:126). So
+ * the worst case is ~6 Drive calls per sheet (1 metadata get + 3 export
+ * round-trips + up to 2 conditional enrich reads), one a heavy export download.
+ *
+ * The bound caps in-flight Drive requests regardless of folder size — that is
+ * the defense against unbounded fan-out — and a conservative value keeps the
+ * burst comfortably under Drive quota while still collapsing the dominant
+ * serial cost (a 19-sheet folder drops from ~62s to ~10s). It stays
+ * conservative because the Drive fetch layer has no retry/backoff, so a
+ * transient throttle in any single file aborts the whole scan. That
+ * abort-on-failure is pre-existing (the old serial loop had it too) and
+ * tracked as a follow-up (BACKLOG.md BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY);
+ * higher concurrency only modestly raises the odds, so we do not chase it here.
+ */
+export const ONBOARDING_PREPARE_CONCURRENCY = 6;
 
 const REQUIRED_WIZARD_ISOLATION_INDEXES = [
   "pending_syncs_live_drive_file_idx",
@@ -863,17 +890,20 @@ async function prepareOnboardingFiles(
 ): Promise<PreparedOnboardingFile[]> {
   const listFolder = deps.listFolder ?? listDriveFolder;
   const files = await listFolder(folderId);
-  const prepared: PreparedOnboardingFile[] = [];
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
   const fetchMarkdownAtRevision = deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision;
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
 
-  for (const file of files) {
+  // Per-file preparation is a pre-lock, side-effect-free Drive read (metadata +
+  // xlsx export + parse + enrich). Each file is independent, so we prepare them
+  // with bounded concurrency instead of serially — this is the dominant cost of
+  // an onboarding scan. mapWithConcurrency preserves listed order, so the
+  // downstream lock-ordered scanPreparedFiles loop is unaffected.
+  const prepareOne = async (file: DriveListedFile): Promise<PreparedOnboardingFile> => {
     if (!isSpreadsheet(file)) {
-      prepared.push({ file, kind: "non_sheet" });
-      continue;
+      return { file, kind: "non_sheet" };
     }
     const binding = await captureBinding(file.driveFileId, file);
     const markdown = await fetchMarkdownAtRevision(file.driveFileId, binding.bindingToken);
@@ -883,10 +913,10 @@ async function prepareOnboardingFiles(
       fileMeta: toDriveFileMeta(file),
       binding,
     });
-    prepared.push({ file, kind: "sheet", binding, parseResult });
-  }
+    return { file, kind: "sheet", binding, parseResult };
+  };
 
-  return prepared;
+  return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne);
 }
 
 export async function runOnboardingScan(
