@@ -100,7 +100,7 @@ describe("/help prose typography layer — structural wiring", () => {
     );
   });
 
-  it("the inherited prose-link text color clears WCAG AA (4.5:1) on the page bg in both modes", () => {
+  it("the inherited prose-link color clears WCAG AA (4.5:1) on the page bg AND the Callout fills, both modes", () => {
     const css = read("app/globals.css");
     // Pull the runtime hex for text + bg from the light (:root) and dark
     // ([data-theme="dark"]) blocks — derive expected values from the live CSS,
@@ -133,18 +133,29 @@ describe("/help prose typography layer — structural wiring", () => {
 
     const light = blockFor(":root {");
     const dark = blockFor('[data-theme="dark"] {');
-    const lightRatio = ratio(
-      hexIn(light, "--color-text-runtime"),
-      hexIn(light, "--color-bg-runtime"),
-    );
-    const darkRatio = ratio(hexIn(dark, "--color-text-runtime"), hexIn(dark, "--color-bg-runtime"));
 
-    expect(
-      lightRatio,
-      `light prose-link contrast ${lightRatio.toFixed(2)}:1`,
-    ).toBeGreaterThanOrEqual(4.5);
-    expect(darkRatio, `dark prose-link contrast ${darkRatio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
-      4.5,
-    );
+    // Prose links set no color, so they inherit the surrounding context's text
+    // color on that context's background. Pin every place a prose link renders:
+    //  - body paragraph: --color-text on --color-bg
+    //  - note/tip Callout + TipFromSheets aside: --color-text-strong on --color-info-bg
+    //  - warning Callout: --color-warning-text on --color-warning-bg
+    // (text/bg token pairs per app/help/_components/{Callout,TipFromSheets}.tsx.)
+    const surfaces: Array<[string, string, string]> = [
+      ["body", "--color-text-runtime", "--color-bg-runtime"],
+      ["note/tip callout", "--color-text-strong-runtime", "--color-info-bg-runtime"],
+      ["warning callout", "--color-warning-text-runtime", "--color-warning-bg-runtime"],
+    ];
+    for (const [mode, block] of [
+      ["light", light],
+      ["dark", dark],
+    ] as const) {
+      for (const [name, textVar, bgVar] of surfaces) {
+        const r = ratio(hexIn(block, textVar), hexIn(block, bgVar));
+        expect(
+          r,
+          `${mode} prose-link contrast on ${name}: ${r.toFixed(2)}:1`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 });
