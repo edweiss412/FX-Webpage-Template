@@ -47,6 +47,7 @@
   (c) `popstate` with `location.search="?s=venue"` → `body-venue` visible (mock location).
   (d) a non-entitled section (no `budget` in `sectionNodes` when `budgetVisible=false`) → no Budget tab; `?s=budget` initial resolves to `today`.
   (e) **freshness:** re-render with NEW `sectionNodes` (new `body-today` content) while staying on `today` → the new content shows AND `active` is still `today` (data flows from the prop, not client cache).
+  (f) **clamp consistency:** render with `initialSection="budget"` but `sectionNodes` lacking a `budget` key (simulates a refresh that flips `budgetVisible` true→false while on Budget) → `effectiveActive` falls back to `today` and `data-active-section`, the CrewSubNav active tab (`aria-current`), the transition key, AND the rendered body ALL show `today` together — never a split state (Budget tab/attr with a Today body).
   Run → FAIL (module missing).
 - [ ] **Step 2:** run, verify fail.
 - [ ] **Step 3 (impl):** create `components/crew/CrewSections.tsx`:
@@ -93,18 +94,23 @@
       return () => window.removeEventListener("popstate", onPop);
     }, [budgetVisible]);
 
-    // Guard: active must be a present, entitled key (resolveActiveSection only
-    // returns entitled ids; fall back to today if a body is somehow missing).
-    const body = sectionNodes[active] ?? sectionNodes.today ?? null;
+    // Clamp to a present, entitled section so EVERYTHING (data-active-section,
+    // nav active tab, transition key, body) stays consistent. resolveActiveSection
+    // only returns entitled ids, but a refresh that flips budgetVisible true→false
+    // while active==="budget" would otherwise leave a STALE split state (Today body
+    // under a "budget" data-active-section / active tab). `effectiveActive` is the
+    // single source used by all four below, so there is never a split.
+    const effectiveActive: SectionId = sectionNodes[active] ? active : "today";
+    const body = sectionNodes[effectiveActive] ?? null;
 
     return (
-      <div data-testid="crew-shell-sections" data-active-section={active}>
-        <CrewSubNav activeSection={active} budgetVisible={budgetVisible} onSelect={onSelect} />
+      <div data-testid="crew-shell-sections" data-active-section={effectiveActive}>
+        <CrewSubNav activeSection={effectiveActive} budgetVisible={budgetVisible} onSelect={onSelect} />
         <main
           data-testid="page-container"
           className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] sm:pt-8 min-[720px]:pb-8`}
         >
-          <CrewSectionTransition sectionId={active}>{body}</CrewSectionTransition>
+          <CrewSectionTransition sectionId={effectiveActive}>{body}</CrewSectionTransition>
         </main>
       </div>
     );
@@ -118,7 +124,7 @@
 
 **Files:** `app/show/[slug]/[shareToken]/_CrewShell.tsx`; update `crewShell.test.tsx` + `crewShellSections.test.tsx` + `crewShellAlert.test.tsx`.
 
-- [ ] **Step 1 (failing test):** update `crewShellSections.test.tsx` — render `<CrewShell …>` for a LEAD viewer; assert ALL 7 section bodies are present in the markup (each section's distinctive testid/text), not just the active one; `data-active-section` reflects the initial `?s=`; for a NON-lead, NO Budget body/tab. Update `crewShellAlert.test.tsx` to confirm `upsertAdminAlert` still fires ONCE when `tileErrors` non-empty (it now fires once per load regardless of section). Run → FAIL.
+- [ ] **Step 1 (failing test):** update `crewShellSections.test.tsx`. The contract is "all entitled bodies are RENDERED SERVER-SIDE and HANDED to the controller" — NOT "all in the DOM" (the controller mounts only the active one via `AnimatePresence mode="wait"`, T2). So `vi.mock("@/components/crew/CrewSections")` with a capturing stub and assert `_CrewShell` calls it with `sectionNodes` whose keys === the entitled set: for a LEAD viewer `[...BASE_SECTION_IDS, "budget"]` (7) with every value a non-null ReactNode; for a NON-lead exactly `BASE_SECTION_IDS` (6) with **no `budget` key**; and `initialSection` === the server-resolved active (a non-lead `?s=budget` → `today`). Keep a small integration assertion (unmocked) that the INITIAL active body renders + `data-testid="crew-shell"` is present. Update `crewShellAlert.test.tsx` to confirm `upsertAdminAlert` still fires ONCE when `tileErrors` non-empty (now once per load, section-independent). Run → FAIL.
 - [ ] **Step 2:** run, verify fail.
 - [ ] **Step 3 (impl):** in `_CrewShell.tsx`, replace `renderSection()`/`sectionBody` + the inline `<CrewSubNav>`/`<main>`/`<CrewSectionTransition>` (`:260-327`) with:
   - a `renderOne(id: SectionId): ReactNode` switch (the existing per-section JSX, same `({data,viewer,today,showId})` contract);
@@ -143,7 +149,7 @@
 
 **Files:** `tests/e2e/crew-page.spec.ts`, `tests/e2e/picker-flow.spec.ts`.
 
-- [ ] **Step 1:** update/add e2e: tapping a section tab updates the visible section AND the URL `?s=` with **no navigation/network round-trip** (assert via `page.on("request")` that no document/RSC request fires on a section tap, or that the nav event doesn't occur); browser Back restores the prior section; a deep-link `?s=schedule` lands on Schedule. Keep existing picker-flow assertions.
+- [ ] **Step 1:** update/add e2e: after the crew page settles, attach a `page.on("request", ...)` counter, tap a section tab, and assert it fired **EXACTLY 0 network requests** (no document, no RSC/`.txt` flight, no `fetch`) — the hard proof there is no server round-trip; the test FAILS if any request occurs. Also assert the visible section + the URL `?s=` updated, browser Back restores the prior section, and a deep-link `?s=schedule` lands on Schedule. Keep existing picker-flow assertions.
 - [ ] **Step 2:** run the e2e specs (Playwright) → PASS (or document the runner requirement if e2e isn't in the local set; ensure CI covers it).
 - [ ] **Step 3:** prettier + commit `test(crew): e2e — section tabs are client toggles (no round-trip), back-button + deep-link`.
 
@@ -152,11 +158,13 @@
 - [ ] `pnpm exec tsc --noEmit` clean; `pnpm format:check` clean; eslint changed files clean.
 - [ ] Commit any incidental fixes.
 
-### Task 7: Invariant-8 impeccable close-out + real-browser perf/dimension gate
-- [ ] `/impeccable critique` AND `/impeccable audit` (fresh subagent, external) on `git diff origin/main...HEAD -- app components`. HIGH/CRITICAL fixed or `DEFERRED.md`'d.
-- [ ] **Real-browser PERF budget (design-call scrutiny):** boot the app, load a crew page (lead viewer, content-heavy fixture), measure: (a) a section tab tap issues **0 network requests** (the win — `page.on("request")`); (b) initial HTML/RSC transfer + first-contentful render vs the pre-change baseline — assert ≤ ~25% payload increase. If a content-heavy show blows the budget → **STOP and surface** (fall back to lazy/cache-backed variant).
-- [ ] **Real-browser dimensional check:** the mobile fixed bottom bar — each tab fills the bar height; bar clears `env(safe-area-inset-bottom)`; equal-width tabs; `<main>` bottom clearance prevents occlusion. `getBoundingClientRect` assertions, 0.5px tolerance.
-- [ ] Record findings + perf numbers in the PR.
+**Files:** `tests/e2e/crewSectionLayout.spec.ts` (new, real-browser); perf assertion in the T5 e2e or a `tests/e2e/crewSectionPerf.spec.ts`.
+
+- [ ] **Step 1 (failing dimensional test):** `crewSectionLayout.spec.ts` (Playwright, real browser at ≤719px) — `getBoundingClientRect` assertions on the mobile fixed bottom bar: each `[data-section]` tab height === the bar height (±0.5px); the bar's bottom edge clears `env(safe-area-inset-bottom)`; tabs are equal-width (±0.5px); `[data-testid="page-container"]` bottom padding ≥ bar height so content isn't occluded. Run → FAIL until the refactor preserves the layout.
+- [ ] **Step 2 (failing perf-budget test):** capture the BASELINE first — on `origin/main` (pre-change), load the content-heavy lead fixture and record the crew-page document+RSC transfer bytes into a committed constant `CREW_PAYLOAD_BASELINE_BYTES` (with a comment noting the fixture + commit). The new test asserts the post-change transfer ≤ `CREW_PAYLOAD_BASELINE_BYTES * 1.25` — a HARD failing assertion. If it fails (a content-heavy show blows the budget) → **STOP and surface** (the all-sections-render tradeoff needs the lazy/cache-backed variant; do not silently ship a regression). (The "0 network requests on a section tap" hard assertion lives in T5.)
+- [ ] **Step 3:** implement nothing new for layout (it must already pass from T1–T3); run both → PASS. If the perf test fails, STOP.
+- [ ] **Step 4 (impeccable):** `/impeccable critique` AND `/impeccable audit` (fresh subagent, external) on `git diff origin/main...HEAD -- app components`. HIGH/CRITICAL fixed or `DEFERRED.md`'d. Record findings + the measured perf numbers in the PR.
+- [ ] **Step 5:** prettier + commit `test(crew): real-browser dimensional + payload-budget gates for client section toggle`.
 
 ### Task 8: Self-review
 - [ ] Re-read spec §3/§5/§9; confirm each contract has a landed task+test. Grep the diff: NO client-side section data fetch (freshness); NO `router.push` for section nav; `history.pushState` present; budget body+tab only when entitled; `data-active-section` reactive; `SectionChipLink prefetch={false}` + noPrefetchAlert group (ii) intact; no migration.
