@@ -55,3 +55,52 @@ describe("CI speedup — concurrency cancel-in-progress on every PR-firing workf
     },
   );
 });
+
+describe("CI speedup — screenshots-drift runs per-PR only on render-affecting paths", () => {
+  const yaml = readWorkflow("screenshots-drift.yml");
+
+  it("scopes the pull_request trigger to a paths allow-list (not a bare trigger)", () => {
+    expect(
+      /\n {2}pull_request:\s*\n {4}paths:/.test(yaml),
+      "screenshots-drift.yml must scope `pull_request:` to a `paths:` allow-list so it " +
+        "does not boot Supabase + a Docker Playwright image on PRs that touch no rendered surface.",
+    ).toBe(true);
+  });
+
+  // The allow-list must cover every input the capture can render from: the
+  // rendered routes/components/tokens (app/**, components/**), the seeded data
+  // pipeline (parser → fixtures → seed → migrations), and the capture infra.
+  const REQUIRED_PATHS = [
+    '"app/**"',
+    '"components/**"',
+    '"lib/parser/**"',
+    '"fixtures/shows/**"',
+    '"supabase/seed.ts"',
+    '"supabase/migrations/**"',
+    '"scripts/help-screenshots.ts"',
+    '"scripts/ci/**"',
+    '"playwright.screenshots.config.ts"',
+    '"tests/e2e/helpers/**"',
+    '".github/workflows/screenshots-drift.yml"',
+  ];
+
+  it.each(REQUIRED_PATHS)("allow-list includes %s", (glob) => {
+    expect(
+      yaml.includes(glob),
+      `screenshots-drift.yml paths allow-list is missing ${glob} — a change there can ` +
+        `alter a captured screenshot, so it must re-trigger the drift gate.`,
+    ).toBe(true);
+  });
+
+  it("retains the nightly schedule cron as the unfiltered full-coverage backstop", () => {
+    expect(
+      /\n {2}schedule:\s*\n {4}- cron:/.test(yaml),
+      "screenshots-drift.yml MUST keep its `schedule: cron` — the nightly run is unfiltered " +
+        "and is the safety net that catches drift on any PR the paths allow-list skipped.",
+    ).toBe(true);
+  });
+
+  it("retains workflow_dispatch for on-demand verification", () => {
+    expect(yaml.includes("workflow_dispatch:")).toBe(true);
+  });
+});

@@ -1,7 +1,35 @@
 name: Screenshots drift
 
 on:
+  # Per-PR, run only when a render input could have changed — this job boots
+  # Supabase + a Docker Playwright image (~280s), so firing it on PRs that touch
+  # no rendered surface is pure waste. Captured surfaces are the admin routes
+  # (manifest in scripts/help-screenshots.manifest.ts) rendered from the seeded
+  # fixtures → parser → seed pipeline, so the allow-list spans both the render
+  # side (app/**, components/**, globals.css via app/**) and the data side.
+  # The `schedule` cron below stays UNFILTERED and is the full-coverage backstop
+  # that catches drift on any PR this allow-list skipped (do not narrow it).
   pull_request:
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/data/**"
+      - "lib/audit/**"
+      - "lib/admin/**"
+      - "lib/messages/**"
+      - "lib/parser/**"
+      - "fixtures/shows/**"
+      - "supabase/seed.ts"
+      - "supabase/seedWalkerFixtures.ts"
+      - "supabase/migrations/**"
+      - "scripts/help-screenshots.ts"
+      - "scripts/help-screenshots.manifest.ts"
+      - "scripts/help-screenshots-fixture-range.ts"
+      - "scripts/capture-launch-args.ts"
+      - "scripts/ci/**"
+      - "playwright.screenshots.config.ts"
+      - "tests/e2e/helpers/**"
+      - ".github/workflows/screenshots-drift.yml"
   schedule:
     - cron: "0 10 * * *"
   workflow_dispatch:
