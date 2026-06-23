@@ -1,10 +1,10 @@
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import vitestConfig from "@/vitest.config";
-import { PARALLEL_TEST_GLOBS } from "@/vitest.projects";
+import { ENV_BOUND_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -134,5 +134,65 @@ describe("vitest projects split — partition is complete and correctly wired", 
         expect(matchesParallel(f), `${f} must be in the PARALLEL project`).toBe(true);
       }
     }
+  });
+
+  // The env-bound files live in SERIAL dirs (so x-audits can target them via a
+  // direct `vitest run <file>`) but must be dropped from the unit-suite full run.
+  // They are gated by VITEST_EXCLUDE_ENV_BOUND because vitest IGNORES the CLI
+  // `--exclude` flag once a project has its own `exclude` (the bug that broke the
+  // first run of this split). These tests pin that contract.
+  it("env-bound files are NOT in the parallel set (must be excludable from serial)", () => {
+    for (const glob of ENV_BOUND_EXCLUDES) {
+      // strip the leading **/ to compare against repo-relative paths
+      const path = glob.replace(/^\*\*\//, "");
+      expect(allTestFiles, `${path} should exist`).toContain(path);
+      expect(matchesParallel(path), `${path} must be SERIAL so the env gate can exclude it`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("VITEST_EXCLUDE_ENV_BOUND gates the env-bound files in the serial exclude", async () => {
+    const serialExcludeFor = async (value: string): Promise<string[]> => {
+      vi.resetModules();
+      vi.stubEnv("VITEST_EXCLUDE_ENV_BOUND", value);
+      try {
+        const cfg = (await import("@/vitest.config")).default as {
+          test?: { projects?: ProjectEntry[] };
+        };
+        const serial = cfg.test?.projects?.find((p) => p.test.name === "serial")?.test;
+        return serial?.exclude ?? [];
+      } finally {
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
+    };
+    const gated = await serialExcludeFor("1");
+    const ungated = await serialExcludeFor(""); // anything other than "1"
+    for (const f of ENV_BOUND_EXCLUDES) {
+      expect(gated, `${f} excluded when VITEST_EXCLUDE_ENV_BOUND=1`).toContain(f);
+      expect(
+        ungated,
+        `${f} runs when the env var is unset (x-audits + local pnpm test)`,
+      ).not.toContain(f);
+    }
+  });
+
+  it("unit-suite.yml uses the env var, NOT the (ignored) vitest --exclude flag", () => {
+    const wf = readFileSync(join(ROOT, ".github", "workflows", "unit-suite.yml"), "utf8");
+    // Strip YAML comment lines so the assertion checks real commands, not the
+    // explanatory comment (which legitimately mentions `vitest run --exclude`).
+    const commands = wf
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("#"))
+      .join("\n");
+    expect(
+      commands.includes("VITEST_EXCLUDE_ENV_BOUND"),
+      "unit-suite.yml must set VITEST_EXCLUDE_ENV_BOUND to drop the env-bound files",
+    ).toBe(true);
+    expect(
+      /--exclude/.test(commands),
+      "unit-suite.yml must NOT use `vitest run --exclude` — vitest ignores it with projects defined",
+    ).toBe(false);
   });
 });

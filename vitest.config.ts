@@ -4,7 +4,14 @@ import { dirname } from "node:path";
 import mdx from "@mdx-js/rollup";
 import remarkGfm from "remark-gfm";
 
-import { BASE_INCLUDE, PARALLEL_TEST_GLOBS } from "./vitest.projects";
+import { BASE_INCLUDE, PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES } from "./vitest.projects";
+
+// unit-suite.yml sets VITEST_EXCLUDE_ENV_BOUND=1 to drop the env-bound files
+// (see vitest.projects.ts). It MUST be a project-level exclude, not a CLI
+// `--exclude` flag — vitest ignores CLI `--exclude` once a project defines its
+// own `exclude`. Gated so the x-audits' direct `vitest run <file>` (and local
+// `pnpm test`) still run those files.
+const envBoundExcludes = process.env.VITEST_EXCLUDE_ENV_BOUND === "1" ? ENV_BOUND_EXCLUDES : [];
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -49,7 +56,7 @@ export default defineConfig({
           // `exclude` overrides the default); then everything in the parallel set
           // is removed so it runs ONLY in the parallel project. New dirs default
           // here (safe).
-          exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS],
+          exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...envBoundExcludes],
           fileParallelism: false,
         },
       },

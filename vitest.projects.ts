@@ -19,6 +19,24 @@
 
 export const BASE_INCLUDE = ["tests/**/*.test.ts", "tests/**/*.test.tsx"];
 
+// Files the unit-suite CI job must NOT run (each needs an environment the
+// local-bootstrap runner can't provide, or starves under full-suite concurrency
+// on the 2-core runner). They live in SERIAL dirs and run normally for local
+// `pnpm test` and — crucially — for the x-audits jobs that invoke them DIRECTLY
+// via `vitest run <file>` (x5 → email-canonicalization). So they must NOT be in
+// the always-on project `exclude` (that would make those targeted audits run 0
+// tests). Instead the config adds them to the serial project's exclude ONLY when
+// `VITEST_EXCLUDE_ENV_BOUND=1` (set by unit-suite.yml). A plain project-level
+// exclude is required because vitest IGNORES the CLI `--exclude` flag when a
+// project already defines its own `exclude` (the bug that broke the first run of
+// this split — the CLI flags silently did nothing and email-canonicalization
+// ran + timed out).
+export const ENV_BOUND_EXCLUDES = [
+  "**/tests/admin/test-auth-gate.test.ts",
+  "**/tests/cross-cutting/pg-cron-coverage.test.ts",
+  "**/tests/cross-cutting/email-canonicalization.test.ts",
+];
+
 export const PARALLEL_TEST_GLOBS = [
   "tests/components/**/*.test.{ts,tsx}",
   "tests/help/**/*.test.{ts,tsx}",
