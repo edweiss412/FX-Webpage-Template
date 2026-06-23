@@ -41,11 +41,7 @@ vi.mock("postgres", () => ({
         // serializes it once via the cast); the prior code double-encoded it with
         // JSON.stringify. Mirror production: consume the object directly, not via
         // JSON.parse (which would choke on "[object Object]").
-        const [showId, code, context] = params as [
-          string | null,
-          string,
-          Record<string, unknown>,
-        ];
+        const [showId, code, context] = params as [string | null, string, Record<string, unknown>];
         calls.txAdminAlerts.push({ showId, code, context });
         return [{ id: "tx-alert-1" }];
       }
@@ -162,7 +158,7 @@ describe("Postgres sync pipeline adapter", () => {
       },
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     expect(calls.defaultAdminAlerts).toEqual([]);
     expect(calls.txAdminAlerts).toEqual([
       {

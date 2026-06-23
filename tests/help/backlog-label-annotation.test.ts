@@ -73,8 +73,7 @@ describe("Backlog-label annotation contract (R13 structural defense)", () => {
 
   it("rejects MDX that names a backlogged label without a backlog annotation (negative regression)", () => {
     const synthetic =
-      "# Sharing crew links\n\n" +
-      "Tap **Copy share link** to put the URL on your clipboard.\n";
+      "# Sharing crew links\n\n" + "Tap **Copy share link** to put the URL on your clipboard.\n";
     expect(labelAppearsInMdx(synthetic, "Copy share link")).toBe(true);
     expect(hasBacklogMarker(synthetic)).toBe(false);
   });
@@ -82,7 +81,7 @@ describe("Backlog-label annotation contract (R13 structural defense)", () => {
   it("accepts MDX that names a backlogged label inside a Callout backlog annotation", () => {
     const synthetic =
       "# Sharing crew links\n\n" +
-      "<Callout type=\"note\">\nA dedicated **Copy share link** button is on the backlog (BL-COPY-SHARE-LINK).\n</Callout>\n";
+      '<Callout type="note">\nA dedicated **Copy share link** button is on the backlog (BL-COPY-SHARE-LINK).\n</Callout>\n';
     expect(labelAppearsInMdx(synthetic, "Copy share link")).toBe(true);
     expect(hasBacklogMarker(synthetic)).toBe(true);
   });

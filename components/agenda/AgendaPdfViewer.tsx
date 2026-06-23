@@ -75,9 +75,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [activePage, setActivePage] = useState(1);
   const [containerWidth, setContainerWidth] = useState<number>(MAX_PAGE_WIDTH);
-  const [pageHeight, setPageHeight] = useState<number>(
-    Math.round(MAX_PAGE_WIDTH * LETTER_RATIO),
-  );
+  const [pageHeight, setPageHeight] = useState<number>(Math.round(MAX_PAGE_WIDTH * LETTER_RATIO));
   const [error, setError] = useState<Error | null>(null);
   // M9 C6 / M7-D2: surface the proxy's status code through the §12.4
   // catalog so Doug's 410 (agenda gone) and 401 (link expired)
@@ -184,10 +182,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
         </div>
       ) : null}
       {error ? (
-        <div
-          role="alert"
-          className="flex flex-col items-center gap-3 py-8 text-text-subtle"
-        >
+        <div role="alert" className="flex flex-col items-center gap-3 py-8 text-text-subtle">
           <p className="text-sm">
             {/*
               Always catalog-bound. Before the HEAD probe settles
@@ -293,10 +288,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
                       // placeholder so scroll position + IntersectionObserver
                       // still work; swap to a real `<Page>` once this slot
                       // enters the active window.
-                      <div
-                        aria-hidden="true"
-                        className="size-full rounded-sm bg-surface-sunken"
-                      />
+                      <div aria-hidden="true" className="size-full rounded-sm bg-surface-sunken" />
                     )}
                   </div>
                 );

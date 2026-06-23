@@ -94,19 +94,25 @@ describe("resolveShowPageAccess", () => {
   test("resolves archived before admin, unpublished before Google, and admin before unpublished", async () => {
     showRow = { id: SHOW_ID, published: true, archived: true };
     vi.mocked(isAdminSession).mockResolvedValue({ ok: true, email: "admin@example.com" });
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() })).resolves.toEqual({
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
+    ).resolves.toEqual({
       kind: "archived",
     });
     expect(validateGoogleSession).not.toHaveBeenCalled();
 
     showRow = { id: SHOW_ID, published: false, archived: false };
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() })).resolves.toEqual({
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
+    ).resolves.toEqual({
       kind: "admin",
       showId: SHOW_ID,
     });
 
     vi.mocked(isAdminSession).mockResolvedValue({ ok: false, reason: "not_admin" });
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() })).resolves.toEqual({
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
+    ).resolves.toEqual({
       kind: "unpublished",
     });
     expect(validateGoogleSession).not.toHaveBeenCalled();
@@ -114,12 +120,16 @@ describe("resolveShowPageAccess", () => {
 
   test("returns terminal show and infra errors without page-rendering showId", async () => {
     resolvedShowId = null;
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() })).resolves.toEqual({
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
+    ).resolves.toEqual({
       kind: "show_unavailable",
     });
 
     resolveError = { message: "db failed" };
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() })).resolves.toEqual({
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req() }),
+    ).resolves.toEqual({
       kind: "infra_error",
       code: "PICKER_RESOLVER_LOOKUP_FAILED",
     });
@@ -145,10 +155,17 @@ describe("resolveShowPageAccess", () => {
       kind: "success",
       viewer: { kind: "crew", email: "crew@example.com", showId: SHOW_ID, crewMemberId: CREW_ID },
     });
-    vi.mocked(resolvePickerSelection).mockResolvedValue({ kind: "resolved", crewMemberId: CREW_ID });
+    vi.mocked(resolvePickerSelection).mockResolvedValue({
+      kind: "resolved",
+      crewMemberId: CREW_ID,
+    });
 
     await expect(
-      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req(pickerCookie({ t: 1_737_028_800_124 })) }),
+      resolveShowPageAccess({
+        slug: SLUG,
+        shareToken: TOKEN,
+        req: req(pickerCookie({ t: 1_737_028_800_124 })),
+      }),
     ).resolves.toEqual({
       kind: "resolved",
       showId: SHOW_ID,
@@ -158,10 +175,18 @@ describe("resolveShowPageAccess", () => {
   });
 
   test("Google no-crew-match is terminal google_mismatch and never consumes a stale picker cookie", async () => {
-    vi.mocked(validateGoogleSession).mockResolvedValue({ kind: "continue", code: "GOOGLE_NO_CREW_MATCH" });
-    vi.mocked(resolvePickerSelection).mockResolvedValue({ kind: "resolved", crewMemberId: OTHER_CREW_ID });
+    vi.mocked(validateGoogleSession).mockResolvedValue({
+      kind: "continue",
+      code: "GOOGLE_NO_CREW_MATCH",
+    });
+    vi.mocked(resolvePickerSelection).mockResolvedValue({
+      kind: "resolved",
+      crewMemberId: OTHER_CREW_ID,
+    });
 
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req(pickerCookie()) })).resolves.toEqual({
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req(pickerCookie()) }),
+    ).resolves.toEqual({
       kind: "no_auth",
       showId: SHOW_ID,
       reason: "google_mismatch",
@@ -170,14 +195,22 @@ describe("resolveShowPageAccess", () => {
   });
 
   test.each([
-    [{ kind: "no_selection" as const }, { kind: "no_auth", showId: SHOW_ID, reason: "first_contact" }],
+    [
+      { kind: "no_selection" as const },
+      { kind: "no_auth", showId: SHOW_ID, reason: "first_contact" },
+    ],
     [
       { kind: "epoch_stale" as const, expectedEpoch: 6, expectedCrewMemberId: CREW_ID },
       { kind: "epoch_stale", showId: SHOW_ID, expectedEpoch: 6, expectedCrewMemberId: CREW_ID },
     ],
     [
       { kind: "removed_from_roster" as const, expectedEpoch: 7, expectedCrewMemberId: CREW_ID },
-      { kind: "removed_from_roster", showId: SHOW_ID, expectedEpoch: 7, expectedCrewMemberId: CREW_ID },
+      {
+        kind: "removed_from_roster",
+        showId: SHOW_ID,
+        expectedEpoch: 7,
+        expectedCrewMemberId: CREW_ID,
+      },
     ],
     [
       {
@@ -202,9 +235,9 @@ describe("resolveShowPageAccess", () => {
   ])("maps cookie resolver result %j", async (pickerResult, expected) => {
     vi.mocked(resolvePickerSelection).mockResolvedValue(pickerResult);
 
-    await expect(resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req(pickerCookie()) })).resolves.toEqual(
-      expected,
-    );
+    await expect(
+      resolveShowPageAccess({ slug: SLUG, shareToken: TOKEN, req: req(pickerCookie()) }),
+    ).resolves.toEqual(expected);
   });
 
   test("type contract keeps showId only on page-rendering arms", () => {

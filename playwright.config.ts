@@ -49,7 +49,7 @@ export default defineConfig({
       // (seedShowWithCrew, seedPickerCookie, claimStamp). See
       // Phase 0.A Block-2 close-out doc for the deferral details.
       testMatch:
-        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|picker-flow|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(sample|crew-page|crew-section-toggle|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|admin-layout|admin-lifecycle-layout|admin-changes-feed-layout|admin-lifecycle-transitions|admin-parse-panel|sign-in-page|bootstrap|me-page|onboarding-wizard-step1|admin-phase2-surfaces|no-raw-codes|help-pages|picker-flow|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -63,7 +63,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
@@ -154,7 +154,7 @@ export default defineConfig({
     },
     {
       name: "help-docs",
-      testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/,
+      testMatch: /(deep-link-walker|help-auth|help-mobile|help-typography)\.spec\.ts/,
       dependencies: ["help-docs-setup"],
       use: {
         ...devices["iPhone 14"],
@@ -176,7 +176,7 @@ export default defineConfig({
       // ONLY the walker spec runs here: the help-auth / help-mobile specs in
       // the shared help-docs testMatch are mobile-shaped.
       name: "help-docs-desktop",
-      testMatch: /deep-link-walker\.spec\.ts/,
+      testMatch: /(deep-link-walker|help-typography)\.spec\.ts/,
       dependencies: ["help-docs-setup"],
       use: {
         baseURL: "http://localhost:3004",
@@ -230,7 +230,11 @@ export default defineConfig({
         : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1",
       url: "http://127.0.0.1:3000",
       reuseExistingServer: !process.env.CI,
-      timeout: process.env.CI ? 120_000 : 60_000,
+      // 300s in CI: the crew-e2e job (CREW_E2E_ONLY) boots ONLY this server and it
+      // cold-`pnpm build`s before `start` — the prior 120s never ran in CI (no job
+      // booted :3000) and is too short for a cold Next build. Mirrors the
+      // dev-gate/:3001-3003 servers' 300_000.
+      timeout: process.env.CI ? 300_000 : 60_000,
     },
     {
       // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true
@@ -361,7 +365,29 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
     },
-  ].filter(
-    (server) => !process.env.HELP_DOCS_WALKER_ONLY || server.url === "http://localhost:3004",
-  ),
+  ].filter((server) => {
+    // Boot ONLY the :3004 webServer for the help-affordances walker (see the
+    // long comment above the webServer array).
+    if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
+    // Boot ONLY the :3000 baseline server for the crew-e2e CI job (mobile-safari
+    // project, crew-section-toggle.spec). Without this the :3001-:3004 servers
+    // also cold-build (4 wasted builds contending on the with-admin-dev-flag
+    // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.
+    if (process.env.CREW_E2E_ONLY) return server.url === "http://127.0.0.1:3000";
+    // Boot ONLY the three dev-gate webServers (:3001 dev-build, :3002 prod-build,
+    // :3003 prod-runtime-flip) for the B1-D4 dev-gate CI workflow. The baseline
+    // :3000 and screenshots/help :3004 servers ALSO run `pnpm build`, and every
+    // build serializes on the shared with-admin-dev-flag lock — booting all five
+    // means five cold builds contend on that lock and the last exceeds the wait
+    // window (DEFERRED.md B1-D4). Scoping to the three dev-gate ports leaves only
+    // the builds the admin-dev.spec.ts projects actually need.
+    if (process.env.DEV_GATE_ONLY) {
+      return (
+        server.url === "http://localhost:3001" ||
+        server.url === "http://localhost:3002" ||
+        server.url === "http://localhost:3003"
+      );
+    }
+    return true;
+  }),
 });

@@ -13,24 +13,21 @@ describe("sync_log sink", () => {
       payload: { kind: "watermark", modifiedTime: "2026-05-09T12:00:00.000Z" },
     });
 
-    expect(unsafe).toHaveBeenCalledWith(
-      expect.stringContaining("insert into public.sync_log"),
+    expect(unsafe).toHaveBeenCalledWith(expect.stringContaining("insert into public.sync_log"), [
+      "file-1",
+      "WEBHOOK_NOOP_ALREADY_SYNCED",
+      "skipped:WEBHOOK_NOOP_ALREADY_SYNCED",
+      // Raw array (NOT JSON.stringify'd): postgres.js serializes a `$N::jsonb`
+      // param exactly once via the cast; pre-serializing here would
+      // double-encode it into a jsonb string scalar.
       [
-        "file-1",
-        "WEBHOOK_NOOP_ALREADY_SYNCED",
-        "skipped:WEBHOOK_NOOP_ALREADY_SYNCED",
-        // Raw array (NOT JSON.stringify'd): postgres.js serializes a `$N::jsonb`
-        // param exactly once via the cast; pre-serializing here would
-        // double-encode it into a jsonb string scalar.
-        [
-          {
-            kind: "watermark",
-            modifiedTime: "2026-05-09T12:00:00.000Z",
-            outcome: "skipped",
-            code: "WEBHOOK_NOOP_ALREADY_SYNCED",
-          },
-        ],
+        {
+          kind: "watermark",
+          modifiedTime: "2026-05-09T12:00:00.000Z",
+          outcome: "skipped",
+          code: "WEBHOOK_NOOP_ALREADY_SYNCED",
+        },
       ],
-    );
+    ]);
   });
 });

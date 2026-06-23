@@ -33,6 +33,7 @@
 
 import { messageFor } from "@/lib/messages/lookup";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
+import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { StaleCleanupAutoSubmit } from "./_StaleCleanupAutoSubmit";
 
 export type PickerInterstitialRoster = ReadonlyArray<{
@@ -58,6 +59,14 @@ export type PickerInterstitialProps = {
     expectedEpoch: number;
     expectedCrewMemberId: string;
   } | null;
+  /**
+   * Task 12 (R4-HIGH-1): the active-section deep-link. Threaded into the
+   * select-identity form (hidden input → selectIdentity's claimed-row
+   * sign-in recovery) AND the claimed-row GET recovery URL, so a tap on a
+   * claimed row routes through OAuth recovery WITHOUT dropping the section.
+   * Already allow-list-validated by page.tsx; buildShowReturnUrl re-checks.
+   */
+  s?: string | undefined;
 };
 
 async function selectIdentityFormAction(formData: FormData): Promise<void> {
@@ -72,9 +81,11 @@ export function PickerInterstitial({
   roster,
   banner,
   staleCleanupHint,
+  s,
 }: PickerInterstitialProps) {
-  const tokenizedUrl = `/show/${slug}/${shareToken}`;
-  const signInRecoveryUrl = `/auth/sign-in?next=${encodeURIComponent(tokenizedUrl)}`;
+  const signInRecoveryUrl = `/auth/sign-in?next=${encodeURIComponent(
+    buildShowReturnUrl(slug, shareToken, { s }),
+  )}`;
 
   return (
     <main
@@ -95,10 +106,7 @@ export function PickerInterstitial({
           >
             Who are you?
           </h1>
-          <p
-            data-testid="picker-sub-instruction"
-            className="text-sm text-text-subtle"
-          >
+          <p data-testid="picker-sub-instruction" className="text-sm text-text-subtle">
             Tap your name to open the show page.
           </p>
         </header>
@@ -121,10 +129,7 @@ export function PickerInterstitial({
             {messageFor("PICKER_EMPTY_ROSTER").crewFacing}
           </div>
         ) : (
-          <ul
-            data-testid="picker-roster-list"
-            className="flex flex-col gap-2"
-          >
+          <ul data-testid="picker-roster-list" className="flex flex-col gap-2">
             {roster.map((c) => {
               const isClaimed = c.claimed_via_oauth_at !== null;
               const isLead = c.role_flags.includes("LEAD") && !isClaimed;
@@ -138,8 +143,7 @@ export function PickerInterstitial({
                   : "bg-surface text-text hover:bg-surface-sunken",
               ].join(" ");
 
-              const chipBase =
-                "shrink-0 rounded-pill px-2 py-0.5 text-xs font-semibold";
+              const chipBase = "shrink-0 rounded-pill px-2 py-0.5 text-xs font-semibold";
               const chipClasses = isLead
                 ? `${chipBase} bg-accent text-accent-text`
                 : `${chipBase} bg-surface-sunken text-text-subtle`;
@@ -159,8 +163,8 @@ export function PickerInterstitial({
                           <span
                             data-testid="picker-row-lock"
                             aria-label={
-                              messageFor("IDENTITY_DEACTIVATED_LOCK_HINT")
-                                .crewFacing ?? "Sign in to use this identity"
+                              messageFor("IDENTITY_DEACTIVATED_LOCK_HINT").crewFacing ??
+                              "Sign in to use this identity"
                             }
                             className="text-text-subtle"
                           >
@@ -189,6 +193,7 @@ export function PickerInterstitial({
                     <input type="hidden" name="slug" value={slug} />
                     <input type="hidden" name="shareToken" value={shareToken} />
                     <input type="hidden" name="crewMemberId" value={c.id} />
+                    {s !== undefined && <input type="hidden" name="s" value={s} />}
                     <button
                       type="submit"
                       data-testid="picker-roster-row"
@@ -196,9 +201,7 @@ export function PickerInterstitial({
                       data-crew-member-id={c.id}
                       className={rowClasses}
                     >
-                      <span className="min-w-0 truncate text-base font-semibold">
-                        {c.name}
-                      </span>
+                      <span className="min-w-0 truncate text-base font-semibold">{c.name}</span>
                       {c.role && (
                         <span data-testid="picker-role-chip" className={chipClasses}>
                           {c.role}
@@ -222,10 +225,7 @@ export function PickerInterstitial({
           />
         )}
 
-        <footer
-          data-testid="picker-footer"
-          className="mt-4 text-center text-xs text-text-faint"
-        >
+        <footer data-testid="picker-footer" className="mt-4 text-center text-xs text-text-faint">
           Shared by Doug Larson · FXAV
         </footer>
       </div>

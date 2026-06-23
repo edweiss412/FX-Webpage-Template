@@ -59,10 +59,9 @@ function filesUnder(relDir: string): string[] {
 }
 
 function jwtCutoverScanFiles(): string[] {
-  return [
-    ...JWT_CUTOVER_SCAN_ROOTS.flatMap(filesUnder),
-    ...JWT_CUTOVER_TOP_LEVEL_FILES,
-  ].filter((file) => /\.(ts|tsx)$/.test(file));
+  return [...JWT_CUTOVER_SCAN_ROOTS.flatMap(filesUnder), ...JWT_CUTOVER_TOP_LEVEL_FILES].filter(
+    (file) => /\.(ts|tsx)$/.test(file),
+  );
 }
 
 function migrationFilesAfterCutover(): string[] {

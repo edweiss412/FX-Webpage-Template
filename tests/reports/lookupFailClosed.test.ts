@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { LookupInconclusive } from "@/lib/github/issues";
-import {
-  cleanupReportFixtures,
-  runPsql,
-  seedShow,
-  sqlString,
-} from "@/tests/reports/_dbHelpers";
+import { cleanupReportFixtures, runPsql, seedShow, sqlString } from "@/tests/reports/_dbHelpers";
 
 const githubMock = vi.hoisted(() => ({
   createIssue: vi.fn(),

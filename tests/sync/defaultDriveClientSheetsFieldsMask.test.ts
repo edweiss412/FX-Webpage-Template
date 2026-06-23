@@ -41,14 +41,14 @@ describe("defaultDriveClient.listSpreadsheetSheets Sheets v4 fields mask", () =>
   // whole spreadsheets.get with 400 INVALID_ARGUMENT ("Cannot find matching
   // fields for path 'sheets.drawings.objectId'"). That GaxiosError falls through
   // classifySyncFailure as SYNC_FILE_FAILED, failing EVERY cron full re-parse.
-  test("sends a schema-valid mask: exactly sheets(properties(title)), no drawings path", async () => {
+  test("sends a schema-valid mask: exactly sheets(properties(sheetId,title)), no drawings path", async () => {
     const client = defaultDriveClient();
     await client.listSpreadsheetSheets!("spreadsheet-id-1");
 
     expect(sheetsGetMock).toHaveBeenCalledTimes(1);
     const request = sheetsGetMock.mock.calls[0]![0] as { spreadsheetId: string; fields: string };
     expect(request.spreadsheetId).toBe("spreadsheet-id-1");
-    expect(request.fields).toBe("sheets(properties(title))");
+    expect(request.fields).toBe("sheets(properties(sheetId,title))");
     expect(request.fields).not.toContain("drawings");
   });
 

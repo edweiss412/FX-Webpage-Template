@@ -26,6 +26,7 @@ import {
 } from "@/lib/sync/runManualSyncForShow";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -243,7 +244,10 @@ async function readWatchedFolderId(tx: LivePendingIngestionRouteTx): Promise<str
   return row?.watched_folder_id ?? null;
 }
 
-async function readShowSlug(tx: LivePendingIngestionRouteTx, driveFileId: string): Promise<string | null> {
+async function readShowSlug(
+  tx: LivePendingIngestionRouteTx,
+  driveFileId: string,
+): Promise<string | null> {
   const row = await tx.queryOne<{ slug: string } | null>(
     `select slug from public.shows where drive_file_id = $1 limit 1`,
     [driveFileId],
@@ -316,7 +320,8 @@ export async function handleLivePendingIngestionRetry(
   try {
     await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, code);
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
@@ -325,6 +330,11 @@ export async function handleLivePendingIngestionRetry(
   const driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
   if (!driveFileId) return transitioned();
 
+  // nav-perf tag-caching (Task 5 / whole-diff R2): capture the show id of any
+  // showId-carrying outcome (applied + parse_error/source_gone recovery) INSIDE the
+  // tx, but call revalidateShow AFTER withRowTryLock resolves (post-commit) — never
+  // inside the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
+  let appliedShowId: string | null = null;
   const result = await deps.withRowTryLock(driveFileId, async (tx) => {
     const row = await readLockedPendingIngestion(tx, id);
     if (!row) return transitioned();
@@ -357,6 +367,13 @@ export async function handleLivePendingIngestionRetry(
         metadata,
         {},
       );
+      // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
+      // applied AND the parse_error/source_gone recovery outcomes (which now carry
+      // showId + commit last_sync_status). Post-commit revalidate happens after
+      // withRowTryLock resolves below. Non-showId outcomes leave appliedShowId null.
+      if ("showId" in syncResult && typeof syncResult.showId === "string" && syncResult.showId) {
+        appliedShowId = syncResult.showId;
+      }
       return await manualSyncResponse(tx, row.drive_file_id, syncResult);
     }
     let metadata: DriveListedFile;
@@ -377,9 +394,15 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
     }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
+    if (stageResult.outcome === "applied") appliedShowId = stageResult.showId;
     return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
   });
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
+  // nav-perf tag-caching (Task 5): post-commit revalidate — withRowTryLock (the
+  // outer sql.begin tx) has resolved here, so the apply has committed. Bust the
+  // show's cache tag before returning the Response. Non-applied retries leave
+  // appliedShowId null → no revalidate.
+  if (appliedShowId) revalidateShow(appliedShowId);
   return result;
 }
 
@@ -387,7 +410,4 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   return await handleLivePendingIngestionRetry(request, context);
 }
 
-export {
-  depsWithDefaults as livePendingIngestionDepsWithDefaults,
-  readLockedPendingIngestion,
-};
+export { depsWithDefaults as livePendingIngestionDepsWithDefaults, readLockedPendingIngestion };

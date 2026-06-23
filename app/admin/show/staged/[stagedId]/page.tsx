@@ -113,10 +113,7 @@ export async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResu
         message: `shows lookup failed: ${showLookup.error.message}`,
       };
     }
-    if (
-      showLookup.data &&
-      typeof (showLookup.data as { slug?: string }).slug === "string"
-    ) {
+    if (showLookup.data && typeof (showLookup.data as { slug?: string }).slug === "string") {
       showLookupSlug = (showLookup.data as { slug: string }).slug;
     }
   } catch (err) {
@@ -133,9 +130,7 @@ export async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResu
   return { kind: "row", row };
 }
 
-function summaryFromParseResult(
-  parseResult: LiveFirstSeenRow["parse_result"],
-): string | undefined {
+function summaryFromParseResult(parseResult: LiveFirstSeenRow["parse_result"]): string | undefined {
   if (!parseResult || typeof parseResult !== "object") return undefined;
   const title = parseResult.show?.title;
   return typeof title === "string" && title.length > 0 ? title : undefined;
@@ -158,8 +153,8 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
             We could not load that staged sheet.
           </h2>
           <p className="max-w-prose text-base text-text-subtle">
-            The admin database query failed. Refresh in a moment. If this
-            keeps happening, contact the developer.
+            This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+            developer.
           </p>
         </header>
       </main>
@@ -216,12 +211,10 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
         >
           Admin
         </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Review this sheet
-        </h2>
+        <h2 className="text-2xl font-semibold text-text-strong">Review this sheet</h2>
         <p className="max-w-prose text-base text-text-subtle">
-          This is the first time we have seen this sheet. Approve the
-          parsed details and it goes live, or set it aside.
+          This is the first time we have seen this sheet. Approve the parsed details and it goes
+          live, or set it aside.
         </p>
       </header>
 

@@ -35,7 +35,10 @@ class FakeShowAlertTx implements AdminAlertShowResolveTx {
   }
 }
 
-function deps(tx: FakeShowAlertTx, overrides: Partial<AdminAlertShowResolveDeps> = {}): AdminAlertShowResolveDeps {
+function deps(
+  tx: FakeShowAlertTx,
+  overrides: Partial<AdminAlertShowResolveDeps> = {},
+): AdminAlertShowResolveDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(tx),
@@ -51,9 +54,13 @@ describe("show-scoped admin alert resolve route", () => {
   test("resolves matching show alert idempotently", async () => {
     const tx = new FakeShowAlertTx();
 
-    const response = await handleAdminAlertShowResolve(new Request("https://crew.fxav.test"), {
-      params: Promise.resolve({ slug: "test-show", id: A1 }),
-    }, deps(tx));
+    const response = await handleAdminAlertShowResolve(
+      new Request("https://crew.fxav.test"),
+      {
+        params: Promise.resolve({ slug: "test-show", id: A1 }),
+      },
+      deps(tx),
+    );
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "resolved", id: A1, resolved_at: "DB_NOW" });
@@ -64,9 +71,13 @@ describe("show-scoped admin alert resolve route", () => {
     const tx = new FakeShowAlertTx();
     tx.alert = { id: A1, show_id: "other-show", resolved_at: null };
 
-    const response = await handleAdminAlertShowResolve(new Request("https://crew.fxav.test"), {
-      params: Promise.resolve({ slug: "test-show", id: A1 }),
-    }, deps(tx));
+    const response = await handleAdminAlertShowResolve(
+      new Request("https://crew.fxav.test"),
+      {
+        params: Promise.resolve({ slug: "test-show", id: A1 }),
+      },
+      deps(tx),
+    );
 
     expect(response.status).toBe(404);
     expect(await json(response)).toEqual({ ok: false, code: "ADMIN_ALERT_NOT_FOUND" });

@@ -1,6 +1,4 @@
-import {
-  type AdminAlertCode,
-} from "@/lib/adminAlerts/upsertAdminAlert";
+import { type AdminAlertCode } from "@/lib/adminAlerts/upsertAdminAlert";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type Client = ReturnType<typeof createSupabaseServiceRoleClient>;

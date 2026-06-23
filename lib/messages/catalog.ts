@@ -14,7 +14,7 @@ export const MESSAGE_CATALOG = {
   GOOGLE_NO_CREW_MATCH: {
     code: "GOOGLE_NO_CREW_MATCH",
     dougFacing: null,
-    crewFacing: "Your email isn't on the crew list for this show. Ask Doug to add you.",
+    crewFacing: "Your email isn't on the crew list for this show. Text Doug to get added.",
     followUp: "Crew → text Doug",
     helpfulContext: null,
     title: null,
@@ -37,7 +37,7 @@ export const MESSAGE_CATALOG = {
   SESSION_IDLE_TIMEOUT: {
     code: "SESSION_IDLE_TIMEOUT",
     dougFacing: null,
-    crewFacing: "Your session timed out. Open the original link Doug shared again.",
+    crewFacing: "Your session has expired. Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
     helpfulContext: null,
     title: null,
@@ -47,7 +47,7 @@ export const MESSAGE_CATALOG = {
   SESSION_ABSOLUTE_TIMEOUT: {
     code: "SESSION_ABSOLUTE_TIMEOUT",
     dougFacing: null,
-    crewFacing: "Time to refresh — open the original link Doug shared again.",
+    crewFacing: "Your session has expired. Open the original link Doug shared again.",
     followUp: "Crew → reopen link",
     helpfulContext: null,
     title: null,
@@ -210,7 +210,7 @@ export const MESSAGE_CATALOG = {
   STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
     code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
     dougFacing:
-      "_<sheet-name>_ was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
+      "This sheet was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
     crewFacing: null,
     followUp: "Doug → re-Apply the affected sheet",
     helpfulContext:
@@ -234,7 +234,7 @@ export const MESSAGE_CATALOG = {
     code: "IDEMPOTENCY_IN_FLIGHT",
     dougFacing:
       "Hold on — your previous report is still being submitted. Try again in a moment if it doesn't go through.",
-    crewFacing: "Hold on — give it a sec.",
+    crewFacing: "Hold on, your previous report is still processing. Try again in a moment.",
     followUp: "client retries after backoff",
     helpfulContext:
       "Your previous report submission is still being processed by the developer's GitHub. Don't worry — clicking again won't create a duplicate, but it also won't speed things up. If the original doesn't go through within a minute, try once more.",
@@ -453,7 +453,7 @@ export const MESSAGE_CATALOG = {
   AGENDA_GONE_FOR_CREW: {
     code: "AGENDA_GONE_FOR_CREW",
     dougFacing: null,
-    crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
+    crewFacing: "This agenda isn't available anymore. Text Doug for a fresh link.",
     followUp: "Crew → message Doug",
     helpfulContext: null,
     title: null,
@@ -463,7 +463,7 @@ export const MESSAGE_CATALOG = {
   AGENDA_UNAUTHENTICATED: {
     code: "AGENDA_UNAUTHENTICATED",
     dougFacing: null,
-    crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+    crewFacing: "This link has expired. Text Doug for the current agenda link.",
     followUp: "Crew → reopen signed link",
     helpfulContext: null,
     title: null,
@@ -696,7 +696,7 @@ export const MESSAGE_CATALOG = {
   "MI-7_SECTION_SHRINKAGE": {
     code: "MI-7_SECTION_SHRINKAGE",
     dougFacing:
-      "_<sheet-name>_ lost more than half of its _<section>_ — _<prior*count>* before, _<new_count>_ now. Review before applying.",
+      "_<sheet-name>_ lost more than half of its _<section>_ — _<prior_count>_ before, _<new_count>_ now. Review before applying.",
     crewFacing: null,
     followUp: "Doug → review staged",
     helpfulContext:
@@ -949,11 +949,11 @@ export const MESSAGE_CATALOG = {
     code: "SHOW_FIRST_PUBLISHED",
     severity: "info",
     dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Use Undo auto-publish — the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; after that, archive the show from its page instead. Either way its crew link switches off until you republish.",
+      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** You have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its page instead. Either way its crew link switches off until you republish.",
     crewFacing: null,
     followUp: null,
     helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, use Undo auto-publish — the button appears on this alert and on the show's page, and when email is set up the published notice carries the same undo link. The window stays open for 24 hours; once it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
+      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, you have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
     title: null,
     longExplanation: null,
     helpHref: null,
@@ -1075,6 +1075,84 @@ export const MESSAGE_CATALOG = {
       "Some PULL SHEET rows couldn't be fully parsed, usually because QTY is blank, non-numeric, or a range like '1-2'. We keep those cases in the manifest and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
+  AGENDA_GRID_MALFORMED: {
+    code: "AGENDA_GRID_MALFORMED",
+    dougFacing:
+      "We couldn't locate the run-of-show grid in _<sheet-name>_'s AGENDA tab, so crew see the standard anchor schedule for every day instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or tell the developer if the layout changed.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext:
+      "The parser locates the AGENDA run-of-show grid by its token-header row (NAME / ARRIVAL / START / FINISH / TRT). When that header can't be found — a renamed tab, a removed header, or an export glitch — no run-of-show is stored and every day falls back to the always-correct anchor schedule. Nothing crew-facing breaks; the rich per-day timeline is simply absent until the grid is locatable again.",
+    title: "Run-of-show grid not found",
+    longExplanation:
+      "We couldn't find the AGENDA run-of-show grid by its header row. Crew see the standard anchor schedule for every day instead of the detailed run-of-show until the grid is locatable again.",
+    helpHref: "/help/errors#AGENDA_GRID_MALFORMED",
+  },
+  AGENDA_BLOCK_UNRESOLVED: {
+    code: "AGENDA_BLOCK_UNRESOLVED",
+    dougFacing:
+      "One run-of-show day in _<sheet-name>_'s AGENDA couldn't be matched to a show date, so that day shows the standard anchor schedule. Check the AGENDA date/day-name banner, or tell the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext:
+      "Each run-of-show column is matched to a calendar date using the AGENDA tab's date banner, falling back to the day-name against the show's confirmed days. When neither resolves — a `#REF!` date, a missing banner, or a day-name with no match — that day is not stored and crew see the always-correct anchor schedule for it. Other days are unaffected.",
+    title: "Run-of-show day not resolved",
+    longExplanation:
+      "A run-of-show day couldn't be matched to a show date, so that day shows the standard anchor schedule. Other days are unaffected.",
+    helpHref: "/help/errors#AGENDA_BLOCK_UNRESOLVED",
+  },
+  AGENDA_DAY_AMBIGUOUS: {
+    code: "AGENDA_DAY_AMBIGUOUS",
+    dougFacing:
+      "A run-of-show day in _<sheet-name>_'s AGENDA matched more than one show date (same weekday), so we didn't guess — that day shows the standard anchor schedule. Add an explicit date to the AGENDA banner to fix it.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext:
+      "When a run-of-show column has no usable date and its day-name (e.g. 'Wednesday') matches two or more of the show's days, the parser refuses to guess which one it is and stores nothing for that column. Crew see the always-correct anchor schedule for it. Add an explicit date to the AGENDA banner so the day resolves unambiguously.",
+    title: "Run-of-show day is ambiguous",
+    longExplanation:
+      "A run-of-show day's weekday matched more than one show date, so the parser didn't guess and that day shows the standard anchor schedule. Add an explicit date to disambiguate.",
+    helpHref: "/help/errors#AGENDA_DAY_AMBIGUOUS",
+  },
+  AGENDA_DAY_TRUNCATED: {
+    code: "AGENDA_DAY_TRUNCATED",
+    dougFacing:
+      "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed to fit our storage limits (200 entries per day). Crew see the trimmed list. Tell the developer if a real day legitimately needs more.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext:
+      "To keep the per-show sync fast and the stored data bounded, each run-of-show day is capped at 200 entries, per-field lengths, and 32 KB of serialized data. A day that exceeds any cap is trimmed (tail entries dropped). This is almost always a parse artifact or a pathological cell; if a real day legitimately needs more, ask the developer to raise the ceiling.",
+    title: "Run-of-show day trimmed",
+    longExplanation:
+      "A run-of-show day exceeded our storage limits and was trimmed to fit. Crew see the trimmed list.",
+    helpHref: "/help/errors#AGENDA_DAY_TRUNCATED",
+  },
+  AGENDA_DAY_EMPTIED: {
+    code: "AGENDA_DAY_EMPTIED",
+    dougFacing:
+      "A run-of-show day in _<sheet-name>_'s AGENDA that we previously published is now empty in the sheet, so that day reverts to the standard anchor schedule. If that's intentional, no action is needed; if not, restore the day's rows.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A run-of-show day that was previously stored now parses as empty (blank titles or a cleared grid) in the latest sync. Following the confirmed-only rule, we don't keep stale content: the day reverts to the always-correct anchor schedule and the empty state is recorded here so Doug can tell an intentional clear from an accidental one. Restoring the day's rows re-publishes it on the next sync.",
+    title: "Run-of-show day cleared",
+    longExplanation:
+      "A previously-published run-of-show day is now empty in the sheet, so it reverts to the standard anchor schedule. Restore the rows to re-publish it.",
+    helpHref: "/help/errors#AGENDA_DAY_EMPTIED",
+  },
+  SCHEDULE_TIME_UNPARSED: {
+    code: "SCHEDULE_TIME_UNPARSED",
+    dougFacing:
+      "A show-day TIME entry in _<sheet-name>_'s DATES tab has text we couldn't read as a start time, window, or agenda, so that day shows the standard anchor schedule. Check the TIME cell reads like '7:15am - Registration …' or '7:30am - 5:50pm', or tell the developer if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "Each show day's TIME column in the DATES tab is parsed for a first call time, a start–end window, or a titled run-of-show. When a cell has content but none of those can be read — an end-only fragment like 'GS: ... - 6:00 PM', or a placeholder like 'General Session TBD' — we store no per-day time for that day and it falls back to the always-correct anchor schedule. Restoring a readable start (e.g. '7:15am - Registration') re-publishes the per-day time on the next sync.",
+    title: "Show-day time unreadable",
+    longExplanation:
+      "A show day's DATES TIME cell has content but no readable start time, window, or agenda, so that day reverts to the standard anchor schedule. Give the cell a readable start time to re-publish it.",
+    helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
+  },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
     dougFacing:
@@ -1149,6 +1227,20 @@ export const MESSAGE_CATALOG = {
   },
   TYPO_NORMALIZED: {
     code: "TYPO_NORMALIZED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  // D1 (admin-log-only): a recognized section header parsed zero fields. The
+  // operator-facing copy is the inline ParseWarning.message; this catalog row
+  // exists only to satisfy the §12.4 / x1 orphan-code structural guard (every
+  // active-style `code: "..."` literal must be registered), so all fields are null.
+  SECTION_HEADER_NO_FIELDS: {
+    code: "SECTION_HEADER_NO_FIELDS",
     dougFacing: null,
     crewFacing: null,
     followUp: null,
@@ -1234,7 +1326,7 @@ export const MESSAGE_CATALOG = {
     code: "REPORT_RATE_LIMITED_CREW",
     dougFacing: null,
     crewFacing:
-      "We've already heard from you a few times — give the developer a moment to look. Or message Doug directly for show-content questions.",
+      "We've got your report and we're looking into it. Text Doug directly with show-content questions.",
     followUp: "Crew → wait or text Doug",
     helpfulContext: null,
     title: null,
@@ -1420,7 +1512,7 @@ export const MESSAGE_CATALOG = {
   BOOTSTRAP_GENERIC: {
     code: "BOOTSTRAP_GENERIC",
     dougFacing: null,
-    crewFacing: "Couldn't reach the server. Try signing in instead.",
+    crewFacing: "Couldn't load the show. Refresh the page, or try signing in.",
     followUp: "Crew → try `/auth/sign-in`",
     helpfulContext: null,
     title: null,
@@ -1673,7 +1765,7 @@ export const MESSAGE_CATALOG = {
   SYNC_DELAYED_MODERATE: {
     code: "SYNC_DELAYED_MODERATE",
     dougFacing: null,
-    crewFacing: "Last synced *<time>* ago. Check with Doug if anything looks off.",
+    crewFacing: "Last synced *<time>* ago. Text Doug if anything looks off.",
     followUp: "Crew → mention to Doug",
     helpfulContext: null,
     title: null,
@@ -1684,7 +1776,7 @@ export const MESSAGE_CATALOG = {
     code: "SYNC_DELAYED_SEVERE",
     dougFacing:
       "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
-    crewFacing: "Couldn't sync recently — contact Doug.",
+    crewFacing: "This page hasn't updated recently. Text Doug to check on it.",
     followUp: "Crew → text Doug; Doug → check dashboard",
     helpfulContext:
       "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
@@ -1747,6 +1839,19 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying; refresh in a minute. If this keeps happening, click Report so the developer can investigate.",
     helpHref: "/help/errors#TILE_SERVER_RENDER_FAILED",
+  },
+  TILE_PROJECTION_FETCH_FAILED: {
+    code: "TILE_PROJECTION_FETCH_FAILED",
+    dougFacing:
+      "*<sheet-name>*: one or more crew-page data sources couldn't load (the failed sources are listed in the alert detail). The page rendered with the rest of the data; refresh in a minute. Tell the developer if this keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → refresh / Report; Eric → investigate",
+    helpfulContext:
+      "The crew page loaded, but one or more of its data sources failed to fetch from the server. The page rendered with the data that did load. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click 'Report' so the developer can investigate.",
+    title: "Some show data couldn't load",
+    longExplanation:
+      "The crew page rendered, but one or more of its data sources failed to fetch from the server. The page shows the data that did load; the affected sections fall back. The specific failed sources are listed in the alert detail. Refresh in a minute; if this keeps happening, click Report so the developer can investigate.",
+    helpHref: "/help/errors#TILE_PROJECTION_FETCH_FAILED",
   },
   STALE_DISCARD_REJECTED: {
     code: "STALE_DISCARD_REJECTED",
@@ -1944,7 +2049,7 @@ export const MESSAGE_CATALOG = {
   AGENDA_ASSET_LOOKUP_FAILED: {
     code: "AGENDA_ASSET_LOOKUP_FAILED",
     dougFacing: "The agenda PDF could not be loaded. Refresh and try again.",
-    crewFacing: "This agenda could not be loaded. Ask Doug if it keeps happening.",
+    crewFacing: "This agenda could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
     helpfulContext:
       "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
@@ -1993,7 +2098,7 @@ export const MESSAGE_CATALOG = {
   DIAGRAM_ASSET_LOOKUP_FAILED: {
     code: "DIAGRAM_ASSET_LOOKUP_FAILED",
     dougFacing: "A diagram could not be loaded. Refresh and try again.",
-    crewFacing: "This diagram could not be loaded. Ask Doug if it keeps happening.",
+    crewFacing: "This diagram could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
     helpfulContext:
       "The diagram asset route could not resolve or stream the stored immutable diagram revision.",
@@ -2175,7 +2280,7 @@ export const MESSAGE_CATALOG = {
   REEL_ASSET_LOOKUP_FAILED: {
     code: "REEL_ASSET_LOOKUP_FAILED",
     dougFacing: "The opening reel could not be loaded. Refresh and try again.",
-    crewFacing: "This video could not be loaded. Ask Doug if it keeps happening.",
+    crewFacing: "This video could not be loaded. Text Doug if it keeps happening.",
     followUp: "Doug → retry; if persistent, Eric",
     helpfulContext:
       "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
@@ -2251,6 +2356,19 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "The report route caught a typed infrastructure failure from the report submission or reaper path and returned a cataloged 500 instead of crashing. Try again in a few minutes.",
     helpHref: "/help/errors#REPORT_PIPELINE_FAILED",
+  },
+  SELF_REVOKE_FORBIDDEN: {
+    code: "SELF_REVOKE_FORBIDDEN",
+    dougFacing:
+      "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
+    crewFacing: null,
+    followUp: "Doug → ask another admin to revoke you",
+    helpfulContext:
+      "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+    title: "Can't revoke your own access",
+    longExplanation:
+      "An administrator can never revoke their own access — the database refuses it directly, behind the Server Action guard. If you need to be removed, ask another admin to revoke you.",
+    helpHref: "/help/errors#SELF_REVOKE_FORBIDDEN",
   },
   SESSION_NOT_FOUND: {
     code: "SESSION_NOT_FOUND",
@@ -2424,8 +2542,7 @@ export const MESSAGE_CATALOG = {
   PICKER_REMOVED_FROM_ROSTER_BANNER: {
     code: "PICKER_REMOVED_FROM_ROSTER_BANNER",
     dougFacing: null,
-    crewFacing:
-      "Your previous selection was removed by Doug — pick yourself from the current roster.",
+    crewFacing: "Your selection is no longer on the roster. Pick your name again.",
     followUp: "Crew → pick name or text Doug",
     helpfulContext: null,
     title: null,
@@ -2446,7 +2563,7 @@ export const MESSAGE_CATALOG = {
     code: "PICKER_SHOW_UNAVAILABLE",
     dougFacing: null,
     crewFacing:
-      "This show isn't available right now. Ask Doug for an updated link if you think this is a mistake.",
+      "This show isn't available right now. Text Doug for an updated link if you think this is a mistake.",
     followUp: "Crew → text Doug",
     helpfulContext: null,
     title: null,
@@ -2457,7 +2574,7 @@ export const MESSAGE_CATALOG = {
     code: "CREW_LINK_UNAVAILABLE",
     dougFacing: null,
     crewFacing:
-      "This link isn't available. If you had a working link, it may have been reset. Ask Doug for the current link.",
+      "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
     followUp: "Crew → text Doug for the current link",
     helpfulContext: null,
     title: null,
@@ -2506,7 +2623,7 @@ export const MESSAGE_CATALOG = {
   PICKER_INVALID_SHARE_TOKEN: {
     code: "PICKER_INVALID_SHARE_TOKEN",
     dougFacing: "A picker selection used a share link token that no longer resolves for this show.",
-    crewFacing: "This link is out of date. Ask Doug for the current show link.",
+    crewFacing: "This link is out of date. Text Doug for the current show link.",
     followUp: "Crew → ask Doug for latest link",
     helpfulContext:
       "The selection action re-validated the slug and share token inside the show lock and found that the token no longer matches the show, usually because the share link was rotated.",
@@ -2636,6 +2753,45 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  TRAVEL_FLIGHT_NAME_UNMATCHED: {
+    code: "TRAVEL_FLIGHT_NAME_UNMATCHED",
+    dougFacing:
+      "A flight on the TRAVEL tab couldn't be matched to a crew name — check the name spelling matches the roster.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because its crew name didn't exactly match a roster name (zero or multiple matches). The flight is skipped (never mis-assigned); fix the name spelling so it matches the roster.",
+    title: "TRAVEL flight name unmatched",
+    longExplanation:
+      "A flight in the TRAVEL tab couldn't be matched to any roster crew member. The flight is skipped to avoid mis-assigning it; correct the name spelling so it matches the roster.",
+    helpHref: "/help/errors#TRAVEL_FLIGHT_NAME_UNMATCHED",
+  },
+  TRAVEL_FLIGHT_UNPARSEABLE: {
+    code: "TRAVEL_FLIGHT_UNPARSEABLE",
+    dougFacing:
+      "A crew member's TRAVEL-tab flight couldn't be read (no recognizable flight date) — check the format.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
+    title: "TRAVEL flight unparseable",
+    longExplanation:
+      "A crew member's TRAVEL-tab flight cell had no recognizable flight date and was skipped. Check the format matches the expected pattern.",
+    helpHref: "/help/errors#TRAVEL_FLIGHT_UNPARSEABLE",
+  },
+  TRAVEL_FLIGHT_AMBIGUOUS_TABLE: {
+    code: "TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+    dougFacing:
+      "Found more than one TRAVEL flight table — remove or rename the duplicate/old one so flights can be read.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "The parser found more than one TRAVEL flight table in the sheet export. Because the tables could represent different shows or states, flights are not attached from any of them. Remove or rename the duplicate/old table so only one remains and flights can be read.",
+    title: "Multiple TRAVEL flight tables",
+    longExplanation:
+      "More than one TRAVEL flight table was found in the sheet. Flights are not attached from any of them; remove or rename the duplicate so only one remains.",
+    helpHref: "/help/errors#TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
+  },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
     dougFacing: "A Drive webhook request was missing required Google headers.",
@@ -2647,6 +2803,55 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers, usually because a stale subscription is still firing or someone is probing the endpoint. The developer has been notified.",
     helpHref: "/help/errors#WEBHOOK_HEADERS_MISSING",
+  },
+  // Validation-environment reset / reseed — admin-only routes, crew-invisible.
+  VALIDATION_RESET_NOT_ALLOWED: {
+    code: "VALIDATION_RESET_NOT_ALLOWED",
+    dougFacing: "Data reset is only available on the validation environment.",
+    crewFacing: null,
+    followUp: "Doug → use the validation environment",
+    helpfulContext:
+      "The Reset-validation-data action (Settings → Maintenance card) only runs against the validation Supabase project as a safety fence so it can never be triggered against a production or staging database. If you're seeing this, either the environment variable pointing at the Supabase project is wrong, or the request reached the wrong deployment. Use the validation environment URL to trigger a reset.",
+    title: "Reset only on validation",
+    longExplanation:
+      "The Reset-validation-data action (Settings → Maintenance card) only runs against the validation Supabase project as a safety fence so it can never be triggered against a production or staging database. Use the validation environment URL to trigger a reset.",
+    helpHref: "/help/errors#VALIDATION_RESET_NOT_ALLOWED",
+  },
+  VALIDATION_RESET_NOT_ENABLED: {
+    code: "VALIDATION_RESET_NOT_ENABLED",
+    dougFacing: "Destructive reset isn't enabled for this database yet.",
+    crewFacing: null,
+    followUp: "Eric → enable the reset flag",
+    helpfulContext:
+      "The Reset-validation-data action (Settings → Maintenance card) reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the action will proceed normally.",
+    title: "Reset flag not enabled",
+    longExplanation:
+      "The Reset-validation-data action (Settings → Maintenance card) reached the correct project but the destructive-reset flag is turned off. The developer needs to enable the flag for this project before resets are allowed.",
+    helpHref: "/help/errors#VALIDATION_RESET_NOT_ENABLED",
+  },
+  VALIDATION_RESET_FAILED: {
+    code: "VALIDATION_RESET_FAILED",
+    dougFacing: "The validation reset couldn't finish. Please try again.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, Eric",
+    helpfulContext:
+      "The Reset-validation-data action (Settings → Maintenance card) started the delete-based reset sequence but hit an unexpected database or infrastructure fault partway through. The database may be in a partially reset state. Running the reset again is safe — the sequence is designed to be idempotent. If it keeps failing, the developer needs to investigate the underlying database error.",
+    title: "Validation reset failed",
+    longExplanation:
+      "The Reset-validation-data action (Settings → Maintenance card) hit an unexpected fault partway through the delete-based reset sequence. Running the reset again is safe. If it keeps failing, the developer needs to investigate.",
+    helpHref: "/help/errors#VALIDATION_RESET_FAILED",
+  },
+  VALIDATION_RESEED_FAILED: {
+    code: "VALIDATION_RESEED_FAILED",
+    dougFacing: "Reseeding the validation fixtures couldn't finish. Please try again.",
+    crewFacing: null,
+    followUp: "Doug → retry; if persistent, Eric",
+    helpfulContext:
+      "The Reseed-validation-fixtures action (Settings → Maintenance card) started inserting fixture rows but hit an unexpected database or infrastructure fault partway through. The fixture data may be partially written. Running the reseed again is safe. If it keeps failing, the developer needs to investigate the underlying database error.",
+    title: "Validation reseed failed",
+    longExplanation:
+      "The Reseed-validation-fixtures action (Settings → Maintenance card) hit an unexpected fault partway through the fixture-insert sequence. Running the reseed again is safe. If it keeps failing, the developer needs to investigate.",
+    helpHref: "/help/errors#VALIDATION_RESEED_FAILED",
   },
 } as const satisfies Record<string, MessageCatalogEntry>;
 

@@ -76,11 +76,7 @@ describe("jsonb write-boundary representation (structural defense)", () => {
     for (const file of files) {
       const lines = readFileSync(file, "utf8").split("\n");
       lines.forEach((line, i) => {
-        if (
-          line.includes("JSON.stringify(") &&
-          !line.includes(EXEMPTION) &&
-          !isCommentLine(line)
-        ) {
+        if (line.includes("JSON.stringify(") && !line.includes(EXEMPTION) && !isCommentLine(line)) {
           const rel = file.slice(ROOT.length + 1);
           offenders.push(`${rel}:${i + 1}  ${line.trim()}`);
         }

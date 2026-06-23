@@ -92,7 +92,8 @@ const lockHolderRegistry = [
   {
     path: "lib/sync/retrySingleFile.ts",
     holder: "retrySingleFile",
-    layer: "delegates to withPostgresSyncPipelineLock; retrySingleFile_unlocked never locks",
+    layer:
+      "takes withPostgresSyncPipelineLock TWICE (Lock#1 preflight, Lock#2 finalize) with the pre-lock Drive prepare + own-connection scan BETWEEN them; preflight/finalize never lock — the scan no longer nests the same show key inside the retry lock",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
@@ -104,7 +105,8 @@ const lockHolderRegistry = [
   {
     path: "app/api/admin/pending-ingestions/[id]/retry/route.ts",
     holder: "handleLivePendingIngestionRetry",
-    layer: "bootstraps drive_file_id read-only, then delegates mutations to a nonblocking show lock",
+    layer:
+      "bootstraps drive_file_id read-only, then delegates mutations to a nonblocking show lock",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
@@ -181,8 +183,13 @@ type FunctionBody = {
 const lockOrTxOpeners =
   /\b(?:withPostgresSyncPipelineLock|withPostgresShowLock|withShowLock|withPipelineLock|withDefaultTx|withTx|runTx|lock)\s*\(/g;
 
+// Includes the cross-file scan entry points (runOnboardingScan,
+// prepareOnboardingFiles, fetchSheetMarkdownWithBinding) so a Drive read hidden
+// behind a call into another file is still caught — the exact way the wizard
+// restage's Drive-under-lock bug evaded this guard before
+// (BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK).
 const driveInvocation =
-  /\b(?:fetchDriveFileMetadata|fetchSheetAsMarkdownAtRevision|retryEmbeddedRevisionAvailability|listDriveFolder|getDriveClient|defaultDriveClient|defaultCaptureBinding|fetchMarkdownAtRevision|captureBinding|enrichWithDrivePins|driveClient)\s*\(|\bdrive\./;
+  /\b(?:fetchDriveFileMetadata|fetchSheetAsMarkdownAtRevision|fetchSheetMarkdownWithBinding|retryEmbeddedRevisionAvailability|listDriveFolder|getDriveClient|defaultDriveClient|defaultCaptureBinding|fetchMarkdownAtRevision|captureBinding|enrichWithDrivePins|driveClient)\s*\(|\b(?:runOnboardingScan|prepareOnboardingFiles)\s*\)?\s*\(|\bdrive\./;
 
 function balancedSlice(source: string, openIndex: number, open: string, close: string): string {
   let depth = 0;
@@ -356,7 +363,7 @@ describe("M6 advisory-lock single-holder contract", () => {
         }),
         expect.objectContaining({
           holder: "retrySingleFile",
-          layer: expect.stringContaining("retrySingleFile_unlocked never locks"),
+          layer: expect.stringContaining("preflight/finalize never lock"),
         }),
         expect.objectContaining({
           holder: "handleWizardPendingIngestionRetry",
@@ -421,7 +428,9 @@ describe("M6 advisory-lock single-holder contract", () => {
 
   test("abandoned onboarding finalize cleanup documents its direct lock topology", () => {
     const source = read("lib/onboarding/sessionLifecycle.ts");
-    const cleanupSource = source.slice(source.indexOf("export async function cleanupAbandonedFinalize"));
+    const cleanupSource = source.slice(
+      source.indexOf("export async function cleanupAbandonedFinalize"),
+    );
 
     expect(source).toContain("hashtext('finalize:' ||");
     expect(source).toContain("hashtext('show:' || $1)");
@@ -486,6 +495,10 @@ describe("M6 advisory-lock single-holder contract", () => {
   test("no advisory-lock or postgres-transaction window can reach Drive helpers", () => {
     const roots = ["lib/sync", "lib/drive", "lib/asset"];
     const violations: string[] = [];
+
+    // No exemptions: the retrySingleFile Drive-under-lock instance was fixed (its
+    // scan + export now run BETWEEN two short pipeline-lock windows, not inside
+    // one), so the guard enforces every path with no allowlist.
 
     for (const path of roots.flatMap(tsFiles).sort()) {
       const source = read(path);

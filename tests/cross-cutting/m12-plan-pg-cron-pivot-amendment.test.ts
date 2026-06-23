@@ -161,7 +161,9 @@ describe("M12.1 T5: m12-plan-pg-cron-pivot-amendment doc-guard", () => {
       const idx = smokes.indexOf("Phase 0.F failure modes");
       expect(idx, "Phase 0.F failure modes section not found").toBeGreaterThan(0);
       const section = smokes.slice(idx);
-      const entryMatch = section.match(/Smoke 3 \(cron\) doesn['’]t fire[\s\S]{0,800}?(?=\n- |\n\n##|\n\n###)/);
+      const entryMatch = section.match(
+        /Smoke 3 \(cron\) doesn['’]t fire[\s\S]{0,800}?(?=\n- |\n\n##|\n\n###)/,
+      );
       expect(entryMatch, "Smoke 3 (cron) doesn't fire entry not found").not.toBeNull();
       const body = entryMatch![0];
       const isStalePreviewOnly =
@@ -182,21 +184,23 @@ describe("M12.1 T5: m12-plan-pg-cron-pivot-amendment doc-guard", () => {
         m12spec,
         /Vercel Cron Jobs run only on production deployments/i,
       );
-      expect(matches, `stale Vercel-Cron phrase in M12 spec: ${JSON.stringify(matches)}`).toEqual([]);
-    });
-
-    test("L — §9.2 smoke 3 does NOT contain stale 'Vercel Cron → fetch' phrase outside HISTORICAL", () => {
-      const matches = findNonHistoricalMatches(
-        m12spec,
-        /Vercel Cron\s*→\s*fetch from Drive/i,
-      );
-      expect(matches, `stale Vercel-Cron-fetch phrase in M12 spec: ${JSON.stringify(matches)}`).toEqual(
+      expect(matches, `stale Vercel-Cron phrase in M12 spec: ${JSON.stringify(matches)}`).toEqual(
         [],
       );
     });
 
+    test("L — §9.2 smoke 3 does NOT contain stale 'Vercel Cron → fetch' phrase outside HISTORICAL", () => {
+      const matches = findNonHistoricalMatches(m12spec, /Vercel Cron\s*→\s*fetch from Drive/i);
+      expect(
+        matches,
+        `stale Vercel-Cron-fetch phrase in M12 spec: ${JSON.stringify(matches)}`,
+      ).toEqual([]);
+    });
+
     test("M — M12 spec contains new Cron-scheduling-architecture section with M12.1 refs", () => {
-      expect(m12spec).toMatch(/(Cron scheduling architecture|M12\.1 amendment)[\s\S]{0,2000}fxav_cron_/i);
+      expect(m12spec).toMatch(
+        /(Cron scheduling architecture|M12\.1 amendment)[\s\S]{0,2000}fxav_cron_/i,
+      );
       expect(m12spec).toMatch(/pg_net[\s\S]{0,2000}async/i);
     });
 
@@ -227,9 +231,8 @@ describe("M12.1 T5: m12-plan-pg-cron-pivot-amendment doc-guard", () => {
     });
 
     test("P — loadRequiredChecksFromSpec returns array containing 'x6-pg-cron-pivot'", async () => {
-      const mod: { loadRequiredChecksFromSpec: (specPath?: string) => string[] } = await import(
-        "../../scripts/generate-traceability"
-      );
+      const mod: { loadRequiredChecksFromSpec: (specPath?: string) => string[] } =
+        await import("../../scripts/generate-traceability");
       const checks = mod.loadRequiredChecksFromSpec();
       expect(checks).toContain("x6-pg-cron-pivot");
     });

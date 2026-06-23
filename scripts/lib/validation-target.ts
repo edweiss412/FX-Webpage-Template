@@ -5,8 +5,7 @@
 // --allow-local-override. Defends against accidental seeding/mutating of
 // the local stack when the operator meant prod-equivalent.
 
-const LOCALHOST_REGEX =
-  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
+const LOCALHOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i;
 
 function isLocalUrl(url: string): boolean {
   return LOCALHOST_REGEX.test(url);
@@ -25,10 +24,8 @@ function isLocalUrl(url: string): boolean {
 // host only. The branch-preview opt-in path is intentionally unavailable
 // (a separate explicit flag would be required if branch validation
 // ever became a contract).
-const PROJECT_REF_HOST_REGEX =
-  /^https?:\/\/([a-z0-9]+)\.supabase\.(?:co|in)(?::\d+)?(?:\/|$)/i;
-const BRANCH_PREVIEW_HOST_REGEX =
-  /^https?:\/\/[a-z0-9]+--[\w-]+\.supabase\.(?:co|in)/i;
+const PROJECT_REF_HOST_REGEX = /^https?:\/\/([a-z0-9]+)\.supabase\.(?:co|in)(?::\d+)?(?:\/|$)/i;
+const BRANCH_PREVIEW_HOST_REGEX = /^https?:\/\/[a-z0-9]+--[\w-]+\.supabase\.(?:co|in)/i;
 
 /**
  * Throws if the URL points at localhost / 127.0.0.1 / [::1] without an

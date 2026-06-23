@@ -14,10 +14,33 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 
 const RUNTIME_FIXTURE_ROOT = "tests/cross-cutting/fixtures/no-raw-codes/runtime";
+const MDX_FIXTURE_ROOT = "tests/cross-cutting/fixtures/no-raw-codes/mdx";
 const forbiddenCodes = buildForbiddenCodeIndex({ runtimeSubstringMinLength: 4 });
 
 async function scanPage(page: Page) {
   return collectRawCodeLeaksInPage(page, forbiddenCodes);
+}
+
+/**
+ * Compile an `.mdx` fixture through the SAME `@mdx-js/mdx` pipeline `@next/mdx`
+ * uses, then render the resulting component to static HTML. This is the DOM
+ * shape a real `app/help/**\/page.mdx` route produces — proving the runtime
+ * crawl below walks MDX-authored surfaces exactly as it walks `.tsx` ones.
+ */
+async function renderMdxFixtureToHtml(name: string): Promise<string> {
+  // `@mdx-js/mdx` + `react/jsx-runtime` are ESM-only; load them via dynamic
+  // import so Playwright's CJS test loader doesn't try to `require()` them.
+  const { compile, run } = await import("@mdx-js/mdx");
+  const jsxRuntime = await import("react/jsx-runtime");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+
+  const source = readFileSync(`${MDX_FIXTURE_ROOT}/${name}`, "utf8");
+  const compiled = await compile(source, { outputFormat: "function-body" });
+  // No `baseUrl` is passed: these fixtures import nothing, and referencing
+  // `import.meta.url` would force the spec module into ESM scope, which
+  // Playwright's CJS test loader cannot evaluate.
+  const mdxModule = await run(String(compiled), { ...jsxRuntime });
+  return renderToStaticMarkup(mdxModule.default({ components: {} }));
 }
 
 test.describe("AC-X.2 no raw codes runtime crawl", () => {
@@ -33,9 +56,7 @@ test.describe("AC-X.2 no raw codes runtime crawl", () => {
   });
 
   for (const name of ["bad-controlled-input.html", "bad-controlled-textarea.html"]) {
-    test(`live DOM property crawl catches controlled ${name} raw code values`, async ({
-      page,
-    }) => {
+    test(`live DOM property crawl catches controlled ${name} raw code values`, async ({ page }) => {
       await page.setContent(readFileSync(`${RUNTIME_FIXTURE_ROOT}/${name}`, "utf8"));
       const leaks = await scanPage(page);
       expect(leaks.map((leak) => leak.phase)).toContain("live-dom-property");
@@ -87,5 +108,40 @@ test.describe("AC-X.2 no raw codes runtime crawl", () => {
       ).toBeLessThan(500);
       expect((await scanPage(page)).map(formatRuntimeLeak)).toEqual([]);
     }
+  });
+});
+
+test.describe("M11-A-D3 MDX runtime no-raw-codes coverage", () => {
+  test("route discovery includes page.mdx surfaces", () => {
+    // The historical M11-A-D3 gap was that `discoverStaticAppRoutePaths()`
+    // crawled only `page.tsx`. M11 introduced most help routes as `page.mdx`,
+    // so an MDX-authored raw code would have escaped the crawl. The live
+    // discovery now walks `.mdx` too; assert a known live help MDX route is in
+    // scope so a future regression that drops `.mdx` filtering fails here.
+    const routePaths = discoverStaticAppRoutePaths();
+    expect(routePaths).toContain("/help/getting-started");
+  });
+
+  test("runtime crawl catches a raw §12.4 code rendered from an MDX help page", async ({
+    page,
+  }) => {
+    const source = readFileSync(`${MDX_FIXTURE_ROOT}/bad-help-page.mdx`, "utf8");
+    // Guard the fixture itself: it must genuinely be MDX carrying a raw code,
+    // otherwise the assertion below would be tautological.
+    expect(source).toContain("SHEET_UNAVAILABLE");
+
+    await page.setContent(await renderMdxFixtureToHtml("bad-help-page.mdx"));
+    const leaks = await scanPage(page);
+    expect(leaks.map((leak) => leak.code)).toContain("SHEET_UNAVAILABLE");
+    // The code leaks via BOTH the compiled `<p>` text node and the
+    // `<abbr title=...>` user-visible attribute — proving the crawl's
+    // textContent and attribute phases both cover MDX-compiled DOM.
+    expect(leaks.map((leak) => leak.phase)).toContain("textContent");
+    expect(leaks.map((leak) => leak.phase)).toContain("attribute");
+  });
+
+  test("runtime crawl passes an MDX help page with only plain-language copy", async ({ page }) => {
+    await page.setContent(await renderMdxFixtureToHtml("good-help-page.mdx"));
+    expect((await scanPage(page)).map(formatRuntimeLeak)).toEqual([]);
   });
 });

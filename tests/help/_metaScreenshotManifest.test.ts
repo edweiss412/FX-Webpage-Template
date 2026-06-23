@@ -11,6 +11,20 @@ const SCREENSHOTS_DIR = join(ROOT, "public", "help", "screenshots");
 const MANIFEST_PATH = join(ROOT, "scripts", "help-screenshots.manifest.ts");
 const SCREENSHOT_NAME_RE = /(<Screenshot)\s+[^>]*name=["']([^"']*)["']/g;
 
+// §4.11: crew-page screenshots are drift-CI-only. The crew page is not in the
+// admin help tree, so these keys have NO `<Screenshot name>` MDX consumer by
+// design — they exist solely so the drift-capture pipeline baselines the crew
+// experience. They are excluded from the "every manifest key is consumed by a
+// help MDX <Screenshot name>" assertion below. The bounding meta-meta check
+// ("CREW_DRIFT_ONLY_KEYS pins exactly the three crew-preview-* keys") prevents
+// this exemption from silently growing to hide a real admin screenshot that
+// lost its MDX consumer.
+const CREW_DRIFT_ONLY_KEYS: ReadonlySet<string> = new Set([
+  "crew-preview-today-mobile",
+  "crew-preview-gear-mobile",
+  "crew-preview-schedule-mobile",
+]);
+
 type ScreenshotRef = {
   file: string;
   line: number;
@@ -116,6 +130,12 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
 
     const missing: string[] = [];
     for (const entry of MANIFEST) {
+      // §4.11: crew-page baselines are drift-CI-only and captured separately by
+      // the docker drift pipeline (not committed alongside the manifest entry).
+      // They are expected absent until that capture runs, so they do not gate
+      // this assertion. Once present, the orphan check (keyed off MANIFEST, which
+      // includes them) and the drift gate cover them.
+      if (CREW_DRIFT_ONLY_KEYS.has(entry.key)) continue;
       for (const theme of ["light", "dark"] as const) {
         const path = join(SCREENSHOTS_DIR, `${entry.key}-${theme}.webp`);
         if (!existsSync(path)) missing.push(`${entry.key}-${theme}.webp`);
@@ -167,12 +187,63 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
 
   it("every manifest key is consumed by at least one help MDX <Screenshot name>", () => {
     const referenced = new Set(collectScreenshotRefs().map((ref) => ref.name));
-    const unreferenced = MANIFEST.map((entry) => entry.key).filter((key) => !referenced.has(key));
+    const unreferenced = MANIFEST.map((entry) => entry.key)
+      // §4.11: crew-page screenshots are drift-CI-only — no admin help MDX
+      // consumer by design (the crew page is not in the admin help tree).
+      .filter((key) => !CREW_DRIFT_ONLY_KEYS.has(key))
+      .filter((key) => !referenced.has(key));
 
     expect(
       unreferenced,
       `Manifest screenshot keys without help MDX consumers:\n${unreferenced.join("\n")}`,
     ).toEqual([]);
+  });
+
+  it("CREW_DRIFT_ONLY_KEYS pins exactly the three §4.11 crew-preview keys (no silent growth)", () => {
+    // Bounding meta-meta check: the MDX-consumer exemption must NOT grow to hide
+    // a real admin screenshot that lost its MDX consumer. If a crew section is
+    // added/removed this list is updated deliberately — never to mask drift.
+    expect([...CREW_DRIFT_ONLY_KEYS].sort()).toEqual(
+      [
+        "crew-preview-gear-mobile",
+        "crew-preview-schedule-mobile",
+        "crew-preview-today-mobile",
+      ].sort(),
+    );
+
+    // Every exempted key must actually exist in the manifest — an exemption for a
+    // non-existent key would be dead weight that could later shadow a real key.
+    const manifestKeys = new Set(MANIFEST.map((entry) => entry.key));
+    const danglingExemptions = [...CREW_DRIFT_ONLY_KEYS].filter((key) => !manifestKeys.has(key));
+    expect(
+      danglingExemptions,
+      `CREW_DRIFT_ONLY_KEYS references keys absent from MANIFEST:\n${danglingExemptions.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("every crew-preview-* entry uses the admin-preview route, never the plain tokenized crew route", () => {
+    // GUARD (§4.11): the harness signs in as ADMIN, so the plain tokenized crew
+    // route would baseline the WRONG (plain-admin) branch via resolveShowPageAccess.
+    // The admin-preview route renders CrewShell as the previewed crew. Pin the
+    // route shape so a future edit can't silently swap to the crew route.
+    const PREVIEW_ROUTE_RE = /^\/admin\/show\/.+\/preview\/.+\?s=/;
+    const violations = MANIFEST.filter((entry) => entry.key.startsWith("crew-preview-"))
+      .filter((entry) => !PREVIEW_ROUTE_RE.test(entry.route))
+      .map((entry) => `${entry.key}: ${entry.route}`);
+
+    expect(
+      violations,
+      `crew-preview-* entries must use /admin/show/<slug>/preview/<crewId>?s=<section>:\n${violations.join(
+        "\n",
+      )}`,
+    ).toEqual([]);
+
+    // And the exempted set must cover exactly the crew-preview-* manifest keys —
+    // no crew-preview-* key may exist without a matching drift-only exemption.
+    const crewPreviewKeys = MANIFEST.map((entry) => entry.key)
+      .filter((key) => key.startsWith("crew-preview-"))
+      .sort();
+    expect([...CREW_DRIFT_ONLY_KEYS].sort()).toEqual(crewPreviewKeys);
   });
 
   it("MDX-referenced screenshots do not share byte-identical light/dark WebPs", () => {
@@ -204,8 +275,6 @@ describe("help screenshot manifest integrity (Task F.7 / test #9)", () => {
 
     expect(source).toContain("stableUuid(");
     expect(source).toContain("RPAS_CENTRAL_2026_PREVIEW_CREW_NAME");
-    expect(source).not.toMatch(
-      /RPAS_CENTRAL_2026_PREVIEW_CREW_ID\s*=\s*["'][0-9a-f-]{36}["']/i,
-    );
+    expect(source).not.toMatch(/RPAS_CENTRAL_2026_PREVIEW_CREW_ID\s*=\s*["'][0-9a-f-]{36}["']/i);
   });
 });

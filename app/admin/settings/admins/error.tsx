@@ -67,8 +67,8 @@ export default function AdminsPageError({
             exists. Invariant 5 satisfied: copy is non-catalog UX text
             (no error code; informational). */}
         <p className="text-sm">
-          If this keeps happening, the server-side log has the stack —
-          check Supabase health or page the on-call admin.
+          If this keeps happening, the server-side log has the stack — check Supabase health or page
+          the on-call admin.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <button

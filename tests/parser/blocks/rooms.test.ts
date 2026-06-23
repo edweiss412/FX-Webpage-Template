@@ -109,12 +109,14 @@ describe("parseRooms — v2 GS-prefix + BO-prefix + additional (2025-04)", () =>
     expect(gs[0]!.scenic).toContain("Blue Spandex");
   });
 
-  it("finds 3 breakout rooms", () => {
-    expect(bo).toHaveLength(3);
+  it("drops the 3 empty 'BREAKOUT N BREAKOUT ROOM Dimensions Floor' template stubs", () => {
+    // Unfilled placeholder templates (no real name beyond the column labels, no
+    // fields) — phantom rooms, now suppressed consistently with the v4 path.
+    expect(bo).toHaveLength(0);
   });
 
-  it("finds 1 additional room", () => {
-    expect(additional).toHaveLength(1);
+  it("drops the empty 'ADDITIONAL ROOM' template stub", () => {
+    expect(additional).toHaveLength(0);
   });
 });
 

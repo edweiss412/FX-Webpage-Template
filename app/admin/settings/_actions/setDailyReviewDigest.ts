@@ -21,9 +21,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type SetDailyReviewDigestResult = { ok: true } | { ok: false };
 
-export async function setDailyReviewDigest(
-  next: boolean,
-): Promise<SetDailyReviewDigestResult> {
+export async function setDailyReviewDigest(next: boolean): Promise<SetDailyReviewDigestResult> {
   // Defense-in-depth gate. AdminInfraError propagates to the catalog 500 boundary
   // (invariant 9); a non-admin identity throws here before any write.
   await requireAdmin();

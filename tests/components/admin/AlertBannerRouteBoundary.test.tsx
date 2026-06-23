@@ -26,15 +26,20 @@ describe("AlertBannerRouteBoundary", () => {
     navState.pathname = "/admin";
     navState.search = "bucket=archived";
     const { container } = render(
-      <AlertBannerRouteBoundary alertId="alert-1"><span>child</span></AlertBannerRouteBoundary>,
+      <AlertBannerRouteBoundary alertId="alert-1">
+        <span>child</span>
+      </AlertBannerRouteBoundary>,
     );
     expect(keyOf(container)).toBe("/admin?bucket=archived:alert-1");
   });
 
   test("renders children verbatim", () => {
-    navState.pathname = "/admin"; navState.search = "";
+    navState.pathname = "/admin";
+    navState.search = "";
     const { getByText } = render(
-      <AlertBannerRouteBoundary alertId="a"><span>hello-banner</span></AlertBannerRouteBoundary>,
+      <AlertBannerRouteBoundary alertId="a">
+        <span>hello-banner</span>
+      </AlertBannerRouteBoundary>,
     );
     expect(getByText("hello-banner")).toBeTruthy();
   });

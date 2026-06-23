@@ -36,7 +36,7 @@ function htmlResponse(code: MessageCode, status: number): Response {
     [
       "<!doctype html>",
       '<html lang="en">',
-      "<head><meta charset=\"utf-8\"><title>Sign-in unavailable</title></head>",
+      '<head><meta charset="utf-8"><title>Sign-in unavailable</title></head>',
       "<body>",
       "<h1>Sign-in unavailable</h1>",
       `<p>${body}</p>`,
@@ -66,10 +66,7 @@ function errorMessage(error: unknown): string {
     : "unknown";
 }
 
-async function emitResolveShowFailure(input: {
-  slug: string;
-  error: unknown;
-}): Promise<void> {
+async function emitResolveShowFailure(input: { slug: string; error: unknown }): Promise<void> {
   try {
     await upsertAdminAlert({
       showId: null,
@@ -126,7 +123,11 @@ function isClaimShowRow(value: unknown): value is ClaimShowRow {
 
 function findClaimShow(result: ClaimResult, showId: string): ClaimShowRow | null {
   if (!Array.isArray(result.shows)) return null;
-  return result.shows.find((row): row is ClaimShowRow => isClaimShowRow(row) && row.show_id === showId) ?? null;
+  return (
+    result.shows.find(
+      (row): row is ClaimShowRow => isClaimShowRow(row) && row.show_id === showId,
+    ) ?? null
+  );
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -145,11 +146,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const intent = verifyPickerIntent(url.searchParams.get("t"), signingKey);
-  if (
-    !intent ||
-    intent.slug !== parsedNext.slug ||
-    intent.shareToken !== parsedNext.shareToken
-  ) {
+  if (!intent || intent.slug !== parsedNext.slug || intent.shareToken !== parsedNext.shareToken) {
     return htmlResponse("OAUTH_REDIRECT_INVALID", 403);
   }
 
@@ -198,7 +195,10 @@ export async function GET(request: Request): Promise<Response> {
   const response = NextResponse.redirect(new URL(nextOutcome.path, request.url), { status: 302 });
   const claimShow = claimResult ? findClaimShow(claimResult, targetShowId) : null;
   if (claimResult && claimShow && Number.isSafeInteger(claimResult.mint_safe_t_millis)) {
-    const current = decodePickerCookie(request.headers.get("cookie")?.match(/(?:^|;\s*)__Host-fxav_picker=([^;]+)/)?.[1], signingKey);
+    const current = decodePickerCookie(
+      request.headers.get("cookie")?.match(/(?:^|;\s*)__Host-fxav_picker=([^;]+)/)?.[1],
+      signingKey,
+    );
     const env: PickerEnvelope = current ?? { v: 1, selections: {} };
     env.selections[targetShowId] = {
       id: claimShow.crew_member_id,

@@ -1,12 +1,17 @@
 # Parse warnings
 
-A parse warning means the app read your sheet successfully and is willing to publish, but something specific looks off or was substituted with a fallback. The crew page is live (or the previous approved version is still serving crew); the warning is telling you what to fix in the sheet so the next sync is clean.
+A parse warning means the app read your sheet successfully and is willing to publish, but something specific looks off or was substituted with a fallback. It tells you what to fix in the sheet so the next sync is clean.
 
-Each section below corresponds to one warning code. Open the per-show parse panel to see which codes fired for a given sheet, then jump to the matching section here.
+<Callout type="note">
+  Your crew page stays up either way: the new version goes live, or the previous approved version
+  keeps serving crew until the warning clears. A warning never blanks the page.
+</Callout>
+
+Open the per-show parse panel to see which warning code fired for a given sheet, then read its section below.
 
 <RefAnchor id="PARSE_ERROR_LAST_GOOD">Latest edit didn't parse</RefAnchor>
 
-A recent edit to the sheet introduced something the parser couldn't read. To avoid blanking crew, the app kept the previously approved version live and surfaced this warning on the admin dashboard instead of pushing the broken edit.
+A recent edit to the sheet introduced something the app couldn't read. To avoid blanking crew, the app kept the previously approved version live and surfaced this warning on the admin dashboard instead of pushing the broken edit.
 
 What to do:
 
@@ -14,8 +19,10 @@ What to do:
 - Edit the sheet to fix what the panel describes (most often a malformed crew row, a missing required field, or a typo in a header).
 - Save the sheet. The next sync will re-parse it; once the parse succeeds, the freshly approved version replaces the stale one and the warning clears.
 
-If the panel error doesn't match what you see in the sheet, or if a fix doesn't clear the warning on the next sync, Tell Eric.
+If the panel's error doesn't line up with what you see in the sheet, trust the panel: it names the exact row or section that failed.
 
 <Callout type="note">
-If you've tried the suggested fix and the warning is still there after the next sync, Tell Eric. Include the show name and the warning code from the per-show parse panel so the cause can be tracked down quickly.
+  If you've tried the suggested fix and the warning is still there after the next sync, or if the
+  panel keeps pointing at a row that looks correct to you, Tell Eric. Include the show name and the
+  warning code from the per-show parse panel so the cause can be tracked down quickly.
 </Callout>

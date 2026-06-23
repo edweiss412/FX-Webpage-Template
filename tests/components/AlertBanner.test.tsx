@@ -54,9 +54,9 @@ vi.mock("next/navigation", () => ({
 // per-test override (count.set / count.infra) lets the bounded-count (250)
 // and infra-error (treated as 1) guard tests drive the count independently
 // of how many detail rows the .limit(1) probe sees.
-const countState = vi.hoisted(
-  () => ({ override: null as { kind: "ok"; count: number } | { kind: "infra_error" } | null }),
-);
+const countState = vi.hoisted(() => ({
+  override: null as { kind: "ok"; count: number } | { kind: "infra_error" } | null,
+}));
 vi.mock("@/lib/admin/alertCount", async (importOriginal) => {
   // Reuse the REAL info-severity exclusion list so the default count mirrors
   // the production helper's `resolved_at IS NULL AND code NOT IN (info…)`
@@ -221,6 +221,16 @@ function setRows(rows: AlertRow[]) {
     .sort((a, b) => new Date(b.raised_at).getTime() - new Date(a.raised_at).getTime());
 }
 
+// Test-local emphasis strip (anti-tautology: not the production helper).
+// Catalog copy may carry Markdown emphasis; the renderer styles it as
+// <em>/<strong>, so textContent must contain the marker-free prose.
+function stripMarkers(s: string): string {
+  return s
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.,!?;:]|$)/g, "$1$2");
+}
+
 describe("AlertBanner", () => {
   beforeEach(() => {
     mockState.rows = [];
@@ -305,8 +315,10 @@ describe("AlertBanner", () => {
         },
       ]);
       const { getByTestId } = render(await AlertBanner());
+      // Emphasis markers in the catalog literal render as <em>/<strong>,
+      // so textContent carries the marker-free prose (never literal "*").
       expect(getByTestId("error-explainer-message").textContent).toBe(
-        MESSAGE_CATALOG[code].dougFacing!,
+        stripMarkers(MESSAGE_CATALOG[code].dougFacing!),
       );
     });
   }
@@ -710,9 +722,7 @@ describe("AlertBanner", () => {
       },
     ]);
     const { container } = render(await AlertBanner());
-    const line = container.querySelector(
-      "[data-testid=admin-alert-banner] summary span.truncate",
-    )!;
+    const line = container.querySelector("[data-testid=admin-alert-banner] summary span.truncate")!;
     const expected = stripEmphasis(firstSentence(MESSAGE_CATALOG[CODE].dougFacing!));
     expect(line.textContent).toBe(expected);
     // emphasis markers removed (no literal "*" leaks)

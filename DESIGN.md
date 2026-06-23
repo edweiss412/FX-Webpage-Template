@@ -76,6 +76,27 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 
 The token rows are in §1.1 and the computed AA contrast figures (both modes, WCAG relative-luminance formula) are in §1.2: every status **dot** clears the ≥3:1 graphical-object floor and every status **`-text`** variant clears the ≥4.5:1 AA body floor, on both `--color-bg` and `--color-surface`, in light and dark. `tests/styles/status-token-contrast.test.ts` pins these floors against the live `app/globals.css` values.
 
+### 1.4 Identity-avatar palette (2026-06-19 amendment — the second scoped exception to "orange stays alone")
+
+§1 commits to a single brand accent and "no competing accent hue". The crew mock-fidelity work introduces **one more narrowly-scoped exception**: identity avatars (crew members and contacts) carry a **deterministic per-person color** drawn from a fixed 8-swatch palette. This is an _identity_ signal — a stable visual handle for a person — **not a second brand accent**, and it is bounded by these rules:
+
+- **Where it is allowed:** the circular **identity-avatar chip** only (crew roster, contacts, the per-show crew page). The chip is a colored disc with the person's white initials. Nowhere else. The single FXAV orange accent still governs **all other chrome** — buttons, pills, links, focus rings, the hero, the live indicator, the "today" pin, the brand mark — and keeps its ≤10%-of-viewport coverage cap.
+- **Derived from the NAME, never a render index.** The swatch is a stable hash of the normalized (trimmed, lowercased, whitespace-collapsed) name, so the same person gets the same color across renders, sessions, and surfaces. A blank/whitespace name falls back to the **slate** swatch.
+- **White initials on every swatch; AA-guarded.** Every swatch is pre-measured ≥4.5:1 against `#FFFFFF` white avatar text (WCAG relative-luminance). The measured ratios (all comfortably above the 4.5:1 AA floor):
+
+  | Swatch    | Hex       | Contrast vs `#FFFFFF` |
+  | --------- | --------- | --------------------- |
+  | orange    | `#9A4A00` | 6.26:1                |
+  | green     | `#1B6B43` | 6.50:1                |
+  | blue      | `#2657B0` | 6.83:1                |
+  | violet    | `#6A40C0` | 6.76:1                |
+  | rose      | `#A1322C` | 6.98:1                |
+  | teal      | `#136B6B` | 6.28:1                |
+  | amber     | `#86591A` | 6.07:1                |
+  | slate     | `#515763` | 7.26:1 (also the blank-name fallback) |
+
+- **Single source of truth.** `lib/crew/avatarColor.ts` owns the palette (`AVATAR_PALETTE`) and the name→swatch function (`avatarColor`). `tests/crew/avatarColor.test.ts` is the AA guard — it recomputes the contrast of every swatch against white and fails CI if any swatch drops below 4.5:1, and pins determinism, case/space-insensitivity, and the blank→slate fallback.
+
 ---
 
 ## 2. Typography
@@ -140,6 +161,7 @@ Uppercase eyebrow labels (`text-xs uppercase` + meta-label voice) use one of two
 | `--tracking-eyebrow`        | 0.12em  | Standard eyebrow voice — KeyValue dt, Section heading eyebrow, tile field labels (Schedule day labels, Contacts kind, etc.), admin StagedReviewCard source kicker.                                                                               |
 | `--tracking-eyebrow-strong` | 0.18em  | Emphasis eyebrow — Right Now card "RIGHT NOW" tag, Footer FXAV wordmark, Header crew tag.                                                                                                                                                        |
 | `--tracking-page-title`     | -0.02em | Admin page-title (`AdminPageHeader` h1) — matches the admin design bundle's `.page-title` letter-spacing (M12.8). Distinct from Tailwind's `tracking-tight` (-0.025em); named here because the meta-test bans the inline arbitrary bracket form. |
+| `--tracking-daynum`         | -0.03em | Schedule `DayCard` day-number badge (`.dnum`, a large extrabold display number, not an eyebrow). Preserves the exact value the badge has always used; named here (not an inline `tracking-[-0.03em]`) because the meta-test bans the arbitrary bracket form. |
 
 The consolidation absorbed four prior inline values (0.12 / 0.14 / 0.18 / 0.22em) into two semantic tokens. `tests/styles/eyebrow-tracking.test.ts` enforces the contract — adding a new arbitrary square-bracket tracking value to any source file under `components/` or `app/` (ts/tsx/js/jsx/css) fails the build. If a future surface genuinely needs a different tracking value, declare it as a named token in `app/globals.css` `@theme` and add a row to the table above before using it. Non-arbitrary Tailwind defaults (`tracking-wide`, `tracking-tight`, etc.) are not in scope for this meta-test — they're used elsewhere for non-eyebrow surfaces (display headings use `tracking-tight`); the meta-test specifically targets the bracket-form arbitrary leak class that R1 reviewer caught.
 
@@ -247,6 +269,8 @@ Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--b
 Without both, tiles collapse to their intrinsic content height and the spec §8.4 dimensional invariant fails.
 
 This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
+
+> **Amendment (2026-06-21, owner-directed).** The crew **split-wide two-column grids** (Schedule, Crew, Venue, Travel, and Today Mode A) are the one place this project deliberately does NOT use equal-height: they use `min-[720px]:items-start` so the shorter column (e.g. the ~3-row "Daily call times", the ~2-contact "Key contacts") takes its natural height instead of stretching to the taller column and leaving dead space. See `docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-21-split-wide-natural-height.md`. The gotcha above still governs every grid where equal-height IS wanted — the Gear peer-card grid, the CrewSubNav tab bar, and the admin Dashboard split all keep `items-stretch` + `h-full`.
 
 ---
 

@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { applyStaged_unlocked, type ApplyStagedArgs } from "@/lib/sync/applyStaged";
-import { discardStaged_unlocked, type DiscardStagedArgs, type DiscardStagedDeps } from "@/lib/sync/discardStaged";
+import {
+  discardStaged_unlocked,
+  type DiscardStagedArgs,
+  type DiscardStagedDeps,
+} from "@/lib/sync/discardStaged";
 
 type Calls = Array<{ sql: string; params: unknown[] }>;
 
@@ -42,7 +46,11 @@ describe("DEF-2 — apply/discard refuse archived shows; discard clears requires
     const res = await applyStaged_unlocked(tx, applyArgs);
     expect(res).toEqual({ outcome: "blocked", code: "SHOW_ARCHIVED_IMMUTABLE" });
     // Guard fires before any consumption: only the lock-held probe + the archived re-read ran.
-    expect(tx.calls.every((c) => /pg_locks/i.test(c.sql) || /select archived from public\.shows/i.test(c.sql))).toBe(true);
+    expect(
+      tx.calls.every(
+        (c) => /pg_locks/i.test(c.sql) || /select archived from public\.shows/i.test(c.sql),
+      ),
+    ).toBe(true);
   });
 
   it("discardStaged_unlocked refuses an archived show → blocked/SHOW_ARCHIVED_IMMUTABLE", async () => {
@@ -69,8 +77,12 @@ describe("DEF-2 — apply/discard refuse archived shows; discard clears requires
       // restoreShowStatus intentionally NOT injected → the default runs against fakeTx.
     };
     const res = await discardStaged_unlocked(tx, discardArgs, deps);
-    expect(res).toEqual({ outcome: "discarded", variant: "try_again" });
-    const restoreCall = tx.calls.find((c) => /update public\.shows/i.test(c.sql) && /requires_resync\s*=\s*false/i.test(c.sql));
+    // showId surfaced (nav-perf tag-caching): the live restore path returns the show id so the
+    // caller can revalidateShow(id) post-commit. Restoring this Held show reverts shows.last_sync_status.
+    expect(res).toEqual({ outcome: "discarded", variant: "try_again", showId: "show-1" });
+    const restoreCall = tx.calls.find(
+      (c) => /update public\.shows/i.test(c.sql) && /requires_resync\s*=\s*false/i.test(c.sql),
+    );
     expect(restoreCall).toBeTruthy();
   });
 });

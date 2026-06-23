@@ -2,11 +2,14 @@
 
 Most new sheets in your Drive folder publish on their own. Dropping a clean sheet into the folder is the deliberate publish action; the app parses it, mints a show row, and crew can see the page right away.
 
-Two queues exist for the cases where the app cannot publish on its own. The first-seen queue catches brand-new sheets that the app held for your sign-off because something in the parse looked unusual, or that hard-failed before they could become a show. The re-stage queue catches edits to a show that's already live, when those edits tripped a review rule.
+Two kinds of change need your attention, and they live in different places:
 
-Both queues are durable. Nothing here clears itself.
+| Where to look                        | What it is                                                                                                                                                                                               |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[First-seen review](#first-seen)** | A brand-new sheet the app hasn't published yet, held for your sign-off (from the onboarding scan, or when auto-publish is off). It waits in the **Needs attention** inbox until you Apply or Discard it. |
+| **[Live-show changes](#re-stage)**   | Edits to a show that's already live. Most apply on their own and show in that show's **Changes** feed; a crew member's identity change (usually an email) waits for your Approve or Reject there.        |
 
-Both queues surface in one place on the dashboard: the **Needs attention** panel, in the right column next to **Active shows**. No sheets are waiting in the captured state below, so the panel is showing the empty message you will see after every review item has been cleared.
+First-seen items are durable: they wait in the **Needs attention** panel (right column of the dashboard, next to **Active shows**) until you act. No sheets are waiting in the captured state below, so the panel is showing the empty message you will see once every review item has been cleared.
 
 <Screenshot
   name="review-queues-empty-state"
@@ -24,14 +27,19 @@ On a phone, the same queues live behind the **Attention** tab in the bottom bar.
 
 <h2 id="first-seen">First-seen review</h2>
 
-A first-seen sheet is one the app has never published. Most first-seen sheets in your watched folder publish on their own, and you see them in the Active shows panel right away. A first-seen sheet only lands in this queue when the parse tripped a review rule (a crew count that shrank unexpectedly, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty, and so on), or when you discovered the sheet through the onboarding wizard's scan step (which always routes to you before activating sync).
+A first-seen sheet is one the app has never published. With **auto-publish** on, a clean new sheet publishes on its own and appears in Active shows right away. A sheet lands here for your sign-off only when:
 
-You'll find first-seen review rows in the **Needs attention** panel on the dashboard. Each row shows the candidate title and a **Review** link that opens the staged-review surface, where the items that need your decision are listed.
+- it came in through the **onboarding wizard's scan**, which always routes new sheets to you before activating sync, or
+- **auto-publish is off** (a Settings toggle), so every new sheet waits for your explicit OK.
 
-Two actions are available:
+A sheet the app couldn't read at all is a different case: it shows up as a "couldn't process a sheet" card in the [Needs attention inbox](/help/admin/dashboard#pending-ingestion).
 
-- **Review and apply.** Opens the staged-review surface. You confirm each decision, then Apply mints the show row and publishes the crew page. A crew link exists from that moment forward.
-- **Discard.** Drops the candidate. No crew link is ever created.
+You'll find first-seen rows in the **Needs attention** panel on the dashboard, each labeled **New sheet to review** with a **Review** link to the staged-review surface, where the items that need your decision are listed.
+
+On that surface you either:
+
+- **Apply** the sheet, which mints the show row and publishes the crew page. A crew link exists from that moment forward.
+- Discard it instead, choosing **Retry on next sync**, **Wait for next edit**, or **Stop showing this sheet**. No crew link is ever created.
 
 <Callout type="warning">
   Discard is one-way for the staged candidate, but it does not touch your sheet. The sheet in Drive
@@ -39,31 +47,29 @@ Two actions are available:
   and the next sync will surface it again as a fresh first-seen candidate.
 </Callout>
 
-<h2 id="re-stage">Re-stage review</h2>
+<h2 id="re-stage">Live-show changes</h2>
 
-A re-stage happens when you edit a show that's already live and the edit tripped a review rule. The app catches it, holds the new version in staging, and keeps serving the prior approved version to crew. The crew page does not flicker, and stale data does not go out.
+When you edit a show that's already live, most changes apply on the next sync and land in that show's **Changes** feed on the [per-show panel](/help/admin/per-show-panel#changes-feed), newest first, so crew see them right away. The one exception, a crew member's identity change, the app holds for your decision (see below).
 
-Re-stage rows also appear in the **Needs attention** panel, marked **Changes to review**. The **Open show** link takes you straight to the per-show parse panel with the staged review at the top. The show keeps serving its prior approved version to crew until you Apply.
+What lands in the feed:
 
-Common triggers:
+- **Crew added, removed, or renamed.** Applied automatically; most entries offer an **Undo this change** button if you need to walk one back.
+- **Schedule, field, and diagram or reel changes.** Applied automatically and logged, so you can see what moved.
+- **A crew member's identity change** (usually an email). The one edit that holds for your decision: the entry shows **Approve** and **Reject**, and that person's prior details stay in effect until you choose.
 
-- Crew row count dropped from one sync to the next, or a crew identity drifted.
-- A schedule note, lead role, or position assignment changed in a way the parser wants you to confirm.
-- An email on the crew block changed, was reassigned, or moved between rows.
-- A diagram or opening-reel reference changed since the last published version.
+Because routine edits are already live, you act on individual feed entries (**Undo this change**, or **Approve** / **Reject**), not a whole-sync Apply or Discard.
 
-Apply and Discard work the same way as the first-seen flow. Apply replaces the live version with the staged one. Discard drops the staged version and leaves the prior approved version live.
+## Reviewing a first-seen sheet: Apply or Discard?
 
-## When to Apply
+When you open a first-seen sheet from the inbox, you Apply it (which publishes the show) or Discard it:
 
-- The change in the sheet is intentional and you want crew to see it.
-- The triggered review items match edits you remember making (or that Doug told you about).
-- The diff shown next to each item lines up with the sheet.
+| Apply when                                             | Discard when                                                          |
+| ------------------------------------------------------ | --------------------------------------------------------------------- |
+| The change is intentional and you want crew to see it. | You spot a typo, a paste accident, or a row you didn't mean to touch. |
+| The items shown match what you expect from the sheet.  | A crew row vanished and you can't account for it.                     |
+| The diff next to each item lines up with the sheet.    | You started a sheet you aren't ready to publish yet.                  |
 
-## When to Discard
-
-- You spot a typo, a paste accident, or a row you didn't mean to touch. Fix the sheet first, then let the next sync re-stage cleanly.
-- A crew row vanished and you can't account for it. Discard, investigate, edit the sheet, and let the app re-stage on the corrected version.
-- You started an edit you aren't ready to publish. Discard the staged version; the prior approved version keeps serving crew.
-
-If you're not sure, Discard is the safer of the two. The sheet stays put. The next sync will surface the same review again.
+<Callout type="tip">
+  Not sure? **Discard** is the safer choice: the sheet stays put, and the next sync surfaces it
+  again as a fresh first-seen candidate. If something was a mistake, fix the sheet first.
+</Callout>

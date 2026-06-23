@@ -1,5 +1,6 @@
 import type { drive_v3 } from "googleapis";
 import { getDriveClient } from "@/lib/drive/client";
+import { withDriveRetry, type DriveRetryOptions } from "@/lib/drive/fetch";
 
 export const GOOGLE_SHEETS_MIME_TYPE = "application/vnd.google-apps.spreadsheet";
 export const DRIVE_LIST_FIELDS =
@@ -26,6 +27,7 @@ export type DriveListWarning = {
 export type ListFolderOptions = {
   drive?: drive_v3.Drive;
   onWarning?: (warning: DriveListWarning) => void;
+  retry?: DriveRetryOptions;
 };
 
 function driveQueryString(value: string): string {
@@ -67,7 +69,12 @@ export async function listFolder(
     };
     if (pageToken) params.pageToken = pageToken;
 
-    const response = await drive.files.list(params);
+    // Retry transient 429/5xx on the folder list too (BL-ONBOARDING-SCAN-TRANSIENT-
+    // THROTTLE-RETRY): completes withDriveRetry's coverage so the onboarding scan's
+    // raised prepare concurrency can't be aborted by a single transient list blip.
+    // `params` (which carries supportsAllDrives + includeItemsFromAllDrives) is
+    // passed by reference so the shared-Drive-support contract resolves both flags.
+    const response = await withDriveRetry(() => drive.files.list(params), options.retry);
     for (const rawFile of response.data.files ?? []) {
       const file = toListedFile(rawFile);
       if (!file) continue;

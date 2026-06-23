@@ -82,8 +82,12 @@ describe("snapshotAssets", () => {
     expect(first.snapshotRevisionId).not.toBe(second.snapshotRevisionId);
     expect(first.tempPrefix).not.toBe(second.tempPrefix);
     expect(txRows).toHaveLength(2);
-    expect(firstStorage.uploaded[0]?.path).toContain("_pending/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/");
-    expect(secondStorage.uploaded[0]?.path).toContain("_pending/dddddddd-dddd-4ddd-8ddd-dddddddddddd/");
+    expect(firstStorage.uploaded[0]?.path).toContain(
+      "_pending/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/",
+    );
+    expect(secondStorage.uploaded[0]?.path).toContain(
+      "_pending/dddddddd-dddd-4ddd-8ddd-dddddddddddd/",
+    );
   });
 
   test("uploads verified linked and embedded bytes to the temp prefix and stores canonical paths in pending manifest", async () => {

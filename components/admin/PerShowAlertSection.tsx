@@ -24,6 +24,7 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
@@ -74,15 +75,22 @@ const UNDO_ALERT_CODE = "SHOW_FIRST_PUBLISHED";
 // codes AND any still-unresolved `<…>` placeholder (missing context key) → null,
 // so the caller's Doug-facing fallback shows rather than a leaked token
 // (invariant 5). Call-site-only change; lookup.ts's contract is untouched.
-function safeDougFacing(code: string, context: Record<string, unknown> | null): string | null {
+// Returns the RAW catalog template when (a) the code is cataloged, (b) it
+// has dougFacing copy, and (c) interpolating the alert's context leaves no
+// unresolved <placeholder> token. The caller renders the template via
+// renderCatalogEmphasis so param values (sheet names!) are inserted as
+// opaque text after emphasis parsing, never parsed as markup (Codex R1).
+function safeDougFacingTemplate(
+  code: string,
+  context: Record<string, unknown> | null,
+): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
-  const doug = messageFor(
-    code as MessageCode,
-    (context as MessageParams | null) ?? undefined,
-  ).dougFacing;
-  if (!doug) return null;
-  if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return null;
-  return doug;
+  const params = (context as MessageParams | null) ?? undefined;
+  const template = messageFor(code as MessageCode).dougFacing;
+  if (!template) return null;
+  const interpolated = messageFor(code as MessageCode, params).dougFacing;
+  if (!interpolated || UNRESOLVED_PLACEHOLDER_RE.test(interpolated)) return null;
+  return template;
 }
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
@@ -145,7 +153,7 @@ export async function PerShowAlertSection({
         <h2 id="per-show-alert-section-heading" className="text-base font-semibold">
           Could not load alerts
         </h2>
-        <p>The admin database query failed. Refresh in a moment.</p>
+        <p>This is usually temporary. Refresh in a moment.</p>
       </section>
     );
   }
@@ -195,8 +203,21 @@ export async function PerShowAlertSection({
       </div>
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
-          const copy = safeDougFacing(alert.code, alert.context);
+          const copyTemplate = safeDougFacingTemplate(alert.code, alert.context);
           const isHighlighted = highlightAlertId === alert.id;
+          // R5-HIGH-1: TILE_PROJECTION_FETCH_FAILED carries the curated set of
+          // crew-page data domains whose sub-query failed in context.failedKeys
+          // (a fixed server-side vocabulary — hotel, rooms, transportation,
+          // contacts, financials — NEVER raw pg error text). Surface it as a
+          // small detail line so the operator sees WHICH sources failed without
+          // the code's domain-neutral dougFacing having to enumerate them.
+          const failedKeys =
+            alert.code === "TILE_PROJECTION_FETCH_FAILED" &&
+            Array.isArray(alert.context?.failedKeys)
+              ? (alert.context.failedKeys as unknown[]).filter(
+                  (k): k is string => typeof k === "string",
+                )
+              : null;
           return (
             <li
               key={alert.id}
@@ -207,12 +228,25 @@ export async function PerShowAlertSection({
               }`}
             >
               <p className="text-sm font-semibold text-text-strong">
-                {copy ?? "Something needs your attention on this show."}
+                {copyTemplate
+                  ? renderCatalogEmphasis(
+                      copyTemplate,
+                      (alert.context as MessageParams | null) ?? undefined,
+                    )
+                  : "Something needs your attention on this show."}
               </p>
               <HelpAffordance
                 code={alert.code}
                 {...(alert.context ? { params: alert.context as MessageParams } : {})}
               />
+              {failedKeys && failedKeys.length > 0 ? (
+                <p
+                  data-testid={`per-show-alert-failed-sources-${alert.id}`}
+                  className="text-xs text-text-subtle"
+                >
+                  Failed sources: {failedKeys.join(", ")}
+                </p>
+              ) : null}
               {/* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows carry the shared in-app
                   undo action while the token window is open. The SAME component +
                   bound server action as the footer button (copy/behavior cannot

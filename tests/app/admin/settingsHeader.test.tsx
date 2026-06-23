@@ -55,6 +55,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin/settings",
 }));
+// Nav-perf Phase 1 (Task 8 / A3): the page now reads all four toggle initials
+// from getSettingsPageFlags on the happy path and only consults the four single
+// getters on a flags infra_error (per-toggle isolation fallback). Force the
+// fallback here so the deterministic single-getter mocks below stay
+// authoritative for these header/binding assertions. (The happy-path single
+// read and the isolation behavior are covered in settingsDataLoad.test.tsx.)
+vi.mock("@/lib/appSettings/getSettingsPageFlags", () => ({
+  getSettingsPageFlags: async () => ({ kind: "infra_error" as const }),
+}));
+vi.mock("@/lib/appSettings/getAutoPublishCleanFirstSeen", () => ({
+  getAutoPublishCleanFirstSeen: async () => ({ kind: "value" as const, autoPublish: false }),
+}));
 // Phase 6: the two notify-toggle getters (deterministic so the rows render a
 // known state). Distinct values prove each row binds its own read.
 vi.mock("@/lib/appSettings/getAlertOnSyncProblems", () => ({

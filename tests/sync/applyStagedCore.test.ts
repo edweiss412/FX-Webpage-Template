@@ -190,7 +190,8 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
     const insert = await captureFirstSeenInsert();
     expect(insert.sql).not.toMatch(/\bpublished\b/);
     expect(insert.sql).not.toMatch(/wizard_created_session_id/);
-    expect(insert.params).toHaveLength(20);
+    // Base INSERT carries 21 params: $21 is source_anchors (added by #64 deep-links).
+    expect(insert.params).toHaveLength(21);
   });
 
   test("firstSeenPublished=false alone → INSERT carries published=false, byte-stable elsewhere", async () => {
@@ -203,14 +204,15 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
     expect(insert.params).toEqual(baseline.params);
   });
 
-  test("wizardCreatedSessionId alone → INSERT carries wizard_created_session_id = $21::uuid with the value", async () => {
+  test("wizardCreatedSessionId alone → INSERT carries wizard_created_session_id = $22::uuid with the value", async () => {
     const insert = await captureFirstSeenInsert({ wizardCreatedSessionId: SESSION });
     const sql = insert.sql.replace(/\s+/g, " ");
     expect(sql).toContain("last_sync_error, wizard_created_session_id )");
-    expect(sql).toContain("now(), 'ok', null, $21::uuid)");
+    // $21 is source_anchors (base), so the wizard extra is $22.
+    expect(sql).toContain("now(), 'ok', null, $22::uuid)");
     expect(insert.sql).not.toMatch(/\bpublished\b/);
-    expect(insert.params).toHaveLength(21);
-    expect(insert.params[20]).toBe(SESSION);
+    expect(insert.params).toHaveLength(22);
+    expect(insert.params[21]).toBe(SESSION);
   });
 
   test("both flags set → INSERT carries published=false AND wizard_created_session_id", async () => {
@@ -220,9 +222,10 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
     });
     const sql = insert.sql.replace(/\s+/g, " ");
     expect(sql).toContain("last_sync_error, published, wizard_created_session_id )");
-    expect(sql).toContain("now(), 'ok', null, false, $21::uuid)");
-    expect(insert.params).toHaveLength(21);
-    expect(insert.params[20]).toBe(SESSION);
+    // published is a literal (no placeholder); $21 is source_anchors so wizard is $22.
+    expect(sql).toContain("now(), 'ok', null, false, $22::uuid)");
+    expect(insert.params).toHaveLength(22);
+    expect(insert.params[21]).toBe(SESSION);
   });
 
   test("runPhase2 forwards both fields into applyShowSnapshot", async () => {
@@ -235,6 +238,7 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
           showId: "show-1",
           previousCrewNames: [],
           previousCrewMembers: [],
+          priorRunOfShow: null,
         };
       },
       async deleteCrewMembersNotIn() {},

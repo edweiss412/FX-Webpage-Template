@@ -124,8 +124,7 @@ type RpcGatedTable = {
 const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   {
     table: "crew_members",
-    closed_at:
-      "supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:80",
+    closed_at: "supabase/migrations/20260521000000_signed_link_admin_table_grants.sql:80",
     selectAnon: true,
     selectAuthenticated: true,
     postBody: {
@@ -137,8 +136,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "shows",
-    closed_at:
-      "supabase/migrations/20260523000001_picker_epoch_columns.sql:45",
+    closed_at: "supabase/migrations/20260523000001_picker_epoch_columns.sql:45",
     selectAnon: true,
     selectAuthenticated: true,
     postBody: {
@@ -152,8 +150,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "validation_state",
-    closed_at:
-      "supabase/migrations/20260527204241_validation_state.sql:89",
+    closed_at: "supabase/migrations/20260527204241_validation_state.sql:89",
     selectAnon: true,
     selectAuthenticated: true,
     postBody: {
@@ -166,8 +163,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "show_share_tokens",
-    closed_at:
-      "supabase/migrations/20260523000002_show_share_tokens.sql:43",
+    closed_at: "supabase/migrations/20260523000002_show_share_tokens.sql:43",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
@@ -177,22 +173,19 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "admin_emails",
-    closed_at:
-      "supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:97",
+    closed_at: "supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:97",
     selectAnon: false,
     selectAuthenticated: true,
     postBody: {
       email: "postgrest-dml-lockdown-test@example.invalid",
     },
-    rowFilter:
-      "?email=eq.postgrest-dml-lockdown-test-no-such-row@example.invalid",
+    rowFilter: "?email=eq.postgrest-dml-lockdown-test-no-such-row@example.invalid",
   },
   {
     // M12.2 B2: the publish gate + suppressor contract depend on these tables' integrity; DML flows
     // ONLY through the SECURITY DEFINER RPCs / sync pipeline (advisory-locked). SELECT is retained.
     table: "pending_syncs",
-    closed_at:
-      "supabase/migrations/20260601000000_b2_show_lifecycle.sql:163",
+    closed_at: "supabase/migrations/20260601000000_b2_show_lifecycle.sql:163",
     selectAnon: true,
     selectAuthenticated: true,
     postBody: {
@@ -206,8 +199,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "pending_ingestions",
-    closed_at:
-      "supabase/migrations/20260601000000_b2_show_lifecycle.sql:164",
+    closed_at: "supabase/migrations/20260601000000_b2_show_lifecycle.sql:164",
     selectAnon: true,
     selectAuthenticated: true,
     postBody: {
@@ -220,8 +212,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "deferred_ingestions",
-    closed_at:
-      "supabase/migrations/20260601000000_b2_show_lifecycle.sql:165",
+    closed_at: "supabase/migrations/20260601000000_b2_show_lifecycle.sql:165",
     selectAnon: true,
     selectAuthenticated: true,
     postBody: {
@@ -233,8 +224,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
   },
   {
     table: "email_deliveries",
-    closed_at:
-      "supabase/migrations/20260602000004_b3_email_deliveries.sql:19",
+    closed_at: "supabase/migrations/20260602000004_b3_email_deliveries.sql:19",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
@@ -334,8 +324,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     // exclusively by the migration's own DO block (service_role/postgres). No
     // PostgREST SELECT either (selectAnon/Authenticated both false).
     table: "data_migration_markers",
-    closed_at:
-      "supabase/migrations/20260611000001_onboarding_fixups_remediation.sql:94",
+    closed_at: "supabase/migrations/20260611000001_onboarding_fixups_remediation.sql:94",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
@@ -351,8 +340,7 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     // no PostgREST SELECT either (selectAnon/Authenticated both false). Registered here
     // because Layer 4 requires every table-level REVOKE to carry a registry row.
     table: "_allowed_watermark_columns",
-    closed_at:
-      "supabase/migrations/20260609000000_lockdown_allowed_watermark_columns.sql:15",
+    closed_at: "supabase/migrations/20260609000000_lockdown_allowed_watermark_columns.sql:15",
     selectAnon: false,
     selectAuthenticated: false,
     postBody: {
@@ -360,6 +348,42 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
       column_name: "lockdown_test",
     },
     rowFilter: "?table_name=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
+    // Phase 2 §02 (crew-page-redesign R16-HIGH): the sync's run_of_show write is a
+    // read-modify-replace (CONFIRMED-ONLY, D-2) under the per-show advisory lock. A
+    // signed-in admin could otherwise `update shows_internal set run_of_show = …`
+    // directly via PostgREST behind only the admin_only RLS — that path does NOT take
+    // the advisory lock and could race/corrupt the merge. REVOKE makes the locked
+    // service-role sync the single serialized writer. SELECT retained (admin UI reads
+    // via service-role); admin_only RLS intact.
+    table: "shows_internal",
+    closed_at: "supabase/migrations/20260619000001_lockdown_shows_internal.sql:18",
+    selectAnon: true,
+    selectAuthenticated: true,
+    postBody: {
+      show_id: "00000000-0000-0000-0000-000000000000",
+      run_of_show: {},
+    },
+    rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
+  },
+  {
+    // Task 2 — destructive-reset prod-safety gate. The single boolean that
+    // decides whether reset_validation_data() (a DELETE-ALL-SHOWS SECURITY
+    // DEFINER RPC) may run on THIS database. Ships migration-owned at
+    // enabled=false everywhere; only validation projects flip it true
+    // out-of-band. NO PostgREST access of any kind: no anon/authenticated DML
+    // grant AND RLS-deny (enabled, no policy) — so a signed-in admin cannot
+    // SELECT/INSERT/UPDATE it via /rest/v1 to flip it on. service_role only.
+    table: "destructive_reset_gate",
+    closed_at: "supabase/migrations/20260622000001_validation_reset_rpc.sql:10",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      id: "default",
+      enabled: true,
+    },
+    rowFilter: "?id=eq.default-no-such-row",
   },
 ] as const;
 
@@ -522,10 +546,7 @@ async function postgrestRequest(
 }
 
 describe("PostgREST DML lockdown — RPC-gated tables (Layers 2+3)", () => {
-  // eslint-disable-next-line no-console
-  console.info(
-    `[postgrest-dml-lockdown Layers 2+3] running against ${scopeLabel}`,
-  );
+  console.info(`[postgrest-dml-lockdown Layers 2+3] running against ${scopeLabel}`);
 
   // Belt-and-suspenders cleanup: the lockdown should reject every POST
   // with 403/401 BEFORE writing anything. If a future regression lets a
@@ -670,8 +691,7 @@ describe("PostgREST DML lockdown — registry meta-assertion (Layer 4)", () => {
     /\brevoke\s+(?:all(?:\s+privileges)?|[\w\s,]*?(?:insert|update|delete)[\w\s,]*?)\s+on\s+(?:table\s+)?public\.(\w+)\s+from\s+([^;]+);/gi;
 
   // Match drop-table statements that remove the table entirely.
-  const DROP_TABLE_REGEX =
-    /\bdrop\s+table\s+(?:if\s+exists\s+)?public\.(\w+)\b/gi;
+  const DROP_TABLE_REGEX = /\bdrop\s+table\s+(?:if\s+exists\s+)?public\.(\w+)\b/gi;
 
   type DetectedRevoke = { table: string; migration: string };
 
@@ -689,10 +709,7 @@ describe("PostgREST DML lockdown — registry meta-assertion (Layer 4)", () => {
         // Our regex anchors to "on (table )?public.X" so function-prefixed
         // ones won't match. Filter by grantee containing anon/authenticated/
         // public — public alone is rare for tables but acceptable.
-        if (
-          /(anon|authenticated|public)/i.test(grantees) &&
-          !grantees.includes("function")
-        ) {
+        if (/(anon|authenticated|public)/i.test(grantees) && !grantees.includes("function")) {
           out.push({ table, migration: name });
         }
       }

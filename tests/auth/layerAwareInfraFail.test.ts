@@ -40,7 +40,7 @@ const nextHeaders = vi.hoisted(() => ({
 
 const server = vi.hoisted(() => ({
   client: {
-    auth: { getUser: vi.fn() },
+    auth: { getClaims: vi.fn() },
     rpc: vi.fn(),
   },
   createSupabaseServerClient: vi.fn(),
@@ -67,48 +67,42 @@ describe("layer-aware test-only infra-fail hook", () => {
     nextHeaders.store.set("authorization", `Bearer ${SECRET}`);
     // Make the happy path succeed when the hook does NOT fire.
     server.createSupabaseServerClient.mockResolvedValue(server.client);
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: { email: "Admin@FXAV.Test " } },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: { claims: { email: "Admin@FXAV.Test " } },
       error: null,
     });
+    // Both gate RPCs (is_session_live + is_admin) return true on the happy path.
     server.client.rpc.mockResolvedValue({ data: true, error: null });
   });
 
   test("page-scoped force throws page-layer gates but not layout-layer", async () => {
     nextHeaders.store.set("x-test-force-infra-fail", "page");
-    const { requireAdmin, requireAdminIdentity, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
-    await expect(requireAdminIdentity({ layer: "page" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
-    await expect(requireAdmin({ layer: "page" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
+    const { requireAdmin, requireAdminIdentity, AdminInfraError } =
+      await import("@/lib/auth/requireAdmin");
+    await expect(requireAdminIdentity({ layer: "page" })).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(requireAdmin({ layer: "page" })).rejects.toBeInstanceOf(AdminInfraError);
     // layout-layer is exempt under a page-scoped force header.
     await expect(requireAdminIdentity({ layer: "layout" })).resolves.toBeDefined();
+    // requireAdmin MUST forward its layer to the delegated identity gate: a
+    // layout-layer requireAdmin is exempt under a page-scoped force (Codex
+    // whole-diff R1). Without opts-forwarding the delegated gate defaults to
+    // "page" and this would wrongly reject.
+    await expect(requireAdmin({ layer: "layout" })).resolves.toBeUndefined();
   });
 
   test("layout-scoped force (header 'layout') throws only layout-layer", async () => {
     nextHeaders.store.set("x-test-force-infra-fail", "layout");
-    const { requireAdmin, requireAdminIdentity, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
-    await expect(requireAdminIdentity({ layer: "layout" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
-    await expect(requireAdmin({ layer: "layout" })).rejects.toBeInstanceOf(
-      AdminInfraError,
-    );
+    const { requireAdmin, requireAdminIdentity, AdminInfraError } =
+      await import("@/lib/auth/requireAdmin");
+    await expect(requireAdminIdentity({ layer: "layout" })).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(requireAdmin({ layer: "layout" })).rejects.toBeInstanceOf(AdminInfraError);
     // page-layer is exempt under a layout-scoped force header.
     await expect(requireAdminIdentity({ layer: "page" })).resolves.toBeDefined();
   });
 
   test("default layer is 'page'", async () => {
     nextHeaders.store.set("x-test-force-infra-fail", "page");
-    const { requireAdminIdentity, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+    const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
     await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
   });
 

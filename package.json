@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "node scripts/with-admin-dev-flag.mjs next build",
     "start": "next start",
+    "prepare": "simple-git-hooks",
     "lint": "eslint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -41,7 +42,8 @@
     "test:watch": "vitest",
     "test:parser": "vitest run tests/parser tests/invariants",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "verify-resync-scheduletimes": "tsx scripts/verify-resync-scheduletimes.ts"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
@@ -64,11 +66,13 @@
     "react-dom": "19.2.4",
     "react-pdf": "^10.4.1",
     "react-zoom-pan-pinch": "^4.0.3",
+    "remark-gfm": "^4.0.1",
     "resend": "^6.12.4",
     "xlsx": "^0.18.5",
     "zod": "^4.4.2"
   },
   "devDependencies": {
+    "@mdx-js/mdx": "^3.1.1",
     "@mdx-js/rollup": "^3.1.1",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
@@ -84,12 +88,24 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-better-tailwindcss": "^4.5.0",
     "jsdom": "^29.1.1",
+    "lint-staged": "^16.2.4",
     "prettier": "^3.8.3",
     "sharp": "^0.34.5",
+    "simple-git-hooks": "^2.13.1",
     "tailwindcss": "^4",
     "ts-morph": "^28.0.0",
     "tsx": "^4.22.3",
     "typescript": "^5",
     "vitest": "^4.1.5"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec lint-staged"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,mjs,cjs}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,jsonc,css,scss,yml,yaml,md,mdx,html}": "prettier --write --ignore-unknown"
   }
 }

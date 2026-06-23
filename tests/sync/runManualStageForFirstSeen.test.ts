@@ -85,7 +85,12 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   }) {
     this.operations.push(`applyShowSnapshot:${args.driveFileId}:${args.staleGuard}`);
     this.autoPublishFirstSeen = args.autoPublishFirstSeen;
-    return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [] };
+    return {
+      outcome: "updated" as const,
+      showId: "show-1",
+      previousCrewNames: [],
+      priorRunOfShow: null,
+    };
   }
   async deleteCrewMembersNotIn() {
     this.operations.push("deleteCrewMembersNotIn");
@@ -182,7 +187,8 @@ describe("runManualStageForFirstSeen", () => {
 
   test("Task 4.3: threads getAutoPublishCleanFirstSeen into runPhase1; OFF → parsed_pending_review (no auto-publish)", async () => {
     const tx = new FakeManualStageTx();
-    const getAutoPublishCleanFirstSeen = async () => ({ kind: "value", autoPublish: false }) as const;
+    const getAutoPublishCleanFirstSeen = async () =>
+      ({ kind: "value", autoPublish: false }) as const;
     // runPhase1 spy returns what the REAL runPhase1 returns when the flag is OFF (proven in phase1.test.ts):
     // a FIRST_SEEN_REVIEW stage. We assert the flag dep is threaded through as the 3rd arg.
     const runPhase1 = vi.fn(async () => ({
@@ -233,11 +239,9 @@ describe("runManualStageForFirstSeen", () => {
     });
 
     expect(result).toEqual({ outcome: "parsed_pending_review", stagedId: "staged-1" });
-    expect(runPhase1).toHaveBeenCalledWith(
-      tx,
-      expect.objectContaining({ mode: "manual" }),
-      { getAutoPublishCleanFirstSeen },
-    );
+    expect(runPhase1).toHaveBeenCalledWith(tx, expect.objectContaining({ mode: "manual" }), {
+      getAutoPublishCleanFirstSeen,
+    });
     // OFF must NOT auto-publish: no first-published alert.
     expect(tx.alerts).toEqual([]);
   });

@@ -20,3 +20,31 @@ export type ParseAggregator = {
 export function newAggregator(): ParseAggregator {
   return { warnings: [], rawUnrecognized: [] };
 }
+
+/**
+ * D1 — fail-loud "recognized section header but parsed zero fields" code. Exported
+ * for tests; the emit site below uses the STRING LITERAL (matching every other
+ * parser warning code) so `scripts/extract-internal-code-enums.ts`'s `code: "..."`
+ * scanner records it in the internal-code manifest (x2 no-raw-codes). The literal
+ * is also registered in §12.4 as admin-log-only + `lib/messages/catalog.ts` (all-null
+ * row) so the x1 orphan-code guard passes — every active-style code literal must be
+ * in §12.4. The test pins `SECTION_HEADER_NO_FIELDS === the literal`.
+ */
+export const SECTION_HEADER_NO_FIELDS = "SECTION_HEADER_NO_FIELDS";
+
+/**
+ * Emit a `severity:"warn"` warning when a block parser recognized a section
+ * header but extracted no fields (a silent section-drop). `severity:"warn"` is
+ * mandatory — `warningSummary()` filters to "warn" for the operator-facing
+ * StagedReviewCard, so an "info" emit would never surface. No-ops when `agg` is
+ * undefined (the aggregator is optional in block-parser signatures).
+ */
+export function emitEmptySection(agg: ParseAggregator | undefined, section: string): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "SECTION_HEADER_NO_FIELDS",
+    message: `Recognized "${section}" section header but parsed zero fields — section dropped.`,
+    blockRef: { kind: section },
+  });
+}

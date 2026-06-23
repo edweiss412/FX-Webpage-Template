@@ -81,7 +81,11 @@ describe("/api/drive/webhook", () => {
     const response = await handleDriveWebhook(request(requestHeaders), {
       tx,
       listFolder: vi.fn(async () => [listedFile("file-1")]),
-      runPushSyncForShow: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+      runPushSyncForShow: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+      })),
     });
 
     expect(response.status).toBe(400);
@@ -101,6 +105,7 @@ describe("/api/drive/webhook", () => {
     const runPushSyncForShow = vi.fn(async () => ({
       outcome: "applied" as const,
       showId: "show-1",
+      parseWarnings: [],
     }));
 
     const response = await handleDriveWebhook(request(headers()), {
@@ -127,6 +132,7 @@ describe("/api/drive/webhook", () => {
     const runPushSyncForShow = vi.fn(async () => ({
       outcome: "applied" as const,
       showId: "show-1",
+      parseWarnings: [],
     }));
 
     const response = await handleDriveWebhook(
@@ -159,6 +165,7 @@ describe("/api/drive/webhook", () => {
     const runPushSyncForShow = vi.fn(async () => ({
       outcome: "applied" as const,
       showId: "show-1",
+      parseWarnings: [],
     }));
 
     const response = await handleDriveWebhook(
@@ -204,6 +211,7 @@ describe("/api/drive/webhook", () => {
       const runPushSyncForShow = vi.fn(async () => ({
         outcome: "applied" as const,
         showId: "show-1",
+        parseWarnings: [],
       }));
 
       const response = await handleDriveWebhook(
@@ -234,6 +242,7 @@ describe("/api/drive/webhook", () => {
     const runPushSyncForShow = vi.fn(async () => ({
       outcome: "applied" as const,
       showId: "show-1",
+      parseWarnings: [],
     }));
 
     const response = await handleDriveWebhook(
@@ -270,7 +279,7 @@ describe("/api/drive/webhook", () => {
     const logSync = vi.fn(async () => undefined);
     const runPushSyncForShow = vi.fn(async (driveFileId: string, deps) => {
       await deps?.logSync?.({ driveFileId, outcome: "applied" });
-      return { outcome: "applied" as const, showId: "show-a" };
+      return { outcome: "applied" as const, showId: "show-a", parseWarnings: [] };
     });
 
     const result = await dispatchDriveWebhookFiles(activeChannel(), {
@@ -280,7 +289,12 @@ describe("/api/drive/webhook", () => {
     });
 
     expect(result).toEqual({
-      dispatched: [{ driveFileId: "file-a", result: { outcome: "applied", showId: "show-a" } }],
+      dispatched: [
+        {
+          driveFileId: "file-a",
+          result: { outcome: "applied", showId: "show-a", parseWarnings: [] },
+        },
+      ],
     });
     expect(logSync).toHaveBeenCalledWith({ driveFileId: "file-a", outcome: "applied" });
   });
@@ -295,7 +309,7 @@ describe("/api/drive/webhook", () => {
       .mockRejectedValueOnce(
         new SyncInfraError("readShowGateRow", "returned_error", new Error("db offline")),
       )
-      .mockResolvedValueOnce({ outcome: "applied" as const, showId: "show-b" });
+      .mockResolvedValueOnce({ outcome: "applied" as const, showId: "show-b", parseWarnings: [] });
 
     const result = await dispatchDriveWebhookFiles(activeChannel(), {
       listFolder: vi.fn(async () => [fileA, fileB]),
@@ -306,7 +320,10 @@ describe("/api/drive/webhook", () => {
     expect(result).toEqual({
       dispatched: [
         { driveFileId: "file-a", result: { outcome: "error", code: "SYNC_INFRA_ERROR" } },
-        { driveFileId: "file-b", result: { outcome: "applied", showId: "show-b" } },
+        {
+          driveFileId: "file-b",
+          result: { outcome: "applied", showId: "show-b", parseWarnings: [] },
+        },
       ],
     });
     expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
@@ -335,7 +352,11 @@ describe("/api/drive/webhook", () => {
       listFolder: vi.fn(async () => {
         throw listError;
       }),
-      runPushSyncForShow: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" })),
+      runPushSyncForShow: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-a",
+        parseWarnings: [],
+      })),
       logSync,
     });
 
@@ -358,7 +379,11 @@ describe("runPushSyncForShow", () => {
   test("dispatches the shared sync pipeline with mode='push'", async () => {
     const { runPushSyncForShow } = await import("@/lib/sync/runPushSyncForShow");
     const fileMeta = listedFile("file-1", "2026-05-09T12:05:00.000Z");
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+      parseWarnings: [],
+    }));
 
     const result = await runPushSyncForShow("file-1", {
       fileMeta,
@@ -366,7 +391,7 @@ describe("runPushSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     expect(processOneFile).toHaveBeenCalledWith("file-1", "push", fileMeta, {
       logSync: syncLogMock.writeSyncLog,
     });

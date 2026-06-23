@@ -49,7 +49,8 @@ export async function runReportReaper(
   deps: Pick<ReportReaperDeps, "sql"> = {},
 ): Promise<{ deleted: number }> {
   const sql =
-    deps.sql ?? (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as ReportReaperSql);
+    deps.sql ??
+    (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as ReportReaperSql);
   try {
     try {
       const rows = await sql.begin(async (tx) => {

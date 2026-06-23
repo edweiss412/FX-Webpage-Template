@@ -76,14 +76,22 @@ describe("Task 2.3 — wire mi11 hold write into the apply path", () => {
         binding: { bindingToken: "tok", modifiedTime: MT },
         verifyReelOnApply: false,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "a@new" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "a@new",
+          },
         ],
       });
       expect(result.outcome).toBe("applied");
 
       // (a) Alice's hold exists.
       const holds = await readHolds(tx, showId);
-      expect(holds.find((h) => h.entity_key === "Alice" && h.kind === "mi11_pending")).toBeDefined();
+      expect(
+        holds.find((h) => h.entity_key === "Alice" && h.kind === "mi11_pending"),
+      ).toBeDefined();
 
       const rows = await readCrew(tx, showId);
       // (c) Alice's email is STILL a@old (held) — proven by querying crew_members, not the parse.

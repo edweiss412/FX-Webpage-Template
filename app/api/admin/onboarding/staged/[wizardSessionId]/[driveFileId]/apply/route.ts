@@ -8,6 +8,14 @@ import {
 import type { ConcurrentSyncSkipped } from "@/lib/sync/lockedShowTx";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import {
+  readCurrentWizardSessionIdBestEffort,
+  WizardSessionSupersededRollbackError,
+} from "@/lib/sync/wizardSessionRollback";
+import {
+  upsertAdminAlert as defaultUpsertAdminAlert,
+  type UpsertAdminAlertInput,
+} from "@/lib/adminAlerts/upsertAdminAlert";
 
 export type WizardStagedRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -23,6 +31,8 @@ export type WizardStagedRouteDeps = {
     args: Parameters<typeof defaultApplyStaged>[0],
     deps?: ApplyStagedDeps,
   ) => Promise<ApplyStagedResult | ConcurrentSyncSkipped>;
+  upsertAdminAlert?: (input: UpsertAdminAlertInput) => Promise<string | null>;
+  readCurrentWizardSessionId?: () => Promise<string | null>;
 };
 
 type RouteContext = {
@@ -56,6 +66,9 @@ function depsWithDefaults(deps: WizardStagedRouteDeps) {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
     applyStaged: deps.applyStaged ?? defaultApplyStaged,
+    upsertAdminAlert: deps.upsertAdminAlert ?? defaultUpsertAdminAlert,
+    readCurrentWizardSessionId:
+      deps.readCurrentWizardSessionId ?? readCurrentWizardSessionIdBestEffort,
   };
 }
 
@@ -174,6 +187,32 @@ export async function handleWizardStagedApply(
     const mapped = statusForApplyResult(result);
     return errorResponse(mapped.status, mapped.code);
   } catch (error) {
+    if (error instanceof WizardSessionSupersededRollbackError) {
+      // applyStaged THROWS on an in-apply supersession (applyStaged.ts 1084/1105/1554):
+      // the wizard-scoped writes (pending_ingestion hard-fail upsert / approve UPDATE /
+      // the restage's unguarded deletes) would otherwise commit on a normal return.
+      // withPostgresSyncPipelineLock has already ABORTED the locked tx (rolled them
+      // back); map to the cataloged 409 + best-effort race alert (own service-role tx,
+      // post-rollback, never masks the 409) — identical to the discard/retry routes.
+      try {
+        await (deps.upsertAdminAlert ?? defaultUpsertAdminAlert)({
+          showId: null,
+          code: "WIZARD_SESSION_SUPERSEDED_RACE",
+          context: {
+            attempted_action: error.context.attemptedAction,
+            superseded_session_id: error.context.supersededSessionId,
+            current_session_id: await (
+              deps.readCurrentWizardSessionId ?? readCurrentWizardSessionIdBestEffort
+            )(),
+            pending_ingestion_id: error.context.pendingIngestionId ?? null,
+            drive_file_id: error.context.driveFileId,
+          },
+        });
+      } catch (alertError) {
+        console.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", alertError);
+      }
+      return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+    }
     // Never leak an empty 500. The Apply read mapper flags a corrupt parse_result
     // (→ STAGED_PARSE_RESULT_CORRUPT) for the common case, but ANY other unexpected
     // throw inside applyStaged (e.g. a deref of a corrupt-but-object field the

@@ -36,11 +36,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
-import {
-  addAdminEmail,
-  revokeAdminEmail,
-  AdminEmailsInfraError,
-} from "@/lib/data/adminEmails";
+import { addAdminEmail, revokeAdminEmail, AdminEmailsInfraError } from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 /**
@@ -54,6 +50,12 @@ export type AdminEmailActionResult =
   | { kind: "already_active"; email: string }
   | { kind: "re_add_required"; email: string; previously_revoked_at: string }
   | { kind: "last_admin_lockout"; email: string }
+  // M12.5-DEF-1: self-revoke refusal. Surfaced by the Server-Action guard
+  // below AND by a data-layer { kind: 'self_revoke_forbidden' } outcome
+  // (the RPC-boundary refusal). Rendered as SELF_REVOKE_FORBIDDEN inline by
+  // RevokeRowButton — distinct from last_admin_lockout, which is the
+  // can't-revoke-the-only-admin case (a different message).
+  | { kind: "self_revoke_forbidden"; email: string }
   // Task 6.4: the data-layer mutation hit an AdminEmailsInfraError
   // (transient DB / permissions fault) AFTER the requireAdminIdentity
   // gate passed. Surfaced inline + retryable by all three write UI
@@ -123,9 +125,7 @@ export async function addAdminAction(
     case "ok":
       revalidatePath("/admin/settings/admins");
       revalidatePath("/admin/settings");
-      return outcome.row?.email
-        ? { kind: "ok", email: outcome.row.email }
-        : { kind: "ok" };
+      return outcome.row?.email ? { kind: "ok", email: outcome.row.email } : { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
     case "already_active":
@@ -140,6 +140,10 @@ export async function addAdminAction(
       // Not reachable from addAdminEmail — keeps the switch exhaustive
       // for the discriminated outcome type.
       return { kind: "last_admin_lockout", email: outcome.email };
+    case "self_revoke_forbidden":
+      // Not reachable from addAdminEmail (revoke-only outcome) — kept for
+      // switch exhaustiveness over the shared AdminEmailWriteOutcome type.
+      return { kind: "self_revoke_forbidden", email: outcome.email };
   }
 }
 
@@ -161,19 +165,14 @@ export async function revokeAdminAction(
   // (a forged submit could target the actor's email), so the policy is ENFORCED
   // here at the mutation boundary against the authenticated actor's canonical
   // email — not just hidden in the UI (adversarial R5: a UI-only guard is a
-  // misleading trust boundary). Reuses the existing last_admin_lockout refusal
-  // kind (the closest "can't revoke this row" outcome; self-revoke is precisely
-  // the lockout vector). DB/RPC-level hardening (so a direct PostgREST rpc() call
-  // — an admin self-harming via a hand-forged request — is also refused) is
-  // tracked in DEFERRED.md.
+  // misleading trust boundary). M12.5-DEF-1 added the matching DB/RPC-level
+  // hardening (revoke_admin_email_rpc returns 'self_revoke_forbidden'), so a
+  // direct PostgREST rpc() call that bypasses this action is ALSO refused; the
+  // data-layer outcome maps to the same { kind: 'self_revoke_forbidden' } below.
   const actorCanonical = canonicalize(identity.email);
   const targetCanonical = canonicalize(rawEmail);
-  if (
-    actorCanonical !== null &&
-    targetCanonical !== null &&
-    actorCanonical === targetCanonical
-  ) {
-    return { kind: "last_admin_lockout", email: targetCanonical };
+  if (actorCanonical !== null && targetCanonical !== null && actorCanonical === targetCanonical) {
+    return { kind: "self_revoke_forbidden", email: targetCanonical };
   }
 
   // Task 6.4: wrap ONLY the data call; gate stays outside (see
@@ -193,8 +192,15 @@ export async function revokeAdminAction(
       return { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
+    case "self_revoke_forbidden":
+      // M12.5-DEF-1: the RPC refused the self-revoke at the DB boundary
+      // (action-level guard above bypassed, e.g. actor email unavailable).
+      return { kind: "self_revoke_forbidden", email: outcome.email };
     case "last_admin_lockout":
-      return { kind: "last_admin_lockout", email: outcome.email };
+      // Transitional: pre-M12.5-DEF-1 RPC self-revoke-of-only-admin status.
+      // Surface it as the self-revoke refusal too (same vector, same UX) so
+      // the apply-window response is consistent with the new code.
+      return { kind: "self_revoke_forbidden", email: outcome.email };
     case "already_active":
       // Defensive — revokeAdminEmail returns this kind only when the
       // email never existed (mis-named in the data layer for type

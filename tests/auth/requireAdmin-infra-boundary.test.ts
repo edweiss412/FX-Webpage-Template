@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockState = vi.hoisted(() => ({
   headers: new Headers(),
-  getUserImpl: vi.fn(),
+  getClaimsImpl: vi.fn(),
   rpcImpl: vi.fn(),
 }));
 
@@ -13,7 +13,7 @@ vi.mock("next/headers", () => ({
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(async () => ({
-    auth: { getUser: mockState.getUserImpl },
+    auth: { getClaims: mockState.getClaimsImpl },
     rpc: mockState.rpcImpl,
   })),
 }));
@@ -26,41 +26,34 @@ describe("requireAdmin → AdminInfraError boundary", () => {
     mockState.headers = new Headers();
     process.env.ENABLE_TEST_AUTH = "true";
     process.env.TEST_AUTH_SECRET = "test-secret-fixture";
-    mockState.getUserImpl.mockResolvedValue({
-      data: { user: { email: "edweiss412@gmail.com" } },
+    mockState.getClaimsImpl.mockResolvedValue({
+      data: { claims: { email: "edweiss412@gmail.com" } },
       error: null,
     });
+    // is_session_live + is_admin both resolve true on the happy path.
     mockState.rpcImpl.mockResolvedValue({ data: true, error: null });
   });
 
-  it("getUser() throws → requireAdmin re-throws AdminInfraError", async () => {
-    mockState.getUserImpl.mockRejectedValue(
-      new Error("supabase: connection refused"),
-    );
-    const { AdminInfraError, requireAdmin } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+  it("getClaims() throws → requireAdmin re-throws AdminInfraError", async () => {
+    mockState.getClaimsImpl.mockRejectedValue(new Error("supabase: connection refused"));
+    const { AdminInfraError, requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });
 
-  it("rpc('is_admin') throws → requireAdmin re-throws AdminInfraError", async () => {
+  it("gate RPC throws → requireAdmin re-throws AdminInfraError", async () => {
     mockState.rpcImpl.mockRejectedValue(new Error("supabase: rpc network failure"));
-    const { AdminInfraError, requireAdmin } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+    const { AdminInfraError, requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });
 
-  it("rpc('is_admin') returns { error } → requireAdmin re-throws AdminInfraError", async () => {
+  it("gate RPC returns { error } → requireAdmin re-throws AdminInfraError", async () => {
     mockState.rpcImpl.mockResolvedValue({
       data: null,
       error: { message: "PGRST301: timeout" },
     });
-    const { AdminInfraError, requireAdmin } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+    const { AdminInfraError, requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });
@@ -70,9 +63,7 @@ describe("requireAdmin → AdminInfraError boundary", () => {
       "X-Help-Force-Infra-Fail": "1",
       Authorization: "Bearer test-secret-fixture",
     });
-    const { AdminInfraError, requireAdmin } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+    const { AdminInfraError, requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
     expect(createSupabaseServerClient).not.toHaveBeenCalled();

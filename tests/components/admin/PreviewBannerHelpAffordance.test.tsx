@@ -159,4 +159,3 @@ describe("PreviewBanner (§9.3)", () => {
     expect(screen.getByTestId("admin-preview-banner-name").textContent).toBe("A. New Hire");
   });
 });
-

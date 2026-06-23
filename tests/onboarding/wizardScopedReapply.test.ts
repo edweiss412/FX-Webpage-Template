@@ -49,6 +49,12 @@ class FakeWizardStagedTx {
     this.lockedDriveIds.push(params[0] as string);
     return { locked: true } as T;
   }
+  // The wizard restage builds a PostgresOnboardingScanTx over holdPort() to stage
+  // wizard-scoped on the locked connection. These tests mock the scan, so the
+  // returned executor is never actually queried — a stub satisfies the wiring.
+  holdPort() {
+    return { unsafe: async (): Promise<unknown[]> => [] };
+  }
 }
 
 function deps(
@@ -63,7 +69,10 @@ function deps(
       wizardSessionId: W1,
       stagedId: STAGED,
     })),
-    discardStagedUnlocked: vi.fn(async () => ({ outcome: "discarded" as const, variant: "try_again" as const })),
+    discardStagedUnlocked: vi.fn(async () => ({
+      outcome: "discarded" as const,
+      variant: "try_again" as const,
+    })),
     ...overrides,
   };
 }
@@ -90,6 +99,39 @@ describe("wizard-scoped staged apply/discard routes", () => {
     expect(await json(response)).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  // BL-APPLYSTAGED-SUPERSESSION-ROLLBACK: applyStaged now THROWS
+  // WizardSessionSupersededRollbackError on an in-apply supersession that would
+  // otherwise commit partial wizard writes (applyStaged.ts 1084/1105/1554). The
+  // wizard apply route must map that throw to 409 + a WIZARD_SESSION_SUPERSEDED_RACE
+  // alert — NOT the body-less 500 the backstop above would otherwise produce.
+  test("apply maps a thrown WizardSessionSupersededRollbackError to 409 + race alert (attempted_action apply)", async () => {
+    const tx = new FakeWizardStagedTx();
+    const alerts: Array<{ code: string; context: Record<string, unknown> }> = [];
+    const response = await handleWizardStagedApply(applyRequest(), context, {
+      ...deps(tx),
+      applyStaged: vi.fn(async () => {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: "apply",
+          supersededSessionId: W1,
+          driveFileId: "file-1",
+        });
+      }),
+      readCurrentWizardSessionId: vi.fn(async () => "99999999-9999-4999-8999-999999999999"),
+      upsertAdminAlert: vi.fn(async (input) => {
+        alerts.push({ code: input.code, context: input.context as Record<string, unknown> });
+        return "alert-id";
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({
+      code: "WIZARD_SESSION_SUPERSEDED_RACE",
+      context: { attempted_action: "apply", drive_file_id: "file-1" },
+    });
   });
 
   test("apply delegates to applyStaged with sourceScope wizard", async () => {
@@ -278,7 +320,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
     }> = [];
     const depsForApply = applyDeps({
       readWizardPendingSyncForApply: vi.fn(async () => currentPending),
-      runOnboardingScan: vi.fn(async () => {
+      prepareOnboardingFiles: vi.fn(async () => []),
+      scanOnboardingPreparedFiles: vi.fn(async () => {
         currentPending = freshPending;
         upsertedRows.push({
           stagedId: freshPending.stagedId,
@@ -317,7 +360,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
     let currentPending: PendingSyncForApply | null = pendingSync();
     const depsForApply = applyDeps({
       readWizardPendingSyncForApply: vi.fn(async () => currentPending),
-      runOnboardingScan: vi.fn(async () => {
+      prepareOnboardingFiles: vi.fn(async () => []),
+      scanOnboardingPreparedFiles: vi.fn(async () => {
         currentPending = null;
         return {
           outcome: "completed" as const,
@@ -335,7 +379,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
     let currentPending = pendingSync();
     const depsForApply = applyDeps({
       readWizardPendingSyncForApply: vi.fn(async () => currentPending),
-      runOnboardingScan: vi.fn(async () => {
+      prepareOnboardingFiles: vi.fn(async () => []),
+      scanOnboardingPreparedFiles: vi.fn(async () => {
         currentPending = pendingSync({
           stagedId: "33333333-3333-4333-8333-333333333333",
           stagedModifiedTime: "2026-05-18T12:02:00.000Z",
@@ -382,12 +427,14 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
   function publishDeps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps & {
     approveWizardPendingSync: ReturnType<typeof vi.fn>;
     markWizardManifestApplied: ReturnType<typeof vi.fn>;
-    runOnboardingScan: ReturnType<typeof vi.fn>;
+    prepareOnboardingFiles: ReturnType<typeof vi.fn>;
+    scanOnboardingPreparedFiles: ReturnType<typeof vi.fn>;
   } {
     const approveWizardPendingSync = vi.fn(async () => true);
     const markWizardManifestApplied = vi.fn(async () => true);
     // Only reached if the guard FALSE-fires (revision_race -> inline restage).
-    const runOnboardingScan = vi.fn(async () => ({
+    const prepareOnboardingFiles = vi.fn(async () => []);
+    const scanOnboardingPreparedFiles = vi.fn(async () => ({
       outcome: "completed" as const,
       processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
     }));
@@ -399,13 +446,15 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
       readPendingFolderId: vi.fn(async () => FOLDER),
       approveWizardPendingSync,
       markWizardManifestApplied,
-      runOnboardingScan,
+      prepareOnboardingFiles,
+      scanOnboardingPreparedFiles,
       ...overrides,
     });
     return Object.assign(base, {
       approveWizardPendingSync,
       markWizardManifestApplied,
-      runOnboardingScan,
+      prepareOnboardingFiles,
+      scanOnboardingPreparedFiles,
     });
   }
 
@@ -437,8 +486,10 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
     // Apply actually reached the publish step (not just "didn't 409").
     expect(deps.approveWizardPendingSync).toHaveBeenCalledTimes(1);
     expect(deps.markWizardManifestApplied).toHaveBeenCalledTimes(1);
-    // The guard did NOT false-fire, so no inline rescan happened.
-    expect(deps.runOnboardingScan).not.toHaveBeenCalled();
+    // The guard did NOT false-fire, so no inline rescan happened (neither the
+    // pre-lock prepare nor the under-lock staging ran).
+    expect(deps.prepareOnboardingFiles).not.toHaveBeenCalled();
+    expect(deps.scanOnboardingPreparedFiles).not.toHaveBeenCalled();
   });
 
   // TRUE POSITIVE (guard preserved): a real edit bumps modifiedTime past the
@@ -454,7 +505,8 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
     });
     const freshStagedId = "33333333-3333-4333-8333-333333333333";
     const approveWizardPendingSync = vi.fn(async () => true);
-    const runOnboardingScan = vi.fn(async () => {
+    const prepareOnboardingFiles = vi.fn(async () => []);
+    const scanOnboardingPreparedFiles = vi.fn(async () => {
       currentPending = pendingSync({
         stagedId: freshStagedId,
         stagedModifiedTime: NEW_INSTANT,
@@ -469,7 +521,8 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
       readPendingFolderId: vi.fn(async () => FOLDER),
       fetchDriveFileMetadata: driveMetaAt(NEW_INSTANT),
       approveWizardPendingSync,
-      runOnboardingScan,
+      prepareOnboardingFiles,
+      scanOnboardingPreparedFiles,
     });
 
     const result = await applyStaged(wizardApplyArgs(), deps);
@@ -479,7 +532,8 @@ describe("onboarding apply revision-race — real guard, postgres.js Date staged
       code: "STAGED_PARSE_RESTAGED_INLINE",
       stagedId: freshStagedId,
     });
-    expect(runOnboardingScan).toHaveBeenCalledTimes(1);
+    expect(prepareOnboardingFiles).toHaveBeenCalledTimes(1);
+    expect(scanOnboardingPreparedFiles).toHaveBeenCalledTimes(1);
     expect(approveWizardPendingSync).not.toHaveBeenCalled();
   });
 });
@@ -492,12 +546,12 @@ function pendingSync(overrides: Partial<PendingSyncForApply> = {}): PendingSyncF
     wizardSessionId: W1,
     baseModifiedTime: null,
     stagedModifiedTime: "2026-05-18T12:00:00.000Z",
-    parseResult: ({
+    parseResult: {
       show: { title: "Demo Show" },
       crewMembers: [],
       rooms: [],
       warnings: [],
-    } as unknown) as PendingSyncForApply["parseResult"],
+    } as unknown as PendingSyncForApply["parseResult"],
     triggeredReviewItems: [],
     reviewItemsCorrupt: false,
     parseResultCorrupt: false,

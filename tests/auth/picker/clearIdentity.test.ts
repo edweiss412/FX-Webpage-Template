@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { COOKIE_NAME, decodePickerCookie, encodePickerCookie } from "@/lib/auth/picker/cookieEnvelope";
-import { clearIdentity, clearIdentityAndSkip, clearIdentityCore } from "@/lib/auth/picker/clearIdentity";
+import {
+  COOKIE_NAME,
+  decodePickerCookie,
+  encodePickerCookie,
+} from "@/lib/auth/picker/cookieEnvelope";
+import {
+  clearIdentity,
+  clearIdentityAndSkip,
+  clearIdentityCore,
+} from "@/lib/auth/picker/clearIdentity";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
@@ -39,7 +47,8 @@ beforeEach(() => {
   cookieSet.mockReset();
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(cookies).mockResolvedValue({
-    get: (name: string) => (name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined),
+    get: (name: string) =>
+      name === COOKIE_NAME && existingCookie ? { name, value: existingCookie } : undefined,
     set: cookieSet,
   } as never);
 });
@@ -57,7 +66,9 @@ describe("clearIdentity", () => {
       KEY,
     );
 
-    await expect(clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID })).resolves.toEqual({
+    await expect(
+      clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }),
+    ).resolves.toEqual({
       ok: true,
     });
 
@@ -69,9 +80,14 @@ describe("clearIdentity", () => {
   });
 
   test("clears cookie when the envelope becomes empty", async () => {
-    existingCookie = encodePickerCookie({ v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } }, KEY);
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
 
-    await expect(clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID })).resolves.toEqual({
+    await expect(
+      clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }),
+    ).resolves.toEqual({
       ok: true,
     });
 
@@ -87,16 +103,23 @@ describe("clearIdentity", () => {
       ok: false,
       code: "PICKER_INVALID_INPUT",
     });
-    await expect(clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: "not-uuid" })).resolves.toEqual({
+    await expect(
+      clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: "not-uuid" }),
+    ).resolves.toEqual({
       ok: false,
       code: "PICKER_INVALID_INPUT",
     });
   });
 
   test("clearIdentityAndSkip clears then redirects to gate skip", async () => {
-    existingCookie = encodePickerCookie({ v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } }, KEY);
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
 
-    await expect(clearIdentityAndSkip(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }))).rejects.toMatchObject({
+    await expect(
+      clearIdentityAndSkip(fd({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID })),
+    ).rejects.toMatchObject({
       digest: expect.stringContaining(`/show/${SLUG}/${TOKEN}?gate=skip`),
     });
     expect(cookieSet).toHaveBeenCalled();

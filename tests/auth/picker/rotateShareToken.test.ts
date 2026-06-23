@@ -38,7 +38,9 @@ describe("rotateShareToken", () => {
   });
 
   test("returns the new 64-hex share token and picker epoch from the cookie-bound RPC", async () => {
-    await expect(rotateShareToken({ showId: SHOW_ID, previousShareToken: OLD_TOKEN })).resolves.toEqual({
+    await expect(
+      rotateShareToken({ showId: SHOW_ID, previousShareToken: OLD_TOKEN }),
+    ).resolves.toEqual({
       ok: true,
       new_share_token: NEW_TOKEN,
       new_epoch: 9,

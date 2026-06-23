@@ -1,22 +1,55 @@
 # Per-show panel
 
-`/admin/show/<slug>` is the per-show parse panel. You land here from the dashboard, either by opening a show row or by following a **Changes to review** badge. The panel is organized as stacked sections, plus an optional staged-review card that surfaces above them when needed: preview as a crew member, parse warnings, share and access, and the crew section, with a quiet [sync-status footer](#sync-health) at the bottom of the page. On a quiet show the staged-review card is absent and the sections below give you a quick read of what the sheet looks like to the app.
+The per-show panel (`/admin/show/<slug>`) is what one show looks like to the app. You land here from the dashboard, by opening a show row or following a **Changes to review** badge.
 
-<h2 id="staged-review-card">Staged review card</h2>
+The panel's main parts:
 
-A staged-review card appears at the top of the panel whenever the app has staged edits for this show that haven't been Applied yet. It carries an eyebrow telling you where the change came from (**Auto sync**, **Drive push**, **Manual sync**, or **Onboarding scan**), a one-line parse summary as its heading, and lists every triggered review item with a plain-language description. It also shows the diff between the prior approved version and the staged one for each affected section (crew, hotels, rooms, and so on), and gives you the Apply and Discard buttons.
+- **Alerts and parse warnings.** Anything the app flagged on the latest sync, surfaced at the top.
+- **Crew & share access.** The crew roster (each row has a **Preview as** link), the show's share-link, and the share-token controls.
+- **Changes.** The show's feed of what synced recently: edits applied on their own, plus anything waiting for your OK. ([Jump](#changes-feed).)
+- **[Sync-status footer](#sync-health).** A quiet line at the bottom showing how the last sync went.
 
-The card also names the version you're approving: "staged from edits Doug made on …" with the staged modified time, so there's no guessing about which save you're looking at. While the card is present, the three sections below render underneath as informational context.
+On a quiet show the Changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
 
-For a full walkthrough of the Apply versus Discard decision, see [Review queues](/help/admin/review-queues#re-stage).
+<h2 id="changes-feed">The changes feed</h2>
+
+Most edits you make to a live show's sheet apply on their own. Each one lands in the show's **Changes** feed, newest first, with a plain-language summary of what changed:
+
+- **Auto-applied edits.** Crew added, removed, or renamed; schedule, field, and diagram or reel changes. Crew see them on their page right away, and most crew add, remove, and rename entries can be reversed with the **Undo this change** button.
+- **A crew member's identity change** (usually an email change, sometimes a rename or removal). This is the one edit that waits for your OK: the entry shows **Approve** and **Reject**, so a wrong or accidental reassignment never goes live on its own. Until you decide, that person's prior details stay in effect.
+
+When nothing has synced recently, the feed reads "No changes yet."
+
+Brand-new sheets are different: a sheet the app has never published waits for your sign-off before it goes live, and you review that one from the [Needs attention inbox](/help/admin/dashboard#pending-ingestion) (see [Review queues](/help/admin/review-queues#first-seen)), not here.
 
 <h2 id="sync-health">Sync health</h2>
 
 Sync health lives in a quiet footer at the bottom of the show page: a single status line that tells you how the last sync with this show's sheet went. It reads **"Last synced …"** with how long ago when everything is fine, or a plain-language problem label when it isn't (the same labels the dashboard's [Sync status column](/help/admin/dashboard#active-shows) uses). The small **?** next to the line opens a short explanation and links back here.
 
-The page-level actions sit on the right side of the same footer. **Re-sync from Drive** forces a fresh read of the sheet right now. Tap it when you've just edited the sheet and don't want to wait for the next scheduled poll, or when a previous attempt errored and you've fixed the cell it complained about. While it runs, the label flips to "Syncing…". On an archived show the button is replaced by a note that re-sync is paused while the show is archived.
+The page-level actions sit on the right side of the same footer. **Re-sync from Drive** makes the app read the sheet again right now, instead of waiting for the next scheduled poll. Use it when:
 
-If syncs keep failing in a row, the most likely cause is in the sheet itself: a renamed tab, a column the parser expected that's gone missing, or a row shape change the parser doesn't recognize. Open the sheet directly in Google Drive, fix the cell the error points at, and come back here to tap **Re-sync from Drive**. If the failures don't have an obvious cause in the sheet, send the page link and the error text to Eric.
+- You've just edited the sheet and want the change to land now.
+- You're fixing a cell a previous sync complained about.
+
+While it runs, the label flips to "Syncing…".
+
+<Callout type="note">
+  On an archived show, re-sync is paused: the button is replaced by a note until you unarchive the
+  show.
+</Callout>
+
+If syncs keep failing in a row, the most likely cause is in the sheet itself: a renamed tab, a column the app expected that's gone missing, or a row layout it doesn't recognize.
+
+<Step n={1}>Open the sheet directly in Google Drive.</Step>
+
+<Step n={2}>Fix the cell the error points at.</Step>
+
+<Step n={3}>Come back here and tap **Re-sync from Drive**.</Step>
+
+<Callout type="note">
+  If the failures don't have an obvious cause in the sheet, send the page link and the error text to
+  Eric.
+</Callout>
 
 <h2 id="preview-as-crew-member">Preview as a crew member</h2>
 
@@ -24,8 +57,10 @@ A read-only entry point that opens the show through a specific crew member's eye
 
 ## Parse warnings
 
-A list of warnings the parser flagged on the most recent sync. These are soft signals, not hard failures. The sync still applied and crew can still see the page. For the catalog of warning meanings and what to do about each one, see [Parse warnings](/help/admin/parse-warnings).
+The alerts area at the top of the panel is where the app surfaces any soft signals it flagged on the latest sync. These are not hard failures: the sync still applied and crew can still see the page. For the catalog of warning meanings and what to do about each one, see [Parse warnings](/help/admin/parse-warnings).
 
 <h2 id="crew-preview-links">Crew section and share access</h2>
 
-The Share & access section shows the **Current share-link** for the show, a **Copy** button, a **Rotate share-token** control, and **Reset picker selections** for cases where someone picked the wrong identity. Below it, the crew section lists one row per crew member parsed from the sheet, labeled with the crew member's name and role. The preview-as entry point for any specific crew member lives in the [Preview as a crew member](#preview-as-crew-member) section above, not in this section. For the deeper sharing workflow follow [Sharing crew links](/help/admin/sharing-links).
+The Share & access section shows the **Current share-link** for the show, a **Copy** button, a **Rotate share-token** control, and **Reset picker selections** for cases where someone picked the wrong identity.
+
+Below it, the crew section lists one row per crew member from the sheet, with their name and role. To preview the page as a specific crew member, use the [Preview as a crew member](#preview-as-crew-member) section above. For the deeper sharing workflow follow [Sharing crew links](/help/admin/sharing-links).

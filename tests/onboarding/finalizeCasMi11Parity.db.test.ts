@@ -249,6 +249,7 @@ async function runCronMi11Twin(driveFileId: string): Promise<unknown> {
     resolvedMode: "cron",
     binding: { bindingToken: STAGED, modifiedTime: STAGED },
     parseResult: makeParse() as never,
+    sourceAnchors: {},
   };
   return await withPostgresSyncPipelineLock(driveFileId, (lockedTx) =>
     processOneFile_unlocked(lockedTx, driveFileId, "cron", fileMeta, {}, prepared),

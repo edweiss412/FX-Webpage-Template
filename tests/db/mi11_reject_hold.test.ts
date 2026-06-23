@@ -39,7 +39,11 @@ describe("mi11_reject_hold — disposition-aware undo_override + reject log (Tas
   it("email_change → undo_override crew_email, no baseline, old email kept, reject log", async () => {
     const show = await seedShow(mi11Sql);
     await seedCrew(mi11Sql, show.showId, "Alice", { email: "alice@old" });
-    const proposed: Disposition = { disposition: "email_change", name: "Alice", email: "alice@new" };
+    const proposed: Disposition = {
+      disposition: "email_change",
+      name: "Alice",
+      email: "alice@new",
+    };
     const hold = await seedHold(mi11Sql, show, {
       domain: "crew_email",
       entityKey: "Alice",

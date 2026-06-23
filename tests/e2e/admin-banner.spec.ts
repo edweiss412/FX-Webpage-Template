@@ -155,9 +155,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin)", () => {
     // appears; the original Resolve button unmounts.
     await page.click("[data-testid=admin-alert-resolve-button]");
     await expect(page.locator("[data-testid=admin-alert-confirm-row]")).toBeVisible();
-    await expect(
-      page.locator("[data-testid=admin-alert-confirm-resolve-button]"),
-    ).toBeVisible();
+    await expect(page.locator("[data-testid=admin-alert-confirm-resolve-button]")).toBeVisible();
     await expect(page.locator("[data-testid=admin-alert-cancel-button]")).toBeVisible();
 
     // Second tap: Confirm resolve submits the parent <form> Server Action
@@ -211,9 +209,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin)", () => {
     expect(resolvedAt).toBeNull();
   });
 
-  test("non-admin user: /admin/dev → 403 from the layout's requireAdmin gate", async ({
-    page,
-  }) => {
+  test("non-admin user: /admin/dev → 403 from the layout's requireAdmin gate", async ({ page }) => {
     // This test is about requireAdmin, NOT the banner — it stays on /admin/dev
     // (a valid admin-gated route). M12.3: the global banner no longer mounts on
     // /admin/dev anyway (dashboard-only), so the body-absence assertion below is
@@ -417,10 +413,9 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
       // Each route is admin-gated and must render for ADMIN_FIXTURE (200), so a
       // count-0 result means "banner genuinely absent", not "route 403'd".
       expect(response?.status(), `${route} should render for admin`).toBe(200);
-      await expect(
-        banner,
-        `global banner must NOT mount on ${route} (dashboard-only)`,
-      ).toHaveCount(0);
+      await expect(banner, `global banner must NOT mount on ${route} (dashboard-only)`).toHaveCount(
+        0,
+      );
     }
   });
 
@@ -525,8 +520,8 @@ test.describe("admin AlertBanner — RECON-1 behavior (no-JS / remount / a11y)",
     // narrow enough to keep `shrink-0` and never needs truncation at any
     // viewport, while the EXACT count is preserved in the sr-only span asserted
     // above. Both assertions read DOM text content (viewport-independent).
-    await expect(
-      page.locator("[data-testid=admin-alert-badge] [aria-hidden=true]"),
-    ).toHaveText(/^99\+$/);
+    await expect(page.locator("[data-testid=admin-alert-badge] [aria-hidden=true]")).toHaveText(
+      /^99\+$/,
+    );
   });
 });

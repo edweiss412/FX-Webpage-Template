@@ -3,6 +3,7 @@ import {
   type MessageCode,
   type MessageCatalogEntry,
 } from "@/lib/messages/catalog";
+import { stripEmphasis } from "@/lib/messages/collapsedSummary";
 
 export { MESSAGE_CATALOG, type MessageCode, type MessageCatalogEntry };
 
@@ -10,7 +11,16 @@ export type MessageParams = Record<string, string | number | boolean | null | un
 
 const PLACEHOLDER_RE = /<([a-zA-Z_][a-zA-Z0-9_-]*)>/g;
 
-function interpolate(template: string | null, params: MessageParams | undefined): string | null {
+/**
+ * Exported for components/messages/renderEmphasis.tsx, which must
+ * interpolate per TEXT NODE after parsing emphasis on the raw template
+ * (param values are opaque text, never markup — Codex R1). Same function
+ * messageFor uses; the two cannot drift.
+ */
+export function interpolate(
+  template: string | null,
+  params: MessageParams | undefined,
+): string | null {
   if (template === null) return null;
   if (!params) return template;
   return template.replace(PLACEHOLDER_RE, (match, key) => {
@@ -19,13 +29,27 @@ function interpolate(template: string | null, params: MessageParams | undefined)
     // catalog placeholders written with hyphenated keys (<sheet-name>,
     // <crew-count>). Producers don't have to know which form the spec
     // chose; the renderer accepts either.
-    const value =
-      params[key] ??
-      params[key.replace(/-/g, "_")] ??
-      params[key.replace(/_/g, "-")];
+    const value = params[key] ?? params[key.replace(/-/g, "_")] ?? params[key.replace(/_/g, "-")];
     if (value === undefined || value === null) return match;
     return String(value);
   });
+}
+
+/**
+ * Plaintext analog of `renderCatalogEmphasis` (components/messages/renderEmphasis):
+ * strip the catalog's Markdown emphasis markers off the TEMPLATE, then
+ * interpolate params into the marker-free template. Use for surfaces that have
+ * no JSX to carry <em>/<strong> and no Markdown renderer — email bodies and the
+ * needs-attention inbox copy string — so the markers are removed rather than
+ * shown literally (crew/Doug would otherwise see "_Sheet_" or "*Sheet*").
+ *
+ * Param-safe (Codex R1): markers are stripped BEFORE interpolation, and the
+ * catalog placeholders (`<sheet-name>`) contain no marker characters, so a
+ * param value that itself contains `*` or `_` (a sheet literally named
+ * "Foo *draft*") is inserted as opaque text and survives byte-for-byte.
+ */
+export function plainCatalogText(template: string, params?: MessageParams): string {
+  return interpolate(stripEmphasis(template), params) ?? "";
 }
 
 /**

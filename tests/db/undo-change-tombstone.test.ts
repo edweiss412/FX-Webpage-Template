@@ -30,7 +30,10 @@ describe("undo_change Direction B — crew_added tombstone (F11)", () => {
   it("undone add is not re-created while sheet still lists them; removing from sheet releases the tombstone", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([BOB]);
     await runAutoApply(driveFileId, { crew: [BOB, CAROL] }); // adds Carol
-    const added = await readChangeLog(showId, { change_kind: "crew_added", entity_ref: CAROL.name });
+    const added = await readChangeLog(showId, {
+      change_kind: "crew_added",
+      entity_ref: CAROL.name,
+    });
     expect(added.before_image).toBeNull();
 
     const res = await callUndoAsAdmin(added.id);
@@ -70,7 +73,10 @@ describe("undo_change Direction B — crew_added tombstone (F11)", () => {
     await holdsSql`
       update public.crew_members set claimed_via_oauth_at = now()
        where show_id = ${showId} and name = ${CAROL.name}`;
-    const added = await readChangeLog(showId, { change_kind: "crew_added", entity_ref: CAROL.name });
+    const added = await readChangeLog(showId, {
+      change_kind: "crew_added",
+      entity_ref: CAROL.name,
+    });
     const res = await callUndoAsAdmin(added.id);
     expect(res.ok).toBe(true);
     // Carol's row (and thus her claim) is gone.
@@ -80,7 +86,10 @@ describe("undo_change Direction B — crew_added tombstone (F11)", () => {
   it("double-undo of a tombstone → 2nd is UNDO_SUPERSEDED; exactly one tombstone hold", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([BOB]);
     await runAutoApply(driveFileId, { crew: [BOB, CAROL] });
-    const added = await readChangeLog(showId, { change_kind: "crew_added", entity_ref: CAROL.name });
+    const added = await readChangeLog(showId, {
+      change_kind: "crew_added",
+      entity_ref: CAROL.name,
+    });
     expect((await callUndoAsAdmin(added.id)).ok).toBe(true);
     const second = await callUndoAsAdmin(added.id);
     expect(second.ok).toBe(false);

@@ -67,7 +67,8 @@ function classifyShowsCount(filters: Array<{ op: string; args: unknown[] }>): Co
     filters.some((f) => f.op === op && pred(f.args));
 
   if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "drive_error")) return "drive_error";
-  if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "sheet_unavailable")) return "sheet_unavailable";
+  if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "sheet_unavailable"))
+    return "sheet_unavailable";
   if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "parse_error")) return "parse_error";
 
   // unknown-status count: .not(last_sync_status,'in',...) + .not(last_sync_status,'is',null)
@@ -85,7 +86,15 @@ function classifyShowsCount(filters: Array<{ op: string; args: unknown[] }>): Co
     return "null_status_fresh_ts";
   }
   // stale_severe: an .or(...) clause referencing 6 hours / null last_synced_at
-  if (has("or", (a) => typeof a[0] === "string" && /last_synced_at/.test(a[0]) && /is\.null|06:00:00|6 hour|21600|2026-06-01T06/.test(a[0]))) {
+  if (
+    has(
+      "or",
+      (a) =>
+        typeof a[0] === "string" &&
+        /last_synced_at/.test(a[0]) &&
+        /is\.null|06:00:00|6 hour|21600|2026-06-01T06/.test(a[0]),
+    )
+  ) {
     return "stale_severe";
   }
   // stale_moderate: lt last_synced_at < now-1h AND gte >= now-6h (two range filters, no or())
@@ -107,10 +116,12 @@ function makeShowsBuilder(isHeadCount: boolean) {
   void orderApplied;
 
   const builder: Record<string, unknown> = {};
-  const record = (op: string) => (...args: unknown[]) => {
-    filters.push({ op, args });
-    return builder;
-  };
+  const record =
+    (op: string) =>
+    (...args: unknown[]) => {
+      filters.push({ op, args });
+      return builder;
+    };
   builder.select = (_cols: unknown, opts?: { count?: string; head?: boolean }) => {
     selectIsHead = Boolean(opts?.head);
     return builder;
@@ -148,9 +159,8 @@ function makeShowsBuilder(isHeadCount: boolean) {
     return { data: row ? [row] : [], count: null, error: null };
   };
 
-  (builder as { then: unknown }).then = (
-    onfulfilled?: ((v: unknown) => unknown) | null,
-  ) => (onfulfilled ? onfulfilled(resolve()) : undefined);
+  (builder as { then: unknown }).then = (onfulfilled?: ((v: unknown) => unknown) | null) =>
+    onfulfilled ? onfulfilled(resolve()) : undefined;
 
   return builder;
 }
@@ -166,9 +176,10 @@ function makeWatchBuilder() {
     if (sbMock.errorOnWatch) return { data: null, error: { message: "seeded watch error" } };
     return { data: sbMock.watchRow, error: null };
   };
-  (builder as { then: unknown }).then = (
-    onfulfilled?: ((v: unknown) => unknown) | null,
-  ) => (onfulfilled ? onfulfilled({ data: sbMock.watchRow, error: sbMock.errorOnWatch ? { message: "x" } : null }) : undefined);
+  (builder as { then: unknown }).then = (onfulfilled?: ((v: unknown) => unknown) | null) =>
+    onfulfilled
+      ? onfulfilled({ data: sbMock.watchRow, error: sbMock.errorOnWatch ? { message: "x" } : null })
+      : undefined;
   return builder;
 }
 
@@ -222,7 +233,11 @@ describe("fetchDriveConnectionHealth", () => {
     sbMock.watchRow = liveWatch;
     sbMock.counts = { active: 501, drive_error: 1 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "sync_drive_error", code: "DRIVE_FETCH_FAILED" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "sync_drive_error",
+      code: "DRIVE_FETCH_FAILED",
+    });
     // attentionCount = winning predicate count (1), NOT syncingCount (501).
     expect((r as { attentionCount: number }).attentionCount).toBe(1);
     expect((r as { syncingCount: number }).syncingCount).toBe(501);
@@ -232,7 +247,11 @@ describe("fetchDriveConnectionHealth", () => {
     sbMock.watchRow = liveWatch;
     sbMock.counts = { active: 2, stale_severe: 1 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "stale_severe", code: "SYNC_DELAYED_SEVERE" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "stale_severe",
+      code: "SYNC_DELAYED_SEVERE",
+    });
     expect((r as { attentionCount: number }).attentionCount).toBe(1);
   });
 
@@ -244,13 +263,21 @@ describe("fetchDriveConnectionHealth", () => {
     };
     sbMock.counts = { active: 5 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "watch_expired", code: "WATCH_CHANNEL_ORPHANED" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "watch_expired",
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
     // watch_* attentionCount = whole fleet (syncingCount).
     expect((r as { attentionCount: number }).attentionCount).toBe(5);
   });
 
   it("(d) precedence — watch inactive + a stale show → watch_inactive wins (not stale)", async () => {
-    sbMock.watchRow = { status: "orphaned", expires_at: null, activated_at: new Date(NOW_MS - 3_600_000).toISOString() };
+    sbMock.watchRow = {
+      status: "orphaned",
+      expires_at: null,
+      activated_at: new Date(NOW_MS - 3_600_000).toISOString(),
+    };
     sbMock.counts = { active: 3, stale_severe: 1, stale_moderate: 1 };
     const r = await fetchDriveConnectionHealth();
     expect(r).toMatchObject({ health: "warn", reason: "watch_inactive" });
@@ -269,7 +296,11 @@ describe("fetchDriveConnectionHealth", () => {
       sbMock.watchRow = liveWatch;
       sbMock.counts = { active: 1, unknown_status: 1, ...stale };
       const r = await fetchDriveConnectionHealth();
-      expect(r).toMatchObject({ health: "warn", reason: "sync_unknown", code: "SYNC_STATUS_UNKNOWN" });
+      expect(r).toMatchObject({
+        health: "warn",
+        reason: "sync_unknown",
+        code: "SYNC_STATUS_UNKNOWN",
+      });
     }
   });
 
@@ -277,21 +308,37 @@ describe("fetchDriveConnectionHealth", () => {
     sbMock.watchRow = liveWatch;
     sbMock.counts = { active: 1, null_status_fresh_ts: 1 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "sync_unknown", code: "SYNC_STATUS_UNKNOWN" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "sync_unknown",
+      code: "SYNC_STATUS_UNKNOWN",
+    });
   });
 
   it("(g) watch-any-status read — folder with ONLY an orphaned/stopped row → Warn/watch_inactive (NOT not_configured)", async () => {
-    sbMock.watchRow = { status: "stopped", expires_at: null, activated_at: new Date(NOW_MS - 7_200_000).toISOString() };
+    sbMock.watchRow = {
+      status: "stopped",
+      expires_at: null,
+      activated_at: new Date(NOW_MS - 7_200_000).toISOString(),
+    };
     sbMock.counts = { active: 4 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "watch_inactive", code: "WATCH_CHANNEL_ORPHANED" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "watch_inactive",
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
   });
 
   it("(h) folder configured but no watch row at all → Warn/not_configured", async () => {
     sbMock.watchRow = null;
     sbMock.counts = { active: 4 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "not_configured", code: "WATCH_CHANNEL_ORPHANED" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "not_configured",
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
     // the watch table WAS read (folder is configured)
     expect(sbMock.watchQueryCalls).toBe(1);
   });
@@ -302,7 +349,11 @@ describe("fetchDriveConnectionHealth", () => {
     sbMock.throwOnFromTable = "drive_watch_channels";
     sbMock.counts = { active: 2 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "not_configured", code: "WATCH_CHANNEL_ORPHANED" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "not_configured",
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
     expect(sbMock.watchQueryCalls).toBe(0);
     expect((r as { folderId: string | null }).folderId).toBeNull();
   });
@@ -311,14 +362,22 @@ describe("fetchDriveConnectionHealth", () => {
     sbMock.watchRow = liveWatch;
     sbMock.counts = { active: 1, stale_severe: 1 };
     const r = await fetchDriveConnectionHealth();
-    expect(r).toMatchObject({ health: "warn", reason: "stale_severe", code: "SYNC_DELAYED_SEVERE" });
+    expect(r).toMatchObject({
+      health: "warn",
+      reason: "stale_severe",
+      code: "SYNC_DELAYED_SEVERE",
+    });
   });
 
   it("(j) 1h-6h ok → Warn/stale_moderate; <1h all-ok → positive", async () => {
     sbMock.watchRow = liveWatch;
     sbMock.counts = { active: 1, stale_moderate: 1 };
     const moderate = await fetchDriveConnectionHealth();
-    expect(moderate).toMatchObject({ health: "warn", reason: "stale_moderate", code: "SYNC_DELAYED_MODERATE" });
+    expect(moderate).toMatchObject({
+      health: "warn",
+      reason: "stale_moderate",
+      code: "SYNC_DELAYED_MODERATE",
+    });
 
     sbMock.counts = { active: 1 }; // nothing stale/failing
     const fresh = await fetchDriveConnectionHealth();
@@ -359,23 +418,93 @@ describe("fetchDriveConnectionHealth", () => {
     expect(await fetchDriveConnectionHealth()).toMatchObject({ reason: "sync_drive_error" });
 
     sbMock.counts = { active: 3, sheet_unavailable: 1, parse_error: 1 };
-    expect(await fetchDriveConnectionHealth()).toMatchObject({ reason: "sync_sheet_unavailable", code: "SHEET_UNAVAILABLE" });
+    expect(await fetchDriveConnectionHealth()).toMatchObject({
+      reason: "sync_sheet_unavailable",
+      code: "SHEET_UNAVAILABLE",
+    });
 
     sbMock.counts = { active: 3, parse_error: 1 };
-    expect(await fetchDriveConnectionHealth()).toMatchObject({ reason: "sync_parse_error", code: "PARSE_ERROR_LAST_GOOD" });
+    expect(await fetchDriveConnectionHealth()).toMatchObject({
+      reason: "sync_parse_error",
+      code: "PARSE_ERROR_LAST_GOOD",
+    });
   });
 
   it("(n) each Warn reason carries the correct catalog code (exhaustive map)", async () => {
     const expectations: Array<[() => void, string, string]> = [
-      [() => { sbMock.watchRow = null; }, "not_configured", "WATCH_CHANNEL_ORPHANED"],
-      [() => { sbMock.watchRow = { status: "stopped", expires_at: null, activated_at: NOW_ISO }; }, "watch_inactive", "WATCH_CHANNEL_ORPHANED"],
-      [() => { sbMock.watchRow = { status: "active", expires_at: new Date(NOW_MS - 1000).toISOString(), activated_at: NOW_ISO }; }, "watch_expired", "WATCH_CHANNEL_ORPHANED"],
-      [() => { sbMock.watchRow = liveWatch; sbMock.counts = { active: 1, drive_error: 1 }; }, "sync_drive_error", "DRIVE_FETCH_FAILED"],
-      [() => { sbMock.watchRow = liveWatch; sbMock.counts = { active: 1, sheet_unavailable: 1 }; }, "sync_sheet_unavailable", "SHEET_UNAVAILABLE"],
-      [() => { sbMock.watchRow = liveWatch; sbMock.counts = { active: 1, parse_error: 1 }; }, "sync_parse_error", "PARSE_ERROR_LAST_GOOD"],
-      [() => { sbMock.watchRow = liveWatch; sbMock.counts = { active: 1, unknown_status: 1 }; }, "sync_unknown", "SYNC_STATUS_UNKNOWN"],
-      [() => { sbMock.watchRow = liveWatch; sbMock.counts = { active: 1, stale_severe: 1 }; }, "stale_severe", "SYNC_DELAYED_SEVERE"],
-      [() => { sbMock.watchRow = liveWatch; sbMock.counts = { active: 1, stale_moderate: 1 }; }, "stale_moderate", "SYNC_DELAYED_MODERATE"],
+      [
+        () => {
+          sbMock.watchRow = null;
+        },
+        "not_configured",
+        "WATCH_CHANNEL_ORPHANED",
+      ],
+      [
+        () => {
+          sbMock.watchRow = { status: "stopped", expires_at: null, activated_at: NOW_ISO };
+        },
+        "watch_inactive",
+        "WATCH_CHANNEL_ORPHANED",
+      ],
+      [
+        () => {
+          sbMock.watchRow = {
+            status: "active",
+            expires_at: new Date(NOW_MS - 1000).toISOString(),
+            activated_at: NOW_ISO,
+          };
+        },
+        "watch_expired",
+        "WATCH_CHANNEL_ORPHANED",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, drive_error: 1 };
+        },
+        "sync_drive_error",
+        "DRIVE_FETCH_FAILED",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, sheet_unavailable: 1 };
+        },
+        "sync_sheet_unavailable",
+        "SHEET_UNAVAILABLE",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, parse_error: 1 };
+        },
+        "sync_parse_error",
+        "PARSE_ERROR_LAST_GOOD",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, unknown_status: 1 };
+        },
+        "sync_unknown",
+        "SYNC_STATUS_UNKNOWN",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, stale_severe: 1 };
+        },
+        "stale_severe",
+        "SYNC_DELAYED_SEVERE",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, stale_moderate: 1 };
+        },
+        "stale_moderate",
+        "SYNC_DELAYED_MODERATE",
+      ],
     ];
     for (const [seed, reason, code] of expectations) {
       sbMock.watchRow = null;
@@ -399,7 +528,12 @@ describe("fetchDriveConnectionHealth", () => {
   });
 
   it("infra_error short-circuit — getActiveWatchedFolder infra_error → infra_error", async () => {
-    folderMock.result = { kind: "infra_error", operation: "readActiveWatchedFolderId", source: "thrown_error", cause: new Error("x") };
+    folderMock.result = {
+      kind: "infra_error",
+      operation: "readActiveWatchedFolderId",
+      source: "thrown_error",
+      cause: new Error("x"),
+    };
     expect(await fetchDriveConnectionHealth()).toEqual({ kind: "infra_error" });
   });
 });

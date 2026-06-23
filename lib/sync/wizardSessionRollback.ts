@@ -1,5 +1,5 @@
 export type WizardSessionRollbackContext = {
-  attemptedAction: "defer_until_modified" | "permanent_ignore" | "discard" | "retry";
+  attemptedAction: "defer_until_modified" | "permanent_ignore" | "discard" | "retry" | "apply";
   supersededSessionId: string;
   pendingIngestionId?: string;
   driveFileId: string;

@@ -216,16 +216,10 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
     visibleAt: "both",
     owningMilestone: "M10",
   },
-  {
-    kind: "concrete",
-    sourceSurface: "Per-show - Staged review card (re-stage)",
-    sourceRoute: "/admin/show/rpas-central-2026",
-    affordance: "? tooltip (DEFERRED M11-G-D-2)",
-    testid: "help-affordance--per-show-restage-card--tooltip",
-    target: "/help/admin/review-queues#re-stage",
-    visibleAt: "both",
-    owningMilestone: "M9",
-  },
+  // (Removed: "Per-show - Staged review card (re-stage)" — a DEFERRED M9 tooltip
+  // for a staged-review card on the per-show panel that never shipped and is now
+  // moot: Phase 6 replaced that mount with the ChangesFeed, so the per-show panel
+  // renders no staged-review card. See DEFERRED.md D9.)
   {
     kind: "concrete",
     sourceSurface: "Preview-as-crew sticky banner",
@@ -265,6 +259,8 @@ export function targetForErrorCode(code: string): string {
 // here (not in the Playwright spec) so the Vitest meta-test can import it
 // without executing Playwright test registration (spec R5).
 export const DEFERRED_TESTIDS: ReadonlySet<string> = new Set([
-  "help-affordance--per-show-restage-card--tooltip",
+  // ("help-affordance--per-show-restage-card--tooltip" removed — the per-show
+  // staged-review card it pointed at was retired by the Phase 6 ChangesFeed; see
+  // DEFERRED.md D9 and the removed matrix row above.)
   "help-affordance--preview-banner--tooltip",
 ]);

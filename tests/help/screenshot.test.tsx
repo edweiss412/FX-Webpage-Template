@@ -14,7 +14,9 @@ describe("<Screenshot>", () => {
 
     const darkSource = picture!.querySelector("source[media='(prefers-color-scheme: dark)']");
     expect(darkSource).not.toBeNull();
-    expect(darkSource!.getAttribute("srcset")).toBe("/help/screenshots/dashboard-overview-dark.webp");
+    expect(darkSource!.getAttribute("srcset")).toBe(
+      "/help/screenshots/dashboard-overview-dark.webp",
+    );
 
     const img = picture!.querySelector("img");
     expect(img).not.toBeNull();
@@ -23,9 +25,7 @@ describe("<Screenshot>", () => {
   });
 
   it("renders an optional caption", () => {
-    const { container } = render(
-      <Screenshot name="x" alt="Y" caption="Dashboard, mid-show" />,
-    );
+    const { container } = render(<Screenshot name="x" alt="Y" caption="Dashboard, mid-show" />);
     expect(container.querySelector("figcaption")?.textContent).toContain("Dashboard, mid-show");
   });
 

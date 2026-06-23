@@ -52,7 +52,10 @@ const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   // declaration; the exemption window (±3 lines) catches an annotation
   // on either side. Without the multi-line detection this regex
   // misses GENERIC_ERROR_COPY / GENERIC_NETWORK_COPY (M9 C7 R2 fix).
-  { name: "ERROR/COPY/MESSAGE const declaration", re: /const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*$|const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*["']/ },
+  {
+    name: "ERROR/COPY/MESSAGE const declaration",
+    re: /const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*$|const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*["']/,
+  },
   { name: "object error message literal", re: /\bmessage:\s*(["'])[^"']{8,}["']/ },
 ];
 

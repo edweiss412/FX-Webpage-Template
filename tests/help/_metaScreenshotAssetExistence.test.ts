@@ -117,27 +117,24 @@ describe("Help <Screenshot> asset existence (Phase F unlocked)", () => {
   // with at least one WebP. See DEFERRED.md M11-E-D5.
   const itPhaseF = phaseFActive ? it : it.skip;
 
-  itPhaseF(
-    "[Phase F unlocked] every <Screenshot name> has light + dark WebP on disk",
-    () => {
-      const missing: string[] = [];
-      for (const ref of refs) {
-        const lightPath = join(SCREENSHOTS_DIR, `${ref.name}-light.webp`);
-        const darkPath = join(SCREENSHOTS_DIR, `${ref.name}-dark.webp`);
-        if (!existsSync(lightPath)) {
-          missing.push(`${ref.file}:${ref.line} → missing ${lightPath}`);
-        }
-        if (!existsSync(darkPath)) {
-          missing.push(`${ref.file}:${ref.line} → missing ${darkPath}`);
-        }
+  itPhaseF("[Phase F unlocked] every <Screenshot name> has light + dark WebP on disk", () => {
+    const missing: string[] = [];
+    for (const ref of refs) {
+      const lightPath = join(SCREENSHOTS_DIR, `${ref.name}-light.webp`);
+      const darkPath = join(SCREENSHOTS_DIR, `${ref.name}-dark.webp`);
+      if (!existsSync(lightPath)) {
+        missing.push(`${ref.file}:${ref.line} → missing ${lightPath}`);
       }
-      if (missing.length > 0) {
-        throw new Error(
-          `<Screenshot> reference(s) have no corresponding WebP asset:\n  ${missing.join("\n  ")}\n\n` +
-            `Either run the Phase F capture script to (re)generate the assets, ` +
-            `or update the <Screenshot name="..."> reference to match an existing manifest key.`,
-        );
+      if (!existsSync(darkPath)) {
+        missing.push(`${ref.file}:${ref.line} → missing ${darkPath}`);
       }
-    },
-  );
+    }
+    if (missing.length > 0) {
+      throw new Error(
+        `<Screenshot> reference(s) have no corresponding WebP asset:\n  ${missing.join("\n  ")}\n\n` +
+          `Either run the Phase F capture script to (re)generate the assets, ` +
+          `or update the <Screenshot name="..."> reference to match an existing manifest key.`,
+      );
+    }
+  });
 });

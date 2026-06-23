@@ -57,19 +57,22 @@ export async function asAdminRpc(fn: AdminRpcFn, args: { p_show_id: string }): P
 /** Call unarchive_show as admin and return its boolean result (R8: true iff it performed archived→held). */
 export async function unarchiveShowReturning(showId: string): Promise<boolean> {
   return asAdminTx(sql, async (tx) => {
-    const [row] = await tx.unsafe(`select public.unarchive_show($1::uuid) as transitioned`, [showId]);
+    const [row] = await tx.unsafe(`select public.unarchive_show($1::uuid) as transitioned`, [
+      showId,
+    ]);
     return (row as unknown as { transitioned: boolean }).transitioned;
   });
 }
 
-export async function readShow(showId: string): Promise<Record<string, any>> {
+export async function readShow(showId: string): Promise<Record<string, unknown>> {
   const [row] = await sql`select * from public.shows where id = ${showId}::uuid`;
   if (!row) throw new Error(`readShow: show not found (${showId})`);
   return row;
 }
 
 export async function readShareToken(showId: string): Promise<{ share_token: string }> {
-  const [row] = await sql`select share_token from public.show_share_tokens where show_id = ${showId}::uuid`;
+  const [row] =
+    await sql`select share_token from public.show_share_tokens where show_id = ${showId}::uuid`;
   if (!row) throw new Error(`readShareToken: token not found (${showId})`);
   return row as { share_token: string };
 }
@@ -79,10 +82,14 @@ export async function scratchCount(driveFileId: string): Promise<{
   pending_ingestions: number;
   deferred_ingestions: number;
 }> {
-  const [ps] = await sql`select count(*)::int n from public.pending_syncs      where drive_file_id = ${driveFileId}`;
-  const [pi] = await sql`select count(*)::int n from public.pending_ingestions where drive_file_id = ${driveFileId}`;
-  const [di] = await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
-  if (!ps || !pi || !di) throw new Error(`scratchCount: count query returned no row (${driveFileId})`);
+  const [ps] =
+    await sql`select count(*)::int n from public.pending_syncs      where drive_file_id = ${driveFileId}`;
+  const [pi] =
+    await sql`select count(*)::int n from public.pending_ingestions where drive_file_id = ${driveFileId}`;
+  const [di] =
+    await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
+  if (!ps || !pi || !di)
+    throw new Error(`scratchCount: count query returned no row (${driveFileId})`);
   return { pending_syncs: ps.n, pending_ingestions: pi.n, deferred_ingestions: di.n };
 }
 
@@ -95,6 +102,7 @@ type SeedOpts = {
   scratchTables?: ScratchTable[]; // seed EXACTLY these live non-wizard scratch rows (one per table)
   deferral?: "permanent_ignore" | "defer_until_modified"; // kind for a seeded deferred_ingestions row
   finalizeOwned?: boolean; // seed shows_pending_changes + in_progress wizard_finalize_checkpoints
+  title?: string; // override the default 'Test Show' (B1-D1: long-title AdminPageHeader density sweep)
 };
 
 export type SeededShow = {
@@ -113,7 +121,7 @@ async function seedShow(opts: SeedOpts = {}): Promise<SeededShow> {
   await sql`
     insert into public.shows (id, drive_file_id, slug, title, client_label, template_version,
                               archived, published, archived_at, requires_resync, picker_epoch)
-    values (${showId}::uuid, ${driveFileId}, ${`slug-${showId.slice(0, 8)}`}, 'Test Show', 'Client',
+    values (${showId}::uuid, ${driveFileId}, ${`slug-${showId.slice(0, 8)}`}, ${opts.title ?? "Test Show"}, 'Client',
             'v1', ${archived}, ${published}, ${archivedAt}, ${opts.requiresResync ?? false}, 1)`;
   // The show_share_tokens row is created by the shows_create_share_token_after_insert trigger
   // (supabase/migrations/20260523000002_show_share_tokens.sql:69-70) - do NOT insert it here (PK collision).
@@ -153,6 +161,19 @@ export const seedLiveShowWithToken = (opts: { withScratch?: boolean } = {}) =>
       : [],
   });
 export const seedArchivedShow = () => seedShow({ archived: true, published: false });
+/**
+ * B1-D1: a LIVE show (published, not archived) with a deliberately long, real-world-style
+ * title. Live is the worst-case density for <AdminPageHeader> at the min-[720px] flex-row
+ * boundary — all three header children compete for the row: the long title (left column),
+ * the inline "Published" status pill (appended after the title), AND the share-link chip
+ * (rightSlot, present only for published+non-archived shows with a token). The default
+ * "Test Show" cannot stress the row; this title is ~60 chars to force the title column to
+ * its narrowest while the shrink-0 chip holds its width. Subject of the density sweep in
+ * tests/e2e/admin-lifecycle-layout.spec.ts.
+ */
+export const LONG_SHOW_TITLE = "II - Northwind Banking & Capital Markets Annual Leadership Summit";
+export const seedLongTitleLiveShow = () =>
+  seedShow({ archived: false, published: true, title: LONG_SHOW_TITLE });
 /**
  * A DRIFTED archived row: archived=true AND published=true (the two booleans are independent — no CHECK
  * couples them). archive_show_core always clears published, but a legacy/drifted row may carry published=true;
@@ -205,18 +226,21 @@ export async function seedAutoPublishedShowWithUnpublishToken(
        set unpublish_token = ${unpublishToken}::uuid, unpublish_token_expires_at = now() + interval '24 hours'
      where id = ${seeded.showId}::uuid`;
   const [row] = await sql`select slug from public.shows where id = ${seeded.showId}::uuid`;
-  if (!row) throw new Error(`seedAutoPublishedShowWithUnpublishToken: show not found (${seeded.showId})`);
+  if (!row)
+    throw new Error(`seedAutoPublishedShowWithUnpublishToken: show not found (${seeded.showId})`);
   return { ...seeded, slug: row.slug, unpublishToken };
 }
 
 export async function deferralCount(driveFileId: string): Promise<number> {
-  const [r] = await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
+  const [r] =
+    await sql`select count(*)::int n from public.deferred_ingestions where drive_file_id = ${driveFileId}`;
   if (!r) throw new Error(`deferralCount: count query returned no row (${driveFileId})`);
   return r.n;
 }
 
 export async function pendingSyncCount(driveFileId: string): Promise<number> {
-  const [r] = await sql`select count(*)::int n from public.pending_syncs where drive_file_id = ${driveFileId}`;
+  const [r] =
+    await sql`select count(*)::int n from public.pending_syncs where drive_file_id = ${driveFileId}`;
   if (!r) throw new Error(`pendingSyncCount: count query returned no row (${driveFileId})`);
   return r.n;
 }
@@ -268,7 +292,7 @@ async function raceArchiveAgainst(
   showId: string,
   otherFn: AdminRpcFn,
 ): Promise<{ concurrentThrew: boolean }> {
-  const { drive_file_id: drive } = await readShow(showId);
+  const { drive_file_id: drive } = (await readShow(showId)) as { drive_file_id: string };
   const a = newConn();
   const b = newConn();
   let concurrentThrew = false;
@@ -334,7 +358,9 @@ export async function archivedImmutabilityRace(
 /** Read the finalize-owned predicate as an ADMIN (the dashboard path). Returns the boolean result. */
 export async function readFinalizeOwnedAsAdmin(showId: string): Promise<boolean> {
   return asAdminTx(sql, async (tx) => {
-    const [row] = await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid) as owned`, [showId]);
+    const [row] = await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid) as owned`, [
+      showId,
+    ]);
     return (row as unknown as { owned: boolean }).owned;
   });
 }

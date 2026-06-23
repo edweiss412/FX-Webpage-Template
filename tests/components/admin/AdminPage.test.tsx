@@ -30,6 +30,7 @@ const purgeAndRotateIfStaleMock = vi.fn();
 const requireAdminIdentityMock = vi.fn();
 const readFinalizeCheckpointMock = vi.fn();
 const onboardingWizardSpy = vi.fn();
+const readAppSettingsRowMock = vi.fn();
 
 vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
   const actual = await vi.importActual<typeof import("@/lib/onboarding/sessionLifecycle")>(
@@ -41,17 +42,23 @@ vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
   };
 });
 
+// nav-perf phase 1 (A2): AdminPage now reads app_settings via readAppSettingsRow
+// to gate the purgeAndRotateIfStale tx. Default the cheap read to infra_error so
+// the gate FALLS BACK to always calling purgeAndRotateIfStale — preserving these
+// routing tests' purge-driven settings. The skip path (value + null pending) is
+// covered by tests/app/admin/purgeGate.test.ts.
+vi.mock("@/lib/appSettings/readAppSettingsRow", () => ({
+  readAppSettingsRow: (...args: unknown[]) => readAppSettingsRowMock(...args),
+}));
+
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdminIdentity: () => requireAdminIdentityMock(),
   requireAdmin: () => requireAdminIdentityMock(),
 }));
 
 vi.mock("@/app/admin/_finalizeCheckpoint", () => ({
-  readFinalizeCheckpoint: (sessionId: string) =>
-    readFinalizeCheckpointMock(sessionId),
-  isInfraError: (
-    result: unknown,
-  ): result is { kind: "infra_error"; message: string } =>
+  readFinalizeCheckpoint: (sessionId: string) => readFinalizeCheckpointMock(sessionId),
+  isInfraError: (result: unknown): result is { kind: "infra_error"; message: string } =>
     result !== null &&
     typeof result === "object" &&
     "kind" in (result as Record<string, unknown>) &&
@@ -101,10 +108,7 @@ vi.mock("@/components/admin/ReadyToPublish", () => ({
 
 vi.mock("@/components/admin/StaleReadyToPublish", () => ({
   StaleReadyToPublish: (props: { sessionId: string }) => (
-    <div
-      data-testid="admin-stale-ready-to-publish-spy"
-      data-session={props.sessionId}
-    />
+    <div data-testid="admin-stale-ready-to-publish-spy" data-session={props.sessionId} />
   ),
 }));
 
@@ -167,8 +171,11 @@ beforeEach(() => {
   requireAdminIdentityMock.mockReset();
   readFinalizeCheckpointMock.mockReset();
   onboardingWizardSpy.mockReset();
+  readAppSettingsRowMock.mockReset();
   requireAdminIdentityMock.mockResolvedValue({ email: "edweiss412@gmail.com" });
   readFinalizeCheckpointMock.mockResolvedValue(null);
+  // Default: cheap read degrades → gate falls back to purgeAndRotateIfStale (today's behavior).
+  readAppSettingsRowMock.mockResolvedValue({ kind: "infra_error" });
 });
 
 afterEach(() => cleanup());
@@ -209,16 +216,12 @@ describe("AdminPage Phase 2 routing", () => {
       rotated: false,
     });
     readFinalizeCheckpointMock.mockResolvedValue(null);
-    const { getByTestId } = render(
-      await AdminPage({ searchParams: Promise.resolve({}) }),
-    );
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
     expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
     expect(getByTestId("onboarding-wizard-spy").dataset.pendingSession).toBe(
       "11111111-1111-1111-1111-111111111111",
     );
-    expect(readFinalizeCheckpointMock).toHaveBeenCalledWith(
-      "11111111-1111-1111-1111-111111111111",
-    );
+    expect(readFinalizeCheckpointMock).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
   });
 
   test("wizard mid-flight + checkpoint status='in_progress' → FinalizeInProgress", async () => {
@@ -235,9 +238,7 @@ describe("AdminPage Phase 2 routing", () => {
     const { getByTestId, queryByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
-    expect(getByTestId("admin-finalize-in-progress-spy").dataset.batches).toBe(
-      "100",
-    );
+    expect(getByTestId("admin-finalize-in-progress-spy").dataset.batches).toBe("100");
     expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
   });
 
@@ -342,12 +343,8 @@ describe("AdminPage Phase 2 routing", () => {
     readFinalizeCheckpointMock.mockResolvedValue(null);
     render(await AdminPage({ searchParams: Promise.resolve({}) }));
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
-    const [props] = onboardingWizardSpy.mock.calls[0]! as [
-      { settings: AppSettingsRow },
-    ];
-    expect(props.settings.pending_wizard_session_id).toBe(
-      "33333333-3333-3333-3333-333333333333",
-    );
+    const [props] = onboardingWizardSpy.mock.calls[0]! as [{ settings: AppSettingsRow }];
+    expect(props.settings.pending_wizard_session_id).toBe("33333333-3333-3333-3333-333333333333");
   });
 
   test("forwards searchParams.step to OnboardingWizard", async () => {
@@ -361,9 +358,7 @@ describe("AdminPage Phase 2 routing", () => {
       }),
     );
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
-    const [props] = onboardingWizardSpy.mock.calls[0]! as [
-      { searchParams: { step?: string } },
-    ];
+    const [props] = onboardingWizardSpy.mock.calls[0]! as [{ searchParams: { step?: string } }];
     expect(props.searchParams.step).toBe("2");
   });
 
@@ -373,18 +368,25 @@ describe("AdminPage Phase 2 routing", () => {
       rotated: false,
     });
     let adminCallIndex = -1;
+    let readCallIndex = -1;
     let purgeCallIndex = -1;
     let counter = 0;
     requireAdminIdentityMock.mockImplementation(async () => {
       adminCallIndex = counter++;
       return { email: "edweiss412@gmail.com" };
     });
+    readAppSettingsRowMock.mockImplementation(async () => {
+      readCallIndex = counter++;
+      return { kind: "infra_error" }; // forces fallback to purgeAndRotateIfStale
+    });
     purgeAndRotateIfStaleMock.mockImplementation(async () => {
       purgeCallIndex = counter++;
       return { settings: FRESH_SETTINGS, rotated: false };
     });
     render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    // Auth gate runs before ANY data access (the cheap read AND the purge tx).
     expect(adminCallIndex).toBeGreaterThanOrEqual(0);
+    expect(readCallIndex).toBeGreaterThan(adminCallIndex);
     expect(purgeCallIndex).toBeGreaterThan(adminCallIndex);
   });
 });

@@ -17,7 +17,7 @@
 
 import { parseTableRows, clean, presence, normalizeDate } from "./_helpers";
 import type { ShowRow } from "@/lib/parser/types";
-import type { ParseAggregator } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 
 // ── Label classification ──────────────────────────────────────────────────────
 
@@ -48,27 +48,35 @@ function classifyLabel(label: string): DateRowKind {
 export function parseDates(
   markdown: string,
   version: "v1" | "v2" | "v4",
-   
-  _agg?: ParseAggregator,
+
+  agg?: ParseAggregator,
 ): ShowRow["dates"] {
   const result: ShowRow["dates"] = {
     travelIn: null,
     set: null,
     showDays: [],
     travelOut: null,
+    loadIn: null,
+    setupTime: null,
   };
 
-  if (version === "v1") {
-    return parseV1Dates(markdown, result);
-  }
+  // v2 can still have a 2-col DATES table (e.g. 2024-05-east-coast-family-office),
+  // detected by whether the first DATES data row has only 2 cells.
+  const out =
+    version === "v1" || isV1ShapedDatesBlock(markdown)
+      ? parseV1Dates(markdown, result)
+      : parseV2V4Dates(markdown, result);
 
-  // v2 can still have a 2-col DATES table (e.g. 2024-05-east-coast-family-office).
-  // Detect by checking whether the first DATES data row has only 2 cells.
-  if (isV1ShapedDatesBlock(markdown)) {
-    return parseV1Dates(markdown, result);
-  }
-
-  return parseV2V4Dates(markdown, result);
+  // D1: the dates object is fixed-shape (never null), so an absent DATES block and
+  // a present-but-unparsed one look identical to the caller. Re-probe for a DATES
+  // header row and fail loud when one exists but no date resolved (e.g. trailing
+  // free-text qualifiers like "- AFTER 8PM" defeated every row).
+  const datesEmpty = !out.travelIn && !out.set && out.showDays.length === 0 && !out.travelOut;
+  const hasDatesHeader = parseTableRows(markdown).some(
+    (r) => clean(r[0] ?? "").toUpperCase() === "DATES",
+  );
+  if (datesEmpty && hasDatesHeader) emitEmptySection(agg, "dates");
+  return out;
 }
 
 // ── Shape detection ───────────────────────────────────────────────────────────
@@ -89,11 +97,15 @@ function isV1ShapedDatesBlock(markdown: string): boolean {
       if (clean(row[0] ?? "").toUpperCase() === "DATES") found = true;
       continue;
     }
-    // First non-empty data row after DATES header
+    // First non-empty data row after DATES header.
     if (row.length === 0) continue;
-    // 2-col shape: row has exactly 2 cells, and cell[0] is a date label
-    if (row.length === 2) return true;
-    // 5-col shape: cell[0] is empty, cell[1] is the label
+    // v1 shape: the date LABEL sits in col 0 (e.g. "Travel"/"Set"/"Show").
+    // Don't gate on an exact 2-col width — the exporter emits a trailing
+    // qualifier column (e.g. `| Travel | 5/13/24 | - SAME DAY AS SET |`), so a
+    // v1 block can be 3 cells wide. Gate on col 0 being a date label instead.
+    const col0 = clean(row[0] ?? "").toUpperCase();
+    if (/^(TRAVEL|SET|SHOW)\b/.test(col0)) return true;
+    // 5-col (v2/v4) shape: cell[0] is empty, cell[1] is the label.
     return false;
   }
   return false;
@@ -197,12 +209,19 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
         result.set = iso;
         if (!result.travelIn) result.travelIn = iso;
+        const times = extractClockTimes(row[4] ?? "");
+        if (times[0] && !result.loadIn) result.loadIn = times[0]; // travel_set fills loadIn only if unset
+        if (times[1] && result.setupTime == null) result.setupTime = times[1];
         break;
       }
 
-      case "set":
+      case "set": {
         result.set = presence(rawDate) ? normalizeDate(rawDate) : null;
+        const times = extractClockTimes(row[4] ?? "");
+        if (times[0]) result.loadIn = times[0]; // explicit SET row overrides any travel_set value
+        if (times[1]) result.setupTime = times[1];
         break;
+      }
 
       case "show_day": {
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
@@ -238,6 +257,25 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
+
+/**
+ * Extract ALL clock times (HH:MM with optional AM/PM) from a free-text TIME cell,
+ * in document order. COLON-REQUIRED (no-colon "8PM" / semicolon "5;30pm" are
+ * NOT matched here — that tolerance is exclusive to the SHOW DAY tokenizer in
+ * scheduleTimes.ts, §4.2 R12 finding 19). "LOAD IN" / "AFTER 8PM" → []. §4.2.
+ */
+export function extractClockTimes(raw: string): string[] {
+  const c = clean(raw);
+  if (!c) return [];
+  const matches = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g);
+  if (!matches) return [];
+  return matches.map((m) =>
+    m
+      .replace(/\s+/g, " ")
+      .replace(/([AaPp][Mm])$/, (s) => s.toUpperCase())
+      .trim(),
+  );
+}
 
 function extractAllDates(text: string): string[] {
   const results: string[] = [];

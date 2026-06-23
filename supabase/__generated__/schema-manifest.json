@@ -79,6 +79,10 @@
     "reason",
     "wizard_session_id"
   ],
+  "destructive_reset_gate": [
+    "enabled",
+    "id"
+  ],
   "drive_watch_channels": [
     "activated_at",
     "created_at",
@@ -282,6 +286,7 @@
     "pull_sheet",
     "requires_resync",
     "slug",
+    "source_anchors",
     "template_version",
     "title",
     "unpublish_token",
@@ -293,6 +298,7 @@
     "financials",
     "parse_warnings",
     "raw_unrecognized",
+    "run_of_show",
     "show_id"
   ],
   "shows_pending_changes": [

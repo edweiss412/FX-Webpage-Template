@@ -9,13 +9,31 @@ const SCAN_ROOTS = ["docs", "app", "lib", "components", "tests"];
 const FORBIDDEN_PATTERNS: Array<{ id: string; regex: RegExp }> = [
   { id: "single-stale-reason", regex: /identity_invalidated\.reason\s*:\s*["']stale["']/i },
   { id: "identity-invalidated-401", regex: /identity_invalidated[\s\S]{0,120}\bstatus:\s*401\b/i },
-  { id: "case-identity-invalidated-401", regex: /case\s+["']identity_invalidated["'][\s\S]{0,160}\bstatus:\s*401\b/i },
-  { id: "session-mismatch-401", regex: /session_mismatch\s*(?:maps|->|=>|returns|status)\s*(?:to)?\s*401/i },
-  { id: "claimed-after-pick-only", regex: /reason:\s*["']claimed_after_pick["'][\s\S]{0,120}\/\*\s*only/i },
-  { id: "google-no-crew-renders-picker", regex: /GOOGLE_NO_CREW_MATCH[\s\S]{0,400}renders (?:either )?the picker/i },
+  {
+    id: "case-identity-invalidated-401",
+    regex: /case\s+["']identity_invalidated["'][\s\S]{0,160}\bstatus:\s*401\b/i,
+  },
+  {
+    id: "session-mismatch-401",
+    regex: /session_mismatch\s*(?:maps|->|=>|returns|status)\s*(?:to)?\s*401/i,
+  },
+  {
+    id: "claimed-after-pick-only",
+    regex: /reason:\s*["']claimed_after_pick["'][\s\S]{0,120}\/\*\s*only/i,
+  },
+  {
+    id: "google-no-crew-renders-picker",
+    regex: /GOOGLE_NO_CREW_MATCH[\s\S]{0,400}renders (?:either )?the picker/i,
+  },
   { id: "google-mismatch-cookie-read", regex: /google_mismatch[\s\S]{0,100}decodePickerCookie/i },
-  { id: "mode-b-clearidentity", regex: /google_mismatch(?:(?!Mode-A)[\s\S]){0,240}\bclearIdentity\b(?!AndSkip)(?!["'])/i },
-  { id: "mode-b-form-clearidentity", regex: /google_mismatch(?:(?!Mode-A)[\s\S]){0,400}form action=\{clearIdentity\}[^A]/i },
+  {
+    id: "mode-b-clearidentity",
+    regex: /google_mismatch(?:(?!Mode-A)[\s\S]){0,240}\bclearIdentity\b(?!AndSkip)(?!["'])/i,
+  },
+  {
+    id: "mode-b-form-clearidentity",
+    regex: /google_mismatch(?:(?!Mode-A)[\s\S]){0,400}form action=\{clearIdentity\}[^A]/i,
+  },
 ];
 
 function filesUnder(dir: string): string[] {

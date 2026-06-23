@@ -19,6 +19,12 @@ const state = vi.hoisted(() => ({
     totalShown: 0,
   } as { entries: Array<Record<string, unknown>>; truncated: boolean; totalShown: number },
   feedThrows: false as boolean,
+  // Task 6 (A4 part 2) — per-read invocation counters so a guard test can assert
+  // feed + crew + token are ALL issued (preserved under Promise.all) and exactly
+  // once each (no accidental duplicate read introduced by the fan-out).
+  feedReadCalls: 0 as number,
+  tokenReadCalls: 0 as number,
+  crewReadCalls: 0 as number,
   selectColsByTable: {} as Record<string, string>,
   // §3.2 finalize-owned predicate result (readfinalizeowned_b2). Default false
   // → a !published row reads "Held"; set true to exercise the "Publishing…" pill.
@@ -56,6 +62,7 @@ vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
   const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
   return {
     readShowChangeFeed: async () => {
+      state.feedReadCalls += 1;
       if (state.feedThrows) {
         throw new SyncInfraError("readShowChangeFeed.test", "thrown_error", null);
       }
@@ -67,7 +74,10 @@ vi.mock("@/lib/sync/feed/readShowChangeFeed", async () => {
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("@/lib/data/loadShowShareToken", () => ({
-  loadShowShareToken: async () => state.token,
+  loadShowShareToken: async () => {
+    state.tokenReadCalls += 1;
+    return state.token;
+  },
 }));
 vi.mock("next/navigation", () => ({
   notFound: () => {
@@ -80,6 +90,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
     from(table: string) {
+      if (table === "crew_members") state.crewReadCalls += 1;
       const builder: Record<string, unknown> = {};
       const pass = () => builder;
       builder.select = (cols?: string) => {
@@ -153,6 +164,9 @@ beforeEach(() => {
   state.token = "tok-123";
   state.feed = { entries: [], truncated: false, totalShown: 0 };
   state.feedThrows = false;
+  state.feedReadCalls = 0;
+  state.tokenReadCalls = 0;
+  state.crewReadCalls = 0;
   state.selectColsByTable = {};
   state.finalizeOwned = false;
 });
@@ -359,6 +373,38 @@ describe("per-show page (§6)", () => {
     await renderPage();
     expect(screen.getByTestId("change-feed-infra-error")).toBeInTheDocument();
     expect(screen.queryByTestId("change-feed-empty")).toBeNull();
+  });
+
+  // Task 6 (A4 part 2) — parallelization guard. After the show.id lookup, the
+  // feed + crew + token reads are issued in one Promise.all wave. This guard
+  // pins (a) all three reads still occur exactly once (the fan-out did not drop
+  // or duplicate a read) and (b) the show normal-render data is intact (crew
+  // rows + share surfaces present). Anti-tautology: counts derive from the
+  // mocked read invocations, not the rendered DOM.
+  it("issues feed + crew + token reads exactly once each (preserved under Promise.all)", async () => {
+    await renderPage();
+    expect(state.feedReadCalls).toBe(1);
+    expect(state.tokenReadCalls).toBe(1);
+    expect(state.crewReadCalls).toBe(1);
+    // normal render intact: crew row + share panel present
+    expect(screen.getByTestId("admin-show-crew-row-c1")).toBeInTheDocument();
+    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
+  });
+
+  // Task 6 — a feed SyncInfraError must NOT prevent the sibling crew + token
+  // reads in the same wave from completing, AND must still degrade to the calm
+  // notice (the fan-out did not turn the typed degrade into a crash). Crew rows
+  // + share surfaces from the sibling reads must still render.
+  it("feed SyncInfraError still degrades AND sibling crew/token reads still complete", async () => {
+    state.feedThrows = true;
+    await renderPage();
+    // feed degraded to the calm notice (not a crash)
+    expect(screen.getByTestId("change-feed-infra-error")).toBeInTheDocument();
+    // sibling reads in the same Promise.all wave still completed + rendered
+    expect(state.crewReadCalls).toBe(1);
+    expect(state.tokenReadCalls).toBe(1);
+    expect(screen.getByTestId("admin-show-crew-row-c1")).toBeInTheDocument();
+    expect(screen.getByTestId("admin-current-share-link-panel")).toBeInTheDocument();
   });
 
   it("sync footer shows 'Last synced {rel}' + StatusIndicator", async () => {

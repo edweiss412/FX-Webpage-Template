@@ -41,8 +41,7 @@ export function TerminalFailure({
   retryHref?: string;
 }) {
   const entry = messageFor(code);
-  const body =
-    entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment.";
+  const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment.";
   const heading = title ?? "We’re having trouble loading this show";
   return (
     <main

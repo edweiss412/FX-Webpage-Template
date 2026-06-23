@@ -35,9 +35,7 @@ export function renderDigest(input: DigestInput): RenderedEmail {
     const overflowItems = Math.max(0, totalItems - DIGEST_MAX_ITEMS_PER_SHOW);
 
     textLines.push(`${title} (${href})`);
-    htmlParts.push(
-      `<h3><a href="${escapeHtml(href)}">${escapeHtml(title)}</a></h3>`,
-    );
+    htmlParts.push(`<h3><a href="${escapeHtml(href)}">${escapeHtml(title)}</a></h3>`);
     const itemHtml: string[] = [];
     for (const item of shownItems) {
       textLines.push(`  - ${item}`);

@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
@@ -65,9 +67,10 @@ describe("B2 first-published parity — every autoPublishFirstSeen site routes t
     for (const file of SITES) {
       const src = readFileSync(file, "utf8");
       if (/autoPublishFirstSeen\s*[:=]/.test(src)) {
-        expect(src, `${file} builds autoPublishFirstSeen but never calls emitSuccessfulPhase2Tail`).toMatch(
-          /emitSuccessfulPhase2Tail/,
-        );
+        expect(
+          src,
+          `${file} builds autoPublishFirstSeen but never calls emitSuccessfulPhase2Tail`,
+        ).toMatch(/emitSuccessfulPhase2Tail/);
       }
     }
   });

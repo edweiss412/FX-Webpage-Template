@@ -29,7 +29,11 @@ describe("B1 catalog codes", () => {
   });
 
   it("ADMIN_EMAIL_LIST_FAILED has surface-neutral helpfulContext", () => {
-    expect(MESSAGE_CATALOG.ADMIN_EMAIL_LIST_FAILED.helpfulContext).not.toMatch(/route-level error boundary/);
-    expect(MESSAGE_CATALOG.ADMIN_EMAIL_LIST_FAILED.helpfulContext).toMatch(/embedded \/admin\/settings/);
+    expect(MESSAGE_CATALOG.ADMIN_EMAIL_LIST_FAILED.helpfulContext).not.toMatch(
+      /route-level error boundary/,
+    );
+    expect(MESSAGE_CATALOG.ADMIN_EMAIL_LIST_FAILED.helpfulContext).toMatch(
+      /embedded \/admin\/settings/,
+    );
   });
 });

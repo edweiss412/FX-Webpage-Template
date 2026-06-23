@@ -64,7 +64,13 @@ async function setupXNewHold(tx: Sql) {
     showId,
     driveFileId,
     mi11Items: [
-      { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "alice@old", new_email: "x@new" },
+      {
+        id: "1",
+        invariant: "MI-11",
+        crew_name: "Alice",
+        prior_email: "alice@old",
+        new_email: "x@new",
+      },
     ],
     liveCrewByName: new Map([["Alice", aliceLive]]),
     baseModifiedTime: MT,
@@ -77,7 +83,10 @@ describe("hold-aware apply — proposed-target reservation (Task 2.7, F16/PF37)"
     await inRollback(async (tx) => {
       const { showId, driveFileId, aliceLive, aliceRow } = await setupXNewHold(tx);
       // Sheet keeps Alice at her proposed x@new AND adds a DISTINCT person Alicia: x@new.
-      const next = parseResult([crew("Alice", { email: "x@new" }), crew("Alicia", { email: "x@new" })]);
+      const next = parseResult([
+        crew("Alice", { email: "x@new" }),
+        crew("Alicia", { email: "x@new" }),
+      ]);
       await applyParseResult(applyTx(tx), {
         driveFileId,
         parseResult: next,
@@ -119,7 +128,10 @@ describe("hold-aware apply — proposed-target reservation (Task 2.7, F16/PF37)"
       // Alice's sheet row carries the proposed email x@new (so the hold neither reconciles to the
       // old email nor re-targets); an unrelated added row named Alicia with a DIFFERENT email
       // collides under the RESERVED name.
-      const next = parseResult([crew("Alice", { email: "x@new" }), crew("Alicia", { email: "other@x" })]);
+      const next = parseResult([
+        crew("Alice", { email: "x@new" }),
+        crew("Alicia", { email: "other@x" }),
+      ]);
       await applyParseResult(applyTx(tx), {
         driveFileId,
         parseResult: next,
@@ -142,7 +154,10 @@ describe("hold-aware apply — proposed-target reservation (Task 2.7, F16/PF37)"
       // First apply: Alicia collides → recorded.
       await applyParseResult(applyTx(tx), {
         driveFileId,
-        parseResult: parseResult([crew("Alice", { email: "x@new" }), crew("Alicia", { email: "x@new" })]),
+        parseResult: parseResult([
+          crew("Alice", { email: "x@new" }),
+          crew("Alicia", { email: "x@new" }),
+        ]),
         snapshot: snap,
         holds: { port, baseModifiedTime: MT2 },
       });
@@ -174,7 +189,13 @@ describe("hold-aware apply — proposed-target reservation (Task 2.7, F16/PF37)"
         showId,
         driveFileId,
         mi11Items: [
-          { id: "1", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old", new_email: "b@x" },
+          {
+            id: "1",
+            invariant: "MI-11",
+            crew_name: "Alice",
+            prior_email: "a@old",
+            new_email: "b@x",
+          },
         ],
         liveCrewByName: new Map([["Alice", aliceLive]]),
         baseModifiedTime: MT,

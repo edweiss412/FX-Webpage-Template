@@ -19,6 +19,7 @@
  * uses `requireAdminIdentity()` so reports.reported_by can store the
  * canonical admin email required by §13.2.3 / AC-8.2.
  */
+import { cache } from "react";
 import { forbidden, redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -126,21 +127,31 @@ function maybeForceTestInfraFail(
   }
 }
 
-export async function requireAdminIdentity(
-  opts?: RequireAdminOpts,
-): Promise<AdminIdentity> {
-  const layer = opts?.layer ?? "page";
-  let forceHeaders: Awaited<ReturnType<typeof headers>> | null = null;
-  try {
-    forceHeaders = await headers();
-  } catch {
-    forceHeaders = null;
-  }
-  maybeForceTestInfraFail(forceHeaders, layer);
-
-  // Auth gate: ask Postgres' is_admin() helper. Reading via the cookie-bound
-  // client means RLS-side helpers see the same auth.jwt() the rest of the
-  // request would. Empty cookies → unauthenticated → fail closed before RPC.
+/**
+ * No-arg cached core (nav-perf phase 1, B + B1.5). React's `cache()` memoizes
+ * the resolution PER REQUEST, so the admin layout gate and the page gate share
+ * one identity resolution (1 getClaims + 1 is_session_live + 1 is_admin) per
+ * navigation instead of doubling the network hops. The no-arg signature is
+ * deliberate: nothing request-variant feeds the resolution, so the cache key
+ * is the function identity alone. The layer-specific test-infra hook stays
+ * OUTSIDE this cache (it must fire per-layer) — see requireAdminIdentity.
+ *
+ * Gate semantics (B1):
+ *   - getClaims() verifies the admin JWT LOCALLY (ES256, no Auth-server
+ *     round-trip) — replaces getUser()'s remote /auth/v1/user call.
+ *   - is_session_live() (B1.5) + is_admin() (B2) run in PARALLEL (both
+ *     JWT-only reads). is_session_live confirms the session row still exists
+ *     in auth.sessions so a revoked/signed-out/deleted session is cut off
+ *     IMMEDIATELY (not TTL-bounded); is_admin keeps authorization live.
+ *
+ * Error-first discipline (invariant 9): destructure { data, error } at EVERY
+ * boundary; a returned infra error on EITHER RPC surfaces as AdminInfraError
+ * BEFORE any data verdict, so a benign revoked-session signal
+ * (is_session_live=false) can never mask an admin DB outage.
+ */
+const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
+  // Auth gate via the cookie-bound client so RLS-side helpers see the same
+  // auth.jwt() the rest of the request would. Empty cookies → unauthenticated.
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -156,62 +167,97 @@ export async function requireAdminIdentity(
     );
   }
 
-  // Meta-discipline (M5 R18 post-fix): supabase.auth.getUser() can THROW
-  // (network, abort, JWT decode error) in addition to returning { error }.
-  // R17 #1 only mapped userError to AdminInfraError; a throw bypassed the
-  // discriminated union and produced an uncataloged framework error
-  // instead of the cataloged 500 path admin layouts depend on.
-  let userData: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"];
-  let userError: Awaited<ReturnType<typeof supabase.auth.getUser>>["error"];
+  // getClaims() can THROW (network, abort, JWKS fetch, decode error) in
+  // addition to returning { error }. Both arms must reach AdminInfraError
+  // (M5 R18 meta-discipline) except the AuthSessionMissingError redirect.
+  let claimsData: Awaited<ReturnType<typeof supabase.auth.getClaims>>["data"];
+  let claimsError: Awaited<ReturnType<typeof supabase.auth.getClaims>>["error"];
   try {
-    const r = await supabase.auth.getUser();
-    userData = r.data;
-    userError = r.error;
+    const r = await supabase.auth.getClaims();
+    claimsData = r.data;
+    claimsError = r.error;
   } catch (err) {
     throw new AdminInfraError(
-      `requireAdmin: getUser threw: ${err instanceof Error ? err.message : String(err)}`,
+      `requireAdmin: getClaims threw: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (userError) {
-    if (isAuthSessionMissingError(userError)) {
-      // Block-1-finding-5 (2026-05-27): UNAUTHED → redirect to sign-in
-      // (was forbidden() pre-fix; the 403 dead-ended unauthenticated
-      // visitors). The authed-but-not-admin 403 path below is unchanged
-      // — that's the security boundary.
+  if (claimsError) {
+    if (isAuthSessionMissingError(claimsError)) {
+      // Block-1-finding-5: UNAUTHED → redirect to sign-in (not 403). The
+      // authed-but-not-admin 403 path below is unchanged — security boundary.
       return await redirectToSignIn();
     }
-    throw new AdminInfraError(`requireAdmin: getUser failed: ${userError.message}`);
+    throw new AdminInfraError(
+      `requireAdmin: getClaims failed: ${String((claimsError as { message?: string }).message)}`,
+    );
   }
-  const email = canonicalize(userData.user?.email);
+  const email = canonicalize((claimsData as { claims?: { email?: string } } | null)?.claims?.email);
   if (!email) {
     // Confirmed unauthenticated (no email after canonicalize) — auth-level
-    // denial. Block-1-finding-5 redirect path; was forbidden() pre-fix.
-    // `return await` for TS control-flow narrowing through Promise<never>.
+    // denial. Block-1-finding-5 redirect path. `return await` for TS
+    // control-flow narrowing through Promise<never>.
     return await redirectToSignIn();
   }
 
-  // Same shape: rpc() can throw (network, abort) in addition to returning
-  // { error }. Both arms must reach AdminInfraError.
-  let data: Awaited<ReturnType<typeof supabase.rpc>>["data"];
-  let error: Awaited<ReturnType<typeof supabase.rpc>>["error"];
+  // B1.5 + B2: session-freshness and admin authz in PARALLEL (both JWT-only
+  // reads). Promise.all the QUERY promises (they resolve, not reject);
+  // never Promise.allSettled (invariant 9).
+  let sessionRpc: Awaited<ReturnType<typeof supabase.rpc>>;
+  let adminRpc: Awaited<ReturnType<typeof supabase.rpc>>;
   try {
-    const r = await supabase.rpc("is_admin");
-    data = r.data;
-    error = r.error;
+    [sessionRpc, adminRpc] = await Promise.all([
+      supabase.rpc("is_session_live"),
+      supabase.rpc("is_admin"),
+    ]);
   } catch (err) {
     throw new AdminInfraError(
-      `requireAdmin: is_admin RPC threw: ${err instanceof Error ? err.message : String(err)}`,
+      `requireAdmin: session/admin RPC threw: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  if (error) {
-    throw new AdminInfraError(`requireAdmin: is_admin RPC failed: ${error.message}`);
+  // Destructure { data, error } at each boundary (invariant 9 grep-shape).
+  const { data: sessionLive, error: sessionError } = sessionRpc;
+  const { data: isAdmin, error: adminError } = adminRpc;
+  // ERROR-FIRST: a returned infra error on EITHER RPC surfaces as
+  // AdminInfraError BEFORE any data verdict — so {sessionLive:false,
+  // adminError} does NOT collapse into a benign redirect and hide an admin
+  // DB outage.
+  if (sessionError) {
+    throw new AdminInfraError(
+      `requireAdmin: is_session_live RPC failed: ${String((sessionError as { message?: string }).message)}`,
+    );
   }
-  if (data !== true) {
-    // Confirmed non-admin — auth-level denial.
+  if (adminError) {
+    throw new AdminInfraError(
+      `requireAdmin: is_admin RPC failed: ${String((adminError as { message?: string }).message)}`,
+    );
+  }
+  // Then data verdicts: session-not-live → redirect (precedence over
+  // forbidden); not-admin → forbidden.
+  if (sessionLive !== true) {
+    // Revoked / signed-out / deleted session — UNAUTHED, redirect to sign-in.
+    return await redirectToSignIn();
+  }
+  if (isAdmin !== true) {
+    // Confirmed non-admin — auth-level denial (security boundary: 403).
     forbidden();
   }
 
   return { email };
+});
+
+export async function requireAdminIdentity(opts?: RequireAdminOpts): Promise<AdminIdentity> {
+  const layer = opts?.layer ?? "page";
+  // The layer-specific test-infra hook stays OUTSIDE the cached core (it must
+  // fire per-layer: a page-scoped force must not trip the layout gate).
+  let forceHeaders: Awaited<ReturnType<typeof headers>> | null = null;
+  try {
+    forceHeaders = await headers();
+  } catch {
+    forceHeaders = null;
+  }
+  maybeForceTestInfraFail(forceHeaders, layer);
+
+  return resolveAdminIdentity();
 }
 
 export async function requireAdmin(opts?: RequireAdminOpts): Promise<void> {
@@ -237,5 +283,10 @@ export async function requireAdmin(opts?: RequireAdminOpts): Promise<void> {
     throw new AdminInfraError("test-forced infra fail (H.2)");
   }
 
-  await requireAdminIdentity();
+  // Forward `opts` so the delegated identity gate runs at the caller's layer —
+  // otherwise requireAdmin({ layer: "layout" }) would default the identity hook
+  // to "page" and trip a page-scoped test-only force header on a layout gate
+  // (Codex whole-diff R1, layer-aware-hook contract). No production caller passes
+  // a layer today, so this is contract-correctness, not a runtime behavior change.
+  await requireAdminIdentity(opts);
 }

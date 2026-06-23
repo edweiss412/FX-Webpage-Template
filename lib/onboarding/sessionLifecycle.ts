@@ -401,6 +401,11 @@ export async function cleanupAbandonedFinalize(
     // discriminator defeat forged-provenance manifest rows. `published = false`
     // stays as a belt-and-suspenders guard (a session-created row that somehow
     // got published must never be deleted here).
+    //
+    // not-subject-to-revalidate (nav-perf tag-caching Task 9): this DELETE removes ONLY first-seen
+    // INTERIM shows with `published = false`. The crew page gates on published=true
+    // (getShowForViewer.ts:291), so an unpublished interim show has NO served data-cache entry —
+    // deleting it cannot leave a stale rendered `show-${id}` tag, so no revalidate is needed.
     await tx.query(
       `
         delete from public.shows s
@@ -646,6 +651,10 @@ async function reapOneSession(
     // First-seen interim rows: provenance-keyed (created_show_id + drive
     // binding + show-side discriminator + locked-set membership), NEVER the
     // published=false proxy (R11-1/R48-2/R49-1/R57-1).
+    //
+    // not-subject-to-revalidate (nav-perf tag-caching Task 9): same as the abandon-cleanup DELETE
+    // above — removes ONLY `published = false` interim shows, which have no served crew data-cache
+    // entry (getShowForViewer gates on published=true), so there is no `show-${id}` tag to bust.
     deleted += (
       await tx.query(
         `

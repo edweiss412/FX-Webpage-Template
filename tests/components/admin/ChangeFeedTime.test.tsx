@@ -12,9 +12,7 @@ afterEach(cleanup);
 
 it("renders a relative label and preserves the ISO in dateTime", () => {
   const now = new Date("2026-06-09T12:00:00Z");
-  const { container } = render(
-    <ChangeFeedTime occurredAt="2026-06-09T11:00:00Z" now={now} />,
-  );
+  const { container } = render(<ChangeFeedTime occurredAt="2026-06-09T11:00:00Z" now={now} />);
   const el = container.querySelector("time");
   expect(el).not.toBeNull();
   expect(el!.getAttribute("dateTime")).toBe("2026-06-09T11:00:00Z");

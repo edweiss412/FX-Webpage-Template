@@ -76,9 +76,7 @@ export function UserMenu({ email }: { email: string }) {
           >
             {hasEmail && (
               <div className="border-b border-border px-2 pb-2">
-                <p className="truncate text-sm font-semibold text-text-strong">
-                  {email}
-                </p>
+                <p className="truncate text-sm font-semibold text-text-strong">{email}</p>
               </div>
             )}
             <form

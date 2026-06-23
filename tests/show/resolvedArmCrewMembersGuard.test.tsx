@@ -4,7 +4,7 @@
  *
  * Fail-closed contract for a MALFORMED projection (crewMembers missing /
  * not an array) on the `resolved` arm of
- * app/show/[slug]/[shareToken]/page.tsx + the full ShowBody render path.
+ * app/show/[slug]/[shareToken]/page.tsx + the full CrewShell render path.
  *
  * History: the original guard PR routed a malformed projection into the
  * same `{kind:"none"}` restrictions fallback as the unmatched-row case
@@ -16,19 +16,19 @@
  *   - unmatched row in a WELL-FORMED array → none-restrictions tolerance
  *     (unchanged; pinned in tests/data/viewerContext.test.ts).
  *   - crew/admin_preview viewer + non-array crewMembers →
- *     resolveViewerContext throws MalformedProjectionError; ShowBody
+ *     resolveViewerContext throws MalformedProjectionError; CrewShell
  *     catches it and renders the route's EXISTING infra arm,
  *     <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" /> — no
  *     tiles, no hero card, no unrestricted schedule.
  *
  * The page function itself still must NOT throw: ShowPage derives the
  * display-only identity chip from `data.crewMembers?.find(...)` BEFORE
- * React renders ShowBody, and an uncaught TypeError there would bypass
- * the deliberate-surface contract (P-R5 Fix-1) AND ShowBody's
+ * React renders CrewShell, and an uncaught TypeError there would bypass
+ * the deliberate-surface contract (P-R5 Fix-1) AND CrewShell's
  * fail-closed catch. So this file pins both halves:
  *
- *   1. ShowPage resolves (no throw) and hands ShowBody a null chip.
- *   2. Rendering ShowBody with the malformed projection produces
+ *   1. ShowPage resolves (no throw) and hands CrewShell a null chip.
+ *   2. Rendering CrewShell with the malformed projection produces
  *      TerminalFailure, NOT the tile grid.
  *
  * Concrete failure modes caught: (a) reverting the typed throw to the
@@ -116,13 +116,18 @@ describe("resolved arm: missing crewMembers array fails CLOSED", () => {
     expect(element.props.viewer).toEqual({ kind: "crew", crewMemberId: "crew-1" });
   });
 
-  test("full ShowBody render path → TerminalFailure (PICKER_RESOLVER_LOOKUP_FAILED copy), no tile grid", async () => {
+  test("full CrewShell render path → TerminalFailure (PICKER_RESOLVER_LOOKUP_FAILED copy), no tile grid", async () => {
     const element = await resolveShowPageElement();
 
-    // ShowBody is an async Server Component; invoke it directly with the
-    // exact props the page handed it and render the resolved tree.
-    const { ShowBody } = await import("@/app/show/[slug]/[shareToken]/_ShowBody");
-    const node = await ShowBody(element.props as Parameters<typeof ShowBody>[0]);
+    // CrewShell is an async Server Component (the redesigned body that
+    // replaced _ShowBody); invoke it directly with the exact props the page
+    // handed it and render the resolved tree. The malformed-projection
+    // fail-closed contract migrated verbatim into CrewShell's producer
+    // contract 2 (_CrewShell.tsx:157-170), which renders the SAME
+    // <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" /> on a non-array
+    // crewMembers field.
+    const { CrewShell } = await import("@/app/show/[slug]/[shareToken]/_CrewShell");
+    const node = await CrewShell(element.props as Parameters<typeof CrewShell>[0]);
     render(<>{node}</>);
 
     // Fail-closed: the EXISTING infra arm renders…

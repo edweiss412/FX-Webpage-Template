@@ -11,7 +11,11 @@ import { afterEach, expect, it, vi } from "vitest";
 
 const requireAdmin = vi.fn(async () => undefined);
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: () => requireAdmin() }));
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+const revalidateTag = vi.fn();
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: (...a: unknown[]) => revalidateTag(...a),
+}));
 
 import * as gate from "@/lib/sync/holds/mi11GateActions";
 import * as undo from "@/lib/sync/holds/undoChange";
@@ -20,8 +24,21 @@ import {
   mi11RejectAction,
   undoChangeAction,
 } from "@/app/admin/show/[slug]/_actions/feed";
+import { showCacheTag } from "@/lib/data/showCacheTag";
 
 afterEach(() => vi.restoreAllMocks());
+
+// nav-perf tag-caching (Task 9): a success carrying a server-resolved showId revalidates that
+// show's data-cache tag POST-COMMIT (crew DATA changed); a success without one does not crash.
+it("mi11ApproveAction revalidates the show data-cache tag when the helper surfaces a showId", async () => {
+  revalidateTag.mockClear();
+  vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true, showId: "show-77" });
+  const fd = new FormData();
+  fd.set("holdId", "h1");
+  fd.set("expectedBaseModifiedTime", "");
+  await mi11ApproveAction(null, fd);
+  expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-77"), { expire: 0 });
+});
 
 it("mi11ApproveAction submits holdId + the feed-rendered token and DELEGATES to approveMi11Hold(holdId, expectedBaseModifiedTime) (PF40)", async () => {
   const spy = vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true });
@@ -34,9 +51,7 @@ it("mi11ApproveAction submits holdId + the feed-rendered token and DELEGATES to 
   // the helper resolves drive_file_id from the hold and owns the Drive re-check +
   // lock-taking RPC. PF40: the action forwards the feed-rendered token as 2nd arg.
   expect(spy).toHaveBeenCalledWith("h1", "2026-06-09T10:00:00Z");
-  expect(spy).not.toHaveBeenCalledWith(
-    expect.objectContaining({ driveFileId: expect.anything() }),
-  );
+  expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ driveFileId: expect.anything() }));
 });
 
 it("mi11RejectAction forwards holdId + expectedBaseModifiedTime to rejectMi11Hold (PF40)", async () => {

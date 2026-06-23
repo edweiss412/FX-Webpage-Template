@@ -28,10 +28,7 @@ const STORAGE_KEY = `fxav-report-attempt-${SURFACE_ID}`;
 
 const fetchMock = vi.fn<typeof fetch>();
 let uuidCounter = 0;
-const uuids = [
-  "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-  "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-];
+const uuids = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"];
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -52,7 +49,11 @@ afterEach(() => {
 });
 
 function jsonResponse(status: number, body: unknown): Response {
-  return { status, ok: status >= 200 && status < 300, json: async () => body } as unknown as Response;
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => body,
+  } as unknown as Response;
 }
 
 function defaultProps(surface: "admin" | "crew") {

@@ -16,10 +16,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const MIGRATION = join(
-  process.cwd(),
-  "supabase/migrations/20260608000003_undo_change_rpc.sql",
-);
+const MIGRATION = join(process.cwd(), "supabase/migrations/20260608000003_undo_change_rpc.sql");
 
 // The REAL crew_members column set (verified against the live schema — NO `restrictions`).
 const REAL_CREW_COLUMNS = new Set([
@@ -52,12 +49,17 @@ describe("undo_change migration — phantom-column + type-correctness guard", ()
       .map((c) => c.trim())
       .filter(Boolean);
     for (const col of insertCols) {
-      expect(REAL_CREW_COLUMNS.has(col), `INSERT references phantom crew_members column "${col}"`).toBe(true);
+      expect(
+        REAL_CREW_COLUMNS.has(col),
+        `INSERT references phantom crew_members column "${col}"`,
+      ).toBe(true);
     }
     // each `set <col> =` inside the do update.
     const setCols = [...src.matchAll(/^\s*([a-z_]+)\s*=\s*excluded\./gim)].map((m) => m[1]!);
     for (const col of setCols) {
-      expect(REAL_CREW_COLUMNS.has(col), `ON CONFLICT do-update sets phantom column "${col}"`).toBe(true);
+      expect(REAL_CREW_COLUMNS.has(col), `ON CONFLICT do-update sets phantom column "${col}"`).toBe(
+        true,
+      );
     }
     // id + claimed_via_oauth_at + name + email must be in the INSERT list (identity continuity PF38).
     for (const required of ["id", "claimed_via_oauth_at", "name", "email"]) {

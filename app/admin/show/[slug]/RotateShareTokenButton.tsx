@@ -163,9 +163,7 @@ export function RotateShareTokenButton({
       : null;
   const rotatedInactive = result?.ok === true && !isCrewLinkActive;
   const refusedMessage =
-    result && result.ok === false
-      ? "Couldn't rotate the share-token. Please try again."
-      : null;
+    result && result.ok === false ? "Couldn't rotate the share-token. Please try again." : null;
   const isResolving = ui === "resolving" || isPending;
 
   // M12.7 — share-card labeled row owned by this component when compact, so the
@@ -209,72 +207,68 @@ export function RotateShareTokenButton({
   const banners = (
     <>
       {newUrl && (
-          <div
-            data-testid="admin-rotate-share-token-ok"
-            role="status"
-            aria-live="polite"
-            className="flex w-full max-w-md flex-col gap-1 rounded-sm bg-surface-raised px-2 py-1"
-          >
-            <p className="text-sm text-text-strong">
-              <span
-                aria-hidden="true"
-                className="mr-1 font-semibold text-accent"
-              >
-                ✓
-              </span>
-              New share-link ready. Send the URL below to crew; the old
-              link no longer works.
-            </p>
-            <div className="flex items-start gap-2">
-              <code
-                data-testid="admin-rotate-share-token-url"
-                className="min-w-0 flex-1 break-all rounded-sm bg-surface px-2 py-1 text-xs text-text-strong"
-              >
-                {newUrl}
-              </code>
-              <button
-                type="button"
-                onClick={() => void onCopyClick(newUrl)}
-                data-testid="admin-rotate-share-token-copy-button"
-                aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
-                className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-              >
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <span
-              role="status"
-              aria-live="polite"
-              className="sr-only"
-              data-testid="admin-rotate-share-token-copy-announce"
-            >
-              {copied ? "URL copied to clipboard" : ""}
-            </span>
-          </div>
-        )}
-        {rotatedInactive && (
-          <p
-            data-testid="admin-rotate-share-token-ok-inactive"
-            role="status"
-            aria-live="polite"
-            className="w-full max-w-md rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
-          >
+        <div
+          data-testid="admin-rotate-share-token-ok"
+          role="status"
+          aria-live="polite"
+          className="flex w-full max-w-md flex-col gap-1 rounded-sm bg-surface-raised px-2 py-1"
+        >
+          <p className="text-sm text-text-strong">
             <span aria-hidden="true" className="mr-1 font-semibold text-accent">
               ✓
             </span>
-            Share-token rotated. The crew link stays inactive while this show is
-            unpublished or archived.
+            New share-link ready. Send the URL below to crew; the old link no longer works.
           </p>
-        )}
-        {refusedMessage && (
-          <p
-            data-testid="admin-rotate-share-token-refused"
-            role="alert"
-            className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+          <div className="flex items-start gap-2">
+            <code
+              data-testid="admin-rotate-share-token-url"
+              className="min-w-0 flex-1 break-all rounded-sm bg-surface px-2 py-1 text-xs text-text-strong"
+            >
+              {newUrl}
+            </code>
+            <button
+              type="button"
+              onClick={() => void onCopyClick(newUrl)}
+              data-testid="admin-rotate-share-token-copy-button"
+              aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <span
+            role="status"
+            aria-live="polite"
+            className="sr-only"
+            data-testid="admin-rotate-share-token-copy-announce"
           >
-            {refusedMessage}
-          </p>
-        )}
+            {copied ? "URL copied to clipboard" : ""}
+          </span>
+        </div>
+      )}
+      {rotatedInactive && (
+        <p
+          data-testid="admin-rotate-share-token-ok-inactive"
+          role="status"
+          aria-live="polite"
+          className="w-full max-w-md rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+        >
+          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+            ✓
+          </span>
+          Share-token rotated. The crew link stays inactive while this show is unpublished or
+          archived.
+        </p>
+      )}
+      {refusedMessage && (
+        <p
+          data-testid="admin-rotate-share-token-refused"
+          role="alert"
+          className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+        >
+          {refusedMessage}
+        </p>
+      )}
     </>
   );
 
@@ -300,8 +294,7 @@ export function RotateShareTokenButton({
   // the warning paragraph's id (tighter SR experience).
   const warningP = (
     <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
-      The existing show URL will stop working. Crew need the new URL to reach the
-      page.
+      The existing show URL will stop working. Crew need the new URL to reach the page.
     </p>
   );
   const confirmCancelButtons = (

@@ -84,4 +84,36 @@ export const MANIFEST: readonly ManifestEntry[] = [
     viewport: MOBILE,
     captureSelector: "[data-testid=admin-needs-attention-page]",
   },
+  // §4.11 crew-page screenshots — drift-CI-only (no admin help MDX consumer).
+  // Captured via the admin-preview route (R14 fallback): the harness signs in as
+  // ADMIN, and resolveShowPageAccess would return the ADMIN arm on the tokenized
+  // crew route — baselining the WRONG (plain-admin) view. The admin-preview route
+  // is admin-authed (which the harness already is) but renders CrewShell as the
+  // PREVIEWED crew (admin_preview → isAdmin=false, the crew's flags), so it IS the
+  // crew experience (at the cost of a PreviewBanner + identityChip=null header
+  // delta). `?s=<section>` threads through to CrewShell's activeSection.
+  {
+    key: "crew-preview-today-mobile",
+    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}/preview/${RPAS_CENTRAL_2026_PREVIEW_CREW_ID}?s=today`,
+    fixture: RPAS_CENTRAL_2026,
+    frozenClockInstant: MID_SHOW_INSTANT,
+    viewport: MOBILE,
+    captureSelector: "[data-testid=crew-shell]",
+  },
+  {
+    key: "crew-preview-gear-mobile",
+    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}/preview/${RPAS_CENTRAL_2026_PREVIEW_CREW_ID}?s=gear`,
+    fixture: RPAS_CENTRAL_2026,
+    frozenClockInstant: MID_SHOW_INSTANT,
+    viewport: MOBILE,
+    captureSelector: "[data-testid=crew-shell]",
+  },
+  {
+    key: "crew-preview-schedule-mobile",
+    route: `/admin/show/${RPAS_CENTRAL_2026_SLUG}/preview/${RPAS_CENTRAL_2026_PREVIEW_CREW_ID}?s=schedule`,
+    fixture: RPAS_CENTRAL_2026,
+    frozenClockInstant: MID_SHOW_INSTANT,
+    viewport: MOBILE,
+    captureSelector: "[data-testid=crew-shell]",
+  },
 ];

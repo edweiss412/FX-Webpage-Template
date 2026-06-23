@@ -4,9 +4,7 @@ import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, max-age=0, must-revalidate" };
 
-export type PickerAssetSessionResult =
-  | { ok: true }
-  | { ok: false; response: Response };
+export type PickerAssetSessionResult = { ok: true } | { ok: false; response: Response };
 
 function pickerCookieFromRequest(request: Request): string | undefined {
   const raw = request.headers.get("cookie");

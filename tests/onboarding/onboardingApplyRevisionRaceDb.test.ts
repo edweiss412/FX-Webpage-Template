@@ -83,17 +83,22 @@ beforeAll(async () => {
        (drive_file_id, staged_modified_time, parse_result, source_kind,
         warning_summary, wizard_session_id, triggered_review_items)
      values ($1, $2::timestamptz, $3::jsonb, 'onboarding_scan', '', $4::uuid, '[]'::jsonb)`,
-    [DRIVE_FILE_ID, STAGED_INSTANT, JSON.stringify({ show: { title: "Fixture" } }), WIZARD_SESSION_ID],
+    [
+      DRIVE_FILE_ID,
+      STAGED_INSTANT,
+      JSON.stringify({ show: { title: "Fixture" } }),
+      WIZARD_SESSION_ID,
+    ],
   );
 });
 
 afterAll(async () => {
   if (sql && dbUp) {
     await sql
-      .unsafe(`delete from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`, [
-        DRIVE_FILE_ID,
-        WIZARD_SESSION_ID,
-      ])
+      .unsafe(
+        `delete from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+        [DRIVE_FILE_ID, WIZARD_SESSION_ID],
+      )
       .catch(() => {});
   }
   if (sql) await sql.end().catch(() => {});

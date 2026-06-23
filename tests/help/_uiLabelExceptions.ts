@@ -118,6 +118,15 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     file: "app/help/admin/dashboard/page.mdx",
     note: "Status pill label — components/admin/NeedsAttentionInbox.tsx:106 (also lib/admin/syncStatus.ts:29 via ShowsTable's sync column).",
   },
+  // NOTE (audit Chunk 2): the dashboard sync-status table's warn/idle values —
+  // "Couldn't reach Drive" / "Sheet not in folder" / "Couldn't read the sheet" /
+  // "Sync in progress" — are defined ONLY in lib/admin/syncStatus.ts (ShowsTable
+  // renders them via a variable, so the literal strings appear in no app/ or
+  // components/ file the crosswalk scans). They are intentionally QUOTED in the
+  // MDX so the candidate extractor treats them as prose, not bare UI labels —
+  // declaring them here would FAIL the declared-registry layer, which still
+  // requires app/+components presence. Do not un-quote them without first
+  // extending the crosswalk to scan lib/.
   {
     label: "Retry now",
     file: "app/help/admin/dashboard/page.mdx",
@@ -175,26 +184,12 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     file: "app/help/admin/per-show-panel/page.mdx",
     note: "Per-show manual-sync button — components/admin/ReSyncButton.tsx:99.",
   },
-  {
-    label: "Auto sync",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:86.",
-  },
-  {
-    label: "Drive push",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:87.",
-  },
-  {
-    label: "Manual sync",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:88.",
-  },
-  {
-    label: "Onboarding scan",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:89.",
-  },
+  // (The "Auto sync / Drive push / Manual sync / Onboarding scan" source-kind
+  // eyebrow labels were declared here when the per-show panel documented a
+  // staged-review card. The Phase-6 ChangesFeed migration retired that card on
+  // the per-show panel — the eyebrows now live only on the first-seen staged
+  // route — so the per-show-panel doc no longer references them and these
+  // declarations were removed.)
   {
     label: "Changes to review",
     file: "app/help/admin/per-show-panel/page.mdx",
@@ -219,11 +214,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   },
 
   // ─── app/help/admin/review-queues/page.mdx ───
-  {
-    label: "Review and apply",
-    file: "app/help/admin/review-queues/page.mdx",
-    note: "Onboarding wizard step-3 first-seen action — components/admin/wizard/Step3Review.tsx:262 rendered link text. (Previously also the dead PendingPanel's row action; that component was deleted in M12.12 Task 10 — the live inbox row action is 'Review →'.)",
-  },
+  // (The "Review and apply" declaration was removed when the first-seen section
+  // was rewritten to the shipped labels: the inbox link is "Review" and the
+  // staged-card button is "Apply" — see those entries below / on the wizard.)
   {
     label: "Discard",
     file: "app/help/admin/review-queues/page.mdx",

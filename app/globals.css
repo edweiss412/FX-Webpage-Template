@@ -136,6 +136,12 @@
      an inline arbitrary bracket value) per the no-arbitrary-tracking contract in
      tests/styles/eyebrow-tracking.test.ts + DESIGN.md §2. */
   --tracking-page-title: -0.02em;
+  /* Tight tracking for the Schedule DayCard day-number badge (`.dnum`, a large
+     extrabold display number, not an eyebrow). Named here (not an inline arbitrary
+     bracket value) per the no-arbitrary-tracking contract in
+     tests/styles/eyebrow-tracking.test.ts + DESIGN.md §2. Preserves the exact
+     -0.03em the badge has always used (avoids any screenshot-baseline drift). */
+  --tracking-daynum: -0.03em;
 
   /* ── Spacing ── */
   --spacing-tap-min: 44px;
@@ -489,5 +495,196 @@ body {
     transition:
       height var(--duration-fast) ease-out,
       content-visibility var(--duration-fast) allow-discrete;
+  }
+}
+
+/*
+ * /help long-form prose typography.
+ *
+ * The /help MDX pipeline is intentionally "vanilla" — no @tailwindcss/typography
+ * plugin and no per-element overrides in mdx-components.tsx — so Tailwind v4
+ * preflight leaves markdown headings, lists, links, and paragraphs unstyled:
+ * `#`/`##` render at body size (16px/400) with no margin, `<ul>`/`<ol>` lose
+ * their markers and indent, inline links lose their underline + color, and
+ * consecutive paragraphs run together. That is the root cause of the "wall of
+ * text" reading experience across every /help page.
+ *
+ * These scoped rules restore a token-driven reading hierarchy, applied via the
+ * single `<div className="help-prose">` wrapper around {children} in
+ * app/help/layout.tsx. They live in `@layer base` so any per-element Tailwind
+ * utility still wins — RefAnchor's catalog headings keep their own size/margins,
+ * and the Step / Callout / TipFromSheets / Screenshot components keep their own
+ * spacing. Block rhythm uses the direct-child combinator (`>`) so only top-level
+ * MDX prose is spaced; the custom components' internal content is untouched.
+ * Inline links + code are styled wherever they appear in prose.
+ *
+ * Heading scale matches DESIGN.md §2.2 (text-2xl = page title, text-xl = section
+ * header, text-lg = sub-headline) AND the existing RefAnchor component, so plain
+ * `##` headings finally match the only headings that were styled before.
+ * Reading measure honors DESIGN.md §2.5 (cap 65–75ch); the desktop column was
+ * ~113ch unconstrained.
+ */
+@layer base {
+  .help-prose {
+    max-width: 70ch;
+  }
+
+  .help-prose > h1 {
+    font-size: var(--text-2xl);
+    line-height: var(--text-2xl--line-height);
+    letter-spacing: var(--text-2xl--letter-spacing);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text-strong);
+    margin: 0 0 var(--spacing-tile-gap);
+  }
+
+  .help-prose > h2 {
+    font-size: var(--text-xl);
+    line-height: var(--text-xl--line-height);
+    letter-spacing: var(--text-xl--letter-spacing);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-strong);
+    /* Generous top space is the primary section-break cue. */
+    margin: var(--spacing-section-gap) 0 var(--spacing-tile-gap);
+  }
+
+  .help-prose > h3 {
+    font-size: var(--text-lg);
+    line-height: var(--text-lg--line-height);
+    letter-spacing: var(--text-lg--letter-spacing);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-strong);
+    margin: var(--spacing-tile-pad) 0 0.5rem;
+  }
+
+  .help-prose > p {
+    margin: 0 0 var(--spacing-tile-gap);
+  }
+
+  .help-prose > ul,
+  .help-prose > ol {
+    margin: 0 0 var(--spacing-tile-gap);
+    padding-inline-start: 1.5rem;
+  }
+  .help-prose > ul {
+    list-style: disc;
+  }
+  .help-prose > ol {
+    list-style: decimal;
+  }
+  .help-prose > ul > li,
+  .help-prose > ol > li {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Inline cross-reference links in prose body text — the same inline-link
+     surface (p / li / dd / td) the WCAG-inline-link exception targets; leaves
+     the RefAnchor copy-link 🔗 and structural links alone. The underline is the
+     link affordance (WCAG 1.4.1). At rest the link INHERITS the surrounding
+     high-contrast text color (≈16:1 on the page bg, AAA) so body links clear
+     WCAG AA 1.4.3 everywhere — including on the tinted Callout/aside fills,
+     where the link inherits the box's own text color. The brand accent is NOT
+     used in ANY state — including :hover: --color-accent-on-bg is 4.11:1 on
+     --color-bg and ≈3.6–3.9:1 on the tinted Callout/aside fills, below the
+     4.5:1 normal-text floor, and WCAG 1.4.3 is not waived for hover text (see
+     BL-ACCENT-ON-BG-AA-CONTRAST). This matches the Header/Breadcrumb chrome,
+     which also style links as text-color + underline. Hover feedback comes from
+     the cursor and the always-present underline, not a color change. */
+  .help-prose :is(p, li, dd, td) a {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .help-prose code {
+    background: var(--color-surface-sunken);
+    padding: 0.1em 0.35em;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+    /* Long unbreakable tokens (e.g. the onboarding Drive-folder URL) must wrap
+       rather than force horizontal scroll on a 390px phone. */
+    overflow-wrap: anywhere;
+  }
+
+  /* Tables — enables the P1 status / decision-table content conversions. */
+  .help-prose > table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 var(--spacing-tile-gap);
+  }
+  .help-prose :is(th, td) {
+    border: 1px solid var(--color-border);
+    padding: 0.5rem 0.75rem;
+    text-align: start;
+    vertical-align: top;
+  }
+  .help-prose th {
+    background: var(--color-surface-sunken);
+    font-weight: var(--font-weight-semibold);
+  }
+
+  /* D8: dense (≥3-column) catalog tables stack into labeled cards on phones.
+     The HelpTable MDX component tags those tables `data-stack="true"` and
+     injects a real-text `.th-label` per cell. The label is hidden on desktop
+     (the real <th> column header is used); on mobile the table goes to a block
+     layout, the <thead> is removed, and each row becomes a bordered card whose
+     cells are labeled by the injected `.th-label` (real text, so it stays
+     screen-reader-readable once the block layout has dropped the table roles).
+     2-column tables are never tagged, so they keep the normal table layout. */
+  .help-prose .th-label {
+    display: none;
+  }
+
+  @media (max-width: 480px) {
+    .help-prose > table[data-stack="true"] {
+      display: block;
+      border: 0;
+    }
+    .help-prose > table[data-stack="true"] thead {
+      display: none;
+    }
+    .help-prose > table[data-stack="true"] tbody {
+      display: block;
+    }
+    .help-prose > table[data-stack="true"] tbody tr {
+      display: block;
+      margin: 0 0 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+    }
+    .help-prose > table[data-stack="true"] tbody td {
+      display: block;
+      border: 0;
+      padding: 0.35rem 0;
+    }
+    .help-prose > table[data-stack="true"] tbody td:first-child {
+      padding-top: 0;
+    }
+    .help-prose > table[data-stack="true"] tbody td:last-child {
+      padding-bottom: 0;
+    }
+    .help-prose > table[data-stack="true"] .th-label {
+      display: block;
+      margin-bottom: 0.1rem;
+      font-size: var(--text-sm);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text-subtle);
+    }
+    /* First cell = the card heading: its value (already bold) is the row's
+       identity, so it leads the card. The redundant first column label
+       ("Status" / "Status line" / "Badge" — every card is one of these) is
+       visually hidden but KEPT in the a11y tree (not display:none) so a screen
+       reader still announces "Status: <value>" on mobile. (D8 critique P2.) */
+    .help-prose > table[data-stack="true"] tbody td:first-child .th-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
   }
 }

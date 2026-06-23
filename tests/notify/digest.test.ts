@@ -56,9 +56,13 @@ describe("buildDigestModel", () => {
   test("mirrors needs-attention variants into digest groups and excludes only sent pending-ingestion items per recipient", async () => {
     const { sql, calls } = fakeSql();
 
-    const result = await buildDigestModel("doug@fxav.net", new Date("2026-06-02T12:00:00.000-04:00"), {
-      sql,
-    });
+    const result = await buildDigestModel(
+      "doug@fxav.net",
+      new Date("2026-06-02T12:00:00.000-04:00"),
+      {
+        sql,
+      },
+    );
 
     expect(result.kind).toBe("ok");
     if (result.kind !== "ok") return;

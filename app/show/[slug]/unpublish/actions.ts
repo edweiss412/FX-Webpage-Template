@@ -22,6 +22,7 @@
 // tests/show/unpublishConfirmAction.test.ts.
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 import { prevalidateUnpublishBinding } from "@/lib/sync/unpublishConfirmPage";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { messageFor } from "@/lib/messages/lookup";
 import type { ConfirmUnpublishActionState } from "./copy";
 
@@ -55,6 +56,9 @@ export async function confirmUnpublishAction(
 
   switch (result.outcome) {
     case "success":
+      // nav-perf tag-caching (Task 9): the consume archived the show (published=false) — gates crew
+      // visibility. unpublishShowViaEmailedLink committed by the time it resolves (POST-COMMIT).
+      revalidateShow(result.showId);
       return { status: "success", title: precheck.title };
     case "expired": {
       const entry = messageFor("UNPUBLISH_TOKEN_EXPIRED");

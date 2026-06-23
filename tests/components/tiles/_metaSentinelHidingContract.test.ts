@@ -76,11 +76,31 @@
  *       IDENTITY_FIELD_REFERENCES and are explicitly NOT subject to
  *       this contract.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-const TILES_DIR = join(process.cwd(), "components", "tiles");
+const REPO_ROOT = process.cwd();
+const TILES_DIR = join(REPO_ROOT, "components", "tiles");
+
+/**
+ * Crew-redesign extension (Task 4): the §8.3 sentinel-hiding contract now
+ * also walks the crew section/primitive trees. PersonRow is the first
+ * `components/crew/` component that reads a generic-optional field
+ * (`person.notes`), so the walk extension lands in the same commit as
+ * PersonRow. From this commit forward the contract enforces on crew
+ * components too, so a new section/primitive that reads venue/notes/contact
+ * fields without routing through `shouldHideGenericOptional` fails at CI
+ * (rather than as a future adversarial-review finding).
+ *
+ * Each entry is walked recursively for `.tsx` files. A directory that does
+ * not yet exist (e.g. `components/crew/sections/` before the sections land)
+ * is simply skipped — the walk extends as those trees fill in.
+ */
+const CREW_DIRS: ReadonlyArray<string> = [
+  join(REPO_ROOT, "components", "crew", "sections"),
+  join(REPO_ROOT, "components", "crew", "primitives"),
+];
 
 /**
  * The canonical §8.3 generic-optional text-field reference patterns.
@@ -100,9 +120,11 @@ const TILES_DIR = join(process.cwd(), "components", "tiles");
  *   - `\.audio\b` / `\.video\b` /
  *     `\.lighting\b`             — room scope strings. Round-12
  *                                  reclassification.
- *   - `event_details\["dress_code"\]`
- *     / `dress_code|dress code|attire|dress`
- *                                — round-11 named via pickDressCode.
+ *   - `event_details.dress_code`     — round-11 named via pickDressCode; the
+ *                                  attire/dress/dress-code label family now
+ *                                  collapses to this ONE canonical key at
+ *                                  parse time (M4-D1), so the pattern anchors
+ *                                  on the single read path.
  *   - `event_details\["power"\]` /
  *     `\["internet"\]` /
  *     `\["keynote_requirements"\]`
@@ -137,8 +159,19 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     pattern: /\br\.(audio|video|lighting)\b/,
   },
   {
-    description: "event_details dress_code candidates",
-    pattern: /event_details\["?(dress_code|dress|attire)"?\]|"dress_code"|"attire"|"dress code"/,
+    // M4-D1: dress-code is now a SINGLE canonical key. The parser
+    // (lib/parser/blocks/event.ts CANONICAL_KEY_MAP) collapses the
+    // attire/dress/dress-code label family to `dress_code`, so the consumer
+    // reads `event_details.dress_code` only (dot or bracket access). The old
+    // pattern also matched the bare quoted strings "dress_code"/"attire"/
+    // "dress code" from the now-deleted 4-key probe loop — those alternatives
+    // are dropped because they would only match prose/comments after the
+    // collapse (a fragile match that lets the contract pass for the wrong
+    // reason). This pattern anchors on the actual read path so the contract
+    // still enforces: any tile/crew file reading `event_details.dress_code`
+    // must route it through `shouldHideGenericOptional`.
+    description: "event_details.dress_code (canonical, M4-D1)",
+    pattern: /event_details(\.dress_code\b|\[\s*"dress_code"\s*\])/,
   },
   // Round-13 reclassification: vehicle metadata on TransportationRow.
   // The pattern anchors on `transportation.` to avoid matching unrelated
@@ -181,10 +214,13 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
   // sentinel value creates a dead/misleading control (same harm
   // pattern as round-15 driver_phone). The `member.` accessor
   // matches the analogous CrewTile render path; classified by
-  // class-sweep extension of the round-16 finding.
+  // class-sweep extension of the round-16 finding. Crew-redesign
+  // Task 4 adds `person.` — PersonRow ports the same actionable-row
+  // idiom into components/crew/, so a sentinel `person.phone` would
+  // render the same dead `tel:` control if left unguarded.
   {
-    description: "contact.phone / email + member.phone / email",
-    pattern: /\b(contact|member)\??\.(phone|email)\b/,
+    description: "contact.phone / email + member.phone / email + person.phone / email",
+    pattern: /\b(contact|member|person)\??\.(phone|email)\b/,
   },
   // Round-17: PullSheetItem.cat / subCat. PackListTile builds an
   // `(cat / subCat)` taxonomy string in formatItemLabel; sentinel
@@ -195,6 +231,37 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
   {
     description: "PullSheetItem.cat / subCat (pack-list taxonomy)",
     pattern: /\bitem\??\.(cat|subCat)\b/,
+  },
+  // Phase-2 §4.3: ScheduleSection run-of-show optional fields. The agenda entry's
+  // room / av / finish / trt are generic-optional free text — a sentinel ('TBD' /
+  // 'N/A' / 'TBA' / '') must hide the field, not render as content. The pattern
+  // anchors on `entry.(room|av|finish|trt)` (RunOfShowEntry's accessor) so a
+  // future refactor that drops the predicate fails at CI.
+  {
+    description: "agenda entry.room / av / finish / trt (run-of-show)",
+    pattern: /\bentry\??\.(room|av|finish|trt)\b/,
+  },
+  // Per-day-schedule-keytimes spec §5.3 / §5.5 / §3.3: the RAW-RENDERED free-text
+  // fields are the ScheduleDay window/showStart (DayCard meta "7:30am–5:50pm" /
+  // fragment showStart) and dates.setupTime (Set-day "Setup 10:00PM"). Each is
+  // raw sheet text rendered by DayCard meta and MUST route through
+  // shouldHideGenericOptional so a 'TBD'/'N/A'/'TBA' sentinel hides rather than
+  // rendering as content. Accessors used by the consumers:
+  //   - `day.window.start` / `day.window.end` (DayCard window meta)
+  //   - `day.showStart`     (DayCard fragment meta)
+  //   - `dates.setupTime`   (Set-day DayCard "Setup …" meta)
+  // NOTE (R2 finding 6): ShowAnchor.time is INTENTIONALLY NOT registered here —
+  // it is sentinel-guarded at the SOURCE (`resolveKeyTimes` only emits anchors
+  // whose value passes `isAbsentTime`, and the §5.1 decision table never emits an
+  // absent/sentinel time), so the KeyTimesStrip value (`s.time` → `row.value`) is
+  // already clean by construction; a render-time pattern here would be vacuous.
+  {
+    description: "ScheduleDay.window.start / window.end / showStart",
+    pattern: /\b(window\??\.(start|end)\b|\bshowStart\b)/,
+  },
+  {
+    description: "dates.setupTime (Set-day DayCard meta)",
+    pattern: /\bdates\??\.setupTime\b|\bsetupTime\b/,
   },
 ];
 
@@ -227,22 +294,60 @@ const EXEMPTIONS: ReadonlyArray<{
   reason: string;
 }> = [];
 
-/** Files in components/tiles/ that aren't tiles per se (helpers). */
+/**
+ * Files that live under a walked directory but aren't subject to the
+ * contract (helpers, or crew primitives/sections that only render
+ * pre-resolved/structured props and never read a raw generic-optional
+ * string field). Keys are the basename so the exemption is dir-agnostic.
+ *
+ * As of crew-redesign Task 4: empty. The shipped crew primitives
+ * (SectionCard/DayCard/KeyTimesStrip take ReactNode/structured/already-
+ * resolved props; KeyValueRows already routes through the predicate) all
+ * pass the extended walk without an exemption.
+ */
 const NON_TILE_FILES = new Set<string>([
-  // None as of M4 round 12. Helper-style files would go here.
+  // None as of crew-redesign Task 4. Helper-style files would go here.
 ]);
 
+/**
+ * Recursively collect `.tsx` files under `dir`, returning each as a path
+ * RELATIVE to `REPO_ROOT` (so `readTileSource` resolves it from the root
+ * regardless of which base dir it came from). A non-existent dir yields [].
+ */
+function walkTsxFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      out.push(...walkTsxFiles(full));
+    } else if (entry.endsWith(".tsx")) {
+      out.push(full.slice(REPO_ROOT.length + 1));
+    }
+  }
+  return out;
+}
+
+/**
+ * Returns every tile + crew section/primitive file as a repo-root-relative
+ * path, with the NON_TILE_FILES exemption (matched on basename) applied and
+ * the `.tsx` filter enforced.
+ */
 function listTileFiles(): string[] {
-  return readdirSync(TILES_DIR)
-    .filter((f) => f.endsWith(".tsx") && !NON_TILE_FILES.has(f))
+  const tiles = readdirSync(TILES_DIR)
+    .filter((f) => f.endsWith(".tsx"))
+    .map((f) => join("components", "tiles", f));
+  const crew = CREW_DIRS.flatMap((d) => walkTsxFiles(d));
+  return [...tiles, ...crew]
+    .filter((rel) => !NON_TILE_FILES.has(rel.split("/").pop() ?? rel))
     .sort();
 }
 
-function readTileSource(filename: string): string {
-  return readFileSync(join(TILES_DIR, filename), "utf8");
+function readTileSource(relPath: string): string {
+  return readFileSync(join(REPO_ROOT, relPath), "utf8");
 }
 
-describe("META §8.3 sentinel-hiding contract — components/tiles/", () => {
+describe("META §8.3 sentinel-hiding contract — components/tiles/ + components/crew/", () => {
   test("at least one tile file exists (sanity guard)", () => {
     // If this fails, the test is reading the wrong directory or the
     // tiles directory got deleted.
@@ -250,35 +355,50 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/", () => {
     expect(files.length).toBeGreaterThan(0);
   });
 
-  test("every tile that consumes a §8.3 generic-optional field imports shouldHideGenericOptional", () => {
+  test("the walk includes at least one components/crew/ file (extension guard)", () => {
+    // Pins the crew-redesign Task 4 extension: the walk must reach the
+    // crew section/primitive trees, not silently regress to tiles-only.
+    // If the crew dirs vanish or the walk loses them, this fails before
+    // an unguarded crew component can slip through with green CI.
+    const files = listTileFiles();
+    const crewFiles = files.filter((rel) => rel.startsWith("components/crew/"));
+    expect(crewFiles.length, "expected ≥1 components/crew/ file in the walk").toBeGreaterThan(0);
+  });
+
+  test("every tile/crew file that consumes a §8.3 generic-optional field imports shouldHideGenericOptional", () => {
     const tiles = listTileFiles();
     const exemptSet = new Set(EXEMPTIONS.map((e) => e.filename));
     const failures: string[] = [];
 
-    for (const filename of tiles) {
-      if (exemptSet.has(filename)) continue;
-      const source = readTileSource(filename);
+    for (const relPath of tiles) {
+      const basename = relPath.split("/").pop() ?? relPath;
+      if (exemptSet.has(relPath) || exemptSet.has(basename)) continue;
+      const source = readTileSource(relPath);
 
-      // Which canonical generic-optional fields does this tile reference?
+      // Which canonical generic-optional fields does this file reference?
       const matches = GENERIC_OPTIONAL_FIELDS.filter((f) => f.pattern.test(source));
       if (matches.length === 0) continue;
 
-      // The tile DOES consume at least one generic-optional field.
-      // It MUST therefore import + use shouldHideGenericOptional.
-      const hasImport = /shouldHideGenericOptional\b/.test(source);
-      // Belt-and-braces: check for an actual call site, not just an
-      // unused import. The regex looks for `shouldHideGenericOptional(`
-      // which catches every call form.
-      const hasCallSite = /shouldHideGenericOptional\s*\(/.test(source);
+      // The file DOES consume at least one generic-optional field. It MUST
+      // route it through the canonical predicate `shouldHideGenericOptional`
+      // — EITHER directly (import + call site), OR via the shared agenda
+      // sentinel-wrapper `resolveOptionalField` (lib/crew/agendaDisplay.ts),
+      // which applies `shouldHideGenericOptional` (+ stripAgendaUrls) to every
+      // agenda free-text field. The crew-redesign Task-3 run-of-show extraction
+      // moved RunOfShowEntry's per-field guard into that shared wrapper, so
+      // `RunOfShowList` routes the agenda fields via `resolveOptionalField`
+      // rather than a direct predicate call. The `agendaDisplay` single-source
+      // guard test pins the wrapper's body, so accepting it here does not open
+      // a hole — a future edit that drops BOTH the direct call AND the wrapper
+      // still fails this contract.
+      const hasDirect =
+        /shouldHideGenericOptional\b/.test(source) && /shouldHideGenericOptional\s*\(/.test(source);
+      const hasWrapper = /resolveOptionalField\s*\(/.test(source);
 
-      if (!hasImport || !hasCallSite) {
+      if (!hasDirect && !hasWrapper) {
         const fields = matches.map((m) => m.description).join(", ");
         failures.push(
-          `${filename}: consumes [${fields}] but ${
-            !hasImport
-              ? "does not import shouldHideGenericOptional"
-              : "imports shouldHideGenericOptional but never calls it"
-          }`,
+          `${relPath}: consumes [${fields}] but does not route them through shouldHideGenericOptional (directly or via the shared resolveOptionalField wrapper)`,
         );
       }
     }

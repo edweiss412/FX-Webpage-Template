@@ -105,19 +105,14 @@ describe("Drive fetch wrappers", () => {
       ok: true,
       arrayBuffer: vi.fn().mockResolvedValue(bytes),
     });
-    const { fetchSheetAsMarkdownAtRevision, XLSX_EXPORT_MIME_TYPE } = await import(
-      "@/lib/drive/fetch"
-    );
+    const { fetchSheetAsMarkdownAtRevision, XLSX_EXPORT_MIME_TYPE } =
+      await import("@/lib/drive/fetch");
 
-    const markdown = await fetchSheetAsMarkdownAtRevision(
-      "sheet-1",
-      "2026-05-08T12:00:00.000Z",
-      {
-        drive: fakeDrive({ files: { get: filesGet } }),
-        fetch: fetchImpl,
-        getAccessToken: async () => "ya29.test-token",
-      },
-    );
+    const markdown = await fetchSheetAsMarkdownAtRevision("sheet-1", "2026-05-08T12:00:00.000Z", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "ya29.test-token",
+    });
 
     expect(markdown).toBe("| CLIENT |\n| :---: |\n| ACME |");
     expect(filesGet).toHaveBeenCalledTimes(2);
@@ -269,7 +264,11 @@ describe("Drive fetch wrappers", () => {
   test.each([
     [403, "rateLimitExceeded", "User rate limit exceeded."],
     [403, "userRateLimitExceeded", "User rate limit exceeded."],
-    [403, "insufficientFilePermissions", "The user does not have sufficient permissions for file sheet-1."],
+    [
+      403,
+      "insufficientFilePermissions",
+      "The user does not have sufficient permissions for file sheet-1.",
+    ],
     [404, "notFound", "File not found: sheet-1."],
     [500, "internalError", "Internal Error"],
   ] as const)(
@@ -417,5 +416,257 @@ describe("Drive fetch wrappers", () => {
       }),
     ).rejects.toThrow(/changed during xlsx export/);
     expect(synthesizeMarkdownFromXlsx).not.toHaveBeenCalled();
+  });
+
+  // === fetchSheetMarkdownWithBinding ===
+  //
+  // Captures the binding token FROM the export's before-`get` instead of taking
+  // a pre-captured revisionId, so onboarding preparation needs only 2 files.get
+  // (before + after) per sheet instead of 3 (a separate captureBinding get +
+  // before + after). No TOCTOU widening: the binding IS the before-`get` token
+  // and the after-`get` still guards mid-flight change.
+  test("fetchSheetMarkdownWithBinding captures the binding from the before-get in exactly 2 files.get calls", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        headRevisionId: "head-1",
+        exportLinks: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
+        },
+      },
+    });
+    const bytes = new ArrayBuffer(8);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(bytes),
+    });
+    const { fetchSheetMarkdownWithBinding, XLSX_EXPORT_MIME_TYPE } =
+      await import("@/lib/drive/fetch");
+
+    const { binding, markdown } = await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "ya29.test-token",
+    });
+
+    expect(binding).toEqual({ bindingToken: "head-1", modifiedTime: "2026-05-08T12:00:00.000Z" });
+    expect(markdown).toBe("| CLIENT |\n| :---: |\n| ACME |");
+    // before-get + after-get ONLY — no separate captureBinding metadata fetch.
+    expect(filesGet).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledWith("https://docs.google.com/export/current.xlsx", {
+      headers: {
+        Authorization: "Bearer ya29.test-token",
+        Accept: XLSX_EXPORT_MIME_TYPE,
+      },
+    });
+    expect(synthesizeMarkdownFromXlsx).toHaveBeenCalledWith(bytes);
+  });
+
+  test("fetchSheetMarkdownWithBinding binds to modifiedTime when Drive omits headRevisionId", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        exportLinks: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
+        },
+      },
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
+    });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    const { binding } = await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "ya29.test-token",
+    });
+
+    expect(binding).toEqual({
+      bindingToken: "2026-05-08T12:00:00.000Z",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+    });
+  });
+
+  test("fetchSheetMarkdownWithBinding fails closed when Drive lacks an xlsx export link", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        exportLinks: { "application/pdf": "https://docs.google.com/export/rev-1-pdf" },
+      },
+    });
+    const fetchImpl = vi.fn();
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      }),
+    ).rejects.toThrow(/xlsx export link/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("fetchSheetMarkdownWithBinding aborts after export when Drive changes mid-flight", async () => {
+    const filesGet = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          id: "sheet-1",
+          name: "Show Sheet",
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-08T12:00:00.000Z",
+          headRevisionId: "head-1",
+          exportLinks: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+              "https://docs.google.com/export/current.xlsx",
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          id: "sheet-1",
+          name: "Show Sheet",
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-08T12:06:00.000Z",
+          headRevisionId: "head-2",
+          exportLinks: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+              "https://docs.google.com/export/current.xlsx",
+          },
+        },
+      });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
+    });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      }),
+    ).rejects.toThrow(/changed during xlsx export/);
+    expect(synthesizeMarkdownFromXlsx).not.toHaveBeenCalled();
+  });
+});
+
+describe("Drive transient-throttle retry (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+  });
+
+  // Deterministic + fast: no real backoff wait, zero jitter.
+  const fastRetry = { sleep: async () => {}, random: () => 0 };
+  const META = {
+    data: {
+      id: "sheet-1",
+      name: "Show Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      parents: ["folder-1"],
+    },
+  };
+  const EXPORT_META = {
+    data: {
+      id: "sheet-1",
+      name: "Show Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      headRevisionId: "rev-1",
+      exportLinks: {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "https://export",
+      },
+    },
+  };
+
+  test("fetchDriveFileMetadata retries a transient 429 files.get, then succeeds", async () => {
+    const filesGet = vi.fn().mockRejectedValueOnce({ status: 429 }).mockResolvedValue(META);
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    const meta = await fetchDriveFileMetadata("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      retry: fastRetry,
+    });
+
+    expect(meta.driveFileId).toBe("sheet-1");
+    expect(filesGet).toHaveBeenCalledTimes(2);
+  });
+
+  test("fetchDriveFileMetadata does NOT retry a non-transient 404", async () => {
+    const filesGet = vi.fn().mockRejectedValue({ status: 404 });
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: fastRetry,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(filesGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("fetchDriveFileMetadata exhausts bounded retries on a persistent 503, then throws", async () => {
+    const filesGet = vi.fn().mockRejectedValue({ response: { status: 503 } });
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: { ...fastRetry, maxRetries: 2 },
+      }),
+    ).rejects.toBeTruthy();
+    expect(filesGet).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
+  test("the xlsx export retries a transient 429 response, then succeeds", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 429 })
+      .mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    const result = await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "tok",
+      retry: fastRetry,
+    });
+
+    expect(result.markdown).toBe("md");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("the xlsx export does NOT retry a non-transient 404 export response", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "tok",
+        retry: fastRetry,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

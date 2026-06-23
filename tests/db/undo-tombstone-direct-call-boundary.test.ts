@@ -45,8 +45,14 @@ describe("_undo_tombstone direct-call boundary (PF36)", () => {
     const before = (await holdsSql`
       select id, name, email, phone, role, role_flags, claimed_via_oauth_at
         from public.crew_members where show_id = ${showId} and name = 'Carol'`) as unknown as unknown[];
-    const holdsBefore = (await holdsSql`select count(*)::int as n from public.sync_holds where show_id = ${showId}`) as unknown as Array<{ n: number }>;
-    const logBefore = (await holdsSql`select count(*)::int as n from public.show_change_log where show_id = ${showId}`) as unknown as Array<{ n: number }>;
+    const holdsBefore =
+      (await holdsSql`select count(*)::int as n from public.sync_holds where show_id = ${showId}`) as unknown as Array<{
+        n: number;
+      }>;
+    const logBefore =
+      (await holdsSql`select count(*)::int as n from public.show_change_log where show_id = ${showId}`) as unknown as Array<{
+        n: number;
+      }>;
 
     // Build a show_change_log composite literal to pass as v_log, then attempt the direct call.
     let failed = false;
@@ -73,8 +79,14 @@ describe("_undo_tombstone direct-call boundary (PF36)", () => {
       select id, name, email, phone, role, role_flags, claimed_via_oauth_at
         from public.crew_members where show_id = ${showId} and name = 'Carol'`) as unknown as unknown[];
     expect(after).toEqual(before);
-    const holdsAfter = (await holdsSql`select count(*)::int as n from public.sync_holds where show_id = ${showId}`) as unknown as Array<{ n: number }>;
-    const logAfter = (await holdsSql`select count(*)::int as n from public.show_change_log where show_id = ${showId}`) as unknown as Array<{ n: number }>;
+    const holdsAfter =
+      (await holdsSql`select count(*)::int as n from public.sync_holds where show_id = ${showId}`) as unknown as Array<{
+        n: number;
+      }>;
+    const logAfter =
+      (await holdsSql`select count(*)::int as n from public.show_change_log where show_id = ${showId}`) as unknown as Array<{
+        n: number;
+      }>;
     expect(holdsAfter[0]!.n).toBe(holdsBefore[0]!.n);
     expect(logAfter[0]!.n).toBe(logBefore[0]!.n);
   });

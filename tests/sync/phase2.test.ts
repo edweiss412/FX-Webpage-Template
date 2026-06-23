@@ -183,6 +183,7 @@ class FakePhase2Tx {
       showId: nextShow.id,
       previousCrewNames,
       previousCrewMembers,
+      priorRunOfShow: null,
     };
   }
 
@@ -511,6 +512,9 @@ describe("runPhase2 destructive snapshot", () => {
       expect(result).toEqual({
         outcome: "applied",
         showId: "show-1",
+        // §02 (FIX-3): the applied result carries the parse warnings through (the parseResult factory
+        // seeds one WARN). No AGENDA → no AGENDA_DAY_EMPTIED appended.
+        parseWarnings: [{ severity: "warn", code: "WARN", message: "warning" }],
         roleFlagsNotice: {
           showId: "show-1",
           code: "ROLE_FLAGS_NOTICE",
@@ -575,6 +579,8 @@ describe("runPhase2 destructive snapshot", () => {
       },
       parse_warnings: baseArgs.parseResult.warnings,
       raw_unrecognized: baseArgs.parseResult.raw_unrecognized,
+      // §02: CONFIRMED-ONLY run_of_show. baseArgs has no AGENDA (runOfShow undefined) → null.
+      run_of_show: null,
     });
   });
 

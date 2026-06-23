@@ -181,10 +181,12 @@ describe("parseVenue — 2025-10 fixture combined VENUE NAME/VENUE ADDRESS split
     expect(r?.name).toBe("Park Hyatt Chicago");
   });
 
-  it("venue.address is the post-slash portion (non-empty, non-null)", () => {
+  it("venue.address is the post-slash portion, with the in-cell &#10; decoded", () => {
     const r = parseVenue(md, "v2");
     expect(r?.address).toBeTruthy();
-    expect(r?.address).toBe("800 N Michigan Ave&#10;Chicago, IL 60611");
+    // The exporter's in-cell line break (&#10;) is decoded to a space at the value
+    // boundary (presence) so the address never surfaces a raw HTML entity to crew.
+    expect(r?.address).toBe("800 N Michigan Ave Chicago, IL 60611");
   });
 
   it("venue.name does not contain a slash (no combined-cell stuffing)", () => {
@@ -210,7 +212,7 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
       expect(version).not.toBeNull();
-       
+
       const r = parseVenue(md, version!);
       // parseVenue must return either a valid object or null, never undefined
       expect(r === null || (typeof r === "object" && typeof r.name === "string")).toBe(true);
@@ -219,7 +221,7 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
     it(`${fileName} → venue.name is not a column header`, () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
-       
+
       const r = parseVenue(md, version!);
       if (r !== null) {
         // Must not be a raw column header string
@@ -233,7 +235,7 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
     it(`${fileName} → venue.name matches expected value`, () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
-       
+
       const r = parseVenue(md, version!);
       const expected = EXPECTED_VENUE_NAMES[fileName];
       if (expected === null) {

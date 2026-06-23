@@ -22,6 +22,8 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 type PerRowFailure = {
   drive_file_id: string;
@@ -79,9 +81,7 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
       const response = await fetch("/api/admin/onboarding/finalize", {
         method: "POST",
       });
-      const body = (await response.json()) as
-        | FinalizeBatchResponse
-        | FinalizeErrorResponse;
+      const body = (await response.json()) as FinalizeBatchResponse | FinalizeErrorResponse;
       if ("ok" in body && body.ok === false) {
         setState({
           kind: "error",
@@ -109,15 +109,17 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
 
   return (
     <div className="flex flex-col gap-3" data-testid="resume-finalize">
-      <button
-        type="button"
+      <AccentButton
         data-testid="resume-finalize-button"
         onClick={handleClick}
         disabled={state.kind === "running"}
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        size="lg"
+        inline
+        selfStart
+        shadow
       >
         {state.kind === "running" ? "Resuming…" : "Resume publishing"}
-      </button>
+      </AccentButton>
 
       {state.kind === "race_row" ? (
         <div
@@ -130,10 +132,7 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
           </p>
           <ul className="flex flex-col gap-2">
             {state.failures.map((failure) => (
-              <li
-                key={failure.drive_file_id}
-                className="flex flex-col gap-1 text-sm"
-              >
+              <li key={failure.drive_file_id} className="flex flex-col gap-1 text-sm">
                 <span className="font-medium">{failure.drive_file_id}</span>
                 <span className="text-text-subtle">
                   {lookupDougFacing(failure.code) ??
@@ -159,7 +158,7 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
           data-testid="resume-finalize-error"
           className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          <p>{state.copy}</p>
+          <p>{renderEmphasis(state.copy)}</p>
           <HelpAffordance code={state.code} />
         </div>
       ) : null}

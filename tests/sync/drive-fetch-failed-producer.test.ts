@@ -22,7 +22,7 @@ function fileMeta(id: string): DriveListedFile {
 describe("DRIVE_FETCH_FAILED producer", () => {
   test("a drive_error transition upserts a DRIVE_FETCH_FAILED admin_alert with sheet_name", async () => {
     const upsertAdminAlert = vi.fn(async () => "alert-1");
-    const tx = ({
+    const tx = {
       async queryOne<T>(sql: string) {
         if (sql.includes("from public.shows where drive_file_id")) {
           return { archived: false } as T;
@@ -50,7 +50,7 @@ describe("DRIVE_FETCH_FAILED producer", () => {
       insertSyncLog: vi.fn(async () => undefined),
       upsertAdminAlert,
       upsertLivePendingIngestion: vi.fn(async () => undefined),
-    } as unknown) as LockedShowTx<SyncPipelineTx>;
+    } as unknown as LockedShowTx<SyncPipelineTx>;
     const file = fileMeta("drive-file-1");
     const deps = {
       perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "cron" as const })),
@@ -72,7 +72,8 @@ describe("DRIVE_FETCH_FAILED producer", () => {
     );
     const result = await processOneFile_unlocked(tx, "drive-file-1", "cron", file, deps, prepared);
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: parse_error result now carries the read-back showId (last_sync_status writer).
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED", showId: "show-1" });
     expect(upsertAdminAlert).toHaveBeenCalledWith(
       expect.objectContaining({
         showId: "show-1",

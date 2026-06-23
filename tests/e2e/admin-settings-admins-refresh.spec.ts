@@ -54,12 +54,16 @@ async function hardDeleteAdminEmail(rawEmail: string): Promise<void> {
 async function ensureActorActive(rawEmail: string): Promise<void> {
   const email = canonicalize(rawEmail);
   if (!email) throw new Error(`ensureActorActive: un-canonicalizable email ${rawEmail}`);
-  const { error } = await admin
-    .from("admin_emails")
-    .upsert(
-      { email, added_by: null, added_at: new Date().toISOString(), revoked_by: null, revoked_at: null },
-      { onConflict: "email" },
-    );
+  const { error } = await admin.from("admin_emails").upsert(
+    {
+      email,
+      added_by: null,
+      added_at: new Date().toISOString(),
+      revoked_by: null,
+      revoked_at: null,
+    },
+    { onConflict: "email" },
+  );
   if (error) throw new Error(`ensureActorActive upsert(${email}) failed: ${error.message}`);
 }
 

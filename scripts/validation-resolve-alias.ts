@@ -13,11 +13,7 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
-import {
-  R_COMBOS,
-  SW_COMBOS,
-  type Combo,
-} from "./lib/validation-fixtures";
+import { R_COMBOS, SW_COMBOS, type Combo } from "../lib/validation/fixtures";
 
 const ALL_COMBOS: readonly Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
@@ -46,7 +42,10 @@ Required environment variables (§9.1.2 resolve-alias row):
 type LooseSupabaseClient = {
   from: (table: string) => {
     select: (cols: string) => {
-      eq: (col: string, val: unknown) => {
+      eq: (
+        col: string,
+        val: unknown,
+      ) => {
         maybeSingle: () => Promise<{
           data: unknown;
           error: { message?: string } | null;
@@ -91,9 +90,7 @@ async function main(): Promise<void> {
   }
   const [combo, alias] = positionals;
   if (!combo || !alias) {
-    throw new Error(
-      "validation:resolve-alias: combo and alias must be non-empty strings.",
-    );
+    throw new Error("validation:resolve-alias: combo and alias must be non-empty strings.");
   }
   // Codex Phase 0.C R9-F1 — reject combos outside the canonical enum so
   // stale alias_map keys from prior matrix versions can't resolve.
@@ -128,17 +125,14 @@ async function main(): Promise<void> {
     .eq("key", "validation_seed")
     .maybeSingle();
   if (error) {
-    throw new Error(
-      `validation_state read failed: ${error.message ?? JSON.stringify(error)}`,
-    );
+    throw new Error(`validation_state read failed: ${error.message ?? JSON.stringify(error)}`);
   }
   if (data === null || data === undefined) {
     throw new Error(
       "validation_state row missing — run `pnpm validation:reseed --combo all` first.",
     );
   }
-  const aliasMap = (data as { alias_map: Record<string, Record<string, string>> })
-    .alias_map;
+  const aliasMap = (data as { alias_map: Record<string, Record<string, string>> }).alias_map;
   const slice = aliasMap?.[combo];
   if (!slice || typeof slice !== "object") {
     throw new Error(

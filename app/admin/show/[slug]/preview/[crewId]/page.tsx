@@ -22,9 +22,12 @@
  *   - Sticky banner above the show body: "Previewing as <Name> (<Role>)"
  *     with an Exit affordance back to /admin/show/[slug] and a "Report
  *     this view" link.
- *   - Show body is the same `<ShowBody />` Server Component the live
- *     crew page renders (extracted in M10 §B Phase 3 for this reuse).
- *     All role-based filtering applies as if the admin were that
+ *   - Show body is the same `<CrewShell />` Server Component the live
+ *     crew route renders (Task 13 swap). The RAW `?s=` is threaded through
+ *     as `rawSection` — CrewShell is the single activeSection + Budget-gate
+ *     authority, so all role-based filtering (including the Budget gate,
+ *     which follows the PREVIEWED crew's LEAD flag since isAdmin is false
+ *     for an admin_preview viewer) applies as if the admin were that
  *     viewer, per spec.
  *
  * Build-gated-routes-never-fallback-target: this route is admin-only
@@ -36,7 +39,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getShowForViewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
 import { PreviewBanner } from "@/components/admin/PreviewBanner";
-import { ShowBody } from "@/app/show/[slug]/[shareToken]/_ShowBody";
+import { CrewShell } from "@/app/show/[slug]/[shareToken]/_CrewShell";
 
 const INFRA_ERROR_COPY =
   // not-subject:M5-D8 — admin-only infra-fallback copy. `ADMIN_SESSION_LOOKUP_FAILED`
@@ -50,6 +53,12 @@ export const metadata = { title: "Preview as crew member · Admin · FXAV" };
 
 type PageProps = {
   params: Promise<{ slug: string; crewId: string }>;
+  // Task 13: the active-section deep-link. The RAW `s` is threaded into
+  // <CrewShell rawSection={s} /> — CrewShell is the single activeSection +
+  // Budget-gate authority (the previous `budgetVisible:true` shortcut that let
+  // a non-LEAD-previewing admin reach ?s=budget is removed by design; the gate
+  // now follows the PREVIEWED crew's LEAD flag via financialsVisible).
+  searchParams: Promise<{ s?: string }>;
 };
 
 type ShowLookup =
@@ -93,10 +102,7 @@ type CrewLookup =
 
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row
 // for the §B Supabase call-boundary contract (AGENTS.md §1.9).
-export async function lookupCrewMember(
-  showId: string,
-  crewMemberId: string,
-): Promise<CrewLookup> {
+export async function lookupCrewMember(showId: string, crewMemberId: string): Promise<CrewLookup> {
   try {
     // Session-bound server client. The banner's identity label reads
     // from `crew_members.role` (display label like "A1", "Stage
@@ -118,17 +124,17 @@ export async function lookupCrewMember(
       return { kind: "not_found" };
     }
     const rawRole = (data as { role?: unknown }).role;
-    const roleLabel =
-      typeof rawRole === "string" && rawRole.length > 0 ? rawRole : null;
+    const roleLabel = typeof rawRole === "string" && rawRole.length > 0 ? rawRole : null;
     return { kind: "found", name, roleLabel };
   } catch {
     return { kind: "infra_error" };
   }
 }
 
-export default async function AdminPreviewAsPage({ params }: PageProps) {
+export default async function AdminPreviewAsPage({ params, searchParams }: PageProps) {
   await requireAdmin();
   const { slug, crewId } = await params;
+  const { s } = await searchParams;
 
   const showLookup = await lookupShow(slug);
   if (showLookup.kind === "not_found") notFound();
@@ -138,9 +144,7 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
         data-testid="admin-preview-infra-error"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We could not load this preview
-        </h1>
+        <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
         <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
@@ -176,9 +180,7 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
         data-testid="admin-preview-crew-infra-error"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We could not load this preview
-        </h1>
+        <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
         <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
@@ -207,9 +209,7 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
         data-testid="admin-preview-data-failure"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
-        <h1 className="text-2xl font-bold text-text-strong">
-          We could not load this preview
-        </h1>
+        <h1 className="text-2xl font-bold text-text-strong">We could not load this preview</h1>
         <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
@@ -230,11 +230,12 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
         showId={showId}
         crewMemberId={crewId}
       />
-      <ShowBody
-        slug={slug}
-        showId={showId}
-        viewer={{ kind: "admin_preview", crewMemberId: crewId }}
+      <CrewShell
         data={data}
+        viewer={{ kind: "admin_preview", crewMemberId: crewId }}
+        showId={showId}
+        rawSection={s}
+        slug={slug}
       />
     </>
   );

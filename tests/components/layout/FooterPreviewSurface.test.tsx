@@ -22,10 +22,7 @@ const CREW_ID = "00000000-0000-0000-0000-0000000000aa";
 
 const fetchMock = vi.fn();
 let uuidCounter = 0;
-const uuids = [
-  "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-  "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-];
+const uuids = ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"];
 
 beforeEach(() => {
   fetchMock.mockReset();

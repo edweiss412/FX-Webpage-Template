@@ -15,9 +15,7 @@ export type RecoveryResolutionSql = {
   end?: (options?: { timeout?: number }) => Promise<void>;
 };
 
-export type RecoveryResolutionResult =
-  | { kind: "ok"; resolved: boolean }
-  | { kind: "infra_error" };
+export type RecoveryResolutionResult = { kind: "ok"; resolved: boolean } | { kind: "infra_error" };
 
 export type SyncProblemAlertForRecovery = {
   alertId: string;

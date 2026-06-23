@@ -233,7 +233,9 @@ test.describe("/me — signed-in crew with shows", () => {
     // Featured anchor renders inside the me-next-up section (newest first
     // in DOM order, as expected by the brief's NEXT UP placement).
     await expect(page.getByTestId("me-next-up")).toBeVisible();
-    await expect(page.getByTestId("me-next-up").getByTestId(`me-show-card-${newerSlug}`)).toBeVisible();
+    await expect(
+      page.getByTestId("me-next-up").getByTestId(`me-show-card-${newerSlug}`),
+    ).toBeVisible();
 
     // Past disclosure is collapsed by default (brief §5.1: "Default
     // collapsed; click `(N) ▸` reveals."). The older card is in the DOM

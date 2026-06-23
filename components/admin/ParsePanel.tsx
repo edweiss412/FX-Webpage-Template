@@ -42,14 +42,11 @@ export function ParsePanel({ rows, onMutated, showId, readOnly }: ParsePanelProp
         aria-labelledby="parse-panel-empty-heading"
         className="rounded-md border border-border bg-surface p-tile-pad"
       >
-        <h2
-          id="parse-panel-empty-heading"
-          className="text-base font-semibold text-text-strong"
-        >
-          No staged changes
+        <h2 id="parse-panel-empty-heading" className="text-base font-semibold text-text-strong">
+          Nothing to review
         </h2>
         <p className="mt-2 text-sm text-text-subtle">
-          Drive sync has nothing pending review for this show.
+          No sheet changes are waiting for your review on this show.
         </p>
       </section>
     );
@@ -62,7 +59,7 @@ export function ParsePanel({ rows, onMutated, showId, readOnly }: ParsePanelProp
       className="space-y-section-gap"
     >
       <h2 id="parse-panel-heading" className="sr-only">
-        Staged Drive parses
+        Changes waiting for review
       </h2>
       <ul className="space-y-section-gap">
         {rows.map((row) => {

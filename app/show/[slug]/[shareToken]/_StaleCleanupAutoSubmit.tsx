@@ -63,11 +63,7 @@ export function StaleCleanupAutoSubmit({
       <input type="hidden" name="shareToken" value={shareToken} />
       <input type="hidden" name="showId" value={showId} />
       <input type="hidden" name="expectedEpoch" value={expectedEpoch} />
-      <input
-        type="hidden"
-        name="expectedCrewMemberId"
-        value={expectedCrewMemberId}
-      />
+      <input type="hidden" name="expectedCrewMemberId" value={expectedCrewMemberId} />
     </form>
   );
 }

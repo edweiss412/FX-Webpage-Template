@@ -11,14 +11,12 @@ import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 
 const OK_CODE = "OK" as const;
 
 export type FinalizeCasRouteTx = {
-  query<T>(
-    sql: string,
-    params?: readonly unknown[],
-  ): Promise<{ rows: T[]; rowCount: number }>;
+  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
 };
 
 export type FinalizeCasRouteDeps = {
@@ -103,7 +101,9 @@ async function defaultWithTx<R>(fn: (tx: FinalizeCasRouteTx) => Promise<R>): Pro
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     return (await sql.begin(async (rawTx) =>
-      fn(postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> })),
+      fn(
+        postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }),
+      ),
     )) as R;
   } finally {
     await sql.end({ timeout: 5 });
@@ -143,7 +143,11 @@ function depsWithDefaults(deps: FinalizeCasRouteDeps) {
   };
 }
 
-function errorResponse(status: number, code: string, extra: Record<string, unknown> = {}): Response {
+function errorResponse(
+  status: number,
+  code: string,
+  extra: Record<string, unknown> = {},
+): Response {
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
@@ -162,11 +166,13 @@ async function readSession(tx: FinalizeCasRouteTx): Promise<SessionRow> {
        where id = 'default'
     `,
   );
-  return rows[0] ?? {
-    pending_wizard_session_id: null,
-    pending_folder_id: null,
-    watched_folder_id: null,
-  };
+  return (
+    rows[0] ?? {
+      pending_wizard_session_id: null,
+      pending_folder_id: null,
+      watched_folder_id: null,
+    }
+  );
 }
 
 /**
@@ -186,14 +192,18 @@ async function readSessionForUpdate(tx: FinalizeCasRouteTx): Promise<SessionRow>
        for update
     `,
   );
-  return rows[0] ?? {
-    pending_wizard_session_id: null,
-    pending_folder_id: null,
-    watched_folder_id: null,
-  };
+  return (
+    rows[0] ?? {
+      pending_wizard_session_id: null,
+      pending_folder_id: null,
+      watched_folder_id: null,
+    }
+  );
 }
 
-async function readLatestFinalizedCheckpoint(tx: FinalizeCasRouteTx): Promise<{ wizard_session_id: string } | null> {
+async function readLatestFinalizedCheckpoint(
+  tx: FinalizeCasRouteTx,
+): Promise<{ wizard_session_id: string } | null> {
   const { rows } = await tx.query<{ wizard_session_id: string }>(
     `
       select wizard_session_id
@@ -259,7 +269,10 @@ async function unresolvedManifestCount(
   return rows[0]?.unresolved_count ?? 0;
 }
 
-async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<ShadowRow[]> {
+async function readShadowRows(
+  tx: FinalizeCasRouteTx,
+  wizardSessionId: string,
+): Promise<ShadowRow[]> {
   const { rows } = await tx.query<ShadowRow>(
     `
       select wizard_session_id, drive_file_id, show_id, applied_by_email, applied_at_intent, payload
@@ -273,10 +286,9 @@ async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): 
 }
 
 async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<void> {
-  await tx.query(
-    `delete from public.shows_pending_changes where wizard_session_id = $1::uuid`,
-    [wizardSessionId],
-  );
+  await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
+    wizardSessionId,
+  ]);
 }
 
 async function deleteAppliedShadowRow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void> {
@@ -320,12 +332,20 @@ async function applyShadow(
   tx: FinalizeCasRouteTx,
   pipelineTx: SyncPipelineTx,
   row: ShadowRow,
+  // nav-perf tag-caching (Task 6): existing-show shadow applies mutate rendered crew DATA on the
+  // live show (crew_members / shows / children, via the shared core). Collect the affected show id
+  // for the POST-COMMIT revalidate (fired after deps.withTx resolves, NEVER inside this row tx).
+  affectedShowIds: Set<string>,
 ): Promise<ShadowApplyResult> {
   const parsed = parseShadowPayloadForApply(row.payload);
   if (!parsed.ok) return { drive_file_id: row.drive_file_id, code: parsed.code }; // shadow retained
 
   const live = (
-    await tx.query<{ id: string; last_seen_modified_time: string | Date | null; diagrams: unknown }>(
+    await tx.query<{
+      id: string;
+      last_seen_modified_time: string | Date | null;
+      diagrams: unknown;
+    }>(
       `
         select id, last_seen_modified_time, diagrams
           from public.shows
@@ -404,6 +424,9 @@ async function applyShadow(
     return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
   }
   await deleteAppliedShadowRow(tx, row);
+  // The shadow applied to the live show (crew/show/children mutated). Record its id for the
+  // POST-COMMIT revalidate (live.id === row.show_id; the apply ran against the existing live row).
+  affectedShowIds.add(live.id);
   return { drive_file_id: row.drive_file_id, code: OK_CODE };
 }
 
@@ -431,7 +454,7 @@ async function applyShadow(
 async function publishAppliedWizardShows(
   tx: FinalizeCasRouteTx,
   wizardSessionId: string,
-): Promise<void> {
+): Promise<string[]> {
   const { rows } = await tx.query<{ drive_file_id: string }>(
     `
       select drive_file_id
@@ -444,11 +467,14 @@ async function publishAppliedWizardShows(
     [wizardSessionId],
   );
   const lockedDriveFileIds = rows.map((row) => row.drive_file_id);
-  if (lockedDriveFileIds.length === 0) return;
+  if (lockedDriveFileIds.length === 0) return [];
   for (const driveFileId of lockedDriveFileIds) {
     await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
   }
-  await tx.query<{ published: boolean }>(
+  // nav-perf tag-caching (Task 6): the publish flip (published=false→true) gates crew visibility
+  // (getShowForViewer.ts:291) — a rendered-data change. `returning s.id` surfaces the flipped
+  // show ids for the route's POST-COMMIT revalidate.
+  const { rows: published } = await tx.query<{ id: string }>(
     `
       update public.shows s
          set published = true
@@ -459,10 +485,11 @@ async function publishAppliedWizardShows(
          and m.drive_file_id = s.drive_file_id
          and s.wizard_created_session_id = m.wizard_session_id
          and m.drive_file_id = any($2::text[])
-      returning true as published
+      returning s.id
     `,
     [wizardSessionId, lockedDriveFileIds],
   );
+  return published.map((row) => row.id);
 }
 
 /**
@@ -590,6 +617,10 @@ async function markFinalCasDone(tx: FinalizeCasRouteTx, wizardSessionId: string)
 async function runFinalizeCas(
   tx: FinalizeCasRouteTx,
   deps: ReturnType<typeof depsWithDefaults>,
+  // nav-perf tag-caching (Task 6): accumulates every show whose rendered crew DATA this final CAS
+  // mutates — applied existing-show shadows + the first-seen publish flip. The handler revalidates
+  // each AFTER deps.withTx resolves (post-commit), never inside this transaction.
+  affectedShowIds: Set<string>,
 ): Promise<FinalizeCasResult> {
   // R16-1: PLAIN candidate-discovery read — no row lock yet (lock order: finalize: first).
   const session = await readSession(tx);
@@ -653,7 +684,7 @@ async function runFinalizeCas(
   for (const row of await readShadowRows(tx, wizardSessionId)) {
     shadowResults.push(
       await deps.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
-        applyShadow(rowTx, pipelineTx, row),
+        applyShadow(rowTx, pipelineTx, row, affectedShowIds),
       ),
     );
   }
@@ -662,7 +693,9 @@ async function runFinalizeCas(
     return errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row: shadowResults });
   }
   await deleteShadowRows(tx, wizardSessionId);
-  await publishAppliedWizardShows(tx, wizardSessionId);
+  for (const showId of await publishAppliedWizardShows(tx, wizardSessionId)) {
+    affectedShowIds.add(showId);
+  }
   await deleteWizardDeferrals(tx, wizardSessionId);
   const watchedFolderId = await promoteSettings(tx, wizardSessionId);
   if (!watchedFolderId) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
@@ -686,15 +719,28 @@ export async function handleOnboardingFinalizeCas(
   try {
     await deps.requireAdminIdentity();
   } catch (error) {
-    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
       return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 
+  // nav-perf tag-caching (Task 6): collected DURING the apply (inside the outer + per-row txns),
+  // revalidated AFTER deps.withTx resolves (post-commit). A pre-commit revalidate would re-cache
+  // the OLD fan-out (spec §4.2).
+  const affectedShowIds = new Set<string>();
   try {
-    const result = await deps.withTx((tx) => runFinalizeCas(tx, deps));
+    const result = await deps.withTx((tx) => runFinalizeCas(tx, deps, affectedShowIds));
+    // POST-COMMIT: per-row shadow applies commit via their OWN `withRowTx` (independent of the
+    // outer result), so a MIXED batch can durably apply early rows and THEN return a 409 for a
+    // later blocked sibling. Revalidate every committed show BEFORE the Response check — whole-diff
+    // R1 CRITICAL: otherwise a successfully-mutated show's data cache stays stale until the 300s TTL
+    // backstop. Safe to over-bust: affectedShowIds only gains an id once its applyShadow committed.
+    for (const showId of affectedShowIds) {
+      revalidateShow(showId);
+    }
     if (result instanceof Response) return result;
     await deps.subscribeToWatchedFolder(result.watched_folder_id);
     return NextResponse.json(result);

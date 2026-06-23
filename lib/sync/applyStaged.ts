@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
-import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
@@ -32,9 +32,14 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { revalidateShow } from "@/lib/data/showCacheTag";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import {
-  runOnboardingScan,
+  PostgresOnboardingScanTx,
+  prepareOnboardingFiles,
+  scanOnboardingPreparedFiles,
   type OnboardingScanTx,
+  type PreparedOnboardingFile,
   type RunOnboardingScanDeps,
 } from "@/lib/sync/runOnboardingScan";
 
@@ -354,7 +359,8 @@ export type ApplyStagedDeps = {
     context: Record<string, unknown>;
   }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
-  runOnboardingScan?: typeof runOnboardingScan;
+  prepareOnboardingFiles?: typeof prepareOnboardingFiles;
+  scanOnboardingPreparedFiles?: typeof scanOnboardingPreparedFiles;
 };
 
 // `Timestampish`/`timestampMs`/`sameTimestamp`/`normalizeTimestamptz` moved to
@@ -839,7 +845,8 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "upsertAdminAlert"
   | "retryEmbeddedRevisionAvailability"
   | "verifyReelOnApply"
-  | "runOnboardingScan"
+  | "prepareOnboardingFiles"
+  | "scanOnboardingPreparedFiles"
   | "emitSuccessfulPhase2Tail"
   | "createUnpublishToken"
   | "now"
@@ -882,7 +889,8 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
-    runOnboardingScan: deps.runOnboardingScan ?? runOnboardingScan,
+    prepareOnboardingFiles: deps.prepareOnboardingFiles ?? prepareOnboardingFiles,
+    scanOnboardingPreparedFiles: deps.scanOnboardingPreparedFiles ?? scanOnboardingPreparedFiles,
     emitSuccessfulPhase2Tail: deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail,
     createUnpublishToken: deps.createUnpublishToken ?? randomUUID,
     now: deps.now ?? (() => new Date()),
@@ -1075,7 +1083,18 @@ export async function applyStaged_unlocked(
           deps.wizardDriveReverify,
           deps,
         );
-        if (!recovered) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+        if (!recovered) {
+          // In-apply supersession: recordWizardApplyHardFail may have COMMITTED the
+          // wizard pending_ingestion upsert (806) before markWizardManifestHardFailed
+          // (817) 0-rowed. THROW so the locked tx aborts and that partial write rolls
+          // back, instead of returning (which commits it). The staged-apply route maps
+          // the throw to 409 + WIZARD_SESSION_SUPERSEDED_RACE.
+          throw new WizardSessionSupersededRollbackError({
+            attemptedAction: "apply",
+            supersededSessionId: args.wizardSessionId,
+            driveFileId: pending.driveFileId,
+          });
+        }
         if (deps.wizardDriveReverify.outcome === "source_gone") {
           return { outcome: "source_gone", code: deps.wizardDriveReverify.code };
         }
@@ -1096,7 +1115,16 @@ export async function applyStaged_unlocked(
       pending.driveFileId,
       args.wizardSessionId,
     );
-    if (!manifestApplied) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+    if (!manifestApplied) {
+      // In-apply supersession AFTER approveWizardPendingSync (1092) committed
+      // wizard_approved=true on the locked tx. THROW so the tx aborts and the
+      // approval rolls back, instead of returning (which commits the partial approve).
+      throw new WizardSessionSupersededRollbackError({
+        attemptedAction: "apply",
+        supersededSessionId: args.wizardSessionId,
+        driveFileId: pending.driveFileId,
+      });
+    }
     return {
       outcome: "wizard_applied",
       wizardSessionId: args.wizardSessionId,
@@ -1277,7 +1305,14 @@ export async function applyStaged_unlocked(
     const tail = deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail;
     await tail({
       tx,
-      result: { outcome: "applied", showId: coreResult.showId },
+      // §02 (FIX-3 / R16/R17): source the sync_log parse_warnings from coreResult.parseWarnings (the
+      // field applyStagedCore surfaces from phase2.parseWarnings) — NOT a literal []. tsc-FORCED by
+      // the required ProcessOneFileResult.applied.parseWarnings; the R17 runtime test pins the source.
+      result: {
+        outcome: "applied",
+        showId: coreResult.showId,
+        parseWarnings: coreResult.parseWarnings,
+      },
       // R3 fix: write SHOW_FIRST_PUBLISHED through THIS apply tx (via tx.queryOne → upsert_admin_alert
       // RPC) so the alert lands in the SAME transaction as the just-created show. The standalone
       // service-role writer runs on a separate connection and FK-fails on the uncommitted shows.id
@@ -1466,94 +1501,88 @@ async function verifyWizardApplyDriveScope(
   return { outcome: "ok", metadata, pendingFolderId };
 }
 
-function makeInlineOnboardingScanTx(
-  tx: LockedShowTx<SyncPipelineTx>,
-): LockedShowTx<OnboardingScanTx> {
-  return Object.assign(Object.create(tx), {
-    async ensureWizardIsolationIndexes() {
-      return { ok: true as const };
+type WizardRestagePrepared =
+  | { result: ApplyStagedResult }
+  | { folderId: string; prepared: PreparedOnboardingFile[] };
+
+/**
+ * PRE-LOCK phase of the wizard revision-race restage: download + parse the raced
+ * file, bound to the revision the reverify already pinned. NO advisory lock is
+ * held here, so the slow Drive xlsx export does not block other per-show sync
+ * attempts (the lock-hygiene fix — previously this ran inside the per-show lock).
+ * Returns an early ApplyStagedResult when the source folder is out of scope.
+ */
+async function prepareWizardRestageInline(
+  reverify: Extract<WizardDriveReverify, { outcome: "revision_race" }>,
+  deps: ReturnType<typeof depsWithDefaults>,
+): Promise<WizardRestagePrepared> {
+  if (!reverify.pendingFolderId) {
+    return { result: { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE } };
+  }
+  const metadata = reverify.metadata;
+  const prepared = await deps.prepareOnboardingFiles(reverify.pendingFolderId, {
+    listFolder: async () => [metadata],
+    // Bind to the already-reverified revision and fetch the markdown at exactly
+    // that revision (this runs PRE-LOCK now, so the Drive export is no longer
+    // under the per-show lock).
+    fetchMarkdownWithBinding: async (driveFileId) => {
+      const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
+      const markdown = await fetchSheetAsMarkdownAtRevision(driveFileId, bindingToken);
+      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown };
     },
-    async upsertManifest(row) {
-      const written = await tx.queryOne<{ wizard_session_id: string } | null>(
-        `
-          insert into public.onboarding_scan_manifest (
-            folder_id, wizard_session_id, drive_file_id, mime_type, name, status
-          )
-          select $1, $2::uuid, $3, $4, $5, $6
-          where exists (
-            select 1 from public.app_settings
-             where id = 'default'
-               and pending_wizard_session_id = $2::uuid
-          )
-          on conflict (wizard_session_id, drive_file_id) do update
-            set folder_id = excluded.folder_id,
-                mime_type = excluded.mime_type,
-                name = excluded.name,
-                status = excluded.status,
-                transitioned_at = now()
-          returning wizard_session_id
-        `,
-        [row.folderId, row.wizardSessionId, row.driveFileId, row.mimeType, row.name, row.status],
-      );
-      return Boolean(written);
-    },
-    async logSync(entry) {
-      await tx.queryOne<unknown>(
-        `
-          insert into public.sync_log (drive_file_id, status, message, parse_warnings)
-          values ($1, $2, $3, $4::jsonb)
-          returning id
-        `,
-        [
-          entry.driveFileId ?? null,
-          entry.code,
-          `onboarding_scan:${entry.code}`,
-          entry.payload ? [{ ...entry.payload, code: entry.code }] : [],
-        ],
-      );
-    },
-    async upsertAdminAlert(input) {
-      const row = await tx.queryOne<{ id: string } | null>(
-        "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
-        [input.showId, input.code, input.context],
-      );
-      return row?.id ?? null;
-    },
-  } satisfies Pick<
-    OnboardingScanTx,
-    "ensureWizardIsolationIndexes" | "upsertManifest" | "logSync" | "upsertAdminAlert"
-  >) as LockedShowTx<OnboardingScanTx>;
+  });
+  return { folderId: reverify.pendingFolderId, prepared };
 }
 
-async function restageWizardRevisionRaceInline(
+/**
+ * UNDER-LOCK phase of the wizard revision-race restage: stage the already-prepared
+ * parse (DB only — no Drive I/O happens here). The caller holds the per-show
+ * pipeline lock; the inline scan tx reuses it (single-holder — withShowLock is a
+ * passthrough), and scanOnboardingPreparedFiles does the readiness probe + the
+ * lock-ordered staging without re-fetching from Drive.
+ */
+async function stageWizardRestageInline(
   tx: LockedShowTx<SyncPipelineTx>,
   args: Extract<ApplyStagedArgs, { sourceScope: "wizard" }>,
   reverify: Extract<WizardDriveReverify, { outcome: "revision_race" }>,
+  folderId: string,
+  prepared: PreparedOnboardingFile[],
   deps: ReturnType<typeof depsWithDefaults>,
 ): Promise<ApplyStagedResult> {
-  if (!reverify.pendingFolderId) {
-    return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
+  // Wizard-scoped staging on the LOCKED connection. holdPort() exposes the raw
+  // locked tx (rides the held show lock — no new lock), and PostgresOnboardingScanTx
+  // runs the WIZARD-scoped staging SQL. An inheriting inline adapter would pick up
+  // the pipeline tx's LIVE-only upsertLivePendingSync (wizard_session_id null), so
+  // the restaged row would land in the live partition and readWizardPendingSyncForApply
+  // (wizard-scoped) would then report source_gone for a successful restage.
+  const port = tx.holdPort?.();
+  if (!port) {
+    throw new Error(
+      "wizard restage: locked pipeline tx exposes no holdPort for wizard-scoped staging",
+    );
   }
-
-  const scanTx = makeInlineOnboardingScanTx(tx);
-  const metadata = reverify.metadata;
-  const scanDeps: RunOnboardingScanDeps = {
-    tx: scanTx,
-    listFolder: async () => [metadata],
-    captureBinding: async () => ({
-      bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
-      modifiedTime: metadata.modifiedTime,
-    }),
-    withShowLock: async (_driveFileId, fn) => fn(scanTx),
-  };
-  const scan = await (deps.runOnboardingScan ?? runOnboardingScan)(
-    reverify.pendingFolderId,
+  const scanTx = new PostgresOnboardingScanTx(
+    port,
+    folderId,
     args.wizardSessionId,
-    scanDeps,
-  );
+  ) as unknown as LockedShowTx<OnboardingScanTx>;
+  const metadata = reverify.metadata;
+  const scan = await deps.scanOnboardingPreparedFiles(folderId, args.wizardSessionId, prepared, {
+    tx: scanTx,
+    withShowLock: async (_driveFileId, fn) => fn(scanTx),
+  });
 
   if (scan.outcome === "superseded") {
-    return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+    // In-scan supersession during the restage: the scan ran on the locked tx and
+    // may already have committed UNGUARDED deletes (deleteWizardPendingSyncsExcept
+    // — which wipes the SUPERSEDING session's staged rows — and deleteLivePendingIngestion)
+    // before reporting superseded. THROW so the locked tx aborts and those deletes
+    // roll back, instead of returning (which commits them).
+    throw new WizardSessionSupersededRollbackError({
+      attemptedAction: "apply",
+      supersededSessionId: args.wizardSessionId,
+      driveFileId: args.driveFileId,
+    });
   }
   if (scan.outcome === "schema_missing") {
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
@@ -1655,17 +1684,27 @@ async function applyWizardWithDriveReverify(
   );
   if (reverify.outcome === "infra_error") return reverify;
 
+  if (reverify.outcome === "revision_race") {
+    // Download + parse the raced file BEFORE acquiring the per-show lock, then
+    // hold the lock only for the fast DB staging — no slow Drive I/O under the
+    // lock (BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK).
+    const preparedOrEarly = await prepareWizardRestageInline(reverify, deps);
+    if ("result" in preparedOrEarly) return preparedOrEarly.result;
+    const { folderId, prepared } = preparedOrEarly;
+    return await withPipelineLock(
+      args.driveFileId,
+      (tx) => stageWizardRestageInline(tx, args, reverify, folderId, prepared, deps),
+      { tryOnly: false },
+    );
+  }
+
   return await withPipelineLock(
     args.driveFileId,
-    (tx) => {
-      if (reverify.outcome === "revision_race") {
-        return restageWizardRevisionRaceInline(tx, args, reverify, deps);
-      }
-      return applyStaged_unlocked(tx, args, {
+    (tx) =>
+      applyStaged_unlocked(tx, args, {
         ...injectedDeps,
         wizardDriveReverify: reverify,
-      });
-    },
+      }),
     { tryOnly: false },
   );
 }
@@ -1699,10 +1738,25 @@ export async function applyStaged(
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert(result.roleFlagsNotice);
     }
+    // nav-perf tag-caching (Task 7): the LIVE staged-apply `applied` path ran runPhase2 — the show
+    // row + crew/hotel/rooms/transport/contacts/shows_internal mutate. Revalidate the show's
+    // data-cache tag POST-COMMIT: applyLiveWithDriveReverify resolved its withPipelineLock, so the
+    // tx committed before this point (NEVER inside the lock). The non-applied live outcomes
+    // (discarded/source_gone/outdated/source_out_of_scope) call restoreShowStatus, which sets
+    // last_sync_status back to its PRIOR value — a net-zero rendered change with no showId — so
+    // they do not revalidate here.
+    if (!("skipped" in result) && result.outcome === "applied") {
+      revalidateShow(result.showId);
+    }
     return result;
   }
 
   if (args.sourceScope === "wizard") {
+    // The wizard `applyStaged` path writes ONLY pending_syncs (wizard_approved) +
+    // onboarding_scan_manifest (status) — staging metadata, NOT rendered crew DATA (the actual
+    // apply to public.shows happens later in finalize-cas Phase D, which revalidates there). So no
+    // revalidate here. // not-subject-to-revalidate: wizard apply stages approval/manifest only;
+    // rendered-data write + revalidate happen in finalize-cas.
     return await applyWizardWithDriveReverify(args, deps);
   }
   throw new Error(

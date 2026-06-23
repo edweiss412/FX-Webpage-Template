@@ -378,7 +378,7 @@ function tx(): PipelineTx {
     },
     async applyShowSnapshot() {
       this.operations.push("applyShowSnapshot");
-      return { outcome: "updated", showId: "show-1", previousCrewNames: [] };
+      return { outcome: "updated", showId: "show-1", previousCrewNames: [], priorRunOfShow: null };
     },
     async deleteCrewMembersNotIn() {
       this.operations.push("deleteCrewMembersNotIn");
@@ -464,7 +464,7 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
     }),
     runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
       (lockedTx as PipelineTx).operations.push("runPhase2");
-      return { outcome: "applied" as const, showId: "show-1" };
+      return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
     }),
     logSync: vi.fn(async () => undefined),
     publishShowInvalidation: vi.fn(async () => undefined),
@@ -737,6 +737,7 @@ describe("processOneFile", () => {
     expect(result).toEqual({
       outcome: "applied",
       showId: "show-1",
+      parseWarnings: [],
       roleFlagsNotice: {
         showId: "show-1",
         code: "ROLE_FLAGS_NOTICE",
@@ -786,13 +787,13 @@ describe("processOneFile", () => {
           unpublishToken: "11111111-1111-4111-8111-111111111111",
           unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
         });
-        return { outcome: "applied" as const, showId: "show-1" };
+        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
       }),
     });
 
     const result = await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "SHOW_FIRST_PUBLISHED",
@@ -859,13 +860,14 @@ describe("processOneFile", () => {
         runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
           events.push("phase2");
           (lockedTx as PipelineTx).operations.push("runPhase2");
-          return { outcome: "applied" as const, showId: "show-1" };
+          return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
         }),
       });
 
       await expect(processOneFile("file-1", mode, fileMeta("file-1"), syncDeps)).resolves.toEqual({
         outcome: "applied",
         showId: "show-1",
+        parseWarnings: [],
       });
 
       expect(events).toEqual([
@@ -920,6 +922,7 @@ describe("processOneFile", () => {
     ).resolves.toEqual({
       outcome: "applied",
       showId: "show-1",
+      parseWarnings: [],
     });
 
     expect(events).toEqual(["lock:start", "phase1", "lock:commit"]);
@@ -1011,7 +1014,7 @@ describe("processOneFile", () => {
 
     await expect(
       processOneFile("file-1", "cron", fileMeta("file-1", "2026-05-09T03:45:00.000Z"), syncDeps),
-    ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
+    ).resolves.toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
 
     expect(fakeTx.operations).toContain("deleteLiveDeferral:file-1");
     expect(fakeTx.deferredIngestions).toEqual([]);
@@ -1029,7 +1032,7 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledWith("file-1", "token-1");
     expect(vi.mocked(syncDeps.parseSheet)).toHaveBeenCalledAfter(
       vi.mocked(syncDeps.fetchMarkdownAtRevision),
@@ -1075,7 +1078,7 @@ describe("processOneFile", () => {
       runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
-        return { outcome: "applied" as const, showId: "show-1" };
+        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
       }),
     });
 
@@ -1086,7 +1089,7 @@ describe("processOneFile", () => {
       fileMeta("file-1"),
       syncDeps,
     );
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
 
     // The asset-drift item is threaded into notableItems so writeAutoApplyChanges emits asset_drift.
     expect(capturedNotableItems).toBeDefined();
@@ -1251,6 +1254,7 @@ describe("processOneFile", () => {
     await expect(processOneFile("file-1", "cron", file, syncDeps)).resolves.toEqual({
       outcome: "applied",
       showId: "show-1",
+      parseWarnings: [],
     });
     expect(fakeTx.revisionRaceCooldowns?.has(cooldownKey("file-1", "token-1"))).toBe(false);
     expect(fakeTx.operations).toContain("deleteRevisionRaceCooldowns:file-1");
@@ -1285,7 +1289,7 @@ describe("processOneFile", () => {
         { ...fileMeta("file-1"), headRevisionId: "token-1" },
         syncDeps,
       ),
-    ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
+    ).resolves.toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
     await expect(
       processOneFile_unlocked(
         fakeTx as LockedShowTx<PipelineTx>,
@@ -1323,7 +1327,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: no shows-map entry → markShow* returns showId:null → result carries showId:null.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: null,
+    });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
@@ -1349,7 +1358,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: no shows-map entry → markShow* returns showId:null → result carries showId:null.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: null,
+    });
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
@@ -1386,7 +1400,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: existing show → markShowSheetUnavailable returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "sheet_unavailable",
@@ -1445,7 +1464,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: existing show → markShowDriveError returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "parse_error",
+      code: "SYNC_FILE_FAILED",
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "drive_error",
@@ -1544,7 +1568,8 @@ describe("processOneFile", () => {
         fileMeta("file-1"),
         syncDeps,
       ),
-    ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+      // whole-diff R2: no shows-map entry → markShowDriveError returns showId:null → result carries it.
+    ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED", showId: null });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
@@ -1581,7 +1606,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    // whole-diff R2: existing show → markShowSheetUnavailable returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "sheet_unavailable",
@@ -1670,7 +1700,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: existing show → markShowDriveError returns showId → result carries it.
+    expect(result).toEqual({
+      outcome: "parse_error",
+      code: "SYNC_FILE_FAILED",
+      showId: "show-1",
+    });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "drive_error",
@@ -1780,7 +1815,11 @@ describe("runScheduledCronSync", () => {
     process.env.GOOGLE_DRIVE_FOLDER_ID = "env-folder-x";
     delete process.env.DRIVE_FOLDER_ID;
     const listFolder = vi.fn(async () => [fileMeta("file-a")]);
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+    }));
     const getActiveWatchedFolderId = vi.fn(async () => ({ folderId: "settings-folder-y" }));
 
     try {
@@ -1803,7 +1842,11 @@ describe("runScheduledCronSync", () => {
     delete process.env.DRIVE_FOLDER_ID;
     const logSync = vi.fn(async () => undefined);
     const listFolder = vi.fn(async () => [fileMeta("file-a")]);
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+    }));
 
     try {
       const result = await runScheduledCronSync({
@@ -1838,7 +1881,7 @@ describe("runScheduledCronSync", () => {
     const processOneFile = vi
       .fn()
       .mockResolvedValueOnce({ outcome: "parse_error", code: "MI-1_VERSION_DETECTION_FAILED" })
-      .mockResolvedValueOnce({ outcome: "applied", showId: "show-b" });
+      .mockResolvedValueOnce({ outcome: "applied", showId: "show-b", parseWarnings: [] });
 
     const result = await runScheduledCronSync({
       folderId: "folder-1",
@@ -1858,7 +1901,11 @@ describe("runScheduledCronSync", () => {
   test("passes the configured sync_log sink into each cron file pipeline", async () => {
     const logSync = vi.fn(async () => undefined);
     const file = fileMeta("file-a");
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-a",
+      parseWarnings: [],
+    }));
 
     await runScheduledCronSync({
       folderId: "folder-1",
@@ -1921,7 +1968,11 @@ describe("runScheduledCronSync", () => {
       lockEvents.push(`lock:${driveFileId}`);
       return await fn(fakeTx as LockedShowTx<PipelineTx>);
     });
-    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-b" }));
+    const processOneFile = vi.fn(async () => ({
+      outcome: "applied" as const,
+      showId: "show-b",
+      parseWarnings: [],
+    }));
 
     const result = await runScheduledCronSync({
       folderId: "folder-1",
@@ -1940,8 +1991,15 @@ describe("runScheduledCronSync", () => {
     });
 
     expect(result.processed).toEqual([
-      { driveFileId: "file-a", result: { outcome: "source_gone", code: "SHEET_UNAVAILABLE" } },
-      { driveFileId: "file-b", result: { outcome: "applied", showId: "show-b" } },
+      {
+        driveFileId: "file-a",
+        // whole-diff R2: markMissingShow_unlocked carries the missing show's id (updated.showId ?? show.showId).
+        result: { outcome: "source_gone", code: "SHEET_UNAVAILABLE", showId: "show-a" },
+      },
+      {
+        driveFileId: "file-b",
+        result: { outcome: "applied", showId: "show-b", parseWarnings: [] },
+      },
     ]);
     expect(lockEvents).toEqual(["lock:file-a"]);
     expect(fakeTx.shows.get("file-a")).toMatchObject({
@@ -1986,7 +2044,11 @@ describe("runScheduledCronSync", () => {
     await runScheduledCronSync({
       folderId: "folder-1",
       listFolder: vi.fn(async () => [fileMeta("file-b")]),
-      processOneFile: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-b" })),
+      processOneFile: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-b",
+        parseWarnings: [],
+      })),
       withShowLock,
       listLiveShows: vi.fn(async () => [
         {

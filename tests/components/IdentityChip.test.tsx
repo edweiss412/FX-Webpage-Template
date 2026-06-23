@@ -51,8 +51,7 @@ describe("<IdentityChip>", () => {
     const { getByTestId } = render(<IdentityChip {...baseProps} />);
     const form = getByTestId("identity-chip-not-you").closest("form")!;
     const fieldOf = (n: string) =>
-      (form.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)
-        ?.value;
+      (form.querySelector(`input[name="${n}"]`) as HTMLInputElement | null)?.value;
     expect(fieldOf("slug")).toBe(baseProps.slug);
     expect(fieldOf("shareToken")).toBe(baseProps.shareToken);
     expect(fieldOf("showId")).toBe(baseProps.showId);

@@ -45,8 +45,7 @@ function playwrightPackageVersion(): Semver {
 
 function driftWorkflowDockerVersion(): Semver {
   const workflow = readFileSync(DRIFT_WORKFLOW_PATH, "utf8");
-  const match =
-    /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-jammy/.exec(workflow);
+  const match = /mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-jammy/.exec(workflow);
 
   if (!match) {
     throw new Error(
@@ -59,10 +58,9 @@ function driftWorkflowDockerVersion(): Semver {
 
 function driftWorkflowDockerRunCommand(): string {
   const workflow = readFileSync(DRIFT_WORKFLOW_PATH, "utf8");
-  const match =
-    /docker run[\s\S]*?mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-jammy/.exec(
-      workflow,
-    );
+  const match = /docker run[\s\S]*?mcr\.microsoft\.com\/playwright:v\d+\.\d+\.\d+-jammy/.exec(
+    workflow,
+  );
 
   if (!match) {
     throw new Error(

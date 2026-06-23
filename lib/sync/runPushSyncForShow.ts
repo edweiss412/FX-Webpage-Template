@@ -2,6 +2,7 @@ import { getActiveWatchedFolderId } from "@/lib/appSettings/getWatchedFolderId";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
 import {
   processOneFile,
   type ProcessOneFileDeps,
@@ -255,7 +256,9 @@ export async function runPushSyncForShow(
   const withLock: PushPipelineLock =
     deps.withPipelineLock ??
     (async (id, fn) => {
-      const r = await withPostgresSyncPipelineLock<ProcessOneFileResult>(id, fn, { tryOnly: false });
+      const r = await withPostgresSyncPipelineLock<ProcessOneFileResult>(id, fn, {
+        tryOnly: false,
+      });
       // tryOnly:false blocks until the lock is acquired, so ConcurrentSyncSkipped is unreachable here;
       // narrow defensively to the silent archived-style skip so we never write a misleading log.
       if ("skipped" in r) return { outcome: "skipped", reason: ARCHIVED_SKIP_REASON };
@@ -268,7 +271,13 @@ export async function runPushSyncForShow(
   const fetched = deps.fileMeta ?? (await fetchScopedPushFileMeta(driveFileId, deps));
   if ("result" in fetched) {
     // R9 DEF-4 TOCTOU: gate the fetch-failure / out-of-scope log on a locked archived re-read.
-    return await logUnlessArchived(withLock, driveFileId, logSync, fetched.logEntry, fetched.result);
+    return await logUnlessArchived(
+      withLock,
+      driveFileId,
+      logSync,
+      fetched.logEntry,
+      fetched.result,
+    );
   }
   const fileMeta = fetched;
   const preflight = await (deps.readPushDuplicatePreflight ?? readPushDuplicatePreflight)(
@@ -283,7 +292,16 @@ export async function runPushSyncForShow(
     });
   }
   const runOne = deps.processOneFile ?? processOneFile;
-  return await runOne(driveFileId, "push", fileMeta, {
+  // nav-perf tag-caching (Task 5 / whole-diff R2): processOneFile owns the per-show pipeline lock
+  // (withPostgresSyncPipelineLock → sql.begin); when this await resolves the apply
+  // tx has COMMITTED. Revalidate the show's cache tag HERE — post-commit — never
+  // inside processOneFile_unlocked (that runs inside sql.begin = pre-commit).
+  // showId-presence gate: busts on applied AND on the parse_error/source_gone
+  // recovery outcomes (which carry showId + commit last_sync_status). No-op on
+  // skipped/stale/revision_race/stage/hard_fail/ConcurrentSyncSkipped (no showId).
+  const result = await runOne(driveFileId, "push", fileMeta, {
     logSync,
   });
+  revalidateShowFromResult(result);
+  return result;
 }

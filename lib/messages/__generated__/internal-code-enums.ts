@@ -8,6 +8,21 @@ export const INTERNAL_CODE_ENUMS = {
   ADMIN_SESSION_LOOKUP_FAILED: {
     source: "admin_alerts.code"
   },
+  AGENDA_BLOCK_UNRESOLVED: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_DAY_AMBIGUOUS: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_DAY_EMPTIED: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_DAY_TRUNCATED: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_GRID_MALFORMED: {
+    source: "parse_warnings.code"
+  },
   AMBIGUOUS_EMAIL_BINDING: {
     source: "admin_alerts.code"
   },
@@ -161,6 +176,12 @@ export const INTERNAL_CODE_ENUMS = {
   REPORT_PIPELINE_FAILED: {
     source: "admin_alerts.code"
   },
+  SCHEDULE_TIME_UNPARSED: {
+    source: "parse_warnings.code"
+  },
+  SECTION_HEADER_NO_FIELDS: {
+    source: "parse_warnings.code"
+  },
   sheet_unavailable: {
     source: "shows.last_sync_status"
   },
@@ -220,6 +241,15 @@ export const INTERNAL_CODE_ENUMS = {
   },
   SYNC_STEP_TIMEOUT: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
+  TRAVEL_FLIGHT_AMBIGUOUS_TABLE: {
+    source: "parse_warnings.code"
+  },
+  TRAVEL_FLIGHT_NAME_UNMATCHED: {
+    source: "parse_warnings.code"
+  },
+  TRAVEL_FLIGHT_UNPARSEABLE: {
+    source: "parse_warnings.code"
   },
   TYPO_NORMALIZED: {
     source: "parse_warnings.code"

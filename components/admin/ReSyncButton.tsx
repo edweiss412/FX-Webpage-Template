@@ -20,6 +20,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { AccentButton } from "@/components/shared/AccentButton";
 
 export type ReSyncButtonProps = {
   slug: string;
@@ -35,21 +36,21 @@ function summarizeResult(result: unknown): string {
     case "applied":
       return "Synced. Changes applied.";
     case "stage":
-      return "Synced. New change staged for review.";
+      return "Synced. A change is waiting for your review on this page.";
     case "skipped":
       return "Synced. Nothing new from Drive.";
     case "asset_recovery":
-      return "Synced. Recovering linked assets in the background.";
+      return "Synced. Fetching linked files in the background.";
     case "hard_fail":
-      return "Synced, but the parse failed an invariant. Review staged details.";
+      return "Synced, but the latest edit couldn't be applied automatically. Review it on this page.";
     case "stale":
-      return "Synced. A newer parse already won, no changes applied.";
+      return "Synced. A newer sync already finished; nothing changed.";
     case "revision_race":
-      return "Synced, but Drive changed mid-read. Will retry on next sync.";
+      return "Synced, but the sheet changed mid-sync. We'll retry on the next sync.";
     case "source_gone":
       return "Sheet is no longer available in Drive.";
     case "parse_error":
-      return "Synced, but the parse encountered an error. Review staged details.";
+      return "Synced, but part of the sheet couldn't be applied. Review the details on this page.";
     default:
       return "Sync complete.";
   }
@@ -88,16 +89,19 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <button
-        type="button"
+      <AccentButton
         onClick={handleClick}
         disabled={pending}
         data-testid="admin-resync-button"
         aria-busy={pending}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center self-start rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
+        fontWeight="medium"
+        inline
+        selfStart
+        minWidthTap
+        ringOffset="bg"
       >
         {pending ? "Syncing…" : "Re-sync from Drive"}
-      </button>
+      </AccentButton>
       {errorCode ? (
         <div
           role="alert"

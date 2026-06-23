@@ -62,7 +62,9 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "crypto", {
     value: {
       ...globalThis.crypto,
-      randomUUID: () => uuids[uuidCounter++] ?? `99999999-9999-4999-8999-9999${uuidCounter.toString().padStart(8, "0")}`,
+      randomUUID: () =>
+        uuids[uuidCounter++] ??
+        `99999999-9999-4999-8999-9999${uuidCounter.toString().padStart(8, "0")}`,
     },
     configurable: true,
   });
@@ -132,9 +134,7 @@ describe("A. Submit body shape", () => {
       rightNowState: { state: "before-call" },
       reporter_role: "audio",
     };
-    const { getByTestId } = render(
-      <ReportModal {...defaultProps({ autocapture })} />,
-    );
+    const { getByTestId } = render(<ReportModal {...defaultProps({ autocapture })} />);
     fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "x" } });
     fireEvent.click(getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -217,10 +217,12 @@ describe("B. Idempotency-key reuse on nonterminal paths", () => {
     fireEvent.click(getByTestId("report-modal-retry"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
-    const firstKey = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-      .idempotency_key;
-    const secondKey = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const firstKey = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ).idempotency_key;
+    const secondKey = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(firstKey).toBe(secondKey);
     expect(firstKey).toBe(uuids[0]);
   });
@@ -228,17 +230,21 @@ describe("B. Idempotency-key reuse on nonterminal paths", () => {
   test("409 IDEMPOTENCY_IN_FLIGHT retry reuses the key", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(409, { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" }))
-      .mockResolvedValueOnce(jsonResponse(200, { ok: true, status: "recovered", github_issue_url: ISSUE_URL }));
+      .mockResolvedValueOnce(
+        jsonResponse(200, { ok: true, status: "recovered", github_issue_url: ISSUE_URL }),
+      );
     const { getByTestId } = render(<ReportModal {...defaultProps({ surface: "admin" })} />);
     fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
     fireEvent.click(getByTestId("report-modal-submit"));
     await waitFor(() => getByTestId("report-modal-retry"));
     fireEvent.click(getByTestId("report-modal-retry"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k1 = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-      .idempotency_key;
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k1 = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ).idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k1).toBe(k2);
   });
 
@@ -272,8 +278,9 @@ describe("B. Idempotency-key reuse on nonterminal paths", () => {
     // Submit again — must reuse the persisted key.
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k2).toBe(uuids[0]); // same as first attempt
   });
 
@@ -323,8 +330,9 @@ describe("B. Idempotency-key reuse on nonterminal paths", () => {
     render(<ReportModal {...defaultProps()} />);
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k2).toBe(uuids[0]);
   });
 });
@@ -335,8 +343,12 @@ describe("B. Idempotency-key reuse on nonterminal paths", () => {
 describe("C. Idempotency-key rotation on terminal success", () => {
   test("201 created (admin) → next attempt mints a new key", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(201, { ok: true, status: "created", github_issue_url: ISSUE_URL }))
-      .mockResolvedValueOnce(jsonResponse(201, { ok: true, status: "created", github_issue_url: ISSUE_URL }));
+      .mockResolvedValueOnce(
+        jsonResponse(201, { ok: true, status: "created", github_issue_url: ISSUE_URL }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(201, { ok: true, status: "created", github_issue_url: ISSUE_URL }),
+      );
     render(<ReportModal {...defaultProps({ surface: "admin" })} />);
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "draft" } });
     fireEvent.click(screen.getByTestId("report-modal-submit"));
@@ -352,10 +364,12 @@ describe("C. Idempotency-key rotation on terminal success", () => {
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "next" } });
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k1 = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-      .idempotency_key;
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k1 = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ).idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k1).not.toBe(k2);
     expect(k1).toBe(uuids[0]);
     expect(k2).toBe(uuids[1]);
@@ -375,16 +389,20 @@ describe("C. Idempotency-key rotation on terminal success", () => {
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "next" } });
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k1 = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-      .idempotency_key;
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k1 = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ).idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k1).not.toBe(k2);
   });
 
   test("200 duplicate → rotates key on next attempt", async () => {
     fetchMock
-      .mockResolvedValueOnce(jsonResponse(200, { ok: true, status: "duplicate", github_issue_url: ISSUE_URL }))
+      .mockResolvedValueOnce(
+        jsonResponse(200, { ok: true, status: "duplicate", github_issue_url: ISSUE_URL }),
+      )
       .mockResolvedValueOnce(jsonResponse(201, { ok: true, status: "created" }));
     render(<ReportModal {...defaultProps({ surface: "admin" })} />);
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "draft" } });
@@ -396,10 +414,12 @@ describe("C. Idempotency-key rotation on terminal success", () => {
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "next" } });
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k1 = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-      .idempotency_key;
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k1 = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ).idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k1).not.toBe(k2);
   });
 
@@ -417,10 +437,12 @@ describe("C. Idempotency-key rotation on terminal success", () => {
     fireEvent.change(screen.getByTestId("report-modal-textarea"), { target: { value: "next" } });
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k1 = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string)
-      .idempotency_key;
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k1 = JSON.parse(
+      (fetchMock.mock.calls[0]![1] as RequestInit).body as string,
+    ).idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k1).not.toBe(k2);
   });
 });
@@ -460,8 +482,9 @@ describe("C. Idempotency-key rotation on explicit Start-a-new-report", () => {
     });
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k2).not.toBe(uuids[0]);
     expect(k2).toBe(uuids[1]);
   });
@@ -482,8 +505,9 @@ describe("C. Idempotency-key rotation on explicit Start-a-new-report", () => {
     expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY)!).idempotencyKey).toBe(uuids[0]);
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    const k2 = JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)
-      .idempotency_key;
+    const k2 = JSON.parse(
+      (fetchMock.mock.calls[1]![1] as RequestInit).body as string,
+    ).idempotency_key;
     expect(k2).toBe(uuids[0]);
   });
 });
@@ -505,7 +529,9 @@ describe("D. sessionStorage persistence", () => {
 
   test("different surfaceId values keep independent persisted state", () => {
     const { unmount: u1 } = render(<ReportModal {...defaultProps({ surfaceId: "surf-a" })} />);
-    const textarea1 = document.querySelector('[data-testid="report-modal-textarea"]') as HTMLTextAreaElement;
+    const textarea1 = document.querySelector(
+      '[data-testid="report-modal-textarea"]',
+    ) as HTMLTextAreaElement;
     fireEvent.change(textarea1, { target: { value: "from A" } });
     u1();
 
@@ -521,7 +547,12 @@ describe("D. sessionStorage persistence", () => {
     // Pre-seed an unrelated surface's entry to confirm scoping.
     sessionStorage.setItem(
       "fxav-report-attempt-other-surface",
-      JSON.stringify({ idempotencyKey: "x", draft: "x", status: "composing", surfaceId: "other-surface" }),
+      JSON.stringify({
+        idempotencyKey: "x",
+        draft: "x",
+        status: "composing",
+        surfaceId: "other-surface",
+      }),
     );
     const { getByTestId } = render(<ReportModal {...defaultProps()} />);
     fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
@@ -685,9 +716,7 @@ describe("E. State machine transitions", () => {
           }
         }),
     );
-    const { getByTestId } = render(
-      <ReportModal {...defaultProps({ submitTimeoutMs: 50 })} />,
-    );
+    const { getByTestId } = render(<ReportModal {...defaultProps({ submitTimeoutMs: 50 })} />);
     fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "draft" } });
     fireEvent.click(getByTestId("report-modal-submit"));
     // Wait past the timeout window for the abort + state transition.
@@ -849,6 +878,8 @@ describe("F. Resume UX", () => {
     const { getByTestId, queryByTestId } = render(<ReportModal {...defaultProps()} />);
     // Banner NOT shown; textarea still pre-filled from persisted draft.
     expect(queryByTestId("report-modal-resume-banner")).toBeNull();
-    expect((getByTestId("report-modal-textarea") as HTMLTextAreaElement).value).toBe("partial draft");
+    expect((getByTestId("report-modal-textarea") as HTMLTextAreaElement).value).toBe(
+      "partial draft",
+    );
   });
 });

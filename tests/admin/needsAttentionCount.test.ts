@@ -103,10 +103,15 @@ it("count:null with NO error on pending_syncs → infra_error (integrity failure
 
 it("invariant 9: destructures { data, error } from BOTH queries (not bare { count, error })", () => {
   const src = readFileSync("lib/admin/needsAttentionCount.ts", "utf8");
+  // nav-perf Phase 2 (E-lite): the two reads are now Promise.all'd, so each
+  // result is destructured from its result variable (ingestionResult/syncResult)
+  // rather than directly from `await`. Invariant-9 intent preserved: BOTH still
+  // destructure { data, ..., error } (not bare { count, error }).
+  expect(src).toMatch(/await Promise\.all\(/);
   expect(src).toMatch(
-    /const\s*\{\s*data:\s*_ingestionData\s*,\s*count:\s*ingestionCount\s*,\s*error:\s*ingestionError\s*,?\s*\}\s*=\s*await/,
+    /const\s*\{\s*data:\s*_ingestionData\s*,\s*count:\s*ingestionCount\s*,\s*error:\s*ingestionError\s*,?\s*\}\s*=\s*ingestionResult/,
   );
   expect(src).toMatch(
-    /const\s*\{\s*data:\s*_syncData\s*,\s*count:\s*syncCount\s*,\s*error:\s*syncError\s*,?\s*\}\s*=\s*await/,
+    /const\s*\{\s*data:\s*_syncData\s*,\s*count:\s*syncCount\s*,\s*error:\s*syncError\s*,?\s*\}\s*=\s*syncResult/,
   );
 });

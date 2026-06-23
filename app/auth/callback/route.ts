@@ -86,7 +86,9 @@ async function stampOauthClaim(
   try {
     const { data: userResult, error: getUserError } = await supabase.auth.getUser();
     if (getUserError) {
-      console.error("[auth/callback] getUser returned error", { error: errorLogValue(getUserError) });
+      console.error("[auth/callback] getUser returned error", {
+        error: errorLogValue(getUserError),
+      });
       return;
     }
 

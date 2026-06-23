@@ -42,12 +42,16 @@ function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
     contacts: [],
     pullSheet: null,
     viewerName: null,
+    viewerFlightInfo: null,
     viewerVersionToken: "",
     diagrams: null,
     openingReelHasVideo: false,
     lastSyncedAt: null,
     lastSyncStatus: null,
     tileErrors: {},
+    runOfShow: null,
+    driveFileId: null,
+    sourceAnchors: {},
   };
 }
 
@@ -152,9 +156,7 @@ describe("resolveViewerContext", () => {
     const viewer: Viewer = { kind: "crew", crewMemberId: "crew-alice" };
     const data = makeData(undefined as unknown as ShowForViewer["crewMembers"]);
 
-    expect(() => resolveViewerContext(viewer, data)).toThrowError(
-      MalformedProjectionError,
-    );
+    expect(() => resolveViewerContext(viewer, data)).toThrowError(MalformedProjectionError);
   });
 
   test("admin_preview viewer with NON-ARRAY crewMembers → throws MalformedProjectionError (fail closed)", () => {
@@ -165,13 +167,9 @@ describe("resolveViewerContext", () => {
       kind: "admin_preview",
       crewMemberId: "crew-bob",
     };
-    const data = makeData(
-      { length: 1 } as unknown as ShowForViewer["crewMembers"],
-    );
+    const data = makeData({ length: 1 } as unknown as ShowForViewer["crewMembers"]);
 
-    expect(() => resolveViewerContext(viewer, data)).toThrowError(
-      MalformedProjectionError,
-    );
+    expect(() => resolveViewerContext(viewer, data)).toThrowError(MalformedProjectionError);
   });
 
   test("admin viewer with UNDEFINED crewMembers → does NOT throw (admin never reads crewMembers here)", () => {

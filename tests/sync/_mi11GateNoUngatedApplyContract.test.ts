@@ -75,7 +75,12 @@ function emptyShow(): ParseResult["show"] {
     client_contact: null,
     template_version: "v4",
     venue: null,
-    dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: ["2026-05-09"], travelOut: "2026-05-10" },
+    dates: {
+      travelIn: "2026-05-07",
+      set: "2026-05-08",
+      showDays: ["2026-05-09"],
+      travelOut: "2026-05-10",
+    },
     schedule_phases: {},
     event_details: {},
     agenda_links: [],
@@ -129,7 +134,13 @@ describe("MI-11 gate — runtime: both live-apply entry points fail closed on MI
     // A Phase2Tx WITHOUT holdPort (the unsafe direction P2-F6 closed).
     const tx = {
       async applyShowSnapshot() {
-        return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [], previousCrewMembers: [] };
+        return {
+          outcome: "updated" as const,
+          showId: "show-1",
+          previousCrewNames: [],
+          previousCrewMembers: [],
+          priorRunOfShow: null,
+        };
       },
       async deleteCrewMembersNotIn() {},
       async upsertCrewMembers() {
@@ -149,7 +160,13 @@ describe("MI-11 gate — runtime: both live-apply entry points fail closed on MI
       runPhase2(tx, {
         driveFileId: "drive-1",
         mode: "cron",
-        fileMeta: { driveFileId: "drive-1", name: "s", mimeType: "x", modifiedTime: "2026-06-08T12:00:00.000Z", parents: ["f"] } as DriveListedFile,
+        fileMeta: {
+          driveFileId: "drive-1",
+          name: "s",
+          mimeType: "x",
+          modifiedTime: "2026-06-08T12:00:00.000Z",
+          parents: ["f"],
+        } as DriveListedFile,
         parseResult: parseWith([ALICE]),
         binding: { bindingToken: "t", modifiedTime: "2026-06-08T12:00:00.000Z" },
         verifyReelOnApply: false,
@@ -202,8 +219,15 @@ describe("MI-11 gate — runtime: both live-apply entry points fail closed on MI
         headRevisionId: "head-1",
         trashed: false,
       })),
-      liveDriveReverify: { outcome: "ok" as const, metadata: { parents: ["watched-folder"] } as DriveListedFile },
-      liveAssetReviewEffects: { parseResult: parseWith([ALICE]), adminAlertCode: null, skipDiagramsWrite: false },
+      liveDriveReverify: {
+        outcome: "ok" as const,
+        metadata: { parents: ["watched-folder"] } as DriveListedFile,
+      },
+      liveAssetReviewEffects: {
+        parseResult: parseWith([ALICE]),
+        adminAlertCode: null,
+        skipDiagramsWrite: false,
+      },
       runPhase2: runPhase2Mock,
       insertSyncAudit: vi.fn(async () => "audit-1"),
       deleteLivePendingSync: vi.fn(async () => undefined),

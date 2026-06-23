@@ -15,6 +15,7 @@ import { parseClient } from "./blocks/client";
 import { parseVenue } from "./blocks/venue";
 import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
+import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
 import { parseTransportation } from "./blocks/transport";
@@ -24,7 +25,9 @@ import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams } from "./diagrams";
 import { extractOpeningReel } from "./opening-reel";
-import type { ParsedSheet, ParseError, ShowRow, WorkPhase } from "./types";
+import { parseAgenda } from "./blocks/agenda";
+import { parseScheduleTimes } from "./blocks/scheduleTimes";
+import type { ParsedSheet, ParseError, ShowRow, WorkPhase, ScheduleDay } from "./types";
 
 export type { ParsedSheet, ParseResult, ParseWarning, ParseError } from "./types";
 export type {
@@ -230,7 +233,11 @@ function extractTitleFromMarkdown(
 function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
   const links: { label: string; fileId?: string; url?: string }[] = [];
   for (const line of markdown.split("\n")) {
-    const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?)\s*\|\s*([^|]+?)\s*\|/i);
+    // Accept the standard "AGENDA LINK[ - suffix]" label AND a bare "AGENDA"
+    // label (the 2024 East Coast template labels the agenda Drive-URL row just
+    // "AGENDA"). The bare `AGENDA` alternative is exact-bounded by the trailing
+    // `\s*\|`, so "AGENDA DAY"/"AGENDA TAB"-style cells do NOT match.
+    const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?|AGENDA)\s*\|\s*([^|]+?)\s*\|/i);
     if (!m) continue;
     const label = m[1]?.trim();
     const value = m[2]?.trim();
@@ -359,7 +366,12 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const { client_label, client_contact } = parseClient(markdown, version, agg);
   const venue = parseVenue(markdown, version, agg);
   const dates = parseDates(markdown, version, agg);
+  const agendaResult = parseAgenda(markdown, dates);
+  agg.warnings.push(...agendaResult.warnings);
+  const scheduleTimesResult = parseScheduleTimes(markdown, dates);
+  agg.warnings.push(...scheduleTimesResult.warnings); // mirrors :369 — routes SCHEDULE_TIME_UNPARSED to ParsedSheet.warnings → sync log → §12.4
   const crewMembers = parseCrew(markdown, version, agg);
+  parseTravelFlights(markdown, crewMembers, agg);
   const hotelReservations = parseHotels(markdown, version, agg);
   const rooms = parseRooms(markdown, version, agg);
   const transportation = parseTransportation(markdown, version, crewMembers, agg);
@@ -399,6 +411,30 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     invoice_notes: ops.invoice_notes,
   };
 
+  // §4.3 D2 merge — runs IN THE PARSER (single carrier). grid wins per day with
+  // ≥1 titled entry (lifted to ScheduleDay); else the DATES-column ScheduleDay.
+  // showStart/window of a grid-lifted day come from the grid first entry / null.
+  let mergedRunOfShow: Record<string, ScheduleDay> | undefined;
+  const gridDays = agendaResult.runOfShow; // Record<iso, AgendaEntry[]> | undefined
+  const datesDays = scheduleTimesResult.scheduleDays; // Record<iso, ScheduleDay>
+  if (gridDays !== undefined || Object.keys(datesDays).length > 0) {
+    const merged: Record<string, ScheduleDay> = { ...datesDays };
+    for (const [iso, gridEntries] of Object.entries(gridDays ?? {})) {
+      if (gridEntries.length > 0) {
+        merged[iso] = {
+          entries: gridEntries,
+          showStart: gridEntries[0]!.start,
+          window: null,
+        };
+      }
+      // grid day present-as-[] → leave the DATES-column ScheduleDay (if any) in place
+      else if (!(iso in merged)) {
+        merged[iso] = { entries: [], showStart: null, window: null };
+      }
+    }
+    mergedRunOfShow = merged;
+  }
+
   // Step 6: Return ParsedSheet.
   return {
     show,
@@ -413,5 +449,6 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     raw_unrecognized: agg.rawUnrecognized,
     warnings: agg.warnings,
     hardErrors,
+    ...(mergedRunOfShow !== undefined ? { runOfShow: mergedRunOfShow } : {}),
   };
 }

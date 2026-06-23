@@ -13,8 +13,13 @@
  * Server-safe (pure function; no environment reads, no side effects,
  * no React imports).
  */
-import type { ContactRow, DateRestriction, HotelReservationRow, ShowRow } from "@/lib/parser/types";
+import type { DateRestriction, HotelReservationRow, RunOfShow, ShowRow } from "@/lib/parser/types";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
+import {
+  resolveKeyTimes,
+  type ProjectedRoomRow,
+  type ShowAnchor,
+} from "@/lib/crew/resolveKeyTimes";
 
 /**
  * Everything the card needs to render any of the 12 §8.2 states.
@@ -43,6 +48,8 @@ export type RightNowContext = {
   roomName: string | null;
   /** Used on the last show day per §8.2. */
   strikeTime: string | null;
+  /** Dated per-day Show anchors; RightNowHero selects by client show-tz todayIso. */
+  showAnchors: ShowAnchor[];
   /** IANA tz; defaults to America/New_York. */
   timezone: string;
 };
@@ -52,9 +59,11 @@ export type RightNowContext = {
  *
  *   - hotelReservations is already filtered by viewer.name in
  *     getShowForViewer for crew/admin_preview viewers (admin sees all).
- *   - event_details may carry call_time / load_in_time / strike_time /
- *     first_show_room keys when the sheet captured them; all are
- *     optional. We guard typeof === 'string' && length > 0.
+ *   - Time anchors (Set/Show/Strike) are rooms-sourced via the shared
+ *     `resolveKeyTimes` resolver (§4.4). The legacy
+ *     event_details.{call_time,load_in_time,strike_time,first_show_room}
+ *     reads are DROPPED ENTIRELY (always empty for real shows, §7.1) —
+ *     this is a removal, not a fallback.
  *   - venue.timezone is read defensively (current ShowRow.venue type
  *     does not declare it; the projection passes the venue object
  *     through verbatim, so a future M-task that populates
@@ -64,22 +73,23 @@ export function buildRightNowContext(opts: {
   show: Pick<ShowRow, "dates" | "title" | "venue" | "event_details">;
   dateRestriction: DateRestriction;
   hotelReservations: HotelReservationRow[];
-  contacts: ContactRow[];
+  rooms: ProjectedRoomRow[] | null;
+  runOfShow: RunOfShow | null; // NEW — per-day RunOfShow for ShowAnchor carry
 }): RightNowContext {
-  const { show, dateRestriction, hotelReservations } = opts;
+  const { show, dateRestriction, hotelReservations, rooms, runOfShow } = opts;
   const firstHotel = hotelReservations[0] ?? null;
 
-  const ed = show.event_details ?? {};
-  const callTime =
-    typeof ed.call_time === "string" && ed.call_time.length > 0 ? ed.call_time : null;
-  const loadInTime =
-    typeof ed.load_in_time === "string" && ed.load_in_time.length > 0 ? ed.load_in_time : null;
-  const strikeTime =
-    typeof ed.strike_time === "string" && ed.strike_time.length > 0 ? ed.strike_time : null;
-  const roomName =
-    typeof ed.first_show_room === "string" && ed.first_show_room.length > 0
-      ? ed.first_show_room
-      : null;
+  // Time anchors are rooms-sourced via the shared resolver (§4.4). The old
+  // event_details.{call_time,load_in_time,strike_time,first_show_room} reads
+  // are DROPPED ENTIRELY (always empty for real shows, §7.1) — not a fallback.
+  const anchors = resolveKeyTimes(show, rooms, runOfShow, dateRestriction); // 4-arg
+  const loadInTime = anchors.set ?? null; // Set anchor (dates.loadIn ?? GS set_time)
+  const showAnchors = anchors.shows ?? []; // dated per-day Show anchors
+  // callTime: single string for back-compat consumers; defaults to the first anchor.
+  // RightNowHero re-selects from showAnchors by todayIso for multi-day shows.
+  const callTime = showAnchors[0]?.time ?? null;
+  const strikeTime = anchors.strike ?? null; // Strike anchor
+  const roomName = null; // first_show_room dropped (§7.1); no Phase-1 source
 
   // Shared show-tz resolver (lib/time/showTimezone.ts) — the same helper crew
   // pack-list and the admin dashboard live compute use, so "today" is derived
@@ -98,6 +108,7 @@ export function buildRightNowContext(opts: {
     callTime,
     roomName,
     strikeTime,
+    showAnchors,
     timezone,
   };
 }

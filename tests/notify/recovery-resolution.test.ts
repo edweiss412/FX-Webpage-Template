@@ -9,7 +9,10 @@ import {
 function fakeSql(rows: Array<Record<string, unknown>> = []) {
   const calls: Array<{ text: string; values: unknown[] }> = [];
   const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
-    calls.push({ text: String.raw(strings, ...values.map((_value, index) => `$${index + 1}`)), values });
+    calls.push({
+      text: String.raw(strings, ...values.map((_value, index) => `$${index + 1}`)),
+      values,
+    });
     return Promise.resolve(rows);
   }) as unknown as RecoveryResolutionSql;
   return { sql, calls };
@@ -37,7 +40,9 @@ describe("notify recovery-resolution status map", () => {
     ).resolves.toEqual({ kind: "ok", resolved: true });
 
     expect(calls[0]?.values).toEqual(["alert-1", "show-1", "DRIVE_FETCH_FAILED"]);
-    expect(calls[0]?.text).toMatch(/update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i);
+    expect(calls[0]?.text).toMatch(
+      /update\s+public\.admin_alerts\s+set\s+resolved_at\s*=\s*now\(\)/i,
+    );
     expect(calls[0]?.text).toMatch(/case\s+s\.last_sync_status/i);
     expect(calls[0]?.text).toMatch(/when\s+'drive_error'\s+then\s+'DRIVE_FETCH_FAILED'/i);
     expect(calls[0]?.text).toMatch(/when\s+'parse_error'\s+then\s+'PARSE_ERROR_LAST_GOOD'/i);
@@ -81,7 +86,9 @@ describe("notify recovery-resolution status map", () => {
   });
 
   test("thrown SQL fault returns infra_error and never throws", async () => {
-    const sql = vi.fn(() => Promise.reject(new Error("db down"))) as unknown as RecoveryResolutionSql;
+    const sql = vi.fn(() =>
+      Promise.reject(new Error("db down")),
+    ) as unknown as RecoveryResolutionSql;
 
     await expect(
       resolveRecoveredSyncProblemAlert(

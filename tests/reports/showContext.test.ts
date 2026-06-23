@@ -15,14 +15,12 @@ const githubMock = vi.hoisted(() => ({
 }));
 
 const supabaseMock = vi.hoisted(() => ({
-  showRow: null as
-    | {
-        title: string;
-        slug: string;
-        drive_file_id: string;
-        last_synced_at: string | null;
-      }
-    | null,
+  showRow: null as {
+    title: string;
+    slug: string;
+    drive_file_id: string;
+    last_synced_at: string | null;
+  } | null,
   showError: null as unknown,
   queries: [] as Array<{ table: string; columns: string; eqColumn: string; eqValue: string }>,
   createSupabaseServiceRoleClient: vi.fn(() => ({

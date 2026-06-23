@@ -6,22 +6,8 @@
  * affordance. The action invocation is mocked; the typed return
  * shape (new_share_token + new_epoch) drives the success branch.
  */
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/auth/picker/rotateShareToken", () => ({
   rotateShareToken: vi.fn(),
@@ -49,16 +35,11 @@ beforeEach(() => {
   vi.useFakeTimers();
 });
 
-const idleBtn = () =>
-  screen.getByTestId("admin-rotate-share-token-button") as HTMLButtonElement;
+const idleBtn = () => screen.getByTestId("admin-rotate-share-token-button") as HTMLButtonElement;
 const confirmBtn = () =>
-  screen.getByTestId(
-    "admin-rotate-share-token-confirm-button",
-  ) as HTMLButtonElement;
+  screen.getByTestId("admin-rotate-share-token-confirm-button") as HTMLButtonElement;
 const cancelBtn = () =>
-  screen.getByTestId(
-    "admin-rotate-share-token-cancel-button",
-  ) as HTMLButtonElement;
+  screen.getByTestId("admin-rotate-share-token-cancel-button") as HTMLButtonElement;
 
 describe("RotateShareTokenButton — two-tap state machine", () => {
   test("idle: shows 'Rotate share-token' label", () => {
@@ -87,9 +68,7 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
     // aria-describedby resolves to the (component-owned) row description.
     const descId = btn.getAttribute("aria-describedby");
     expect(descId).toBeTruthy();
-    expect(document.getElementById(descId!)?.textContent ?? "").toMatch(
-      /old one stops working/i,
-    );
+    expect(document.getElementById(descId!)?.textContent ?? "").toMatch(/old one stops working/i);
   });
 
   // M12.7 (adversarial) — tapping into confirm must render Confirm/Cancel
@@ -118,9 +97,7 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
   test("idle → confirm: tap reveals confirm + cancel + URL-will-change warning", () => {
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
-    const group = screen.getByTestId(
-      "admin-rotate-share-token-confirm-row",
-    );
+    const group = screen.getByTestId("admin-rotate-share-token-confirm-row");
     expect(group.getAttribute("role")).toBe("group");
     expect(group.textContent).toMatch(/existing show URL.*stop working/i);
     expect(confirmBtn()).toBeTruthy();
@@ -147,9 +124,11 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
   });
 
   test("confirm-click → invokes rotateShareToken; renders new URL using window.location.origin", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: true, new_share_token: NEW_TOKEN, new_epoch: 4 },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      new_share_token: NEW_TOKEN,
+      new_epoch: 4,
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -172,9 +151,11 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
   });
 
   test("success URL <code> has NO title attribute (attestation HIGH: token-in-hover-tooltip)", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: true, new_share_token: NEW_TOKEN, new_epoch: 4 },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      new_share_token: NEW_TOKEN,
+      new_epoch: 4,
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -183,16 +164,16 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const urlEl = await waitFor(() =>
-      screen.getByTestId("admin-rotate-share-token-url"),
-    );
+    const urlEl = await waitFor(() => screen.getByTestId("admin-rotate-share-token-url"));
     expect(urlEl.getAttribute("title")).toBeNull();
   });
 
   test("Copy button has NO aria-live; announcement lives on a sibling sr-only status node", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: true, new_share_token: NEW_TOKEN, new_epoch: 4 },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      new_share_token: NEW_TOKEN,
+      new_epoch: 4,
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -201,22 +182,19 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const copyBtn = await waitFor(() =>
-      screen.getByTestId("admin-rotate-share-token-copy-button"),
-    );
+    const copyBtn = await waitFor(() => screen.getByTestId("admin-rotate-share-token-copy-button"));
     expect(copyBtn.getAttribute("aria-live")).toBeNull();
-    const announce = screen.getByTestId(
-      "admin-rotate-share-token-copy-announce",
-    );
+    const announce = screen.getByTestId("admin-rotate-share-token-copy-announce");
     expect(announce.getAttribute("role")).toBe("status");
     expect(announce.getAttribute("aria-live")).toBe("polite");
     expect(announce.className).toContain("sr-only");
   });
 
   test("re-entering confirm clears any stale OK/refused banner (no zombie state)", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -226,22 +204,19 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(
-        screen.getByTestId("admin-rotate-share-token-refused"),
-      ).toBeTruthy(),
+      expect(screen.getByTestId("admin-rotate-share-token-refused")).toBeTruthy(),
     );
     vi.useFakeTimers();
     // Re-enter confirm — the prior refused banner must NOT persist.
     fireEvent.click(idleBtn());
-    expect(
-      screen.queryByTestId("admin-rotate-share-token-refused"),
-    ).toBeNull();
+    expect(screen.queryByTestId("admin-rotate-share-token-refused")).toBeNull();
   });
 
   test("refused banner has no 'Last attempt:' prefix (parity with OK banner per attestation)", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -250,16 +225,15 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const refused = await waitFor(() =>
-      screen.getByTestId("admin-rotate-share-token-refused"),
-    );
+    const refused = await waitFor(() => screen.getByTestId("admin-rotate-share-token-refused"));
     expect(refused.textContent).not.toMatch(/last attempt/i);
   });
 
   test("failure result: does NOT trigger router.refresh() (no token to display)", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "PICKER_RESOLVER_LOOKUP_FAILED",
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -269,17 +243,17 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(
-        screen.getByTestId("admin-rotate-share-token-refused"),
-      ).toBeTruthy(),
+      expect(screen.getByTestId("admin-rotate-share-token-refused")).toBeTruthy(),
     );
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
   test("copy button: clicking copies the URL to the clipboard + flips the label to 'Copied'", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: true, new_share_token: NEW_TOKEN, new_epoch: 4 },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      new_share_token: NEW_TOKEN,
+      new_epoch: 4,
+    });
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, {
       clipboard: { writeText },
@@ -292,26 +266,23 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const copyBtn = await waitFor(() =>
-      screen.getByTestId(
-        "admin-rotate-share-token-copy-button",
-      ) as HTMLButtonElement,
+    const copyBtn = await waitFor(
+      () => screen.getByTestId("admin-rotate-share-token-copy-button") as HTMLButtonElement,
     );
     expect(copyBtn.textContent).toBe("Copy");
     await act(async () => {
       fireEvent.click(copyBtn);
       await Promise.resolve();
     });
-    expect(writeText).toHaveBeenCalledWith(
-      expect.stringContaining(`/show/${SLUG}/${NEW_TOKEN}`),
-    );
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining(`/show/${SLUG}/${NEW_TOKEN}`));
     await waitFor(() => expect(copyBtn.textContent).toBe("Copied"));
   });
 
   test("failure result: refused banner renders with role=alert", async () => {
-    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-      { ok: false, code: "ROTATE_FORBIDDEN" },
-    );
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      code: "ROTATE_FORBIDDEN",
+    });
     render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
     fireEvent.click(idleBtn());
     await act(async () => {
@@ -321,9 +292,7 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const refused = screen.getByTestId(
-        "admin-rotate-share-token-refused",
-      );
+      const refused = screen.getByTestId("admin-rotate-share-token-refused");
       expect(refused.getAttribute("role")).toBe("alert");
       expect(refused.textContent).toContain("Couldn't rotate");
     });

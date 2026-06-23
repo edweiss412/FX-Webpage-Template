@@ -2,7 +2,11 @@ import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { CrewMemberRow, ParsedSheet, ParseResult, RoomRow } from "@/lib/parser/types";
 import type { Phase1PendingIngestionRow, Phase1PendingSyncRow, Phase1Tx } from "@/lib/sync/phase1";
-import type { RunOnboardingScanDeps } from "@/lib/sync/runOnboardingScan";
+import {
+  ONBOARDING_PREPARE_CONCURRENCY,
+  type PreparedOnboardingFile,
+  type RunOnboardingScanDeps,
+} from "@/lib/sync/runOnboardingScan";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -243,11 +247,10 @@ async function runWith(
   const result = await runOnboardingScan("folder-1", W1, {
     tx,
     listFolder: vi.fn(async () => files),
-    captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-      bindingToken: meta.modifiedTime,
-      modifiedTime: meta.modifiedTime,
+    fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+      binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+      markdown: `markdown:${driveFileId}`,
     })),
-    fetchMarkdownAtRevision: vi.fn(async (driveFileId: string) => `markdown:${driveFileId}`),
     parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
     enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) => {
       const driveFileId = (parsed as unknown as { markdown: string }).markdown.replace(
@@ -465,11 +468,10 @@ describe("runOnboardingScan", () => {
     const result = await runOnboardingScan("folder-1", W1, {
       tx,
       listFolder: vi.fn(async () => [file("file-1")]),
-      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-        bindingToken: meta.modifiedTime,
-        modifiedTime: meta.modifiedTime,
+      fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: "markdown:file-1",
       })),
-      fetchMarkdownAtRevision: vi.fn(async () => "markdown:file-1"),
       parseSheet: vi.fn(() => ({ markdown: "markdown:file-1" }) as unknown as ParsedSheet),
       enrichWithDrivePins: vi.fn(async () => parseResult()),
       runPhase1: vi.fn(async () => ({ outcome: "pass" as const })),
@@ -534,11 +536,10 @@ describe("runOnboardingScan", () => {
         tx,
         withShowLock,
         listFolder: vi.fn(async () => [file("file-1")]),
-        captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-          bindingToken: meta.modifiedTime,
-          modifiedTime: meta.modifiedTime,
+        fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+          binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+          markdown: "markdown:file-1",
         })),
-        fetchMarkdownAtRevision: vi.fn(async () => "markdown:file-1"),
         parseSheet: vi.fn(() => ({ markdown: "markdown:file-1" }) as unknown as ParsedSheet),
         enrichWithDrivePins: vi.fn(async () => parseResult()),
       }) as unknown as RunOnboardingScanDeps;
@@ -561,6 +562,145 @@ describe("runOnboardingScan", () => {
       "commit:file-1",
       "start:file-1",
       "commit:file-1",
+    ]);
+  });
+
+  test("prepares sheets concurrently (bounded) while preserving listed order", async () => {
+    vi.resetModules();
+    const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+
+    // More files than the concurrency cap so the test pins BOTH that prepare
+    // overlaps (parallel) AND that it never exceeds the cap (bounded).
+    const fileCount = ONBOARDING_PREPARE_CONCURRENCY + 4;
+    const files = Array.from({ length: fileCount }, (_, i) => file(`file-${i + 1}`));
+    const parseResults: Record<string, ParseResult> = Object.fromEntries(
+      files.map((f) => [f.driveFileId, parseResult()]),
+    );
+
+    let active = 0;
+    let maxActive = 0;
+    const completionOrder: string[] = [];
+    // Stagger per-file delays so EARLIER files (file-1 …) finish LAST. This
+    // forces preparation to complete out of input order, so the manifest-order
+    // assertion below is a real proof that the parallel prepare reassembles
+    // results by INPUT index — a completion-order implementation would scramble
+    // the manifest. (Uniform delays could let a broken impl pass by luck.)
+    const delayFor = (driveFileId: string) => {
+      const index = Number(driveFileId.replace("file-", "")); // 1-based
+      return 5 + (fileCount - index) * 4;
+    };
+    const fetchMarkdownWithBinding = vi.fn(async (driveFileId: string) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, delayFor(driveFileId)));
+      active -= 1;
+      completionOrder.push(driveFileId);
+      return {
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: `markdown:${driveFileId}`,
+      };
+    });
+
+    const result = await runOnboardingScan("folder-1", W1, {
+      tx,
+      listFolder: vi.fn(async () => files),
+      fetchMarkdownWithBinding,
+      parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
+      enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) => {
+        const driveFileId = (parsed as unknown as { markdown: string }).markdown.replace(
+          "markdown:",
+          "",
+        );
+        return parseResults[driveFileId] ?? parseResult();
+      }),
+    });
+
+    const inputOrder = files.map((f) => f.driveFileId);
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    // Parallel up to the cap, never beyond it. Sequential prepare → 1.
+    expect(maxActive).toBe(ONBOARDING_PREPARE_CONCURRENCY);
+    // Premise guard: preparation genuinely completed out of input order, so the
+    // manifest-order assertion below is a real proof, not a coincidence of
+    // uniform timing.
+    expect(completionOrder).not.toEqual(inputOrder);
+    // The lock-ordered scan phase still processes files in listed order, so the
+    // manifest order must equal the input order despite out-of-order preparation.
+    expect(tx.manifest.map((row) => row.driveFileId)).toEqual(inputOrder);
+  });
+
+  test("reuses one scan connection for the readiness probe and every per-file transaction", async () => {
+    vi.resetModules();
+    const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+    let opened = 0;
+    let closed = 0;
+    let withTxCalls = 0;
+    const createScanTxRunner = vi.fn((_folderId: string, _wizardSessionId: string) => {
+      opened += 1;
+      return {
+        withTx: async <R>(fn: (t: typeof tx) => Promise<R> | R): Promise<R> => {
+          withTxCalls += 1;
+          return await fn(tx);
+        },
+        close: async () => {
+          closed += 1;
+        },
+      };
+    });
+
+    const files = [file("file-1"), file("file-2"), file("file-3")];
+    const result = await runOnboardingScan("folder-1", W1, {
+      createScanTxRunner: createScanTxRunner as unknown as NonNullable<
+        RunOnboardingScanDeps["createScanTxRunner"]
+      >,
+      listFolder: vi.fn(async () => files),
+      fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: `markdown:${driveFileId}`,
+      })),
+      parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
+      enrichWithDrivePins: vi.fn(async () => parseResult()),
+    });
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    // ONE connection opened (and closed) for readiness + all three files — not 1 + N.
+    expect(opened).toBe(1);
+    expect(closed).toBe(1);
+    // readiness probe + one transaction per file, all on that single connection.
+    expect(withTxCalls).toBe(1 + files.length);
+    expect(tx.manifest.map((row) => row.driveFileId)).toEqual(["file-1", "file-2", "file-3"]);
+  });
+
+  test("scanOnboardingPreparedFiles stages already-prepared files with NO Drive fetch", async () => {
+    vi.resetModules();
+    const { scanOnboardingPreparedFiles } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+
+    // Drive deps that MUST NOT be touched — staging an already-prepared file
+    // does no Drive I/O (this is what lets the wizard restage prepare pre-lock
+    // and stage under the lock).
+    const listFolder = vi.fn(async () => {
+      throw new Error("listFolder must not be called by scanOnboardingPreparedFiles");
+    });
+
+    const prepared: PreparedOnboardingFile[] = [
+      {
+        file: file("file-1"),
+        kind: "sheet",
+        binding: { bindingToken: "tok-file-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+        parseResult: parseResult(),
+      },
+    ];
+
+    const result = await scanOnboardingPreparedFiles("folder-1", W1, prepared, { tx, listFolder });
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    expect(listFolder).not.toHaveBeenCalled();
+    expect(tx.manifest).toMatchObject([{ driveFileId: "file-1", status: "staged" }]);
+    expect(tx.pendingSyncs).toMatchObject([
+      { driveFileId: "file-1", wizardSessionId: W1, sourceKind: "onboarding_scan" },
     ]);
   });
 });

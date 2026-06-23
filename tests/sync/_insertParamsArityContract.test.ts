@@ -48,23 +48,12 @@ function countArrayLiteralEntries(arrayBlock: string): number {
 
 describe("SQL insert param arity contract", () => {
   test("PostgresPipelineTx.applyShowSnapshot insertParamsForSlug matches the first-seen INSERT placeholder count", () => {
-    const src = readFileSync(
-      join(root, "lib/sync/runScheduledCronSync.ts"),
-      "utf8",
-    );
+    const src = readFileSync(join(root, "lib/sync/runScheduledCronSync.ts"), "utf8");
 
-    const insertSqlBlock = extractBlock(
-      src,
-      "insert into public.shows (",
-      "returning id",
-    );
+    const insertSqlBlock = extractBlock(src, "insert into public.shows (", "returning id");
     const placeholderArity = maxPlaceholder(insertSqlBlock);
 
-    const paramsBlock = extractBlock(
-      src,
-      "const insertParamsForSlug = (slug: string) => [",
-      "];",
-    );
+    const paramsBlock = extractBlock(src, "const insertParamsForSlug = (slug: string) => [", "];");
     const paramsArity = countArrayLiteralEntries(paramsBlock);
 
     expect({ paramsArity, placeholderArity }).toEqual({

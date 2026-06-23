@@ -153,7 +153,12 @@ function isShowEnded(dates: unknown, todayIso: string): boolean {
  * exists in an unended show (defensive — shouldn't happen given
  * isShowEnded's contract).
  */
-function chipAnchorIso(dates: unknown, displayDate: string, todayIso: string, ended: boolean): string {
+function chipAnchorIso(
+  dates: unknown,
+  displayDate: string,
+  todayIso: string,
+  ended: boolean,
+): string {
   const candidates = knownDates(dates);
   if (candidates.length === 0) return displayDate;
   if (ended) {
@@ -166,10 +171,7 @@ function chipAnchorIso(dates: unknown, displayDate: string, todayIso: string, en
   return future.reduce((min, iso) => (iso < min ? iso : min), future[0]!);
 }
 
-export function partitionMeShows(
-  shows: readonly CrewShowSummary[],
-  now: Date,
-): PartitionedMeShows {
+export function partitionMeShows(shows: readonly CrewShowSummary[], now: Date): PartitionedMeShows {
   const todayIso = now.toISOString().slice(0, 10);
 
   type Indexed = { show: CrewShowSummary; iso: string; ended: boolean; chipAnchor: string };
@@ -216,7 +218,9 @@ export function partitionMeShows(
   const sortKeyFor = (d: Indexed): string => {
     return d.iso >= todayIso ? d.iso : d.chipAnchor;
   };
-  const active = dated.filter((d) => !d.ended).sort((a, b) => sortKeyFor(a).localeCompare(sortKeyFor(b)));
+  const active = dated
+    .filter((d) => !d.ended)
+    .sort((a, b) => sortKeyFor(a).localeCompare(sortKeyFor(b)));
   // R6 (codex finding): sort ended shows by chipAnchor (the actual end
   // date — most recent of set/travelIn/travelOut/showDays) descending,
   // not by display date. A multi-day show that started earlier but
@@ -224,13 +228,15 @@ export function partitionMeShows(
   // ranked behind a shorter show with later set (e.g., set=Apr 15 +
   // travelOut=Apr 16). Display date / id tie-break keeps the order
   // stable across runs.
-  const ended = dated.filter((d) => d.ended).sort((a, b) => {
-    const cmp = b.chipAnchor.localeCompare(a.chipAnchor);
-    if (cmp !== 0) return cmp;
-    const isoCmp = b.iso.localeCompare(a.iso);
-    if (isoCmp !== 0) return isoCmp;
-    return a.show.id.localeCompare(b.show.id);
-  });
+  const ended = dated
+    .filter((d) => d.ended)
+    .sort((a, b) => {
+      const cmp = b.chipAnchor.localeCompare(a.chipAnchor);
+      if (cmp !== 0) return cmp;
+      const isoCmp = b.iso.localeCompare(a.iso);
+      if (isoCmp !== 0) return isoCmp;
+      return a.show.id.localeCompare(b.show.id);
+    });
 
   const project = (d: Indexed): PartitionedMeShow => ({ show: d.show, chipAnchor: d.chipAnchor });
 

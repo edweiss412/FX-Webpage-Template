@@ -112,8 +112,7 @@ async function setupTwoHolds(tx: Sql) {
 describe("hold-aware apply — cross-hold fold/reservation isolation (WM-F1)", () => {
   it("a name consumed by hold A's fold is STILL recorded as hold B's reservation collision; A's own collisions stay empty", async () => {
     await inRollback(async (tx) => {
-      const { showId, driveFileId, aliceLive, aliceRow, bobLive, bobRow } =
-        await setupTwoHolds(tx);
+      const { showId, driveFileId, aliceLive, aliceRow, bobLive, bobRow } = await setupTwoHolds(tx);
 
       // Sheet: drop Alice + add "Alicia"/a@new (folds into A's rename); keep Bob at his reserved
       // email so hold B neither reconciles nor re-targets and its reserved NAME "Alicia" is live.
@@ -124,10 +123,7 @@ describe("hold-aware apply — cross-hold fold/reservation isolation (WM-F1)", (
       await applyParseResult(applyTx(tx), {
         driveFileId,
         parseResult: next,
-        snapshot: snapshot(showId, [
-          prevMember(aliceRow, aliceLive),
-          prevMember(bobRow, bobLive),
-        ]),
+        snapshot: snapshot(showId, [prevMember(aliceRow, aliceLive), prevMember(bobRow, bobLive)]),
         holds: { port: holdPort(tx), baseModifiedTime: MT2 },
       });
 

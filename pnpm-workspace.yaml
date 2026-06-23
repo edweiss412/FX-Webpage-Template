@@ -2,4 +2,10 @@ allowBuilds:
   "@sentry/cli": true
   esbuild: true
   sharp: true
+  # Reviewed + intentionally NOT built: its postinstall only registers git hooks,
+  # which the root `prepare` script already does. Marking it here (vs leaving it
+  # unreviewed) keeps pnpm 11's strictDepBuilds from failing `pnpm install` with
+  # ERR_PNPM_IGNORED_BUILDS — notably inside the Playwright Docker step that runs
+  # pnpm via corepack (pnpm 11 errors where the pinned 10.33.2 only warned).
+  simple-git-hooks: false
   unrs-resolver: true

@@ -52,7 +52,10 @@ async function applyRename(
     crew: [{ name: successor.name, email: successor.email }],
     triggeredItems: items,
   });
-  const renamed = await readChangeLog(showId, { change_kind: "crew_renamed", entity_ref: prior.name });
+  const renamed = await readChangeLog(showId, {
+    change_kind: "crew_renamed",
+    entity_ref: prior.name,
+  });
   return renamed.id;
 }
 
@@ -63,7 +66,12 @@ describe("crew_renamed undo is a true reversal (P4-F3)", () => {
     ]);
     const aliceLive = await readCrewByName(showId, "Alice");
     const ALICE_ID = aliceLive!.id;
-    const renameId = await applyRename(showId, driveFileId, { name: "Alice", email: "a@x" }, { name: "Dana", email: "a@x" });
+    const renameId = await applyRename(
+      showId,
+      driveFileId,
+      { name: "Alice", email: "a@x" },
+      { name: "Dana", email: "a@x" },
+    );
     // Dana now owns a@x; Alice is gone.
     expect((await readCrew(showId)).map((c) => c.name)).toEqual(["Dana"]);
 
@@ -82,14 +90,21 @@ describe("crew_renamed undo is a true reversal (P4-F3)", () => {
     // exactly one undo log + one undo_override hold.
     const log = (await readChangeLog(showId)).all;
     expect(log.filter((r) => r.source === "undo" && r.undo_of === renameId)).toHaveLength(1);
-    expect((await readHoldsByShow(showId)).filter((h) => h.kind === "undo_override")).toHaveLength(1);
+    expect((await readHoldsByShow(showId)).filter((h) => h.kind === "undo_override")).toHaveLength(
+      1,
+    );
   });
 
   it("CHANGED-EMAIL rename — undo restores Alice(a@x) and Dana(b@y) is absent (no dual identity)", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([{ name: "Alice", email: "a@x" }]);
     const aliceLive = await readCrewByName(showId, "Alice");
     const ALICE_ID = aliceLive!.id;
-    const renameId = await applyRename(showId, driveFileId, { name: "Alice", email: "a@x" }, { name: "Dana", email: "b@y" });
+    const renameId = await applyRename(
+      showId,
+      driveFileId,
+      { name: "Alice", email: "a@x" },
+      { name: "Dana", email: "b@y" },
+    );
     expect((await readCrew(showId)).map((c) => c.name)).toEqual(["Dana"]);
 
     const res = await callUndoAsAdmin(renameId);
@@ -103,7 +118,12 @@ describe("crew_renamed undo is a true reversal (P4-F3)", () => {
 
   it("GENUINE collision control — prior email owned by an UNRELATED third member → UNDO_EMAIL_CLAIMED, zero mutation", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([{ name: "Alice", email: "a@x" }]);
-    const renameId = await applyRename(showId, driveFileId, { name: "Alice", email: "a@x" }, { name: "Dana", email: "b@y" });
+    const renameId = await applyRename(
+      showId,
+      driveFileId,
+      { name: "Alice", email: "a@x" },
+      { name: "Dana", email: "b@y" },
+    );
     // A different, UNRELATED member Carl now holds a@x (the prior email) — not the successor Dana.
     await holdsSql`
       insert into public.crew_members
@@ -118,8 +138,12 @@ describe("crew_renamed undo is a true reversal (P4-F3)", () => {
     // ZERO mutation: Dana still live (NOT deleted), Carl intact, no Alice, no undo row/hold.
     expect(await readCrewByName(showId, "Dana")).not.toBeNull();
     expect(await readCrewByName(showId, "Alice")).toBeNull();
-    expect((await readCrew(showId)).map((c) => c.name).sort()).toEqual(crewBefore.map((c) => c.name).sort());
+    expect((await readCrew(showId)).map((c) => c.name).sort()).toEqual(
+      crewBefore.map((c) => c.name).sort(),
+    );
     expect((await readChangeLog(showId)).all.filter((r) => r.source === "undo")).toHaveLength(0);
-    expect((await readHoldsByShow(showId)).filter((h) => h.kind === "undo_override")).toHaveLength(0);
+    expect((await readHoldsByShow(showId)).filter((h) => h.kind === "undo_override")).toHaveLength(
+      0,
+    );
   });
 });

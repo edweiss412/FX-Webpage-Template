@@ -30,15 +30,13 @@ import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { safeValidationCleanup } from "./_validation-cleanup-helpers";
 
 const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -84,12 +82,8 @@ describe("validation_finalize_all_atomic", () => {
   });
 
   test("happy path: mints R1 then finalize stamps last_seed_date", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
-    runPsql(
-      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
+    runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`);
     const lastSeed = runPsql(`
       SELECT last_seed_date::text FROM public.validation_state WHERE key='validation_seed';
     `);
@@ -97,9 +91,7 @@ describe("validation_finalize_all_atomic", () => {
   });
 
   test("rejects missing combos in the required set", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
     expect(() =>
       runPsql(
         `SELECT public.validation_finalize_all_atomic(ARRAY['R1','R2']::text[], '${TODAY}');`,
@@ -108,9 +100,7 @@ describe("validation_finalize_all_atomic", () => {
   });
 
   test("rejects stale combos (date mismatch)", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
     // Manually mutate the R1 stamp to a different date to simulate stale data.
     runPsql(`
       UPDATE public.validation_state
@@ -118,22 +108,14 @@ describe("validation_finalize_all_atomic", () => {
        WHERE key = 'validation_seed';
     `);
     expect(() =>
-      runPsql(
-        `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-      ),
+      runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`),
     ).toThrow(/incomplete reseed.*stale.*R1:2020-01-01/);
   });
 
   test("idempotency: identical sequential calls both succeed", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
-    runPsql(
-      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-    );
-    runPsql(
-      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
+    runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`);
+    runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`);
     const lastSeed = runPsql(`
       SELECT last_seed_date::text FROM public.validation_state WHERE key='validation_seed';
     `);
@@ -141,22 +123,16 @@ describe("validation_finalize_all_atomic", () => {
   });
 
   test("rejects validationTodayIso > ±1 day from current_date (skew guard)", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
     expect(() =>
-      runPsql(
-        `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '2020-01-01');`,
-      ),
+      runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '2020-01-01');`),
     ).toThrow(/differs from server current_date.*by >1 day/);
   });
 
   test("R14-F1 — DELETEs stale validation shows not in p_required_combos", () => {
     // Seed R1 + a retired-from-spec combo simulant 'R7_legacy' by
     // directly inserting a validation_R7_legacy show row.
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
     // Direct INSERT to simulate a retired-from-spec show that survived
     // from a prior matrix version (the mint RPC wouldn't accept
     // 'R7_legacy' as a valid combo today). Service-role psql bypasses
@@ -171,22 +147,17 @@ describe("validation_finalize_all_atomic", () => {
     expect(before).toBe("1");
 
     // Finalize with required_combos=[R1]; R7_legacy should be DELETEd.
-    runPsql(
-      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-    );
+    runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`);
     const after = runPsql(
       `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'validation_R7_legacy';`,
     );
-    expect(
-      after,
-      "Finalize must DELETE stale validation shows not in p_required_combos.",
-    ).toBe("0");
+    expect(after, "Finalize must DELETE stale validation shows not in p_required_combos.").toBe(
+      "0",
+    );
   });
 
   test("R19-F1 — DELETE skips shows whose client_label != 'M12 Validation' (fixture-ownership sentinel)", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
     // Insert a show with a 'validation_' prefix AND a NON-validation
     // client_label — simulating a real/imported show that happens to
     // have a Drive file id colliding with the validation namespace.
@@ -195,9 +166,7 @@ describe("validation_finalize_all_atomic", () => {
       INSERT INTO public.shows (drive_file_id, slug, title, client_label, template_version, dates, archived, published)
       VALUES ('validation_real_show', 'validation-real-show', 'Real Show (collision)', 'Real Producer', 'v4', '{}'::jsonb, false, true);
     `);
-    runPsql(
-      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-    );
+    runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`);
     const survived = runPsql(
       `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'validation_real_show' AND client_label = 'Real Producer';`,
     );
@@ -205,23 +174,17 @@ describe("validation_finalize_all_atomic", () => {
       survived,
       "Fixture-ownership sentinel: shows with client_label != 'M12 Validation' must survive the finalize prune even when drive_file_id matches the validation prefix.",
     ).toBe("1");
-    runPsql(
-      `DELETE FROM public.shows WHERE drive_file_id = 'validation_real_show';`,
-    );
+    runPsql(`DELETE FROM public.shows WHERE drive_file_id = 'validation_real_show';`);
   });
 
   test("R14-F1 — DELETE does not touch non-validation shows (scoped to LIKE 'validation\\_%')", () => {
-    runPsql(
-      `SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`,
-    );
+    runPsql(`SELECT public.mint_validation_fixture_atomic('R1', '${buildPayload("R1")}'::jsonb);`);
     // Insert a non-validation show — must NOT be affected by the finalize prune.
     runPsql(`
       INSERT INTO public.shows (drive_file_id, slug, title, client_label, template_version, dates, archived, published)
       VALUES ('real_production_show_xyz', 'real-show-xyz', 'Real Show', 'Real Client', 'v4', '{}'::jsonb, false, true);
     `);
-    runPsql(
-      `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-    );
+    runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`);
     const survived = runPsql(
       `SELECT count(*)::int FROM public.shows WHERE drive_file_id = 'real_production_show_xyz';`,
     );
@@ -230,16 +193,12 @@ describe("validation_finalize_all_atomic", () => {
       "Finalize must scope DELETE to LIKE 'validation\\_%' — non-validation shows must survive.",
     ).toBe("1");
     // Cleanup.
-    runPsql(
-      `DELETE FROM public.shows WHERE drive_file_id = 'real_production_show_xyz';`,
-    );
+    runPsql(`DELETE FROM public.shows WHERE drive_file_id = 'real_production_show_xyz';`);
   });
 
   test("rejects calling before mint (combos_seeded_dates initialized check)", () => {
     expect(() =>
-      runPsql(
-        `SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`,
-      ),
+      runPsql(`SELECT public.validation_finalize_all_atomic(ARRAY['R1']::text[], '${TODAY}');`),
     ).toThrow(/combos_seeded_dates not initialized/);
   });
 });

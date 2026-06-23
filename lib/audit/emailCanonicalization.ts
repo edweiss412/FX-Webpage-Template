@@ -55,7 +55,7 @@ function deriveEmailTableColumns(): Map<string, Set<string>> {
       const column = match[2];
       if (!table || !column) continue;
       if (column === "ts" || column === "id") continue;
-      if (isEmailLikeDbColumn(column) || table === "admin_alerts" && column === "context") {
+      if (isEmailLikeDbColumn(column) || (table === "admin_alerts" && column === "context")) {
         addColumn(columns, table, column);
       }
     }
@@ -95,17 +95,25 @@ function matchingParenBody(sql: string, openParen: number): string | null {
 
 function tableAtOffset(sql: string, offset: number): string | null {
   const prefix = sql.slice(0, offset);
-  const alterMatches = Array.from(prefix.matchAll(/alter\s+table(?:\s+if\s+exists)?\s+(?:(?:public|dev)\.)?([a-z_][a-z0-9_]*)/gi));
-  const createMatches = Array.from(prefix.matchAll(/create\s+table(?:\s+if\s+not\s+exists)?\s+(?:(?:public|dev)\.)?([a-z_][a-z0-9_]*)/gi));
+  const alterMatches = Array.from(
+    prefix.matchAll(/alter\s+table(?:\s+if\s+exists)?\s+(?:(?:public|dev)\.)?([a-z_][a-z0-9_]*)/gi),
+  );
+  const createMatches = Array.from(
+    prefix.matchAll(
+      /create\s+table(?:\s+if\s+not\s+exists)?\s+(?:(?:public|dev)\.)?([a-z_][a-z0-9_]*)/gi,
+    ),
+  );
   const alter = alterMatches.at(-1);
   const create = createMatches.at(-1);
   const alterIndex = alter?.index ?? -1;
   const createIndex = create?.index ?? -1;
-  return alterIndex > createIndex ? alter?.[1] ?? null : create?.[1] ?? null;
+  return alterIndex > createIndex ? (alter?.[1] ?? null) : (create?.[1] ?? null);
 }
 
 function columnFromCheckBody(body: string): string | null {
-  const equalsCanonical = body.match(/\b([a-z_][a-z0-9_]*)\s*=\s*lower\s*\(\s*(?:btrim|trim)\s*\(\s*(?:both\s+from\s+)?\1\s*\)\s*\)/i);
+  const equalsCanonical = body.match(
+    /\b([a-z_][a-z0-9_]*)\s*=\s*lower\s*\(\s*(?:btrim|trim)\s*\(\s*(?:both\s+from\s+)?\1\s*\)\s*\)/i,
+  );
   if (equalsCanonical?.[1]) return equalsCanonical[1];
   return null;
 }
@@ -131,13 +139,16 @@ function parseEmailCheckSources(sources: readonly AuditSource[]): CheckSource[] 
   const checks: CheckSource[] = [];
   for (const source of sources) {
     const sql = stripSqlComments(source.source);
-    for (const match of sql.matchAll(/\b(?:add\s+)?constraint\s+([a-z_][a-z0-9_]*)\s+check\s*\(/gi)) {
+    for (const match of sql.matchAll(
+      /\b(?:add\s+)?constraint\s+([a-z_][a-z0-9_]*)\s+check\s*\(/gi,
+    )) {
       const constraint = match[1];
       if (!constraint?.includes("email_canonical")) continue;
       const openParen = (match.index ?? 0) + match[0].length - 1;
       const body = matchingParenBody(sql, openParen);
       const table = tableAtOffset(sql, match.index ?? 0);
-      const column = body && table && (columnFromCheckBody(body) ?? columnFromConstraint(table, constraint));
+      const column =
+        body && table && (columnFromCheckBody(body) ?? columnFromConstraint(table, constraint));
       if (!body || !table || !column) continue;
       checks.push({ table, column, constraint, body });
     }
@@ -188,14 +199,20 @@ function makeProject(sources: readonly AuditSource[]): { project: Project; files
 function propertyName(node: PropertyAssignment | ShorthandPropertyAssignment): string | null {
   if (Node.isShorthandPropertyAssignment(node)) return node.getName();
   const nameNode = node.getNameNode();
-  if (Node.isIdentifier(nameNode) || Node.isStringLiteral(nameNode) || Node.isNumericLiteral(nameNode)) {
+  if (
+    Node.isIdentifier(nameNode) ||
+    Node.isStringLiteral(nameNode) ||
+    Node.isNumericLiteral(nameNode)
+  ) {
     return nameNode.getText().replace(/^["']|["']$/g, "");
   }
   return null;
 }
 
 function isNullish(expr: Expression): boolean {
-  return expr.getKind() === SyntaxKind.NullKeyword || expr.getKind() === SyntaxKind.UndefinedKeyword;
+  return (
+    expr.getKind() === SyntaxKind.NullKeyword || expr.getKind() === SyntaxKind.UndefinedKeyword
+  );
 }
 
 function unwrap(expr: Expression): Expression {
@@ -224,7 +241,9 @@ function callTargetsCanonicalize(call: CallExpression): boolean {
   const symbol =
     directSymbol?.getAliasedSymbol() ??
     directSymbol ??
-    (Node.isIdentifier(callee) ? callee.getDefinitions()[0]?.getDeclarationNode()?.getSymbol() : undefined);
+    (Node.isIdentifier(callee)
+      ? callee.getDefinitions()[0]?.getDeclarationNode()?.getSymbol()
+      : undefined);
   const declarations = symbol?.getDeclarations() ?? [];
   return declarations.some(declarationIsCanonicalize);
 }
@@ -253,7 +272,11 @@ function isCanonicalizedExpression(
   if (Node.isCallExpression(current)) {
     if (callTargetsCanonicalize(current)) return true;
     const callee = current.getExpression();
-    if (mode === "report-identity" && Node.isPropertyAccessExpression(callee) && callee.getName() === "toString") {
+    if (
+      mode === "report-identity" &&
+      Node.isPropertyAccessExpression(callee) &&
+      callee.getName() === "toString"
+    ) {
       return true;
     }
     return false;
@@ -345,7 +368,8 @@ function auditObjectWrite(path: string, table: string, object: ObjectLiteralExpr
 
 function sqlText(expr: Expression | undefined): string | null {
   if (!expr) return null;
-  if (Node.isNoSubstitutionTemplateLiteral(expr) || Node.isStringLiteral(expr)) return expr.getLiteralText();
+  if (Node.isNoSubstitutionTemplateLiteral(expr) || Node.isStringLiteral(expr))
+    return expr.getLiteralText();
   if (Node.isTaggedTemplateExpression(expr)) return expr.getTemplate().getText();
   return null;
 }
@@ -372,7 +396,9 @@ function splitTopLevelCsv(value: string): string[] {
   return parts;
 }
 
-function parseInsertColumns(sql: string): { table: string; columnsByParam: Map<number, string> } | null {
+function parseInsertColumns(
+  sql: string,
+): { table: string; columnsByParam: Map<number, string> } | null {
   const match = sql.match(
     /insert\s+into\s+(?:public\.)?([a-z_][a-z0-9_]*)\s*\(([\s\S]*?)\)\s*(?:values\s*\(([\s\S]*?)\)|select\s+([\s\S]*?)\s+from)/i,
   );
@@ -393,8 +419,12 @@ function parseInsertColumns(sql: string): { table: string; columnsByParam: Map<n
   };
 }
 
-function parseUpdateColumns(sql: string): { table: string; columnsByParam: Map<number, string> } | null {
-  const match = sql.match(/update\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+set\s+([\s\S]*?)(?:\s+where|\s+returning|$)/i);
+function parseUpdateColumns(
+  sql: string,
+): { table: string; columnsByParam: Map<number, string> } | null {
+  const match = sql.match(
+    /update\s+(?:public\.)?([a-z_][a-z0-9_]*)\s+set\s+([\s\S]*?)(?:\s+where|\s+returning|$)/i,
+  );
   if (!match?.[1] || !match[2]) return null;
   const columnsByParam = new Map<number, string>();
   for (const assignment of match[2].split(",")) {
@@ -406,8 +436,13 @@ function parseUpdateColumns(sql: string): { table: string; columnsByParam: Map<n
   return { table: match[1], columnsByParam };
 }
 
-function parseDoUpdateColumns(sql: string, insertTable: string | null): { table: string; columnsByParam: Map<number, string> } | null {
-  const match = sql.match(/\bon\s+conflict[\s\S]*?\bdo\s+update\s+set\s+([\s\S]*?)(?:\s+where|\s+returning|$)/i);
+function parseDoUpdateColumns(
+  sql: string,
+  insertTable: string | null,
+): { table: string; columnsByParam: Map<number, string> } | null {
+  const match = sql.match(
+    /\bon\s+conflict[\s\S]*?\bdo\s+update\s+set\s+([\s\S]*?)(?:\s+where|\s+returning|$)/i,
+  );
   if (!match?.[1]) return null;
   const columnsByParam = new Map<number, string>();
   for (const assignment of splitTopLevelCsv(match[1])) {
@@ -428,10 +463,13 @@ function auditSqlWrite(path: string, call: CallExpression): string[] {
   if (insert) {
     for (const [paramIndex, column] of insert.columnsByParam) {
       if (column === "context") continue;
-      if (!emailTableColumns.get(insert.table)?.has(column) && !isEmailLikeDbColumn(column)) continue;
+      if (!emailTableColumns.get(insert.table)?.has(column) && !isEmailLikeDbColumn(column))
+        continue;
       const arg = params.getElements()[paramIndex - 1] as Expression | undefined;
       if (arg && !isCanonicalizedExpression(arg)) {
-        findings.push(`${path}: raw_email_db_write:${insert.table}.${column}:${call.getStartLineNumber()}`);
+        findings.push(
+          `${path}: raw_email_db_write:${insert.table}.${column}:${call.getStartLineNumber()}`,
+        );
       }
     }
   }
@@ -441,10 +479,13 @@ function auditSqlWrite(path: string, call: CallExpression): string[] {
     if (!update) continue;
     for (const [paramIndex, column] of update.columnsByParam) {
       if (column === "context") continue;
-      if (!emailTableColumns.get(update.table)?.has(column) && !isEmailLikeDbColumn(column)) continue;
+      if (!emailTableColumns.get(update.table)?.has(column) && !isEmailLikeDbColumn(column))
+        continue;
       const arg = params.getElements()[paramIndex - 1] as Expression | undefined;
       if (arg && !isCanonicalizedExpression(arg)) {
-        findings.push(`${path}: raw_email_db_write:${update.table}.${column}:${call.getStartLineNumber()}`);
+        findings.push(
+          `${path}: raw_email_db_write:${update.table}.${column}:${call.getStartLineNumber()}`,
+        );
       }
     }
   }
@@ -462,7 +503,9 @@ function auditContextExpression(path: string, expr: Expression, trail: string[])
       if (!Node.isExpression(element)) return [];
       const childTrail = [...trail.slice(0, -1), `${trail.at(-1) ?? "value"}[]`];
       if (/email/i.test(trail.at(-1) ?? "") && !isCanonicalizedExpression(element)) {
-        return [`${path}: raw_email_jsonb_context:${childTrail.join(".")}:${element.getStartLineNumber()}`];
+        return [
+          `${path}: raw_email_jsonb_context:${childTrail.join(".")}:${element.getStartLineNumber()}`,
+        ];
       }
       return auditContextExpression(path, element, childTrail);
     });
@@ -476,10 +519,16 @@ function auditContextExpression(path: string, expr: Expression, trail: string[])
     const value = Node.isPropertyAssignment(prop) ? prop.getInitializer() : prop.getNameNode();
     if (!value) continue;
     const nextTrail = [...trail, name];
-    if (/email/i.test(name) && !Node.isObjectLiteralExpression(value) && !Node.isArrayLiteralExpression(value)) {
+    if (
+      /email/i.test(name) &&
+      !Node.isObjectLiteralExpression(value) &&
+      !Node.isArrayLiteralExpression(value)
+    ) {
       if (/_hash$/i.test(name)) continue;
       if (!isCanonicalizedExpression(value)) {
-        findings.push(`${path}: raw_email_jsonb_context:${nextTrail.join(".")}:${prop.getStartLineNumber()}`);
+        findings.push(
+          `${path}: raw_email_jsonb_context:${nextTrail.join(".")}:${prop.getStartLineNumber()}`,
+        );
       }
     } else {
       findings.push(...auditContextExpression(path, value, nextTrail));
@@ -507,7 +556,9 @@ function auditParserAssignments(file: SourceFile): string[] {
     const expr = prop.getInitializer();
     if (!name || !expr || !isEmailProperty(name)) continue;
     if (!isCanonicalizedExpression(expr)) {
-      findings.push(`${file.getFilePath()}: raw_email_assignment:${name}:${prop.getStartLineNumber()}`);
+      findings.push(
+        `${file.getFilePath()}: raw_email_assignment:${name}:${prop.getStartLineNumber()}`,
+      );
     }
   }
   return findings;
@@ -559,7 +610,9 @@ function auditReadPredicates(file: SourceFile): string[] {
       cursor = inner.getExpression();
     }
     if (table === "crew_members" && !isCanonicalizedExpression(valueArg)) {
-      findings.push(`${file.getFilePath()}: raw_email_read_predicate:crew_members.email:${call.getStartLineNumber()}`);
+      findings.push(
+        `${file.getFilePath()}: raw_email_read_predicate:crew_members.email:${call.getStartLineNumber()}`,
+      );
     }
   }
   return findings;
@@ -670,13 +723,16 @@ function auditRlsHelpers(): string[] {
     ["canonicalize_email", 1],
     ["is_admin", 0],
   ] as const) {
-    const row = rows.find((candidate) => candidate.name === name && candidate.pronargs === pronargs);
+    const row = rows.find(
+      (candidate) => candidate.name === name && candidate.pronargs === pronargs,
+    );
     if (!row) {
       findings.push(`+missing_rls_helper:${name}`);
       continue;
     }
     const body = row.definition.toLowerCase();
-    if (name === "canonicalize_email" && !body.includes("lower(btrim")) findings.push(`+wrong_rls_helper:${name}`);
+    if (name === "canonicalize_email" && !body.includes("lower(btrim"))
+      findings.push(`+wrong_rls_helper:${name}`);
     if (name === "auth_email_canonical" && !body.includes("canonicalize_email(auth.email())")) {
       findings.push(`+wrong_rls_helper:${name}`);
     }
@@ -695,15 +751,20 @@ function auditRlsHelpers(): string[] {
 export function auditLiveEmailCanonicalization(): string[] {
   const sourcePaths = [
     ...walkSourceFiles(["lib/parser"]),
-    ...walkSourceFiles(["lib/sync", "lib/reports", "lib/auth", "lib/data", "lib/adminAlerts", "lib/notify"]),
+    ...walkSourceFiles([
+      "lib/sync",
+      "lib/reports",
+      "lib/auth",
+      "lib/data",
+      "lib/adminAlerts",
+      "lib/notify",
+    ]),
     ...walkSourceFiles(["app/api/admin"]),
     // M12 Phase 0.C Task 0.C.9 — extend audit to validation tooling
     // (DEFERRED.md M12-PHASE0C-EMAIL-CANON-EXT). Validation tooling IS a
     // boundary for email writes (fixture INSERTs into crew_members); AGENTS.md
     // invariant 3 requires canonicalization via lib/email/canonicalize.ts.
-    ...walkSourceFiles(["scripts"]).filter((p) =>
-      /(?:^|\/)validation-[\w-]+\.ts$/.test(p),
-    ),
+    ...walkSourceFiles(["scripts"]).filter((p) => /(?:^|\/)validation-[\w-]+\.ts$/.test(p)),
   ];
   const sources = sourcePaths.map((path) => ({ path, source: readFileSync(path, "utf8") }));
   return [

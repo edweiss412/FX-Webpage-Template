@@ -52,12 +52,8 @@ describe("FinalizeInProgress", () => {
       />,
     );
     expect(getByTestId("admin-finalize-in-progress")).toBeTruthy();
-    expect(
-      getByTestId("admin-finalize-in-progress-progress").textContent ?? "",
-    ).toContain("100");
-    expect(
-      getByTestId("admin-finalize-in-progress-progress").textContent ?? "",
-    ).toContain("250");
+    expect(getByTestId("admin-finalize-in-progress-progress").textContent ?? "").toContain("100");
+    expect(getByTestId("admin-finalize-in-progress-progress").textContent ?? "").toContain("250");
     expect(getByTestId("resume-finalize-button")).toBeTruthy();
     expect(getByTestId("cleanup-abandoned-finalize-button")).toBeTruthy();
     expect(container.textContent ?? "").not.toContain("WIZARD_FINALIZE_");
@@ -66,9 +62,7 @@ describe("FinalizeInProgress", () => {
 
 describe("ReadyToPublish", () => {
   test("renders RunFinalCASButton without any cleanup affordance", () => {
-    const { getByTestId, queryByTestId } = render(
-      <ReadyToPublish sessionId={SESSION_ID} />,
-    );
+    const { getByTestId, queryByTestId } = render(<ReadyToPublish sessionId={SESSION_ID} />);
     expect(getByTestId("admin-ready-to-publish")).toBeTruthy();
     expect(getByTestId("run-final-cas-button")).toBeTruthy();
     expect(queryByTestId("cleanup-abandoned-finalize-button")).toBeNull();
@@ -77,9 +71,7 @@ describe("ReadyToPublish", () => {
 
 describe("StaleReadyToPublish", () => {
   test("renders BOTH RunFinalCASButton AND CleanupAbandonedFinalizeButton", () => {
-    const { getByTestId } = render(
-      <StaleReadyToPublish sessionId={SESSION_ID} />,
-    );
+    const { getByTestId } = render(<StaleReadyToPublish sessionId={SESSION_ID} />);
     expect(getByTestId("admin-stale-ready-to-publish")).toBeTruthy();
     expect(getByTestId("run-final-cas-button")).toBeTruthy();
     expect(getByTestId("cleanup-abandoned-finalize-button")).toBeTruthy();
@@ -129,23 +121,18 @@ describe("ResumeFinalizeButton", () => {
       fireEvent.click(getByTestId("resume-finalize-button"));
     });
     await waitFor(() => {
-      expect(
-        getByTestId("resume-finalize-reapply-drive-failed-1").getAttribute("href"),
-      ).toBe(`/admin/onboarding/staged/${SESSION_ID}/drive-failed-1`);
+      expect(getByTestId("resume-finalize-reapply-drive-failed-1").getAttribute("href")).toBe(
+        `/admin/onboarding/staged/${SESSION_ID}/drive-failed-1`,
+      );
     });
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
   test("on 409 WIZARD_FINALIZE_CHECKPOINT_MISSING renders Doug-facing copy", async () => {
     fetchMock.mockResolvedValue(
-      mockJsonResponse(
-        { ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
-        { status: 409 },
-      ),
+      mockJsonResponse({ ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" }, { status: 409 }),
     );
-    const { getByTestId, container } = render(
-      <ResumeFinalizeButton sessionId={SESSION_ID} />,
-    );
+    const { getByTestId, container } = render(<ResumeFinalizeButton sessionId={SESSION_ID} />);
     await act(async () => {
       fireEvent.click(getByTestId("resume-finalize-button"));
     });
@@ -154,9 +141,7 @@ describe("ResumeFinalizeButton", () => {
         MESSAGE_CATALOG.WIZARD_FINALIZE_CHECKPOINT_MISSING.dougFacing!,
       );
     });
-    expect(container.textContent ?? "").not.toContain(
-      "WIZARD_FINALIZE_CHECKPOINT_MISSING",
-    );
+    expect(container.textContent ?? "").not.toContain("WIZARD_FINALIZE_CHECKPOINT_MISSING");
   });
 });
 
@@ -180,10 +165,7 @@ describe("RunFinalCASButton", () => {
 
   test("on 409 WIZARD_FINALIZE_CHECKPOINT_MISSING renders Doug-facing copy", async () => {
     fetchMock.mockResolvedValue(
-      mockJsonResponse(
-        { ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
-        { status: 409 },
-      ),
+      mockJsonResponse({ ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" }, { status: 409 }),
     );
     const { getByTestId } = render(<RunFinalCASButton sessionId={SESSION_ID} />);
     await act(async () => {
@@ -215,9 +197,7 @@ describe("CleanupAbandonedFinalizeButton", () => {
 
   test("on confirm POSTs to /api/admin/onboarding/cleanup-abandoned-finalize/[sessionId] and refreshes", async () => {
     fetchMock.mockResolvedValue(mockJsonResponse({ status: "cleaned" }));
-    const { getByTestId } = render(
-      <CleanupAbandonedFinalizeButton sessionId={SESSION_ID} />,
-    );
+    const { getByTestId } = render(<CleanupAbandonedFinalizeButton sessionId={SESSION_ID} />);
     fireEvent.click(getByTestId("cleanup-abandoned-finalize-button"));
     await act(async () => {
       fireEvent.click(getByTestId("cleanup-abandoned-finalize-confirm-yes"));
@@ -248,13 +228,11 @@ describe("CleanupAbandonedFinalizeButton", () => {
       fireEvent.click(getByTestId("cleanup-abandoned-finalize-confirm-yes"));
     });
     await waitFor(() => {
-      expect(
-        getByTestId("cleanup-abandoned-finalize-error").textContent ?? "",
-      ).toContain(MESSAGE_CATALOG.CLEANUP_REQUIRES_STALE_SESSION.dougFacing!);
+      expect(getByTestId("cleanup-abandoned-finalize-error").textContent ?? "").toContain(
+        MESSAGE_CATALOG.CLEANUP_REQUIRES_STALE_SESSION.dougFacing!,
+      );
     });
-    expect(container.textContent ?? "").not.toContain(
-      "CLEANUP_REQUIRES_STALE_SESSION",
-    );
+    expect(container.textContent ?? "").not.toContain("CLEANUP_REQUIRES_STALE_SESSION");
     expect(refreshMock).toHaveBeenCalled();
   });
 });

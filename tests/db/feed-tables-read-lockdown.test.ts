@@ -113,16 +113,22 @@ describe("feed tables are admin-only / server-only (F9)", () => {
 
   for (const role of ["anon", "authenticated"] as const) {
     it(`${role} SELECT on sync_holds returns no rows / is denied (incl. held_value PII)`, async () => {
-      const rows = await selectAs(role, role === "authenticated" ? nonAdminClaims() : null, (tx) =>
-        tx`select id, held_value->>'email' as email from public.sync_holds where id = ${holdId}`,
+      const rows = await selectAs(
+        role,
+        role === "authenticated" ? nonAdminClaims() : null,
+        (tx) =>
+          tx`select id, held_value->>'email' as email from public.sync_holds where id = ${holdId}`,
       );
       expect(rows).toHaveLength(0);
       expect(rows.map((r) => (r as { email?: string }).email)).not.toContain(SECRET_EMAIL);
     });
 
     it(`${role} SELECT on show_change_log returns no rows / is denied (incl. before_image PII)`, async () => {
-      const rows = await selectAs(role, role === "authenticated" ? nonAdminClaims() : null, (tx) =>
-        tx`select id, before_image->>'email' as email from public.show_change_log where id = ${logId}`,
+      const rows = await selectAs(
+        role,
+        role === "authenticated" ? nonAdminClaims() : null,
+        (tx) =>
+          tx`select id, before_image->>'email' as email from public.show_change_log where id = ${logId}`,
       );
       expect(rows).toHaveLength(0);
       expect(rows.map((r) => (r as { email?: string }).email)).not.toContain(SECRET_EMAIL);

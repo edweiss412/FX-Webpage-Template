@@ -16,6 +16,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { archiveShow, type LifecycleResult } from "@/lib/showLifecycle/archiveShow";
 import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
 
@@ -27,6 +28,10 @@ export async function archiveShowAction(slug: string): Promise<LifecycleResult> 
   if (resolved.kind === "not_found") return SHOW_NOT_FOUND;
   const result = await archiveShow(resolved.show.id);
   if (result.ok) {
+    // nav-perf tag-caching (Task 8): archive flips shows.archived + published=false (gates crew
+    // visibility) — a rendered-data change. archiveShow's self-locking RPC has committed by the
+    // time it resolves, so revalidateShow here is POST-COMMIT.
+    revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");
   }

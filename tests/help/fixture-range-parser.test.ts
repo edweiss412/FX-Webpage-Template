@@ -15,10 +15,7 @@ function isoDate(date: Date): string {
 
 describe("help screenshot fixture-range parser (Task F.2 / test #14)", () => {
   it("parses the known RPAS Central raw INFO DATES range", () => {
-    const source = readFileSync(
-      join(rawDir, "2026-03-rpas-central-four-seasons.md"),
-      "utf8",
-    );
+    const source = readFileSync(join(rawDir, "2026-03-rpas-central-four-seasons.md"), "utf8");
 
     const range = parseFixtureDateRange(source);
 

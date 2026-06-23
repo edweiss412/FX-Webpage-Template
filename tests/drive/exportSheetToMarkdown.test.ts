@@ -21,7 +21,15 @@ function workbookBuffer(
 describe("synthesizeMarkdownFromXlsx", () => {
   test("emits a single GFM table with centered alignment delimiters", () => {
     const markdown = synthesizeMarkdownFromXlsx(
-      workbookBuffer([{ name: "INFO", rows: [["CLIENT", "EVENT"], ["ACME", "Forum"]] }]),
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["CLIENT", "EVENT"],
+            ["ACME", "Forum"],
+          ],
+        },
+      ]),
     );
 
     expect(markdown).toBe(
@@ -42,7 +50,13 @@ describe("synthesizeMarkdownFromXlsx", () => {
             ["5/1/25", "Ballroom"],
           ],
         },
-        { name: "CONTACTS", rows: [["NAME", "EMAIL"], ["Doug", "doug@example.com"]] },
+        {
+          name: "CONTACTS",
+          rows: [
+            ["NAME", "EMAIL"],
+            ["Doug", "doug@example.com"],
+          ],
+        },
       ]),
     );
 
@@ -67,8 +81,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
-          name: "OLD PULL SHEET",
-          rows: [["OLD PULL SHEET", "", ""], ["ITEM", "QTY", "NOTES"], ["Monitor", 2, ""]],
+          name: "PULL SHEET",
+          rows: [
+            ["OLD PULL SHEET", "", ""],
+            ["ITEM", "QTY", "NOTES"],
+            ["Monitor", 2, ""],
+          ],
           merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }],
         },
       ]),
@@ -88,7 +106,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
-          name: "OLD PULL SHEET",
+          name: "PULL SHEET",
           rows: [
             ["PULL SHEET", "", "", "", ""],
             [],
@@ -117,7 +135,31 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
   });
 
-  test("keeps the DETAILS checklist label-only to match the fixture parser contract", () => {
+  test("skips archived 'OLD …' tabs entirely (stale prior-show data)", () => {
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        { name: "INFO", rows: [["CLIENT", "ACME Forum"]] },
+        {
+          name: "OLD PULL SHEET",
+          rows: [
+            ["PULL SHEET", ""],
+            [1, "Stale Prior-Show Gear"],
+          ],
+        },
+      ]),
+    );
+    // The OLD tab contributes nothing; only INFO survives.
+    expect(markdown).toContain("ACME Forum");
+    expect(markdown).not.toContain("Stale Prior-Show Gear");
+    expect(markdown).not.toContain("PULL SHEET");
+  });
+
+  test("preserves the DETAILS value column (col B) — label-only collapse removed", () => {
+    // The live source sheets populate col B for DETAILS (Stage Size, Opening
+    // Reel, Polling, Power, ...). The value column must survive so
+    // parseEventDetails fills event_details. Previously collapsed to label-only
+    // on a false premise (a Drive-MCP rendering artifact); see the 2026-06-18
+    // grounding audit / DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
@@ -132,7 +174,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
 
     expect(markdown).toBe(
-      ["| DETAILS |", "| :---: |", "| Floor Plan |", "| Room Diagram |"].join("\n"),
+      [
+        "| DETAILS |  |",
+        "| :---: | :---: |",
+        "| Floor Plan | LINK |",
+        "| Room Diagram | LINK |",
+      ].join("\n"),
     );
   });
 
@@ -151,9 +198,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
 
     expect(markdown).toBe(
-      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join(
-        "\n",
-      ),
+      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join("\n"),
     );
   });
 

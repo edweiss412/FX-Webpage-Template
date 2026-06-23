@@ -48,7 +48,7 @@ describe("fetchEmbeddedAdminEmails", () => {
 
   it("AdminEmailsInfraError thrown → { kind:'infra_error' }", async () => {
     mockListAdminEmails.mockRejectedValueOnce(
-      new AdminEmailsInfraError("listAdminEmails: connection refused")
+      new AdminEmailsInfraError("listAdminEmails: connection refused"),
     );
 
     const result = await fetchEmbeddedAdminEmails();

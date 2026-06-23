@@ -124,9 +124,7 @@ test.describe("ReportModal (crew footer surface)", () => {
     // Failed state — Retry button shown; error text uses the neutral
     // catalog copy (Pin-stop caveat #2: NOT "lookup failed").
     await expect(page.getByTestId("report-modal-retry")).toBeVisible();
-    await expect(page.getByTestId("report-modal-error")).toContainText(
-      "couldn't confirm",
-    );
+    await expect(page.getByTestId("report-modal-error")).toContainText("couldn't confirm");
 
     // Retry — succeeds.
     await page.getByTestId("report-modal-retry").click();

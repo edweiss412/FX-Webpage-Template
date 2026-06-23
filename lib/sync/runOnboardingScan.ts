@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
-import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
+import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -29,6 +30,37 @@ export const WIZARD_ISOLATION_INDEXES_MISSING = "WIZARD_ISOLATION_INDEXES_MISSIN
 export const WIZARD_SESSION_SUPERSEDED_DURING_SCAN =
   "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" as const;
 export const LIVE_ROW_CONFLICT = "LIVE_ROW_CONFLICT" as const;
+
+/**
+ * Max number of sheets whose per-file preparation runs concurrently.
+ * Preparation is a pre-lock, side-effect-free Drive read phase (so it
+ * parallelizes safely; the downstream lock-ordered `scanPreparedFiles` stays
+ * strictly sequential), but the per-file unit is non-trivial: a metadata
+ * `files.get`, the xlsx-export round-trip (before-`get` + full-workbook
+ * download + after-`get`), and up to two *conditional* enrich reads — an
+ * opening-reel `files.get` and a linked-DIAGRAMS-folder `files.list`. It does
+ * NOT issue Sheets-API / embedded-image / revision reads: the onboarding
+ * `defaultDriveClient` implements only `getFile` + `listFolder`, so
+ * `extractEmbeddedImages` short-circuits (see enrichWithDrivePins.ts:126). So
+ * the worst case is ~6 Drive calls per sheet (1 metadata get + 3 export
+ * round-trips + up to 2 conditional enrich reads), one a heavy export download.
+ *
+ * The bound caps in-flight Drive requests regardless of folder size — the
+ * defense against unbounded fan-out. The prepare phase is wave-count-bound:
+ * wall-clock is roughly ceil(sheets / cap) * per-sheet-fetch-time, so the cap
+ * is the lever on the dominant serial cost. Benchmarked against the real
+ * fxav-test-shows folder (19 sheets, ~1.35s/sheet), 6 -> 12 drops the prepare
+ * ~40% (4 waves -> 2; ~6.5s -> ~3.9s median locally, and more on higher-latency
+ * serverless where per-sheet time is larger). 12 covers typical (<=24-sheet)
+ * folders in 2 waves; the gain past ~16 is marginal while the concurrent burst
+ * keeps growing, so 12 balances speed against Drive load + peak memory (each
+ * in-flight sheet holds a full workbook download). The throttle risk that
+ * previously kept this conservative is now backstopped at the fetch layer:
+ * withDriveRetry retries transient 429/5xx with bounded backoff
+ * (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY, resolved), so a single transient
+ * blip no longer aborts the whole scan.
+ */
+export const ONBOARDING_PREPARE_CONCURRENCY = 12;
 
 const REQUIRED_WIZARD_ISOLATION_INDEXES = [
   "pending_syncs_live_drive_file_idx",
@@ -97,7 +129,7 @@ type ProcessedOnboardingFile = Extract<
   { outcome: "completed" }
 >["processed"][number];
 
-type PreparedOnboardingFile =
+export type PreparedOnboardingFile =
   | { file: DriveListedFile; kind: "non_sheet" }
   | {
       file: DriveListedFile;
@@ -108,9 +140,11 @@ type PreparedOnboardingFile =
 
 export type RunOnboardingScanDeps = {
   tx?: OnboardingScanTx;
+  createScanTxRunner?: (folderId: string, wizardSessionId: string) => ScanTxRunner;
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
-  captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
-  fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
+  fetchMarkdownWithBinding?: (
+    driveFileId: string,
+  ) => Promise<{ binding: Phase1Binding; markdown: string }>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
@@ -163,18 +197,6 @@ function toDriveFileMeta(file: DriveListedFile): DriveFileMeta {
     mimeType: file.mimeType,
     modifiedTime: file.modifiedTime,
     name: file.name,
-  };
-}
-
-async function defaultCaptureBinding(
-  driveFileId: string,
-  fileMeta: DriveListedFile,
-): Promise<Phase1Binding> {
-  const metadata = await fetchDriveFileMetadata(driveFileId);
-  void fileMeta;
-  return {
-    bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
-    modifiedTime: metadata.modifiedTime,
   };
 }
 
@@ -475,29 +497,38 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
   }
 }
 
-async function withDefaultTx<R>(
-  folderId: string,
-  wizardSessionId: string,
-  fn: (tx: OnboardingScanTx) => Promise<R>,
-): Promise<R> {
+/**
+ * A scan-scoped transaction runner backed by a SINGLE Postgres connection.
+ * `withTx` opens a fresh `sql.begin()` transaction per call (so each file keeps
+ * its own transaction — required for the per-show advisory lock and the
+ * live-row-conflict fresh-tx recovery), but every call reuses the same
+ * connection instead of opening a new one per file. `close` is called once at
+ * the end of the scan.
+ */
+export type ScanTxRunner = {
+  withTx: <R>(fn: (tx: OnboardingScanTx) => Promise<R>) => Promise<R>;
+  close: () => Promise<void>;
+};
+
+function defaultCreateScanTxRunner(folderId: string, wizardSessionId: string): ScanTxRunner {
   const sql = postgres(databaseUrl(), {
     max: 1,
     idle_timeout: 1,
     prepare: false,
   });
-  try {
-    return (await sql.begin(async (rawTx) =>
-      fn(
-        new PostgresOnboardingScanTx(
-          rawTx as unknown as PostgresTransaction,
-          folderId,
-          wizardSessionId,
+  return {
+    withTx: async <R>(fn: (tx: OnboardingScanTx) => Promise<R>): Promise<R> =>
+      (await sql.begin(async (rawTx) =>
+        fn(
+          new PostgresOnboardingScanTx(
+            rawTx as unknown as PostgresTransaction,
+            folderId,
+            wizardSessionId,
+          ),
         ),
-      ),
-    )) as R;
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
+      )) as R,
+    close: () => sql.end({ timeout: 5 }),
+  };
 }
 
 type OnboardingScanStep = { kind: "continue" } | { kind: "stop"; result: OnboardingScanResult };
@@ -857,36 +888,87 @@ async function verifyOnboardingScanReady(
   };
 }
 
-async function prepareOnboardingFiles(
+export async function prepareOnboardingFiles(
   folderId: string,
   deps: RunOnboardingScanDeps,
 ): Promise<PreparedOnboardingFile[]> {
   const listFolder = deps.listFolder ?? listDriveFolder;
   const files = await listFolder(folderId);
-  const prepared: PreparedOnboardingFile[] = [];
-  const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
-  const fetchMarkdownAtRevision = deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision;
+  const fetchMarkdownWithBinding = deps.fetchMarkdownWithBinding ?? fetchSheetMarkdownWithBinding;
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
 
-  for (const file of files) {
+  // Per-file preparation is a pre-lock, side-effect-free Drive read (export +
+  // parse + enrich). Each file is independent, so we prepare them with bounded
+  // concurrency instead of serially — this is the dominant cost of an onboarding
+  // scan. mapWithConcurrency preserves listed order, so the downstream
+  // lock-ordered scanPreparedFiles loop is unaffected. fetchMarkdownWithBinding
+  // captures the binding FROM the export's before-`get` (one fewer files.get per
+  // sheet than a separate binding capture); first-seen onboarding does not need
+  // the cron path's separate-capture revision-race cooldown.
+  const prepareOne = async (file: DriveListedFile): Promise<PreparedOnboardingFile> => {
     if (!isSpreadsheet(file)) {
-      prepared.push({ file, kind: "non_sheet" });
-      continue;
+      return { file, kind: "non_sheet" };
     }
-    const binding = await captureBinding(file.driveFileId, file);
-    const markdown = await fetchMarkdownAtRevision(file.driveFileId, binding.bindingToken);
+    const { binding, markdown } = await fetchMarkdownWithBinding(file.driveFileId);
     const parsed = parseSheet(markdown, file.name);
     const parseResult = await enrich(parsed, driveClient, {
       driveFileId: file.driveFileId,
       fileMeta: toDriveFileMeta(file),
       binding,
     });
-    prepared.push({ file, kind: "sheet", binding, parseResult });
-  }
+    return { file, kind: "sheet", binding, parseResult };
+  };
 
-  return prepared;
+  return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne);
+}
+
+/**
+ * Provide a `withTx` to `body` over the right connection strategy:
+ *  - `deps.tx` (injected, e.g. a caller-locked tx): every withTx call runs the
+ *    fn against that single tx — the caller owns the transaction/lock.
+ *  - default: one reused Postgres connection (a fresh sql.begin() transaction
+ *    per withTx call), closed when `body` resolves. This is the connection-reuse
+ *    strategy from the scan-loop optimization; holding it open across the body's
+ *    (DB-free) Drive prepare phase is fine — postgres.js reconnects on idle.
+ */
+async function withScanTx<R>(
+  folderId: string,
+  wizardSessionId: string,
+  deps: RunOnboardingScanDeps,
+  body: (withTx: ScanTxRunner["withTx"]) => Promise<R>,
+): Promise<R> {
+  if (deps.tx) {
+    const tx = deps.tx;
+    return await body(async (fn) => fn(tx));
+  }
+  const runner = (deps.createScanTxRunner ?? defaultCreateScanTxRunner)(folderId, wizardSessionId);
+  try {
+    return await body(runner.withTx);
+  } finally {
+    await runner.close();
+  }
+}
+
+/**
+ * Stage an ALREADY-prepared set of onboarding files (readiness probe + the
+ * lock-ordered per-file scan) WITHOUT re-fetching from Drive. Split out from
+ * runOnboardingScan so callers that must prepare BEFORE acquiring a lock (the
+ * wizard revision-race restage) can do the slow Drive read pre-lock and call
+ * this for the fast DB staging under the lock.
+ */
+export async function scanOnboardingPreparedFiles(
+  folderId: string,
+  wizardSessionId: string,
+  preparedFiles: PreparedOnboardingFile[],
+  deps: RunOnboardingScanDeps = {},
+): Promise<OnboardingScanResult> {
+  return withScanTx(folderId, wizardSessionId, deps, async (withTx) => {
+    const readiness = await withTx(verifyOnboardingScanReady);
+    if (readiness) return readiness;
+    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, withTx);
+  });
 }
 
 export async function runOnboardingScan(
@@ -894,18 +976,13 @@ export async function runOnboardingScan(
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
-  const readiness = deps.tx
-    ? await verifyOnboardingScanReady(deps.tx)
-    : await withDefaultTx(folderId, wizardSessionId, verifyOnboardingScanReady);
-  if (readiness) return readiness;
-
-  const preparedFiles = await prepareOnboardingFiles(folderId, deps);
-  if (deps.tx) {
-    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, async (fn) =>
-      fn(deps.tx as OnboardingScanTx),
-    );
-  }
-  return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, (fn) =>
-    withDefaultTx(folderId, wizardSessionId, fn),
-  );
+  return withScanTx(folderId, wizardSessionId, deps, async (withTx) => {
+    const readiness = await withTx(verifyOnboardingScanReady);
+    if (readiness) return readiness;
+    // Side-effect-free, pre-lock Drive read. For the default connection strategy
+    // the reused connection is held (idle) across this — postgres.js reconnects
+    // transparently if the socket times out during it.
+    const preparedFiles = await prepareOnboardingFiles(folderId, deps);
+    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, withTx);
+  });
 }

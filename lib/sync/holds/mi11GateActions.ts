@@ -17,19 +17,22 @@
  * vacuous. `drive_file_id` / `show_id` are NEVER taken from the client (PF23).
  */
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
-import {
-  createSupabaseServerClient,
-  createSupabaseServiceRoleClient,
-} from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 
-export type Mi11GateResult = { ok: true } | { ok: false; code: string };
+// nav-perf tag-caching (Task 9): on success the helpers surface the affected `showId` so the
+// feed server actions can `revalidateShow(showId)` POST-COMMIT (the self-locking RPC committed by
+// the time the action's `await` resolves). showId is the AUTHORITATIVE server-resolved id (from
+// the hold row), never client-supplied (PF23). It is optional so a success whose show_id could not
+// be resolved still type-checks (the action simply skips the data-cache bust in that rare case).
+export type Mi11GateResult = { ok: true; showId?: string } | { ok: false; code: string };
 
 type RpcResult = { ok?: boolean; code?: string } | null;
 
 function mapRpcOutcome(
   data: RpcResult,
   error: { message?: string } | null,
+  showId?: string | null,
 ): Mi11GateResult {
   // invariant 9: distinguish returned-error (RPC infra) from a discriminated RPC result.
   if (error) {
@@ -39,7 +42,9 @@ function mapRpcOutcome(
     return { ok: false, code: data.code ?? "SYNC_INFRA_ERROR" };
   }
   if (data && data.ok === true) {
-    return { ok: true };
+    // nav-perf tag-caching (Task 9): carry the server-resolved show id forward for the action's
+    // POST-COMMIT revalidate. Omit the key when unknown so the success shape stays `{ ok: true }`.
+    return showId ? { ok: true, showId } : { ok: true };
   }
   // null/unexpected shape — treat as an infra fault, never a silent success.
   return { ok: false, code: "SYNC_INFRA_ERROR" };
@@ -105,7 +110,7 @@ export async function approveMi11Hold(
       p_observed_modified_time: observedModifiedTime,
       p_expected_base_modified_time: expectedBaseModifiedTime,
     });
-    return mapRpcOutcome(data as RpcResult, error);
+    return mapRpcOutcome(data as RpcResult, error, hold.show_id);
   } catch {
     return { ok: false, code: "SYNC_INFRA_ERROR" };
   }
@@ -122,6 +127,12 @@ export async function rejectMi11Hold(
   expectedBaseModifiedTime: string | null,
 ): Promise<Mi11GateResult> {
   await requireAdmin();
+  // not-subject-to-revalidate (nav-perf tag-caching Task 9): Reject SUPPRESSES the pending identity
+  // change (writes a held-absent override + a feed entry) — it does NOT apply it. The crew page was
+  // already rendering the OLD identity (the change was HELD, never applied), so a reject leaves the
+  // crew-facing getShowForViewer projection UNCHANGED. No `show-${id}` data-cache bust is needed
+  // (the admin feed page is covered by revalidatePath in feed.ts). The deliberate "no service-role
+  // pre-read" property is preserved (the RPC self-resolves its own drive_file_id for the lock).
   // invariant 9: a THROWN client-construction / rpc fault → SYNC_INFRA_ERROR (same as returned {error}).
   try {
     const supabase = await createSupabaseServerClient();

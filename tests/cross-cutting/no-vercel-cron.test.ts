@@ -33,26 +33,15 @@ const SELF_ABSOLUTE = resolve(REPO_ROOT, SELF_RELATIVE);
 // in their test descriptions or finding-history citations (M12.1 T4 + T5).
 // They are part of the structural defense for the pg_cron pivot and would
 // self-trigger this walker without exemption.
-const SIBLING_EXEMPT_RELATIVE = [
-  "tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts",
-];
-const SIBLING_EXEMPT_ABSOLUTE = new Set(
-  SIBLING_EXEMPT_RELATIVE.map((p) => resolve(REPO_ROOT, p)),
-);
+const SIBLING_EXEMPT_RELATIVE = ["tests/cross-cutting/m12-plan-pg-cron-pivot-amendment.test.ts"];
+const SIBLING_EXEMPT_ABSOLUTE = new Set(SIBLING_EXEMPT_RELATIVE.map((p) => resolve(REPO_ROOT, p)));
 
 const WALKED_ROOTS = ["app", "lib", "tests"] as const;
 
 const FORBIDDEN = [/x-vercel-cron/i, /vercel-cron/i, /VercelCron/];
 
 const SCANNABLE_EXT = /\.(ts|tsx|js|jsx|mjs|cjs|json|sql)$/i;
-const SKIP_DIRS = new Set([
-  "node_modules",
-  ".next",
-  "dist",
-  "build",
-  ".turbo",
-  "__generated__",
-]);
+const SKIP_DIRS = new Set(["node_modules", ".next", "dist", "build", ".turbo", "__generated__"]);
 
 interface Match {
   filePath: string; // repo-relative
@@ -140,7 +129,9 @@ describe("M12.1: no vercel.json crons block (pg_cron pivot)", () => {
     const { matches } = scanRepoForForbidden();
     if (matches.length > 0) {
       const formatted = matches
-        .map((m) => `  ${m.filePath}:${m.lineNumber}  ${m.lineText}  [pattern: ${m.matchedPattern}]`)
+        .map(
+          (m) => `  ${m.filePath}:${m.lineNumber}  ${m.lineText}  [pattern: ${m.matchedPattern}]`,
+        )
         .join("\n");
       throw new Error(
         `Found Vercel-Cron references that must be removed or marked with ` +
@@ -152,8 +143,9 @@ describe("M12.1: no vercel.json crons block (pg_cron pivot)", () => {
 
   test("anti-tautology: walker encountered the self path (self-exclusion fired)", () => {
     const { visitedSelf } = scanRepoForForbidden();
-    expect(visitedSelf, "self path was not visited — exclusion mis-implemented or file missing").toBe(
-      true,
-    );
+    expect(
+      visitedSelf,
+      "self path was not visited — exclusion mis-implemented or file missing",
+    ).toBe(true);
   });
 });

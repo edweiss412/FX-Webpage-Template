@@ -44,13 +44,7 @@ export function runValidationCli(opts: CliRunOptions): CliRun {
   try {
     const stdout = execFileSync(
       "npx",
-      [
-        "tsx",
-        "--tsconfig",
-        TSCONFIG_PATH,
-        opts.scriptPath,
-        ...(opts.args ?? []),
-      ],
+      ["tsx", "--tsconfig", TSCONFIG_PATH, opts.scriptPath, ...(opts.args ?? [])],
       {
         encoding: "utf-8",
         cwd: hermeticCwd,

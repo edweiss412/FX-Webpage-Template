@@ -24,7 +24,9 @@ function discoverScanRoots(): string[] {
   }
 
   const src = readFileSync(manifestPath, "utf8");
-  const routes = [...src.matchAll(/route:\s*["']([^"']+)["']/g)].map((m) => m[1]).filter((route): route is string => Boolean(route));
+  const routes = [...src.matchAll(/route:\s*["']([^"']+)["']/g)]
+    .map((m) => m[1])
+    .filter((route): route is string => Boolean(route));
   for (const route of routes) {
     const segment = route.split("/").filter(Boolean)[0];
     if (segment) roots.add(join("app", segment));
@@ -265,8 +267,14 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   it("client-vs-server classification: includes Footer/StaleFooter (server), excludes RightNowCard/ReportModal (use client)", () => {
     const footerSrc = readFileSync(join(process.cwd(), "components/layout/Footer.tsx"), "utf8");
     const staleSrc = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
-    const rightSrc = readFileSync(join(process.cwd(), "components/right-now/RightNowCard.tsx"), "utf8");
-    const reportSrc = readFileSync(join(process.cwd(), "components/shared/ReportModal.tsx"), "utf8");
+    const rightSrc = readFileSync(
+      join(process.cwd(), "components/right-now/RightNowCard.tsx"),
+      "utf8",
+    );
+    const reportSrc = readFileSync(
+      join(process.cwd(), "components/shared/ReportModal.tsx"),
+      "utf8",
+    );
 
     expect(isClientComponent(footerSrc)).toBe(false);
     expect(isClientComponent(staleSrc)).toBe(false);
@@ -285,9 +293,10 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   });
 
   it("comment-stripping: real new Date() OUTSIDE a comment IS flagged", () => {
-    const synthetic = ["// This is a comment about new Date()", "const x = new Date(); // a real call"].join(
-      "\n",
-    );
+    const synthetic = [
+      "// This is a comment about new Date()",
+      "const x = new Date(); // a real call",
+    ].join("\n");
 
     expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
   });
@@ -340,23 +349,34 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   });
 
   it("directive-prologue boundary: standalone 'use client' string AFTER imports does NOT classify as client", () => {
-    const synthetic = ['import { foo } from "bar";', '"use client";', "export function X() { return null; }"].join(
-      "\n",
-    );
+    const synthetic = [
+      'import { foo } from "bar";',
+      '"use client";',
+      "export function X() { return null; }",
+    ].join("\n");
 
     expect(isClientComponent(synthetic)).toBe(false);
   });
 
   it("directive-prologue boundary: 'use client' inside a function body does NOT classify as client", () => {
-    const synthetic = ["export function X() {", '  "use client";', "  return new Date();", "}"].join("\n");
+    const synthetic = [
+      "export function X() {",
+      '  "use client";',
+      "  return new Date();",
+      "}",
+    ].join("\n");
 
     expect(isClientComponent(synthetic)).toBe(false);
   });
 
   it("directive-prologue: leading JSDoc + 'use client' DOES classify as client", () => {
-    const synthetic = ["/**", " * Long header doc comment.", " */", '"use client";', 'import React from "react";'].join(
-      "\n",
-    );
+    const synthetic = [
+      "/**",
+      " * Long header doc comment.",
+      " */",
+      '"use client";',
+      'import React from "react";',
+    ].join("\n");
 
     expect(isClientComponent(synthetic)).toBe(true);
   });

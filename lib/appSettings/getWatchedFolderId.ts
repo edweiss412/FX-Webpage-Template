@@ -56,17 +56,31 @@ export async function getActiveWatchedFolder(
       .eq("id", "default")
       .maybeSingle();
     if (error) {
-      return { kind: "infra_error", operation: "readActiveWatchedFolderId", source: "returned_error", cause: error };
+      return {
+        kind: "infra_error",
+        operation: "readActiveWatchedFolderId",
+        source: "returned_error",
+        cause: error,
+      };
     }
-    const row = data as { watched_folder_id: string | null; watched_folder_name: string | null } | null;
-    if (row?.watched_folder_id) return { folderId: row.watched_folder_id, folderName: row.watched_folder_name ?? null };
+    const row = data as {
+      watched_folder_id: string | null;
+      watched_folder_name: string | null;
+    } | null;
+    if (row?.watched_folder_id)
+      return { folderId: row.watched_folder_id, folderName: row.watched_folder_name ?? null };
     if (!row) {
       const folderId = firstBootEnvFolderId();
       if (folderId) return { folderId, folderName: null };
     }
     return { kind: "no_folder_configured" };
   } catch (cause) {
-    return { kind: "infra_error", operation: "readActiveWatchedFolderId", source: "thrown_error", cause };
+    return {
+      kind: "infra_error",
+      operation: "readActiveWatchedFolderId",
+      source: "thrown_error",
+      cause,
+    };
   }
 }
 

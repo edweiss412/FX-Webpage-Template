@@ -38,6 +38,11 @@ import { loadNeedsAttention } from "@/lib/admin/loadNeedsAttention";
 export const ACTIVE_SHOWS_CAP = 500;
 // Page size for the per-show crew-count paginate-until-complete loop (R17).
 export const CREW_PAGE_SIZE = 1000;
+// A5 (nav-perf phase 1) — BOUNDED concurrency for the finalize-owned ("Publishing…"
+// vs Held) discriminator fan-out. The in-flight set is normally tiny (finalize is
+// rare + transient), but a burst of unpublished shows must NOT open an unbounded
+// Promise.all over every id (Codex plan R1 MEDIUM). Sequential chunks of this size.
+export const FINALIZE_OWNED_CONCURRENCY = 8;
 
 // M12.2 Phase B2 (§3.1) — the dashboard show list is a two-state segmented
 // bucket. The selected segment is a URL search-param threaded from the page;
@@ -96,7 +101,7 @@ function deriveEnd(dates: DatesJson | null): string | null {
 // Exported for tests/admin/_metaInfraContract.test.ts — registry row for the
 // §B Supabase call-boundary contract (AGENTS.md §1.9).
 export async function fetchDashboardData(
-  options: { bucket?: DashboardBucket } = {},
+  options: { bucket?: DashboardBucket; now?: Date } = {},
 ): Promise<DashboardData | { kind: "infra_error"; message: string }> {
   // §3.1 — default to the Active segment; the page threads the ?bucket param.
   const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
@@ -111,7 +116,10 @@ export async function fetchDashboardData(
     };
   }
 
-  const now = await nowDate();
+  // nav-perf phase 1: `now` is resolved ONCE in the render path (Dashboard())
+  // and threaded in, so the dashboard never awaits nowDate() twice per request.
+  // Direct callers (tests, defensive paths) may omit it — then resolve here.
+  const now = options.now ?? (await nowDate());
 
   // ── Show list for the SELECTED segment, bounded (§3.1) ──
   //   Active   = archived=false (Live + Publishing… + Held), ordered by sync.
@@ -126,17 +134,27 @@ export async function fetchDashboardData(
   // Built as data so the query below stays ONE chained `.from().select()…limit()`
   // statement (the bounded-read meta-test, tests/admin/_metaBoundedReads.test.ts,
   // splits on `;` and requires the `.limit(` bound in the same statement).
-  const showOrder: ReadonlyArray<[string, { ascending: boolean; nullsFirst: boolean }]> =
-    isArchived
-      ? [
-          ["archived_at", { ascending: false, nullsFirst: false }],
-          ["id", { ascending: true, nullsFirst: false }],
-        ]
-      : [["last_synced_at", { ascending: false, nullsFirst: false }]];
+  const showOrder: ReadonlyArray<[string, { ascending: boolean; nullsFirst: boolean }]> = isArchived
+    ? [
+        ["archived_at", { ascending: false, nullsFirst: false }],
+        ["id", { ascending: true, nullsFirst: false }],
+      ]
+    : [["last_synced_at", { ascending: false, nullsFirst: false }]];
 
-  let showsRows: ReadonlyArray<Record<string, unknown>>;
+  // ── Wave 1 (nav-perf phase 1, A2): the show-list read + BOTH exact head
+  // counts are mutually independent, so they fan out concurrently rather than
+  // serially. invariant 9: each query is a distinct query-builder promise that
+  // RESOLVES `{ data, error, count }` (never rejects under PostgREST), so
+  // Promise.all is safe — NOT Promise.allSettled — and each result keeps its own
+  // returned-error discrimination below. Both builder construction (`.from()` is
+  // a synchronous throw site) AND the await live inside this one try/catch so a
+  // thrown infra fault on any of the three surfaces the typed infra_error.
+  type ShowsQ = { data?: unknown; error?: { message: string } | null; count?: number | null };
+  let showsQ: ShowsQ;
+  let activeQ: ShowsQ;
+  let archivedQ: ShowsQ;
   try {
-    const q = await showOrder
+    const showsListQuery = showOrder
       .reduce(
         (acc, [col, opts]) => acc.order(col, opts),
         supabase
@@ -147,10 +165,19 @@ export async function fetchDashboardData(
           .eq("archived", isArchived),
       )
       .limit(ACTIVE_SHOWS_CAP);
-    if (q.error) {
-      return { kind: "infra_error", message: `shows query failed: ${q.error.message}` };
-    }
-    showsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    const activeCountQuery = supabase
+      .from("shows")
+      .select("id", { count: "exact", head: true })
+      .eq("archived", false);
+    const archivedCountQuery = supabase
+      .from("shows")
+      .select("id", { count: "exact", head: true })
+      .eq("archived", true);
+    [showsQ, activeQ, archivedQ] = (await Promise.all([
+      showsListQuery,
+      activeCountQuery,
+      archivedCountQuery,
+    ])) as [ShowsQ, ShowsQ, ShowsQ];
   } catch (err) {
     return {
       kind: "infra_error",
@@ -158,82 +185,79 @@ export async function fetchDashboardData(
     };
   }
 
+  // Per-result returned-error discrimination (invariant 9) — pure post-await
+  // logic, kept OUT of the try so each `{ data, error }` branch is explicit.
+  if (showsQ.error) {
+    return { kind: "infra_error", message: `shows query failed: ${showsQ.error.message}` };
+  }
+  const showsRows = (showsQ.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+  if (activeQ.error) {
+    return {
+      kind: "infra_error",
+      message: `shows active count query failed: ${activeQ.error.message}`,
+    };
+  }
+  if (archivedQ.error) {
+    return {
+      kind: "infra_error",
+      message: `shows archived count query failed: ${archivedQ.error.message}`,
+    };
+  }
   // Exact totals — truthful even if the rendered list is capped (§3.3). BOTH
   // counts are ALWAYS computed regardless of `bucket`: the inactive segment's
   // label ("Archived (N)" / "Active") needs its count even though its rows are
-  // not fetched (§3.1). Two count-only (head:true) queries.
-  let activeCount: number;
-  try {
-    const q = await supabase
-      .from("shows")
-      .select("id", { count: "exact", head: true })
-      .eq("archived", false);
-    if (q.error) {
-      return { kind: "infra_error", message: `shows active count query failed: ${q.error.message}` };
-    }
-    // Fall back to the rendered length ONLY when this is the selected bucket
-    // (so a null count from a head-less mock still resolves); otherwise 0.
-    activeCount = q.count ?? (isArchived ? 0 : showsRows.length);
-  } catch (err) {
-    return {
-      kind: "infra_error",
-      message: `shows active count query threw: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-
-  let archivedCount: number;
-  try {
-    const q = await supabase
-      .from("shows")
-      .select("id", { count: "exact", head: true })
-      .eq("archived", true);
-    if (q.error) {
-      return { kind: "infra_error", message: `shows archived count query failed: ${q.error.message}` };
-    }
-    archivedCount = q.count ?? (isArchived ? showsRows.length : 0);
-  } catch (err) {
-    return {
-      kind: "infra_error",
-      message: `shows archived count query threw: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
+  // not fetched (§3.1). Fall back to the rendered length ONLY when this is the
+  // selected bucket (so a null count from a head-less mock still resolves).
+  const activeCount = activeQ.count ?? (isArchived ? 0 : showsRows.length);
+  const archivedCount = archivedQ.count ?? (isArchived ? showsRows.length : 0);
 
   // stats/overflow are scoped to the SELECTED bucket (that is what `showsRows`
   // holds); the StatStrip's "Active shows" stat keeps reading `activeCount`.
   const selectedCount = isArchived ? archivedCount : activeCount;
-  const statsScope: "global" | "shown" =
-    selectedCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
+  const statsScope: "global" | "shown" = selectedCount > ACTIVE_SHOWS_CAP ? "shown" : "global";
   const overflowCount = Math.max(0, selectedCount - showsRows.length);
 
   // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
   const activeShowIds = showsRows.map((s) => s.id as string);
 
+  // Sentinel a wave-2 closure returns instead of throwing, so the outer fn can
+  // short-circuit to the typed infra_error AFTER Promise.all resolves (a closure
+  // cannot `return` out of fetchDashboardData).
+  type InfraResult = { kind: "infra_error"; message: string };
+  const isInfra = (v: unknown): v is InfraResult =>
+    typeof v === "object" && v !== null && (v as { kind?: string }).kind === "infra_error";
+
   // crewTotal — exact head:true count over the active set (never a truncatable
   // row-fetch sum, §3.4). Short-circuit on empty id set (R28 — no .in([])).
-  let crewTotal = 0;
-  if (activeShowIds.length > 0) {
+  const readCrewTotal = async (): Promise<number | InfraResult> => {
+    if (activeShowIds.length === 0) return 0;
     try {
       const q = await supabase
         .from("crew_members")
         .select("show_id", { count: "exact", head: true })
         .in("show_id", activeShowIds);
       if (q.error) {
-        return { kind: "infra_error", message: `crew_members count query failed: ${q.error.message}` };
+        return {
+          kind: "infra_error",
+          message: `crew_members count query failed: ${q.error.message}`,
+        };
       }
-      crewTotal = q.count ?? 0;
+      return q.count ?? 0;
     } catch (err) {
       return {
         kind: "infra_error",
         message: `crew_members count query threw: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
-  }
+  };
 
   // Per-show crewCount — paginate-until-complete so one-to-many child rows are
   // never truncated by the PostgREST cap (R17 / §3.4). NOT a single .in() row
-  // fetch. Short-circuit on empty id set.
-  const crewCountByShow = new Map<string, number>();
-  if (activeShowIds.length > 0) {
+  // fetch. Short-circuit on empty id set. Internally sequential (offset walk),
+  // but runs CONCURRENTLY with crewTotal + needs-attention (nav-perf phase 1).
+  const readCrewCounts = async (): Promise<Map<string, number> | InfraResult> => {
+    const byShow = new Map<string, number>();
+    if (activeShowIds.length === 0) return byShow;
     try {
       let offset = 0;
       for (;;) {
@@ -249,18 +273,19 @@ export async function fetchDashboardData(
         const page = (q.data ?? []) as ReadonlyArray<{ show_id?: string }>;
         for (const row of page) {
           if (!row.show_id) continue;
-          crewCountByShow.set(row.show_id, (crewCountByShow.get(row.show_id) ?? 0) + 1);
+          byShow.set(row.show_id, (byShow.get(row.show_id) ?? 0) + 1);
         }
         if (page.length < CREW_PAGE_SIZE) break;
         offset += CREW_PAGE_SIZE;
       }
+      return byShow;
     } catch (err) {
       return {
         kind: "infra_error",
         message: `crew_members query threw: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
-  }
+  };
 
   // §3.2 — finalize-owned ("Publishing…") vs Held discriminator. The ONLY
   // authoritative source is whether an ACTIVE wizard finalize checkpoint owns
@@ -275,23 +300,56 @@ export async function fetchDashboardData(
   // transient, so this set is tiny (usually 0). Archived-segment rows are never
   // finalize-owned. On ANY infra hiccup we fail toward "Held" (omit the id from
   // the owned set) — the safe, non-alarming label.
-  const finalizeOwnedIds = new Set<string>();
-  if (!isArchived) {
-    const inFlightIds = showsRows
-      .filter((s) => !Boolean(s.published))
-      .map((s) => s.id as string);
-    for (const showId of inFlightIds) {
-      try {
-        const q = await supabase.rpc("readfinalizeowned_b2", { p_show_id: showId });
-        // Fail toward "Held": a returned error or a non-true value leaves the id
-        // OUT of the owned set, so the pill is "Held — not published".
-        if (!q.error && q.data === true) finalizeOwnedIds.add(showId);
-      } catch {
-        // Thrown infra fault → also fail toward "Held"; do not abort the whole
-        // dashboard for a transient finalize-predicate read.
-      }
+  //
+  // A5 (nav-perf phase 1): fan out the per-show RPC reads in BOUNDED chunks of
+  // FINALIZE_OWNED_CONCURRENCY — sequential chunks, parallel within a chunk —
+  // so a burst of in-flight rows never opens an unbounded Promise.all (Codex
+  // plan R1 MEDIUM). Each call destructures `{ data, error }` AT the boundary
+  // and falls toward "Held" (id omitted) on a returned error, a non-true value,
+  // OR a thrown fault (.catch → null).
+  const readFinalizeOwned = async (): Promise<Set<string>> => {
+    const owned = new Set<string>();
+    if (isArchived) return owned;
+    const inFlightIds = showsRows.filter((s) => !Boolean(s.published)).map((s) => s.id as string);
+    for (let i = 0; i < inFlightIds.length; i += FINALIZE_OWNED_CONCURRENCY) {
+      const batch = inFlightIds.slice(i, i + FINALIZE_OWNED_CONCURRENCY);
+      const resolved = await Promise.all(
+        batch.map(
+          (id) =>
+            // Call supabase.rpc() INSIDE the .then so a SYNCHRONOUS throw during
+            // builder construction becomes a rejection caught below (fail toward
+            // "Held") — not an escape that aborts the whole Promise.all/dashboard
+            // (Codex whole-diff R1). The .then also lifts the PostgrestFilterBuilder
+            // (a PromiseLike) to a real Promise.
+            Promise.resolve()
+              .then(() => supabase.rpc("readfinalizeowned_b2", { p_show_id: id }))
+              .then(({ data, error }) => (!error && data === true ? id : null)) // boundary destructure (invariant 9)
+              .catch(() => null), // thrown/rejected infra fault → fail toward "Held"
+        ),
+      );
+      for (const id of resolved) if (id) owned.add(id);
     }
-  }
+    return owned;
+  };
+
+  // ── Wave 2 (nav-perf phase 1, A2/A5): crewTotal + per-show crew pagination +
+  // needs-attention + finalize-owned fan-out are mutually independent once the
+  // active id set is known, so they run concurrently. The needs-attention
+  // loader (lib/admin/loadNeedsAttention.ts) reuses the injected client. Each
+  // wave member keeps its own boundary discrimination; a typed infra_error from
+  // any one short-circuits the dashboard below.
+  const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds] = await Promise.all([
+    readCrewTotal(),
+    readCrewCounts(),
+    loadNeedsAttention({ cap: RENDER_CAP, supabase }),
+    readFinalizeOwned(),
+  ]);
+
+  if (isInfra(crewTotalResult)) return crewTotalResult;
+  if (isInfra(crewCountsResult)) return crewCountsResult;
+  if ("kind" in na) return na;
+  const crewTotal = crewTotalResult;
+  const crewCountByShow = crewCountsResult;
 
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
@@ -319,10 +377,9 @@ export async function fetchDashboardData(
     };
   });
 
-  // ── Needs-attention: extracted to lib/admin/loadNeedsAttention.ts (Task 1,
-  // spec §4.1). The client constructed above is INJECTED; cap = RENDER_CAP.
-  const na = await loadNeedsAttention({ cap: RENDER_CAP, supabase });
-  if ("kind" in na) return na;
+  // (Needs-attention `na` was resolved in Wave 2 above — extracted to
+  // lib/admin/loadNeedsAttention.ts, Task 1 / spec §4.1, with the injected
+  // client + cap = RENDER_CAP — so it fans out concurrently with the crew reads.)
 
   return {
     rows,
@@ -340,8 +397,11 @@ export async function fetchDashboardData(
 
 export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
   const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
-  const result = await fetchDashboardData({ bucket });
+  // nav-perf phase 1: resolve `now` ONCE for the whole render path and thread it
+  // into the data layer (was awaited again inside fetchDashboardData) so the
+  // dashboard never round-trips nowDate() twice per request.
   const now = await nowDate();
+  const result = await fetchDashboardData({ bucket, now });
 
   if ("kind" in result) {
     return (
@@ -357,8 +417,8 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
             We could not load your dashboard.
           </h2>
           <p className="max-w-prose text-base text-text-subtle">
-            The admin database query failed. Refresh in a moment. If this keeps
-            happening, contact the developer.
+            This is usually temporary. Refresh in a moment. If it keeps happening, contact the
+            developer.
           </p>
         </header>
       </main>
@@ -366,10 +426,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
   }
 
   return (
-    <main
-      data-testid="admin-dashboard"
-      className="flex w-full flex-col gap-section-gap"
-    >
+    <main data-testid="admin-dashboard" className="flex w-full flex-col gap-section-gap">
       {/* Title + sub + eyebrow live in the shared <AdminPageHeader> rendered
           above <Dashboard/> in app/admin/page.tsx (Task 4.1 single title source).
           The dashboard-local "Open settings" link was removed (M12.6) — the

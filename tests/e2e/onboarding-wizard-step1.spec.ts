@@ -29,9 +29,7 @@ test.describe("admin onboarding wizard — Step 1 (mobile-safari)", () => {
     await signOut(page);
   });
 
-  test("first-visit /admin renders the onboarding wizard with Start Over", async ({
-    page,
-  }) => {
+  test("first-visit /admin renders the onboarding wizard with Start Over", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
 
     const response = await page.goto("/admin");
@@ -48,20 +46,14 @@ test.describe("admin onboarding wizard — Step 1 (mobile-safari)", () => {
 
     // Start Over is always reachable on every wizard render
     // (Phase 1: even when the service-account env is broken).
-    await expect(
-      page.locator("[data-testid=wizard-start-over-button]"),
-    ).toBeVisible();
-    await expect(
-      page.locator("[data-testid=wizard-start-over-button]"),
-    ).toHaveText("Start over");
+    await expect(page.locator("[data-testid=wizard-start-over-button]")).toBeVisible();
+    await expect(page.locator("[data-testid=wizard-start-over-button]")).toHaveText("Start over");
 
     // The wizard body is either Step 1's share-the-folder card (when
     // GOOGLE_SERVICE_ACCOUNT_JSON is configured) OR the cataloged
     // operator-error block (when env is missing/malformed). Both are
     // legitimate Phase 1 renders; neither must be a raw error code.
-    const step1Visible = await page
-      .locator("[data-testid=wizard-step1]")
-      .isVisible();
+    const step1Visible = await page.locator("[data-testid=wizard-step1]").isVisible();
     const operatorErrorVisible = await page
       .locator("[data-testid=wizard-operator-error]")
       .isVisible();
@@ -90,9 +82,7 @@ test.describe("admin onboarding wizard — Step 1 (mobile-safari)", () => {
 
     // Same wizard chrome.
     await expect(page.locator("[data-testid=onboarding-wizard]")).toBeVisible();
-    await expect(
-      page.locator("[data-testid=wizard-start-over-button]"),
-    ).toBeVisible();
+    await expect(page.locator("[data-testid=wizard-start-over-button]")).toBeVisible();
 
     // Step indicator now shows #2 as the current step.
     await expect(

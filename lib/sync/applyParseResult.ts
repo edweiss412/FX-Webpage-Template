@@ -1,4 +1,6 @@
-import type { CrewMemberRow, ParseResult } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult, ScheduleDay } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
 import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
 
@@ -14,6 +16,12 @@ export type ApplyParseResultSnapshot = {
   showId: string;
   previousCrewNames: string[];
   previousCrewMembers?: PreviousCrewMember[];
+  // §02 (D-2 / R6): the prior stored shows_internal.run_of_show, plumbed from applyShowSnapshot's
+  // live `select run_of_show from shows_internal`. Used ONLY to decide which AGENDA_DAY_EMPTIED
+  // warnings to emit (observability) — never to preserve content (CONFIRMED-ONLY full replace).
+  // Optional here (tolerates other snapshot sources); the applyShowSnapshot RETURN is the required
+  // live producer (phase2.ts). first-seen / nothing-prior = null.
+  priorRunOfShow?: Record<string, ScheduleDay> | null;
 };
 
 export type ApplyParseResultTx = {
@@ -36,6 +44,10 @@ export type ApplyParseResultTx = {
       };
       parse_warnings: ParseResult["warnings"];
       raw_unrecognized: ParseResult["raw_unrecognized"];
+      // §02 (D-2): CONFIRMED-ONLY full replace — exactly the latest parse's confirmed (non-empty)
+      // days, or null when none remain. Persisted as $5::jsonb (postgres.js serializes; never
+      // JSON.stringify — double-encode trap).
+      run_of_show: Record<string, ScheduleDay> | null;
     },
   ): Promise<void>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
@@ -55,11 +67,13 @@ export type ApplyParseResultArgs = {
     port: HoldPort;
     baseModifiedTime: string;
   };
+  /**
+   * Task 5: source-region anchors extracted from the XLSX bytes. Optional — callers that
+   * don't yet supply XLSX bytes (wizard, manual-resync) omit this field. Task 6 will
+   * consume this to persist the anchors via the shows UPDATE.
+   */
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
-
-function namesFrom(parseResult: ParseResult): string[] {
-  return parseResult.crewMembers.map((member) => member.name);
-}
 
 function difference(left: string[], right: string[]): string[] {
   const rightSet = new Set(right);
@@ -118,6 +132,47 @@ export async function applyParseResult(
   await tx.replaceRooms(args.snapshot.showId, args.parseResult.rooms);
   await tx.replaceTransportation(args.snapshot.showId, args.parseResult.transportation);
   await tx.replaceContacts(args.snapshot.showId, args.parseResult.contacts);
+
+  // §02 (D-2 / spec §4.2 / §4.4 retention matrix): CONFIRMED-ONLY full replace of run_of_show.
+  // The stored value is EXACTLY the latest parse's confirmed (non-empty) days — no per-day
+  // preserve/merge of prior entries; the prior stored value is consulted ONLY to decide which
+  // AGENDA_DAY_EMPTIED warnings to emit (observability). The AGENDA_DAY_EMPTIED append must happen
+  // BEFORE the parse_warnings payload is built below (ordering invariant, channel 1) AND it mutates
+  // args.parseResult.warnings — the same array reference runPhase2 reads for the applied return's
+  // parseWarnings (channel 2 / sync_log). Single-owner rule: the parser owns GRID_MALFORMED/
+  // BLOCK_UNRESOLVED/DAY_AMBIGUOUS/DAY_TRUNCATED (already in warnings); the sync emits DAY_EMPTIED
+  // ONLY (it alone needs prior-stored state the parser lacks). NO write-time date prune (R12).
+  const parsedRunOfShow = args.parseResult.runOfShow;
+  let runOfShowToStore: Record<string, ScheduleDay> | null;
+  if (parsedRunOfShow === undefined) {
+    // Grid unlocatable (converter/header failure): store null and append NOTHING — the parser
+    // already put AGENDA_GRID_MALFORMED in warnings; the sync carries it, never re-emits, and never
+    // adds AGENDA_DAY_EMPTIED here (a distinct conversion-fault state, R22).
+    runOfShowToStore = null;
+  } else {
+    const confirmed = Object.fromEntries(
+      Object.entries(parsedRunOfShow).filter(
+        ([, day]) => day.entries.length > 0 || day.showStart !== null || day.window !== null,
+      ),
+    );
+    runOfShowToStore = Object.keys(confirmed).length > 0 ? confirmed : null;
+    // AGENDA_DAY_EMPTIED ONLY on the LOCATED-grid read-empty shape: a day that was previously
+    // stored AND is now FULLY empty (no entries/showStart/window). A day merely ABSENT from the
+    // parsed Record (unresolved block → parser's AGENDA_BLOCK_UNRESOLVED) does NOT qualify.
+    const prior = args.snapshot.priorRunOfShow;
+    let emittedIndex = 0;
+    const isFullyEmpty = (d: ScheduleDay | undefined): boolean =>
+      d != null && d.entries.length === 0 && d.showStart === null && d.window === null;
+    const priorHadContent = (d: ScheduleDay | undefined): boolean =>
+      d != null && (d.entries.length > 0 || d.showStart !== null || d.window !== null);
+    for (const [iso, day] of Object.entries(parsedRunOfShow)) {
+      if (isFullyEmpty(day) && priorHadContent(prior?.[iso])) {
+        args.parseResult.warnings.push(agendaDayEmptied(emittedIndex, iso));
+        emittedIndex += 1;
+      }
+    }
+  }
+
   await tx.upsertShowsInternal(args.snapshot.showId, {
     financials: {
       po: args.parseResult.show.po,
@@ -127,6 +182,7 @@ export async function applyParseResult(
     },
     parse_warnings: args.parseResult.warnings,
     raw_unrecognized: args.parseResult.raw_unrecognized,
+    run_of_show: runOfShowToStore,
   });
   await tx.deleteLivePendingIngestion(args.driveFileId);
   return { appliedCrewMembers: crewMembers };

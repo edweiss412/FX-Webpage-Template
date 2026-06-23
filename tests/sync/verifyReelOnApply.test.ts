@@ -69,7 +69,6 @@ describe("verifyReelOnApply", () => {
     ).rejects.toBe(failure);
   });
 
-
   test("non-video MIME clears all reel columns with OPENING_REEL_NOT_VIDEO", async () => {
     const result = await verifyReelOnApply(staged, {
       getFileMetadata: async () => ({

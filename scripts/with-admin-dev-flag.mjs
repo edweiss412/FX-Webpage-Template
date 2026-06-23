@@ -25,12 +25,30 @@
  * forwarded so Playwright's webServer cleanup works correctly.
  */
 import { spawn } from "node:child_process";
-import { renameSync, existsSync, openSync, closeSync, unlinkSync, mkdirSync, writeFileSync, writeSync, readFileSync } from "node:fs";
+import {
+  renameSync,
+  existsSync,
+  openSync,
+  closeSync,
+  unlinkSync,
+  mkdirSync,
+  writeFileSync,
+  writeSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = process.cwd();
-const FILES = ["app/admin/dev/page.tsx", "app/admin/dev/actions.ts"];
+const FILES = [
+  "app/admin/dev/page.tsx",
+  "app/admin/dev/actions.ts",
+  // Dimensional-invariant render harness (tile → source-sheet deep links, spec
+  // §5.4). Lives under app/admin/dev/ and MUST be renamed aside on flag-UNSET
+  // builds too, else the prod artifact would still contain the route — defeating
+  // the build-artifact gate. No actions.ts (pure static render, no server action).
+  "app/admin/dev/source-link-dim/page.tsx",
+];
 const DISABLED_SUFFIX = ".disabled-by-build-gate";
 
 // The build-baked presence flag the admin Settings UI reads to decide whether to
@@ -125,7 +143,13 @@ function releaseLock() {
   }
 }
 
-async function acquireLockWithRetry(maxWaitMs = 240_000) {
+// Default 600s (was 240s). The B1-D4 dev-gate CI workflow boots three
+// dev-gate webServers (:3001/:3002/:3003), each running `pnpm build`. Every
+// build serializes on this lock, so the third build can wait through two cold
+// CI builds before acquiring it — 240s was marginal under CI load (DEFERRED.md
+// B1-D4). 600s leaves ample headroom for three serial cold builds; the
+// stale-lock steal below still bounds waits on a genuinely dead holder.
+async function acquireLockWithRetry(maxWaitMs = 600_000) {
   const start = Date.now();
   while (!tryAcquireLock()) {
     // Stale-lock steal: if the held lock's pid is dead (killed mid-build, or an
@@ -249,9 +273,7 @@ async function main() {
 // Run the gate flow only on direct invocation (node scripts/with-admin-dev-flag.mjs
 // <cmd>). When imported (e.g. by unit tests for writeDevPanelPresent), do NOT run
 // main() — that would rename real dev files. Mirrors scripts/extract-spec-codes.ts.
-const invokedPath = process.argv[1]
-  ? fileURLToPath(import.meta.url) === process.argv[1]
-  : false;
+const invokedPath = process.argv[1] ? fileURLToPath(import.meta.url) === process.argv[1] : false;
 if (invokedPath) {
   await main();
 }

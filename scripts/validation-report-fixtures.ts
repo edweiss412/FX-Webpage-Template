@@ -37,7 +37,7 @@ import {
   assertProdEquivalentTarget,
   assertSupabaseTargetMatchesProjectRef,
 } from "./lib/validation-target";
-import { R_COMBOS, SW_COMBOS } from "./lib/validation-fixtures";
+import { R_COMBOS, SW_COMBOS } from "../lib/validation/fixtures";
 
 const ALL_COMBOS: readonly string[] = [...R_COMBOS, ...SW_COMBOS];
 
@@ -54,10 +54,7 @@ const OUTCOMES = [
 ] as const;
 type Outcome = (typeof OUTCOMES)[number];
 
-const RATE_LIMIT_OUTCOMES = new Set<Outcome>([
-  "rate-limit-admin",
-  "rate-limit-crew",
-]);
+const RATE_LIMIT_OUTCOMES = new Set<Outcome>(["rate-limit-admin", "rate-limit-crew"]);
 
 // R43 commit 81 F40 — --alert-code selector → resolved admin_alerts.code,
 // mirroring lookupAlertCode at lib/reports/submit.ts:202-208.
@@ -246,10 +243,7 @@ async function readValidationStateAliasMap(
   return (data as { alias_map: Record<string, Record<string, string>> }).alias_map ?? {};
 }
 
-async function resolveCrewMemberId(
-  supabase: LooseSupabaseClient,
-  combo: string,
-): Promise<string> {
+async function resolveCrewMemberId(supabase: LooseSupabaseClient, combo: string): Promise<string> {
   // R9-F1 canonical-enum guard — mirror validation-resolve-alias.ts so a
   // stale alias_map key from a prior matrix version can't resolve.
   if (!ALL_COMBOS.includes(combo)) {
@@ -297,10 +291,7 @@ async function resolveCrewMemberId(
   return uuid;
 }
 
-async function resolveShowId(
-  supabase: LooseSupabaseClient,
-  combo: string,
-): Promise<string> {
+async function resolveShowId(supabase: LooseSupabaseClient, combo: string): Promise<string> {
   if (!ALL_COMBOS.includes(combo)) {
     fail(`combo '${combo}' is not in the canonical enum. Valid: ${ALL_COMBOS.join(", ")}.`);
   }
@@ -479,7 +470,9 @@ async function seedRateLimitOutcome(
     p_dry_run: true,
   });
   if (peek.error) {
-    fail(`validation_seed_rate_limit (peek) RPC failed: ${peek.error.message ?? JSON.stringify(peek.error)}`);
+    fail(
+      `validation_seed_rate_limit (peek) RPC failed: ${peek.error.message ?? JSON.stringify(peek.error)}`,
+    );
   }
   const peeked = peek.data as {
     recorded_hour_bucket: string;
@@ -513,7 +506,9 @@ async function seedRateLimitOutcome(
     p_dry_run: false,
   });
   if (seed.error) {
-    fail(`validation_seed_rate_limit (seed) RPC failed: ${seed.error.message ?? JSON.stringify(seed.error)}`);
+    fail(
+      `validation_seed_rate_limit (seed) RPC failed: ${seed.error.message ?? JSON.stringify(seed.error)}`,
+    );
   }
   const seeded = seed.data as {
     recorded_hour_bucket: string;
@@ -603,10 +598,7 @@ async function restoreRateLimitFromSnapshot(
   unlinkSync(file);
 }
 
-async function applyRateLimitRestore(
-  supabase: LooseSupabaseClient,
-  snap: Snapshot,
-): Promise<void> {
+async function applyRateLimitRestore(supabase: LooseSupabaseClient, snap: Snapshot): Promise<void> {
   if (snap.snapshot_prior_count === null) {
     // No prior row → DELETE the exact bucket (never cross-hour).
     const { error } = await supabase
@@ -705,10 +697,14 @@ async function main(): Promise<void> {
       fail("--outcome (seed mode) and --cleanup are mutually exclusive — pass one or the other.");
     }
     if (values["alert-code"] !== undefined) {
-      fail("--alert-code is a seed-only flag (lookup-inconclusive) and is not valid with --cleanup.");
+      fail(
+        "--alert-code is a seed-only flag (lookup-inconclusive) and is not valid with --cleanup.",
+      );
     }
     if (values.combo !== undefined) {
-      fail("--combo is a seed-only flag and is not valid with --cleanup; use --include-crew-id <uuid> to scope crew cleanup.");
+      fail(
+        "--combo is a seed-only flag and is not valid with --cleanup; use --include-crew-id <uuid> to scope crew cleanup.",
+      );
     }
     await defaultCleanup(supabase);
 
@@ -738,11 +734,15 @@ async function main(): Promise<void> {
       }
       let identity: string;
       if (kind === "admin") {
-        identity = canonicalize(requireEnv("VALIDATION_ADMIN_EMAIL")) || fail("admin email canonicalized to empty");
+        identity =
+          canonicalize(requireEnv("VALIDATION_ADMIN_EMAIL")) ||
+          fail("admin email canonicalized to empty");
       } else {
         const crewId = values["include-crew-id"];
         if (!crewId || crewId.trim().length === 0) {
-          fail("--force-cleanup-without-snapshot --kind crew requires a non-empty --include-crew-id <uuid>.");
+          fail(
+            "--force-cleanup-without-snapshot --kind crew requires a non-empty --include-crew-id <uuid>.",
+          );
         }
         identity = crewId;
       }
@@ -792,7 +792,9 @@ async function main(): Promise<void> {
     if (values["include-crew-id"] !== undefined) {
       const raw = values["include-crew-id"];
       if (raw.trim().length === 0) {
-        fail("--include-crew-id was passed an empty value; pass the fixture crew_member_id UUID literally.");
+        fail(
+          "--include-crew-id was passed an empty value; pass the fixture crew_member_id UUID literally.",
+        );
       }
       try {
         await restoreRateLimitFromSnapshot(supabase, "crew", raw);
@@ -823,9 +825,7 @@ async function main(): Promise<void> {
   let alertCodeVariant: AlertCodeVariant = DEFAULT_ALERT_CODE;
   if (values["alert-code"] !== undefined) {
     if (!ALERT_CODE_KEYS.includes(values["alert-code"] as AlertCodeVariant)) {
-      fail(
-        `unknown --alert-code '${values["alert-code"]}'. Valid: ${ALERT_CODE_KEYS.join(", ")}.`,
-      );
+      fail(`unknown --alert-code '${values["alert-code"]}'. Valid: ${ALERT_CODE_KEYS.join(", ")}.`);
     }
     alertCodeVariant = values["alert-code"] as AlertCodeVariant;
   }
@@ -999,7 +999,9 @@ async function main(): Promise<void> {
           },
         });
         if (error) {
-          fail(`validation_seed_bot_login_alerts RPC failed: ${error.message ?? JSON.stringify(error)}`);
+          fail(
+            `validation_seed_bot_login_alerts RPC failed: ${error.message ?? JSON.stringify(error)}`,
+          );
         }
         const ids = data as { global_id: string; show_scoped_id: string };
         alertSummary =
@@ -1036,22 +1038,17 @@ async function main(): Promise<void> {
     }
     case "orphaned-lost-lease": {
       const orphanIssueNumber = Math.floor(Math.random() * 9000) + 1000;
-      const alertId = await upsertAdminAlertRow(
-        supabase,
-        showId,
-        "REPORT_ORPHANED_LOST_LEASE",
-        {
-          idempotency_key: idempotencyKey,
-          orphan_url: `https://github.com/fxav-validation/fixtures/issues/${orphanIssueNumber}`,
-          orphan_issue_number: orphanIssueNumber,
-          lease_holder: randomUUID(),
-          row_reaped: false,
-          stored_url: null,
-          orphan_close_failed: false,
-          orphan_close_error: null,
-          validation_tag: tag("orphaned-lost-lease"),
-        },
-      );
+      const alertId = await upsertAdminAlertRow(supabase, showId, "REPORT_ORPHANED_LOST_LEASE", {
+        idempotency_key: idempotencyKey,
+        orphan_url: `https://github.com/fxav-validation/fixtures/issues/${orphanIssueNumber}`,
+        orphan_issue_number: orphanIssueNumber,
+        lease_holder: randomUUID(),
+        row_reaped: false,
+        stored_url: null,
+        orphan_close_failed: false,
+        orphan_close_error: null,
+        validation_tag: tag("orphaned-lost-lease"),
+      });
       process.stdout.write(
         `materialized orphaned-lost-lease admin_alerts row ${alertId} ` +
           `(idempotency_key=${idempotencyKey}, show_id=${showId})\n`,

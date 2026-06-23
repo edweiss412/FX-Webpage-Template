@@ -104,7 +104,7 @@ describe("closed-group approvals are not individually undoable (P4-F4)", () => {
       proposedValue: { disposition: "rename", name: "Dana", email: "d@y" },
       baseModifiedTime: T1,
     });
-    expect((await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1)))).toEqual({ ok: true });
+    expect(await asAdminTx((tx) => callApprove(tx, aliceHold.id, T1, T1))).toEqual({ ok: true });
 
     const renamed = (await readChangeLogByShow(mi11Sql, show.showId)).find(
       (r) => r.change_kind === "crew_renamed" && r.entity_ref === "Alice",

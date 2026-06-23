@@ -181,7 +181,6 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     });
   });
 
-
   test("non-admin and show-mismatch requests do not expose ledger state", async () => {
     statusMock.requireAdmin.mockRejectedValueOnce(new Error("forbidden"));
     expect((await getStatus()).status).toBe(403);

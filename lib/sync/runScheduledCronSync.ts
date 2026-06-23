@@ -16,11 +16,19 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 import { runInvariants } from "@/lib/parser/invariants";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
-import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetMarkdownAndBytesAtRevision } from "@/lib/drive/fetch";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
-import type { ParsedSheet, ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type {
+  AgendaEntry,
+  ParsedSheet,
+  ParseResult,
+  TriggeredReviewItem,
+} from "@/lib/parser/types";
+import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -30,6 +38,7 @@ import {
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import { revalidateShow, revalidateShowFromResult } from "@/lib/data/showCacheTag";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
@@ -167,6 +176,14 @@ export type ProcessOneFileResult =
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
       snapshotRevisionId?: string;
+      // §02 (FIX-3 / R16 structural defense): REQUIRED so tsc forces EVERY tail caller that builds
+      // an applied result (cron / manual / staged) to supply it — a future 4th caller cannot
+      // silently drop the sync_log channel. The applied path's sync_log parse_warnings is sourced
+      // from here (NOT from the tail's separate parseResult arg, which the runPhase2 rebind makes
+      // unreliable). Callers source from their own apply outcome (phase2.parseWarnings ?? [] /
+      // coreResult.parseWarnings). [] is a valid empty value; the per-caller runtime tests pin
+      // correct SOURCING.
+      parseWarnings: ParseResult["warnings"];
     }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
@@ -176,11 +193,19 @@ export type ProcessOneFileResult =
       cooldownRemainingMs: number;
       retryCount: number;
     }
-  | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
-  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
+  // nav-perf tag-caching (whole-diff R2): source_gone / parse_error carry the
+  // OPTIONAL showId the markShow* recovery write read back (RETURNING id). These
+  // outcomes commit `shows.last_sync_status` (projected by StaleFooter via
+  // getShowForViewer's `lastSyncStatus`), so post-commit callers revalidate the
+  // show's cache tag via `revalidateShowFromResult` (showId-presence gate). null /
+  // absent when no public.shows row was matched (first-seen / pending-ingestion
+  // path) — then there is no projected show to bust, so the gate correctly no-ops.
+  | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE; showId?: string | null }
+  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE; showId?: string | null }
   | {
       outcome: "parse_error";
       code: SyncFailureCode;
+      showId?: string | null;
     }
   | ConcurrentSyncSkipped;
 
@@ -189,6 +214,10 @@ export type SyncLogEntry = {
   outcome: string;
   code?: string;
   payload?: Record<string, unknown>;
+  // §02 (D-7 / FIX-3): the parse warnings to union into the persisted parse_warnings $5 array
+  // (sync_log channel). Set ONLY for the applied outcome (the parser-owned codes + any sync-emitted
+  // AGENDA_DAY_EMPTIED). insertSyncLog unions these alongside the per-outcome payload row.
+  parseWarnings?: ParseResult["warnings"];
 };
 
 export type SyncPipelineTxBoundDeps = {
@@ -240,11 +269,18 @@ export type ProcessOneFileDeps = {
   perFileProcessor?: typeof perFileProcessor;
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
+  /**
+   * Task 5 (test injection): raw XLSX bytes for the revision (used by extractSourceAnchors).
+   * Only consulted when fetchMarkdownAtRevision is also injected (test path). On the real
+   * path, fetchSheetMarkdownAndBytesAtRevision performs a single Drive export and returns
+   * both markdown and bytes together — no second export ever occurs.
+   */
+  fetchXlsxBytes?: (driveFileId: string, revisionId: string) => Promise<ArrayBuffer>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; binding: Phase1Binding },
+    ctx: { driveFileId: string; fileMeta: DriveFileMeta; sheets?: SpreadsheetSheet[] },
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
@@ -802,7 +838,11 @@ class PostgresPipelineTx implements SyncPipelineTx {
         entry.driveFileId,
         entry.code ?? entry.outcome,
         entry.code ? `${entry.outcome}:${entry.code}` : entry.outcome,
-        entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : [],
+        // §02 (D-7 / FIX-3): preserve the per-outcome payload row AND append the parse warnings.
+        [
+          ...(entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : []),
+          ...(entry.parseWarnings ?? []),
+        ],
       ],
     );
   }
@@ -940,6 +980,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
       "select id from public.shows where drive_file_id = $1 limit 1",
       [args.driveFileId],
     );
+    // §02 (D-2 / R6 / R20 live-producer): read the prior stored run_of_show so the apply core can
+    // decide which AGENDA_DAY_EMPTIED warnings to emit. Keyed on the resolved existing show id; a
+    // first-seen show has no shows_internal row → null (the correct "nothing previously stored"
+    // signal). Raw-tx path returns the parsed jsonb object (matching the parse_warnings read shape).
+    const priorInternal = existing
+      ? await this.one<{ run_of_show: unknown }>(
+          "select run_of_show from public.shows_internal where show_id = $1 limit 1",
+          [existing.id],
+        )
+      : null;
     const previousCrew = existing
       ? await this.rows<{
           id: string;
@@ -997,6 +1047,10 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
+      // Task 6: source_anchors — pass raw object to $18::jsonb (never JSON.stringify; postgres.js serializes)
+      // Pass null (not {}) when sourceAnchors is absent: SQL uses coalesce($18::jsonb, source_anchors)
+      // so the existing column value is preserved. Cron path (sourceAnchors defined) overwrites as before.
+      args.sourceAnchors ?? null,
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -1015,6 +1069,10 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       args.parseResult.pullSheet,
+      // Task 6: source_anchors — pass raw object to $17::jsonb (never JSON.stringify; postgres.js serializes)
+      // Pass null (not {}) when sourceAnchors is absent: SQL uses coalesce($17::jsonb, source_anchors)
+      // so the existing column value is preserved. Cron path (sourceAnchors defined) overwrites as before.
+      args.sourceAnchors ?? null,
     ];
     const insertParamsForSlug = (slug: string) => [
       args.driveFileId,
@@ -1037,6 +1095,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.parseResult.pullSheet,
       args.autoPublishFirstSeen?.unpublishToken ?? null,
       args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
+      // Task 6 (F1 fix): source_anchors on first-seen INSERT — pass raw object to $21::jsonb
+      args.sourceAnchors ?? {},
     ];
 
     const updated = existing
@@ -1059,6 +1119,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $14::timestamptz,
                    coi_status = $15,
                    pull_sheet = $16::jsonb,
+                   source_anchors = coalesce($17::jsonb, source_anchors),
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
@@ -1085,6 +1146,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_seen_modified_time = $15::timestamptz,
                    coi_status = $16,
                    pull_sheet = $17::jsonb,
+                   source_anchors = coalesce($18::jsonb, source_anchors),
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null,
@@ -1099,15 +1161,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
           // R30-1 + R65-1 (F1): wizard Phase B first-seen INSERT variants. When
           // firstSeenPublished === false the column list gains `published` with literal false
           // (overriding the DDL default true); when wizardCreatedSessionId is set the column
-          // list gains `wizard_created_session_id` ($21::uuid) — the show-side provenance
+          // list gains `wizard_created_session_id` ($22::uuid) — the show-side provenance
           // discriminator every created_show_id consumer joins on. Both absent → the SQL is
           // byte-identical to the pre-F1 statement.
+          // NOTE: $21 is now source_anchors (F1 finding 1 fix); wizard extra is $22.
           const extraColumns =
             (args.firstSeenPublished === false ? ", published" : "") +
             (args.wizardCreatedSessionId ? ", wizard_created_session_id" : "");
           const extraValues =
             (args.firstSeenPublished === false ? ", false" : "") +
-            (args.wizardCreatedSessionId ? ", $21::uuid" : "");
+            (args.wizardCreatedSessionId ? ", $22::uuid" : "");
           const extraParams = args.wizardCreatedSessionId ? [args.wizardCreatedSessionId] : [];
           return insertFirstSeenShowWithSlugRetry({
             baseSlug: args.slug,
@@ -1120,13 +1183,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_drive_file_id, opening_reel_drive_modified_time,
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
-                  unpublish_token, unpublish_token_expires_at,
+                  unpublish_token, unpublish_token_expires_at, source_anchors,
                   last_synced_at, last_sync_status, last_sync_error${extraColumns}
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
                         $14, $15, $16::timestamptz, $17, $18::jsonb,
-                        $19::uuid, $20::timestamptz, now(), 'ok', null${extraValues})
+                        $19::uuid, $20::timestamptz, $21::jsonb, now(), 'ok', null${extraValues})
                 on conflict do nothing
                 returning id
               `,
@@ -1146,6 +1209,10 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return {
       outcome: "updated" as const,
       showId: updated.id,
+      // §02 (D-2 / R6 / R3-finding-5): the prior stored run_of_show decoded through decodeRunOfShow
+      // so legacy-array rows are wrapped to ScheduleDay before apply reads them. null for a
+      // first-seen show with no shows_internal row.
+      priorRunOfShow: decodeRunOfShow(priorInternal?.run_of_show ?? null).value,
       previousCrewNames: previousCrew.map((row) => row.name),
       previousCrewMembers: previousCrew.map((row) => ({
         id: row.id,
@@ -1321,15 +1388,24 @@ class PostgresPipelineTx implements SyncPipelineTx {
   ) {
     await this.rows(
       `
-        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized)
-        values ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show)
+        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb)
         on conflict (show_id)
         do update set
           financials = excluded.financials,
           parse_warnings = excluded.parse_warnings,
-          raw_unrecognized = excluded.raw_unrecognized
+          raw_unrecognized = excluded.raw_unrecognized,
+          run_of_show = excluded.run_of_show
       `,
-      [showId, payload.financials, payload.parse_warnings, payload.raw_unrecognized],
+      // $5: pass the computed object/null RAW — postgres.js serializes $N::jsonb itself; a manual
+      // JSON.stringify would double-encode (the postgres.js jsonb param trap).
+      [
+        showId,
+        payload.financials,
+        payload.parse_warnings,
+        payload.raw_unrecognized,
+        payload.run_of_show,
+      ],
     );
   }
 }
@@ -1503,12 +1579,14 @@ export function defaultDriveClient(): DriveClient {
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
       const response = await sheetsClient.spreadsheets.get({
         spreadsheetId,
-        fields: "sheets(properties(title))",
+        fields: "sheets(properties(sheetId,title))",
       });
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
-        const record = sheet as { properties?: { title?: string | null } };
+        const record = sheet as { properties?: { title?: string | null; sheetId?: number | null } };
         return {
           title: record.properties?.title ?? "",
+          sheetId:
+            typeof record.properties?.sheetId === "number" ? record.properties.sheetId : undefined,
           embeddedObjects: [],
         } satisfies SpreadsheetSheet;
       });
@@ -1610,6 +1688,9 @@ async function logSync(
   driveFileId: string,
   result: ProcessOneFileResult,
   payload?: Record<string, unknown>,
+  // §02 (D-7 / FIX-3): applied-outcome parse warnings to persist on the sync_log row. Threaded from
+  // the tail's applied result (NOT from parseResult — the runPhase2 rebind makes that unreliable).
+  parseWarnings?: ParseResult["warnings"],
 ): Promise<void> {
   if ("skipped" in result) return;
   const entry: SyncLogEntry = {
@@ -1619,6 +1700,8 @@ async function logSync(
   if ("code" in result) entry.code = result.code;
   if ("reason" in result) entry.code = result.reason;
   if (payload) entry.payload = payload;
+  // Set ONLY for the applied outcome (skip/error/stale/stage rows carry no parse warnings).
+  if (result.outcome === "applied" && parseWarnings) entry.parseWarnings = parseWarnings;
   await deps.logSync?.(entry);
 }
 
@@ -1747,7 +1830,8 @@ export async function emitSuccessfulPhase2Tail(args: {
       unpublishTokenExpiresAt: args.autoPublishFirstSeen.unpublishTokenExpiresAt,
     });
   }
-  await logSync(args.deps, args.driveFileId, args.result);
+  // §02 (D-7 / FIX-3): thread the applied result's parseWarnings into the sync_log row.
+  await logSync(args.deps, args.driveFileId, args.result, undefined, args.result.parseWarnings);
 }
 
 function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
@@ -1885,7 +1969,7 @@ async function markMissingShow_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   show: CronLiveShowRow,
 ): Promise<
-  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
+  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE; showId?: string | null }
   | { outcome: "skipped"; reason: typeof ARCHIVED_SKIP_REASON }
 > {
   await assertShowLockHeld(tx, show.driveFileId);
@@ -1928,7 +2012,9 @@ async function markMissingShow_unlocked(
     showId,
     syncProblemCodeForStatus("sheet_unavailable"),
   );
-  return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
+  // nav-perf tag-caching (whole-diff R2): carry the showId the markShowSheetUnavailable
+  // write read back so the post-commit gate busts the projected last_sync_status.
+  return { outcome: "source_gone", code: SHEET_UNAVAILABLE, showId };
 }
 
 async function handleFetchFailure_unlocked(
@@ -2007,7 +2093,12 @@ async function handleFetchFailure_unlocked(
         code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error",
       ),
     );
-    return result;
+    // nav-perf tag-caching (whole-diff R2): this branch committed
+    // `shows.last_sync_status` (markShow{SheetUnavailable,DriveError}); carry the
+    // showId so the post-commit gate busts the projected last_sync_status. The
+    // existingPending early-return + the no-show upsertLivePendingIngestion path
+    // below match NO public.shows row, so they correctly leave showId absent.
+    return { ...result, showId };
   }
 
   await tx.upsertLivePendingIngestion({
@@ -2105,6 +2196,8 @@ export type PreparedProcessOneFile =
       resolvedMode: Exclude<ResolvedSyncMode, "asset_recovery">;
       binding: Phase1Binding;
       parseResult: ParseResult;
+      /** Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call). */
+      sourceAnchors: Record<string, SourceAnchor>;
     };
 
 function defaultCooldownReader(
@@ -2187,15 +2280,35 @@ export async function prepareProcessOneFile(
     }
   }
 
+  // Task 5 — single Drive export: fetch markdown AND raw bytes in one call on the real path.
+  // When deps.fetchMarkdownAtRevision is injected (tests), fall back to separate markdown +
+  // fetchXlsxBytes injections. On the real path, fetchSheetMarkdownAndBytesAtRevision performs
+  // exactly ONE Drive export and returns both artifacts — no second export ever occurs.
   let markdown: string;
+  let xlsxBytes: ArrayBuffer | undefined;
   try {
-    markdown = await withStepTimeout(
-      "fetchMarkdownAtRevision",
-      (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
-        driveFileId,
-        binding.bindingToken,
-      ),
-    );
+    if (deps.fetchMarkdownAtRevision) {
+      // Test/injected path: markdown and bytes come from separate injected fns.
+      markdown = await withStepTimeout(
+        "fetchMarkdownAtRevision",
+        deps.fetchMarkdownAtRevision(driveFileId, binding.bindingToken),
+      );
+      try {
+        xlsxBytes = deps.fetchXlsxBytes
+          ? await deps.fetchXlsxBytes(driveFileId, binding.bindingToken)
+          : undefined;
+      } catch {
+        xlsxBytes = undefined;
+      }
+    } else {
+      // Real path: single Drive export, both markdown and bytes from one HTTP call.
+      const result = await withStepTimeout(
+        "fetchMarkdownAtRevision",
+        fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken),
+      );
+      markdown = result.markdown;
+      xlsxBytes = result.bytes;
+    }
   } catch (error) {
     if (isSpreadsheetBindingRace(error)) {
       return {
@@ -2213,16 +2326,32 @@ export async function prepareProcessOneFile(
     };
   }
 
+  // Task 5 — exactly-once Sheets API list ownership:
+  // Call listSpreadsheetSheets HERE (once) so both enrichWithDrivePins AND
+  // extractSourceAnchors consume the same result — no second API call.
+  const driveClient = deps.driveClient ?? defaultDriveClient();
+  let sheets: SpreadsheetSheet[] | undefined;
+  if (!deps.enrichWithDrivePins && driveClient.listSpreadsheetSheets) {
+    // Real path: fetch the sheet list once; pass into enrich via ctx.sheets so
+    // extractEmbeddedImages does NOT re-call the API.
+    try {
+      sheets = await driveClient.listSpreadsheetSheets(driveFileId);
+    } catch {
+      // Non-fatal: extractEmbeddedImages falls back gracefully when sheets is undefined.
+      sheets = undefined;
+    }
+  }
+
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
   let enriched: ParseResult;
   try {
     enriched = await withStepTimeout(
       "enrichWithDrivePins",
-      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
-        parsed,
-        deps.driveClient ?? defaultDriveClient(),
-        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding },
-      ),
+      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
+        driveFileId,
+        fileMeta: toDriveFileMeta(fileMeta),
+        ...(sheets !== undefined ? { sheets } : {}),
+      }),
     );
   } catch (error) {
     if (isBinaryAssetRevisionRace(error)) {
@@ -2240,6 +2369,14 @@ export async function prepareProcessOneFile(
       code: classifySyncFailure(error),
     };
   }
+
+  const titleToGid = new Map<string, number>(
+    (sheets ?? [])
+      .filter((s): s is SpreadsheetSheet & { sheetId: number } => typeof s.sheetId === "number")
+      .map((s) => [s.title, s.sheetId]),
+  );
+  const sourceAnchors: Record<string, SourceAnchor> =
+    xlsxBytes !== undefined ? extractSourceAnchors(xlsxBytes, titleToGid) : {};
 
   let currentBinding: Phase1Binding;
   try {
@@ -2272,6 +2409,7 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: enriched,
+    sourceAnchors,
   };
 }
 
@@ -2456,6 +2594,8 @@ export async function processOneFile_unlocked(
       ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
       // Task 2.9: drive the auto-apply changes feed.
       notableItems,
+      // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
+      ...(pipeline.sourceAnchors !== undefined ? { sourceAnchors: pipeline.sourceAnchors } : {}),
     },
     txDeps,
   );
@@ -2469,6 +2609,8 @@ export async function processOneFile_unlocked(
   const result: ProcessOneFileResult = {
     outcome: "applied" as const,
     showId: phase2.showId,
+    // §02 (FIX-3): source the sync_log parse_warnings from this apply's outcome (cron caller #1).
+    parseWarnings: phase2.parseWarnings ?? [],
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
@@ -2561,6 +2703,16 @@ export async function runScheduledCronSync(
       });
       continue;
     }
+    // nav-perf tag-caching (Task 5): only a source_gone result means
+    // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
+    // inside the now-resolved lock — post-commit here, so revalidate the show's
+    // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
+    // without writing the shows row, so it is explicitly excluded.
+    // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
+    // showCacheRevalidateCoverage regexes scan for.)
+    if (result.outcome === "source_gone") {
+      revalidateShow(show.showId);
+    }
     processed.push({
       driveFileId: show.driveFileId,
       result,
@@ -2569,9 +2721,20 @@ export async function runScheduledCronSync(
 
   for (const file of files) {
     try {
+      // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
+      // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
+      // this await resolves the apply tx has COMMITTED. Revalidate the show's
+      // cache tag HERE — post-commit — never inside processOneFile_unlocked /
+      // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
+      // would expose a stale-read window). showId-presence gate: busts on applied
+      // AND on the parse_error/source_gone recovery outcomes (which carry showId +
+      // commit last_sync_status). No-op on skipped/stale/revision_race/stage/
+      // hard_fail (no showId). The catch-built parse_error below carries no showId.
+      const result = await runOne(file.driveFileId, "cron", file, processDeps);
+      revalidateShowFromResult(result);
       processed.push({
         driveFileId: file.driveFileId,
-        result: await runOne(file.driveFileId, "cron", file, processDeps),
+        result,
       });
     } catch (error) {
       const result = {

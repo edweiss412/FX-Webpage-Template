@@ -33,8 +33,7 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 }
 
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
-const GENERIC_ERROR =
-  "We could not mark this alert resolved. Refresh and try again.";
+const GENERIC_ERROR = "We could not mark this alert resolved. Refresh and try again.";
 
 export function PerShowAlertResolveButton({ alertId, slug }: Props) {
   const router = useRouter();

@@ -284,7 +284,7 @@ export function ShowsTable({
           data-testid="admin-active-shows-empty"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-4 text-base text-text-subtle"
         >
-          <p className="font-semibold text-text-strong">You do not have any shows yet.</p>
+          <p className="font-semibold text-text-strong">No shows yet.</p>
           <p>Share a sheet into your watched Drive folder and the sync will pick it up.</p>
         </div>
       ) : filtered.length === 0 ? (
@@ -343,7 +343,7 @@ export function ShowsTable({
                         {/* M12.10: title WRAPS (no truncate) — min-w-0 + break-words
                             let a long name flow to a second line; the row stays
                             vertically centered (grid items-center). */}
-                        <span className="min-w-0 break-words text-sm font-semibold text-text-strong">
+                        <span className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong">
                           {rowTitle(row)}
                         </span>
                         <StatePill row={row} />
@@ -403,8 +403,8 @@ export function ShowsTable({
       {visible.some((r) => syncStatusBucket(r.lastSyncStatus).bucket === "review") ? (
         <p className="text-sm text-text-subtle">
           <span aria-hidden="true">⚠ </span>
-          <span className="font-semibold text-text-strong">Changes to review</span> means a sheet
-          edit is staged and waiting for your approval.{" "}
+          <span className="font-semibold text-text-strong">Changes to review</span> means the app is
+          holding a whole staged sheet for your sign-off. Routine sheet edits apply on their own.{" "}
           {/* aria-label drops the decorative "→" from the accessible name
               without splitting the text run (text-run splits shift
               text-decoration paint — byte-level screenshot drift). */}

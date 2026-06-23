@@ -31,8 +31,7 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 }
 
 // not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
-const GENERIC_ERROR =
-  "We could not discard that sheet just now. Refresh and try again.";
+const GENERIC_ERROR = "We could not discard that sheet just now. Refresh and try again.";
 
 export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
   const router = useRouter();
@@ -50,9 +49,7 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
           body: JSON.stringify({ kind }),
         },
       );
-      const body = (await response.json()) as
-        | { status: string }
-        | { ok: false; code: string };
+      const body = (await response.json()) as { status: string } | { ok: false; code: string };
       if ("ok" in body && body.ok === false) {
         setState({
           kind: "error",

@@ -34,8 +34,7 @@ describe("<StaleCleanupAutoSubmit>", () => {
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
     const fieldOf = (name: string) =>
-      (form!.querySelector(`input[name="${name}"]`) as HTMLInputElement | null)
-        ?.value;
+      (form!.querySelector(`input[name="${name}"]`) as HTMLInputElement | null)?.value;
     expect(fieldOf("slug")).toBe(baseProps.slug);
     expect(fieldOf("shareToken")).toBe(baseProps.shareToken);
     expect(fieldOf("showId")).toBe(baseProps.showId);
@@ -68,10 +67,7 @@ describe("only-use-client-in-picker-tree static grep (R25)", () => {
       if (!/\.tsx?$/.test(entry.name)) continue;
       const source = readFileSync(join(dir, entry.name), "utf8");
       const head = source.slice(0, 200);
-      if (
-        /^['"]use client['"]/.test(head.trim()) ||
-        /\n['"]use client['"]/.test(head)
-      ) {
+      if (/^['"]use client['"]/.test(head.trim()) || /\n['"]use client['"]/.test(head)) {
         if (entry.name !== "_StaleCleanupAutoSubmit.tsx") {
           offenders.push(entry.name);
         }

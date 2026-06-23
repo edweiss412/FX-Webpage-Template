@@ -21,10 +21,7 @@
 
 import { ChangeFeedBadge } from "@/components/admin/ChangeFeedBadge";
 import { ChangeFeedTime } from "@/components/admin/ChangeFeedTime";
-import {
-  Mi11GateActions,
-  type Mi11GateActionResult,
-} from "@/components/admin/Mi11GateActions";
+import { Mi11GateActions, type Mi11GateActionResult } from "@/components/admin/Mi11GateActions";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import type { FeedEntry } from "@/lib/sync/holds/types";
 

@@ -79,3 +79,11 @@ tmp/
 
 # Codex companion per-run state (broker sockets, session/thread IDs, prompts) — never source
 .codex-companion*/
+
+# Subagent-driven-development working files (briefs/reports/diffs). Canonical
+# location is the git-dir (`git rev-parse --git-path sdd`); a working-tree `sdd/`
+# is a stray relative-path write and must never be committed.
+sdd/
+
+# Brainstorming visual-companion mockups
+.superpowers/

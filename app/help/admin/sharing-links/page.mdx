@@ -3,7 +3,8 @@
 Each show has one share-link for the crew. Send that URL to everyone who needs the show page. When a crew member opens it, the picker asks them to choose their own name, and the page stores that choice for future visits on the same device.
 
 <Callout type="warning">
-Use the app's share-link instead of sending the raw Drive sheet URL. Crew see role-filtered show details through the app, not the sheet.
+  Use the app's share-link instead of sending the raw Drive sheet URL. Crew see role-filtered show
+  details through the app, not the sheet.
 </Callout>
 
 ## What the controls do today
@@ -11,20 +12,28 @@ Use the app's share-link instead of sending the raw Drive sheet URL. Crew see ro
 The per-show panel's Share & access section carries the current URL and the controls that manage it.
 
 <Step n={1}>
-**Current share-link.** This panel shows the URL for the show. Use **Copy** to put it on your clipboard, then send it through your normal crew channel.
+  **Current share-link.** This panel shows the URL for the show. Use **Copy** to put it on your
+  clipboard, then send it through your normal crew channel.
 </Step>
 
 <Step n={2}>
-**Rotate share-token.** Use this when the URL leaks or you want a fresh URL for the show. Rotation makes the old share-link stop working and shows a new one immediately.
+  **Rotate share-token.** Use this when the URL leaks or you want a fresh URL for the show. Rotation
+  makes the old share-link stop working and shows a new one immediately.
 </Step>
 
 <Step n={3}>
-**Reset picker selections.** Use this when a crew member picked the wrong name or needs to choose again. It does not rotate the show URL.
+  **Reset picker selections.** Use this when a crew member picked the wrong name or needs to choose
+  again. It does not rotate the show URL.
 </Step>
 
 ## What crew see
 
-When a crew member opens the share-link, they choose their name from the picker or sign in with Google if their identity has already been claimed. After that, the crew page renders their call time, hotel and room if applicable, schedule, and the contact info they need for their role.
+When a crew member opens the share-link, they choose their name from the picker, or sign in with Google if their identity has already been claimed. The crew page then shows just what they need for their role:
+
+- Their call time for the show day.
+- Hotel and room, if they have a hotel row.
+- The schedule items relevant to them.
+- The contacts they need for their role.
 
 The picker choice is show-specific. If the sheet changes after someone first opens the link, the page re-checks the current roster and show version on later visits.
 
@@ -32,10 +41,10 @@ The picker choice is show-specific. If the sheet changes after someone first ope
 
 Share-links do not have a fixed calendar expiry. They stay valid while the show is active and while the current share-token remains in place.
 
-Three things can block access:
+Three things can block access (the first two are the **Rotate share-token** and **Reset picker selections** controls above):
 
-- **You rotate the share-token.** The previous show URL stops working immediately.
-- **You reset picker selections.** Existing picker choices are cleared, so crew members must pick again on their next visit.
-- **The crew member is removed from the show's sheet.** The roster change prevents that person from continuing through the picker for that show.
+- Rotating the share-token stops the previous URL working immediately.
+- Resetting picker selections clears existing choices, so crew pick again on their next visit.
+- Removing a crew member from the sheet stops them continuing through the picker for that show.
 
 When someone cannot access the page, send the current share-link again or reset picker selections if they picked the wrong name.

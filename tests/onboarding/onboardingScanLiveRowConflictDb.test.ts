@@ -218,14 +218,13 @@ test.skipIf(!dbUp)(
     const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
 
     const result = await runOnboardingScan(FOLDER, SESSION, {
-      // NO deps.tx: real withDefaultTx → one REAL postgres transaction per file,
-      // which is the only place the 25P02 abort is observable.
+      // NO deps.tx: the real scan-tx runner → one REAL postgres transaction per
+      // file, which is the only place the 25P02 abort is observable.
       listFolder: vi.fn(async () => [listedFile(FILE_A), listedFile(FILE_B)]),
-      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-        bindingToken: meta.modifiedTime,
-        modifiedTime: meta.modifiedTime,
+      fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: `markdown:${driveFileId}`,
       })),
-      fetchMarkdownAtRevision: vi.fn(async (driveFileId: string) => `markdown:${driveFileId}`),
       parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
       enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) =>
         makeParseResult(

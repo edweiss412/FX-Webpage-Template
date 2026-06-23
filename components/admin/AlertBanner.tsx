@@ -344,31 +344,31 @@ export async function AlertBanner() {
           data-testid="admin-alert-panel"
           className="col-span-full row-start-2 min-w-0 mt-3 border-t border-border pt-3"
         >
-            {/* full (un-truncated) message — ErrorExplainer again, no truncation wrapper */}
-            <ErrorExplainer code={alert.code} surface="admin" {...contextParams} />
-            {/*
+          {/* full (un-truncated) message — ErrorExplainer again, no truncation wrapper */}
+          <ErrorExplainer code={alert.code} surface="admin" {...contextParams} />
+          {/*
               Phase G.3: HelpAffordance hosts the §9.0.1 "What does this mean?"
               disclosure AND the §5.6 template-family `Learn more →` link.
             */}
-            <HelpAffordance code={alert.code} {...contextParams} />
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle">
-              <p data-testid="admin-alert-raised-at" className="tabular-nums">
-                Raised{" "}
-                <time dateTime={alert.raised_at} title={absoluteRaisedAt(alert.raised_at)}>
-                  {raisedAtSuffix(alert.raised_at, now)}
-                </time>
-              </p>
-              {moreCount > 0 && (
-                <Link
-                  data-testid="admin-alert-queue-chip"
-                  href="/admin#alerts"
-                  aria-label={`View ${moreCount} more unresolved alerts`}
-                  className="inline-flex min-h-tap-min items-center px-3 py-2 underline-offset-2 hover:text-accent-on-bg hover:underline"
-                >
-                  +{formatBoundedCount(moreCount)} more →
-                </Link>
-              )}
-            </div>
+          <HelpAffordance code={alert.code} {...contextParams} />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle">
+            <p data-testid="admin-alert-raised-at" className="tabular-nums">
+              Raised{" "}
+              <time dateTime={alert.raised_at} title={absoluteRaisedAt(alert.raised_at)}>
+                {raisedAtSuffix(alert.raised_at, now)}
+              </time>
+            </p>
+            {moreCount > 0 && (
+              <Link
+                data-testid="admin-alert-queue-chip"
+                href="/admin#alerts"
+                aria-label={`View ${moreCount} more unresolved alerts`}
+                className="inline-flex min-h-tap-min items-center px-3 py-2 underline-offset-2 hover:text-accent-on-bg hover:underline"
+              >
+                +{formatBoundedCount(moreCount)} more →
+              </Link>
+            )}
+          </div>
         </div>
 
         <div

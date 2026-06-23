@@ -16,7 +16,9 @@ type FakeSqlOptions = {
   failedUpsertRows?: Array<{ id: string }>;
 };
 
-function showCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "show" }>> = {}): RealtimeCandidate {
+function showCandidate(
+  overrides: Partial<Extract<RealtimeCandidate, { kind: "show" }>> = {},
+): RealtimeCandidate {
   return {
     kind: "show",
     dedupKey: "show-1:SHEET_UNAVAILABLE:1780000000123000",
@@ -31,7 +33,9 @@ function showCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "sh
   };
 }
 
-function ingestionCandidate(overrides: Partial<Extract<RealtimeCandidate, { kind: "ingestion" }>> = {}): RealtimeCandidate {
+function ingestionCandidate(
+  overrides: Partial<Extract<RealtimeCandidate, { kind: "ingestion" }>> = {},
+): RealtimeCandidate {
   return {
     kind: "ingestion",
     dedupKey: "ingestion:drive-1:1780000000123000",
@@ -53,7 +57,12 @@ function fakeSql(options: FakeSqlOptions = {}) {
     active: options.active ?? true,
     ledger: new Map<string, { status: "sent" | "failed"; attempt_count: number }>(
       options.existingLedger
-        ? [[`${existingLedgerKind}:${existingLedgerDedupKey}:${existingLedgerRecipient}`, options.existingLedger]]
+        ? [
+            [
+              `${existingLedgerKind}:${existingLedgerDedupKey}:${existingLedgerRecipient}`,
+              options.existingLedger,
+            ],
+          ]
         : [],
     ),
     sentRows: [] as Array<{ text: string; values: unknown[] }>,
@@ -67,10 +76,16 @@ function fakeSql(options: FakeSqlOptions = {}) {
     const text = String.raw(strings, ...values.map((_value, index) => `$${index + 1}`));
     calls.push({ text, values });
 
-    if (/select\s+1\s+from\s+public\.admin_alerts/i.test(text) || /select\s+1\s+from\s+public\.pending_ingestions/i.test(text)) {
+    if (
+      /select\s+1\s+from\s+public\.admin_alerts/i.test(text) ||
+      /select\s+1\s+from\s+public\.pending_ingestions/i.test(text)
+    ) {
       return Promise.resolve(state.current ? [{ current: true }] : []);
     }
-    if (/from\s+public\.email_deliveries/i.test(text) && /select\s+status,\s*attempt_count/i.test(text)) {
+    if (
+      /from\s+public\.email_deliveries/i.test(text) &&
+      /select\s+status,\s*attempt_count/i.test(text)
+    ) {
       const key =
         values.length >= 3
           ? ledgerKey(values[0], values[1], values[2])
@@ -81,12 +96,21 @@ function fakeSql(options: FakeSqlOptions = {}) {
     if (/from\s+public\.admin_emails/i.test(text)) {
       return Promise.resolve(state.active ? [{ active: true }] : []);
     }
-    if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'sent'/i.test(text)) {
+    if (
+      /insert\s+into\s+public\.email_deliveries/i.test(text) &&
+      /status\s*=\s*'sent'/i.test(text)
+    ) {
       state.sentRows.push({ text, values });
-      state.ledger.set(ledgerKey(values[0], values[1], values[3]), { status: "sent", attempt_count: 0 });
+      state.ledger.set(ledgerKey(values[0], values[1], values[3]), {
+        status: "sent",
+        attempt_count: 0,
+      });
       return Promise.resolve([{ id: "sent" }]);
     }
-    if (/insert\s+into\s+public\.email_deliveries/i.test(text) && /status\s*=\s*'failed'/i.test(text)) {
+    if (
+      /insert\s+into\s+public\.email_deliveries/i.test(text) &&
+      /status\s*=\s*'failed'/i.test(text)
+    ) {
       state.failedRows.push({ text, values });
       const rows = options.failedUpsertRows ?? [{ id: "failed" }];
       if (rows.length === 0) return Promise.resolve([]);
@@ -152,20 +176,23 @@ describe("deliverRealtimeCandidates", () => {
     ["show archived or unpublished", showCandidate(), { current: false }],
     ["pending row deleted", ingestionCandidate(), { current: false }],
     ["pending row becomes wizard-scoped", ingestionCandidate(), { current: false }],
-  ])("stale candidate race skips with no send and no ledger write: %s", async (_name, candidate, options) => {
-    const { sql, state } = fakeSql(options);
-    const { sendEmail } = sender([{ ok: true, messageId: "msg-1" }]);
+  ])(
+    "stale candidate race skips with no send and no ledger write: %s",
+    async (_name, candidate, options) => {
+      const { sql, state } = fakeSql(options);
+      const { sendEmail } = sender([{ ok: true, messageId: "msg-1" }]);
 
-    const result = await deliverRealtimeCandidates(
-      { candidates: [candidate], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
-    );
+      const result = await deliverRealtimeCandidates(
+        { candidates: [candidate], recipients: ["doug@fxav.net"], origin: ORIGIN },
+        { sql, sendEmail },
+      );
 
-    expect(result).toMatchObject({ kind: "ok", skipped: 1 });
-    expect(sendEmail).not.toHaveBeenCalled();
-    expect(state.sentRows).toHaveLength(0);
-    expect(state.failedRows).toHaveLength(0);
-  });
+      expect(result).toMatchObject({ kind: "ok", skipped: 1 });
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(state.sentRows).toHaveLength(0);
+      expect(state.failedRows).toHaveLength(0);
+    },
+  );
 
   test("two recipients receive distinct base idempotency keys and two sent rows", async () => {
     const { sql, state } = fakeSql();
@@ -175,7 +202,11 @@ describe("deliverRealtimeCandidates", () => {
     ]);
 
     await deliverRealtimeCandidates(
-      { candidates: [showCandidate()], recipients: ["a@example.com", "b@example.com"], origin: ORIGIN },
+      {
+        candidates: [showCandidate()],
+        recipients: ["a@example.com", "b@example.com"],
+        origin: ORIGIN,
+      },
       { sql, sendEmail },
     );
 
@@ -278,7 +309,9 @@ describe("deliverRealtimeCandidates", () => {
     );
 
     expect(state.failedRows).toHaveLength(2);
-    expect(state.ledger.get(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)?.attempt_count).toBe(2);
+    expect(
+      state.ledger.get(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)?.attempt_count,
+    ).toBe(2);
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "EMAIL_DELIVERY_FAILED",
@@ -298,7 +331,9 @@ describe("deliverRealtimeCandidates", () => {
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 1, retryLater: 0 });
     expect(state.failedRows).toHaveLength(1);
-    expect(state.ledger.has(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)).toBe(false);
+    expect(state.ledger.has(`realtime_problem:${showCandidate().dedupKey}:doug@fxav.net`)).toBe(
+      false,
+    );
     expect(upsertAdminAlert).not.toHaveBeenCalled();
   });
 
@@ -322,7 +357,9 @@ describe("deliverRealtimeCandidates", () => {
   });
 
   test("failed rows are retried only while attempt_count is below the cap", async () => {
-    const { sql, state } = fakeSql({ existingLedger: { status: "failed", attempt_count: SEND_RETRY_CAP } });
+    const { sql, state } = fakeSql({
+      existingLedger: { status: "failed", attempt_count: SEND_RETRY_CAP },
+    });
     const { sendEmail } = sender([{ ok: true, messageId: "msg-1" }]);
 
     const result = await deliverRealtimeCandidates(
@@ -373,13 +410,14 @@ describe("deliverRealtimeCandidates", () => {
 
   test("show and pending currentness checks use SQL-computed microsecond epochs and wizard exclusion", async () => {
     const { sql, calls } = fakeSql();
-    const { sendEmail } = sender([
-      { ok: "retry_later" },
-      { ok: "retry_later" },
-    ]);
+    const { sendEmail } = sender([{ ok: "retry_later" }, { ok: "retry_later" }]);
 
     await deliverRealtimeCandidates(
-      { candidates: [showCandidate(), ingestionCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
+      {
+        candidates: [showCandidate(), ingestionCandidate()],
+        recipients: ["doug@fxav.net"],
+        origin: ORIGIN,
+      },
       { sql, sendEmail },
     );
 
@@ -518,7 +556,13 @@ describe("deliverDigest", () => {
     expect(result).toMatchObject({ kind: "ok", failed: 1 });
     expect(state.failedRows).toHaveLength(1);
     expect(state.failedRows[0]?.values).toEqual(
-      expect.arrayContaining(["digest", "digest:2026-06-02", null, "doug@fxav.net", "provider down"]),
+      expect.arrayContaining([
+        "digest",
+        "digest:2026-06-02",
+        null,
+        "doug@fxav.net",
+        "provider down",
+      ]),
     );
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: null,
@@ -538,7 +582,10 @@ describe("deliverDigest", () => {
     });
     const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-1" }]);
 
-    const result = await deliverDigest({ model: digestModel(), origin: ORIGIN }, { sql, sendEmail });
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail },
+    );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
     expect(sendEmail).not.toHaveBeenCalled();
@@ -553,7 +600,10 @@ describe("deliverDigest", () => {
     });
     const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-1" }]);
 
-    const result = await deliverDigest({ model: digestModel(), origin: ORIGIN }, { sql, sendEmail });
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { sql, sendEmail },
+    );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
     expect(sendEmail).not.toHaveBeenCalled();
@@ -571,7 +621,7 @@ describe("email_deliveries recipient canonicalization audit coverage", () => {
           '  await db.from("email_deliveries").insert({',
           '    kind: "realtime_problem",',
           '    dedup_key: "k",',
-          '    recipient: rawRecipient,',
+          "    recipient: rawRecipient,",
           "  });",
           "}",
         ].join("\n"),
