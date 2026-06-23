@@ -2,28 +2,25 @@
 
 The per-show panel (`/admin/show/<slug>`) is what one show looks like to the app. You land here from the dashboard, by opening a show row or following a **Changes to review** badge.
 
-What you'll see, top to bottom:
+The panel's main parts:
 
-- **Staged-review card.** Only when this show has edits waiting for your review; it sits above everything else.
-- **Preview as a crew member.** Open the show through any crew member's eyes.
-- **Parse warnings.** Soft signals the app flagged on the latest sync.
-- **Crew & share access.** The share-link, the share-token controls, and the crew roster.
+- **Alerts and parse warnings.** Anything the app flagged on the latest sync, surfaced at the top.
+- **Crew & share access.** The crew roster (each row has a **Preview as** link), the show's share-link, and the share-token controls.
+- **Changes.** The show's feed of what synced recently: edits applied on their own, plus anything waiting for your OK. ([Jump](#changes-feed).)
 - **[Sync-status footer](#sync-health).** A quiet line at the bottom showing how the last sync went.
 
-On a quiet show the staged-review card is absent, and the sections just give you a quick read of what the sheet currently looks like to the app.
+On a quiet show the Changes feed just reads "No changes yet," and the sections give you a quick read of what the sheet currently looks like to the app.
 
-<h2 id="staged-review-card">Staged review card</h2>
+<h2 id="changes-feed">The changes feed</h2>
 
-A staged-review card appears at the top of the panel whenever this show has edits that haven't been Applied yet. What the card shows you:
+Most edits you make to a live show's sheet apply on their own. Each one lands in the show's **Changes** feed, newest first, with a plain-language summary of what changed:
 
-- **Source eyebrow.** Where the change came from: **Auto sync**, **Drive push**, **Manual sync**, or **Onboarding scan**.
-- **Heading.** A one-line summary of what changed.
-- **Per-item review.** Each item that needs your decision gets a plain-language description, plus a diff between the prior approved version and the staged one for each affected section (crew, hotels, rooms, and so on).
-- **Apply / Discard.** The two buttons that resolve the card.
+- **Auto-applied edits.** Crew added, removed, or renamed; schedule, field, and diagram or reel changes. Crew see them on their page right away, and most crew add, remove, and rename entries can be reversed with the **Undo this change** button.
+- **A crew member's identity change** (usually an email change, sometimes a rename or removal). This is the one edit that waits for your OK: the entry shows **Approve** and **Reject**, so a wrong or accidental reassignment never goes live on its own. Until you decide, that person's prior details stay in effect.
 
-The card also names the version you're approving: "staged from edits Doug made on …" with the staged modified time, so there's no guessing about which save you're looking at. While the card is present, the three sections below render underneath as informational context.
+When nothing has synced recently, the feed reads "No changes yet."
 
-For a full walkthrough of the Apply versus Discard decision, see [Review queues](/help/admin/review-queues#re-stage).
+Brand-new sheets are different: a sheet the app has never published waits for your sign-off before it goes live, and you review that one from the [Needs attention inbox](/help/admin/dashboard#pending-ingestion) (see [Review queues](/help/admin/review-queues#first-seen)), not here.
 
 <h2 id="sync-health">Sync health</h2>
 
