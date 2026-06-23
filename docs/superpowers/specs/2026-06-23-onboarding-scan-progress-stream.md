@@ -83,15 +83,28 @@ export type ScanProgressEvent =
   | { type: "prepared"; done: number; total: number; name: string }
   | { type: "staging" };
 
+// The terminal event's body. It is a SUPERSET of OnboardingScanResponseBody:
+// the success/schema_missing/superseded outcomes pass through verbatim, PLUS a
+// mid-run-failure shape that today's OnboardingScanResponseBody does not model.
+// (R1/R2 fix: OnboardingScanResponseBody = completed | schema_missing | superseded
+// only, scanResponse.ts:43-45 — it cannot hold {ok:false}. The pre-stream JSON
+// error path already uses {ok:false; code:string} (the route's errorResponse body
+// + Step2Verify's ScanResponseBody union, Step2Verify.tsx:69); the terminal error
+// widens `code` to string | null so D7's code:null fits.)
+export type ScanResultBody =
+  | OnboardingScanResponseBody
+  | { ok: false; code: string | null };
+
 // What the client reads off the wire: progress events plus the terminal line.
 export type ScanStreamMessage =
   | ScanProgressEvent
-  | { type: "result"; body: OnboardingScanResponseBody };
+  | { type: "result"; body: ScanResultBody };
 
 export const SCAN_STREAM_CONTENT_TYPE = "application/x-ndjson";
 ```
 
 - **Guard conditions:** `total` ≥ 0; `done` is 1..`total` and monotonically non-decreasing across `prepared` events (callback fires once per file); `name` is `DriveListedFile.name` (always present — used today at `runOnboardingScan.ts:471`), may be empty string for a degenerate file (render falls back to a neutral label, see §5.5).
+- **Client copy mapping (R2 fix):** the client's `copyForCode` param widens from `string` to `string | null`; its body is unchanged (`RECOGNIZED_CODES.has(null) === false` → it already returns the generic fallback, `Step2Verify.tsx:92-99`). The terminal-`result` handler routes any `{ok:false}` body through the existing error branch (`copyForCode(body.code)`), so `code:null` yields the generic copy with no raw code shown (invariant 5).
 - **Dependencies:** type-only import of `OnboardingScanResponseBody`.
 
 ### 5.2 Unit: `mapWithConcurrency` — add optional `onItemComplete` (`lib/async/mapWithConcurrency.ts`)
@@ -127,8 +140,22 @@ onItemComplete?: (info: { index: number; done: number; total: number; item: T; r
 const encoder = new TextEncoder();
 const stream = new ReadableStream<Uint8Array>({
   async start(controller) {
-    const emit = (msg: ScanStreamMessage) =>
-      controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n"));
+    // R2 fix — emit MUST swallow enqueue errors. After a client cancels the
+    // stream, controller.enqueue throws ("Invalid state"). Because `emit` is
+    // passed as `onProgress` and called for `listed`/`staging` OUTSIDE
+    // mapWithConcurrency's isolated onItemComplete, an un-caught throw here
+    // would propagate into runOnboardingScan and abort the scan mid-flight —
+    // regressing today's "scan always completes regardless of client" semantics.
+    // Swallowing keeps the producer driving the scan to completion on cancel.
+    let canceled = false;
+    const emit = (msg: ScanStreamMessage) => {
+      if (canceled) return;
+      try {
+        controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n"));
+      } catch {
+        canceled = true; // stream torn down by the client; stop enqueuing, keep scanning
+      }
+    };
     try {
       const result = await runtime.runOnboardingScan(folder.folderId, wizardSessionId, {
         onProgress: emit, // ScanProgressEvent ⊂ ScanStreamMessage
@@ -137,10 +164,15 @@ const stream = new ReadableStream<Uint8Array>({
         wizardSessionId, folderId: folder.folderId, folderName: folder.folderName,
       }) });
     } catch {
-      emit({ type: "result", body: { ok: false, code: null } }); // D7
+      emit({ type: "result", body: { ok: false, code: null } }); // D7 (emit is no-op if canceled)
     } finally {
-      controller.close();
+      try { controller.close(); } catch { /* already closed/canceled */ }
     }
+  },
+  cancel() {
+    // Client aborted the read. Do NOT abort the scan — runOnboardingScan keeps
+    // running inside start()'s promise to completion (consistent wizard state);
+    // `emit` no-ops via its catch. No lock/connection is held beyond today.
   },
 });
 return new Response(stream, {
@@ -154,7 +186,7 @@ return new Response(stream, {
 ```
 
 - **`ScanRouteDeps.runOnboardingScan` signature** (`:36`) gains the optional 3rd `deps` arg (it already matches `runOnboardingScan`'s real shape, which has `deps` as its 3rd param, `:974-978`) — injection for tests still works.
-- **Producer drives to completion regardless of client back-pressure.** The scan runs inside `start()`; `controller.enqueue` of small text lines buffers in memory if the client reads slowly, so a stalled browser reader does not pause the scan or prolong the per-show advisory lock / DB connection beyond today's duration. (The lock is per-file and short; the reused connection is held for the scan body exactly as today, `:501-505,936`.)
+- **Producer drives to completion regardless of client back-pressure OR cancel.** The scan runs inside `start()`; `controller.enqueue` of small text lines buffers in memory if the client reads slowly, so a stalled browser reader does not pause the scan or prolong the per-show advisory lock / DB connection beyond today's duration. (The lock is per-file and short; the reused connection is held for the scan body exactly as today, `:501-505,936`.) If the client **cancels**, `emit` no-ops (R2 fix above) and the scan still runs to completion — `onProgress` (for `listed`/`staging`, called outside `mapWithConcurrency`'s isolated callback) therefore cannot throw into `runOnboardingScan`. This is the contract that keeps the scan's wizard-session writes consistent whether or not the operator stays on the page.
 - **Precedent:** three asset routes already return `new Response(readableStream, …)` (`app/api/asset/diagram/[show]/[rev]/[key]/route.ts:388-418`, `app/api/asset/reel/[show]/route.ts:579`, `app/api/asset/agenda/[show]/[id]/route.ts:546`). There is no `middleware.ts` buffering `/api/admin/**`, and `vercel.json` is only `{ "framework": "nextjs" }`.
 
 ### 5.5 Unit: `Step2Verify` — stream reader + determinate bar (UI; `components/admin/wizard/Step2Verify.tsx`)
@@ -211,6 +243,10 @@ type ScanProgress =
 | reading/finishing → error | panel replaced by error alert (instant; today's behavior) |
 | any submitting → idle (superseded) | panel removed + `router.refresh()` (instant) |
 | connecting → error (pre-run error via JSON branch) | instant |
+| success → connecting (operator edits URL + resubmits — the form stays rendered, `:224-252`) | instant; success panel removed, progress panel appears |
+| error → connecting (operator retries — form stays rendered) | instant; error alert removed, progress panel appears |
+
+**Unreachable (declared impossible, no treatment needed):** reading → idle (only `superseded` returns to idle, and that is a terminal `result`, so it is reading/finishing → idle, already listed); success ↔ error directly (a new submit always passes through `connecting` first); reading → connecting (a started stream never re-enters connecting — `listed` only moves forward). A resubmit always tears down the current terminal panel and re-enters `connecting`.
 
 Compound: a `result` arriving mid-`reading` (e.g. fast `schema_missing` or a superseded race) overrides the current `progress` immediately — the result branch always wins over a pending `prepared` (events are processed in stream order; once `result` is seen the reader loop ends).
 
@@ -252,7 +288,9 @@ Compound: a `result` arriving mid-`reading` (e.g. fast `schema_missing` or a sup
    - Success returns `Content-Type: application/x-ndjson`; reading the stream yields ≥1 `prepared` event and a terminal `result` whose `body` **equals `toScanResponseBody(injectedResult, ctx)`** (assert against the helper output, not the rendered totals — anti-tautology). *Catches:* terminal body drift from the canonical contract.
    - Mid-run throw → terminal `{type:"result",body:{ok:false,code:null}}`, status 200. *Catches:* an exception leaking as an empty 500.
 4. **`scanResponse.test.ts`:** unchanged — reused as the terminal-body oracle.
-5. **`Step2Verify` (`tests/components/admin/wizard/Step2Verify.test.tsx`, rewrite fetch mock):** mock `fetch` to return a `Response` with a `ReadableStream` body emitting `listed`→`prepared`→`prepared`→`result(completed)`; assert the bar's `aria-valuenow/max`, the "N of M" text, and the "Just read: \<name\>" line update, then the success summary renders. Separate cases: `result(superseded)`→`router.refresh()` called; `result(schema_missing)`→catalog copy; mid-stream end with no result→generic error; `total:0`→straight to success("Found 0 items"). Derive "N of M" from the emitted events (anti-hardcode). The request-header `Content-Type: application/json` assertion (`:89`) is retained. *Catches:* a reader that mis-parses NDJSON, drops the partial-line buffer, or fails the empty-folder path.
+5. **`Step2Verify` (`tests/components/admin/wizard/Step2Verify.test.tsx`, rewrite fetch mock):** mock `fetch` to return a `Response` with a `ReadableStream` body emitting `listed`→`prepared`→`prepared`→`result(completed)`; assert the bar's `aria-valuenow/max`, the "N of M" text, and the "Just read: \<name\>" line update, then the success summary renders. Separate cases: `result(superseded)`→`router.refresh()` called; `result(schema_missing)`→catalog copy; `result({ok:false,code:null})`→generic copy (no raw code); mid-stream end with no result→generic error; null `response.body`→generic error; `total:0`→straight to success("Found 0 items"); legacy non-stream path (`application/json` 4xx body)→existing error handling. Derive "N of M" from the emitted events (anti-hardcode). The request-header `Content-Type: application/json` assertion (`:89`) is retained.
+   - **Mandatory chunk-boundary case (R2 fix):** the mock `ReadableStream` MUST enqueue chunks that (a) split a single NDJSON object across two `read()` results (e.g. `{"type":"pre` then `pared",...}\n`), (b) pack two objects into one chunk, and (c) end the final `result` line **without** a trailing `\n`. Assert the parser still surfaces every event exactly once and the terminal result is processed. *Catches:* a line-by-line parser that assumes one object per `read()`, loses the partial-line buffer across reads, or drops an unterminated final line — the exact bug a naive `chunk.split("\n")` introduces.
+   *Catches:* a reader that mis-parses NDJSON, drops the partial-line buffer, or fails the empty-folder path.
 6. **Layout (real browser, Playwright or chrome-devtools `evaluate_script`):** with the panel in `reading` state, `getBoundingClientRect()` on the `<progress>` asserts `width === panel content width` (±0.5px) and `height === <bar-height>`. jsdom is insufficient. *Catches:* a collapsed/zero-width bar that unit tests miss.
 7. **Transition audit:** enumerate the component's conditional renders / `<progress>` determinate↔indeterminate toggle per the §5.5 inventory; assert each transition is the declared treatment (animated width vs instant), including the compound `result`-mid-`reading` override.
 
