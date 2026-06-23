@@ -87,6 +87,10 @@ type PendingFinalizeRow = {
   staged_id: string;
   staged_modified_time: string;
   parse_result: ParseResult;
+  // Task B2: finalize processes EVERY clean row, not only wizard_approved=true. This flag keys
+  // the 4-branch split in processApprovedRow and seeds the manifest's publish_intent (checked →
+  // CAS flips to Live; unchecked → the created show stays Held, published=false).
+  wizard_approved: boolean;
   wizard_reviewer_choices: unknown[];
   wizard_reviewer_choices_version: number | null;
   wizard_approved_by_email: string | null;
@@ -215,6 +219,15 @@ function requireApprovedByEmail(row: PendingFinalizeRow): string {
   return row.wizard_approved_by_email;
 }
 
+// Task B2: an UNCHECKED first-seen row carries no reviewer choices (the wizard never recorded
+// them). Its triggered_review_items are the apply-only ONBOARDING_SCAN_REVIEW sentinel(s)
+// (lib/sync/phase1.ts sentinelFor), whose only allowed action is "apply" (applyStagedCore
+// allowedActions). Synthesize the default apply-all choice set so validateReviewerChoices passes
+// and the staged parse applies wholesale, exactly as a checked apply would.
+function synthesizeDefaultChoices(items: TriggeredReviewItem[]): ReviewerChoice[] {
+  return items.map((item) => ({ item_id: item.id, action: "apply" as const }));
+}
+
 /**
  * Plan R25-1/R29-1 (F1 Task 1.3): session discovery is a PLAIN read — no row lock. The
  * app_settings FOR UPDATE row lock is taken ONLY after `tryFinalizeLock` succeeds
@@ -297,21 +310,39 @@ async function unresolvedManifestCount(
   return rows[0]?.unresolved_count ?? 0;
 }
 
-async function selectApprovedRows(
+// Task B2 (Held model): finalize creates a show for EVERY clean row, checked AND unchecked — so
+// the batch selector picks up ALL FINISHABLE clean pending_syncs rows for the session, not only
+// wizard_approved=true. "Finishable clean" =
+//   (1) the manifest sits at a non-blocking status ('staged' or 'applied') — blocking statuses
+//       (hard_failed / discard_retryable / live_row_conflict) never have a processable row; AND
+//   (2) the row is NOT a demoted-and-not-yet-reapplied failure. A demoted row keeps
+//       last_finalize_failure_code set with wizard_approved=false and manifest='staged'; it must
+//       wait for operator re-apply, NOT be re-processed every batch (it would just re-fail, never
+//       letting finish complete). A FRESH unchecked-clean row also has wizard_approved=false but
+//       last_finalize_failure_code IS NULL — that one we DO process into a Held show. A re-applied
+//       row is wizard_approved=true again (its stale failure code is irrelevant), so the
+//       `wizard_approved = true OR last_finalize_failure_code is null` predicate selects it too.
+// wizard_approved is carried into the row shape to key the 4-branch split + publish_intent stamp.
+async function selectFinishableCleanRows(
   tx: FinalizeRouteTx,
   wizardSessionId: string,
   limit: number,
 ): Promise<PendingFinalizeRow[]> {
   const { rows } = await tx.query<PendingFinalizeRow>(
     `
-      select drive_file_id, staged_id, staged_modified_time, parse_result,
-             wizard_reviewer_choices, wizard_reviewer_choices_version,
-             wizard_approved_by_email, wizard_approved_at,
-             triggered_review_items, base_modified_time
-        from public.pending_syncs
-       where wizard_session_id = $1::uuid
-         and wizard_approved = true
-       order by drive_file_id
+      select ps.drive_file_id, ps.staged_id, ps.staged_modified_time, ps.parse_result,
+             ps.wizard_approved,
+             ps.wizard_reviewer_choices, ps.wizard_reviewer_choices_version,
+             ps.wizard_approved_by_email, ps.wizard_approved_at,
+             ps.triggered_review_items, ps.base_modified_time
+        from public.pending_syncs ps
+        join public.onboarding_scan_manifest m
+          on m.wizard_session_id = ps.wizard_session_id
+         and m.drive_file_id = ps.drive_file_id
+       where ps.wizard_session_id = $1::uuid
+         and m.status in ('staged', 'applied')
+         and (ps.wizard_approved = true or ps.last_finalize_failure_code is null)
+       order by ps.drive_file_id
        limit $2
     `,
     [wizardSessionId, limit],
@@ -319,17 +350,28 @@ async function selectApprovedRows(
   return rows;
 }
 
-async function countApprovedRows(tx: FinalizeRouteTx, wizardSessionId: string): Promise<number> {
-  const { rows } = await tx.query<{ approved_count: number }>(
+// Task B2: the multi-batch remaining count mirrors the FINISHABLE-clean selector predicate (not a
+// bare pending_syncs count) so a >batchCap folder loops correctly until every finishable row is
+// consumed, while a demoted-and-not-yet-reapplied row is excluded here too (it surfaces via
+// unresolvedManifestCount, which keeps finish blocked until it is re-applied or resolved).
+async function countRemainingCleanRows(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+): Promise<number> {
+  const { rows } = await tx.query<{ remaining_count: number }>(
     `
-      select count(*)::int as approved_count
-        from public.pending_syncs
-       where wizard_session_id = $1::uuid
-         and wizard_approved = true
+      select count(*)::int as remaining_count
+        from public.pending_syncs ps
+        join public.onboarding_scan_manifest m
+          on m.wizard_session_id = ps.wizard_session_id
+         and m.drive_file_id = ps.drive_file_id
+       where ps.wizard_session_id = $1::uuid
+         and m.status in ('staged', 'applied')
+         and (ps.wizard_approved = true or ps.last_finalize_failure_code is null)
     `,
     [wizardSessionId],
   );
-  return rows[0]?.approved_count ?? 0;
+  return rows[0]?.remaining_count ?? 0;
 }
 
 async function demotePending(
@@ -408,21 +450,46 @@ async function recordCreatedShowProvenance(
   wizardSessionId: string,
   driveFileId: string,
   showId: string,
+  publishIntent: boolean,
 ): Promise<void> {
+  // Task B2: stamp publish_intent in the SAME provenance UPDATE — checked rows (true) are flipped
+  // to Live by the CAS step (B3, narrowed to publish_intent=true); unchecked rows (false) leave
+  // the created show Held (published=false).
   const recorded = await tx.query<{ recorded: boolean }>(
     `
       update public.onboarding_scan_manifest
-         set created_show_id = $3::uuid
+         set created_show_id = $3::uuid,
+             publish_intent = $4
        where drive_file_id = $1 and wizard_session_id = $2::uuid
          and exists (select 1 from public.app_settings
                       where id = 'default' and pending_wizard_session_id = $2::uuid)
       returning true as recorded
     `,
-    [driveFileId, wizardSessionId, showId],
+    [driveFileId, wizardSessionId, showId, publishIntent],
   );
   if (recorded.rowCount === 0) {
     throw new FirstSeenProvenanceRaceError(driveFileId, wizardSessionId);
   }
+}
+
+// Task B2: stamp publish_intent on the manifest WITHOUT touching created_show_id — used by the
+// existing-show-checked branch (which stages a shadow and creates no first-seen show, so
+// recordCreatedShowProvenance does not apply). Plain UPDATE: no provenance-race guard (the shadow
+// path has no created_show_id to bind to the active session).
+async function stampManifestPublishIntent(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+  driveFileId: string,
+  publishIntent: boolean,
+): Promise<void> {
+  await tx.query(
+    `
+      update public.onboarding_scan_manifest
+         set publish_intent = $3
+       where drive_file_id = $1 and wizard_session_id = $2::uuid
+    `,
+    [driveFileId, wizardSessionId, publishIntent],
+  );
 }
 
 // WM-R9 archived-show disposition: this Phase B staging path does NOT gate on shows.archived —
@@ -495,13 +562,16 @@ async function deleteApprovedPending(
   wizardSessionId: string,
   row: PendingFinalizeRow,
 ): Promise<void> {
+  // Task B2: consumes the pending row for EVERY clean row (checked AND unchecked). The
+  // (drive_file_id, wizard_session_id, staged_id) triple already identifies the exact row, so the
+  // old `and wizard_approved = true` predicate is dropped — otherwise an unchecked row
+  // (wizard_approved=false) would survive and re-block finish or orphan (data loss).
   await tx.query<{ deleted: boolean }>(
     `
       delete from public.pending_syncs
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
          and staged_id = $3::uuid
-         and wizard_approved = true
       returning true as deleted
     `,
     [row.drive_file_id, wizardSessionId, row.staged_id],
@@ -558,10 +628,14 @@ async function processApprovedRow(input: {
   tx: FinalizeRouteTx;
   pipelineTx: SyncPipelineTx;
   fetchDriveFileMetadata: (driveFileId: string) => Promise<DriveListedFile>;
+  finalizerEmail: string;
 }): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
 
-  if (row.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION) {
+  // Task B2: the reviewer-choices version is a CHECKED-row contract — only checked rows carry
+  // real choices + version=1. An UNCHECKED row has version=null (the wizard never recorded
+  // choices); it must NOT be demoted for that. Enforce the version only for checked rows.
+  if (row.wizard_approved && row.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION) {
     await demotePending(
       tx,
       wizardSessionId,
@@ -664,20 +738,61 @@ async function processApprovedRow(input: {
   }
 
   if (await showExists(tx, row.drive_file_id)) {
-    await stageExistingShowShadow(tx, wizardSessionId, coercedRow, parsedItems.items);
+    if (row.wizard_approved) {
+      // existing-show + CHECKED: unchanged — stage the shadow for the Phase D apply. publish_intent
+      // is N/A to the first-seen flip (this row never creates a show) but stamp it true for
+      // consistency with the manifest's checked/unchecked contract.
+      await stageExistingShowShadow(tx, wizardSessionId, coercedRow, parsedItems.items);
+      await stampManifestPublishIntent(tx, wizardSessionId, row.drive_file_id, true);
+      await deleteApprovedPending(tx, wizardSessionId, row);
+      return {
+        drive_file_id: row.drive_file_id,
+        wizard_session_id: wizardSessionId,
+        code: OK_CODE,
+      };
+    }
+    // existing-show + UNCHECKED — spec §7.4 D10 NO-OP. Doug left an already-Live show unchecked:
+    // do NOT stage a shadow, do NOT touch public.shows (the Live show is unchanged). Just resolve
+    // the manifest (status='applied', no created show, publish_intent=false → flip-excluded since
+    // created_show_id IS NULL) and consume the pending row so it can't block finish or orphan.
+    await tx.query(
+      `
+        update public.onboarding_scan_manifest
+           set status = 'applied',
+               created_show_id = null,
+               publish_intent = false,
+               transitioned_at = now()
+         where drive_file_id = $1 and wizard_session_id = $2::uuid
+      `,
+      [row.drive_file_id, wizardSessionId],
+    );
     await deleteApprovedPending(tx, wizardSessionId, row);
     return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }
 
-  // First-seen branch (F1 Task 1.3): the FULL Phase-2 apply via the shared core — children +
-  // shows_internal + auth-contract calls — with published=false preserved (firstSeenPublished),
-  // the show-side session discriminator written in the same INSERT (wizardCreatedSessionId),
-  // NO feed rows (the feed documents changes to LIVE shows), and REAL audit provenance
-  // (approving admin + Apply-click instant, spec §3.1 R8-1).
+  // First-seen branch (F1 Task 1.3 + Task B2): the FULL Phase-2 apply via the shared core —
+  // children + shows_internal + auth-contract calls — with published=false preserved
+  // (firstSeenPublished), the show-side session discriminator written in the same INSERT
+  // (wizardCreatedSessionId), NO feed rows (the feed documents changes to LIVE shows). Audit
+  // provenance differs by checked/unchecked:
+  //   - CHECKED:   approving admin + Apply-click instant (spec §3.1 R8-1), the row's real choices.
+  //   - UNCHECKED: the FINALIZER (the row has no approver — wizard_approved_by_email is null) +
+  //     the finish instant (wizard_approved_at is null) + synthesized apply-all choices over the
+  //     ONBOARDING_SCAN_REVIEW sentinel(s). The created show stays Held (publish_intent=false).
   const stagedModifiedTimeIso = normalizeTimestamptz(row.staged_modified_time);
   if (!stagedModifiedTimeIso) {
     throw new Error("approved onboarding row is missing staged_modified_time");
   }
+
+  const appliedByEmail = row.wizard_approved
+    ? requireApprovedByEmail(coercedRow) // approving admin
+    : input.finalizerEmail; // unchecked: the finalizer (no approver on the row)
+  const appliedAt = row.wizard_approved
+    ? normalizeTimestamptz(row.wizard_approved_at) // Apply-click instant
+    : new Date().toISOString(); // unchecked: finish instant (wizard_approved_at is null)
+  const reviewerChoices = row.wizard_approved
+    ? (coercedRow.wizard_reviewer_choices as ReviewerChoice[])
+    : synthesizeDefaultChoices(parsedItems.items); // unchecked: apply-all over the sentinel(s)
 
   const lockedTx = await adoptShowLockHeld(input.pipelineTx, row.drive_file_id);
   const core = await applyStagedCore(lockedTx, {
@@ -686,12 +801,12 @@ async function processApprovedRow(input: {
     show: null, // first-seen: gated by !showExists above
     parseResult: coercedRow.parse_result,
     triggeredReviewItems: parsedItems.items,
-    reviewerChoices: coercedRow.wizard_reviewer_choices as ReviewerChoice[],
+    reviewerChoices,
     stagedId: row.staged_id,
     stagedModifiedTime: stagedModifiedTimeIso,
     baseModifiedTime: null, // no live row → equality preflight trivially holds
-    appliedByEmail: requireApprovedByEmail(coercedRow), // approving admin, NOT the finalizer
-    appliedAt: normalizeTimestamptz(row.wizard_approved_at), // Apply-click instant, NOT now()
+    appliedByEmail,
+    appliedAt,
     auditSource: "onboarding_finalize",
     fileMeta: metadata,
     mi11Items: [], // first-seen: no prior crew → MI-11 impossible
@@ -728,8 +843,15 @@ async function processApprovedRow(input: {
   }
 
   // Provenance BEFORE consuming the staging row — a race throws and rolls back the whole
-  // per-row transaction (FirstSeenProvenanceRaceError), leaving pending_syncs untouched.
-  await recordCreatedShowProvenance(tx, wizardSessionId, row.drive_file_id, core.showId);
+  // per-row transaction (FirstSeenProvenanceRaceError), leaving pending_syncs untouched. The same
+  // UPDATE stamps publish_intent (= checked) so the CAS flip (B3) publishes only checked rows.
+  await recordCreatedShowProvenance(
+    tx,
+    wizardSessionId,
+    row.drive_file_id,
+    core.showId,
+    row.wizard_approved,
+  );
   await deleteApprovedPending(tx, wizardSessionId, row);
   return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
@@ -739,8 +861,12 @@ export async function handleOnboardingFinalize(
   deps: FinalizeRouteDeps = {},
 ): Promise<Response> {
   const runtime = depsWithDefaults(deps);
+  let finalizerEmail: string;
   try {
-    await runtime.requireAdminIdentity();
+    // Task B2: capture the finalizing admin's email — it is the audit actor for unchecked
+    // first-seen rows (those have no approver on the pending row).
+    const admin = await runtime.requireAdminIdentity();
+    finalizerEmail = admin.email;
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -780,7 +906,7 @@ export async function handleOnboardingFinalize(
         });
       }
 
-      const approvedRows = await selectApprovedRows(tx, wizardSessionId, runtime.batchCap);
+      const approvedRows = await selectFinishableCleanRows(tx, wizardSessionId, runtime.batchCap);
       const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
       if (
         checkpoint.status === "all_batches_complete" &&
@@ -822,6 +948,7 @@ export async function handleOnboardingFinalize(
               tx: rowTx,
               pipelineTx,
               fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
+              finalizerEmail,
             }),
           );
         } catch (error) {
@@ -847,7 +974,7 @@ export async function handleOnboardingFinalize(
         perRow.push(result);
       }
 
-      const remainingCount = await countApprovedRows(tx, wizardSessionId);
+      const remainingCount = await countRemainingCleanRows(tx, wizardSessionId);
       const unresolvedAfterBatch = await unresolvedManifestCount(tx, wizardSessionId);
       return await finalizeBatchTailResponse({
         tx,
