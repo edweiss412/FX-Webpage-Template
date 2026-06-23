@@ -75,9 +75,9 @@ jobs:
         with:
           # Pinned (NOT `latest`): `latest` resolves the newest release via the GitHub
           # API, which rate-limits on shared runners and fails setup before the build
-          # (crew-e2e on PR #102). 2.98.2 is the version supabase-local-bootstrap.sh is
-          # verified against; a fixed version downloads directly (no API lookup).
-          version: 2.98.2
+          # (crew-e2e on PR #102). 2.107.0 is the version supabase-local-bootstrap.sh is
+          # known CI-passing (PR #102; older 2.98.2 broke the in-container psql auth); a fixed version downloads directly (no API lookup).
+          version: 2.107.0
       - name: Install psql (signInAs admin client + bootstrap shell out to psql)
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Boot local Supabase (guarded migrations)
