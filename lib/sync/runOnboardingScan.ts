@@ -124,7 +124,7 @@ type ProcessedOnboardingFile = Extract<
   { outcome: "completed" }
 >["processed"][number];
 
-type PreparedOnboardingFile =
+export type PreparedOnboardingFile =
   | { file: DriveListedFile; kind: "non_sheet" }
   | {
       file: DriveListedFile;
@@ -894,7 +894,7 @@ async function verifyOnboardingScanReady(
   };
 }
 
-async function prepareOnboardingFiles(
+export async function prepareOnboardingFiles(
   folderId: string,
   deps: RunOnboardingScanDeps,
 ): Promise<PreparedOnboardingFile[]> {
@@ -929,32 +929,65 @@ async function prepareOnboardingFiles(
   return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne);
 }
 
+/**
+ * Provide a `withTx` to `body` over the right connection strategy:
+ *  - `deps.tx` (injected, e.g. a caller-locked tx): every withTx call runs the
+ *    fn against that single tx — the caller owns the transaction/lock.
+ *  - default: one reused Postgres connection (a fresh sql.begin() transaction
+ *    per withTx call), closed when `body` resolves. This is the connection-reuse
+ *    strategy from the scan-loop optimization; holding it open across the body's
+ *    (DB-free) Drive prepare phase is fine — postgres.js reconnects on idle.
+ */
+async function withScanTx<R>(
+  folderId: string,
+  wizardSessionId: string,
+  deps: RunOnboardingScanDeps,
+  body: (withTx: ScanTxRunner["withTx"]) => Promise<R>,
+): Promise<R> {
+  if (deps.tx) {
+    const tx = deps.tx;
+    return await body(async (fn) => fn(tx));
+  }
+  const runner = (deps.createScanTxRunner ?? defaultCreateScanTxRunner)(folderId, wizardSessionId);
+  try {
+    return await body(runner.withTx);
+  } finally {
+    await runner.close();
+  }
+}
+
+/**
+ * Stage an ALREADY-prepared set of onboarding files (readiness probe + the
+ * lock-ordered per-file scan) WITHOUT re-fetching from Drive. Split out from
+ * runOnboardingScan so callers that must prepare BEFORE acquiring a lock (the
+ * wizard revision-race restage) can do the slow Drive read pre-lock and call
+ * this for the fast DB staging under the lock.
+ */
+export async function scanOnboardingPreparedFiles(
+  folderId: string,
+  wizardSessionId: string,
+  preparedFiles: PreparedOnboardingFile[],
+  deps: RunOnboardingScanDeps = {},
+): Promise<OnboardingScanResult> {
+  return withScanTx(folderId, wizardSessionId, deps, async (withTx) => {
+    const readiness = await withTx(verifyOnboardingScanReady);
+    if (readiness) return readiness;
+    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, withTx);
+  });
+}
+
 export async function runOnboardingScan(
   folderId: string,
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
-  if (deps.tx) {
-    const tx = deps.tx;
-    const readiness = await verifyOnboardingScanReady(tx);
+  return withScanTx(folderId, wizardSessionId, deps, async (withTx) => {
+    const readiness = await withTx(verifyOnboardingScanReady);
     if (readiness) return readiness;
+    // Side-effect-free, pre-lock Drive read. For the default connection strategy
+    // the reused connection is held (idle) across this — postgres.js reconnects
+    // transparently if the socket times out during it.
     const preparedFiles = await prepareOnboardingFiles(folderId, deps);
-    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, async (fn) =>
-      fn(tx),
-    );
-  }
-
-  // Default path: one Postgres connection reused for the readiness probe AND
-  // every per-file scan transaction (prior code opened a fresh connection per
-  // file). prepareOnboardingFiles in between does no DB work; postgres.js
-  // transparently reconnects if the socket idles out during it.
-  const runner = (deps.createScanTxRunner ?? defaultCreateScanTxRunner)(folderId, wizardSessionId);
-  try {
-    const readiness = await runner.withTx(verifyOnboardingScanReady);
-    if (readiness) return readiness;
-    const preparedFiles = await prepareOnboardingFiles(folderId, deps);
-    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, runner.withTx);
-  } finally {
-    await runner.close();
-  }
+    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, withTx);
+  });
 }

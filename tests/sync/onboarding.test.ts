@@ -4,6 +4,7 @@ import type { CrewMemberRow, ParsedSheet, ParseResult, RoomRow } from "@/lib/par
 import type { Phase1PendingIngestionRow, Phase1PendingSyncRow, Phase1Tx } from "@/lib/sync/phase1";
 import {
   ONBOARDING_PREPARE_CONCURRENCY,
+  type PreparedOnboardingFile,
   type RunOnboardingScanDeps,
 } from "@/lib/sync/runOnboardingScan";
 
@@ -675,5 +676,36 @@ describe("runOnboardingScan", () => {
     // readiness probe + one transaction per file, all on that single connection.
     expect(withTxCalls).toBe(1 + files.length);
     expect(tx.manifest.map((row) => row.driveFileId)).toEqual(["file-1", "file-2", "file-3"]);
+  });
+
+  test("scanOnboardingPreparedFiles stages already-prepared files with NO Drive fetch", async () => {
+    vi.resetModules();
+    const { scanOnboardingPreparedFiles } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+
+    // Drive deps that MUST NOT be touched — staging an already-prepared file
+    // does no Drive I/O (this is what lets the wizard restage prepare pre-lock
+    // and stage under the lock).
+    const listFolder = vi.fn(async () => {
+      throw new Error("listFolder must not be called by scanOnboardingPreparedFiles");
+    });
+
+    const prepared: PreparedOnboardingFile[] = [
+      {
+        file: file("file-1"),
+        kind: "sheet",
+        binding: { bindingToken: "tok-file-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+        parseResult: parseResult(),
+      },
+    ];
+
+    const result = await scanOnboardingPreparedFiles("folder-1", W1, prepared, { tx, listFolder });
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    expect(listFolder).not.toHaveBeenCalled();
+    expect(tx.manifest).toMatchObject([{ driveFileId: "file-1", status: "staged" }]);
+    expect(tx.pendingSyncs).toMatchObject([
+      { driveFileId: "file-1", wizardSessionId: W1, sourceKind: "onboarding_scan" },
+    ]);
   });
 });
