@@ -205,4 +205,45 @@ describe("listFolder", () => {
       parents: [],
     });
   });
+
+  // BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY: the folder list opts into the
+  // same withDriveRetry coverage as files.get / the xlsx export, so a transient
+  // throttle on the list no longer aborts the scan (esp. at the raised prepare cap).
+  const fastRetry = { sleep: async () => {}, random: () => 0 };
+
+  test("retries a transient 429 on the folder list, then succeeds", async () => {
+    const ok = {
+      data: {
+        files: [
+          {
+            id: "sheet-1",
+            name: "Show Sheet",
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            modifiedTime: "2026-05-08T12:00:00.000Z",
+            parents: [FOLDER_ID],
+          },
+        ],
+      },
+    };
+    const filesList = vi.fn().mockRejectedValueOnce({ status: 429 }).mockResolvedValue(ok);
+    const { listFolder } = await import("@/lib/drive/list");
+
+    const files = await listFolder(FOLDER_ID, {
+      drive: fakeDrive(filesList),
+      retry: fastRetry,
+    });
+
+    expect(files).toHaveLength(1);
+    expect(filesList).toHaveBeenCalledTimes(2);
+  });
+
+  test("does NOT retry a non-transient 404 on the folder list", async () => {
+    const filesList = vi.fn().mockRejectedValue({ status: 404 });
+    const { listFolder } = await import("@/lib/drive/list");
+
+    await expect(
+      listFolder(FOLDER_ID, { drive: fakeDrive(filesList), retry: fastRetry }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(filesList).toHaveBeenCalledTimes(1);
+  });
 });
