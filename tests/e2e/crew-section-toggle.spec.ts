@@ -150,8 +150,29 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
     await page.waitForLoadState("networkidle");
 
     // Recorder attached AFTER settle: anything captured here is caused by the tap.
-    const reqs: string[] = [];
-    page.on("request", (r) => reqs.push(r.url()));
+    // We record DATA-BEARING request types only — document (full nav), fetch/xhr
+    // (RSC payload OR any client data fetch) — and EXCLUDE Next's speculative
+    // <Link> prefetch (carries `next-router-prefetch`/`purpose: prefetch`), which
+    // is benign and could otherwise flake the proof. Static assets (script/img/
+    // css/font) and the realtime WebSocket are ignored (the WS isn't an HTTP
+    // request type). This is stricter than a crew-route-only filter (review R2
+    // [MED]): a regressed router.push (document/RSC nav) AND any future
+    // client-side section DATA fetch to ANY endpoint both fail it, upholding the
+    // no-client-fetch freshness invariant; only benign prefetch is tolerated.
+    const offending: string[] = [];
+    const allTypes: string[] = [];
+    page.on("request", (r) => {
+      const type = r.resourceType();
+      allTypes.push(`${type}:${new URL(r.url()).pathname}`);
+      if (type !== "document" && type !== "fetch" && type !== "xhr") return;
+      const h = r.headers();
+      const isPrefetch =
+        h["next-router-prefetch"] === "1" ||
+        h["purpose"] === "prefetch" ||
+        (h["sec-purpose"] ?? "").includes("prefetch");
+      if (isPrefetch) return;
+      offending.push(`${type} ${r.url()}`);
+    });
 
     // Tap the Venue tab. `.first()` selects whichever responsive nav is visible
     // (desktop row at ≥720px, mobile bar <720px) — both carry data-section.
@@ -160,22 +181,17 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
     // Venue becomes visible purely from the client toggle.
     await expect(page.getByTestId("section-venue")).toBeVisible();
 
-    // THE HARD ASSERTION: the tap caused NO fetch of the CREW ROUTE — neither a
-    // full document navigation nor an RSC payload fetch. A regressed router.push
-    // would emit exactly that: an RSC fetch to /show/<slug>/<token>?s=venue (the
-    // dynamic route re-running getShowForViewer). We scope to the crew-route path
-    // (rather than `reqs.length === 0`) so an incidental Next <Link> prefetch of
-    // some OTHER route, analytics, or realtime HTTP can't flake the proof — the
-    // win is "the SECTION nav does not round-trip the crew page," which is exactly
-    // a crew-route request count of 0. (Total request count is logged for review.)
-    const crewRoutePath = `/show/${slug}/${shareToken}`;
-    const crewRouteReqs = reqs.filter((u) => new URL(u).pathname.includes(crewRoutePath));
+    // THE HARD ASSERTION: the tap fired NO data-bearing request (document / RSC /
+    // fetch / xhr) other than benign prefetch — proving the section switch is a
+    // pure client toggle with no server round-trip AND no client-side section
+    // data fetch. A regressed router.push, or a controller that fetched section
+    // data client-side, would land here.
     console.log(
-      `CREW_TAP_REQS total=${reqs.length} crewRoute=${crewRouteReqs.length} ${JSON.stringify(reqs.slice(0, 8))}`,
+      `CREW_TAP_REQS total=${allTypes.length} offending=${offending.length} ${JSON.stringify(allTypes.slice(0, 12))}`,
     );
     expect(
-      crewRouteReqs,
-      `a section tap must NOT fetch the crew route (client toggle, no server round-trip); got ${crewRouteReqs.length}: ${JSON.stringify(crewRouteReqs)}`,
+      offending,
+      `a section tap must fire ZERO data requests (no server round-trip, no client section fetch); got ${offending.length}: ${JSON.stringify(offending)}`,
     ).toHaveLength(0);
 
     // The shallow URL + client state both reflect Venue.
