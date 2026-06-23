@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -103,4 +103,33 @@ describe("CI speedup — screenshots-drift runs per-PR only on render-affecting 
   it("retains workflow_dispatch for on-demand verification", () => {
     expect(yaml.includes("workflow_dispatch:")).toBe(true);
   });
+});
+
+describe("CI speedup — host psql install skips apt-get update when psql is present", () => {
+  const allWorkflows = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".yml"));
+
+  // GitHub's ubuntu-latest image already ships postgresql-client most of the
+  // time; `apt-get update` is the slow part. Guarding every host (sudo) install
+  // with `command -v psql` skips the update+install when psql already resolves.
+  // The in-container install in screenshots-drift (no `sudo`, inside the Docker
+  // bash -lc) is intentionally excluded — it runs in a clean image each time.
+  it.each(allWorkflows)(
+    "%s: every host (sudo) postgresql-client install is guarded by `command -v psql`",
+    (file) => {
+      const offenders = readWorkflow(file)
+        .split("\n")
+        .filter(
+          (line) =>
+            line.includes("sudo apt-get") &&
+            line.includes("postgresql-client") &&
+            !line.includes("command -v psql"),
+        );
+      expect(
+        offenders,
+        `${file} has unguarded host psql install(s); wrap with ` +
+          `\`command -v psql >/dev/null || (...)\` to skip apt-get update when psql exists:\n` +
+          offenders.join("\n"),
+      ).toEqual([]);
+    },
+  );
 });

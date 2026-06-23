@@ -336,7 +336,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install psql (postgresql-client) for Layer 1
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Run postgrest-dml-lockdown 3-layer meta-test
         shell: bash
         env:
@@ -380,7 +380,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install psql (postgresql-client) for schema introspection
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Run validation-schema-parity gate
         shell: bash
         env:

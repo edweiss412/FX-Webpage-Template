@@ -47,7 +47,7 @@ jobs:
           # known CI-passing version (PR #102; older 2.98.2 broke the in-container psql auth); a fixed version downloads directly (no API lookup).
           version: 2.107.0
       - name: Install psql (signInAs admin client + bootstrap shell out to psql)
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Boot local Supabase (guarded migrations)
         # Shared bootstrap (M12.12 Task 14) — same Supabase + GUC + guarded-
         # migration setup screenshots-drift.yml and help-affordances.yml use, so
