@@ -111,9 +111,22 @@ describe("Playwright screenshot-help project config (Task F.4)", () => {
     const config = readFileSync(configPath, "utf8");
 
     expect(config).toContain('name: "help-docs"');
-    expect(config).toContain("testMatch: /(deep-link-walker|help-auth|help-mobile)\\.spec\\.ts/");
+    expect(config).toContain(
+      "testMatch: /(deep-link-walker|help-auth|help-mobile|help-typography)\\.spec\\.ts/",
+    );
     expect(config).toContain('dependencies: ["help-docs-setup"]');
     expect(config).toContain('baseURL: "http://localhost:3004"');
+  });
+
+  it("runs help-typography (the prose-layer regression spec) in both CI-gated help-docs projects", () => {
+    // help-affordances.yml runs --project=help-docs (webkit/390) + help-docs-desktop
+    // (chromium/1280); the mobile-safari/desktop-chromium baseline projects are NOT
+    // CI-gated, so the spec must live in the help-docs family to actually run in CI.
+    const config = readFileSync(configPath, "utf8");
+    expect(config).toContain(
+      "testMatch: /(deep-link-walker|help-auth|help-mobile|help-typography)\\.spec\\.ts/",
+    );
+    expect(config).toContain("testMatch: /(deep-link-walker|help-typography)\\.spec\\.ts/");
   });
 
   it("splits help-docs setup into a wizard-active seed state", () => {
