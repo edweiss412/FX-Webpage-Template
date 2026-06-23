@@ -137,7 +137,11 @@ async function approvePendingSync(
          )
       returning true as approved
     `,
-    [driveFileId, wizardSessionId, approverEmail, reviewerChoices],
+    // canonicalize() AT the write (invariant 3 — canonicalization at every
+    // boundary): approverEmail is already canonicalized at the route entry, so
+    // this is idempotent, and it matches how the finalize route binds this same
+    // wizard_approved_by_email column (finalize/route.ts: canonicalize(...)).
+    [driveFileId, wizardSessionId, canonicalize(approverEmail), reviewerChoices],
   );
   return Boolean(updated?.approved);
 }
