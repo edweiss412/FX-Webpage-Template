@@ -60,7 +60,10 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
             fragment navigation without it (impeccable dual-gate LOW). */}
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 focus-visible:outline-none">
           <Breadcrumb />
-          {children}
+          {/* help-prose: scoped long-form typography for the vanilla MDX prose
+              (headings/lists/links/paragraph rhythm/measure). See app/globals.css.
+              Breadcrumb stays outside — it carries its own chrome styling. */}
+          <div className="help-prose">{children}</div>
         </main>
       </div>
     </div>
