@@ -302,13 +302,28 @@ async function unresolvedManifestCount(
   const { rows } = await tx.query<{ unresolved_count: number }>(
     `
       select count(*)::int as unresolved_count
-        from public.onboarding_scan_manifest
-       where wizard_session_id = $1::uuid
+        from public.onboarding_scan_manifest m
+        left join public.pending_syncs ps
+          on ps.wizard_session_id = m.wizard_session_id and ps.drive_file_id = m.drive_file_id
+       where m.wizard_session_id = $1::uuid
          -- Task B1 / spec 7.3 finishable set: blocking statuses are exactly
-         -- (hard_failed, live_row_conflict, discard_retryable). A clean 'staged' row
-         -- (unchecked, created Held by B2) is NO LONGER counted -- only genuine
+         -- (hard_failed, live_row_conflict, discard_retryable). A FRESH clean 'staged'
+         -- row (unchecked, created Held by B2) is NOT counted -- only genuine
          -- error/conflict rows block finish.
-         and status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
+         --
+         -- whole-diff R1 HIGH (demoted-row finalize-retry bypass): a DEMOTED
+         -- finalize-failure row is reset to status='staged' by demotePending with its
+         -- pending_syncs.last_finalize_failure_code set. Such a row is EXCLUDED by the
+         -- Task-B2 finishable selector (so it isn't auto-Held-created -- it must be
+         -- re-applied), but if it weren't also counted here a SECOND /finalize call would
+         -- see zero selected + zero unresolved rows and advance to all_batches_complete,
+         -- silently bypassing the failed sheet. So count a 'staged' row whose pending_syncs
+         -- row carries a non-null last_finalize_failure_code as BLOCKING again. A fresh
+         -- unchecked-clean 'staged' row (no failure code) stays non-blocking -> becomes Held.
+         and (
+           m.status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
+           or (m.status = 'staged' and ps.last_finalize_failure_code is not null)
+         )
     `,
     [wizardSessionId],
   );
