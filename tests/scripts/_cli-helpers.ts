@@ -49,6 +49,15 @@ export function runValidationCli(opts: CliRunOptions): CliRun {
         encoding: "utf-8",
         cwd: hermeticCwd,
         env: process.env,
+        // CAPTURE stderr (don't inherit). execFileSync's default outputs the
+        // child's stderr to the PARENT's stderr, so the many NEGATIVE tests here
+        // (which deliberately drive the CLI to print `[validation-check-seed] FAIL
+        // predicate (X)` and exit 1) leaked those EXPECTED-failure lines into the
+        // CI log of GREEN runs — reading like real failures and sending debuggers
+        // (incl. this one) down a false trail. Piping keeps the assertions working
+        // (the catch reads `e.stderr`) while the lines stay out of the CI log; a
+        // genuinely-unexpected stderr still surfaces via the failing assertion diff.
+        stdio: ["ignore", "pipe", "pipe"],
       },
     );
     return { code: 0, stdout, stderr: "" };
