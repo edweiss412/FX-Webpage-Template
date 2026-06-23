@@ -150,21 +150,27 @@ describe("CI speedup — Playwright browser binaries are cached on the e2e workf
     ).toBe(true);
   });
 
-  it.each(PW_WORKFLOWS)("%s keys the cache on the lockfile so a Playwright bump invalidates it", (file) => {
-    const yaml = readWorkflow(file);
-    expect(
-      /key:\s*.*playwright.*hashFiles\('pnpm-lock\.yaml'\)/.test(yaml),
-      `${file} Playwright cache key must include hashFiles('pnpm-lock.yaml') so bumping ` +
-        `@playwright/test busts the cache and the matching browser build is downloaded.`,
-    ).toBe(true);
-  });
+  it.each(PW_WORKFLOWS)(
+    "%s keys the cache on the lockfile so a Playwright bump invalidates it",
+    (file) => {
+      const yaml = readWorkflow(file);
+      expect(
+        /key:\s*.*playwright.*hashFiles\('pnpm-lock\.yaml'\)/.test(yaml),
+        `${file} Playwright cache key must include hashFiles('pnpm-lock.yaml') so bumping ` +
+          `@playwright/test busts the cache and the matching browser build is downloaded.`,
+      ).toBe(true);
+    },
+  );
 
-  it.each(PW_WORKFLOWS)("%s still installs the browsers (cache is an optimization, not a replacement)", (file) => {
-    const yaml = readWorkflow(file);
-    expect(
-      yaml.includes("playwright install chromium"),
-      `${file} must still run \`playwright install chromium ...\` — on a cache hit it is a ` +
-        `fast no-op, on a miss it repopulates the cache.`,
-    ).toBe(true);
-  });
+  it.each(PW_WORKFLOWS)(
+    "%s still installs the browsers (cache is an optimization, not a replacement)",
+    (file) => {
+      const yaml = readWorkflow(file);
+      expect(
+        yaml.includes("playwright install chromium"),
+        `${file} must still run \`playwright install chromium ...\` — on a cache hit it is a ` +
+          `fast no-op, on a miss it repopulates the cache.`,
+      ).toBe(true);
+    },
+  );
 });
