@@ -35,8 +35,9 @@
  * live on a dedicated surface, not inline in the list.
  */
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check } from "lucide-react";
+import { AlertTriangle, Check } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -221,6 +222,23 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
   );
 }
 
+// The AC11-accepted external-resolve exit for live_row_conflict (and the
+// legacy discard_retryable): a link to the dashboard where Doug resolves the
+// conflicting live row, then re-runs setup. This is intentionally NOT an
+// in-wizard Ignore button for these statuses (deferred — see DEFERRED.md); the
+// dashboard round-trip is the documented way out.
+function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
+  return (
+    <Link
+      href="/admin"
+      data-testid={`wizard-step3-conflict-dashboard-${driveFileId}`}
+      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+    >
+      Resolve in the dashboard, then re-run setup
+    </Link>
+  );
+}
+
 function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
@@ -295,19 +313,28 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
       ) : null}
 
       {row.status === "discard_retryable" ? (
-        <p className="text-sm text-warning-text">
-          This sheet has been set aside for the next sync. You still need to decide whether to defer
-          it until modified or permanently ignore it before finishing setup.
-        </p>
+        // Legacy-only status: the redesign no longer produces discard_retryable
+        // (the "Retry on next sync" action was removed). Defensive render so a
+        // stray/legacy row still has an in-wizard exit — the same dashboard
+        // "resolve + re-run setup" path live_row_conflict uses (AC11). The
+        // in-wizard Ignore button for this status is deferred (DEFERRED.md).
+        <div className="flex flex-col gap-2 text-sm text-warning-text">
+          <p>
+            This sheet was set aside by an earlier version of setup. Resolve it from the dashboard,
+            then re-run setup to clear it.
+          </p>
+          <DashboardResolveLink driveFileId={row.driveFileId} />
+        </div>
       ) : null}
 
       {row.status === "live_row_conflict" ? (
-        <div className="flex flex-col gap-1 text-sm text-warning-text">
+        <div className="flex flex-col gap-2 text-sm text-warning-text">
           <p>
             {liveConflictCopy
               ? renderEmphasis(liveConflictCopy)
               : "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
           </p>
+          <DashboardResolveLink driveFileId={row.driveFileId} />
           <HelpAffordance code="LIVE_ROW_CONFLICT" />
         </div>
       ) : null}
@@ -440,9 +467,30 @@ function Step3PublishHeader({
   );
 }
 
+// §7.3 canonical blocking set — the statuses that need an acknowledged in-wizard
+// exit (Retry / Ignore / dashboard-resolve) before finish. Identical to the
+// `finishable` predicate's set (OnboardingWizard.tsx) and the server gate. These
+// rows render in the distinct "Needs your attention" group (§4.1), never as a
+// clean publish card.
+const BLOCKING_STATUSES: ReadonlySet<Step3ManifestStatus> = new Set([
+  "hard_failed",
+  "live_row_conflict",
+  "discard_retryable",
+]);
+
+function isBlocking(status: Step3ManifestStatus): boolean {
+  return BLOCKING_STATUSES.has(status);
+}
+
 export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
+
+  // §4.1: clean + informational rows (publish cards, skipped, resolved) render
+  // in the main list; blocking rows are pulled into the "Needs your attention"
+  // group below it. Order within each list is preserved.
+  const mainRows = rows.filter((r) => !isBlocking(r.status));
+  const blockingRows = rows.filter((r) => isBlocking(r.status));
 
   return (
     <section
@@ -514,13 +562,52 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           </p>
         </div>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {rows.map((row) => (
-            <li key={row.driveFileId}>
-              <RowItem row={row} wizardSessionId={wizardSessionId} />
-            </li>
-          ))}
-        </ul>
+        <>
+          {mainRows.length > 0 ? (
+            <ul className="flex flex-col gap-3">
+              {mainRows.map((row) => (
+                <li key={row.driveFileId}>
+                  <RowItem row={row} wizardSessionId={wizardSessionId} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {/* §4.1 "Needs your attention": a distinct grouped section, set apart
+              from the clean publish cards by a heading + a sunken plate, for the
+              blocking statuses. Hidden entirely when no blocking row exists.
+              Warm-yellow warning treatment (DESIGN.md §1.2 — warning, not red),
+              paired with a heading + per-row icon, never a side-stripe. */}
+          {blockingRows.length > 0 ? (
+            <section
+              data-testid="wizard-step3-needs-attention"
+              aria-labelledby="wizard-step3-needs-attention-heading"
+              className="flex flex-col gap-3 rounded-lg border border-border-strong bg-surface-sunken p-tile-pad"
+            >
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-warning-text" />
+                  <h3
+                    id="wizard-step3-needs-attention-heading"
+                    className="text-base font-semibold text-text-strong"
+                  >
+                    Needs your attention
+                  </h3>
+                </div>
+                <p className="text-sm text-text-subtle">
+                  These sheets have no show to publish yet. Clear each one to finish setup.
+                </p>
+              </div>
+              <ul className="flex flex-col gap-3">
+                {blockingRows.map((row) => (
+                  <li key={row.driveFileId}>
+                    <RowItem row={row} wizardSessionId={wizardSessionId} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </>
       )}
     </section>
   );
