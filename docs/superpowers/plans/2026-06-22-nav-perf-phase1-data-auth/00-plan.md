@@ -160,7 +160,22 @@ test("maps 4 columns → flags", async () => {
 - Consumes: `getClaims()` from the cookie-bound client; `isAuthSessionMissingError` from `@/lib/auth/supabaseAuthError`; `canonicalize` from `@/lib/email/canonicalize`; `cache` from `react`; `supabase.rpc("is_session_live")` + `supabase.rpc("is_admin")`.
 - Produces: unchanged public signatures `requireAdminIdentity(opts?): Promise<AdminIdentity>`, `requireAdmin(opts?): Promise<void>`; new DB function `public.is_session_live() returns boolean`.
 
-- [ ] **Step 0a: Write the FAILING DB test FIRST (TDD red)** (`tests/db/isSessionLive.test.ts`, node env, local Supabase) — mirror existing auth DB tests' self-signed-JWT seam: connect as `authenticated` with a JWT carrying a `session_id`; seed an `auth.sessions` row with that id → assert `is_session_live()` returns `true`; delete the row (simulate revocation) → `false`; JWT without `session_id` → `false`. Run: `pnpm exec vitest run tests/db/isSessionLive.test.ts` → **FAIL** with `function public.is_session_live() does not exist` (the migration is not written yet). This is the red step — observe it fail before writing the migration.
+- [ ] **Step 0a: Write the FAILING integration test FIRST (TDD red)** (`tests/db/isSessionLive.test.ts`, node env, local Supabase). **NON-tautological — exercise the REAL GoTrue revocation path** (empirically verified 2026-06-22: user `signOut()` AND `admin.deleteUser` both DELETE the `auth.sessions` row; access token carries `session_id`). Mirror `tests/data/getShowForViewer.test.ts`'s real-Supabase client style (keys from `supabase status`):
+
+```typescript
+// admin = createClient(URL, SECRET); anon = createClient(URL, PUBLISHABLE)
+const { data: cu } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+const { data: si } = await anon.auth.signInWithPassword({ email, password });
+const token = si.session.access_token;
+// authed client = createClient(URL, PUBLISHABLE, { global: { headers: { Authorization: `Bearer ${token}` } } })
+//   (apikey = publishable [Supabase-issued, gateway-accepted]; Bearer = the real session token)
+expect((await authed.rpc("is_session_live")).data).toBe(true);   // live
+await anon.auth.signOut();                                        // REAL revocation
+expect((await authed.rpc("is_session_live")).data).toBe(false);  // cut off immediately
+// second arm: fresh sign-in → admin.deleteUser → is_session_live() === false
+```
+
+Run: `pnpm exec vitest run tests/db/isSessionLive.test.ts` → **FAIL** with `function public.is_session_live() does not exist` (migration not written yet). Observe red before writing the migration. **If the real path ever returns `true` post-revocation** (storage model differs), the RPC must be adjusted (e.g. also check `not_after`/user existence) — the test drives correctness, it is not a restatement of the RPC. Cleanup users in `afterEach`.
 - [ ] **Step 0b: Write the migration + apply locally (TDD green impl)** (`supabase/migrations/20260622000004_is_session_live_rpc.sql`):
 
 ```sql
@@ -271,38 +286,40 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
     throw new AdminInfraError(`requireAdmin: createSupabaseServerClient threw: ${String(err)}`);
   }
 
+  // Destructure { data, error } AT the boundary (invariant 9 grep-shape).
   let claimsData: Awaited<ReturnType<typeof supabase.auth.getClaims>>["data"];
   let claimsError: Awaited<ReturnType<typeof supabase.auth.getClaims>>["error"];
   try {
-    const r = await supabase.auth.getClaims();
-    claimsData = r.data;
-    claimsError = r.error;
+    ({ data: claimsData, error: claimsError } = await supabase.auth.getClaims());
   } catch (err) {
     throw new AdminInfraError(`requireAdmin: getClaims threw: ${String(err)}`);
   }
   if (claimsError) {
-    if (isAuthSessionMissingError(claimsError)) await redirectToSignIn(); // unauthenticated
+    if (isAuthSessionMissingError(claimsError)) await redirectToSignIn(); // unauthenticated → redirect
     throw new AdminInfraError(`requireAdmin: getClaims error: ${String((claimsError as { message?: string }).message)}`);
   }
   const email = canonicalize((claimsData as { claims?: { email?: string } } | null)?.claims?.email);
   if (!email) await redirectToSignIn();
 
   // B1.5 + B2: session-freshness and admin authz, in PARALLEL (both JWT-only reads).
-  let sessionRes: { data: unknown; error: { message?: string } | null };
-  let adminRes: { data: unknown; error: { message?: string } | null };
+  let sessionRpc: Awaited<ReturnType<typeof supabase.rpc>>;
+  let adminRpc: Awaited<ReturnType<typeof supabase.rpc>>;
   try {
-    [sessionRes, adminRes] = await Promise.all([
+    [sessionRpc, adminRpc] = await Promise.all([
       supabase.rpc("is_session_live"),
       supabase.rpc("is_admin"),
     ]);
   } catch (err) {
     throw new AdminInfraError(`requireAdmin: session/admin RPC threw: ${String(err)}`);
   }
+  // Destructure { data, error } at each boundary (invariant 9).
+  const { data: sessionLive, error: sessionError } = sessionRpc;
+  const { data: isAdmin, error: adminError } = adminRpc;
   // Precedence: a revoked/expired session is unauthenticated → redirect, checked BEFORE the admin verdict.
-  if (sessionRes.error) throw new AdminInfraError(`requireAdmin: is_session_live error: ${String(sessionRes.error.message)}`);
-  if (sessionRes.data !== true) await redirectToSignIn();
-  if (adminRes.error) throw new AdminInfraError(`requireAdmin: is_admin error: ${String(adminRes.error.message)}`);
-  if (adminRes.data !== true) forbidden();
+  if (sessionError) throw new AdminInfraError(`requireAdmin: is_session_live error: ${String((sessionError as { message?: string }).message)}`);
+  if (sessionLive !== true) await redirectToSignIn();
+  if (adminError) throw new AdminInfraError(`requireAdmin: is_admin error: ${String((adminError as { message?: string }).message)}`);
+  if (isAdmin !== true) forbidden();
   return { email };
 });
 
@@ -319,7 +336,7 @@ export async function requireAdminIdentity(opts?: RequireAdminOpts): Promise<Adm
 
 > Preserve EXACT redirect/forbidden semantics: `redirectToSignIn()` and `forbidden()` throw (they are `Promise<never>` / never) — keep `await` on `redirectToSignIn()` and bare `forbidden()` exactly as today. Keep `{ data, error }` destructure on getClaims and the client construction in `try` so the auth meta-test grep-shape keeps matching.
 
-- [ ] **Step 4: Run new tests + existing `tests/auth/requireAdmin.test.ts` + `tests/auth/_metaInfraContract.test.ts`** → all PASS. (The old getUser test file may need its mock updated to `getClaims`; update it in this commit, keeping its assertions.)
+- [ ] **Step 4: Update meta-test + run all auth tests.** Update `tests/auth/_metaInfraContract.test.ts`'s requireAdmin behavioral describe so its mocks match the new boundaries: stub `getClaims` (not `getUser`) + `rpc("is_session_live")` + `rpc("is_admin")`, and assert the infra contract on EACH new boundary — `createSupabaseServerClient` throw, `getClaims` throw, `is_session_live` throw/returned-error, `is_admin` throw/returned-error → `requireAdmin` throws `AdminInfraError` (never `forbidden`/`redirect`). Update the existing `tests/auth/requireAdmin.test.ts` mock from `getUser`→`getClaims` + add `is_session_live` (keeping its assertions). Run `tests/auth/requireAdmin.getClaims.test.ts` + `tests/auth/requireAdmin.test.ts` + `tests/auth/_metaInfraContract.test.ts` + `tests/admin/no-inline-email-normalization.test.ts` → all PASS.
 - [ ] **Step 5: Commit** — `perf(auth): getClaims local verify + React.cache dedup on admin gate (keep is_admin RPC)`
 
 ---
