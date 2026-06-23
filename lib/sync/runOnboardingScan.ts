@@ -45,17 +45,22 @@ export const LIVE_ROW_CONFLICT = "LIVE_ROW_CONFLICT" as const;
  * the worst case is ~6 Drive calls per sheet (1 metadata get + 3 export
  * round-trips + up to 2 conditional enrich reads), one a heavy export download.
  *
- * The bound caps in-flight Drive requests regardless of folder size — that is
- * the defense against unbounded fan-out — and a conservative value keeps the
- * burst comfortably under Drive quota while still collapsing the dominant
- * serial cost (a 19-sheet folder drops from ~62s to ~10s). It stays
- * conservative because the Drive fetch layer has no retry/backoff, so a
- * transient throttle in any single file aborts the whole scan. That
- * abort-on-failure is pre-existing (the old serial loop had it too) and
- * tracked as a follow-up (BACKLOG.md BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY);
- * higher concurrency only modestly raises the odds, so we do not chase it here.
+ * The bound caps in-flight Drive requests regardless of folder size — the
+ * defense against unbounded fan-out. The prepare phase is wave-count-bound:
+ * wall-clock is roughly ceil(sheets / cap) * per-sheet-fetch-time, so the cap
+ * is the lever on the dominant serial cost. Benchmarked against the real
+ * fxav-test-shows folder (19 sheets, ~1.35s/sheet), 6 -> 12 drops the prepare
+ * ~40% (4 waves -> 2; ~6.5s -> ~3.9s median locally, and more on higher-latency
+ * serverless where per-sheet time is larger). 12 covers typical (<=24-sheet)
+ * folders in 2 waves; the gain past ~16 is marginal while the concurrent burst
+ * keeps growing, so 12 balances speed against Drive load + peak memory (each
+ * in-flight sheet holds a full workbook download). The throttle risk that
+ * previously kept this conservative is now backstopped at the fetch layer:
+ * withDriveRetry retries transient 429/5xx with bounded backoff
+ * (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY, resolved), so a single transient
+ * blip no longer aborts the whole scan.
  */
-export const ONBOARDING_PREPARE_CONCURRENCY = 6;
+export const ONBOARDING_PREPARE_CONCURRENCY = 12;
 
 const REQUIRED_WIZARD_ISOLATION_INDEXES = [
   "pending_syncs_live_drive_file_idx",
