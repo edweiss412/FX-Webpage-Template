@@ -10,6 +10,7 @@
 
 ## Global Constraints
 
+- **Test runner is `vitest`, NOT jest** (steps below say `pnpm jest` for brevity — run `node_modules/.bin/vitest run <file>` or `pnpm vitest run <file>`; the vitest API is jest-compatible so the test code is unchanged). **DB env:** local apply `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f <mig>`; `pnpm gen:schema-manifest` introspects **local** 54322; validation apply `psql "$TEST_DATABASE_URL" -f <mig>` (TEST_DATABASE_URL = validation `vzakgrxqwcalbmagufjh`); DB tests connect to `TEST_DATABASE_URL`. After any DDL: `notify pgrst, 'reload schema';`.
 - **TDD per task.** Failing test → minimal impl → passing test → commit. Never impl before test.
 - **Per-show advisory lock, single holder.** New/changed mutating routes acquire `withPostgresSyncPipelineLock(driveFileId)` at exactly one layer; finalize/CAS changes ride the existing holder. No nested holders. (AGENTS.md invariant 2.)
 - **Email canonicalization** via `lib/email/canonicalize.ts` at every boundary that writes an email.
