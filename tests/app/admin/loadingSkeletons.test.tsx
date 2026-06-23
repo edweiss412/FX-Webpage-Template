@@ -16,6 +16,7 @@ import AdminAdminsLoading from "@/app/admin/settings/admins/loading";
 import StagedLoading from "@/app/admin/show/staged/[stagedId]/loading";
 import PreviewLoading from "@/app/admin/show/[slug]/preview/[crewId]/loading";
 import HelpLoading from "@/app/help/loading";
+import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 
 afterEach(cleanup);
 
@@ -62,4 +63,29 @@ describe("Phase 2 D — route loading.tsx skeletons", () => {
       });
     });
   }
+});
+
+// The preview skeleton renders a CrewSubNav-shaped tab row, so it inherits the
+// crew route's no-Budget invariant: financialsVisible is unknown pre-projection,
+// so a Budget tab MUST NEVER flash during load. Pinned explicitly (mirrors
+// tests/components/crew/loading.test.tsx) — the generic cases above don't cover it.
+describe("admin preview loading — no-Budget tab invariant (§4.17)", () => {
+  const SECTION_LABELS: Record<(typeof BASE_SECTION_IDS)[number], string> = {
+    today: "Today",
+    schedule: "Schedule",
+    venue: "Venue",
+    travel: "Travel",
+    crew: "Crew",
+    gear: "Gear",
+  };
+
+  it("renders exactly the 6 BASE_SECTION_IDS tab labels and never a Budget tab", () => {
+    const { container } = render(<PreviewLoading />);
+    const text = container.textContent ?? "";
+    expect(BASE_SECTION_IDS).toHaveLength(6);
+    for (const id of BASE_SECTION_IDS) {
+      expect(text).toContain(SECTION_LABELS[id]);
+    }
+    expect(text.toLowerCase()).not.toContain("budget");
+  });
 });
