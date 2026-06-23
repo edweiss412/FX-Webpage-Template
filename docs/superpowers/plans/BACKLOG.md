@@ -327,6 +327,18 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
+### BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY — Retry/backoff for transient Drive throttling during the onboarding folder scan
+
+**Filed:** 2026-06-22 from PR #73 (onboarding folder-scan prepare parallelization) Codex adversarial review R1 (MEDIUM).
+
+**Description:** `prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts`) fetches each sheet's Drive metadata + xlsx export (plus conditional enrich reads) with bounded concurrency. The Drive fetch layer (`lib/drive/fetch.ts`, `lib/drive/client.ts`) has **no retry/backoff** and propagates rate-limit / transient errors unchanged, and `prepareOnboardingFiles` has no per-file error handling — so a single transient Drive throttle (429/503) or blip in any sheet aborts the whole scan, which the wizard route surfaces as a failed "Verify your folder" step (the wizard session is already reserved/purged before the scan call). PR #73 deliberately bounded the prepare concurrency (cap 6) so parallelism does not materially raise this risk, but the underlying abort-on-transient-failure gap is **pre-existing** — the prior strictly-serial loop had it too.
+
+**Why backlog, not deferred:** No concrete trigger. On the real FXAV workload (a bounded number of shows per folder, ≤~5 Drive calls per sheet, cap-6 in-flight) a transient-throttle-induced scan failure is low-probability, and the conservative cap is the standing mitigation. A real fix needs a design call: retry-with-backoff scoped to the prepare path, vs. hardening the shared `lib/drive/fetch.ts` layer (which would also change the cron + manual-sync paths and needs the Drive error shape surfaced first — `DriveFetchError` currently flattens the HTTP status into its message, so transient detection requires carrying the status). Either path is its own focused change + tests, not in-scope for a parallelization PR.
+
+**Promotion prerequisite:** EITHER (a) an operator observes a real onboarding-scan failure traced to a transient Drive throttle/blip, OR (b) a v1.x sync-robustness milestone bundles Drive-layer retry/backoff across the onboarding + cron + manual-sync paths (the natural home, since the gap is shared).
+
+---
+
 ## BL-LINT-DEBT-PREEXISTING — ~90 pre-existing eslint errors in unrelated files
 
 **✅ RESOLVED (2026-06-21, `chore/lint-format-ci-gates` branch):** promotion prerequisite (a) was taken — a CI lint gate (`.github/workflows/quality.yml` running `pnpm lint` + `pnpm typecheck` + `pnpm format:check`) was added AND the full lint debt was cleared in the same branch (`pnpm lint` now exits 0). Root cause was mostly `.validation-local` design-mock noise (now eslint-ignored) plus ~48 real findings fixed. The same branch also normalized the repo-wide prettier drift (~56% of files) and added a `simple-git-hooks` + `lint-staged` pre-commit gate to stop regression. Retained for history; no further work. (A residual eslint blind spot — array-join classNames — is tracked separately as `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT` below.)

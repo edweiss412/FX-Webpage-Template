@@ -32,14 +32,29 @@ export const WIZARD_SESSION_SUPERSEDED_DURING_SCAN =
 export const LIVE_ROW_CONFLICT = "LIVE_ROW_CONFLICT" as const;
 
 /**
- * Max number of sheets whose per-file preparation (Drive metadata + xlsx export
- * + parse + enrich) runs concurrently. Preparation is a pre-lock, side-effect-
- * free read phase, so it parallelizes safely; the downstream lock-ordered scan
- * phase (`scanPreparedFiles`) stays strictly sequential. Bounded so a large
- * folder cannot fan out unboundedly against the Drive read quota (~120 qps of
- * project headroom comfortably absorbs this).
+ * Max number of sheets whose per-file preparation runs concurrently.
+ * Preparation is a pre-lock, side-effect-free Drive read phase (so it
+ * parallelizes safely; the downstream lock-ordered `scanPreparedFiles` stays
+ * strictly sequential), but the per-file unit is non-trivial: a metadata
+ * `files.get`, the xlsx-export round-trip (before-`get` + full-workbook
+ * download + after-`get`), and up to two *conditional* enrich reads — an
+ * opening-reel `files.get` and a linked-DIAGRAMS-folder `files.list`. It does
+ * NOT issue Sheets-API / embedded-image / revision reads: the onboarding
+ * `defaultDriveClient` implements only `getFile` + `listFolder`, so
+ * `extractEmbeddedImages` short-circuits (see enrichWithDrivePins.ts:126). So
+ * the worst case is ~5 Drive calls per sheet, one a heavy export download.
+ *
+ * The bound caps in-flight Drive requests regardless of folder size — that is
+ * the defense against unbounded fan-out — and a conservative value keeps the
+ * burst comfortably under Drive quota while still collapsing the dominant
+ * serial cost (a 19-sheet folder drops from ~62s to ~10s). It stays
+ * conservative because the Drive fetch layer has no retry/backoff, so a
+ * transient throttle in any single file aborts the whole scan. That
+ * abort-on-failure is pre-existing (the old serial loop had it too) and
+ * tracked as a follow-up (BACKLOG.md BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY);
+ * higher concurrency only modestly raises the odds, so we do not chase it here.
  */
-export const ONBOARDING_PREPARE_CONCURRENCY = 8;
+export const ONBOARDING_PREPARE_CONCURRENCY = 6;
 
 const REQUIRED_WIZARD_ISOLATION_INDEXES = [
   "pending_syncs_live_drive_file_idx",

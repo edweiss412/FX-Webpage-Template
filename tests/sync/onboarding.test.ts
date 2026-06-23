@@ -582,13 +582,22 @@ describe("runOnboardingScan", () => {
 
     let active = 0;
     let maxActive = 0;
+    const completionOrder: string[] = [];
+    // Stagger per-file delays so EARLIER files (file-1 …) finish LAST. This
+    // forces preparation to complete out of input order, so the manifest-order
+    // assertion below is a real proof that the parallel prepare reassembles
+    // results by INPUT index — a completion-order implementation would scramble
+    // the manifest. (Uniform delays could let a broken impl pass by luck.)
+    const delayFor = (driveFileId: string) => {
+      const index = Number(driveFileId.replace("file-", "")); // 1-based
+      return 5 + (fileCount - index) * 4;
+    };
     const fetchMarkdownAtRevision = vi.fn(async (driveFileId: string) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
-      // A real delay so concurrent calls genuinely overlap in wall-clock time;
-      // sequential prepare would observe maxActive === 1.
-      await new Promise((resolve) => setTimeout(resolve, 15));
+      await new Promise((resolve) => setTimeout(resolve, delayFor(driveFileId)));
       active -= 1;
+      completionOrder.push(driveFileId);
       return `markdown:${driveFileId}`;
     });
 
@@ -610,11 +619,17 @@ describe("runOnboardingScan", () => {
       }),
     });
 
+    const inputOrder = files.map((f) => f.driveFileId);
+
     expect(result).toMatchObject({ outcome: "completed" });
     // Parallel up to the cap, never beyond it. Sequential prepare → 1.
     expect(maxActive).toBe(ONBOARDING_PREPARE_CONCURRENCY);
+    // Premise guard: preparation genuinely completed out of input order, so the
+    // manifest-order assertion below is a real proof, not a coincidence of
+    // uniform timing.
+    expect(completionOrder).not.toEqual(inputOrder);
     // The lock-ordered scan phase still processes files in listed order, so the
     // manifest order must equal the input order despite out-of-order preparation.
-    expect(tx.manifest.map((row) => row.driveFileId)).toEqual(files.map((f) => f.driveFileId));
+    expect(tx.manifest.map((row) => row.driveFileId)).toEqual(inputOrder);
   });
 });
