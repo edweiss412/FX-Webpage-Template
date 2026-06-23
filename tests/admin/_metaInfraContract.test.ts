@@ -219,6 +219,12 @@ const infraRegistry = [
       "Held-shows view (Task E1): shows read (archived=false, published=false) + finalize-owned RPC fan-out; client construction + .from() throw → { kind:'infra_error' } (table-specific 'threw' message); the per-call finalize-owned RPC fails toward Held (.catch → null), never aborting the loader",
   },
   {
+    helper: "loadIgnoredSheets",
+    path: "lib/admin/loadIgnoredSheets.ts",
+    contract:
+      "Ignored-sheets view (Task E2): deferred_ingestions read (wizard_session_id IS NULL, deferred_kind='permanent_ignore'); client construction + .from() throw → { kind:'infra_error' } (table-specific 'threw' message)",
+  },
+  {
     helper: "loadNeedsAttentionCount",
     path: "lib/admin/needsAttentionCount.ts",
     contract:
@@ -637,6 +643,25 @@ describe("META §B Supabase call-boundary contract", () => {
       const result = await loadHeldShows();
       expect(result).toMatchObject({ kind: "infra_error" });
       expect((result as { kind: string; message: string }).message).toMatch(/shows.*threw/);
+    });
+  });
+
+  describe("loadIgnoredSheets", () => {
+    test("server-client construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadIgnoredSheets } = await import("@/lib/admin/loadIgnoredSheets");
+      const result = await loadIgnoredSheets();
+      expect(result).toMatchObject({ kind: "infra_error" });
+    });
+
+    test("from('deferred_ingestions') throw → typed infra_error with table-specific message", async () => {
+      infraMock.throwOnFromTable = "deferred_ingestions";
+      const { loadIgnoredSheets } = await import("@/lib/admin/loadIgnoredSheets");
+      const result = await loadIgnoredSheets();
+      expect(result).toMatchObject({ kind: "infra_error" });
+      expect((result as { kind: string; message: string }).message).toMatch(
+        /deferred_ingestions.*threw/,
+      );
     });
   });
 

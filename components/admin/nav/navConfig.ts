@@ -1,8 +1,8 @@
-import { EyeOff, Inbox, LayoutGrid, Settings } from "lucide-react";
+import { EyeOff, FileX, Inbox, LayoutGrid, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 
 export type NavItem = {
-  id: "dashboard" | "attention" | "unpublished" | "settings";
+  id: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings";
   label: string;
   short: string;
   href: string;
@@ -30,6 +30,17 @@ export const NAV: NavItem[] = [
     href: "/admin/unpublished",
     Icon: EyeOff,
   },
+  // Task E2 (spec §6.3) — durably-ignored sheets, with a per-row un-ignore.
+  // A management/recovery surface reachable on both desktop and mobile (Doug
+  // works mostly on desktop). With `attention` desktop-hidden, the desktop bar
+  // stays at 4 items (Dashboard / Unpublished / Ignored / Settings).
+  {
+    id: "ignored-sheets",
+    label: "Ignored sheets",
+    short: "Ignored",
+    href: "/admin/ignored-sheets",
+    Icon: FileX,
+  },
   { id: "settings", label: "Settings", short: "Settings", href: "/admin/settings", Icon: Settings },
 ];
 
@@ -49,8 +60,11 @@ export function isNavItemActive(id: NavItem["id"], pathname: string): boolean {
     pathname === "/admin/needs-attention" || pathname.startsWith("/admin/needs-attention/");
   const inUnpublished =
     pathname === "/admin/unpublished" || pathname.startsWith("/admin/unpublished/");
+  const inIgnoredSheets =
+    pathname === "/admin/ignored-sheets" || pathname.startsWith("/admin/ignored-sheets/");
   if (id === "settings") return inSettings;
   if (id === "attention") return inAttention;
   if (id === "unpublished") return inUnpublished;
-  return !inSettings && !inAttention && !inUnpublished;
+  if (id === "ignored-sheets") return inIgnoredSheets;
+  return !inSettings && !inAttention && !inUnpublished && !inIgnoredSheets;
 }
