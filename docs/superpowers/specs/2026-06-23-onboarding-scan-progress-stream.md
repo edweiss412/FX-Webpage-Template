@@ -44,7 +44,7 @@ Because the slow phase writes nothing to the DB, a "poll a status table" design 
 | D3 | Prepare concurrency | unchanged: `ONBOARDING_PREPARE_CONCURRENCY = 12` |
 | D4 | What drives the bar | the **prepare** phase (`done`/`total` of files); the stage phase shows "Finishing up…" |
 | D5 | Terminal event body | `toScanResponseBody(result, ctx)` — byte-identical to today's response body |
-| D6 | Pre-run errors (auth/url/folder/reserve) | unchanged: non-200 JSON `{ ok:false, code }`, **no stream opened** |
+| D6 | Pre-run errors | unchanged, **no stream opened**: auth/url/folder return coded non-200 JSON via `errorResponse` (`route.ts:209-223`); a `reserveWizardSession` throw stays an **unhandled 500 (empty body)** as today (`:225-233`, not `errorResponse`-wrapped) — this work does not change that path |
 | D7 | Mid-run failure (after stream opens) | terminal event `{ type:"result", body:{ ok:false, code:null } }`; client shows the existing generic "couldn't reach Drive" copy. No new catalog code. |
 | D8 | Route segment config | add `export const maxDuration = 300` |
 | D9 | Empty folder | `total:0` → bar treated as complete; go straight to "Finishing up…" → success ("Found 0 items") |
@@ -120,7 +120,7 @@ onItemComplete?: (info: { index: number; done: number; total: number; item: T; r
 ### 5.4 Unit: scan route — stream the run phase (`app/api/admin/onboarding/scan/route.ts`)
 
 - Add `export const maxDuration = 300;` (D8) and keep the existing Node runtime (the route already imports `node:crypto` + `postgres`, `:1-2`).
-- `handleOnboardingScan` keeps its precondition order unchanged: `requireAdminIdentity` (`:207-216`) → `parseDriveFolderId` (`:219-220`) → `verifyFolder` (`:222-223`) → `reserveWizardSession` (`:225-233`). Each failure still returns the **current** non-200 JSON via `errorResponse` (D6). **No stream is opened on these paths** — auth/validation tests asserting HTTP status are unaffected.
+- `handleOnboardingScan` keeps its precondition order unchanged: `requireAdminIdentity` (`:207-216`) → `parseDriveFolderId` (`:219-220`) → `verifyFolder` (`:222-223`) → `reserveWizardSession` (`:225-233`). The auth/url/folder failures still return the **current** coded non-200 JSON via `errorResponse`; a `reserveWizardSession` throw stays an unhandled 500 exactly as today (it is not `errorResponse`-wrapped, and this work does not add a wrapper — out of scope) (D6). **No stream is opened on any of these paths** — auth/validation tests asserting HTTP status are unaffected; the `ReadableStream` wraps only the `runOnboardingScan` call at `:235`.
 - Replace only the final `NextResponse.json(toScanResponseBody(...))` (`:235-242`) with a streamed `Response`:
 
 ```ts
@@ -221,6 +221,7 @@ Compound: a `result` arriving mid-`reading` (e.g. fast `schema_missing` or a sup
 | Not admin / session lookup | before stream | `errorResponse(403, ADMIN_FORBIDDEN)` / `(500, ADMIN_SESSION_LOOKUP_FAILED)` (`:209-216`) | 403/500 JSON |
 | Malformed folder URL | before stream | `errorResponse(400, INVALID_FOLDER_URL)` (`:220`) | 400 JSON |
 | Folder not shared/found/not-folder | before stream | `errorResponse(folder.status, folder.code)` (`:223`) | 403/404/400 JSON |
+| `reserveWizardSession` throw (DB fault) | before stream | unhandled throw → Next 500 (empty body), **unchanged** (`:225-233` is not `errorResponse`-wrapped today; the stream wraps only `runOnboardingScan` at `:235`) | 500 (empty) |
 | schema_missing | in stream | terminal `result` with `{outcome:"schema_missing",code:WIZARD_ISOLATION_INDEXES_MISSING}` → client renders catalog copy | 200 NDJSON |
 | superseded | in stream | terminal `result` with `{outcome:"superseded",…}` → client `router.refresh()` | 200 NDJSON |
 | Mid-run infra throw (`OnboardingScanInfraError`, Drive throttle exhausted, DB fault) | in stream | terminal `result` `{ok:false,code:null}` (D7) → client generic copy + retry | 200 NDJSON |
