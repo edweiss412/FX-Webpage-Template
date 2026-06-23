@@ -13,6 +13,8 @@
  *
  * Server Component.
  */
+import Link from "next/link";
+
 export function DashboardFooter() {
   return (
     <footer
@@ -32,14 +34,14 @@ export function DashboardFooter() {
           splitting the text run (flex containers drop the space between split
           items AND shift text-decoration paint — byte-level screenshot drift
           on dashboard-overview, PR #25 R1/R2). */}
-      <a
+      <Link
         href="/help/tour"
         aria-label="Take the tour"
         data-testid="help-affordance--dashboard-footer--tour"
         className="inline-flex w-fit min-h-tap-min items-center justify-center rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-4 transition-colors duration-fast hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
         Take the tour →
-      </a>
+      </Link>
     </footer>
   );
 }
