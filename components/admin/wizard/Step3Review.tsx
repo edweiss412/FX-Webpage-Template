@@ -34,15 +34,18 @@
  * I-7 wizard-scoped staged review page) so reviewer-choices controls
  * live on a dedicated surface, not inline in the list.
  */
-import Link from "next/link";
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AlertTriangle, Check } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
+import type { ParseResult } from "@/lib/parser/types";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -75,6 +78,10 @@ export type Step3Row = {
   stagedShowTitle?: string | null;
   pendingIngestionId?: string;
   errorCode?: string;
+  // §7.1: the full parse preview for a staged row (the step-3 card renders
+  // summary + breakdown from this). A staged row carries its `ParseResult`;
+  // non-staged rows have `null`. Coerced from untyped jsonb in fetchStep3Data.
+  parseResult?: ParseResult | null;
 };
 
 type Step3ReviewProps = {
@@ -215,9 +222,47 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
   );
 }
 
+// The AC11-accepted external-resolve exit for live_row_conflict (and the
+// legacy discard_retryable): a link to the dashboard where Doug resolves the
+// conflicting live row, then re-runs setup. This is intentionally NOT an
+// in-wizard Ignore button for these statuses (deferred — see DEFERRED.md); the
+// dashboard round-trip is the documented way out.
+function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
+  return (
+    <Link
+      href="/admin"
+      data-testid={`wizard-step3-conflict-dashboard-${driveFileId}`}
+      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+    >
+      Resolve in the dashboard, then re-run setup
+    </Link>
+  );
+}
+
 function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
+
+  // §4.1 / D2 / D6: a clean review sheet renders its parse preview INLINE via
+  // <Step3SheetCard> (summary + expandable breakdown). This replaces the old
+  // "Review and apply" link to the finalize-failure recovery page (D6). The card
+  // supplies its own <article>; we keep the `wizard-step3-row-<dfid>` wrapper
+  // testid so the per-manifest-row contract still resolves.
+  //
+  // FIX 1 (CRITICAL): BOTH 'staged' (unchecked) and 'applied' (checked) clean
+  // rows route here — a checked card flips the manifest status to 'applied' and
+  // re-renders after router.refresh(); it must stay the card (with a CHECKED,
+  // individually-uncheckable checkbox — the card's checkbox checked-state is
+  // `status === "applied"`, and clicking it POSTs unapprove), NOT collapse to a
+  // dead "Applied" badge. 'applied' is NOT blocking, so it never enters the
+  // "Needs your attention" group.
+  if (isCleanRow(row.status)) {
+    return (
+      <div data-testid={`wizard-step3-row-${row.driveFileId}`} data-status={row.status}>
+        <Step3SheetCard row={row} wizardSessionId={wizardSessionId} />
+      </div>
+    );
+  }
   // Hard-fail rows ARE pending_ingestions rows (row.errorCode = last_error_code).
   // Route through the SHARED resolver the needs-attention inbox + emails use, not
   // the catalog-only lookupDougFacing: the real phase-1 producer codes include
@@ -257,18 +302,6 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
         </span>
       </header>
 
-      {row.status === "staged" ? (
-        <div className="flex flex-wrap gap-2">
-          <Link
-            data-testid={`wizard-step3-review-${row.driveFileId}`}
-            href={`/admin/onboarding/staged/${wizardSessionId}/${row.driveFileId}`}
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Review and apply
-          </Link>
-        </div>
-      ) : null}
-
       {row.status === "hard_failed" && row.pendingIngestionId ? (
         <>
           {hardFailCopy ? (
@@ -288,19 +321,28 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
       ) : null}
 
       {row.status === "discard_retryable" ? (
-        <p className="text-sm text-warning-text">
-          This sheet has been set aside for the next sync. You still need to decide whether to defer
-          it until modified or permanently ignore it before finishing setup.
-        </p>
+        // Legacy-only status: the redesign no longer produces discard_retryable
+        // (the "Retry on next sync" action was removed). Defensive render so a
+        // stray/legacy row still has an in-wizard exit — the same dashboard
+        // "resolve + re-run setup" path live_row_conflict uses (AC11). The
+        // in-wizard Ignore button for this status is deferred (DEFERRED.md).
+        <div className="flex flex-col gap-2 text-sm text-warning-text">
+          <p>
+            This sheet was set aside by an earlier version of setup. Resolve it from the dashboard,
+            then re-run setup to clear it.
+          </p>
+          <DashboardResolveLink driveFileId={row.driveFileId} />
+        </div>
       ) : null}
 
       {row.status === "live_row_conflict" ? (
-        <div className="flex flex-col gap-1 text-sm text-warning-text">
+        <div className="flex flex-col gap-2 text-sm text-warning-text">
           <p>
             {liveConflictCopy
               ? renderEmphasis(liveConflictCopy)
               : "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
           </p>
+          <DashboardResolveLink driveFileId={row.driveFileId} />
           <HelpAffordance code="LIVE_ROW_CONFLICT" />
         </div>
       ) : null}
@@ -308,9 +350,150 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
   );
 }
 
+// A clean row is one with a show to publish — manifest `staged` (unchecked) or
+// `applied` (checked). Only clean rows participate in Select-all / the count.
+function isCleanRow(status: Step3ManifestStatus): boolean {
+  return status === "staged" || status === "applied";
+}
+
+/**
+ * Header publish controls (§4.1): a **Select all** checkbox + a live
+ * "N of M selected to publish" count. N = clean rows currently `applied`
+ * (checked); M = all clean rows. Select-all is checked iff every clean row is
+ * already applied; toggling it approves every unchecked clean row (POST approve)
+ * or un-approves every applied row (POST unapprove), then refreshes. Disabled
+ * while its batch is in flight (the same double-toggle guard as the per-card box,
+ * §4.6). The count is tabular-nums so a digit change never shifts layout.
+ */
+function Step3PublishHeader({
+  wizardSessionId,
+  rows,
+}: {
+  wizardSessionId: string;
+  rows: Step3Row[];
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  // Optimistic select-all + count overlay. `null` → reflect the derived props
+  // (the post-refresh source of truth); a boolean → the in-flight optimistic
+  // intent (instant per §4.5, reconciled by router.refresh()).
+  const [optimisticAll, setOptimisticAll] = useState<boolean | null>(null);
+
+  const cleanRows = rows.filter((r) => isCleanRow(r.status));
+  const derivedAppliedCount = cleanRows.filter((r) => r.status === "applied").length;
+  const cleanCount = cleanRows.length;
+  const derivedAllChecked = cleanCount > 0 && derivedAppliedCount === cleanCount;
+  const allChecked = optimisticAll ?? derivedAllChecked;
+  // Count reflects the optimistic intent instantly: select-all → all N; clear → 0.
+  const appliedCount =
+    optimisticAll === null ? derivedAppliedCount : optimisticAll ? cleanCount : 0;
+
+  async function postFor(driveFileId: string, action: "approve" | "unapprove"): Promise<void> {
+    try {
+      await fetch(`/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`, {
+        method: "POST",
+      });
+    } catch {
+      // A single failed write is reconciled by the post-batch refresh below; no
+      // partial-state surfacing here (the server is the source of truth).
+    }
+  }
+
+  async function onToggleSelectAll(): Promise<void> {
+    if (pending || cleanCount === 0) return; // §4.6 guard
+    setPending(true);
+    setOptimisticAll(!allChecked); // instant header flip (§4.5), reconciled on refresh
+    try {
+      if (allChecked) {
+        // Uncheck everything currently applied.
+        await Promise.all(
+          cleanRows
+            .filter((r) => r.status === "applied")
+            .map((r) => postFor(r.driveFileId, "unapprove")),
+        );
+      } else {
+        // Check every clean row that is not already applied.
+        await Promise.all(
+          cleanRows
+            .filter((r) => r.status !== "applied")
+            .map((r) => postFor(r.driveFileId, "approve")),
+        );
+      }
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (cleanCount === 0) {
+    // No publishable rows → no select-all; still emit the count (0 of 0) so the
+    // line is stable and the testid always resolves.
+    return (
+      <p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle">
+        <span className="tabular-nums">{appliedCount}</span> of{" "}
+        <span className="tabular-nums">{cleanCount}</span> selected to publish
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <label className="inline-flex min-h-tap-min cursor-pointer items-center gap-2 has-disabled:cursor-not-allowed has-disabled:opacity-60">
+        <input
+          type="checkbox"
+          data-testid="wizard-step3-select-all"
+          checked={allChecked}
+          disabled={pending}
+          aria-label="Select all sheets to publish"
+          onChange={() => void onToggleSelectAll()}
+          className="peer sr-only"
+        />
+        <span
+          aria-hidden="true"
+          className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 ${
+            allChecked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
+          }`}
+        >
+          <Check
+            className={`size-3.5 transition-opacity duration-fast ${allChecked ? "opacity-100" : "opacity-0"}`}
+            strokeWidth={3}
+          />
+        </span>
+        <span className="text-sm font-medium text-text-strong">Select all</span>
+      </label>
+      <p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle">
+        <span className="tabular-nums text-text-strong">{appliedCount}</span> of{" "}
+        <span className="tabular-nums">{cleanCount}</span> selected to publish
+      </p>
+    </div>
+  );
+}
+
+// §7.3 canonical blocking set — the statuses that need an acknowledged in-wizard
+// exit (Retry / Ignore / dashboard-resolve) before finish. Identical to the
+// `finishable` predicate's set (OnboardingWizard.tsx) and the server gate. These
+// rows render in the distinct "Needs your attention" group (§4.1), never as a
+// clean publish card.
+const BLOCKING_STATUSES: ReadonlySet<Step3ManifestStatus> = new Set([
+  "hard_failed",
+  "live_row_conflict",
+  "discard_retryable",
+]);
+
+function isBlocking(status: Step3ManifestStatus): boolean {
+  return BLOCKING_STATUSES.has(status);
+}
+
 export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
+
+  // §4.1: clean + informational rows (publish cards, skipped, resolved) render
+  // in the main list; blocking rows are pulled into the "Needs your attention"
+  // group below it. Order within each list is preserved.
+  const mainRows = rows.filter((r) => !isBlocking(r.status));
+  const blockingRows = rows.filter((r) => isBlocking(r.status));
+  const blockingCount = blockingRows.length;
 
   return (
     <section
@@ -328,17 +511,17 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         </p>
         <div className="flex items-center gap-2">
           <h2 id="wizard-step3-heading" className="text-2xl font-semibold text-text-strong">
-            Review your sheets
+            Review &amp; publish your sheets
           </h2>
           <HelpTooltip
-            label="Help: Review your sheets"
+            label="Help: Review and publish your sheets"
             testId="help-affordance--wizard-step3--tooltip"
           >
             <p>
-              Each row below is one sheet from your folder. Approve good ones, set aside any we
-              could not read, and ignore anything that does not belong. Setup will not finish until
-              every row has a decision. Tap What does this mean on any error for a plain-language
-              explanation.
+              Each row below is one sheet from your folder. Tick a sheet to publish it now. Leave it
+              unchecked to keep it as a draft you can publish later from Unpublished, or clear
+              anything that does not belong. Tap What does this mean on any error for a
+              plain-language explanation.
             </p>
             <p className="mt-2">
               <a
@@ -352,18 +535,27 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           </HelpTooltip>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
-          Every sheet we found in your folder is listed below. Approve, set aside, or defer each
-          one. Setup finishes once every row is resolved.
+          Every sheet we found in your folder is listed below. Tick the shows to publish now; the
+          rest stay under Unpublished, where you can publish them whenever you are ready.
         </p>
+        {rows.length > 0 ? (
+          <Step3PublishHeader wizardSessionId={wizardSessionId} rows={rows} />
+        ) : null}
+        {/* F1 (§8.1): finishable-aware status. Finish is allowed unless a
+            blocking row (hard-fail / live-row conflict) remains. No publish
+            COUNT here — that lives on the FinalizeButton (D5). The
+            data-all-resolved / data-unresolved-count attributes are retained
+            for the wizard chrome + existing tests. */}
         <p
           data-testid="wizard-step3-resolution-status"
           data-all-resolved={allResolved ? "true" : "false"}
           data-unresolved-count={unresolvedCount}
+          data-blocking-count={blockingCount}
           className="text-sm text-text-subtle tabular-nums"
         >
-          {allResolved
-            ? "All sheets resolved. You can publish when ready."
-            : `${unresolvedCount} sheet${unresolvedCount === 1 ? "" : "s"} still need attention.`}
+          {blockingCount > 0
+            ? "Clear the sheets under Needs your attention to finish setup."
+            : "You can finish setup whenever you are ready."}
         </p>
       </header>
 
@@ -379,13 +571,52 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           </p>
         </div>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {rows.map((row) => (
-            <li key={row.driveFileId}>
-              <RowItem row={row} wizardSessionId={wizardSessionId} />
-            </li>
-          ))}
-        </ul>
+        <>
+          {mainRows.length > 0 ? (
+            <ul className="flex flex-col gap-3">
+              {mainRows.map((row) => (
+                <li key={row.driveFileId}>
+                  <RowItem row={row} wizardSessionId={wizardSessionId} />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {/* §4.1 "Needs your attention": a distinct grouped section, set apart
+              from the clean publish cards by a heading + a sunken plate, for the
+              blocking statuses. Hidden entirely when no blocking row exists.
+              Warm-yellow warning treatment (DESIGN.md §1.2 — warning, not red),
+              paired with a heading + per-row icon, never a side-stripe. */}
+          {blockingRows.length > 0 ? (
+            <section
+              data-testid="wizard-step3-needs-attention"
+              aria-labelledby="wizard-step3-needs-attention-heading"
+              className="flex flex-col gap-3 rounded-lg border border-border-strong bg-surface-sunken p-tile-pad"
+            >
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-warning-text" />
+                  <h3
+                    id="wizard-step3-needs-attention-heading"
+                    className="text-base font-semibold text-text-strong"
+                  >
+                    Needs your attention
+                  </h3>
+                </div>
+                <p className="text-sm text-text-subtle">
+                  These sheets have no show to publish yet. Clear each one to finish setup.
+                </p>
+              </div>
+              <ul className="flex flex-col gap-3">
+                {blockingRows.map((row) => (
+                  <li key={row.driveFileId}>
+                    <RowItem row={row} wizardSessionId={wizardSessionId} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </>
       )}
     </section>
   );

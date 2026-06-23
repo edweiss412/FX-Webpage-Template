@@ -34,6 +34,13 @@ type ShowsTableProps = {
   // ShowsTable is the ACTIVE-bucket renderer, so the title defaults accordingly.
   title?: string;
   bucketControl?: ReactNode;
+  // Task E1 (spec §5) — optional per-row action (the Held-shows Publish
+  // control). Rendered as a SIBLING of the row Link inside the <li> (never
+  // nested inside the <a> — an interactive form inside an anchor is invalid
+  // HTML and breaks the row link's own click target). When provided, the row
+  // gains a small action bar under the Link; when omitted (the dashboard's
+  // default), the row is unchanged.
+  rowAction?: (row: ActiveShowRow) => ReactNode;
 };
 
 // Shared column tracks (header + every row) so the columns line up (spec §9).
@@ -157,6 +164,7 @@ export function ShowsTable({
   overflowCount,
   title = "Active shows",
   bucketControl,
+  rowAction,
 }: ShowsTableProps) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortState>(null);
@@ -386,6 +394,19 @@ export function ShowsTable({
                       <ChevronRight size={16} />
                     </span>
                   </Link>
+                  {/* Task E1 — per-row action bar (Held-shows Publish). Sibling
+                      of the Link (NOT nested) so the interactive control is
+                      valid HTML and keeps its own click target. Indented to the
+                      title track via px-4; only rendered when a rowAction is
+                      supplied. */}
+                  {rowAction ? (
+                    <div
+                      data-testid={`shows-row-action-${row.slug}`}
+                      className="border-t border-border bg-surface-sunken px-4 py-3"
+                    >
+                      {rowAction(row)}
+                    </div>
+                  ) : null}
                 </li>
               );
             })}

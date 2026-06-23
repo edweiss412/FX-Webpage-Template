@@ -24,6 +24,9 @@ type PendingRow = {
   wizard_approved_at: string | null;
   triggered_review_items: unknown;
   base_modified_time: string | null;
+  // Task B2: set by demotePending; a demoted-not-yet-reapplied row (wizard_approved=false AND this
+  // non-null) is excluded by selectFinishableCleanRows until re-apply flips wizard_approved=true.
+  last_finalize_failure_code?: string | null;
 };
 
 type ManifestStatus =
@@ -94,6 +97,8 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   // — unreachable today behind the outer app_settings FOR UPDATE, pinned as defense-in-depth.
   provenanceRecordSucceeds = true;
   provenanceRecorded: string[] = [];
+  // Task B2: per-drive-file publish_intent stamped at finalize (true=checked → CAS flip to Live).
+  manifestPublishIntent = new Map<string, boolean>();
 
   async query<T>(sql: string, params: readonly unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -145,18 +150,29 @@ class FakeFinalizeDb implements FinalizeRouteTx {
       };
     }
 
-    if (normalized.startsWith("select count(*)::int as approved_count")) {
+    // Task B2: a row is FINISHABLE-clean when its manifest is non-blocking (absent in the legacy
+    // seed, or 'staged'/'applied') AND it is not a demoted-not-yet-reapplied failure
+    // (wizard_approved=true OR last_finalize_failure_code is null). Both selectFinishableCleanRows
+    // and countRemainingCleanRows share this predicate.
+    const isFinishableClean = (row: PendingRow): boolean => {
+      const status = this.manifestStatuses.get(row.drive_file_id);
+      const manifestClean = status === undefined || status === "staged" || status === "applied";
+      const notDemoted = row.wizard_approved === true || row.last_finalize_failure_code == null;
+      return manifestClean && notDemoted;
+    };
+
+    if (normalized.startsWith("select count(*)::int as remaining_count")) {
       return {
-        rows: [{ approved_count: this.approved.filter((row) => row.wizard_approved).length } as T],
+        rows: [{ remaining_count: this.approved.filter(isFinishableClean).length } as T],
         rowCount: 1,
       };
     }
 
-    if (normalized.startsWith("select drive_file_id, staged_id")) {
-      const approvedRows = this.approved.filter((row) => row.wizard_approved).slice(0, 100);
+    if (normalized.startsWith("select ps.drive_file_id, ps.staged_id")) {
+      const cleanRows = this.approved.filter(isFinishableClean).slice(0, 100);
       return {
-        rows: approvedRows as T[],
-        rowCount: approvedRows.length,
+        rows: cleanRows as T[],
+        rowCount: cleanRows.length,
       };
     }
 
@@ -174,17 +190,43 @@ class FakeFinalizeDb implements FinalizeRouteTx {
         row.wizard_approved_by_email = null;
         row.wizard_reviewer_choices = [];
         row.wizard_reviewer_choices_version = null;
+        // Task B2: demote stamps last_finalize_failure_code → the row is now "demoted, awaiting
+        // re-apply" and is excluded from the finishable-clean selector/count until re-applied.
+        row.last_finalize_failure_code = params[2] as string;
       }
       this.demoted.push({ driveFileId: params[0] as string, code: params[2] as string });
       return { rows: [{ demoted: true } as T], rowCount: 1 };
     }
 
     if (normalized.startsWith("update public.onboarding_scan_manifest set created_show_id")) {
+      // Task B2: provenance UPDATE now also stamps publish_intent ($4) in the same statement.
       if (!this.provenanceRecordSucceeds) return { rows: [], rowCount: 0 };
       this.provenanceRecorded.push(params[0] as string);
+      this.manifestPublishIntent.set(params[0] as string, params[3] as boolean);
       return { rows: [{ recorded: true } as T], rowCount: 1 };
     }
 
+    // Task B2: existing-show-unchecked D10 no-op resolves the manifest to 'applied'
+    // (created_show_id=null, publish_intent=false) — distinguished by the 'applied' literal.
+    if (
+      normalized.startsWith("update public.onboarding_scan_manifest") &&
+      normalized.includes("set status = 'applied'")
+    ) {
+      this.manifestStatuses.set(params[0] as string, "applied");
+      this.manifestPublishIntent.set(params[0] as string, false);
+      return { rows: [{ updated: true } as T], rowCount: 1 };
+    }
+
+    // Task B2: existing-show-checked stamps publish_intent without touching status/created_show_id.
+    if (
+      normalized.startsWith("update public.onboarding_scan_manifest") &&
+      normalized.includes("set publish_intent")
+    ) {
+      this.manifestPublishIntent.set(params[0] as string, params[2] as boolean);
+      return { rows: [{ updated: true } as T], rowCount: 1 };
+    }
+
+    // Remaining onboarding_scan_manifest UPDATE is demotePending's status → 'staged'.
     if (normalized.startsWith("update public.onboarding_scan_manifest")) {
       this.manifestStatuses.set(params[0] as string, "staged");
       return { rows: [{ updated: true } as T], rowCount: 1 };
@@ -228,7 +270,7 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
     if (sql.startsWith("insert into public.wizard_finalize_checkpoints"))
       return "ensure-checkpoint";
-    if (sql.startsWith("select drive_file_id, staged_id")) return "select-approved";
+    if (sql.startsWith("select ps.drive_file_id, ps.staged_id")) return "select-approved";
     if (sql.startsWith("update public.pending_syncs")) return "demote-pending";
     if (sql.startsWith("insert into public.shows_pending_changes")) return "stage-shadow";
     if (sql.startsWith("insert into public.shows")) return "apply-first-seen";

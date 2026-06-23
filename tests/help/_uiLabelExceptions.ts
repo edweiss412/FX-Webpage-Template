@@ -71,11 +71,10 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     file: "app/help/getting-started/page.mdx",
     note: "Wizard step-1 advance affordance — components/admin/wizard/Step1Share.tsx (uses curly apostrophe via &rsquo;; normalized at compare time).",
   },
-  {
-    label: "Review and apply",
-    file: "app/help/getting-started/page.mdx",
-    note: "Onboarding wizard step-3 first-seen action — components/admin/wizard/Step3Review.tsx:262 rendered link text. (Previously also the dead PendingPanel's row action; that component was deleted in M12.12 Task 10 — the live inbox row action is 'Review →'.)",
-  },
+  // (Onboarding step-3 redesign 2026-06-23: the "Review and apply" navigate-in
+  // link was removed — step 3 is now inline cards + a publish checkbox
+  // ("Publish N shows & finish setup"). The getting-started prose was updated to
+  // the new model, so the stale "Review and apply" declaration was removed.)
 
   // ─── app/help/daily-rhythm/page.mdx ───
   // Section name + badge label referenced in prose.
@@ -214,9 +213,10 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   },
 
   // ─── app/help/admin/review-queues/page.mdx ───
-  // (The "Review and apply" declaration was removed when the first-seen section
-  // was rewritten to the shipped labels: the inbox link is "Review" and the
-  // staged-card button is "Apply" — see those entries below / on the wizard.)
+  // (Onboarding step-3 redesign 2026-06-23: "Review and apply" was the dead
+  // Step3Review navigate-in link, removed by the redesign. The live first-seen
+  // review surface uses the inbox "Review" link → the staged-review card's
+  // "Apply" action, both declared below / on the wizard. Entry removed.)
   {
     label: "Discard",
     file: "app/help/admin/review-queues/page.mdx",
