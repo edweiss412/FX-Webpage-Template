@@ -3,9 +3,18 @@
  *
  * The crew-page section shell — the full redesigned crew show page body
  * (§4.1). Composes:
- *   Header (identityChip) → CrewSubNav → ShowRealtimeBridge → the active
- *   section (wrapped in CrewSectionTransition; the Today section leads with the
- *   RightNowHero) → Footer (per-viewer-kind report props).
+ *   Header (identityChip) → CrewSections (the client controller: controlled
+ *   CrewSubNav + CrewSectionTransition over the server-rendered section bodies)
+ *   → ShowRealtimeBridge → Footer (per-viewer-kind report props).
+ *
+ * SECTION SWITCHING IS A CLIENT TOGGLE (client-section-toggle): the shell
+ * renders ALL entitled section bodies SERVER-SIDE into `sectionNodes` and hands
+ * them to <CrewSections>, which owns `activeSection` state and toggles
+ * VISIBILITY only — no server round-trip per tab. FRESHNESS (NON-NEGOTIABLE):
+ * section bodies stay server-sourced; the controller never fetches/derives/
+ * caches section data. The page stays sheet-synced via ShowRealtimeBridge →
+ * router.refresh(), which re-runs this server component (all bodies fresh) while
+ * the controller's client `active` state survives.
  *
  * It OWNS two cross-cutting producer contracts, both verbatim from the prior
  * page bodies:
@@ -24,16 +33,12 @@
  *      resolveViewerContext throws the typed MalformedProjectionError; we render
  *      the route's infra arm (<TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />,
  *      no retryHref per §4.14) rather than an unrestricted page.
- *
- * Sections are Phase 3 — every section is a minimal placeholder here; only the
- * Today section additionally leads with the live RightNowHero.
  */
 import type { JSX } from "react";
 
 import { IdentityChip } from "@/components/auth/IdentityChip";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
-import { CrewSectionTransition } from "@/components/crew/CrewSectionTransition";
-import { CrewSubNav } from "@/components/crew/CrewSubNav";
+import { CrewSections } from "@/components/crew/CrewSections";
 import { BudgetSection } from "@/components/crew/sections/BudgetSection";
 import { CrewSection } from "@/components/crew/sections/CrewSection";
 import { GearSection } from "@/components/crew/sections/GearSection";
@@ -46,8 +51,11 @@ import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
-import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
-import { resolveActiveSection } from "@/lib/crew/resolveActiveSection";
+import {
+  BASE_SECTION_IDS,
+  resolveActiveSection,
+  type SectionId,
+} from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import {
   MalformedProjectionError,
@@ -257,19 +265,25 @@ export async function CrewShell({
     </span>
   );
 
-  // ── Section dispatch (Task 11 / R8-HIGH-2) ──
-  // Render the REAL section component for the resolved `activeSection`, each on
-  // the uniform contract `({ data, viewer, today, showId })` (R10-HIGH-1:
-  // `showId` is the CrewShell prop, threaded uniformly so GearSection can mount
+  // ── Section bodies (client-section-toggle) ──
+  // Render the REAL section component for EVERY entitled section, each on the
+  // uniform contract `({ data, viewer, today, showId })` (R10-HIGH-1: `showId`
+  // is the CrewShell prop, threaded uniformly so GearSection can mount
   // `<OpeningReelVideo showId={showId}>`). `today` is the request-scoped
   // `await nowDate()` Date, threaded so the section's timezone today-pin matches
   // the frozen screenshot clock (R8-HIGH-1). The Today section owns its OWN
   // RightNowHero internally (built from its own buildRightNowContext) — the
   // shell no longer renders a separate hero; `rightNowCtx` survives ONLY for the
-  // Footer's report autocapture. `activeSection` is already gated for budget by
-  // resolveActiveSection, so a non-lead `?s=budget` arrives here as `today`.
-  const renderSection = (): JSX.Element => {
-    switch (activeSection) {
+  // Footer's report autocapture.
+  //
+  // FRESHNESS INVARIANT (NON-NEGOTIABLE): the bodies are SERVER-RENDERED here
+  // and handed to the <CrewSections> client controller, which toggles VISIBILITY
+  // only — it never fetches/derives/caches section data client-side. The page
+  // stays sheet-synced via ShowRealtimeBridge → router.refresh(), which re-runs
+  // this server component (all bodies fresh) while the controller's `active`
+  // state survives.
+  const renderOne = (id: SectionId): JSX.Element => {
+    switch (id) {
       case "today":
         return <TodaySection data={data} viewer={viewer} today={today} showId={showId} />;
       case "schedule":
@@ -286,7 +300,16 @@ export async function CrewShell({
         return <BudgetSection data={data} viewer={viewer} today={today} showId={showId} />;
     }
   };
-  const sectionBody = renderSection();
+
+  // Entitled set = BASE_SECTION_IDS + (`budget` iff budgetVisible). The Budget
+  // body is BUILT only when entitled, so a non-lead never receives a Budget body
+  // in the payload (no-Budget-flash invariant §4.17 / Budget gate §4.1).
+  const entitled: SectionId[] = budgetVisible
+    ? [...BASE_SECTION_IDS, "budget"]
+    : [...BASE_SECTION_IDS];
+  const sectionNodes = Object.fromEntries(entitled.map((id) => [id, renderOne(id)])) as Partial<
+    Record<SectionId, JSX.Element>
+  >;
 
   return (
     <div data-testid="crew-shell" data-active-section={activeSection}>
@@ -305,26 +328,19 @@ export async function CrewShell({
           ) : undefined
         }
       />
-      <CrewSubNav activeSection={activeSection} budgetVisible={budgetVisible} />
+      {/* The CrewSections client controller owns the live section state: it
+          renders the controlled CrewSubNav + the <main data-testid="page-container">
+          + the CrewSectionTransition over the SERVER-RENDERED `sectionNodes`.
+          `initialSection` is the server-resolved, budget-gated active section
+          (first paint); the controller toggles VISIBILITY only thereafter
+          (freshness invariant). Header / ShowRealtimeBridge / Footer stay
+          server-rendered siblings (section-independent). */}
+      <CrewSections
+        initialSection={activeSection}
+        budgetVisible={budgetVisible}
+        sectionNodes={sectionNodes}
+      />
       <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={data.viewerVersionToken} />
-      <main
-        data-testid="page-container"
-        // Mobile bottom-bar clearance (§4.9:170-171,210): the CrewSubNav mobile
-        // tab-bar is `position:fixed bottom-0` and `min-[720px]:hidden`, so at
-        // <720px it floats over the flow and would occlude the last section block.
-        // Reserve a bottom gutter that clears the ≥44px bar PLUS the iOS home
-        // indicator (`env(safe-area-inset-bottom)`) PLUS a 1rem breathing margin.
-        // At ≥720px the bar is gone, so normal `pb-8` applies.
-        // The centering utilities (`mx-auto w-full max-w-300 px-4 sm:px-8`) come
-        // from the SHARED `CREW_PAGE_CONTAINER` constant so the desktop sub-nav
-        // (which composes the same constant) aligns its first tab's left edge
-        // with this content edge (Task 8.5). The remaining utilities are
-        // page-container-specific (flex column, section gap, vertical rhythm,
-        // mobile bottom-bar clearance).
-        className={`${CREW_PAGE_CONTAINER} flex flex-1 flex-col gap-section-gap pt-6 pb-[calc(var(--spacing-tap-min)+env(safe-area-inset-bottom)+1rem)] sm:pt-8 min-[720px]:pb-8`}
-      >
-        <CrewSectionTransition sectionId={activeSection}>{sectionBody}</CrewSectionTransition>
-      </main>
       <Footer
         asOf={null}
         showId={showId}

@@ -52,7 +52,7 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
 
   useEffect(() => {
     const onPop = () => {
-      const raw = new URLSearchParams(window.location.search).get("s");
+      const raw = new URLSearchParams(window.location.search).get("s") ?? undefined;
       setActive(resolveActiveSection(raw, { budgetVisible }));
     };
     window.addEventListener("popstate", onPop);

@@ -12,28 +12,32 @@ import { render } from "@testing-library/react";
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert }));
 
-// Task 11 fills CrewShell's body with real client islands: CrewSubNav reads
-// `useRouter`/`usePathname`/`useSearchParams`, and CrewSectionTransition reads
-// `window.matchMedia` via usePrefersReducedMotion. This suite asserts only the
-// section-independent projection-alert producer (which fires before any
-// render), so we provide the minimal jsdom scaffolding for those islands
-// without changing any alert assertion below.
+// Under client-side section toggle, CrewShell renders all entitled section
+// bodies and hands them to the <CrewSections> controller. This suite asserts
+// ONLY the section-INDEPENDENT projection-alert producer (which fires before any
+// section model is resolved) against an intentionally-thin fixture
+// (`{ show: { title }, crewMembers: [], tileErrors }`). The real controller +
+// sections dereference projection fields the thin fixture omits, which would
+// crash the render OR fire a SECOND (render-failure) upsert and break the
+// single-call assertion. The controller + section CONTENT are out of scope here
+// (pinned by crewSections.test.tsx + crewShellSections.test.tsx + the section
+// unit tests), so we mock the controller and every section to a no-op marker.
+// The producer-under-test (the alert) is untouched and still fires ONCE per
+// load, section-independent.
+vi.mock("@/components/crew/CrewSections", () => ({
+  CrewSections: () => <div data-testid="mock-crew-sections" />,
+}));
+
+// The REAL ShowRealtimeBridge (a sibling of the controller) calls useRouter() on
+// mount; provide the minimal app-router scaffolding so the render does not throw
+// "invariant expected app router to be mounted". This suite asserts only the
+// section-independent alert producer, so these are no-ops.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
   usePathname: () => "/show/acme-2026/tok",
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Task 11 wires the REAL section components into CrewShell's dispatcher. This
-// suite asserts ONLY the section-INDEPENDENT projection-alert producer (which
-// fires before any section renders) against an intentionally-thin fixture
-// (`{ show: { title }, crewMembers: [], tileErrors }`). The real sections
-// dereference projection fields that the thin fixture omits (e.g.
-// `data.show.agenda_links`), which would crash the render OR fire a SECOND
-// (render-failure) upsert and break the single-call assertion. The active
-// section's CONTENT is out of scope here — it is pinned by the section unit
-// tests and crewShellSections.test.tsx — so we mock every section to a no-op
-// marker. The producer-under-test (the alert) is untouched.
 const mockSection = (testid: string) => {
   const MockSection = () => <section data-testid={testid} />;
   MockSection.displayName = `MockSection(${testid})`;
