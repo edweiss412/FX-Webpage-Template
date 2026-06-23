@@ -42,7 +42,8 @@ export const LIVE_ROW_CONFLICT = "LIVE_ROW_CONFLICT" as const;
  * NOT issue Sheets-API / embedded-image / revision reads: the onboarding
  * `defaultDriveClient` implements only `getFile` + `listFolder`, so
  * `extractEmbeddedImages` short-circuits (see enrichWithDrivePins.ts:126). So
- * the worst case is ~5 Drive calls per sheet, one a heavy export download.
+ * the worst case is ~6 Drive calls per sheet (1 metadata get + 3 export
+ * round-trips + up to 2 conditional enrich reads), one a heavy export download.
  *
  * The bound caps in-flight Drive requests regardless of folder size — that is
  * the defense against unbounded fan-out — and a conservative value keeps the
