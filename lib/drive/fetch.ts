@@ -158,3 +158,61 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
 
   return { markdown: synthesizeMarkdownFromXlsx(bytes), bytes };
 }
+
+/**
+ * Fetch a sheet as markdown AND capture its binding in one pass, using the
+ * export's before-`get` as the binding source. Equivalent to capturing a
+ * binding then calling fetchSheetAsMarkdownAtRevision, but ONE files.get cheaper
+ * per sheet (2 gets — before + after — instead of 3) because the separate
+ * binding-capture get is folded into the export's before-`get`. No TOCTOU
+ * widening: the binding token IS the before-`get` revision, and the after-`get`
+ * still aborts if the revision changes mid-export.
+ *
+ * For first-seen onboarding only — the cron/manual sync paths capture the
+ * binding separately on purpose (its token feeds the revision-race cooldown in
+ * runScheduledCronSync), so they must NOT use this.
+ */
+export async function fetchSheetMarkdownWithBinding(
+  driveFileId: string,
+  options: DriveFetchOptions = {},
+): Promise<{ binding: { bindingToken: string; modifiedTime: string }; markdown: string }> {
+  const drive = options.drive ?? getDriveClient();
+  const before = await fetchFileForExport(driveFileId, drive);
+  const token = bindingToken(before);
+  const modifiedTime = before.modifiedTime;
+  if (!modifiedTime) {
+    // Unreachable: fetchFileForExport already validates modifiedTime is present.
+    throw new DriveFetchError(`Drive files.get for ${driveFileId} omitted modifiedTime`);
+  }
+
+  const exportUrl = before.exportLinks?.[XLSX_EXPORT_MIME_TYPE];
+  if (!exportUrl) {
+    throw new DriveFetchError(
+      `Drive revision token ${token} for ${driveFileId} did not include an xlsx export link`,
+    );
+  }
+  const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
+  const fetchImpl = options.fetch ?? fetch;
+  const exportResponse = await fetchImpl(exportUrl, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: XLSX_EXPORT_MIME_TYPE,
+    },
+  });
+  if (!exportResponse.ok) {
+    throw new DriveFetchError(
+      `Drive revision xlsx export failed with HTTP ${exportResponse.status}`,
+    );
+  }
+
+  const bytes = await exportResponse.arrayBuffer();
+  const after = await fetchFileForExport(driveFileId, drive);
+  if (bindingToken(after) !== token) {
+    throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
+  }
+
+  return {
+    binding: { bindingToken: token, modifiedTime },
+    markdown: synthesizeMarkdownFromXlsx(bytes),
+  };
+}

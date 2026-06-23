@@ -247,11 +247,10 @@ async function runWith(
   const result = await runOnboardingScan("folder-1", W1, {
     tx,
     listFolder: vi.fn(async () => files),
-    captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-      bindingToken: meta.modifiedTime,
-      modifiedTime: meta.modifiedTime,
+    fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+      binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+      markdown: `markdown:${driveFileId}`,
     })),
-    fetchMarkdownAtRevision: vi.fn(async (driveFileId: string) => `markdown:${driveFileId}`),
     parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
     enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) => {
       const driveFileId = (parsed as unknown as { markdown: string }).markdown.replace(
@@ -469,11 +468,10 @@ describe("runOnboardingScan", () => {
     const result = await runOnboardingScan("folder-1", W1, {
       tx,
       listFolder: vi.fn(async () => [file("file-1")]),
-      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-        bindingToken: meta.modifiedTime,
-        modifiedTime: meta.modifiedTime,
+      fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: "markdown:file-1",
       })),
-      fetchMarkdownAtRevision: vi.fn(async () => "markdown:file-1"),
       parseSheet: vi.fn(() => ({ markdown: "markdown:file-1" }) as unknown as ParsedSheet),
       enrichWithDrivePins: vi.fn(async () => parseResult()),
       runPhase1: vi.fn(async () => ({ outcome: "pass" as const })),
@@ -538,11 +536,10 @@ describe("runOnboardingScan", () => {
         tx,
         withShowLock,
         listFolder: vi.fn(async () => [file("file-1")]),
-        captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-          bindingToken: meta.modifiedTime,
-          modifiedTime: meta.modifiedTime,
+        fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+          binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+          markdown: "markdown:file-1",
         })),
-        fetchMarkdownAtRevision: vi.fn(async () => "markdown:file-1"),
         parseSheet: vi.fn(() => ({ markdown: "markdown:file-1" }) as unknown as ParsedSheet),
         enrichWithDrivePins: vi.fn(async () => parseResult()),
       }) as unknown as RunOnboardingScanDeps;
@@ -593,23 +590,22 @@ describe("runOnboardingScan", () => {
       const index = Number(driveFileId.replace("file-", "")); // 1-based
       return 5 + (fileCount - index) * 4;
     };
-    const fetchMarkdownAtRevision = vi.fn(async (driveFileId: string) => {
+    const fetchMarkdownWithBinding = vi.fn(async (driveFileId: string) => {
       active += 1;
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, delayFor(driveFileId)));
       active -= 1;
       completionOrder.push(driveFileId);
-      return `markdown:${driveFileId}`;
+      return {
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: `markdown:${driveFileId}`,
+      };
     });
 
     const result = await runOnboardingScan("folder-1", W1, {
       tx,
       listFolder: vi.fn(async () => files),
-      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-        bindingToken: meta.modifiedTime,
-        modifiedTime: meta.modifiedTime,
-      })),
-      fetchMarkdownAtRevision,
+      fetchMarkdownWithBinding,
       parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
       enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) => {
         const driveFileId = (parsed as unknown as { markdown: string }).markdown.replace(
@@ -660,11 +656,10 @@ describe("runOnboardingScan", () => {
         RunOnboardingScanDeps["createScanTxRunner"]
       >,
       listFolder: vi.fn(async () => files),
-      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
-        bindingToken: meta.modifiedTime,
-        modifiedTime: meta.modifiedTime,
+      fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+        binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+        markdown: `markdown:${driveFileId}`,
       })),
-      fetchMarkdownAtRevision: vi.fn(async (driveFileId: string) => `markdown:${driveFileId}`),
       parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
       enrichWithDrivePins: vi.fn(async () => parseResult()),
     });

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
-import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
@@ -1558,10 +1558,14 @@ async function prepareWizardRestageInline(
   const metadata = reverify.metadata;
   const prepared = await deps.prepareOnboardingFiles(reverify.pendingFolderId, {
     listFolder: async () => [metadata],
-    captureBinding: async () => ({
-      bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
-      modifiedTime: metadata.modifiedTime,
-    }),
+    // Bind to the already-reverified revision and fetch the markdown at exactly
+    // that revision (this runs PRE-LOCK now, so the Drive export is no longer
+    // under the per-show lock).
+    fetchMarkdownWithBinding: async (driveFileId) => {
+      const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
+      const markdown = await fetchSheetAsMarkdownAtRevision(driveFileId, bindingToken);
+      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown };
+    },
   });
   return { folderId: reverify.pendingFolderId, prepared };
 }

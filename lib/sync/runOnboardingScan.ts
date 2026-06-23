@@ -1,7 +1,7 @@
 import postgres from "postgres";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
-import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -137,8 +137,9 @@ export type RunOnboardingScanDeps = {
   tx?: OnboardingScanTx;
   createScanTxRunner?: (folderId: string, wizardSessionId: string) => ScanTxRunner;
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
-  captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
-  fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
+  fetchMarkdownWithBinding?: (
+    driveFileId: string,
+  ) => Promise<{ binding: Phase1Binding; markdown: string }>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
@@ -191,18 +192,6 @@ function toDriveFileMeta(file: DriveListedFile): DriveFileMeta {
     mimeType: file.mimeType,
     modifiedTime: file.modifiedTime,
     name: file.name,
-  };
-}
-
-async function defaultCaptureBinding(
-  driveFileId: string,
-  fileMeta: DriveListedFile,
-): Promise<Phase1Binding> {
-  const metadata = await fetchDriveFileMetadata(driveFileId);
-  void fileMeta;
-  return {
-    bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
-    modifiedTime: metadata.modifiedTime,
   };
 }
 
@@ -900,23 +889,24 @@ export async function prepareOnboardingFiles(
 ): Promise<PreparedOnboardingFile[]> {
   const listFolder = deps.listFolder ?? listDriveFolder;
   const files = await listFolder(folderId);
-  const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
-  const fetchMarkdownAtRevision = deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision;
+  const fetchMarkdownWithBinding = deps.fetchMarkdownWithBinding ?? fetchSheetMarkdownWithBinding;
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
 
-  // Per-file preparation is a pre-lock, side-effect-free Drive read (metadata +
-  // xlsx export + parse + enrich). Each file is independent, so we prepare them
-  // with bounded concurrency instead of serially — this is the dominant cost of
-  // an onboarding scan. mapWithConcurrency preserves listed order, so the
-  // downstream lock-ordered scanPreparedFiles loop is unaffected.
+  // Per-file preparation is a pre-lock, side-effect-free Drive read (export +
+  // parse + enrich). Each file is independent, so we prepare them with bounded
+  // concurrency instead of serially — this is the dominant cost of an onboarding
+  // scan. mapWithConcurrency preserves listed order, so the downstream
+  // lock-ordered scanPreparedFiles loop is unaffected. fetchMarkdownWithBinding
+  // captures the binding FROM the export's before-`get` (one fewer files.get per
+  // sheet than a separate binding capture); first-seen onboarding does not need
+  // the cron path's separate-capture revision-race cooldown.
   const prepareOne = async (file: DriveListedFile): Promise<PreparedOnboardingFile> => {
     if (!isSpreadsheet(file)) {
       return { file, kind: "non_sheet" };
     }
-    const binding = await captureBinding(file.driveFileId, file);
-    const markdown = await fetchMarkdownAtRevision(file.driveFileId, binding.bindingToken);
+    const { binding, markdown } = await fetchMarkdownWithBinding(file.driveFileId);
     const parsed = parseSheet(markdown, file.name);
     const parseResult = await enrich(parsed, driveClient, {
       driveFileId: file.driveFileId,
