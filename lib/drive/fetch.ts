@@ -10,17 +10,93 @@ export const DRIVE_FILE_METADATA_FIELDS =
   "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum";
 export const DRIVE_EXPORT_METADATA_FIELDS = `${DRIVE_FILE_METADATA_FIELDS}, exportLinks`;
 
+export type DriveRetryOptions = {
+  sleep?: (ms: number) => Promise<void>;
+  maxRetries?: number;
+  random?: () => number;
+};
+
 export type DriveFetchOptions = {
   drive?: drive_v3.Drive;
   fetch?: typeof fetch;
   getAccessToken?: () => Promise<string>;
+  retry?: DriveRetryOptions;
 };
 
 export class DriveFetchError extends Error {
-  constructor(message: string) {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "DriveFetchError";
+    if (status !== undefined) this.status = status;
   }
+}
+
+// BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY: a single transient Drive failure
+// (rate limit / gateway / server error) otherwise aborts the whole onboarding
+// folder scan — and a cron / manual sync pass. Retry those (and ONLY those) with
+// bounded exponential backoff; non-transient errors (revision races, omitted
+// metadata, 4xx other than 429) propagate immediately so callers still fail fast.
+const TRANSIENT_DRIVE_STATUSES = new Set([429, 500, 502, 503, 504]);
+const DEFAULT_MAX_DRIVE_RETRIES = 3;
+
+function driveErrorStatus(error: unknown): number | null {
+  if (error instanceof DriveFetchError) {
+    return typeof error.status === "number" ? error.status : null;
+  }
+  // gaxios / googleapis error shapes: response.status, status, or numeric code.
+  const candidate =
+    (error as { response?: { status?: unknown } })?.response?.status ??
+    (error as { status?: unknown })?.status ??
+    (error as { code?: unknown })?.code;
+  return typeof candidate === "number" ? candidate : null;
+}
+
+/**
+ * Run a single Drive operation, retrying ONLY transient (429 / 5xx) failures with
+ * bounded exponential backoff + jitter. Used to wrap the raw `files.get` and xlsx
+ * export calls so every caller (onboarding scan + cron + manual sync) survives a
+ * transient throttle instead of aborting the whole pass.
+ */
+export async function withDriveRetry<T>(
+  op: () => Promise<T>,
+  options: DriveRetryOptions = {},
+): Promise<T> {
+  const sleep =
+    options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const random = options.random ?? Math.random;
+  const maxRetries = options.maxRetries ?? DEFAULT_MAX_DRIVE_RETRIES;
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await op();
+    } catch (error) {
+      const status = driveErrorStatus(error);
+      if (status === null || !TRANSIENT_DRIVE_STATUSES.has(status) || attempt >= maxRetries) {
+        throw error;
+      }
+      attempt += 1;
+      // 250ms, 500ms, 1000ms exponential backoff + up to 250ms jitter.
+      const delayMs = 250 * 2 ** (attempt - 1) + Math.floor(random() * 250);
+      await sleep(delayMs);
+    }
+  }
+}
+
+// Raw Drive files.get with transient-retry. A NAMED helper (not an inline arrow)
+// so the single-sheet scope-check contract attributes the .files.get to one
+// exemptable site (callers that PROCESS sheets still scope-check the result).
+function driveFilesGet(
+  drive: drive_v3.Drive,
+  params: drive_v3.Params$Resource$Files$Get,
+  retry?: DriveRetryOptions,
+) {
+  // Named thunk so the single-sheet scope-check attributes the .files.get to one
+  // specific exempt site (driveFilesGetCall) rather than an anonymous arrow.
+  // supportsAllDrives is set HERE (inline) so the shared-Drive-support contract
+  // sees it on the one real .files.get call site.
+  const driveFilesGetCall = () => drive.files.get({ ...params, supportsAllDrives: true });
+  return withDriveRetry(driveFilesGetCall, retry);
 }
 
 function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {
@@ -53,12 +129,13 @@ function bindingToken(file: drive_v3.Schema$File | DriveListedFile): string {
 async function fetchFileForExport(
   driveFileId: string,
   drive: drive_v3.Drive,
+  retry?: DriveRetryOptions,
 ): Promise<drive_v3.Schema$File> {
-  const response = await drive.files.get({
-    fileId: driveFileId,
-    fields: DRIVE_EXPORT_METADATA_FIELDS,
-    supportsAllDrives: true,
-  });
+  const response = await driveFilesGet(
+    drive,
+    { fileId: driveFileId, fields: DRIVE_EXPORT_METADATA_FIELDS, supportsAllDrives: true },
+    retry,
+  );
   if (
     !response.data.id ||
     !response.data.name ||
@@ -75,11 +152,11 @@ export async function fetchDriveFileMetadata(
   options: DriveFetchOptions = {},
 ): Promise<DriveListedFile> {
   const drive = options.drive ?? getDriveClient();
-  const response = await drive.files.get({
-    fileId: driveFileId,
-    fields: DRIVE_FILE_METADATA_FIELDS,
-    supportsAllDrives: true,
-  });
+  const response = await driveFilesGet(
+    drive,
+    { fileId: driveFileId, fields: DRIVE_FILE_METADATA_FIELDS, supportsAllDrives: true },
+    options.retry,
+  );
 
   return toDriveFileMetadata(response.data);
 }
@@ -121,7 +198,7 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
   options: DriveFetchOptions = {},
 ): Promise<{ markdown: string; bytes: ArrayBuffer }> {
   const drive = options.drive ?? getDriveClient();
-  const before = await fetchFileForExport(driveFileId, drive);
+  const before = await fetchFileForExport(driveFileId, drive, options.retry);
   const beforeToken = bindingToken(before);
   if (beforeToken !== revisionId) {
     throw new DriveFetchError(
@@ -137,20 +214,25 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
   }
   const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
   const fetchImpl = options.fetch ?? fetch;
-  const exportResponse = await fetchImpl(exportUrl, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: XLSX_EXPORT_MIME_TYPE,
-    },
-  });
-  if (!exportResponse.ok) {
-    throw new DriveFetchError(
-      `Drive revision xlsx export failed with HTTP ${exportResponse.status}`,
-    );
-  }
+  const exportResponse = await withDriveRetry(async () => {
+    const response = await fetchImpl(exportUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: XLSX_EXPORT_MIME_TYPE,
+      },
+    });
+    if (!response.ok) {
+      // Carry the status so withDriveRetry can retry a transient (429/5xx) export.
+      throw new DriveFetchError(
+        `Drive revision xlsx export failed with HTTP ${response.status}`,
+        response.status,
+      );
+    }
+    return response;
+  }, options.retry);
 
   const bytes = await exportResponse.arrayBuffer();
-  const after = await fetchFileForExport(driveFileId, drive);
+  const after = await fetchFileForExport(driveFileId, drive, options.retry);
   const afterToken = bindingToken(after);
   if (afterToken !== revisionId) {
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
@@ -177,7 +259,7 @@ export async function fetchSheetMarkdownWithBinding(
   options: DriveFetchOptions = {},
 ): Promise<{ binding: { bindingToken: string; modifiedTime: string }; markdown: string }> {
   const drive = options.drive ?? getDriveClient();
-  const before = await fetchFileForExport(driveFileId, drive);
+  const before = await fetchFileForExport(driveFileId, drive, options.retry);
   const token = bindingToken(before);
   const modifiedTime = before.modifiedTime;
   if (!modifiedTime) {
@@ -193,20 +275,25 @@ export async function fetchSheetMarkdownWithBinding(
   }
   const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
   const fetchImpl = options.fetch ?? fetch;
-  const exportResponse = await fetchImpl(exportUrl, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: XLSX_EXPORT_MIME_TYPE,
-    },
-  });
-  if (!exportResponse.ok) {
-    throw new DriveFetchError(
-      `Drive revision xlsx export failed with HTTP ${exportResponse.status}`,
-    );
-  }
+  const exportResponse = await withDriveRetry(async () => {
+    const response = await fetchImpl(exportUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: XLSX_EXPORT_MIME_TYPE,
+      },
+    });
+    if (!response.ok) {
+      // Carry the status so withDriveRetry can retry a transient (429/5xx) export.
+      throw new DriveFetchError(
+        `Drive revision xlsx export failed with HTTP ${response.status}`,
+        response.status,
+      );
+    }
+    return response;
+  }, options.retry);
 
   const bytes = await exportResponse.arrayBuffer();
-  const after = await fetchFileForExport(driveFileId, drive);
+  const after = await fetchFileForExport(driveFileId, drive, options.retry);
   if (bindingToken(after) !== token) {
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }
