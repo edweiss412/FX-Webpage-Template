@@ -48,7 +48,7 @@ describe("Chunk 3 — needs-work prose pages", () => {
     expect(src, "recovery procedure is <Step>s, not a run-on sentence").toMatch(
       /<Step n=\{1\}>Open the sheet directly in Google Drive\./,
     );
-    expect(src, "intro is a scannable anatomy list").toMatch(/What you'll see, top to bottom:/);
+    expect(src, "intro is a scannable anatomy list").toMatch(/The panel's main parts:/);
     // The old 5-sentence run-on intro is gone.
     expect(src).not.toContain("The panel stacks three sections");
   });
@@ -73,9 +73,9 @@ describe("Chunk 3 — needs-work prose pages", () => {
     expect(startOverMentions, "Start over explained once, not duplicated").toBeLessThanOrEqual(1);
   });
 
-  it("review-queues: a two-queue TL;DR table replaces the prose definition, and the buried trigger parenthetical is gone", () => {
+  it("review-queues: a two-row TL;DR table replaces the prose definition, and the buried trigger parenthetical is gone", () => {
     const src = read("review-queues");
-    expect(src, "two-queue at-a-glance table").toMatch(/\|\s*Queue\s*\|\s*Catches\s*\|/);
+    expect(src, "at-a-glance table").toMatch(/\|\s*Where to look\s*\|\s*What it is\s*\|/);
     // The 95-word L27 sentence with the inline trigger parenthetical is gone.
     expect(src).not.toContain("a LEAD status that toggled");
     expect(src).not.toContain("Two queues exist for the cases where the app cannot publish");
@@ -97,7 +97,7 @@ describe("Chunk 3 — needs-work prose pages", () => {
     // The TL;DR First-seen row must NOT lump in the couldn't-process / hard-fail
     // case (that's pending_ingestion, a separate inbox card) — the body says so too.
     const firstSeenRow =
-      src.split("\n").find((l) => l.includes("**[First-seen](#first-seen)**")) ?? "";
+      src.split("\n").find((l) => l.includes("**[First-seen review](#first-seen)**")) ?? "";
     expect(firstSeenRow, "TL;DR First-seen row excludes couldn't-process/hard-fail").not.toMatch(
       /couldn't read|hard-fail/i,
     );

@@ -40,10 +40,12 @@ describe("/help/admin/per-show-panel (E.8)", () => {
     expect(src).toMatch(/^# Per-show panel\b/m);
   });
 
-  it('has a plain <h2 id="staged-review-card"> (kebab non-catalog anchor → plain <h2>, NOT <RefAnchor>; D.5 regex restricts RefAnchor to catalog-code shape)', () => {
-    expect(src).toMatch(/<h2[^>]*id=["']staged-review-card["']/);
+  it('has a plain <h2 id="changes-feed"> (kebab non-catalog anchor → plain <h2>, NOT <RefAnchor>; D.5 regex restricts RefAnchor to catalog-code shape)', () => {
+    expect(src).toMatch(/<h2[^>]*id=["']changes-feed["']/);
     // negative: must NOT use RefAnchor for this id
-    expect(src).not.toMatch(/<RefAnchor[^>]*id=["']staged-review-card["']/);
+    expect(src).not.toMatch(/<RefAnchor[^>]*id=["']changes-feed["']/);
+    // the retired "staged-review card on the panel" model must not creep back
+    expect(src).not.toMatch(/staged-review card appears at the top/i);
   });
 
   it('has a plain <h2 id="sync-health"> (kebab non-catalog anchor → plain <h2>, NOT <RefAnchor>)', () => {
@@ -51,8 +53,8 @@ describe("/help/admin/per-show-panel (E.8)", () => {
     expect(src).not.toMatch(/<RefAnchor[^>]*id=["']sync-health["']/);
   });
 
-  it("links to /help/admin/review-queues#re-stage (staged-review card cross-link)", () => {
-    expect(src).toContain("/help/admin/review-queues#re-stage");
+  it("links to /help/admin/review-queues#first-seen (the brand-new-sheet review is the inbox, not the panel)", () => {
+    expect(src).toContain("/help/admin/review-queues#first-seen");
   });
 
   it("links to /help/admin/parse-warnings (Parse warnings sub-section pointer)", () => {
