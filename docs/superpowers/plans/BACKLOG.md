@@ -339,6 +339,26 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
+### BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK — Reorder the wizard revision-race restage to download BEFORE acquiring the per-show lock (carries the onboarding combined-fetch dedup for free)
+
+**Filed:** 2026-06-22 from the PR-#73 follow-up investigation (the deferred "drop the redundant captureBinding metadata get" optimization). Surfaced a latent lock-hygiene issue while attempting the combined-fetch dedup.
+
+**The latent issue (the valuable finding):** `restageWizardRevisionRaceInline` (`lib/sync/applyStaged.ts`) runs INSIDE the per-show advisory lock (its caller `applyWizardWithDriveReverify` acquires the lock, then calls it with a `LockedShowTx`). The restage re-runs `runOnboardingScan` for the single raced file, and that re-scan performs a **Drive xlsx export — slow network I/O — while the lock is held**. This violates the same "do slow Drive I/O pre-lock, hold the lock only for the fast DB writes" pattern that every other sync path (cron / push / manual / the M-onboarding folder scan) follows. The structural guard `tests/sync/_advisoryLockSingleHolderContract.test.ts` ("no advisory-lock window can reach Drive helpers") does NOT currently catch it because the Drive call is buried behind `runOnboardingScan`'s default fetch and the guard's reachability walk is per-file (it does not follow the cross-file call into `runOnboardingScan`). The folder-scan parallelization PR proved this: replacing the onboarding deps with an inline combined fetch in the restage path made the Drive-under-lock call textually visible and the guard correctly failed.
+
+**The fix (elegant; carries the dedup):** restructure the restage so the Drive download happens BEFORE the per-show lock is taken, then acquire the lock only to stage the already-fetched parse — mirroring the prepare-then-lock split the folder scan already uses. With the slow I/O moved out of the lock window:
+
+- the latent lock-hygiene bug is fixed (no more holding the per-show lock across a Drive export);
+- `runOnboardingScan` can adopt a single combined `fetchMarkdownWithBinding(driveFileId) => { binding, markdown }` dep (capture the binding FROM the export's before-`get`), removing the separate `captureBinding` metadata `files.get` — ~1 fewer Drive call per sheet on the onboarding folder scan — with NO TOCTOU widening and NO dual-path/legacy-deps clutter;
+- the structural guard can stay strict (no allowlist), because nothing reaches a Drive helper under the lock anymore.
+
+(The cron/manual sync paths deliberately keep a separate `captureBinding` get — its token feeds the `runScheduledCronSync` revision-race cooldown — so they are out of scope; this entry is onboarding + the wizard restage only.)
+
+**Why backlog, not deferred:** `restageWizardRevisionRaceInline` / `applyWizardWithDriveReverify` is delicate revision-race + advisory-lock recovery code (the class the project's adversarial reviews scrutinize hardest). Reordering lock acquisition vs. Drive fetch there is a real, focused change — its own spec + adversarial-review rounds + a guard extension that makes the cross-file reachability walk follow into `runOnboardingScan` so the latent class can never re-hide. It is NOT a safe rider on a perf tweak; the standalone ~1–2s dedup it unlocks is not worth doing any other way (the alternatives are weakening the guard, changing recovery semantics, or a permanent dual-path). Connection-reuse (PR-#73 follow-up B) shipped separately; this is the remaining piece.
+
+**Promotion prerequisite:** EITHER (a) a v1.x sync-robustness / lock-hygiene milestone picks up the restage-path reorder (the natural home — it pairs with BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY), OR (b) the wizard revision-race recovery path is reopened for any other reason and a class-sweep lands the reorder + guard extension + the onboarding combined-fetch dedup together.
+
+---
+
 ## BL-LINT-DEBT-PREEXISTING — ~90 pre-existing eslint errors in unrelated files
 
 **✅ RESOLVED (2026-06-21, `chore/lint-format-ci-gates` branch):** promotion prerequisite (a) was taken — a CI lint gate (`.github/workflows/quality.yml` running `pnpm lint` + `pnpm typecheck` + `pnpm format:check`) was added AND the full lint debt was cleared in the same branch (`pnpm lint` now exits 0). Root cause was mostly `.validation-local` design-mock noise (now eslint-ignored) plus ~48 real findings fixed. The same branch also normalized the repo-wide prettier drift (~56% of files) and added a `simple-git-hooks` + `lint-staged` pre-commit gate to stop regression. Retained for history; no further work. (A residual eslint blind spot — array-join classNames — is tracked separately as `BL-CANONICAL-CLASS-ARRAY-BLINDSPOT` below.)

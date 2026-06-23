@@ -632,4 +632,48 @@ describe("runOnboardingScan", () => {
     // manifest order must equal the input order despite out-of-order preparation.
     expect(tx.manifest.map((row) => row.driveFileId)).toEqual(inputOrder);
   });
+
+  test("reuses one scan connection for the readiness probe and every per-file transaction", async () => {
+    vi.resetModules();
+    const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+    let opened = 0;
+    let closed = 0;
+    let withTxCalls = 0;
+    const createScanTxRunner = vi.fn((_folderId: string, _wizardSessionId: string) => {
+      opened += 1;
+      return {
+        withTx: async <R>(fn: (t: typeof tx) => Promise<R> | R): Promise<R> => {
+          withTxCalls += 1;
+          return await fn(tx);
+        },
+        close: async () => {
+          closed += 1;
+        },
+      };
+    });
+
+    const files = [file("file-1"), file("file-2"), file("file-3")];
+    const result = await runOnboardingScan("folder-1", W1, {
+      createScanTxRunner: createScanTxRunner as unknown as NonNullable<
+        RunOnboardingScanDeps["createScanTxRunner"]
+      >,
+      listFolder: vi.fn(async () => files),
+      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
+        bindingToken: meta.modifiedTime,
+        modifiedTime: meta.modifiedTime,
+      })),
+      fetchMarkdownAtRevision: vi.fn(async (driveFileId: string) => `markdown:${driveFileId}`),
+      parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
+      enrichWithDrivePins: vi.fn(async () => parseResult()),
+    });
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    // ONE connection opened (and closed) for readiness + all three files — not 1 + N.
+    expect(opened).toBe(1);
+    expect(closed).toBe(1);
+    // readiness probe + one transaction per file, all on that single connection.
+    expect(withTxCalls).toBe(1 + files.length);
+    expect(tx.manifest.map((row) => row.driveFileId)).toEqual(["file-1", "file-2", "file-3"]);
+  });
 });

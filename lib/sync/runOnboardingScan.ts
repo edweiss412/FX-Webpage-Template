@@ -135,6 +135,7 @@ type PreparedOnboardingFile =
 
 export type RunOnboardingScanDeps = {
   tx?: OnboardingScanTx;
+  createScanTxRunner?: (folderId: string, wizardSessionId: string) => ScanTxRunner;
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
@@ -502,29 +503,38 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
   }
 }
 
-async function withDefaultTx<R>(
-  folderId: string,
-  wizardSessionId: string,
-  fn: (tx: OnboardingScanTx) => Promise<R>,
-): Promise<R> {
+/**
+ * A scan-scoped transaction runner backed by a SINGLE Postgres connection.
+ * `withTx` opens a fresh `sql.begin()` transaction per call (so each file keeps
+ * its own transaction — required for the per-show advisory lock and the
+ * live-row-conflict fresh-tx recovery), but every call reuses the same
+ * connection instead of opening a new one per file. `close` is called once at
+ * the end of the scan.
+ */
+export type ScanTxRunner = {
+  withTx: <R>(fn: (tx: OnboardingScanTx) => Promise<R>) => Promise<R>;
+  close: () => Promise<void>;
+};
+
+function defaultCreateScanTxRunner(folderId: string, wizardSessionId: string): ScanTxRunner {
   const sql = postgres(databaseUrl(), {
     max: 1,
     idle_timeout: 1,
     prepare: false,
   });
-  try {
-    return (await sql.begin(async (rawTx) =>
-      fn(
-        new PostgresOnboardingScanTx(
-          rawTx as unknown as PostgresTransaction,
-          folderId,
-          wizardSessionId,
+  return {
+    withTx: async <R>(fn: (tx: OnboardingScanTx) => Promise<R>): Promise<R> =>
+      (await sql.begin(async (rawTx) =>
+        fn(
+          new PostgresOnboardingScanTx(
+            rawTx as unknown as PostgresTransaction,
+            folderId,
+            wizardSessionId,
+          ),
         ),
-      ),
-    )) as R;
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
+      )) as R,
+    close: () => sql.end({ timeout: 5 }),
+  };
 }
 
 type OnboardingScanStep = { kind: "continue" } | { kind: "stop"; result: OnboardingScanResult };
@@ -924,18 +934,27 @@ export async function runOnboardingScan(
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
-  const readiness = deps.tx
-    ? await verifyOnboardingScanReady(deps.tx)
-    : await withDefaultTx(folderId, wizardSessionId, verifyOnboardingScanReady);
-  if (readiness) return readiness;
-
-  const preparedFiles = await prepareOnboardingFiles(folderId, deps);
   if (deps.tx) {
+    const tx = deps.tx;
+    const readiness = await verifyOnboardingScanReady(tx);
+    if (readiness) return readiness;
+    const preparedFiles = await prepareOnboardingFiles(folderId, deps);
     return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, async (fn) =>
-      fn(deps.tx as OnboardingScanTx),
+      fn(tx),
     );
   }
-  return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, (fn) =>
-    withDefaultTx(folderId, wizardSessionId, fn),
-  );
+
+  // Default path: one Postgres connection reused for the readiness probe AND
+  // every per-file scan transaction (prior code opened a fresh connection per
+  // file). prepareOnboardingFiles in between does no DB work; postgres.js
+  // transparently reconnects if the socket idles out during it.
+  const runner = (deps.createScanTxRunner ?? defaultCreateScanTxRunner)(folderId, wizardSessionId);
+  try {
+    const readiness = await runner.withTx(verifyOnboardingScanReady);
+    if (readiness) return readiness;
+    const preparedFiles = await prepareOnboardingFiles(folderId, deps);
+    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, runner.withTx);
+  } finally {
+    await runner.close();
+  }
 }
