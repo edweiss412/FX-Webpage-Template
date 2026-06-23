@@ -406,6 +406,60 @@
   }
 }
 
+/* Onboarding scan progress bar (wizard Step 2). A native <progress> is unthemed
+   by default (browser chrome blue / platform accent); paint it with the single
+   FXAV accent on a raised track so it reads as the "this matters now" signal
+   (DESIGN.md: one signature accent, no competing hue). The DETERMINATE fill
+   updates instantly per the `value` attribute (no custom transition). The
+   INDETERMINATE state (connecting / finishing — no `value`) shimmers so it still
+   reads as active; the shimmer is the only motion and is gated below. */
+progress[data-testid="wizard-step2-progressbar"] {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  overflow: hidden;
+  background-color: var(--color-surface-raised);
+}
+progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-bar {
+  background-color: var(--color-surface-raised);
+  border-radius: 9999px;
+}
+progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-value {
+  background-color: var(--color-accent);
+  border-radius: 9999px;
+}
+progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar {
+  background-color: var(--color-accent);
+  border-radius: 9999px;
+}
+progress[data-testid="wizard-step2-progressbar"]:indeterminate {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  background-position: -40% 0;
+  animation: scan-progress-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes scan-progress-indeterminate {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate {
+    animation: none;
+    background-position: 50% 0; /* static centered accent hint */
+  }
+}
+
 /*
  * Tabular figures default for elements that semantically carry numbers.
  * Components MAY opt in at any element via class="tabular-nums" or via

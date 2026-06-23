@@ -330,7 +330,7 @@ export function Step2Verify() {
           data-testid="wizard-step2-progress"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text"
         >
-          <p className="font-semibold text-text-strong" aria-hidden="true">
+          <p className="text-base font-semibold text-text-strong" aria-hidden="true">
             {heading}
           </p>
           <p className="break-all text-text-subtle" aria-hidden="true">
@@ -338,7 +338,7 @@ export function Step2Verify() {
           </p>
           <progress
             data-testid="wizard-step2-progressbar"
-            className="h-2 w-full motion-reduce:transition-none"
+            className="h-2 w-full"
             max={reading ? reading.total : undefined}
             value={reading ? reading.done : undefined}
             aria-label="Folder scan progress"
@@ -357,12 +357,13 @@ export function Step2Verify() {
           ) : null}
           {reading && reading.lastName ? (
             <p
-              className="truncate text-text-subtle"
+              className="truncate text-text"
               data-testid="wizard-step2-lastname"
               title={reading.lastName}
               aria-hidden="true"
             >
-              Just read: {reading.lastName}
+              <span className="text-text-subtle">Just read: </span>
+              {reading.lastName}
             </p>
           ) : null}
           <p

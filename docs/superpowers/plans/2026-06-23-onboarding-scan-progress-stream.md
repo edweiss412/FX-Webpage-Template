@@ -34,6 +34,7 @@
 | `lib/sync/runOnboardingScan.ts` | Emit `listed`/`prepared`/`staging` via `onProgress` | Modify |
 | `app/api/admin/onboarding/scan/route.ts` | Stream the run phase as NDJSON; `maxDuration` | Modify |
 | `components/admin/wizard/Step2Verify.tsx` | Stream reader + determinate bar + status line | Modify (UI) |
+| `app/globals.css` | Theme the native `<progress>` bar (accent fill / surface-raised track / reduced-motion-gated indeterminate shimmer) — added in T8 per impeccable HIGH | Modify (UI) |
 | `tests/onboarding/scanProgress.test.ts` | Pins the event contract const/types | **Create** |
 | `tests/async/mapWithConcurrency.test.ts` | `onItemComplete` behavior | Extend |
 | `tests/sync/onboarding.test.ts` | `onProgress` event sequence (reuses existing fakes — DRY) | Extend |

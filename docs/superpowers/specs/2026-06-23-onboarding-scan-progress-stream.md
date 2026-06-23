@@ -49,7 +49,8 @@ Because the slow phase writes nothing to the DB, a "poll a status table" design 
 | D8 | Route segment config | add `export const maxDuration = 300` |
 | D9 | Empty folder | `total:0` → bar treated as complete; go straight to "Finishing up…" → success ("Found 0 items") |
 | D10 | Name truncation | the "Just read" name is single-line, `truncate` (CSS ellipsis); no character cap in the data |
-| D11 | Reduced motion | native `<progress>` has no custom animation → nothing to gate; `motion-reduce:transition-none` is a defensive no-op |
+| D11 | Reduced motion | DETERMINATE fill updates instantly per `value` (no transition). INDETERMINATE (connecting/finishing) shows an accent shimmer — the only motion — gated by `@media (prefers-reduced-motion: reduce)` (→ static centered accent hint) |
+| D12 | Bar theming | native `<progress>` is `appearance-none` + themed in `globals.css` (accent fill `--color-accent`, `--color-surface-raised` track, `--color-border` ring, pill radius) so it reads as the single FXAV accent, not browser-default blue (invariant-8 impeccable HIGH) |
 
 ## 5. Architecture
 
@@ -224,7 +225,8 @@ type ScanProgress =
 
 **Accessibility / motion:**
 - The progress wrapper is a **plain container — NOT a live region** (the original wrapper had `role="status" aria-live="polite"`, but it now holds a `prepared`-tick count that would spam screen readers, so the live semantics move off it). Every visual line (heading, URL, count, just-read, elapsed) is `aria-hidden`; a single dedicated visually-hidden `role="status" aria-live="polite"` node announces **phase changes only** — the heading text ("Looking through your folder", "Finishing up"). The final success/error panels are announced by their own `role` (`role="alert"` on error; the success summary is read on focus/landing).
-- **Motion:** the bar fill is the native `<progress>` element's UA rendering — there is **no custom CSS width animation**, so there is nothing to gate. `motion-reduce:transition-none` is a defensive no-op; reduced-motion is trivially satisfied (D11).
+- **Theming (D12):** the native `<progress>` is unstyled by default (browser-blue), so it is `appearance-none` and themed in `app/globals.css` via a `progress[data-testid="wizard-step2-progressbar"]` selector — accent fill (`--color-accent`) on a `--color-surface-raised` track with a `--color-border` ring and pill radius (`::-webkit-progress-bar/value`, `::-moz-progress-bar`). This keeps the single-accent rule (no competing blue).
+- **Motion (D11):** the DETERMINATE fill updates instantly per the `value` attribute (no transition). The INDETERMINATE state (connecting/finishing, no `value`) shows an accent **shimmer** keyframe — the only motion in this component — gated by `@media (prefers-reduced-motion: reduce)` which freezes it to a static centered accent hint.
 
 **Dimensional Invariants** (Tailwind v4 here does not default `.flex` to `align-items: stretch` — [[feedback_tailwind_v4_flex_items_stretch]]):
 - The progress panel is the existing bordered container (`:259`); it is height-`auto` (content-driven), no fixed-dimension parent constrains a flex/grid child here.
@@ -309,6 +311,7 @@ Compound: a `result` arriving mid-`reading` (e.g. fast `schema_missing` or a sup
 | `lib/sync/runOnboardingScan.ts` | add `onProgress` to deps; emit listed/prepared/staging |
 | `app/api/admin/onboarding/scan/route.ts` | stream run phase; `maxDuration`; preconditions unchanged |
 | `components/admin/wizard/Step2Verify.tsx` | stream reader + determinate bar + status line |
+| `app/globals.css` | theme the native `<progress>` bar (accent fill / surface-raised track / indeterminate shimmer) — D12 |
 | `tests/async/mapWithConcurrency.test.ts` | extend |
 | `tests/onboarding/scanProgressEvents.test.ts` | NEW |
 | `tests/onboarding/scanRoute.test.ts` | rewrite success path for NDJSON |
