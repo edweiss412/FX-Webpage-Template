@@ -57,9 +57,9 @@ jobs:
         with:
           # Pinned (NOT `latest`): `latest` resolves via the GitHub API, which rate-limits
           # on shared runners and fails setup. Critical here — unit-suite is a REQUIRED
-          # check, so a setup rate-limit flake would block merges. 2.98.2 = the
-          # supabase-local-bootstrap.sh verified version; downloads directly (no API lookup).
-          version: 2.98.2
+          # check, so a setup rate-limit flake would block merges. 2.107.0 = the
+          # supabase-local-bootstrap.sh known CI-passing version (PR #102; older 2.98.2 broke the in-container psql auth); downloads directly (no API lookup).
+          version: 2.107.0
       - name: Install psql (local-DB tests + bootstrap shell out to psql)
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Boot local Supabase (guarded migrations)
