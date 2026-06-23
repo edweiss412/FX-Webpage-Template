@@ -17,6 +17,8 @@
  *   - operator error → OPERATOR_ERROR_NOT_FOLDER / OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA
  * Plus the not-found variant: FOLDER_NOT_FOUND.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
@@ -488,5 +490,78 @@ describe("Step2Verify", () => {
       fireEvent.click(getByTestId("wizard-step2-submit"));
     });
     expect(await findByTestId("wizard-step2-error")).toBeTruthy();
+  });
+});
+
+describe("Step2Verify transition audit", () => {
+  test("structural: component uses no framer-motion / AnimatePresence (all transitions instant)", () => {
+    const src = readFileSync(
+      resolve(process.cwd(), "components/admin/wizard/Step2Verify.tsx"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/framer-motion|AnimatePresence/);
+  });
+
+  test("compound: a result arriving mid-reading overrides progress immediately (superseded → refresh)", async () => {
+    const { response, push, close } = controllableStreamResponse();
+    fetchMock.mockResolvedValue(response);
+    const { getByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await push({ type: "listed", total: 5 });
+    await push({ type: "prepared", done: 1, total: 5, name: "A" });
+    await push({
+      type: "result",
+      body: { outcome: "superseded", code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" },
+    });
+    await close();
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+  });
+
+  test("success → connecting on resubmit (form stays rendered)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        streamResponse([
+          ndjson(
+            { type: "listed", total: 1 },
+            { type: "result", body: completedScanBody(["staged"], "First") },
+          ),
+        ]),
+      )
+      .mockImplementationOnce(() => new Promise<Response>(() => {})); // 2nd submit hangs in connecting
+    const { getByTestId, findByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await findByTestId("wizard-step2-success");
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    expect(await findByTestId("wizard-step2-progress")).toBeTruthy();
+  });
+
+  test("error → connecting on resubmit (form stays rendered)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "FOLDER_NOT_FOUND" }, { status: 404 }))
+      .mockImplementationOnce(() => new Promise<Response>(() => {}));
+    const { getByTestId, findByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/missing" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await findByTestId("wizard-step2-error");
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    expect(await findByTestId("wizard-step2-progress")).toBeTruthy();
   });
 });
