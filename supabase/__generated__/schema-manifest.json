@@ -131,6 +131,7 @@
     "mime_type",
     "name",
     "observed_at",
+    "publish_intent",
     "status",
     "transitioned_at",
     "wizard_session_id"
