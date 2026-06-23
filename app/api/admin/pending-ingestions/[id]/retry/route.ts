@@ -26,6 +26,7 @@ import {
 } from "@/lib/sync/runManualSyncForShow";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -329,6 +330,10 @@ export async function handleLivePendingIngestionRetry(
   const driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
   if (!driveFileId) return transitioned();
 
+  // nav-perf tag-caching (Task 5): capture the applied show id INSIDE the tx, but
+  // call revalidateShow AFTER withRowTryLock resolves (post-commit) — never inside
+  // the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
+  let appliedShowId: string | null = null;
   const result = await deps.withRowTryLock(driveFileId, async (tx) => {
     const row = await readLockedPendingIngestion(tx, id);
     if (!row) return transitioned();
@@ -361,6 +366,9 @@ export async function handleLivePendingIngestionRetry(
         metadata,
         {},
       );
+      if ("outcome" in syncResult && syncResult.outcome === "applied") {
+        appliedShowId = syncResult.showId;
+      }
       return await manualSyncResponse(tx, row.drive_file_id, syncResult);
     }
     let metadata: DriveListedFile;
@@ -381,9 +389,15 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
     }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
+    if (stageResult.outcome === "applied") appliedShowId = stageResult.showId;
     return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
   });
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
+  // nav-perf tag-caching (Task 5): post-commit revalidate — withRowTryLock (the
+  // outer sql.begin tx) has resolved here, so the apply has committed. Bust the
+  // show's cache tag before returning the Response. Non-applied retries leave
+  // appliedShowId null → no revalidate.
+  if (appliedShowId) revalidateShow(appliedShowId);
   return result;
 }
 

@@ -222,3 +222,93 @@ describe("manual sync", () => {
     expect(revalidateTag).not.toHaveBeenCalled();
   });
 });
+
+describe("live pending-ingestion retry route", () => {
+  test("revalidates the applied show AFTER withRowTryLock resolves and BEFORE the Response", async () => {
+    const { handleLivePendingIngestionRetry } =
+      await import("@/app/api/admin/pending-ingestions/[id]/retry/route");
+
+    const response = await handleLivePendingIngestionRetry(
+      new Request("http://test/retry", { method: "POST" }),
+      { params: Promise.resolve({ id: "00000000-0000-0000-0000-0000000000aa" }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@test" }),
+        readDriveFileIdForPendingIngestion: async () => DRIVE_FILE_ID,
+        // withRowTryLock = the per-row tx; resolving it is the commit boundary.
+        // It records `committed` AFTER the inner callback completes.
+        withRowTryLock: (async (_driveFileId: string, fn: (tx: unknown) => unknown) => {
+          const r = await fn({
+            queryOne: async (sql: string) => {
+              if (sql.includes("from public.pending_ingestions")) {
+                return {
+                  id: "00000000-0000-0000-0000-0000000000aa",
+                  drive_file_id: DRIVE_FILE_ID,
+                  wizard_session_id: null,
+                  last_seen_modified_time: null,
+                };
+              }
+              if (sql.includes("exists")) return { exists: true };
+              if (sql.includes("watched_folder_id")) return { watched_folder_id: "folder-1" };
+              if (sql.includes("slug")) return { slug: "show-one" };
+              return null;
+            },
+          });
+          order.push("committed");
+          return r;
+        }) as never,
+        fetchDriveFileMetadata: async () => driveFile(),
+        readFinalizeOwnershipGuardUnlocked: async () => false,
+        runManualSyncForShowUnlocked: (async () => ({
+          outcome: "applied",
+          showId: SHOW_ID,
+          parseWarnings: [],
+        })) as never,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(revalidateTag).toHaveBeenCalledTimes(1);
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(SHOW_ID), { expire: 0 });
+    // Post-commit ordering: revalidate fires AFTER the withRowTryLock `committed`.
+    expect(order).toEqual(["committed", `revalidate:${showCacheTag(SHOW_ID)}`]);
+  });
+
+  test("does NOT revalidate when the retry outcome is not applied", async () => {
+    const { handleLivePendingIngestionRetry } =
+      await import("@/app/api/admin/pending-ingestions/[id]/retry/route");
+
+    await handleLivePendingIngestionRetry(
+      new Request("http://test/retry", { method: "POST" }),
+      { params: Promise.resolve({ id: "00000000-0000-0000-0000-0000000000aa" }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@test" }),
+        readDriveFileIdForPendingIngestion: async () => DRIVE_FILE_ID,
+        withRowTryLock: (async (_driveFileId: string, fn: (tx: unknown) => unknown) => {
+          return await fn({
+            queryOne: async (sql: string) => {
+              if (sql.includes("from public.pending_ingestions")) {
+                return {
+                  id: "00000000-0000-0000-0000-0000000000aa",
+                  drive_file_id: DRIVE_FILE_ID,
+                  wizard_session_id: null,
+                  last_seen_modified_time: null,
+                };
+              }
+              if (sql.includes("exists")) return { exists: true };
+              if (sql.includes("watched_folder_id")) return { watched_folder_id: "folder-1" };
+              return null;
+            },
+          });
+        }) as never,
+        fetchDriveFileMetadata: async () => driveFile(),
+        readFinalizeOwnershipGuardUnlocked: async () => false,
+        runManualSyncForShowUnlocked: (async () => ({
+          outcome: "stage",
+          stagedId: "staged-1",
+        })) as never,
+      },
+    );
+
+    expect(revalidateTag).not.toHaveBeenCalled();
+  });
+});
