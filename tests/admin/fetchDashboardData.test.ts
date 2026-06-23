@@ -598,9 +598,8 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
   });
 
   it("A5: ≤ FINALIZE_OWNED_CONCURRENCY in-flight readfinalizeowned_b2 across 20 in-flight shows; all resolve with correct discrimination", async () => {
-    const { FINALIZE_OWNED_CONCURRENCY, fetchDashboardData } = await import(
-      "@/components/admin/Dashboard"
-    );
+    const { FINALIZE_OWNED_CONCURRENCY, fetchDashboardData } =
+      await import("@/components/admin/Dashboard");
     state.deferred = true;
     const shows = Array.from({ length: 20 }, (_, i) => showRow(`${i}`, false)); // all unpublished → in-flight
     state.seed = { showsList: shows, showsActiveCount: 20 };
@@ -616,7 +615,10 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
     const rpcStarts = state.started.filter((s) => s.startsWith("rpc:"));
     expect(rpcStarts.length).toBe(20);
     // Correct per-call discrimination: ONLY the owned ids carry finalizeOwned===true.
-    const owned = r.rows.filter((row) => row.finalizeOwned).map((row) => row.id).sort();
+    const owned = r.rows
+      .filter((row) => row.finalizeOwned)
+      .map((row) => row.id)
+      .sort();
     expect(owned).toEqual(["0", "13", "19", "5"].sort());
     // And every non-owned in-flight show falls toward Held (false).
     expect(r.rows.filter((row) => !row.finalizeOwned).length).toBe(16);

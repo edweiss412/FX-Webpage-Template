@@ -74,7 +74,10 @@ afterEach(() => vi.resetModules());
 
 describe("/admin purge gate (nav-perf phase 1 A2)", () => {
   test("pending_wizard_session_at=null → purgeAndRotateIfStale NOT called; uses pre-read settings", async () => {
-    state.preRead = { kind: "value", settings: settledSettings({ pending_wizard_session_at: null }) };
+    state.preRead = {
+      kind: "value",
+      settings: settledSettings({ pending_wizard_session_at: null }),
+    };
     await renderAdminPage();
     expect(readAppSettingsRowSpy).toHaveBeenCalledTimes(1);
     expect(purgeSpy).not.toHaveBeenCalled();

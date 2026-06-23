@@ -196,7 +196,7 @@ describe("requireAdmin (getClaims + is_session_live + is_admin)", () => {
   // by the real Next/React runtime in production (and by the admin layout +
   // page route render, which both call requireAdmin within one request scope).
   test("STRUCTURAL: the admin-gate resolution core is wrapped by React.cache (dedup seam)", async () => {
-    const reactCacheSpy = vi.fn(<T,>(fn: T): T => fn);
+    const reactCacheSpy = vi.fn(<T>(fn: T): T => fn);
     vi.doMock("react", async () => {
       const actual = await vi.importActual<typeof import("react")>("react");
       return { ...actual, cache: reactCacheSpy };

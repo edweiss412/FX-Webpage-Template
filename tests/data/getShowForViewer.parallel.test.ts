@@ -178,12 +178,12 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       deferredRpcs,
       seed: {
         // crew identity lookup (immediate): LEAD so financials joins the wave too
-        "crew_members": { data: null, error: null }, // overwritten per-call below
-        "shows": { data: showRow(), error: null },
-        "hotel_reservations": { data: [], error: null },
-        "rooms": { data: [], error: null },
-        "transportation": { data: null, error: null },
-        "contacts": { data: [], error: null },
+        crew_members: { data: null, error: null }, // overwritten per-call below
+        shows: { data: showRow(), error: null },
+        hotel_reservations: { data: [], error: null },
+        rooms: { data: [], error: null },
+        transportation: { data: null, error: null },
+        contacts: { data: [], error: null },
         "shows_internal:run_of_show": { data: null, error: null },
         "shows_internal:financials": { data: null, error: null },
         "rpc:viewer_version_token": { data: "", error: null },
@@ -226,14 +226,14 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       deferredTables: [],
       deferredRpcs: [],
       seed: {
-        "shows": { data: showRow(), error: null },
-        "hotel_reservations": { data: [], error: null },
-        "rooms": { data: null, error: { message: "rooms boom" } }, // ONLY rooms fails
-        "transportation": { data: null, error: null },
-        "contacts": { data: [], error: null },
+        shows: { data: showRow(), error: null },
+        hotel_reservations: { data: [], error: null },
+        rooms: { data: null, error: { message: "rooms boom" } }, // ONLY rooms fails
+        transportation: { data: null, error: null },
+        contacts: { data: [], error: null },
         "shows_internal:run_of_show": { data: null, error: null },
         "shows_internal:financials": { data: null, error: null },
-        "crew_members": { data: [], error: null },
+        crew_members: { data: [], error: null },
         "rpc:viewer_version_token": { data: "", error: null },
       },
     });
@@ -253,14 +253,14 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       deferredTables: [],
       deferredRpcs: [],
       seed: {
-        "shows": { data: showRow(), error: null },
-        "hotel_reservations": { data: [], error: null },
-        "rooms": { data: [], error: null },
-        "transportation": { data: null, error: null },
-        "contacts": { data: [], error: null },
+        shows: { data: showRow(), error: null },
+        hotel_reservations: { data: [], error: null },
+        rooms: { data: [], error: null },
+        transportation: { data: null, error: null },
+        contacts: { data: [], error: null },
         "shows_internal:run_of_show": { data: null, error: null },
         "shows_internal:financials": { data: null, error: null },
-        "crew_members": { data: [], error: null },
+        crew_members: { data: [], error: null },
         "rpc:viewer_version_token": { data: "", error: null },
       },
     });

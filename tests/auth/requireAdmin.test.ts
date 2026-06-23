@@ -197,7 +197,9 @@ describe("requireAdmin", () => {
     // if the RPC contract ever drifts. is_session_live=true so the session is
     // live and we exercise the is_admin verdict, not the redirect. No fail-open.
     server.client.rpc.mockImplementation((fn: string) =>
-      Promise.resolve(fn === "is_session_live" ? { data: true, error: null } : { data: null, error: null }),
+      Promise.resolve(
+        fn === "is_session_live" ? { data: true, error: null } : { data: null, error: null },
+      ),
     );
     const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
 

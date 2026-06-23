@@ -237,7 +237,10 @@ export async function fetchDashboardData(
         .select("show_id", { count: "exact", head: true })
         .in("show_id", activeShowIds);
       if (q.error) {
-        return { kind: "infra_error", message: `crew_members count query failed: ${q.error.message}` };
+        return {
+          kind: "infra_error",
+          message: `crew_members count query failed: ${q.error.message}`,
+        };
       }
       return q.count ?? 0;
     } catch (err) {
@@ -311,16 +314,17 @@ export async function fetchDashboardData(
     for (let i = 0; i < inFlightIds.length; i += FINALIZE_OWNED_CONCURRENCY) {
       const batch = inFlightIds.slice(i, i + FINALIZE_OWNED_CONCURRENCY);
       const resolved = await Promise.all(
-        batch.map((id) =>
-          // Call supabase.rpc() INSIDE the .then so a SYNCHRONOUS throw during
-          // builder construction becomes a rejection caught below (fail toward
-          // "Held") — not an escape that aborts the whole Promise.all/dashboard
-          // (Codex whole-diff R1). The .then also lifts the PostgrestFilterBuilder
-          // (a PromiseLike) to a real Promise.
-          Promise.resolve()
-            .then(() => supabase.rpc("readfinalizeowned_b2", { p_show_id: id }))
-            .then(({ data, error }) => (!error && data === true ? id : null)) // boundary destructure (invariant 9)
-            .catch(() => null), // thrown/rejected infra fault → fail toward "Held"
+        batch.map(
+          (id) =>
+            // Call supabase.rpc() INSIDE the .then so a SYNCHRONOUS throw during
+            // builder construction becomes a rejection caught below (fail toward
+            // "Held") — not an escape that aborts the whole Promise.all/dashboard
+            // (Codex whole-diff R1). The .then also lifts the PostgrestFilterBuilder
+            // (a PromiseLike) to a real Promise.
+            Promise.resolve()
+              .then(() => supabase.rpc("readfinalizeowned_b2", { p_show_id: id }))
+              .then(({ data, error }) => (!error && data === true ? id : null)) // boundary destructure (invariant 9)
+              .catch(() => null), // thrown/rejected infra fault → fail toward "Held"
         ),
       );
       for (const id of resolved) if (id) owned.add(id);

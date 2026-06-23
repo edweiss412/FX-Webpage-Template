@@ -191,9 +191,7 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
       `requireAdmin: getClaims failed: ${String((claimsError as { message?: string }).message)}`,
     );
   }
-  const email = canonicalize(
-    (claimsData as { claims?: { email?: string } } | null)?.claims?.email,
-  );
+  const email = canonicalize((claimsData as { claims?: { email?: string } } | null)?.claims?.email);
   if (!email) {
     // Confirmed unauthenticated (no email after canonicalize) — auth-level
     // denial. Block-1-finding-5 redirect path. `return await` for TS

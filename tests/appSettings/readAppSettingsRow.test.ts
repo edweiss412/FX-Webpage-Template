@@ -39,7 +39,9 @@ describe("readAppSettingsRow", () => {
     expect(r).toEqual({ kind: "infra_error" });
   });
   test("thrown from .from() → infra_error (not a crash)", async () => {
-    const r = await readAppSettingsRow(mockClient({ data: null, error: null }, { throwFrom: true }));
+    const r = await readAppSettingsRow(
+      mockClient({ data: null, error: null }, { throwFrom: true }),
+    );
     expect(r).toEqual({ kind: "infra_error" });
   });
 });

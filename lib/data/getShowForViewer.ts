@@ -559,7 +559,9 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       // Without the coercion the decoder flags `undefined` as corrupt and fires
       // a FALSE alert on every no-row show. `null` hits the decoder's
       // legitimate-empty branch (no tileErrors).
-      const decoded = decodeRunOfShow((r.data as { run_of_show?: unknown } | null)?.run_of_show ?? null);
+      const decoded = decodeRunOfShow(
+        (r.data as { run_of_show?: unknown } | null)?.run_of_show ?? null,
+      );
       if (decoded.corrupt) {
         tileErrors["run_of_show"] = "run_of_show decode: corrupt stored shape";
       }
@@ -629,17 +631,25 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   // Promise.all the query PROMISES (invariant 9 — they resolve, never reject;
   // each read above owns its try/catch). When !isLead the financials slot is
   // Promise.resolve(undefined) so ZERO financials reads issue. NEVER allSettled.
-  const [crewMembers, allHotels, rooms, transportation, contacts, runOfShowRaw, viewerVersionToken, financialsResult] =
-    await Promise.all([
-      readCrewMembers(),
-      readHotels(),
-      readRooms(),
-      readTransportation(),
-      readContacts(),
-      readRunOfShow(),
-      readVersionToken(),
-      isLead ? readFinancials() : Promise.resolve(undefined),
-    ]);
+  const [
+    crewMembers,
+    allHotels,
+    rooms,
+    transportation,
+    contacts,
+    runOfShowRaw,
+    viewerVersionToken,
+    financialsResult,
+  ] = await Promise.all([
+    readCrewMembers(),
+    readHotels(),
+    readRooms(),
+    readTransportation(),
+    readContacts(),
+    readRunOfShow(),
+    readVersionToken(),
+    isLead ? readFinancials() : Promise.resolve(undefined),
+  ]);
 
   const hotelReservations: HotelReservationRow[] =
     isAdmin || viewerName === null
