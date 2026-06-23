@@ -97,7 +97,7 @@ Source: the verified CI-speedup analysis (41-agent workflow, every finding adver
 ### D12 — [P3] Composite setup action to DRY the per-job preamble
 
 - **What:** all 8 workflows repeat checkout → pnpm/action-setup → setup-node → `pnpm install --frozen-lockfile` (and several repeat psql + supabase-cli setup). A `.github/actions/setup` composite action would de-duplicate it and become the home for D10/D11.
-- **Why deferred:** 0s direct speedup (pure anti-drift plumbing); its value is contingent on D10/D11 landing. It also touches all 8 workflow files, so it conflicts with in-flight CI PRs (e.g. PR #104 pinning supabase-cli) — better done when the CI files are quiet. Note: 2 of the psql installs are INSIDE the Docker container (screenshots-drift / screenshots-regen) and can't move to a host composite step.
-- **Trigger:** after PR #104 (supabase-cli pin) and this PR merge, and when D10 or D11 is ready to implement (so the composite action has a consumer beyond DRY). Also add `"packageManager": "pnpm@10.33.2"` to package.json as the single version source.
+- **Why deferred:** 0s direct speedup (pure anti-drift plumbing); its value is contingent on D10/D11 landing. It also touches all 8 workflow files, so it conflicts with in-flight CI PRs (e.g. the supabase-cli pin work, #104/#105) — better done when the CI files are quiet. Note: 2 of the psql installs are INSIDE the Docker container (screenshots-drift / screenshots-regen) and can't move to a host composite step.
+- **Trigger:** after the supabase-cli pin work (#104/#105) and this PR merge, and when D10 or D11 is ready to implement (so the composite action has a consumer beyond DRY). Also add `"packageManager": "pnpm@10.33.2"` to package.json as the single version source.
 
-> Note: the verified report's "pin supabase/setup-cli to 2.98.2" Phase-2 item is NOT deferred — it shipped independently in PR #104.
+> Note: the verified report's "pin supabase/setup-cli" Phase-2 item is NOT deferred — it shipped independently (#104 pinned 2.98.2, which broke the bootstrap's in-container psql auth; #105 fixed it to 2.107.0, the version `latest` actually resolved to on green runs).
