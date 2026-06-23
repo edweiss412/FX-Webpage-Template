@@ -65,7 +65,9 @@ async function cleanup(): Promise<void> {
       "pending_ingestions",
       "onboarding_scan_manifest",
     ]) {
-      await sql.unsafe(`delete from public.${tbl} where drive_file_id = $1`, [drive]).catch(() => {});
+      await sql
+        .unsafe(`delete from public.${tbl} where drive_file_id = $1`, [drive])
+        .catch(() => {});
     }
   }
   await sql

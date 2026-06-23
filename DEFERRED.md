@@ -69,7 +69,8 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/h
 
 ## Onboarding step-3 redesign — in-wizard Ignore for live_row_conflict / discard_retryable (2026-06-23)
 
-Source: Task D4 of the step-3 review redesign (spec `docs/superpowers/specs/2026-06-23-onboarding-step3-review-redesign.md` §4.1 / §7.7 / AC11). The "\Needs your attention'" group gives every blocking row an in-wizard exit; for `hard_failed` that is Retry + Ignore (the C1 live-partition writer). For `live_row_conflict` and the legacy `discard_retryable`, the documented exit is the external dashboard "esolve + re-run setup'" round-trip, not an in-wizard Ignore button.
+Source: Task D4 of the step-3 review redesign (spec `docs/superpowers/specs/2026-06-23-onboarding-step3-review-redesign.md` §4.1 / §7.7 / AC11). The "\Needs your attention'" group gives every blocking row an in-wizard exit; for `hard_failed` that is Retry + Ignore (the C1 live-partition writer). For `live_row_conflict` and the legacy `discard_retryable`, the documented exit is the external dashboard "
+esolve + re-run setup'" round-trip, not an in-wizard Ignore button.
 
 ### DS3-1 — [P3] In-wizard Ignore button for live_row_conflict / discard_retryable
 

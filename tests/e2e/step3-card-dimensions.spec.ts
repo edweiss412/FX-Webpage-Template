@@ -124,10 +124,7 @@ test.beforeAll(async () => {
   // We add an explicit @source for the temp harness so its classes generate.
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  writeFileSync(
-    entryCss,
-    `@source "${join(workDir, "harness.html")}";\n${globals}`,
-  );
+  writeFileSync(entryCss, `@source "${join(workDir, "harness.html")}";\n${globals}`);
 
   execFileSync(
     "pnpm",

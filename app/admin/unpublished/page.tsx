@@ -41,6 +41,7 @@ export default async function UnpublishedPage() {
             label="Help: Unpublished"
             testId="unpublished-page-help"
             rootTestId="help-affordance--unpublished-page--tooltip"
+            learnMore={{ href: "/help/admin/onboarding-wizard#unpublished" }}
           >
             <p>
               Sheets you leave unchecked during setup land here as held shows: created, syncing, but

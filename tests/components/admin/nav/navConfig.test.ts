@@ -41,7 +41,10 @@ it("dashboard + unpublished + settings are NOT mobileOnly (desktop destinations)
 
 describe("active-state matrix: exactly one active id per path", () => {
   const matrix: Array<
-    [path: string, activeId: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings"]
+    [
+      path: string,
+      activeId: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings",
+    ]
   > = [
     ["/admin", "dashboard"],
     ["/admin/needs-attention", "attention"],

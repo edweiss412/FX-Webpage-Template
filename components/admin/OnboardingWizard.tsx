@@ -120,8 +120,7 @@ type Step3FetchResult =
 // surviving pending_syncs parse preview; an 'applied' row keeps its card +
 // checked, individually-uncheckable checkbox so per-row uncheck survives a
 // router.refresh(). 'applied' is NOT a blocking status.
-const isCleanReviewRow = (s: Step3ManifestStatus): boolean =>
-  s === "staged" || s === "applied";
+const isCleanReviewRow = (s: Step3ManifestStatus): boolean => s === "staged" || s === "applied";
 
 // Exported for tests/admin/_metaInfraContract.test.ts — the helper is the
 // subject row of the §B Supabase call-boundary registry for the Step 3
@@ -214,9 +213,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     // breakdown without re-querying.
     const rawParse = ps.parse_result;
     const parseResult =
-      rawParse !== null && typeof rawParse === "object"
-        ? (rawParse as ParseResult)
-        : null;
+      rawParse !== null && typeof rawParse === "object" ? (rawParse as ParseResult) : null;
     stagedByDfid.set(driveFileId, {
       stagedId: ps.staged_id as string,
       title: parseResult?.show?.title ?? null,

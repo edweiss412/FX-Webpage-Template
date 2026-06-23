@@ -13,7 +13,9 @@ afterAll(async () => {
 });
 
 test("onboarding_scan_manifest.publish_intent exists: boolean, not null, default false", async () => {
-  const rows = await sql<{ data_type: string; is_nullable: string; column_default: string | null }[]>`
+  const rows = await sql<
+    { data_type: string; is_nullable: string; column_default: string | null }[]
+  >`
     select data_type, is_nullable, column_default
       from information_schema.columns
      where table_schema = 'public'

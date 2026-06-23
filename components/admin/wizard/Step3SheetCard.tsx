@@ -108,13 +108,7 @@ function BreakdownSection({
   );
 }
 
-function CrewBreakdown({
-  dfid,
-  members,
-}: {
-  dfid: string;
-  members: CrewMemberRow[];
-}) {
+function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   return (
@@ -209,13 +203,7 @@ function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
   );
 }
 
-function HotelsBreakdown({
-  dfid,
-  hotels,
-}: {
-  dfid: string;
-  hotels: HotelReservationRow[];
-}) {
+function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
   return (
@@ -353,10 +341,7 @@ export function Step3SheetCard({
         data-no-details="true"
         className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad"
       >
-        <div
-          data-testid={`wizard-step3-card-${dfid}-summary`}
-          className="flex items-start gap-3"
-        >
+        <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold text-text-strong">{titleFallback}</p>
             <p className="mt-1 text-sm text-warning-text">

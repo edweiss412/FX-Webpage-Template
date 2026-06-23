@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import type { ConcurrentSyncSkipped } from "@/lib/sync/lockedShowTx";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
-import {
-  withPostgresSyncPipelineLock,
-  type SyncPipelineTx,
-} from "@/lib/sync/runScheduledCronSync";
+import { withPostgresSyncPipelineLock, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 // Task C2 (spec §6.2): un-ignore deletes the LIVE permanent_ignore deferral for a
 // drive file so it re-surfaces on the next scan. Admin-gated; runs under the
@@ -18,10 +15,7 @@ type UnignoreRouteTx = LockedShowTx<SyncPipelineTx>;
 
 export type UnignoreRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
-  withRowTx?: <R>(
-    driveFileId: string,
-    fn: (tx: UnignoreRouteTx) => Promise<R> | R,
-  ) => Promise<R>;
+  withRowTx?: <R>(driveFileId: string, fn: (tx: UnignoreRouteTx) => Promise<R> | R) => Promise<R>;
 };
 
 type RouteContext = {

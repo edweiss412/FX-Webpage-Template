@@ -399,10 +399,7 @@ function FinalizeSoftConfirm({
       className="flex flex-col gap-3 rounded-lg border border-border-strong bg-surface-raised p-tile-pad shadow-(--shadow-tile)"
     >
       <div className="flex flex-col gap-1">
-        <p
-          id="wizard-finalize-confirm-title"
-          className="text-base font-semibold text-text-strong"
-        >
+        <p id="wizard-finalize-confirm-title" className="text-base font-semibold text-text-strong">
           {uncheckedCleanCount} {noun} won&rsquo;t be published
         </p>
         <p className="text-sm text-text-subtle">

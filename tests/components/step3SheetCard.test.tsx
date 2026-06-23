@@ -17,7 +17,14 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, fireEvent, within } from "@testing-library/react";
-import type { ParseResult, ShowRow, CrewMemberRow, RoomRow, HotelReservationRow, RunOfShow } from "@/lib/parser/types";
+import type {
+  ParseResult,
+  ShowRow,
+  CrewMemberRow,
+  RoomRow,
+  HotelReservationRow,
+  RunOfShow,
+} from "@/lib/parser/types";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 
@@ -149,7 +156,8 @@ function stagedRow(pr: ParseResult | null, overrides: Partial<Step3Row> = {}): S
 }
 
 const card = (q: ReturnType<typeof render>) => q.getByTestId(`wizard-step3-card-${DFID}`);
-const summary = (q: ReturnType<typeof render>) => q.getByTestId(`wizard-step3-card-${DFID}-summary`);
+const summary = (q: ReturnType<typeof render>) =>
+  q.getByTestId(`wizard-step3-card-${DFID}-summary`);
 
 describe("Step3SheetCard — summary (§4.2)", () => {
   test("renders the show title, and client when present", () => {
@@ -185,7 +193,14 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     // runOfShow has 5 days; showDays has only 2 — the rendered count must be 5.
     const FIX = parseResult({
       runOfShow: runOfShow(5, 1),
-      show: show({ dates: { travelIn: null, set: null, showDays: ["2026-04-10", "2026-04-11"], travelOut: null } }),
+      show: show({
+        dates: {
+          travelIn: null,
+          set: null,
+          showDays: ["2026-04-10", "2026-04-11"],
+          travelOut: null,
+        },
+      }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const days = Object.keys(FIX.runOfShow ?? {}).length;
@@ -196,7 +211,9 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 
   test("dates render only present segments", () => {
     const FIX = parseResult({
-      show: show({ dates: { travelIn: "2026-04-09", set: null, showDays: ["2026-04-10"], travelOut: null } }),
+      show: show({
+        dates: { travelIn: "2026-04-09", set: null, showDays: ["2026-04-10"], travelOut: null },
+      }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const s = summary(q).textContent ?? "";
@@ -215,7 +232,11 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 
   test("diagrams badge shown iff linkedFolder OR embeddedImages present", () => {
     const withDiagrams = parseResult({
-      diagrams: { linkedFolder: { driveFolderId: "f", driveFolderUrl: "https://x" }, embeddedImages: [], linkedFolderItems: [] },
+      diagrams: {
+        linkedFolder: { driveFolderId: "f", driveFolderUrl: "https://x" },
+        embeddedImages: [],
+        linkedFolderItems: [],
+      },
     });
     const q1 = render(<Step3SheetCard row={stagedRow(withDiagrams)} wizardSessionId={WSID} />);
     expect(q1.queryByTestId(`wizard-step3-card-${DFID}-badge-diagrams`)).not.toBeNull();
@@ -227,7 +248,12 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 
   test("reel badge shown iff openingReel present", () => {
     const withReel = parseResult({
-      openingReel: { driveFileId: "reel-1", drive_modified_time: "2026-04-01T00:00:00Z", headRevisionId: "r1", mimeType: "video/mp4" },
+      openingReel: {
+        driveFileId: "reel-1",
+        drive_modified_time: "2026-04-01T00:00:00Z",
+        headRevisionId: "r1",
+        mimeType: "video/mp4",
+      },
     });
     const q1 = render(<Step3SheetCard row={stagedRow(withReel)} wizardSessionId={WSID} />);
     expect(q1.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).not.toBeNull();
@@ -248,14 +274,21 @@ describe("Step3SheetCard — summary (§4.2)", () => {
   });
 
   test("no warnings chip when warnings is empty", () => {
-    const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />);
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
+    );
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 });
 
 describe("Step3SheetCard — guard conditions (§4.6)", () => {
   test("parseResult null → couldn't-read note, no expand toggle", () => {
-    const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: "broken.sheet" })} wizardSessionId={WSID} />);
+    const q = render(
+      <Step3SheetCard
+        row={stagedRow(null, { driveFileName: "broken.sheet" })}
+        wizardSessionId={WSID}
+      />,
+    );
     expect(card(q).textContent).toContain("broken.sheet");
     // Apostrophe-agnostic (the component uses a typographic ’): assert the
     // human "couldn't read" sentence is present.
@@ -265,7 +298,9 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
   });
 
   test("parseResult null still falls back to driveFileId when name missing", () => {
-    const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: null })} wizardSessionId={WSID} />);
+    const q = render(
+      <Step3SheetCard row={stagedRow(null, { driveFileName: null })} wizardSessionId={WSID} />,
+    );
     expect(card(q).textContent).toContain(DFID);
   });
 
@@ -278,7 +313,9 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     delete broken.rooms;
     delete broken.hotelReservations;
     delete broken.runOfShow;
-    const q = render(<Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />);
+    const q = render(
+      <Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />,
+    );
     const s = summary(q).textContent ?? "";
     expect(s).toContain("0 crew");
     expect(s).toContain("0 rooms");
@@ -289,7 +326,9 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
   test("undefined warnings → no chip", () => {
     const broken = parseResult() as unknown as Record<string, unknown>;
     delete broken.warnings;
-    const q = render(<Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />);
+    const q = render(
+      <Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />,
+    );
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 

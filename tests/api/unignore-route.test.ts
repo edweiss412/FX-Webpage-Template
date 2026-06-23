@@ -64,10 +64,9 @@ async function liveRowCount(): Promise<number> {
 const context = { params: Promise.resolve({ driveFileId: DRIVE_FILE_ID }) };
 
 function req(): Request {
-  return new Request(
-    `https://crew.fxav.test/api/admin/ignored-sheets/${DRIVE_FILE_ID}/unignore`,
-    { method: "POST" },
-  );
+  return new Request(`https://crew.fxav.test/api/admin/ignored-sheets/${DRIVE_FILE_ID}/unignore`, {
+    method: "POST",
+  });
 }
 
 beforeAll(() => {

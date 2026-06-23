@@ -45,10 +45,8 @@ function appliedRow(dfid: string, title: string): Step3Row {
   return { ...stagedRow(dfid, title), status: "applied" };
 }
 
-const APPROVE_URL = (dfid: string) =>
-  `/api/admin/onboarding/staged/${WSID}/${dfid}/approve`;
-const UNAPPROVE_URL = (dfid: string) =>
-  `/api/admin/onboarding/staged/${WSID}/${dfid}/unapprove`;
+const APPROVE_URL = (dfid: string) => `/api/admin/onboarding/staged/${WSID}/${dfid}/approve`;
+const UNAPPROVE_URL = (dfid: string) => `/api/admin/onboarding/staged/${WSID}/${dfid}/unapprove`;
 
 function okFetch() {
   return vi.fn(
@@ -150,9 +148,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
       { driveFileId: "x", status: "hard_failed", driveFileName: "X" },
     ];
     const appliedCount = rows.filter((r) => r.status === "applied").length; // 2
-    const cleanCount = rows.filter(
-      (r) => r.status === "applied" || r.status === "staged",
-    ).length; // 3
+    const cleanCount = rows.filter((r) => r.status === "applied" || r.status === "staged").length; // 3
     const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
     const count = getByTestId("wizard-step3-publish-count");
     expect(count.textContent).toContain(String(appliedCount));

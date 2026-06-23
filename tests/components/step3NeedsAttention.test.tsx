@@ -154,10 +154,7 @@ describe('Step 3 "Needs your attention" group (Task D4)', () => {
     expect(expected.length).toBeGreaterThan(0);
 
     const { getByTestId, container } = render(
-      <Step3Review
-        wizardSessionId={WSID}
-        rows={[hardFailedRow(dfid, "ing-9", code)]}
-      />,
+      <Step3Review wizardSessionId={WSID} rows={[hardFailedRow(dfid, "ing-9", code)]} />,
     );
     const row = getByTestId(`wizard-step3-row-${dfid}`);
     expect(row.textContent ?? "").toContain(expected);
@@ -174,7 +171,9 @@ describe('Step 3 "Needs your attention" group (Task D4)', () => {
     const probe = expected.replace(/[_*]/g, "").slice(0, 30);
     expect(row.textContent ?? "").toContain(probe);
     // A link to the dashboard is the AC11-accepted external-resolve exit.
-    const link = within(row).getByTestId(`wizard-step3-conflict-dashboard-${dfid}`) as HTMLAnchorElement;
+    const link = within(row).getByTestId(
+      `wizard-step3-conflict-dashboard-${dfid}`,
+    ) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/admin");
     // No in-wizard Ignore button for live_row_conflict (deferred to DEFERRED.md).
     expect(queryByTestId(`wizard-step3-ignore-${dfid}`)).toBeNull();

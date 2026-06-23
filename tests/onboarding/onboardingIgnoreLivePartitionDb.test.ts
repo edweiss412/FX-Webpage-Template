@@ -99,9 +99,12 @@ async function seed(): Promise<void> {
 const context = { params: Promise.resolve({ id: PENDING_ID }) };
 
 function req(): Request {
-  return new Request(`https://crew.fxav.test/api/admin/onboarding/pending_ingestions/${PENDING_ID}/permanent_ignore`, {
-    method: "POST",
-  });
+  return new Request(
+    `https://crew.fxav.test/api/admin/onboarding/pending_ingestions/${PENDING_ID}/permanent_ignore`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 beforeAll(() => {
@@ -158,8 +161,11 @@ describe("Task C1 — onboarding Ignore writes the durable live partition (real 
 
       // The pending_ingestions row left the wizard list.
       expect(
-        (await sql!.unsafe(`select 1 from public.pending_ingestions where id = $1::uuid`, [PENDING_ID]))
-          .length,
+        (
+          await sql!.unsafe(`select 1 from public.pending_ingestions where id = $1::uuid`, [
+            PENDING_ID,
+          ])
+        ).length,
       ).toBe(0);
     },
   );

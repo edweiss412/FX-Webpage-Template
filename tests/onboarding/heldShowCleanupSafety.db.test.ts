@@ -203,9 +203,10 @@ test.skipIf(!dbUp)(
       requireAdminIdentity: async () => ADMIN,
     });
     expect(cleanupResult.status).toBe("already_cleaned");
-    expect(await showExists(heldShowId), "cleanupAbandonedFinalize must NOT delete a Held show").toBe(
-      true,
-    );
+    expect(
+      await showExists(heldShowId),
+      "cleanupAbandonedFinalize must NOT delete a Held show",
+    ).toBe(true);
 
     // (2) reapStaleOnboardingSessions: S is a candidate (not the active
     //     session) but TERMINAL (final_cas_done), so the `if (!terminal)`

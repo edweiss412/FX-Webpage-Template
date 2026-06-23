@@ -159,7 +159,11 @@ async function setActiveSession(): Promise<void> {
 // Stage a clean pending_syncs row via the real wizard-staging writer (production-true jsonb).
 async function stagePending(driveFileId: string, title: string): Promise<void> {
   await sql!.begin(async (rawTx) => {
-    const tx = new PostgresOnboardingScanTx(rawTx as unknown as PostgresTransaction, FOLDER, SESSION);
+    const tx = new PostgresOnboardingScanTx(
+      rawTx as unknown as PostgresTransaction,
+      FOLDER,
+      SESSION,
+    );
     await tx.upsertLivePendingSync({
       driveFileId,
       wizardSessionId: SESSION,
@@ -215,7 +219,9 @@ function deps() {
   };
 }
 
-async function showRow(driveFileId: string): Promise<{ id: string; published: boolean } | undefined> {
+async function showRow(
+  driveFileId: string,
+): Promise<{ id: string; published: boolean } | undefined> {
   return one(
     await sql!.unsafe(`select id, published from public.shows where drive_file_id = $1`, [
       driveFileId,

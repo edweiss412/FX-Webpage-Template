@@ -76,7 +76,9 @@ const PARSE_RESULT_FIXTURE = {
   diagrams: { linkedFolder: null, embeddedImages: [] },
 };
 
-function seedManifest(rows: ReadonlyArray<{ drive_file_id: string; name: string | null; status: string }>) {
+function seedManifest(
+  rows: ReadonlyArray<{ drive_file_id: string; name: string | null; status: string }>,
+) {
   seed.dataByTable["onboarding_scan_manifest"] = rows;
 }
 
@@ -88,30 +90,29 @@ beforeEach(() => {
 });
 
 describe("fetchStep3Data — finishable predicate (§7.3)", () => {
-  test.each([
-    "hard_failed",
-    "live_row_conflict",
-    "discard_retryable",
-  ])("finishable=false when any row is blocking status %s", async (blockingStatus) => {
-    seedManifest([
-      { drive_file_id: "dfid-clean", name: "Clean.xlsx", status: "staged" },
-      { drive_file_id: "dfid-block", name: "Broken.xlsx", status: blockingStatus },
-    ]);
-    seed.dataByTable["pending_ingestions"] = [
-      { id: "ing-1", drive_file_id: "dfid-block", last_error_code: "SOME_CODE" },
-    ];
+  test.each(["hard_failed", "live_row_conflict", "discard_retryable"])(
+    "finishable=false when any row is blocking status %s",
+    async (blockingStatus) => {
+      seedManifest([
+        { drive_file_id: "dfid-clean", name: "Clean.xlsx", status: "staged" },
+        { drive_file_id: "dfid-block", name: "Broken.xlsx", status: blockingStatus },
+      ]);
+      seed.dataByTable["pending_ingestions"] = [
+        { id: "ing-1", drive_file_id: "dfid-block", last_error_code: "SOME_CODE" },
+      ];
 
-    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
-    const result = await fetchStep3Data(SESSION_ID);
+      const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+      const result = await fetchStep3Data(SESSION_ID);
 
-    expect(result.kind).toBe("ok");
-    if (result.kind !== "ok") return;
-    // Derive expectation from the fixture: a blocking status is present.
-    const BLOCKING = new Set(["hard_failed", "live_row_conflict", "discard_retryable"]);
-    const hasBlocking = result.rows.some((r) => BLOCKING.has(r.status));
-    expect(hasBlocking).toBe(true);
-    expect(result.finishable).toBe(false);
-  });
+      expect(result.kind).toBe("ok");
+      if (result.kind !== "ok") return;
+      // Derive expectation from the fixture: a blocking status is present.
+      const BLOCKING = new Set(["hard_failed", "live_row_conflict", "discard_retryable"]);
+      const hasBlocking = result.rows.some((r) => BLOCKING.has(r.status));
+      expect(hasBlocking).toBe(true);
+      expect(result.finishable).toBe(false);
+    },
+  );
 
   test("finishable=true when all rows are clean staged/applied", async () => {
     seedManifest([

@@ -36,6 +36,7 @@ export default async function IgnoredSheetsPage() {
             label="Help: Ignored sheets"
             testId="ignored-sheets-page-help"
             rootTestId="help-affordance--ignored-sheets-page--tooltip"
+            learnMore={{ href: "/help/admin/onboarding-wizard#ignored-sheets" }}
           >
             <p>
               Sheets you ignored during setup or review. The sync skips them entirely. Un-ignore one
@@ -51,8 +52,8 @@ export default async function IgnoredSheetsPage() {
             data-testid="admin-ignored-sheets-degraded"
             className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
           >
-            We could not load this list right now. This is usually temporary. Refresh in a moment. If
-            it keeps happening, contact the developer.
+            We could not load this list right now. This is usually temporary. Refresh in a moment.
+            If it keeps happening, contact the developer.
           </p>
         ) : result.rows.length === 0 ? (
           <div

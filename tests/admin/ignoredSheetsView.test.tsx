@@ -129,7 +129,9 @@ describe("IgnoredSheetsPage render", () => {
     state.ignoredList = [];
     const { default: IgnoredSheetsPage } = await import("@/app/admin/ignored-sheets/page");
     render(await IgnoredSheetsPage());
-    expect(screen.getByTestId("admin-ignored-sheets-empty")).toHaveTextContent("No ignored sheets.");
+    expect(screen.getByTestId("admin-ignored-sheets-empty")).toHaveTextContent(
+      "No ignored sheets.",
+    );
   });
 
   it("renders the sheet NAME (drive_file_name) and a per-row Un-ignore, not the raw drive id", async () => {
