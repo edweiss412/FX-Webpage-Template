@@ -1,38 +1,35 @@
 // @vitest-environment jsdom
-// Task 6 — CrewSubNav (gate-preserving ?s= push) + CrewSectionTransition smoke.
+// CrewSubNav — CONTROLLED presentational contract (client-section-toggle).
 //
-// CrewSubNav contract (crew-redesign §sub-nav):
+// CrewSubNav is now a controlled, presentational component: it owns NO
+// navigation. The parent controller (CrewSections) owns `activeSection` state,
+// the shallow `?s=` URL, and scroll-to-top. CrewSubNav just renders the tabs and
+// calls `onSelect(id)` when a tab is tapped.
+//
+// Contract pinned here:
 //   • Tabs = BASE_SECTION_IDS (+ "budget" iff budgetVisible).
-//   • Activating a tab builds a FRESH URLSearchParams (NOT a clone of all
-//     current params): s=<id>, plus gate=<v> ONLY when v ∈ ALLOWED_GATE_VALUES.
-//     This strips stale/sensitive params (evil, token, …) from every nav URL.
-//   • router.push(`${pathname}?${next}`, { scroll: false }) then scrollTo(0,0).
+//   • Tapping a tab calls onSelect(id) with the tapped section id — and NOTHING
+//     else: NO router.push (the component imports no next/navigation useRouter),
+//     NO next/link <Link> anchor (tabs are <button>s).
 //   • aria-current="page" on the active tab only.
 //   • Desktop tab row (hidden min-[720px]:flex) AND mobile bottom bar
 //     (min-[720px]:hidden) both render (CSS-only switching), each in a
 //     <nav aria-label="Show sections">.
+//   • Each tab renders a per-section svg icon (aria-hidden).
+//   • Equal-width mobile tabs (min-w-0 flex-1).
+//   • The desktop nav row is centered inside the shared CREW_PAGE_CONTAINER.
 //
 // CrewSectionTransition smoke: wrapper + children present; changing sectionId
 // re-keys the motion child (jsdom-safe with framer-motion).
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
 import { CrewSubNav } from "@/components/crew/CrewSubNav";
 import { CrewSectionTransition } from "@/components/crew/CrewSectionTransition";
-
-const nav = vi.hoisted(() => ({
-  push: vi.fn(),
-  pathname: "/show/spring-gala/tok123",
-  searchParams: new URLSearchParams(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: nav.push, refresh: vi.fn() }),
-  usePathname: () => nav.pathname,
-  useSearchParams: () => nav.searchParams,
-}));
 
 // jsdom has no matchMedia; the shared usePrefersReducedMotion hook reads it on
 // mount (CrewSectionTransition). Stub a no-reduced-motion media query list.
@@ -53,11 +50,7 @@ function stubMatchMedia(matches: boolean) {
 }
 
 beforeEach(() => {
-  nav.push.mockReset();
-  nav.pathname = "/show/spring-gala/tok123";
-  nav.searchParams = new URLSearchParams();
   stubMatchMedia(false);
-  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -72,58 +65,34 @@ function firstTab(name: RegExp): HTMLElement {
   return tab;
 }
 
-/** Parse the query string of the URL the component pushed. */
-function pushedQuery(): URLSearchParams {
-  expect(nav.push).toHaveBeenCalledTimes(1);
-  const [url, opts] = nav.push.mock.calls[0] as [string, { scroll?: boolean }];
-  expect(opts).toEqual({ scroll: false });
-  const qIndex = url.indexOf("?");
-  expect(qIndex).toBeGreaterThanOrEqual(0);
-  return new URLSearchParams(url.slice(qIndex + 1));
-}
+describe("CrewSubNav (controlled)", () => {
+  it("calls onSelect(id) with the tapped section id", () => {
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
 
-describe("CrewSubNav", () => {
-  it("preserves an allow-listed gate=skip when activating a tab", () => {
-    nav.searchParams = new URLSearchParams("gate=skip");
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
-
-    // Use the desktop row's "venue" tab.
     fireEvent.click(firstTab(/venue/i));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("venue");
 
-    const q = pushedQuery();
-    expect(q.get("s")).toBe("venue");
-    expect(q.get("gate")).toBe("skip");
-  });
-
-  it("builds a FRESH params object — strips non-allow-listed (evil/token) keys", () => {
-    nav.searchParams = new URLSearchParams("gate=skip&evil=1&token=secret");
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
-
+    onSelect.mockClear();
     fireEvent.click(firstTab(/schedule/i));
-
-    const q = pushedQuery();
-    expect(q.get("s")).toBe("schedule");
-    expect(q.get("gate")).toBe("skip");
-    // Stale/sensitive params must NOT survive the push.
-    expect(q.get("evil")).toBeNull();
-    expect(q.get("token")).toBeNull();
-    expect([...q.keys()].sort()).toEqual(["gate", "s"]);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("schedule");
   });
 
-  it("does not carry a non-allow-listed gate value", () => {
-    nav.searchParams = new URLSearchParams("gate=bogus");
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
-
-    fireEvent.click(firstTab(/venue/i));
-
-    const q = pushedQuery();
-    expect(q.get("s")).toBe("venue");
-    expect(q.get("gate")).toBeNull();
-    expect([...q.keys()]).toEqual(["s"]);
+  it("imports NO next/navigation useRouter and NO next/link (presentational — owns no nav)", () => {
+    const code = readFileSync(join(process.cwd(), "components/crew/CrewSubNav.tsx"), "utf8");
+    // No router-driven navigation lives here anymore.
+    expect(code).not.toMatch(/useRouter\s*\(/);
+    expect(code).not.toMatch(/router\.push\s*\(/);
+    // No next/link anchor — tabs are <button>s wired to onSelect.
+    expect(code).not.toMatch(/from\s+["']next\/link["']/);
+    expect(code).toMatch(/<button\b/);
   });
 
   it("marks only the active tab with aria-current=page", () => {
-    render(<CrewSubNav activeSection="venue" budgetVisible={false} />);
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="venue" budgetVisible={false} onSelect={onSelect} />);
     const current = screen.getAllByRole("button", { current: "page" });
     // One per row (desktop + mobile), both must be "venue".
     expect(current.length).toBe(2);
@@ -138,7 +107,8 @@ describe("CrewSubNav", () => {
   });
 
   it("renders both the desktop tab row and the mobile bottom bar", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
     const navs = screen.getAllByRole("navigation", { name: "Show sections" });
     expect(navs.length).toBe(2);
 
@@ -159,19 +129,13 @@ describe("CrewSubNav", () => {
   });
 
   it("centers the desktop nav row inside the real _CrewShell page container (max-w-300, not 1120px)", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
-    // The desktop tab row (the <nav> that is `hidden min-[720px]:flex`) must
-    // live inside a centering container that matches _CrewShell's
-    // [data-testid="page-container"] so the first tab's left edge aligns with
-    // the section content's left edge.
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
     const desktopNav = screen
       .getAllByRole("navigation", { name: "Show sections" })
       .find((n) => n.className.includes("min-[720px]:flex") && n.className.includes("hidden"));
     if (!desktopNav) throw new Error("desktop nav row not found");
 
-    // Walk up to the nearest centering container and assert it carries the
-    // shared CREW_PAGE_CONTAINER utilities (mx-auto / w-full / max-w-300 /
-    // px-4 / sm:px-8) — and NOT the mock's literal max-w-[1120px].
     const container = desktopNav.closest(".max-w-300") as HTMLElement | null;
     expect(container).not.toBeNull();
     for (const util of CREW_PAGE_CONTAINER.split(" ")) {
@@ -180,8 +144,23 @@ describe("CrewSubNav", () => {
     expect(container!.className).not.toContain("max-w-[1120px]");
   });
 
+  it("equal-width mobile tabs carry min-w-0 flex-1", () => {
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
+    const mobileNav = screen
+      .getAllByRole("navigation", { name: "Show sections" })
+      .find((n) => n.className.includes("min-[720px]:hidden"));
+    if (!mobileNav) throw new Error("mobile nav bar not found");
+    for (const id of BASE_SECTION_IDS) {
+      const tab = within(mobileNav).getByRole("button", { name: new RegExp(id, "i") });
+      expect(tab.className).toContain("min-w-0");
+      expect(tab.className).toContain("flex-1");
+    }
+  });
+
   it("renders a per-section icon (svg) before each desktop tab label", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
     const desktopNav = screen
       .getAllByRole("navigation", { name: "Show sections" })
       .find((n) => n.className.includes("min-[720px]:flex") && n.className.includes("hidden"));
@@ -197,7 +176,8 @@ describe("CrewSubNav", () => {
   });
 
   it("renders a per-section icon (svg) in each mobile bottom-bar tab", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
     const mobileNav = screen
       .getAllByRole("navigation", { name: "Show sections" })
       .find((n) => n.className.includes("min-[720px]:hidden"));
@@ -212,19 +192,15 @@ describe("CrewSubNav", () => {
   });
 
   it("renders the budget tab when budgetVisible is true (both rows)", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={true} />);
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={true} onSelect={onSelect} />);
     expect(screen.getAllByRole("button", { name: /budget/i }).length).toBe(2);
   });
 
   it("omits the budget tab when budgetVisible is false", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
+    const onSelect = vi.fn();
+    render(<CrewSubNav activeSection="today" budgetVisible={false} onSelect={onSelect} />);
     expect(screen.queryByRole("button", { name: /budget/i })).toBeNull();
-  });
-
-  it("scrolls to top after a tab activation", () => {
-    render(<CrewSubNav activeSection="today" budgetVisible={false} />);
-    fireEvent.click(firstTab(/venue/i));
-    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
   });
 });
 

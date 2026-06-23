@@ -356,7 +356,10 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
       showId: "show-gate",
       rawSection: "budget",
     });
-    const shell = screen.getByTestId("crew-shell");
+    // data-active-section lives on the CrewSections controller wrapper, not the
+    // outer crew-shell (review R1 [MED] — a static outer value would diverge from
+    // the live controller one after a client tap).
+    const shell = screen.getByTestId("crew-shell-sections");
     expect(shell.getAttribute("data-active-section")).toBe("today");
     const nav = screen.getByTestId("crew-sub-nav");
     expect(nav.getAttribute("data-budget-visible")).toBe("false");
@@ -369,7 +372,7 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
       showId: "show-gate",
       rawSection: "budget",
     });
-    const shell = screen.getByTestId("crew-shell");
+    const shell = screen.getByTestId("crew-shell-sections");
     expect(shell.getAttribute("data-active-section")).toBe("budget");
     expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("true");
   });
@@ -381,7 +384,9 @@ describe("CrewShell Budget gate is the financialsVisible authority (Test 8)", ()
       showId: "show-gate",
       rawSection: "budget",
     });
-    expect(screen.getByTestId("crew-shell").getAttribute("data-active-section")).toBe("budget");
+    expect(screen.getByTestId("crew-shell-sections").getAttribute("data-active-section")).toBe(
+      "budget",
+    );
     expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("true");
   });
 });
