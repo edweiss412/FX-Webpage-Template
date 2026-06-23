@@ -17,12 +17,18 @@ export function showCacheTag(showId: string): string {
   return `show-${showId}`;
 }
 
-// Next 16.2.4's `revalidateTag(tag, profile)` requires a 2nd `profile`
-// (`string | CacheLifeConfig`) argument (node_modules/next/dist/server/web/
-// spec-extension/revalidate.d.ts) — the plan's 1-arg form predates this. We
-// pass `{ expire: 300 }` so the on-demand revalidation aligns with the
-// `unstable_cache({ revalidate: 300 })` backstop TTL (spec §4.3).
-const SHOW_CACHE_LIFE = { expire: 300 } as const;
+// Next 16's `revalidateTag(tag, profile)` requires a 2nd `profile`
+// (`string | { expire?: number }`) argument; the 1-arg form is deprecated.
+// `profile="max"` is STALE-WHILE-REVALIDATE (serves stale for a window) — WRONG
+// for our near-zero-staleness contract (spec §4.2): with the LIVE version token,
+// a stale-while-revalidate read would render stale data + a fresh token, the
+// realtime bridge would then see a token match and stop refreshing → page stuck
+// stale. The Next 16 docs prescribe `{ expire: 0 }` for IMMEDIATE expiration from
+// Route Handlers (webhooks/external): the next read is a blocking cache miss =
+// fresh. So we use `{ expire: 0 }` (immediate). This is INDEPENDENT of the
+// `unstable_cache({ revalidate: 300 })` periodic TTL backstop (spec §4.3): 300s is
+// the auto-refresh floor; `{ expire: 0 }` is the on-demand immediate bust.
+const SHOW_CACHE_LIFE = { expire: 0 } as const;
 
 /** Revalidate the show's cache tag. Call ONLY post-commit (after the apply tx resolves). */
 export function revalidateShow(showId: string): void {
