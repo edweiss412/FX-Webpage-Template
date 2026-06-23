@@ -36,7 +36,7 @@ on:
 # Cancel a superseded run when the PR branch is re-pushed — this job boots
 # Supabase + seeds + Playwright, so a stale run holds a heavy runner.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:

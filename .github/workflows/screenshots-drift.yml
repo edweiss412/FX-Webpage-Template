@@ -36,10 +36,10 @@ on:
 
 # Cancel a superseded run when the PR branch is re-pushed — this job boots
 # Supabase + a Docker Playwright image, so a stale run holds a heavy runner.
-# github.ref is per-PR; the nightly `schedule` run shares main's ref but rarely
-# overlaps a PR push, and the full-coverage backstop re-runs daily regardless.
+# Including github.event_name keeps the nightly `schedule` run from ever sharing
+# a group with a PR/dispatch run, so the full-coverage backstop can't be cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:

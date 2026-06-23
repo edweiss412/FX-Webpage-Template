@@ -11,10 +11,13 @@ on:
 
 # Cancel a superseded run when the PR branch is re-pushed so the 10 parallel
 # audit jobs don't keep holding runners for a commit that's been replaced.
-# github.ref is per-PR; the (currently no-op) scheduled run shares main's ref but
-# its only jobs are `if: false`, so cross-cancellation is harmless.
+# Including github.event_name is load-bearing here: this workflow runs on BOTH
+# `schedule` and `push: main`, which share github.ref (refs/heads/main) — without
+# the event_name the Monday cron and a main-push run would land in the same group
+# and cancel each other. With it, PR re-pushes still cancel (same event+ref) but
+# schedule/push/pull_request never cross-cancel.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
