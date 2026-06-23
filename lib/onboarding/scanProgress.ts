@@ -24,13 +24,9 @@ export type ScanProgressEvent =
  * mid-run-failure `{ ok:false, code:null }` fits and the client's
  * copyForCode(null) returns the generic copy (no raw code).
  */
-export type ScanResultBody =
-  | OnboardingScanResponseBody
-  | { ok: false; code: string | null };
+export type ScanResultBody = OnboardingScanResponseBody | { ok: false; code: string | null };
 
 /** One NDJSON line on the wire: a progress event or the terminal result. */
-export type ScanStreamMessage =
-  | ScanProgressEvent
-  | { type: "result"; body: ScanResultBody };
+export type ScanStreamMessage = ScanProgressEvent | { type: "result"; body: ScanResultBody };
 
 export const SCAN_STREAM_CONTENT_TYPE = "application/x-ndjson";

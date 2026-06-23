@@ -87,8 +87,13 @@ describe("mapWithConcurrency", () => {
 
   test("fires onItemComplete once per item with a monotonic running done-count", async () => {
     const items = ["a", "b", "c", "d"];
-    const seen: Array<{ done: number; total: number; index: number; item: string; result: string }> =
-      [];
+    const seen: Array<{
+      done: number;
+      total: number;
+      index: number;
+      item: string;
+      result: string;
+    }> = [];
     const result = await mapWithConcurrency(
       items,
       2,

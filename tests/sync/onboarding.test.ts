@@ -272,9 +272,14 @@ describe("runOnboardingScan", () => {
 
     const events: ScanProgressEvent[] = [];
     const txWith = new FakeOnboardingTx();
-    const { result: resultWith } = await runWith(txWith, files, {}, {
-      onProgress: (e) => events.push(e),
-    });
+    const { result: resultWith } = await runWith(
+      txWith,
+      files,
+      {},
+      {
+        onProgress: (e) => events.push(e),
+      },
+    );
 
     expect(events[0]).toEqual({ type: "listed", total: N });
     const prepared = events.filter(

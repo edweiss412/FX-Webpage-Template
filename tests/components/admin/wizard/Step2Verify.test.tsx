@@ -371,7 +371,9 @@ describe("Step2Verify", () => {
     await waitFor(() =>
       expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBe("1"),
     );
-    expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuemax")).toBe(String(total));
+    expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuemax")).toBe(
+      String(total),
+    );
     expect(getByTestId("wizard-step2-count").textContent ?? "").toMatch(
       new RegExp(`\\b1\\b[^0-9]*\\b${total}\\b`),
     );
@@ -462,7 +464,9 @@ describe("Step2Verify", () => {
 
   test("terminal {ok:false, code:null} renders generic copy with no raw code", async () => {
     fetchMock.mockResolvedValue(
-      streamResponse([ndjson({ type: "listed", total: 1 }, { type: "result", body: { ok: false, code: null } })]),
+      streamResponse([
+        ndjson({ type: "listed", total: 1 }, { type: "result", body: { ok: false, code: null } }),
+      ]),
     );
     const { getByTestId, findByTestId, container } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
@@ -549,7 +553,9 @@ describe("Step2Verify transition audit", () => {
 
   test("error → connecting on resubmit (form stays rendered)", async () => {
     fetchMock
-      .mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "FOLDER_NOT_FOUND" }, { status: 404 }))
+      .mockResolvedValueOnce(
+        mockJsonResponse({ ok: false, code: "FOLDER_NOT_FOUND" }, { status: 404 }),
+      )
       .mockImplementationOnce(() => new Promise<Response>(() => {}));
     const { getByTestId, findByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
