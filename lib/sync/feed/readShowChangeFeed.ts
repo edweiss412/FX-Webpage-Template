@@ -200,41 +200,44 @@ export async function readShowChangeFeed(
   const limit = opts?.limit ?? DEFAULT_LIMIT;
   const supabase = createFeedSupabaseClient();
 
-  // 1. Most-recent N show_change_log rows for the show (feed history + undo).
-  //    Every read goes through runFeedRead → returned {error} AND thrown faults
-  //    become a typed SyncInfraError (invariant 9 / P5-F1).
-  const { data: logData } = await runFeedRead<ChangeLogRow[]>(
-    "readShowChangeFeed.showChangeLog",
-    () =>
+  // PERF (nav-perf phase 1, A4): the three reads are independent (they share only
+  // showId), so they fan out in ONE Promise.all wave instead of a serial chain.
+  // Each read still goes through runFeedRead → returned {error} AND thrown faults
+  // become a typed SyncInfraError (invariant 9 / P5-F1) with its own `operation`
+  // + `source`. Promise.all the runFeedRead PROMISES: runFeedRead REJECTS on an
+  // infra fault, so Promise.all rejects with the FIRST SyncInfraError — exactly
+  // the serial behavior (the first read's returned/thrown error surfaced). NEVER
+  // allSettled (that would swallow the typed reject and degrade fail-open).
+  //
+  //   1. Most-recent N show_change_log rows for the show (feed history + undo).
+  //   2. Total log-row count for the truncation flag (pending holds excluded —
+  //      they always render and never count toward truncation, resolution #8).
+  //   3. Open pending MI-11 holds (actionable approve_reject entries). The select
+  //      list MUST include base_modified_time (the PF40 staleness token). The
+  //      kind='undo_override' holds are internal suppression state, NOT entries.
+  const [{ data: logData }, { count: totalLogRows }, { data: holdData }] = await Promise.all([
+    runFeedRead<ChangeLogRow[]>("readShowChangeFeed.showChangeLog", () =>
       supabase
         .from("show_change_log")
         .select("id, occurred_at, status, summary, entity_ref, change_kind, individually_undoable")
         .eq("show_id", showId)
         .order("occurred_at", { ascending: false })
         .limit(limit),
-  );
-
-  // 2. Total log-row count for the truncation flag (pending holds excluded —
-  //    they always render and never count toward truncation, resolution #8).
-  const { count: totalLogRows } = await runFeedRead<unknown>(
-    "readShowChangeFeed.showChangeLogCount",
-    () =>
+    ),
+    runFeedRead<unknown>("readShowChangeFeed.showChangeLogCount", () =>
       supabase
         .from("show_change_log")
         .select("id", { count: "exact", head: true })
         .eq("show_id", showId),
-  );
-
-  // 3. Open pending MI-11 holds (actionable approve_reject entries). The select
-  //    list MUST include base_modified_time (the PF40 staleness token). The
-  //    kind='undo_override' holds are internal suppression state, NOT entries.
-  const { data: holdData } = await runFeedRead<HoldRow[]>("readShowChangeFeed.syncHolds", () =>
-    supabase
-      .from("sync_holds")
-      .select("id, entity_key, held_value, proposed_value, base_modified_time, created_at")
-      .eq("show_id", showId)
-      .eq("kind", "mi11_pending"),
-  );
+    ),
+    runFeedRead<HoldRow[]>("readShowChangeFeed.syncHolds", () =>
+      supabase
+        .from("sync_holds")
+        .select("id, entity_key, held_value, proposed_value, base_modified_time, created_at")
+        .eq("show_id", showId)
+        .eq("kind", "mi11_pending"),
+    ),
+  ]);
 
   // Each entry carries an INTERNAL full-precision sort key (`sortKey`) derived
   // from the RAW timestamptz string (microseconds intact). The merge sorts on
