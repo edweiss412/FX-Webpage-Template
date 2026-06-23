@@ -33,6 +33,12 @@ on:
       - ".github/workflows/crew-e2e.yml"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed — this job boots
+# Supabase + seeds + Playwright, so a stale run holds a heavy runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 jobs:
   crew-e2e:
     runs-on: ubuntu-latest
@@ -79,7 +85,7 @@ jobs:
           # known CI-passing (PR #102; older 2.98.2 broke the in-container psql auth); a fixed version downloads directly (no API lookup).
           version: 2.107.0
       - name: Install psql (signInAs admin client + bootstrap shell out to psql)
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Boot local Supabase (guarded migrations)
         # Shared bootstrap — same Supabase + GUC + guarded-migration setup the
         # screenshots / help / dev-gate workflows use (hold-aside list can't drift).
@@ -91,7 +97,17 @@ jobs:
       # The mobile-safari project spreads devices["iPhone 14"] → defaultBrowserType
       # "webkit" (NOT chromium). Mirror help-affordances.yml (its iPhone 14 help-docs
       # project) and install BOTH so a chromium-defaulting spec can't fail either.
-      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # Split from `install --with-deps`: install-deps (apt) always runs, but the
+      # browser binaries are restored from the cache above on a hit.
+      - run: pnpm exec playwright install-deps chromium webkit
+      - run: pnpm exec playwright install chromium webkit
       - name: Run crew section-toggle e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
