@@ -421,10 +421,7 @@ function Step3PublishHeader({
     // No publishable rows → no select-all; still emit the count (0 of 0) so the
     // line is stable and the testid always resolves.
     return (
-      <p
-        data-testid="wizard-step3-publish-count"
-        className="text-sm tabular-nums text-text-subtle"
-      >
+      <p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle">
         <span className="tabular-nums">{appliedCount}</span> of{" "}
         <span className="tabular-nums">{cleanCount}</span> selected to publish
       </p>
@@ -456,10 +453,7 @@ function Step3PublishHeader({
         </span>
         <span className="text-sm font-medium text-text-strong">Select all</span>
       </label>
-      <p
-        data-testid="wizard-step3-publish-count"
-        className="text-sm tabular-nums text-text-subtle"
-      >
+      <p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle">
         <span className="tabular-nums text-text-strong">{appliedCount}</span> of{" "}
         <span className="tabular-nums">{cleanCount}</span> selected to publish
       </p>
@@ -491,6 +485,7 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   // group below it. Order within each list is preserved.
   const mainRows = rows.filter((r) => !isBlocking(r.status));
   const blockingRows = rows.filter((r) => isBlocking(r.status));
+  const blockingCount = blockingRows.length;
 
   return (
     <section
@@ -508,17 +503,17 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         </p>
         <div className="flex items-center gap-2">
           <h2 id="wizard-step3-heading" className="text-2xl font-semibold text-text-strong">
-            Review your sheets
+            Review &amp; publish your sheets
           </h2>
           <HelpTooltip
-            label="Help: Review your sheets"
+            label="Help: Review and publish your sheets"
             testId="help-affordance--wizard-step3--tooltip"
           >
             <p>
-              Each row below is one sheet from your folder. Approve good ones, set aside any we
-              could not read, and ignore anything that does not belong. Setup will not finish until
-              every row has a decision. Tap What does this mean on any error for a plain-language
-              explanation.
+              Each row below is one sheet from your folder. Tick a sheet to publish it now. Leave it
+              unchecked to keep it as a draft you can publish later from Unpublished, or clear
+              anything that does not belong. Tap What does this mean on any error for a
+              plain-language explanation.
             </p>
             <p className="mt-2">
               <a
@@ -532,21 +527,27 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           </HelpTooltip>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
-          Every sheet we found in your folder is listed below. Approve, set aside, or defer each
-          one. Setup finishes once every row is resolved.
+          Every sheet we found in your folder is listed below. Tick the shows to publish now; the
+          rest stay under Unpublished, where you can publish them whenever you are ready.
         </p>
         {rows.length > 0 ? (
           <Step3PublishHeader wizardSessionId={wizardSessionId} rows={rows} />
         ) : null}
+        {/* F1 (§8.1): finishable-aware status. Finish is allowed unless a
+            blocking row (hard-fail / live-row conflict) remains. No publish
+            COUNT here — that lives on the FinalizeButton (D5). The
+            data-all-resolved / data-unresolved-count attributes are retained
+            for the wizard chrome + existing tests. */}
         <p
           data-testid="wizard-step3-resolution-status"
           data-all-resolved={allResolved ? "true" : "false"}
           data-unresolved-count={unresolvedCount}
+          data-blocking-count={blockingCount}
           className="text-sm text-text-subtle tabular-nums"
         >
-          {allResolved
-            ? "All sheets resolved. You can publish when ready."
-            : `${unresolvedCount} sheet${unresolvedCount === 1 ? "" : "s"} still need attention.`}
+          {blockingCount > 0
+            ? "Clear the sheets under Needs your attention to finish setup."
+            : "You can finish setup whenever you are ready."}
         </p>
       </header>
 

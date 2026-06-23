@@ -102,7 +102,7 @@ describe("StagedReviewCard wizard_failed_reapply mode", () => {
     );
     const { getByText } = renderWizardMode();
     await act(async () => {
-      fireEvent.click(getByText("Apply"));
+      fireEvent.click(getByText("Approve"));
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
@@ -150,7 +150,7 @@ describe("StagedReviewCard wizard_failed_reapply mode", () => {
     );
     const { getByText, container } = renderWizardMode();
     await act(async () => {
-      fireEvent.click(getByText("Apply"));
+      fireEvent.click(getByText("Approve"));
     });
     await waitFor(() => {
       // ErrorExplainer renders the cataloged dougFacing for the code.

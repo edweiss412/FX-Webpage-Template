@@ -304,6 +304,37 @@ describe("Step3Review", () => {
     expect(container.textContent ?? "").not.toContain("WIZARD_SESSION_SUPERSEDED");
   });
 
+  test("F1: header heading reads 'Review & publish your sheets' (new model)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
+    );
+    expect(getByTestId("wizard-step3").textContent ?? "").toContain("Review & publish your sheets");
+  });
+
+  test("F1: header intro explains the publish checkbox (publish now vs keep as a draft)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
+    );
+    const text = getByTestId("wizard-step3").textContent ?? "";
+    // The intro tells Doug what the checkbox does: tick to publish now, leave
+    // unchecked to keep as a draft he can publish later from Unpublished.
+    expect(text).toContain("Tick the shows to publish now");
+    expect(text).toContain("Unpublished");
+  });
+
+  test("F1: stale 'every row must be resolved' copy is gone (finishable model)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
+    );
+    const text = getByTestId("wizard-step3").textContent ?? "";
+    expect(text).not.toContain("Setup finishes once every row is resolved");
+    expect(text).not.toContain("still need attention.");
+    expect(text).not.toContain("Approve good ones, set aside");
+    expect(text).not.toContain("Setup will not finish until");
+    // No duplicated publish COUNT in the header line (count lives on FinalizeButton, D5).
+    expect(text).not.toContain("sheet still need attention");
+  });
+
   test("empty rows array renders the empty-scan placeholder", () => {
     const { getByTestId } = render(<Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[]} />);
     expect(getByTestId("wizard-step3-empty").textContent ?? "").toMatch(
