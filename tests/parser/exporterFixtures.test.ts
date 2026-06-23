@@ -395,13 +395,19 @@ describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitte
     expect(bo.some((r) => /STATE B/i.test(r.name))).toBe(true);
   });
 
-  it("R11: east-coast MABEL 1 merges its split blocks (dims + fields), not an empty phantom", () => {
-    const bo = parse("east-coast").rooms.filter((r) => r.kind === "breakout");
-    const mabel = bo.find((r) => /MABEL 1/i.test(r.name));
-    expect(mabel, "MABEL 1 breakout").toBeDefined();
-    // header dims ("APPROXIMATELY 60' x 45'") + the "DAY 1 & 2" block's fields merge
+  it("R11: east-coast's venue-headed GS block becomes the GS room MABEL 1 (dims + GS fields), no redundant breakout", () => {
+    const rooms = parse("east-coast").rooms;
+    const mabel = rooms.find((r) => /MABEL 1/i.test(r.name));
+    expect(mabel, "MABEL 1 room").toBeDefined();
+    // The GS block is headed by the venue cell "MABEL 1\nAPPROXIMATELY 60' x 45'"
+    // (no GENERAL SESSION label) → the GS room adopts that name + dims.
+    expect(mabel!.kind, "MABEL 1 is the general session room").toBe("gs");
     expect(mabel!.dimensions).toBe("60' x 45'");
-    expect(mabel!.setup ?? mabel!.set_time, "MABEL 1 must carry merged content").not.toBeNull();
+    expect(mabel!.setup, "carries the GS Setup, not the sparse breakout fields").toContain(
+      "18 Tables",
+    );
+    // the redundant MABEL 1 breakout (same physical room) is dropped
+    expect(rooms.filter((r) => r.kind === "breakout" && /MABEL 1/i.test(r.name))).toEqual([]);
   });
 
   it("R15: adjacent breakout blocks (NO blank separator) don't bleed fields into each other", () => {
@@ -719,20 +725,27 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
       { kind: "breakout", name: "STATE B", dimensions: null, floor: "8th Floor" },
       { kind: "breakout", name: "BALLROOM C", dimensions: null, floor: null },
     ],
+    // ria / redefining-fi: these STALE 2026-06-18 fixtures predate Doug adding an
+    // inline GENERAL SESSION header — their GS venue only lives in a separate row, so
+    // they correctly stay "General Session". The LIVE sheets now use the inline header
+    // (locked by the "#1a inline GENERAL SESSION header" suite below), which is why the
+    // separate-ROOM-DIMENSIONS-row "#1b" is obsolete. Breakouts are already clean.
     ria: [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b
+      { kind: "gs", name: "General Session", dimensions: null, floor: null },
       { kind: "breakout", name: "DRAWING ROOM A", dimensions: null, floor: null },
       { kind: "breakout", name: "DRAWING ROOM B", dimensions: null, floor: null },
     ],
-    // unchanged-by-#1a shows (numberless derive + mabel paths already clean; GS = 1b)
     "redefining-fi": [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b
+      { kind: "gs", name: "General Session", dimensions: null, floor: null },
       { kind: "breakout", name: "LASALLE A", dimensions: null, floor: null },
       { kind: "breakout", name: "WALTON ROOM", dimensions: null, floor: null },
     ],
+    // east-coast (v1 legacy): the GS block is headed by the venue cell
+    // "MABEL 1\nAPPROXIMATELY 60' x 45'" (no GENERAL SESSION label), so the GS room
+    // ADOPTS that name + dims; the redundant MABEL 1 breakout (same physical room,
+    // reused for a day-1&2 breakout) is dropped. LAUDERDALE stays.
     "east-coast": [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b/mabel
-      { kind: "breakout", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
+      { kind: "gs", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
       { kind: "breakout", name: "LAUDERDALE 1, 2, 3", dimensions: null, floor: null },
     ],
   };
@@ -740,6 +753,46 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
   for (const [slug, expected] of Object.entries(EXPECTED)) {
     it(`${slug}: gs/breakout rooms split into venue name + dimensions + floor`, () => {
       expect(triples(slug)).toEqual(expected);
+    });
+  }
+});
+
+// Regression lock — the LIVE v2 sheets (redefining/ria/consultants) have since moved
+// their GS venue into an inline "GENERAL SESSION\nNAME\nDIMS\nFLOOR" header cell
+// (verified against the live INFO tabs 2026-06-23 via gsheets MCP) — a format NO
+// committed fixture exercises (those are stale 2026-06-18 snapshots), but which #1a's
+// parseGsRoom + splitRoomHeader MUST keep parsing. This pins it so a future refactor
+// can't silently regress live parsing. It's also why the separate-ROOM-DIMENSIONS-row
+// "#1b" is obsolete: no live sheet uses that shape anymore. The exporter flattens the
+// cell's newlines to spaces and column-duplicates it.
+describe("exporter fidelity — #1a inline GENERAL SESSION header (live v2 format)", () => {
+  const cases: Array<
+    [string, string, { name: string; dimensions: string | null; floor: string | null }]
+  > = [
+    [
+      "redefining",
+      "GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor",
+      { name: "LAKEVIEW BALLROOM", dimensions: "61' x 55' x 11'", floor: "7th Floor" },
+    ],
+    [
+      "ria",
+      "GENERAL SESSION SALON ABCD 41' x 73' x 13'",
+      { name: "SALON ABCD", dimensions: "41' x 73' x 13'", floor: null },
+    ],
+    [
+      "consultants",
+      "GENERAL SESSION GRAND BALLROOM A/B A/B: 82' x 63' x 14' 8th Floor",
+      { name: "GRAND BALLROOM A/B", dimensions: "A/B: 82' x 63' x 14'", floor: "8th Floor" },
+    ],
+  ];
+  for (const [slug, header, want] of cases) {
+    it(`${slug}: inline GS header splits to venue name + dims + floor`, () => {
+      const md = [`| ${header} | ${header} |`, "| :---: | :---: |", "| GS Setup | x |"].join("\n");
+      const gs = parseRooms(md, "v2").filter((r) => r.kind === "gs");
+      expect(gs).toHaveLength(1);
+      expect({ name: gs[0]!.name, dimensions: gs[0]!.dimensions, floor: gs[0]!.floor }).toEqual(
+        want,
+      );
     });
   }
 });

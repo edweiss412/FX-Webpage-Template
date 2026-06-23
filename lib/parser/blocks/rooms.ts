@@ -51,18 +51,33 @@ export function parseRooms(
     if (fieldsRoom) rooms.push(fieldsRoom);
   }
 
+  // East-coast-class reconciliation: a breakout that names the SAME physical room as
+  // a GS room (east-coast's MABEL 1 is both the general session AND a reused day-1&2
+  // breakout) is the redundant duplicate — the GS room is primary (it carries the GS
+  // production fields + dims). Drop the breakout. No-op for every other show (their GS
+  // and breakout names are distinct).
+  const gsNames = new Set(
+    rooms.filter((r) => r.kind === "gs").map((r) => (r.name ?? "").trim().toUpperCase()),
+  );
+  const reconciled =
+    gsNames.size === 0
+      ? rooms
+      : rooms.filter(
+          (r) => !(r.kind === "breakout" && gsNames.has((r.name ?? "").trim().toUpperCase())),
+        );
+
   // D1: a recognized room-block header (GENERAL SESSION / BREAKOUT N / ADDITIONAL
   // ROOM) whose body was content-gated out, leaving zero rooms, is a silent
   // section-drop — fail loud. (No room header = absent section, no warning.)
   if (
-    rooms.length === 0 &&
+    reconciled.length === 0 &&
     (/^\|?\s*GENERAL SESSION\b/m.test(markdown) ||
       /^\|?\s*BREAKOUT[\s&]/m.test(markdown) ||
       /^\|?\s*ADDITIONAL\s+ROOM\b/m.test(markdown))
   ) {
     emitEmptySection(agg, "rooms");
   }
-  return rooms;
+  return reconciled;
 }
 
 // Merge two room lists, deduping by kind+name (case/whitespace-insensitive). The
@@ -311,11 +326,53 @@ function parseV4RoomBlock(
 
 // ── v2/v1 GS-prefix room parser ───────────────────────────────────────────────
 
+// The GS block on some v1 sheets is headed by a venue-name cell rather than a
+// "GENERAL SESSION" label (east-coast: "MABEL 1\nAPPROXIMATELY 60' x 45'"). Find that
+// header = the nearest column-duplicated block-header row directly above the first GS
+// room-field row (GS Setup / GS Set Time / …). Returns null when the row above is an
+// ordinary "| label | value |" DETAILS field (redefining/ria/consultants: "Fonts |
+// Aptos Font Folder") — so those correctly stay "General Session" — and null for
+// section banners (DETAILS / DOCUMENTS / …) that are also column-duplicated.
+function findGsBlockVenueHeader(markdown: string): string | null {
+  const lines = markdown.split("\n");
+  let firstGsRow = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\|\s*GS\s+(?:Setup|Set Time|Show Time|Strike Time)\b/i.test((lines[i] ?? "").trim())) {
+      firstGsRow = i;
+      break;
+    }
+  }
+  if (firstGsRow === -1) return null;
+  for (let j = firstGsRow - 1; j >= 0; j--) {
+    const t = (lines[j] ?? "").trim();
+    if (t === "") continue;
+    if (!t.startsWith("|")) return null; // left the table without finding a header
+    if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator row
+    const cells = splitRow(t);
+    const c0 = clean(cells[0] ?? "");
+    const c1 = clean(cells[1] ?? "");
+    // Block-header shape: a single cell OR column-duplicated (c1 empty or === c0). An
+    // ordinary DETAILS pair ("Fonts | Aptos Font Folder") has a distinct c1 → not one.
+    if (c0.length === 0 || (c1 !== "" && c1 !== c0)) return null;
+    // Section banners are also column-duplicated — exclude them.
+    if (
+      /^(?:DETAILS|DOCUMENTS|DATES|CREW|DRESS|TRANSPORTATION|HOTEL|VENUE|AGENDA|CONTACTS|GENERAL SESSION|BREAKOUT|ADDITIONAL|LUNCH)\b/i.test(
+        c0,
+      )
+    ) {
+      return null;
+    }
+    return cells[0] ?? null; // raw (keeps &#10; for splitRoomHeader to flatten)
+  }
+  return null;
+}
+
 function parseGsRoom(markdown: string): RoomRow | null {
   if (!/GS\s+Setup/i.test(markdown) && !/GS\s+Set\s+Time/i.test(markdown)) return null;
 
   const room = buildEmptyRoom("gs", "");
 
+  // (venue-headed GS fallback uses findGsBlockVenueHeader, defined above.)
   // Extract GS room name from "GENERAL SESSION <name>" header cell.
   // Must be an all-caps block header (not a metadata row like "General Session Room Name").
   // Exclude cells with &#10; (those are v2 multi-line room cells handled by parseBoRooms).
@@ -327,7 +384,20 @@ function parseGsRoom(markdown: string): RoomRow | null {
     room.dimensions = split.dimensions;
     room.floor = split.floor;
   } else {
-    room.name = "General Session";
+    // Some v1 sheets (east-coast) head the General Session block with a venue cell
+    // ("MABEL 1\nAPPROXIMATELY 60' x 45'") instead of a "GENERAL SESSION" label —
+    // adopt that name + dims + floor. Falls back to "General Session" when the row
+    // above the GS block is an ordinary "| label | value |" DETAILS field (redefining/
+    // ria/consultants stale fixtures) or a section banner.
+    const venueHeader = findGsBlockVenueHeader(markdown);
+    const split = venueHeader ? splitRoomHeader(venueHeader, "gs") : null;
+    if (split && split.name) {
+      room.name = split.name;
+      room.dimensions = split.dimensions;
+      room.floor = split.floor;
+    } else {
+      room.name = "General Session";
+    }
   }
 
   // Extract field values from GS-prefixed rows
@@ -658,7 +728,7 @@ function splitRoomHeader(
 
   // 3. dimensions — first dimension token (with an optional semantic prefix) to end
   let dimensions: string | null = null;
-  const dimStart = s.search(/(?:\b(?:TOTAL|A\/B)\s*:\s*)?\d+\s*'\s*x/i);
+  const dimStart = s.search(/(?:\b(?:TOTAL|A\/B|APPROXIMATELY)\s*:?\s*)?\d+\s*'\s*x/i);
   if (dimStart !== -1) {
     dimensions = presence(
       s
