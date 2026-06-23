@@ -125,7 +125,15 @@ describe("ReapStaleSessionsButton", () => {
     fireEvent.click(getByTestId("reap-stale-sessions-button"));
     fireEvent.click(getByTestId("reap-stale-sessions-confirm-yes"));
     await waitFor(() => expect(getByTestId("reap-stale-sessions-result")).toBeTruthy());
-    expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-button"));
+    // Focus returns to the re-enabled trigger via a PASSIVE effect that fires
+    // after the async `done` commit. Poll for it — asserting synchronously the
+    // instant the result appears races that effect under CI parallel-worker
+    // load and intermittently reads <body> (the trigger is briefly unfocused
+    // while the confirm panel unmounts). Mirrors the sibling pattern at
+    // maintenanceResetButtons.test.tsx:247-252.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(getByTestId("reap-stale-sessions-button")),
+    );
   });
 
   test("the confirm panel is an inline labelled group, not an unmanaged dialog", () => {
