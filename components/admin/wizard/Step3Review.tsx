@@ -43,6 +43,7 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import type { ParseResult } from "@/lib/parser/types";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -75,6 +76,10 @@ export type Step3Row = {
   stagedShowTitle?: string | null;
   pendingIngestionId?: string;
   errorCode?: string;
+  // §7.1: the full parse preview for a staged row (the step-3 card renders
+  // summary + breakdown from this). A staged row carries its `ParseResult`;
+  // non-staged rows have `null`. Coerced from untyped jsonb in fetchStep3Data.
+  parseResult?: ParseResult | null;
 };
 
 type Step3ReviewProps = {
