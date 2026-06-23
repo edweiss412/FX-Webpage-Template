@@ -53,11 +53,20 @@ function makeClient() {
     // isLive/counts, not the pill; a seeded `finalizeOwnedIds` set marks owners.
     // A seeded `rpcThrowIds` id THROWS so the impl's per-call .catch(() => null)
     // fail-toward-Held path is exercised (nav-perf A5).
-    async rpc(_fn: string, args: { p_show_id: string }) {
+    // NON-async on purpose: an async fn can only ever REJECT, never throw
+    // synchronously. `rpcSyncThrowIds` throws SYNCHRONOUSLY (builder-construction
+    // fault) so the impl's deferred-call + .catch fail-toward-Held path is
+    // exercised; `rpcThrowIds` returns a rejected promise (async fault). Both must
+    // omit the id (Held) without aborting the dashboard.
+    rpc(_fn: string, args: { p_show_id: string }) {
+      const syncThrowIds = (seed as { rpcSyncThrowIds?: string[] }).rpcSyncThrowIds ?? [];
+      if (syncThrowIds.includes(args.p_show_id)) throw new Error("META: rpc threw SYNCHRONOUSLY");
       const throwIds = (seed as { rpcThrowIds?: string[] }).rpcThrowIds ?? [];
-      if (throwIds.includes(args.p_show_id)) throw new Error("META: rpc threw");
+      if (throwIds.includes(args.p_show_id)) {
+        return Promise.reject(new Error("META: rpc rejected (async)"));
+      }
       const owned = (seed as { finalizeOwnedIds?: string[] }).finalizeOwnedIds ?? [];
-      return { data: owned.includes(args.p_show_id), error: null };
+      return Promise.resolve({ data: owned.includes(args.p_show_id), error: null });
     },
     from(table: string) {
       const ctx: {
@@ -631,6 +640,26 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
     const rows = (r as { rows: Array<{ id: string; finalizeOwned: boolean }> }).rows;
     expect(rows.find((row) => row.id === "keep")!.finalizeOwned).toBe(true);
     expect(rows.find((row) => row.id === "boom")!.finalizeOwned).toBe(false); // thrown → Held
+  });
+
+  it("A5: a SYNCHRONOUS rpc throw also fails toward Held without aborting the dashboard (Codex whole-diff R1)", async () => {
+    // supabase.rpc() can throw SYNCHRONOUSLY during builder construction. The
+    // fan-out must defer the call so that throw becomes a rejection caught by
+    // .catch (fail toward Held) — NOT escape Promise.all and abort the dashboard.
+    state.seed = {
+      showsList: [showRow("keep", false), showRow("sync", false)],
+      showsActiveCount: 2,
+      finalizeOwnedIds: ["keep", "sync"], // both "owned", but sync throws synchronously
+      rpcSyncThrowIds: ["sync"],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const r = (await fetchDashboardData()) as
+      | { rows: Array<{ id: string; finalizeOwned: boolean }> }
+      | { kind: string };
+    expect("kind" in r).toBe(false); // did NOT abort to infra_error
+    const rows = (r as { rows: Array<{ id: string; finalizeOwned: boolean }> }).rows;
+    expect(rows.find((row) => row.id === "keep")!.finalizeOwned).toBe(true);
+    expect(rows.find((row) => row.id === "sync")!.finalizeOwned).toBe(false); // sync-thrown → Held
   });
 
   it("nowDate is resolved exactly ONCE across the render path (Dashboard → fetchDashboardData)", async () => {

@@ -312,11 +312,15 @@ export async function fetchDashboardData(
       const batch = inFlightIds.slice(i, i + FINALIZE_OWNED_CONCURRENCY);
       const resolved = await Promise.all(
         batch.map((id) =>
-          // Promise.resolve() lifts the PostgrestFilterBuilder (a PromiseLike) to
-          // a real Promise so `.catch` is available for the thrown-fault path.
-          Promise.resolve(supabase.rpc("readfinalizeowned_b2", { p_show_id: id }))
+          // Call supabase.rpc() INSIDE the .then so a SYNCHRONOUS throw during
+          // builder construction becomes a rejection caught below (fail toward
+          // "Held") — not an escape that aborts the whole Promise.all/dashboard
+          // (Codex whole-diff R1). The .then also lifts the PostgrestFilterBuilder
+          // (a PromiseLike) to a real Promise.
+          Promise.resolve()
+            .then(() => supabase.rpc("readfinalizeowned_b2", { p_show_id: id }))
             .then(({ data, error }) => (!error && data === true ? id : null)) // boundary destructure (invariant 9)
-            .catch(() => null), // thrown infra fault → fail toward "Held"
+            .catch(() => null), // thrown/rejected infra fault → fail toward "Held"
         ),
       );
       for (const id of resolved) if (id) owned.add(id);
