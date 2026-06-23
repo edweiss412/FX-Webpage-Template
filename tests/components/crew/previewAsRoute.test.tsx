@@ -123,26 +123,33 @@ vi.mock("@/components/auth/IdentityChip", () => ({
   ),
 }));
 
-vi.mock("@/components/crew/CrewSubNav", () => ({
-  CrewSubNav: ({
-    activeSection,
+// Under client-side section toggle, _CrewShell renders all entitled section
+// bodies and hands them to the <CrewSections> controller (a "use client" island
+// that calls usePathname/useSearchParams). This suite pins the PAGE→SHELL wiring
+// (activeSection authority via the shell's server-resolved value, showId
+// threading, budget gate, banner placement), not the controller internals, so we
+// mock CrewSections to a flat marker that surfaces its incoming props — and
+// renders the initial active body — without dragging in next/navigation hooks.
+// (The controller's own behavior is pinned by crewSections.test.tsx.)
+vi.mock("@/components/crew/CrewSections", () => ({
+  CrewSections: ({
+    initialSection,
     budgetVisible,
+    sectionNodes,
   }: {
-    activeSection: string;
+    initialSection: string;
     budgetVisible: boolean;
+    sectionNodes: Record<string, ReactNode>;
   }) => (
-    <nav
-      data-testid="crew-sub-nav"
-      data-active-section={activeSection}
-      data-budget-visible={String(budgetVisible)}
-    />
-  ),
-}));
-
-vi.mock("@/components/crew/CrewSectionTransition", () => ({
-  CrewSectionTransition: ({ sectionId, children }: { sectionId: string; children: ReactNode }) => (
-    <div data-testid="crew-section-transition" data-section-id={sectionId}>
-      {children}
+    <div data-testid="mock-crew-sections">
+      <nav
+        data-testid="crew-sub-nav"
+        data-active-section={initialSection}
+        data-budget-visible={String(budgetVisible)}
+      />
+      <div data-testid="crew-section-transition" data-section-id={initialSection}>
+        {sectionNodes[initialSection] ?? null}
+      </div>
     </div>
   ),
 }));
