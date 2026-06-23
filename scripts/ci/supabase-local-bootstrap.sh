@@ -6,10 +6,13 @@
 # .github/workflows/screenshots-drift.yml and screenshots-regen.yml, so the
 # guarded-migration hold-aside list can never drift between workflows again
 # (a stale hold-aside copy in one workflow is exactly the incident class this
-# consolidation prevents). Consumers:
+# consolidation prevents). Consumers (every workflow that boots local Supabase):
+#   - .github/workflows/unit-suite.yml          (REQUIRED check)
+#   - .github/workflows/crew-e2e.yml
+#   - .github/workflows/dev-gate-e2e.yml
+#   - .github/workflows/help-affordances.yml
 #   - .github/workflows/screenshots-drift.yml
 #   - .github/workflows/screenshots-regen.yml
-#   - .github/workflows/help-affordances.yml
 set -euo pipefail
 # Migration supabase/migrations/20260527000003_schedule_cron_jobs.sql
 # (M12.1 T3) refuses to apply unless the app.fxav_vercel_url GUC is set.
@@ -58,7 +61,26 @@ for h in "${HELD_MIGRATIONS[@]}"; do
   mv "$h" "$STASH_DIR/$(basename "$h")"
 done
 trap restore EXIT
-supabase start
+# Retry `supabase start` — pulling the Supabase Docker stack is network-flaky on
+# shared CI runners, and a transient image-pull / start failure HERE (not a test
+# failure) is the genuine unit-suite + e2e flake source: e.g. run 28058608529 died
+# at this step during Docker `Pulling`, leaving the vitest step skipped. Retry up to
+# 3x, stopping any partial stack between attempts so the next start is clean. The
+# held-aside migrations (above) + the restore trap are unaffected — they live on the
+# filesystem, not in the Docker stack. `until` keeps `set -e` from aborting on a
+# retryable failure; a final failure still `exit 1`s.
+SUPABASE_START_ATTEMPTS="${SUPABASE_START_ATTEMPTS:-3}"
+attempt=1
+until supabase start; do
+  if [ "$attempt" -ge "$SUPABASE_START_ATTEMPTS" ]; then
+    echo "::error::supabase start failed after ${attempt} attempts (transient Docker pull / start)" >&2
+    exit 1
+  fi
+  echo "::warning::supabase start attempt ${attempt} failed (likely a transient Docker image pull); stopping partial stack + retrying in 15s" >&2
+  supabase stop --no-backup >/dev/null 2>&1 || true
+  attempt=$((attempt + 1))
+  sleep 15
+done
 DB_CONTAINER="$(docker ps --filter 'name=supabase_db_' --format '{{.Names}}' | head -1)"
 test -n "$DB_CONTAINER"
 docker exec "$DB_CONTAINER" \
