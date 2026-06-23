@@ -436,7 +436,7 @@ describe("Drive transaction-boundary class sweep", () => {
       { path: "lib/drive/watch.ts", name: "activateWithTx" },
       { path: "lib/drive/watch.ts", name: "markWatchOrphanedWithTx" },
       { path: "lib/sync/runScheduledCronSync.ts", name: "withPostgresSyncPipelineLock" },
-      { path: "lib/sync/runOnboardingScan.ts", name: "withDefaultTx" },
+      { path: "lib/sync/runOnboardingScan.ts", name: "defaultCreateScanTxRunner" },
       { path: "lib/sync/runOnboardingScan.ts", name: "scanPreparedFileWithTx" },
     ];
     const driveCallPattern =
