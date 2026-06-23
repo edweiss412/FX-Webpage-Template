@@ -30,7 +30,7 @@
  * keeps the button from spinning the request count unnecessarily).
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -82,6 +82,14 @@ type FinalizeCasResponse =
 type FinalizeButtonProps = {
   wizardSessionId: string;
   disabled?: boolean;
+  // §4.1 / D5: the button label reads "Publish N shows & finish setup" where
+  // N = publishCount (rows currently checked → status 'applied'). Optional so
+  // legacy callers (and the resume button) keep the prior generic label.
+  publishCount?: number;
+  // §4.1 / D5: count of clean rows left UNCHECKED (status 'staged'). When > 0,
+  // clicking Publish opens a soft confirm first ("N sheets won't be published
+  // — you'll find them under Unpublished. Continue?"). They become Held shows.
+  uncheckedCleanCount?: number;
 };
 
 type ButtonState =
@@ -105,12 +113,20 @@ const GENERIC_ERROR =
 export function FinalizeButton({
   wizardSessionId: _wizardSessionId,
   disabled,
+  publishCount,
+  uncheckedCleanCount = 0,
 }: FinalizeButtonProps) {
   const router = useRouter();
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
+  // D5 soft confirm: a CONTROLLED open flag (not an in-onClick self-disable —
+  // see feedback_react_form_action_synchronous_disable_cancels_submit). Opening
+  // the confirm is a pure setState; the loop runs only from the confirm's
+  // Proceed action (or directly when nothing is left unchecked).
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   async function runLoop() {
     if (state.kind === "running") return;
+    setConfirmOpen(false);
     setState({ kind: "running", phase: "batch", batchIndex: 1 });
 
     let batchIndex = 1;
@@ -198,12 +214,33 @@ export function FinalizeButton({
   const isRunning = state.kind === "running";
   const buttonDisabled = Boolean(disabled) || isRunning;
 
+  // D5 label: "Publish N shows & finish setup" when a count is threaded;
+  // otherwise the prior generic label (legacy callers / resume button).
+  const idleLabel =
+    typeof publishCount === "number"
+      ? `Publish ${publishCount} show${publishCount === 1 ? "" : "s"} & finish setup`
+      : "Finish setup and publish";
+
+  // Primary click: if clean rows remain unchecked, open the soft confirm
+  // FIRST (pure setState — never self-disables the button mid-submit). With
+  // nothing unchecked, run the loop directly. The confirm's Proceed runs it.
+  function onPrimaryClick() {
+    if (buttonDisabled) return;
+    if (uncheckedCleanCount > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void runLoop();
+  }
+
   return (
     <div className="flex flex-col gap-3" data-testid="wizard-finalize">
       <AccentButton
         data-testid="wizard-finalize-button"
-        onClick={runLoop}
+        onClick={onPrimaryClick}
         disabled={buttonDisabled}
+        aria-haspopup={uncheckedCleanCount > 0 ? "dialog" : undefined}
+        aria-expanded={uncheckedCleanCount > 0 ? confirmOpen : undefined}
         size="lg"
         inline
         selfStart
@@ -213,8 +250,16 @@ export function FinalizeButton({
           ? state.phase === "cas"
             ? "Publishing…"
             : `Publishing batch ${state.batchIndex}…`
-          : "Finish setup and publish"}
+          : idleLabel}
       </AccentButton>
+
+      {confirmOpen ? (
+        <FinalizeSoftConfirm
+          uncheckedCleanCount={uncheckedCleanCount}
+          onProceed={() => void runLoop()}
+          onCancel={() => setConfirmOpen(false)}
+        />
+      ) : null}
 
       {state.kind === "race_row" ? (
         <div
@@ -289,6 +334,103 @@ export function FinalizeButton({
           Setup is complete. Your shows are live for crew now.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * D5 soft confirm (spec §4.1 / D4 decision): an INLINE confirm surface (not a
+ * portal modal — modals are an absolute-ban-unless-justified, and an inline
+ * disclosure under the button is the lighter affordance) carrying dialog
+ * semantics: `role="dialog"` + `aria-modal`, a labelled title, autofocus onto
+ * Continue, Escape-to-cancel, and a focus trap between Continue ↔ Cancel so the
+ * decision is keyboard-complete. It never self-disables the trigger mid-submit
+ * (React-19 form-action hazard); Proceed simply calls the loop.
+ */
+function FinalizeSoftConfirm({
+  uncheckedCleanCount,
+  onProceed,
+  onCancel,
+}: {
+  uncheckedCleanCount: number;
+  onProceed: () => void;
+  onCancel: () => void;
+}) {
+  const proceedRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Autofocus the primary action when the confirm opens (keyboard users land
+  // inside the dialog, not back on the trigger).
+  useEffect(() => {
+    proceedRef.current?.focus();
+  }, []);
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onCancel();
+      return;
+    }
+    if (event.key === "Tab") {
+      // Two-stop focus trap: Continue ↔ Cancel, both directions.
+      const proceed = proceedRef.current;
+      const cancel = cancelRef.current;
+      if (!proceed || !cancel) return;
+      const active = document.activeElement;
+      if (event.shiftKey && active === proceed) {
+        event.preventDefault();
+        cancel.focus();
+      } else if (!event.shiftKey && active === cancel) {
+        event.preventDefault();
+        proceed.focus();
+      }
+    }
+  }
+
+  const noun = uncheckedCleanCount === 1 ? "sheet" : "sheets";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="wizard-finalize-confirm-title"
+      data-testid="wizard-finalize-confirm"
+      onKeyDown={onKeyDown}
+      className="flex flex-col gap-3 rounded-lg border border-border-strong bg-surface-raised p-tile-pad shadow-(--shadow-tile)"
+    >
+      <div className="flex flex-col gap-1">
+        <p
+          id="wizard-finalize-confirm-title"
+          className="text-base font-semibold text-text-strong"
+        >
+          {uncheckedCleanCount} {noun} won&rsquo;t be published
+        </p>
+        <p className="text-sm text-text-subtle">
+          You&rsquo;ll find {uncheckedCleanCount === 1 ? "it" : "them"} under{" "}
+          <span className="font-medium text-text-strong">Unpublished</span>, ready to publish
+          anytime. Continue?
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          ref={proceedRef}
+          type="button"
+          data-testid="wizard-finalize-confirm-proceed"
+          onClick={onProceed}
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Continue
+        </button>
+        <button
+          ref={cancelRef}
+          type="button"
+          data-testid="wizard-finalize-confirm-cancel"
+          onClick={onCancel}
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Go back
+        </button>
+      </div>
     </div>
   );
 }

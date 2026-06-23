@@ -277,11 +277,24 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
       </section>
     );
   }
+  // D5: thread the publish-intent counts into the finish button. publishCount =
+  // rows currently checked (status 'applied' → Live); uncheckedCleanCount =
+  // clean rows left unchecked (status 'staged' → Held). The label reads
+  // "Publish N shows & finish setup" and a soft confirm fires when any clean
+  // row is unchecked. Only clean rows participate (blocking rows never count).
+  const publishCount = result.rows.filter((r) => r.status === "applied").length;
+  const uncheckedCleanCount = result.rows.filter((r) => r.status === "staged").length;
+
   return (
     <div className="flex flex-col gap-section-gap">
       <Step3Review wizardSessionId={wizardSessionId} rows={result.rows} />
       {result.rows.length > 0 ? (
-        <FinalizeButton wizardSessionId={wizardSessionId} disabled={!result.finishable} />
+        <FinalizeButton
+          wizardSessionId={wizardSessionId}
+          disabled={!result.finishable}
+          publishCount={publishCount}
+          uncheckedCleanCount={uncheckedCleanCount}
+        />
       ) : null}
     </div>
   );
