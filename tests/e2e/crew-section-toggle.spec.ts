@@ -280,6 +280,21 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
 
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSection(page, "today");
+
+    // Settle the section-enter crossfade BEFORE any getBoundingClientRect. The
+    // section body is a framer-motion motion.div (initial opacity:0,y:4) driven by
+    // requestAnimationFrame; the beforeEach freezes the clock (page.clock.install)
+    // for a deterministic hero, so framer's enter animation does NOT auto-advance —
+    // an immediate layout read can catch the subtree mid-commit (transient/zero
+    // heights), which made this dimensional test flaky (crew-e2e: test 4 passed
+    // only on CI retry). Mirror crew-page.spec's goToSection: tick the frozen clock
+    // past the 220ms enter, then wait for the section root to reach a real
+    // (non-zero) laid-out height before reading the bar/tab rects.
+    await page.clock.runFor(400);
+    await expect
+      .poll(async () => (await rectOf(page.getByTestId("section-today"))).height, { timeout: 5000 })
+      .toBeGreaterThan(1);
+
     const viewport = page.viewportSize()!;
 
     // The bottom bar is the mobile nav (DOM order desktop-first, mobile-second →
