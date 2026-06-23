@@ -21,6 +21,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import type { ParseResult } from "@/lib/parser/types";
 import {
   Step3Review,
   WIZARD_HARD_FAIL_GENERIC,
@@ -355,7 +356,7 @@ describe("Step3Review", () => {
       driveFileId: "drive-applied-card-1",
       driveFileName: "Refreshed.gsheet",
       status: "applied",
-      parseResult: { show: { title: "Refreshed Show" } } as unknown as Step3Row["parseResult"],
+      parseResult: { show: { title: "Refreshed Show" } } as unknown as ParseResult,
     };
 
     test("routes the applied row to <Step3SheetCard> (card + checked checkbox), not a plain Applied badge", () => {
