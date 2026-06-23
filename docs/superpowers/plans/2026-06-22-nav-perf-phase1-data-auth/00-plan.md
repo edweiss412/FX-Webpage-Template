@@ -430,7 +430,7 @@ Each `readX()` keeps its existing `try/catch + tileErrors[id]` (soft) or throw (
 - Modify: `components/admin/Dashboard.tsx`, `app/admin/page.tsx`
 - Test: existing `tests/admin/fetchDashboardData.test.ts` + a new gate test `tests/app/admin/purgeGate.test.ts`.
 
-- [ ] **Step 1a: Failing dashboard test** — extend `fetchDashboardData.test.ts` with a deferred mock asserting `shows`-list + `activeCount` + `archivedCount` are initiated concurrently (wave 1), and `crewTotal` + `loadNeedsAttention` run concurrently once `activeShowIds` known (wave 2); assert `nowDate()` resolved once (spy count 1 across the render path). For A5: with a fixture of **20** in-flight (unpublished) shows and `FINALIZE_OWNED_CONCURRENCY=8`, a deferred `rpc` mock tracks concurrent in-flight calls; assert **max simultaneous in-flight `readfinalizeowned_b2` ≤ 8** (NOT all 20 at once — Codex plan R1 MEDIUM bounded-fanout guard) AND that all 20 eventually resolve with correct `!q.error && q.data===true` discrimination and per-call `catch → fail toward Held`.
+- [ ] **Step 1a: Failing dashboard test** — extend `fetchDashboardData.test.ts` with a deferred mock asserting `shows`-list + `activeCount` + `archivedCount` are initiated concurrently (wave 1), and `crewTotal` + `loadNeedsAttention` run concurrently once `activeShowIds` known (wave 2); assert `nowDate()` resolved once (spy count 1 across the render path). For A5: with a fixture of **20** in-flight (unpublished) shows and `FINALIZE_OWNED_CONCURRENCY=8`, a deferred `rpc` mock tracks concurrent in-flight calls; assert **max simultaneous in-flight `readfinalizeowned_b2` ≤ 8** (NOT all 20 at once — Codex plan R1 MEDIUM bounded-fanout guard) AND that all 20 eventually resolve with correct boundary-destructured `({ data, error }) => !error && data===true` discrimination and per-call `catch → fail toward Held`.
 - [ ] **Step 1b: Failing gate test** (`tests/app/admin/purgeGate.test.ts`) — mock `readAppSettingsRow` + spy `purgeAndRotateIfStale`: (i) `pending_wizard_session_at=null` → `purgeAndRotateIfStale` NOT called, page uses pre-read settings; (ii) non-null → IS called, behavior unchanged; (iii) pre-read `infra_error` → falls back to calling `purgeAndRotateIfStale` (no false settled render).
 - [ ] **Step 2: Run, verify fail.**
 - [ ] **Step 3a: Implement Dashboard.tsx** — resolve `nowDate()` once and thread the `Date`; `Promise.all` wave 1 (shows list, activeCount, archivedCount); after `activeShowIds`, `Promise.all` wave 2 (crewTotal + loadNeedsAttention; crew paginate loop stays internally sequential but runs concurrently with these). A5 → **bounded-concurrency chunking** (NOT unbounded Promise.all):
@@ -443,7 +443,7 @@ for (let i = 0; i < inFlightIds.length; i += FINALIZE_OWNED_CONCURRENCY) {
     batch.map((id) =>
       supabase
         .rpc("readfinalizeowned_b2", { p_show_id: id })
-        .then((q) => (!q.error && q.data === true ? id : null))
+        .then(({ data, error }) => (!error && data === true ? id : null)) // destructure at boundary (invariant 9)
         .catch(() => null), // fail toward "Held"
     ),
   );
