@@ -21,12 +21,15 @@
  *
  * Two structural guarantees keep that from happening; this file pins both:
  *
- *   (i)  CrewSubNav activates a section through `router.push` (an imperative
- *        client navigation on click), NOT through a prefetching `<Link>`. There
- *        is therefore no `<Link>` whose href is a `?s=` section URL that Next
- *        could prefetch on hover. (If a future refactor introduced a `<Link>`
- *        to a section URL, it would have to carry `prefetch={false}` to remain
- *        compliant — also asserted.)
+ *   (i)  Section nav is a PURE CLIENT TOGGLE (client-section-toggle). CrewSubNav
+ *        is a controlled, presentational component: a tab is a <button> that
+ *        calls `onSelect(id)` — it owns NO navigation, imports no `useRouter`/
+ *        `router.push`, and renders no `<Link>`. The CrewSections controller
+ *        applies the section change as client state plus a SHALLOW URL update
+ *        (`window.history.pushState`, NOT `router.push`) — so the dynamic crew
+ *        route never re-renders per tab and there is NO `?s=` section URL anchor
+ *        for Next to prefetch. With no `<Link>`/`router.push` to a `?s=` URL at
+ *        all, the phantom-prefetch hazard is moot for section nav.
  *
  *   (ii) The crew route (and the admin preview-as route) is DYNAMIC: it reads a
  *        request-scoped input (cookies()/headers() via
@@ -50,6 +53,7 @@ function src(rel: string): string {
 }
 
 const SUB_NAV = "components/crew/CrewSubNav.tsx";
+const SECTIONS = "components/crew/CrewSections.tsx";
 const SECTION_HREF = "lib/crew/sectionHref.ts";
 const SECTION_CHIP_LINK = "components/crew/SectionChipLink.tsx";
 const CREW_ROUTE = "app/show/[slug]/[shareToken]/page.tsx";
@@ -57,23 +61,44 @@ const CREW_ROUTE_REQUEST = "lib/auth/picker/showPageChainRequest.ts";
 const PREVIEW_ROUTE = "app/admin/show/[slug]/preview/[crewId]/page.tsx";
 
 describe("test 36b — no phantom prefetch alert (structural)", () => {
-  // ── (i) CrewSubNav activates via router.push, never a prefetching <Link> ──
-  it("(i) CrewSubNav drives section activation through router.push (imperative nav), not a prefetching <Link>", () => {
+  // ── (i) Section nav is a pure client toggle: CrewSubNav is controlled
+  // (onSelect, no router.push, no <Link>); the controller updates the URL via a
+  // SHALLOW history.pushState, never router.push. No `?s=` anchor for Next to
+  // prefetch, and no per-tap server render. ──
+  it("(i) CrewSubNav is controlled (onSelect) — no router.push, no next/link, tabs are <button>", () => {
     const code = src(SUB_NAV);
 
-    // Section activation is an imperative client navigation: the nav obtains a
-    // router and calls router.push to set the `?s=` URL on click.
-    expect(code, "CrewSubNav must obtain the App Router").toMatch(/useRouter\s*\(/);
+    // The nav owns NO navigation: it calls the parent-supplied onSelect.
+    expect(code, "CrewSubNav must be controlled — call the parent onSelect(id) on tap").toMatch(
+      /onSelect\s*\(/,
+    );
+    // It must NOT obtain the App Router or call router.push (no per-tab server nav).
+    expect(code, "CrewSubNav must not obtain the App Router").not.toMatch(/useRouter\s*\(/);
+    expect(code, "CrewSubNav must not call router.push (no per-tab server nav)").not.toMatch(
+      /router\.push\s*\(/,
+    );
+    // And it must not import a prefetching next/link <Link>.
+    expect(code, "CrewSubNav must not import next/link").not.toMatch(/from\s+["']next\/link["']/);
+    // Tabs are real <button>s, not anchors.
+    expect(code, "CrewSubNav tabs are <button> elements").toMatch(/<button\b/);
+  });
+
+  it("(i) CrewSections updates the URL via shallow history.pushState — NOT router.push (no per-tap server render)", () => {
+    const code = src(SECTIONS);
+
+    // The controller applies the `?s=` change as a SHALLOW URL update so the
+    // dynamic crew route does NOT re-run getShowForViewer per tap.
+    expect(code, "CrewSections must update ?s= via window.history.pushState (shallow URL)").toMatch(
+      /history\.pushState\s*\(/,
+    );
+    // It must build that URL via the SHARED buildSectionHref helper.
     expect(
       code,
-      "CrewSubNav must activate a section via router.push (imperative, click-driven — NOT a prefetchable <Link>)",
-    ).toMatch(/router\.push\s*\(/);
-
-    // The push target is the `?s=` section URL, built via the SHARED
-    // `buildSectionHref` helper (single source of truth with SectionChipLink).
-    // So we know router.push — not a <Link> — is what carries the section param.
-    expect(code, "CrewSubNav must push the shared buildSectionHref(...) URL").toMatch(
-      /router\.push\s*\(\s*buildSectionHref\s*\(/,
+      "CrewSections must build the shallow URL via the shared buildSectionHref(...)",
+    ).toMatch(/buildSectionHref\s*\(/);
+    // The HARD guarantee: section nav does NO server navigation — no router.push.
+    expect(code, "CrewSections must NOT call router.push for section nav").not.toMatch(
+      /router\.push\s*\(/,
     );
 
     // And the shared builder is the thing that sets the section param ("s").

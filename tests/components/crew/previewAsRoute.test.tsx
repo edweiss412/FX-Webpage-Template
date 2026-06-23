@@ -123,26 +123,33 @@ vi.mock("@/components/auth/IdentityChip", () => ({
   ),
 }));
 
-vi.mock("@/components/crew/CrewSubNav", () => ({
-  CrewSubNav: ({
-    activeSection,
+// Under client-side section toggle, _CrewShell renders all entitled section
+// bodies and hands them to the <CrewSections> controller (a "use client" island
+// that calls usePathname/useSearchParams). This suite pins the PAGE→SHELL wiring
+// (activeSection authority via the shell's server-resolved value, showId
+// threading, budget gate, banner placement), not the controller internals, so we
+// mock CrewSections to a flat marker that surfaces its incoming props — and
+// renders the initial active body — without dragging in next/navigation hooks.
+// (The controller's own behavior is pinned by crewSections.test.tsx.)
+vi.mock("@/components/crew/CrewSections", () => ({
+  CrewSections: ({
+    initialSection,
     budgetVisible,
+    sectionNodes,
   }: {
-    activeSection: string;
+    initialSection: string;
     budgetVisible: boolean;
+    sectionNodes: Record<string, ReactNode>;
   }) => (
-    <nav
-      data-testid="crew-sub-nav"
-      data-active-section={activeSection}
-      data-budget-visible={String(budgetVisible)}
-    />
-  ),
-}));
-
-vi.mock("@/components/crew/CrewSectionTransition", () => ({
-  CrewSectionTransition: ({ sectionId, children }: { sectionId: string; children: ReactNode }) => (
-    <div data-testid="crew-section-transition" data-section-id={sectionId}>
-      {children}
+    <div data-testid="mock-crew-sections">
+      <nav
+        data-testid="crew-sub-nav"
+        data-active-section={initialSection}
+        data-budget-visible={String(budgetVisible)}
+      />
+      <div data-testid="crew-section-transition" data-section-id={initialSection}>
+        {sectionNodes[initialSection] ?? null}
+      </div>
     </div>
   ),
 }));
@@ -294,7 +301,9 @@ afterEach(() => {
 describe("preview-as route renders CrewShell", () => {
   it("renders <CrewShell> with ?s=venue → data-active-section='venue', banner above", async () => {
     await renderPreviewPage({ crewId: LEAD_ID, s: "venue", previewCrewRoleFlags: ["LEAD"] });
-    const shell = screen.getByTestId("crew-shell");
+    // data-active-section lives on the CrewSections controller (here its mock
+    // exposes it on crew-sub-nav), not the outer crew-shell (review R1 [MED]).
+    const shell = screen.getByTestId("crew-sub-nav");
     expect(shell.getAttribute("data-active-section")).toBe("venue");
     // PreviewBanner sits above the shell.
     expect(screen.getByTestId("preview-banner")).toBeTruthy();
@@ -325,7 +334,7 @@ describe("preview-as route renders CrewShell", () => {
 
   it("default (no ?s) → data-active-section='today'", async () => {
     await renderPreviewPage({ crewId: HAND_ID, previewCrewRoleFlags: ["A2"] });
-    expect(screen.getByTestId("crew-shell").getAttribute("data-active-section")).toBe("today");
+    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-active-section")).toBe("today");
   });
 });
 
@@ -335,13 +344,13 @@ describe("preview-as route renders CrewShell", () => {
 describe("preview-as Budget gate reads the previewed crew's LEAD flag", () => {
   it("previewing a NON-LEAD crew + ?s=budget → today (Budget not entered)", async () => {
     await renderPreviewPage({ crewId: HAND_ID, s: "budget", previewCrewRoleFlags: ["A2"] });
-    expect(screen.getByTestId("crew-shell").getAttribute("data-active-section")).toBe("today");
+    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-active-section")).toBe("today");
     expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("false");
   });
 
   it("previewing a LEAD crew + ?s=budget → budget", async () => {
     await renderPreviewPage({ crewId: LEAD_ID, s: "budget", previewCrewRoleFlags: ["LEAD"] });
-    expect(screen.getByTestId("crew-shell").getAttribute("data-active-section")).toBe("budget");
+    expect(screen.getByTestId("crew-sub-nav").getAttribute("data-active-section")).toBe("budget");
     expect(screen.getByTestId("crew-sub-nav").getAttribute("data-budget-visible")).toBe("true");
   });
 });

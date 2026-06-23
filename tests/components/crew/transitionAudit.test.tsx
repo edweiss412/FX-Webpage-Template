@@ -32,7 +32,7 @@ import "@testing-library/jest-dom/vitest";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 function src(rel: string): string {
@@ -245,5 +245,114 @@ describe("§4.10 transition audit — CrewSectionTransition render shape (jsdom)
     // null is the pre-mount "unknown" → animate at full duration; the data hook
     // mirrors a falsy preference here ("false") per the component's ternary.
     expect(wrapper).toHaveAttribute("data-reduced-motion", "false");
+  });
+});
+
+// ── Compound: the section crossfade is driven by the CONTROLLER's `active`
+// state (client toggle), and the key it feeds CrewSectionTransition is the
+// section id. The §7 compound row: a `router.refresh()`-style re-render (same
+// active, new sectionNodes) must NOT re-key → the body updates in place WITHOUT
+// a spurious crossfade. We mock CrewSectionTransition to a passthrough that
+// surfaces `sectionId` as data-section-id (the value that drives its key), and
+// mock next/navigation + matchMedia for the controller's client hooks. ──
+describe("§4.10 transition audit — CrewSections drives the crossfade key (compound)", () => {
+  const nav = vi.hoisted(() => ({
+    pathname: "/show/x/tok",
+    searchParams: new URLSearchParams(),
+  }));
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.doMock("next/navigation", () => ({
+      useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+      usePathname: () => nav.pathname,
+      useSearchParams: () => nav.searchParams,
+    }));
+    vi.spyOn(window.history, "pushState").mockImplementation(() => {});
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+    vi.doMock("@/components/crew/CrewSectionTransition", () => ({
+      CrewSectionTransition: ({
+        sectionId,
+        children,
+      }: {
+        sectionId: string;
+        children: React.ReactNode;
+      }) => (
+        // data-section-id mirrors the value the real component feeds to its
+        // motion.div `key={sectionId}`. If this changes, the body re-mounts
+        // (re-animates); if it stays the same, the body updates in place.
+        <div data-testid="crew-section-transition" data-section-id={sectionId}>
+          {children}
+        </div>
+      ),
+    }));
+  });
+
+  afterEach(() => {
+    vi.doUnmock("next/navigation");
+    vi.doUnmock("@/components/crew/CrewSectionTransition");
+    vi.restoreAllMocks();
+  });
+
+  function nodes(todayLabel: string) {
+    return {
+      today: <div data-testid="body-today">{todayLabel}</div>,
+      venue: <div data-testid="body-venue">venue</div>,
+    };
+  }
+
+  it("changing the active section re-keys CrewSectionTransition (crossfade fires on the section swap)", async () => {
+    const { CrewSections } = await import("@/components/crew/CrewSections");
+    render(
+      <CrewSections
+        initialSection="today"
+        budgetVisible={false}
+        sectionNodes={nodes("today v1")}
+      />,
+    );
+    expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
+      "data-section-id",
+      "today",
+    );
+
+    const [venueTab] = screen.getAllByRole("button", { name: /venue/i });
+    venueTab!.click();
+    // After the swap the key is the new section — the crossfade re-mounts the body.
+    expect(await screen.findByTestId("body-venue")).toBeInTheDocument();
+    expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
+      "data-section-id",
+      "venue",
+    );
+  });
+
+  it("compound: a freshness re-render (same active, new sectionNodes) does NOT re-key (no spurious crossfade)", async () => {
+    const { CrewSections } = await import("@/components/crew/CrewSections");
+    const { rerender } = render(
+      <CrewSections
+        initialSection="today"
+        budgetVisible={false}
+        sectionNodes={nodes("today v1")}
+      />,
+    );
+    expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
+      "data-section-id",
+      "today",
+    );
+    expect(screen.getByText("today v1")).toBeInTheDocument();
+
+    // router.refresh()-style: same active, server re-rendered the body fresh.
+    rerender(
+      <CrewSections
+        initialSection="today"
+        budgetVisible={false}
+        sectionNodes={nodes("today v2")}
+      />,
+    );
+    // The key is UNCHANGED (no re-animate) AND the fresh content is shown.
+    expect(screen.getByTestId("crew-section-transition")).toHaveAttribute(
+      "data-section-id",
+      "today",
+    );
+    expect(screen.getByText("today v2")).toBeInTheDocument();
   });
 });
