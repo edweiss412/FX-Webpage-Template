@@ -80,4 +80,26 @@ describe("Chunk 3 — needs-work prose pages", () => {
     expect(src).not.toContain("a LEAD status that toggled");
     expect(src).not.toContain("Two queues exist for the cases where the app cannot publish");
   });
+
+  it("review-queues: first-seen names its REAL sources, not the re-stage review-rule triggers", () => {
+    // Codex HIGH, verified against lib/sync/phase1.ts:324-389 + phase1.decision-rule.test.ts:
+    // a first-seen sheet auto-publishes UNLESS it's from the onboarding scan or auto-publish is
+    // off; MI-11 / asset-drift review rules cannot stage a first-seen sheet (no prior snapshot).
+    // So first-seen must NOT borrow the re-stage "common triggers".
+    const src = read("review-queues");
+    expect(src, "first-seen must not link to / equate with re-stage triggers").not.toContain(
+      "common triggers](#re-stage)",
+    );
+    expect(src).not.toContain("the same common triggers that re-stage");
+    // ...and must name the actual gate (auto-publish toggle + onboarding scan).
+    expect(src, "real first-seen source: auto-publish gate").toMatch(/auto-publish is off/);
+    expect(src, "real first-seen source: onboarding scan").toMatch(/onboarding wizard's scan/);
+    // The TL;DR First-seen row must NOT lump in the couldn't-process / hard-fail
+    // case (that's pending_ingestion, a separate inbox card) — the body says so too.
+    const firstSeenRow =
+      src.split("\n").find((l) => l.includes("**[First-seen](#first-seen)**")) ?? "";
+    expect(firstSeenRow, "TL;DR First-seen row excludes couldn't-process/hard-fail").not.toMatch(
+      /couldn't read|hard-fail/i,
+    );
+  });
 });
