@@ -32,6 +32,7 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import {
   PostgresOnboardingScanTx,
   prepareOnboardingFiles,
@@ -1081,7 +1082,18 @@ export async function applyStaged_unlocked(
           deps.wizardDriveReverify,
           deps,
         );
-        if (!recovered) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+        if (!recovered) {
+          // In-apply supersession: recordWizardApplyHardFail may have COMMITTED the
+          // wizard pending_ingestion upsert (806) before markWizardManifestHardFailed
+          // (817) 0-rowed. THROW so the locked tx aborts and that partial write rolls
+          // back, instead of returning (which commits it). The staged-apply route maps
+          // the throw to 409 + WIZARD_SESSION_SUPERSEDED_RACE.
+          throw new WizardSessionSupersededRollbackError({
+            attemptedAction: "apply",
+            supersededSessionId: args.wizardSessionId,
+            driveFileId: pending.driveFileId,
+          });
+        }
         if (deps.wizardDriveReverify.outcome === "source_gone") {
           return { outcome: "source_gone", code: deps.wizardDriveReverify.code };
         }
@@ -1102,7 +1114,16 @@ export async function applyStaged_unlocked(
       pending.driveFileId,
       args.wizardSessionId,
     );
-    if (!manifestApplied) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+    if (!manifestApplied) {
+      // In-apply supersession AFTER approveWizardPendingSync (1092) committed
+      // wizard_approved=true on the locked tx. THROW so the tx aborts and the
+      // approval rolls back, instead of returning (which commits the partial approve).
+      throw new WizardSessionSupersededRollbackError({
+        attemptedAction: "apply",
+        supersededSessionId: args.wizardSessionId,
+        driveFileId: pending.driveFileId,
+      });
+    }
     return {
       outcome: "wizard_applied",
       wizardSessionId: args.wizardSessionId,
@@ -1551,7 +1572,16 @@ async function stageWizardRestageInline(
   });
 
   if (scan.outcome === "superseded") {
-    return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+    // In-scan supersession during the restage: the scan ran on the locked tx and
+    // may already have committed UNGUARDED deletes (deleteWizardPendingSyncsExcept
+    // — which wipes the SUPERSEDING session's staged rows — and deleteLivePendingIngestion)
+    // before reporting superseded. THROW so the locked tx aborts and those deletes
+    // roll back, instead of returning (which commits them).
+    throw new WizardSessionSupersededRollbackError({
+      attemptedAction: "apply",
+      supersededSessionId: args.wizardSessionId,
+      driveFileId: args.driveFileId,
+    });
   }
   if (scan.outcome === "schema_missing") {
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
