@@ -36,6 +36,7 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Check } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -220,7 +221,7 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
   );
 }
 
-function RowItem({ row }: { row: Step3Row }) {
+function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
 
@@ -232,7 +233,7 @@ function RowItem({ row }: { row: Step3Row }) {
   if (row.status === "staged") {
     return (
       <div data-testid={`wizard-step3-row-${row.driveFileId}`} data-status={row.status}>
-        <Step3SheetCard row={row} />
+        <Step3SheetCard row={row} wizardSessionId={wizardSessionId} />
       </div>
     );
   }
@@ -314,7 +315,132 @@ function RowItem({ row }: { row: Step3Row }) {
   );
 }
 
-export function Step3Review({ rows }: Step3ReviewProps) {
+// A clean row is one with a show to publish — manifest `staged` (unchecked) or
+// `applied` (checked). Only clean rows participate in Select-all / the count.
+function isCleanRow(status: Step3ManifestStatus): boolean {
+  return status === "staged" || status === "applied";
+}
+
+/**
+ * Header publish controls (§4.1): a **Select all** checkbox + a live
+ * "N of M selected to publish" count. N = clean rows currently `applied`
+ * (checked); M = all clean rows. Select-all is checked iff every clean row is
+ * already applied; toggling it approves every unchecked clean row (POST approve)
+ * or un-approves every applied row (POST unapprove), then refreshes. Disabled
+ * while its batch is in flight (the same double-toggle guard as the per-card box,
+ * §4.6). The count is tabular-nums so a digit change never shifts layout.
+ */
+function Step3PublishHeader({
+  wizardSessionId,
+  rows,
+}: {
+  wizardSessionId: string;
+  rows: Step3Row[];
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  // Optimistic select-all + count overlay. `null` → reflect the derived props
+  // (the post-refresh source of truth); a boolean → the in-flight optimistic
+  // intent (instant per §4.5, reconciled by router.refresh()).
+  const [optimisticAll, setOptimisticAll] = useState<boolean | null>(null);
+
+  const cleanRows = rows.filter((r) => isCleanRow(r.status));
+  const derivedAppliedCount = cleanRows.filter((r) => r.status === "applied").length;
+  const cleanCount = cleanRows.length;
+  const derivedAllChecked = cleanCount > 0 && derivedAppliedCount === cleanCount;
+  const allChecked = optimisticAll ?? derivedAllChecked;
+  // Count reflects the optimistic intent instantly: select-all → all N; clear → 0.
+  const appliedCount =
+    optimisticAll === null ? derivedAppliedCount : optimisticAll ? cleanCount : 0;
+
+  async function postFor(driveFileId: string, action: "approve" | "unapprove"): Promise<void> {
+    try {
+      await fetch(`/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`, {
+        method: "POST",
+      });
+    } catch {
+      // A single failed write is reconciled by the post-batch refresh below; no
+      // partial-state surfacing here (the server is the source of truth).
+    }
+  }
+
+  async function onToggleSelectAll(): Promise<void> {
+    if (pending || cleanCount === 0) return; // §4.6 guard
+    setPending(true);
+    setOptimisticAll(!allChecked); // instant header flip (§4.5), reconciled on refresh
+    try {
+      if (allChecked) {
+        // Uncheck everything currently applied.
+        await Promise.all(
+          cleanRows
+            .filter((r) => r.status === "applied")
+            .map((r) => postFor(r.driveFileId, "unapprove")),
+        );
+      } else {
+        // Check every clean row that is not already applied.
+        await Promise.all(
+          cleanRows
+            .filter((r) => r.status !== "applied")
+            .map((r) => postFor(r.driveFileId, "approve")),
+        );
+      }
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (cleanCount === 0) {
+    // No publishable rows → no select-all; still emit the count (0 of 0) so the
+    // line is stable and the testid always resolves.
+    return (
+      <p
+        data-testid="wizard-step3-publish-count"
+        className="text-sm tabular-nums text-text-subtle"
+      >
+        <span className="tabular-nums">{appliedCount}</span> of{" "}
+        <span className="tabular-nums">{cleanCount}</span> selected to publish
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <label className="inline-flex min-h-tap-min cursor-pointer items-center gap-2 has-disabled:cursor-not-allowed has-disabled:opacity-60">
+        <input
+          type="checkbox"
+          data-testid="wizard-step3-select-all"
+          checked={allChecked}
+          disabled={pending}
+          aria-label="Select all sheets to publish"
+          onChange={() => void onToggleSelectAll()}
+          className="peer sr-only"
+        />
+        <span
+          aria-hidden="true"
+          className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 ${
+            allChecked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
+          }`}
+        >
+          <Check
+            className={`size-3.5 transition-opacity duration-fast ${allChecked ? "opacity-100" : "opacity-0"}`}
+            strokeWidth={3}
+          />
+        </span>
+        <span className="text-sm font-medium text-text-strong">Select all</span>
+      </label>
+      <p
+        data-testid="wizard-step3-publish-count"
+        className="text-sm tabular-nums text-text-subtle"
+      >
+        <span className="tabular-nums text-text-strong">{appliedCount}</span> of{" "}
+        <span className="tabular-nums">{cleanCount}</span> selected to publish
+      </p>
+    </div>
+  );
+}
+
+export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
 
@@ -361,6 +487,9 @@ export function Step3Review({ rows }: Step3ReviewProps) {
           Every sheet we found in your folder is listed below. Approve, set aside, or defer each
           one. Setup finishes once every row is resolved.
         </p>
+        {rows.length > 0 ? (
+          <Step3PublishHeader wizardSessionId={wizardSessionId} rows={rows} />
+        ) : null}
         <p
           data-testid="wizard-step3-resolution-status"
           data-all-resolved={allResolved ? "true" : "false"}
@@ -388,7 +517,7 @@ export function Step3Review({ rows }: Step3ReviewProps) {
         <ul className="flex flex-col gap-3">
           {rows.map((row) => (
             <li key={row.driveFileId}>
-              <RowItem row={row} />
+              <RowItem row={row} wizardSessionId={wizardSessionId} />
             </li>
           ))}
         </ul>

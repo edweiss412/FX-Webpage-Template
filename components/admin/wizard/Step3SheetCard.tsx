@@ -29,7 +29,8 @@
  * (`[data-step3-breakdown]`), consuming --duration-normal.
  */
 import { useId, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ChevronDown } from "lucide-react";
 import type {
   AgendaEntry,
   CrewMemberRow,
@@ -247,7 +248,96 @@ function HotelsBreakdown({
   );
 }
 
-export function Step3SheetCard({ row }: { row: Step3Row }) {
+/**
+ * The durable publish-intent checkbox (§4.1/§4.6/§7.2). Checked = the row's
+ * manifest status is 'applied'. On toggle it POSTs to the LIGHTWEIGHT approve /
+ * un-approve pair (NOT the heavy navigation-era apply route — finalize
+ * re-validates at apply time, so the checkbox stays cheap) and then refreshes the
+ * RSC tree. The control optimistically reflects the new state and DISABLES itself
+ * while its request is in flight (§4.6 — prevents a double-toggle race).
+ *
+ * A real <input type=checkbox> (keyboard-operable, sr-only) backs the visible
+ * tile; the tile is a ≥44px tap target via the wrapping <label>. The native input
+ * is visually hidden but never removed from the tree (focusable + announced).
+ */
+export function PublishCheckbox({
+  driveFileId,
+  wizardSessionId,
+  initialChecked,
+}: {
+  driveFileId: string;
+  wizardSessionId: string;
+  initialChecked: boolean;
+}) {
+  const router = useRouter();
+  const [checked, setChecked] = useState(initialChecked);
+  const [pending, setPending] = useState(false);
+
+  async function toggle(next: boolean) {
+    if (pending) return; // §4.6 guard — ignore re-entry while a write is in flight
+    const action = next ? "approve" : "unapprove";
+    setPending(true);
+    setChecked(next); // optimistic
+    try {
+      const response = await fetch(
+        `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
+        { method: "POST" },
+      );
+      if (!response.ok) {
+        setChecked(!next); // revert optimistic state on a refused/failed write
+        return;
+      }
+      router.refresh();
+    } catch {
+      setChecked(!next); // network failure → revert
+    } finally {
+      setPending(false);
+    }
+  }
+
+  // A 20px visible box (size-5) with a ≥44px hit area: p-3 (12px) + the size-5
+  // box = 44px clickable square, pulled back by -m-3 so the layout footprint
+  // stays ~20px and the box sits flush at the card's top-left, aligned to the
+  // title (the negative top margin re-applies the mt-0.5 title offset after -m-3).
+  // The native input is sr-only but focusable.
+  return (
+    <label
+      className="relative -m-3 -mt-2.5 inline-flex shrink-0 cursor-pointer items-start justify-start p-3 has-disabled:cursor-not-allowed has-disabled:opacity-60"
+      title={checked ? "Publishing this show" : "Publish this show"}
+    >
+      <input
+        type="checkbox"
+        data-testid={`wizard-step3-checkbox-${driveFileId}`}
+        checked={checked}
+        disabled={pending}
+        aria-label={
+          checked ? "Publishing this show — uncheck to keep it unpublished" : "Publish this show"
+        }
+        onChange={(e) => void toggle(e.currentTarget.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 ${
+          checked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
+        }`}
+      >
+        <Check
+          className={`size-3.5 transition-opacity duration-fast ${checked ? "opacity-100" : "opacity-0"}`}
+          strokeWidth={3}
+        />
+      </span>
+    </label>
+  );
+}
+
+export function Step3SheetCard({
+  row,
+  wizardSessionId,
+}: {
+  row: Step3Row;
+  wizardSessionId: string;
+}) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
   const [expanded, setExpanded] = useState(false);
@@ -311,9 +401,13 @@ export function Step3SheetCard({ row }: { row: Step3Row }) {
           so a long title truncates instead of overflowing the fixed-width
           list column (§4.4). */}
       <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
-        {/* Reserved leading slot (D3). Kept in the tree so the future checkbox
-            does not shift the layout; presentational placeholder for D2. */}
-        <span aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+        {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
+            long title (min-w-0 flex-1 below) truncates instead of squeezing it. */}
+        <PublishCheckbox
+          driveFileId={dfid}
+          wizardSessionId={wizardSessionId}
+          initialChecked={row.status === "applied"}
+        />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-text-strong" title={title}>
             {title}

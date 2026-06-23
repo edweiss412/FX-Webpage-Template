@@ -15,15 +15,20 @@
  * Scope is D2 ONLY: no checkbox, no select-all, no approve/ignore wiring
  * (those are D3/D4). The card here is purely presentational (a `row` prop).
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, fireEvent, within } from "@testing-library/react";
 import type { ParseResult, ShowRow, CrewMemberRow, RoomRow, HotelReservationRow, RunOfShow } from "@/lib/parser/types";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 
+// D3: the card now hosts the publish checkbox, which calls useRouter().refresh().
+// The presentational assertions below don't toggle it, but the hook must resolve.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 afterEach(() => cleanup());
 
 const DFID = "drive-abc-123";
+const WSID = "00000000-1111-4222-8333-444444444444";
 
 // ── Fixture builders (every expectation derives from THESE dimensions) ──
 function crew(n: number): CrewMemberRow[] {
@@ -149,7 +154,7 @@ const summary = (q: ReturnType<typeof render>) => q.getByTestId(`wizard-step3-ca
 describe("Step3SheetCard — summary (§4.2)", () => {
   test("renders the show title, and client when present", () => {
     const FIX = parseResult();
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const s = summary(q);
     expect(s.textContent).toContain(FIX.show.title);
     expect(s.textContent).toContain(FIX.show.client_label);
@@ -158,13 +163,13 @@ describe("Step3SheetCard — summary (§4.2)", () => {
   test("title falls back to driveFileName when parseResult title is empty", () => {
     const FIX = parseResult({ show: show({ title: "" }) });
     const row = stagedRow(FIX, { driveFileName: "fallback-name.sheet" });
-    const q = render(<Step3SheetCard row={row} />);
+    const q = render(<Step3SheetCard row={row} wizardSessionId={WSID} />);
     expect(summary(q).textContent).toContain("fallback-name.sheet");
   });
 
   test("counts derive from fixture array lengths (anti-tautology)", () => {
     const FIX = parseResult();
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const s = summary(q).textContent ?? "";
     const days = Object.keys(FIX.runOfShow ?? {}).length;
     expect(s).toContain(`${FIX.crewMembers.length} crew`);
@@ -182,7 +187,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
       runOfShow: runOfShow(5, 1),
       show: show({ dates: { travelIn: null, set: null, showDays: ["2026-04-10", "2026-04-11"], travelOut: null } }),
     });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const days = Object.keys(FIX.runOfShow ?? {}).length;
     expect(days).toBe(5);
     expect(FIX.show.dates.showDays.length).toBe(2);
@@ -193,7 +198,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     const FIX = parseResult({
       show: show({ dates: { travelIn: "2026-04-09", set: null, showDays: ["2026-04-10"], travelOut: null } }),
     });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const s = summary(q).textContent ?? "";
     expect(s).toContain("2026-04-09");
     expect(s).toContain("2026-04-10");
@@ -204,7 +209,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     const FIX = parseResult({
       show: show({ dates: { travelIn: null, set: null, showDays: [], travelOut: null } }),
     });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     expect(summary(q).textContent).toContain("Dates not found");
   });
 
@@ -212,11 +217,11 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     const withDiagrams = parseResult({
       diagrams: { linkedFolder: { driveFolderId: "f", driveFolderUrl: "https://x" }, embeddedImages: [], linkedFolderItems: [] },
     });
-    const q1 = render(<Step3SheetCard row={stagedRow(withDiagrams)} />);
+    const q1 = render(<Step3SheetCard row={stagedRow(withDiagrams)} wizardSessionId={WSID} />);
     expect(q1.queryByTestId(`wizard-step3-card-${DFID}-badge-diagrams`)).not.toBeNull();
     cleanup();
     const noDiagrams = parseResult();
-    const q2 = render(<Step3SheetCard row={stagedRow(noDiagrams)} />);
+    const q2 = render(<Step3SheetCard row={stagedRow(noDiagrams)} wizardSessionId={WSID} />);
     expect(q2.queryByTestId(`wizard-step3-card-${DFID}-badge-diagrams`)).toBeNull();
   });
 
@@ -224,10 +229,10 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     const withReel = parseResult({
       openingReel: { driveFileId: "reel-1", drive_modified_time: "2026-04-01T00:00:00Z", headRevisionId: "r1", mimeType: "video/mp4" },
     });
-    const q1 = render(<Step3SheetCard row={stagedRow(withReel)} />);
+    const q1 = render(<Step3SheetCard row={stagedRow(withReel)} wizardSessionId={WSID} />);
     expect(q1.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).not.toBeNull();
     cleanup();
-    const q2 = render(<Step3SheetCard row={stagedRow(parseResult())} />);
+    const q2 = render(<Step3SheetCard row={stagedRow(parseResult())} wizardSessionId={WSID} />);
     expect(q2.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).toBeNull();
   });
 
@@ -237,20 +242,20 @@ describe("Step3SheetCard — summary (§4.2)", () => {
       { severity: "info" as const, code: "W2", message: "two" },
     ];
     const FIX = parseResult({ warnings: w });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const chip = q.getByTestId(`wizard-step3-card-${DFID}-warnings`);
     expect(chip.textContent).toContain(String(FIX.warnings.length));
   });
 
   test("no warnings chip when warnings is empty", () => {
-    const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} />);
+    const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />);
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 });
 
 describe("Step3SheetCard — guard conditions (§4.6)", () => {
   test("parseResult null → couldn't-read note, no expand toggle", () => {
-    const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: "broken.sheet" })} />);
+    const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: "broken.sheet" })} wizardSessionId={WSID} />);
     expect(card(q).textContent).toContain("broken.sheet");
     // Apostrophe-agnostic (the component uses a typographic ’): assert the
     // human "couldn't read" sentence is present.
@@ -260,7 +265,7 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
   });
 
   test("parseResult null still falls back to driveFileId when name missing", () => {
-    const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: null })} />);
+    const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: null })} wizardSessionId={WSID} />);
     expect(card(q).textContent).toContain(DFID);
   });
 
@@ -273,7 +278,7 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     delete broken.rooms;
     delete broken.hotelReservations;
     delete broken.runOfShow;
-    const q = render(<Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} />);
+    const q = render(<Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />);
     const s = summary(q).textContent ?? "";
     expect(s).toContain("0 crew");
     expect(s).toContain("0 rooms");
@@ -284,13 +289,13 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
   test("undefined warnings → no chip", () => {
     const broken = parseResult() as unknown as Record<string, unknown>;
     delete broken.warnings;
-    const q = render(<Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} />);
+    const q = render(<Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />);
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 
   test("zero-count clean sheet still renders the counts (a 0 is a signal)", () => {
     const FIX = parseResult({ crewMembers: [], rooms: [], hotelReservations: [], runOfShow: {} });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const s = summary(q).textContent ?? "";
     expect(s).toContain("0 crew");
     expect(s).toContain("0 schedule days");
@@ -312,7 +317,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
 
   test("crew breakdown lists names + roles, capped at 30 with '…and K more'", () => {
     const FIX = parseResult({ crewMembers: crew(34) });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const b = expand(q);
     const region = within(b).getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`);
     // first member is shown with name + role
@@ -327,7 +332,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
 
   test("rooms breakdown caps at 20 with overflow note", () => {
     const FIX = parseResult({ rooms: rooms(23) });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`);
     expect(region.textContent).toContain(at(FIX.rooms, 19).name);
     expect(region.textContent).not.toContain(at(FIX.rooms, 20).name);
@@ -336,7 +341,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
 
   test("hotels breakdown caps at 12 with overflow note", () => {
     const FIX = parseResult({ hotelReservations: hotels(15) });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`);
     expect(region.textContent).toContain(at(FIX.hotelReservations, 11).hotel_name);
     expect(region.textContent).not.toContain(at(FIX.hotelReservations, 12).hotel_name);
@@ -345,7 +350,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
 
   test("schedule outline caps days at 14 and entries per day at 6", () => {
     const FIX = parseResult({ runOfShow: runOfShow(16, 8) });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`);
     const ros = FIX.runOfShow ?? {};
     const days = Object.keys(ros);
@@ -364,7 +369,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
 
   test("breakdown handles empty arrays without crashing", () => {
     const FIX = parseResult({ crewMembers: [], rooms: [], hotelReservations: [], runOfShow: {} });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} />);
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     expect(() => expand(q)).not.toThrow();
   });
 });
