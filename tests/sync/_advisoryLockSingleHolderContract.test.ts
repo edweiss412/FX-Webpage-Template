@@ -103,6 +103,13 @@ const lockHolderRegistry = [
     key: "hashtext('show:' || drive_file_id)",
   },
   {
+    path: "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts",
+    holder: "handleWizardManifestIgnore",
+    layer:
+      "delegates mutations to ONE blocking show lock (withPostgresSyncPipelineLock); the deferred_ingestions write + reused transitionManifestRow issue plain SQL on the already-locked tx — no nested lock holder",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "app/api/admin/pending-ingestions/[id]/retry/route.ts",
     holder: "handleLivePendingIngestionRetry",
     layer:
@@ -169,9 +176,13 @@ const protectedPreLockMutationPatterns = [
     pattern: /\.(?:delete|insert|update|upsert)\s*\(/i,
   },
   {
+    // DS3-1: onboarding_scan_manifest joins the protected per-show write surfaces.
+    // The manifest-ignore route's writer + the reused transitionManifestRow mutate
+    // deferred_ingestions AND onboarding_scan_manifest, and BOTH must run only after
+    // the show lock — the pre-lock sync gates must never mutate the manifest either.
     label: "protected SQL mutation",
     pattern:
-      /\b(?:delete\s+from|insert\s+into|update)\s+(?:public\.)?(?:deferred_ingestions|pending_syncs|pending_ingestions|shows|crew_members)\b/i,
+      /\b(?:delete\s+from|insert\s+into|update)\s+(?:public\.)?(?:deferred_ingestions|pending_syncs|pending_ingestions|onboarding_scan_manifest|shows|crew_members)\b/i,
   },
 ] as const;
 
