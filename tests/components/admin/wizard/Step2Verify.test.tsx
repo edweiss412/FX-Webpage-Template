@@ -62,6 +62,68 @@ function mockJsonResponse(body: unknown, init: { status?: number } = {}) {
   } as unknown as Response;
 }
 
+function ndjson(...messages: unknown[]): string {
+  return messages.map((m) => JSON.stringify(m) + "\n").join("");
+}
+
+// A Response whose body streams the given raw chunks as NDJSON (chunks let a test
+// exercise partial-line buffering / unterminated final lines).
+function streamResponse(chunks: string[], init: { status?: number } = {}): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(encoder.encode(c));
+      controller.close();
+    },
+  });
+  return {
+    ok: (init.status ?? 200) < 400,
+    status: init.status ?? 200,
+    headers: {
+      get: (h: string) => (h.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
+    },
+    body,
+    json: async () => {
+      throw new Error("json() must not be called on a stream response");
+    },
+  } as unknown as Response;
+}
+
+// A stream the TEST drives, so intermediate phases are observable.
+function controllableStreamResponse(init: { status?: number } = {}) {
+  const encoder = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const response = {
+    ok: (init.status ?? 200) < 400,
+    status: init.status ?? 200,
+    headers: {
+      get: (h: string) => (h.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
+    },
+    body,
+    json: async () => {
+      throw new Error("json() must not be called on a stream response");
+    },
+  } as unknown as Response;
+  const push = async (...messages: unknown[]) => {
+    await act(async () => {
+      controller.enqueue(encoder.encode(messages.map((m) => JSON.stringify(m) + "\n").join("")));
+      await Promise.resolve();
+    });
+  };
+  const close = async () => {
+    await act(async () => {
+      controller.close();
+      await Promise.resolve();
+    });
+  };
+  return { response, push, close };
+}
+
 describe("Step2Verify", () => {
   test("renders the folder URL input and the verify-and-scan submit button", () => {
     const { getByTestId } = render(<Step2Verify />);
@@ -285,5 +347,146 @@ describe("Step2Verify", () => {
     const { getByTestId } = render(<Step2Verify />);
     const submit = getByTestId("wizard-step2-submit") as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
+  });
+
+  test("reading phase: determinate bar (aria), count, and Just-read update per prepared event", async () => {
+    const total = 3;
+    const { response, push, close } = controllableStreamResponse();
+    fetchMock.mockResolvedValue(response);
+    const { getByTestId, findByTestId, queryByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+
+    // connecting → indeterminate bar (no aria-valuenow yet)
+    expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBeNull();
+
+    await push({ type: "listed", total });
+    await push({ type: "prepared", done: 1, total, name: "Alpha" });
+    await waitFor(() =>
+      expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBe("1"),
+    );
+    expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuemax")).toBe(String(total));
+    expect(getByTestId("wizard-step2-count").textContent ?? "").toMatch(
+      new RegExp(`\\b1\\b[^0-9]*\\b${total}\\b`),
+    );
+    expect(getByTestId("wizard-step2-lastname").textContent ?? "").toContain("Alpha");
+
+    await push({ type: "prepared", done: 2, total, name: "Bravo" });
+    await waitFor(() =>
+      expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBe("2"),
+    );
+    expect(getByTestId("wizard-step2-lastname").textContent ?? "").toContain("Bravo");
+
+    await push({ type: "staging" });
+    await waitFor(() => expect(queryByTestId("wizard-step2-count")).toBeNull());
+    expect(getByTestId("wizard-step2-progress").textContent ?? "").toMatch(/Finishing up/i);
+
+    await push({
+      type: "result",
+      body: completedScanBody(["staged", "staged", "staged"], "Shows 2026"),
+    });
+    await close();
+    const success = await findByTestId("wizard-step2-success");
+    expect(success.textContent ?? "").toMatch(new RegExp(`\\b${total}\\b`));
+  });
+
+  test("result-before-listed: a terminal result with no prior progress still resolves", async () => {
+    const { response, push, close } = controllableStreamResponse();
+    fetchMock.mockResolvedValue(response);
+    const { getByTestId, findByTestId, container } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await push({
+      type: "result",
+      body: { outcome: "schema_missing", code: "WIZARD_ISOLATION_INDEXES_MISSING" },
+    });
+    await close();
+    const err = await findByTestId("wizard-step2-error");
+    expect(err.textContent ?? "").toContain(
+      MESSAGE_CATALOG.WIZARD_ISOLATION_INDEXES_MISSING.dougFacing!,
+    );
+    expect(container.textContent ?? "").not.toContain("WIZARD_ISOLATION_INDEXES_MISSING");
+  });
+
+  test("parses NDJSON across chunk boundaries and an unterminated final line", async () => {
+    const total = 2;
+    const resultBody = completedScanBody(["staged", "staged"], "Shows 2026");
+    fetchMock.mockResolvedValue(
+      streamResponse([
+        `{"type":"listed","to`,
+        `tal":${total}}\n{"type":"prepared","done":1,"total":${total},"name":"A"}\n`,
+        `{"type":"prepared","done":2,"total":${total},"name":"B"}\n`,
+        JSON.stringify({ type: "result", body: resultBody }), // no trailing newline
+      ]),
+    );
+    const { getByTestId, findByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    expect(await findByTestId("wizard-step2-success")).toBeTruthy();
+  });
+
+  test("empty folder (total 0) goes straight to success without a determinate count", async () => {
+    fetchMock.mockResolvedValue(
+      streamResponse([
+        ndjson(
+          { type: "listed", total: 0 },
+          { type: "staging" },
+          { type: "result", body: completedScanBody([], "Empty Folder") },
+        ),
+      ]),
+    );
+    const { getByTestId, findByTestId, queryByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/empty" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    expect(await findByTestId("wizard-step2-success")).toBeTruthy();
+    expect(queryByTestId("wizard-step2-count")).toBeNull();
+  });
+
+  test("terminal {ok:false, code:null} renders generic copy with no raw code", async () => {
+    fetchMock.mockResolvedValue(
+      streamResponse([ndjson({ type: "listed", total: 1 }, { type: "result", body: { ok: false, code: null } })]),
+    );
+    const { getByTestId, findByTestId, container } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    const err = await findByTestId("wizard-step2-error");
+    expect(err.textContent ?? "").toContain("contact the developer");
+    expect(container.textContent ?? "").not.toContain("null");
+  });
+
+  test("a stream that ends without a result renders the generic error", async () => {
+    fetchMock.mockResolvedValue(
+      streamResponse([
+        ndjson({ type: "listed", total: 1 }, { type: "prepared", done: 1, total: 1, name: "X" }),
+      ]),
+    );
+    const { getByTestId, findByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    expect(await findByTestId("wizard-step2-error")).toBeTruthy();
   });
 });
