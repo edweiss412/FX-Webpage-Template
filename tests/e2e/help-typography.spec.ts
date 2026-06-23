@@ -188,10 +188,15 @@ test.describe("/help prose typography layer", () => {
   // help-docs viewports (webkit 390 + chromium 1280) — jsdom can't do this.
   // (Each iteration also asserts no horizontal overflow, which covers the
   // onboarding Drive-URL inline-<code> overflow-wrap fix.)
+  // Onboarding step-3 redesign (2026-06-23): the onboarding-wizard page no longer
+  // carries a dense ≥3-column catalog — step 3 is inline review cards now, and
+  // the old "Badge / What it means / Your options" 3-col table was removed. Its
+  // sole remaining table is the 2-column clean-card outcome table, which is not
+  // a stacked (data-stack) catalog. Dashboard + settings keep their 3-col dense
+  // catalogs, so they remain the stacked-card coverage here.
   const D8_DENSE_PAGES = [
     { url: "/help/admin/dashboard", firstLabel: "Status" },
     { url: "/help/admin/settings", firstLabel: "Status line" },
-    { url: "/help/admin/onboarding-wizard", firstLabel: "Badge" },
   ];
   for (const { url, firstLabel } of D8_DENSE_PAGES) {
     test(`D8: ${url} dense catalog stacks into labeled cards on mobile, stays a table on desktop`, async ({

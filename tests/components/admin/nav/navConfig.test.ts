@@ -1,9 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "@/components/admin/nav/navConfig";
 
-it("three launch destinations: dashboard + attention + settings", () => {
-  expect(NAV.map((n) => n.id)).toEqual(["dashboard", "attention", "settings"]);
-  expect(NAV.length).toBe(3);
+it("launch destinations: dashboard + attention + unpublished + ignored-sheets + settings", () => {
+  expect(NAV.map((n) => n.id)).toEqual([
+    "dashboard",
+    "attention",
+    "unpublished",
+    "ignored-sheets",
+    "settings",
+  ]);
+  expect(NAV.length).toBe(5);
+});
+
+it("ignored-sheets item is a desktop destination with href /admin/ignored-sheets (Task E2)", () => {
+  const ignored = NAV.find((n) => n.id === "ignored-sheets");
+  expect(ignored).toBeDefined();
+  expect(ignored?.mobileOnly).toBeUndefined();
+  expect(ignored?.href).toBe("/admin/ignored-sheets");
 });
 
 it("attention item is mobileOnly with href /admin/needs-attention", () => {
@@ -13,16 +26,33 @@ it("attention item is mobileOnly with href /admin/needs-attention", () => {
   expect(attention?.href).toBe("/admin/needs-attention");
 });
 
-it("dashboard + settings are NOT mobileOnly (desktop nav unchanged, spec D-2)", () => {
+it("unpublished item is a desktop destination with href /admin/unpublished (Task E1)", () => {
+  const unpublished = NAV.find((n) => n.id === "unpublished");
+  expect(unpublished).toBeDefined();
+  expect(unpublished?.mobileOnly).toBeUndefined();
+  expect(unpublished?.href).toBe("/admin/unpublished");
+});
+
+it("dashboard + unpublished + settings are NOT mobileOnly (desktop destinations)", () => {
   expect(NAV.find((n) => n.id === "dashboard")?.mobileOnly).toBeUndefined();
+  expect(NAV.find((n) => n.id === "unpublished")?.mobileOnly).toBeUndefined();
   expect(NAV.find((n) => n.id === "settings")?.mobileOnly).toBeUndefined();
 });
 
 describe("active-state matrix: exactly one active id per path", () => {
-  const matrix: Array<[path: string, activeId: "dashboard" | "attention" | "settings"]> = [
+  const matrix: Array<
+    [
+      path: string,
+      activeId: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings",
+    ]
+  > = [
     ["/admin", "dashboard"],
     ["/admin/needs-attention", "attention"],
     ["/admin/needs-attention/x", "attention"],
+    ["/admin/unpublished", "unpublished"],
+    ["/admin/unpublished/x", "unpublished"],
+    ["/admin/ignored-sheets", "ignored-sheets"],
+    ["/admin/ignored-sheets/x", "ignored-sheets"],
     ["/admin/settings", "settings"],
     ["/admin/settings/admins", "settings"],
     ["/admin/show/abc", "dashboard"],
@@ -41,6 +71,16 @@ describe("active-state matrix: exactly one active id per path", () => {
     expect(isNavItemActive("attention", "/admin")).toBe(false);
     expect(isNavItemActive("attention", "/admin/show/abc")).toBe(false);
     expect(isNavItemActive("attention", "/admin/settings")).toBe(false);
+  });
+
+  it("unpublished is active ONLY on /admin/unpublished*; dashboard NOT active there (Task E1)", () => {
+    expect(isNavItemActive("unpublished", "/admin/unpublished")).toBe(true);
+    expect(isNavItemActive("unpublished", "/admin/unpublished/x")).toBe(true);
+    expect(isNavItemActive("dashboard", "/admin/unpublished")).toBe(false);
+    expect(isNavItemActive("dashboard", "/admin/unpublished/x")).toBe(false);
+    expect(isNavItemActive("unpublished", "/admin")).toBe(false);
+    expect(isNavItemActive("unpublished", "/admin/show/abc")).toBe(false);
+    expect(isNavItemActive("unpublished", "/admin/settings")).toBe(false);
   });
 });
 

@@ -663,3 +663,83 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
     for (const conf of ["103317", "103316", "110525"]) expect(hn).not.toContain(conf);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// BL-PARSER-PRODUCTION-FIDELITY-RESIDUAL fix #1a — room header name/dims/floor
+// split. The exporter flattens the source's "LABEL\nNAME\nDIMS\nFLOOR" cell to a
+// single space-joined header line, so the parser was surfacing the whole fused
+// string as `name` (rpas/fintech/fixed-income GS, consultants/ria breakouts) or a
+// leftover separator dash ("- GRAND BALLROOM A/B"). After the fix, every room whose
+// name + dimensions + floor live in ONE header cell is split: name = venue room
+// only (kind already records gs/breakout), dimensions/floor in their own fields.
+//
+// Failure modes this locks: (1) fused names leaking dims/floor into `name`;
+// (2) dropped semantic dim prefixes (rpas TOTAL:/A/B:) or two-segment dims;
+// (3) the leading "- " separator on consultants' GS; (4) template placeholder
+// words ("Dimensions"/"Floor") surviving in a real name (ria DRAWING ROOM A/B,
+// consultants LUNCH BALLROOM C). Expected values are derived from the committed
+// exporter-xlsx fixtures (creds-free), NOT the live sheet.
+//
+// 1b (DEFERRED): the v2 shows whose venue dims/floor live in a SEPARATE
+// "<NAME> - <Nth Floor> ROOM DIMENSIONS: <dims>" / "<NAME>\n<dims>" row
+// (redefining/ria GS) + east-coast's MABEL/GS tangle keep name "General Session"
+// with null dims/floor here — a future 1b will intentionally update those rows.
+describe("exporter fidelity — #1a room header name/dims/floor split", () => {
+  type RoomTriple = { kind: string; name: string; dimensions: string | null; floor: string | null };
+  const triples = (slug: string): RoomTriple[] =>
+    parse(slug)
+      .rooms.filter((r) => r.kind !== "additional")
+      .map((r) => ({ kind: r.kind, name: r.name, dimensions: r.dimensions, floor: r.floor }));
+
+  const EXPECTED: Record<string, RoomTriple[]> = {
+    // v4 fused GS + breakout headers (the egregious cases)
+    fintech: [
+      { kind: "gs", name: "ADLER BALLROOM", dimensions: "75' x 37' x", floor: "15th Floor" },
+    ],
+    "fixed-income": [
+      { kind: "gs", name: "SALON ABC", dimensions: "43' x 49' x 12'", floor: null },
+      { kind: "breakout", name: "SALON D", dimensions: "43' x 24' x 12'", floor: null },
+    ],
+    rpas: [
+      {
+        kind: "gs",
+        name: "GRAND BALLROOM A/B",
+        dimensions: "TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'",
+        floor: "8th Floor",
+      },
+      { kind: "breakout", name: "STATE A", dimensions: "38' x 29' x 12'", floor: "8th Floor" },
+      { kind: "breakout", name: "STATE B", dimensions: "38' x 29' x 12'", floor: "8th Floor" },
+    ],
+    // v2 numbered-breakout headers carrying a trailing floor / placeholder words
+    consultants: [
+      { kind: "gs", name: "GRAND BALLROOM A/B", dimensions: null, floor: null },
+      { kind: "breakout", name: "DELAWARE", dimensions: null, floor: "7th Floor" },
+      { kind: "breakout", name: "LASALLE", dimensions: null, floor: "7th Floor" },
+      { kind: "breakout", name: "WALTON", dimensions: null, floor: "7th Floor" },
+      { kind: "breakout", name: "STATE B", dimensions: null, floor: "8th Floor" },
+      { kind: "breakout", name: "BALLROOM C", dimensions: null, floor: null },
+    ],
+    ria: [
+      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b
+      { kind: "breakout", name: "DRAWING ROOM A", dimensions: null, floor: null },
+      { kind: "breakout", name: "DRAWING ROOM B", dimensions: null, floor: null },
+    ],
+    // unchanged-by-#1a shows (numberless derive + mabel paths already clean; GS = 1b)
+    "redefining-fi": [
+      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b
+      { kind: "breakout", name: "LASALLE A", dimensions: null, floor: null },
+      { kind: "breakout", name: "WALTON ROOM", dimensions: null, floor: null },
+    ],
+    "east-coast": [
+      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b/mabel
+      { kind: "breakout", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
+      { kind: "breakout", name: "LAUDERDALE 1, 2, 3", dimensions: null, floor: null },
+    ],
+  };
+
+  for (const [slug, expected] of Object.entries(EXPECTED)) {
+    it(`${slug}: gs/breakout rooms split into venue name + dimensions + floor`, () => {
+      expect(triples(slug)).toEqual(expected);
+    });
+  }
+});

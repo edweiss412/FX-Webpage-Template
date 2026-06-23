@@ -62,6 +62,194 @@ describe("FinalizeButton", () => {
     expect(btn.disabled).toBe(true);
   });
 
+  // ── Task D5: "Publish N shows & finish setup" label + soft confirm ──
+  describe("Task D5 — publish-count label + soft confirm", () => {
+    test("label reads 'Publish N shows & finish setup' with N = publishCount", () => {
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={3}
+          uncheckedCleanCount={0}
+        />,
+      );
+      const btn = getByTestId("wizard-finalize-button") as HTMLButtonElement;
+      expect(btn.textContent ?? "").toContain("Publish 3 shows & finish setup");
+    });
+
+    test("singular: N=1 reads 'Publish 1 show & finish setup'", () => {
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={0}
+        />,
+      );
+      expect(getByTestId("wizard-finalize-button").textContent ?? "").toContain(
+        "Publish 1 show & finish setup",
+      );
+    });
+
+    test("disabled still follows the disabled prop (finishable gate) regardless of counts", () => {
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={2}
+          uncheckedCleanCount={1}
+          disabled
+        />,
+      );
+      expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    test("with uncheckedCleanCount=0 the click runs the finalize loop directly (no confirm)", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            status: "all_batches_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            remaining_count: 0,
+            unresolved_manifest_count: 0,
+            per_row: [],
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            status: "finalize_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            watched_folder_id: "folder-xyz",
+          }),
+        );
+      const { getByTestId, queryByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={2}
+          uncheckedCleanCount={0}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      // No confirm dialog appears.
+      expect(queryByTestId("wizard-finalize-confirm")).toBeNull();
+      // The finalize loop fired.
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[0]![0]).toBe("/api/admin/onboarding/finalize");
+    });
+
+    test("with uncheckedCleanCount>0 the click shows the soft confirm and does NOT run the loop yet", async () => {
+      const { getByTestId, queryByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={2}
+          uncheckedCleanCount={3}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      const confirm = getByTestId("wizard-finalize-confirm");
+      // The confirm names the unchecked count + the Unpublished destination.
+      expect(confirm.textContent ?? "").toContain("3 sheets");
+      expect(confirm.textContent ?? "").toContain("Unpublished");
+      // The finalize loop has NOT fired (no network yet).
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    test("confirming the soft confirm runs the finalize loop", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            status: "all_batches_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            remaining_count: 0,
+            unresolved_manifest_count: 0,
+            per_row: [],
+          }),
+        )
+        .mockResolvedValueOnce(
+          mockJsonResponse({
+            status: "finalize_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            watched_folder_id: "folder-xyz",
+          }),
+        );
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={2}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-confirm-proceed"));
+      });
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[0]![0]).toBe("/api/admin/onboarding/finalize");
+      await waitFor(() => expect(refreshMock).toHaveBeenCalled());
+    });
+
+    test("cancelling the soft confirm aborts: no network, dialog closes", async () => {
+      const { getByTestId, queryByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={2}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      expect(getByTestId("wizard-finalize-confirm")).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-confirm-cancel"));
+      });
+      expect(queryByTestId("wizard-finalize-confirm")).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    test("opening the soft confirm focuses the Continue button (AccentButton forwards its ref)", async () => {
+      // FIX 2 regression: the proceed control was migrated to <AccentButton>. The
+      // soft-confirm autofocus does proceedRef.current?.focus(); if the atom did
+      // not forward its ref the call would silently no-op and focus would stay on
+      // body. Asserting the button is the activeElement proves the ref forwards.
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={2}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      const proceed = getByTestId("wizard-finalize-confirm-proceed");
+      await waitFor(() => expect(document.activeElement).toBe(proceed));
+    });
+
+    test("Escape closes the soft confirm without running the loop", async () => {
+      const { getByTestId, queryByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={2}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      const dialog = getByTestId("wizard-finalize-confirm");
+      await act(async () => {
+        fireEvent.keyDown(dialog, { key: "Escape" });
+      });
+      expect(queryByTestId("wizard-finalize-confirm")).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
   test("single-batch happy path: /finalize all_batches_complete → /finalize-cas → refresh", async () => {
     fetchMock
       .mockResolvedValueOnce(

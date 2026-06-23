@@ -27,14 +27,22 @@ class FakeWizardPendingTx {
     wizard_session_id: W1,
     discovered_during_folder_id: "folder-1",
     last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+    drive_file_name: "Sheet One.gsheet",
   } as {
     id: string;
     drive_file_id: string;
     wizard_session_id: string | null;
     discovered_during_folder_id: string | null;
     last_seen_modified_time: string | null;
+    drive_file_name: string | null;
   } | null;
-  deferrals: Array<{ kind: string; driveFileId: string }> = [];
+  deferrals: Array<{
+    kind: string;
+    driveFileId: string;
+    scope: "wizard" | "live";
+    deferredByEmail: string | null;
+    driveFileName: string | null;
+  }> = [];
   manifestUpdates: Array<{ status: string; wizardSessionId: string; driveFileId: string }> = [];
   manifestUpdateAttempts: Array<{ status: string; wizardSessionId: string; driveFileId: string }> =
     [];
@@ -52,7 +60,29 @@ class FakeWizardPendingTx {
     }
     if (normalized.startsWith("insert into public.deferred_ingestions")) {
       if (!this.deferralUpsertAffectsRow) return null as T;
-      this.deferrals.push({ kind: params[1] as string, driveFileId: params[0] as string });
+      // Task C1: the permanent_ignore path now writes the LIVE partition with a
+      // literal 'permanent_ignore' kind + a `wizard_session_id is null` conflict
+      // target, so its param order differs from the wizard-scoped writer:
+      //   live:   [drive_file_id, deferred_by_email, drive_file_name, reason, wizard_session_id]
+      //   wizard: [drive_file_id, deferred_kind,     deferred_at_modified_time, reason, wizard_session_id]
+      const isLive = /wizard_session_id is null/.test(normalized);
+      if (isLive) {
+        this.deferrals.push({
+          kind: "permanent_ignore",
+          driveFileId: params[0] as string,
+          scope: "live",
+          deferredByEmail: params[1] as string,
+          driveFileName: params[2] as string,
+        });
+      } else {
+        this.deferrals.push({
+          kind: params[1] as string,
+          driveFileId: params[0] as string,
+          scope: "wizard",
+          deferredByEmail: null,
+          driveFileName: null,
+        });
+      }
       return { upserted: true } as T;
     }
     if (normalized.startsWith("update public.onboarding_scan_manifest")) {
@@ -169,11 +199,23 @@ describe("wizard pending_ingestions actions", () => {
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "deferred" });
-    expect(tx.deferrals).toEqual([{ driveFileId: "file-1", kind: "defer_until_modified" }]);
+    // defer_until_modified stays wizard-scoped (auto-expiring; purged with the session).
+    expect(tx.deferrals).toEqual([
+      {
+        driveFileId: "file-1",
+        kind: "defer_until_modified",
+        scope: "wizard",
+        deferredByEmail: null,
+        driveFileName: null,
+      },
+    ]);
     expect(tx.deleted).toBe(true);
   });
 
-  test("permanent_ignore writes a wizard deferral and deletes the pending ingestion", async () => {
+  // Task C1 (spec §6.1): permanent_ignore now writes the DURABLE LIVE partition
+  // (wizard_session_id IS NULL) with the admin's canonicalized email + the
+  // captured sheet name, so it survives the finalize purge.
+  test("permanent_ignore writes a LIVE deferral (admin email + sheet name) and deletes the pending ingestion", async () => {
     const tx = new FakeWizardPendingTx();
 
     const response = await handleWizardPendingIngestionPermanentIgnore(
@@ -184,7 +226,15 @@ describe("wizard pending_ingestions actions", () => {
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "ignored" });
-    expect(tx.deferrals).toEqual([{ driveFileId: "file-1", kind: "permanent_ignore" }]);
+    expect(tx.deferrals).toEqual([
+      {
+        driveFileId: "file-1",
+        kind: "permanent_ignore",
+        scope: "live",
+        deferredByEmail: "doug@example.com", // canonicalized admin email
+        driveFileName: "Sheet One.gsheet",
+      },
+    ]);
     expect(tx.deleted).toBe(true);
   });
 

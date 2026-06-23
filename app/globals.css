@@ -496,6 +496,34 @@ body {
       height var(--duration-fast) ease-out,
       content-visibility var(--duration-fast) allow-discrete;
   }
+
+  /* Step-3 sheet card breakdown (Task D2, spec §4.4/§4.5). The breakdown
+     region morphs height collapsed↔expanded via interpolate-size (height: 0
+     when [data-expanded="false"], auto when "true"). `overflow: hidden` bounds
+     it so the fixed-width list column never horizontally overflows during the
+     morph. Consumes --duration-normal (DESIGN.md §5.1 accordion expand), which
+     the reduced-motion block collapses to 0ms — so the transition is instant
+     under prefers-reduced-motion with no per-component opt-in. */
+  [data-step3-breakdown] {
+    overflow: hidden;
+    height: 0;
+    transition:
+      height var(--duration-normal) var(--ease-out-quart),
+      content-visibility var(--duration-normal) allow-discrete;
+  }
+  [data-step3-breakdown][data-expanded="true"] {
+    height: auto;
+  }
+}
+/* No-interpolate-size fallback: instant show/hide so the breakdown is always
+   reachable (progressive enhancement — the morph is enhancement only). */
+@supports not (interpolate-size: allow-keywords) {
+  [data-step3-breakdown] {
+    overflow: hidden;
+  }
+  [data-step3-breakdown][data-expanded="false"] {
+    display: none;
+  }
 }
 
 /*

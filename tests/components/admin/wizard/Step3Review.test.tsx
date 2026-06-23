@@ -21,6 +21,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import type { ParseResult } from "@/lib/parser/types";
 import {
   Step3Review,
   WIZARD_HARD_FAIL_GENERIC,
@@ -111,17 +112,18 @@ describe("Step3Review", () => {
     );
   });
 
-  test("staged row renders a Review link to the wizard-scoped staged route", () => {
-    const { getByTestId } = render(
+  test("staged row renders the inline preview card and NO staged-page link (D2/D6)", () => {
+    const { getByTestId, queryByTestId, container } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
     );
-    const review = getByTestId(
-      `wizard-step3-review-${STAGED_ROW.driveFileId}`,
-    ) as HTMLAnchorElement;
-    expect(review.getAttribute("href")).toBe(
-      `/admin/onboarding/staged/${WIZARD_SESSION_ID}/${STAGED_ROW.driveFileId}`,
+    // The inline parse-preview card replaces the old "Review and apply" link.
+    expect(getByTestId(`wizard-step3-card-${STAGED_ROW.driveFileId}`)).not.toBeNull();
+    // The old wizard-scoped staged route link is gone.
+    expect(queryByTestId(`wizard-step3-review-${STAGED_ROW.driveFileId}`)).toBeNull();
+    const stagedLinks = Array.from(container.querySelectorAll("a[href]")).filter((a) =>
+      (a.getAttribute("href") ?? "").includes("/admin/onboarding/staged/"),
     );
-    expect(review.textContent ?? "").toMatch(/Review/i);
+    expect(stagedLinks).toHaveLength(0);
   });
 
   test("hard_failed row with a CATALOG code shows interpolated, marker-free copy", () => {
@@ -303,10 +305,91 @@ describe("Step3Review", () => {
     expect(container.textContent ?? "").not.toContain("WIZARD_SESSION_SUPERSEDED");
   });
 
+  test("F1: header heading reads 'Review & publish your sheets' (new model)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
+    );
+    expect(getByTestId("wizard-step3").textContent ?? "").toContain("Review & publish your sheets");
+  });
+
+  test("F1: header intro explains the publish checkbox (publish now vs keep as a draft)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
+    );
+    const text = getByTestId("wizard-step3").textContent ?? "";
+    // The intro tells Doug what the checkbox does: tick to publish now, leave
+    // unchecked to keep as a draft he can publish later from Unpublished.
+    expect(text).toContain("Tick the shows to publish now");
+    expect(text).toContain("Unpublished");
+  });
+
+  test("F1: stale 'every row must be resolved' copy is gone (finishable model)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
+    );
+    const text = getByTestId("wizard-step3").textContent ?? "";
+    expect(text).not.toContain("Setup finishes once every row is resolved");
+    expect(text).not.toContain("still need attention.");
+    expect(text).not.toContain("Approve good ones, set aside");
+    expect(text).not.toContain("Setup will not finish until");
+    // No duplicated publish COUNT in the header line (count lives on FinalizeButton, D5).
+    expect(text).not.toContain("sheet still need attention");
+  });
+
   test("empty rows array renders the empty-scan placeholder", () => {
     const { getByTestId } = render(<Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[]} />);
     expect(getByTestId("wizard-step3-empty").textContent ?? "").toMatch(
       /empty|no sheets|nothing to review/i,
     );
+  });
+
+  // FIX 1 (CRITICAL): a checked card flips manifest status 'staged'→'applied';
+  // after router.refresh() the loader re-runs and the row comes back as
+  // 'applied'. It MUST still render as the same publish CARD (with a CHECKED,
+  // individually-uncheckable checkbox), not collapse to a dead "Applied" badge.
+  // Regression guard: render an 'applied' row WITH a parseResult THROUGH
+  // <Step3Review> (not <Step3SheetCard> directly — that bypass is the gap the
+  // bug shipped through) and assert the card + a checked checkbox whose click
+  // POSTs the unapprove URL.
+  describe("FIX 1: an applied (checked) row renders the publish card so per-row uncheck survives refresh", () => {
+    const APPLIED_WITH_PARSE: Step3Row = {
+      driveFileId: "drive-applied-card-1",
+      driveFileName: "Refreshed.gsheet",
+      status: "applied",
+      parseResult: { show: { title: "Refreshed Show" } } as unknown as ParseResult,
+    };
+
+    test("routes the applied row to <Step3SheetCard> (card + checked checkbox), not a plain Applied badge", () => {
+      const { getByTestId } = render(
+        <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[APPLIED_WITH_PARSE]} />,
+      );
+      // The card renders (proves it is NOT the plain non-card "Applied" badge row).
+      expect(getByTestId(`wizard-step3-card-${APPLIED_WITH_PARSE.driveFileId}`)).not.toBeNull();
+      const box = getByTestId(
+        `wizard-step3-checkbox-${APPLIED_WITH_PARSE.driveFileId}`,
+      ) as HTMLInputElement;
+      // status 'applied' → the checkbox is CHECKED.
+      expect(box.checked).toBe(true);
+    });
+
+    test("clicking the applied row's checked checkbox POSTs the unapprove URL", async () => {
+      fetchMock.mockResolvedValue(mockJsonResponse({ status: "unapproved" }));
+      const { getByTestId } = render(
+        <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[APPLIED_WITH_PARSE]} />,
+      );
+      const box = getByTestId(
+        `wizard-step3-checkbox-${APPLIED_WITH_PARSE.driveFileId}`,
+      ) as HTMLInputElement;
+      await act(async () => {
+        fireEvent.click(box);
+      });
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+      // Derived from the fixture's session + driveFileId, not a hardcoded literal.
+      expect(url).toBe(
+        `/api/admin/onboarding/staged/${WIZARD_SESSION_ID}/${APPLIED_WITH_PARSE.driveFileId}/unapprove`,
+      );
+      expect(init.method).toBe("POST");
+    });
   });
 });

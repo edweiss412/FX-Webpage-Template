@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
+import { canonicalize } from "@/lib/email/canonicalize";
 import type { ConcurrentSyncSkipped, LockedShowTx } from "@/lib/sync/lockedShowTx";
 import {
   retrySingleFile as defaultRetrySingleFile,
@@ -52,6 +53,7 @@ type PendingIngestionRow = {
   wizard_session_id: string | null;
   discovered_during_folder_id: string | null;
   last_seen_modified_time: string | null;
+  drive_file_name: string | null;
 };
 
 type WizardSettingsRow = {
@@ -148,7 +150,7 @@ async function readLockedPendingIngestion(
   return await tx.queryOne<PendingIngestionRow | null>(
     `
       select drive_file_id, wizard_session_id, discovered_during_folder_id,
-             last_seen_modified_time, id
+             last_seen_modified_time, drive_file_name, id
         from public.pending_ingestions
        where id = $1::uuid
        for update
@@ -249,6 +251,61 @@ async function upsertWizardDeferral(
   return Boolean(written?.upserted);
 }
 
+// Task C1 (spec §6.1): onboarding "Ignore" (permanent_ignore) must write the
+// DURABLE LIVE partition (wizard_session_id IS NULL), NOT a wizard-scoped row —
+// purgeWizardRows deletes every wizard-scoped deferral at finalize
+// (lib/onboarding/sessionLifecycle.ts:168), so a wizard-scoped ignore would not
+// survive and the sheet would re-surface. Cron's skip gate reads only the live
+// partition (lib/sync/perFileProcessor.ts). This mirrors the live discard
+// writer (app/api/admin/pending-ingestions/[id]/discard/route.ts upsertLiveDeferral):
+// wizard_session_id = NULL, deferred_by_email = canonicalize(adminEmail) (the
+// CHECK deferred_ingestions_deferred_by_scope_check requires the email when
+// wizard_session_id IS NULL), drive_file_name captured at ignore time (D11),
+// deferred_at_modified_time = NULL (permanent_ignore carries no modtime).
+//
+// Like the wizard writer it carries the active-wizard-session EXISTS predicate
+// so a supersession between requireCurrentWizardRow and this write no-ops it,
+// and the caller converts the 0-row outcome into the typed rollback throw —
+// keeping the rollback contract identical to defer_until_modified.
+async function upsertLivePermanentIgnore(
+  tx: WizardPendingIngestionRouteTx,
+  row: PendingIngestionRow & { wizard_session_id: string },
+  adminEmail: string,
+): Promise<boolean> {
+  const deferredByEmail = canonicalize(adminEmail);
+  const written = await tx.queryOne<{ upserted: boolean } | null>(
+    `
+      insert into public.deferred_ingestions (
+        drive_file_id, deferred_kind, deferred_at_modified_time,
+        deferred_by_email, drive_file_name, reason, wizard_session_id
+      )
+      select $1, 'permanent_ignore', null, $2, $3, $4, null
+      where exists (
+        select 1 from public.app_settings
+         where id = 'default'
+           and pending_wizard_session_id = $5::uuid
+      )
+      on conflict (drive_file_id) where wizard_session_id is null
+      do update set
+        deferred_kind = excluded.deferred_kind,
+        deferred_at_modified_time = excluded.deferred_at_modified_time,
+        deferred_by_email = excluded.deferred_by_email,
+        drive_file_name = excluded.drive_file_name,
+        reason = excluded.reason,
+        deferred_at = now()
+      returning true as upserted
+    `,
+    [
+      row.drive_file_id,
+      deferredByEmail,
+      row.drive_file_name,
+      "pending_ingestion:permanent_ignore",
+      row.wizard_session_id,
+    ],
+  );
+  return Boolean(written?.upserted);
+}
+
 // F5 Task 5.1: same currency predicate on the delete. A 0-row outcome is
 // unambiguous: requireCurrentWizardRow holds the row FOR UPDATE, so within
 // this tx the row cannot vanish — a 0-row delete can only be a predicate miss.
@@ -314,8 +371,9 @@ async function handleAction(
   action: "retry" | "defer_until_modified" | "permanent_ignore",
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let admin: { email: string };
   try {
-    await deps.requireAdminIdentity();
+    admin = await deps.requireAdminIdentity();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -387,7 +445,14 @@ async function handleAction(
           ...rollbackContext,
         });
       }
-      const wroteDeferral = await upsertWizardDeferral(tx, current.row, action);
+      // Task C1 (spec §6.1): permanent_ignore writes the DURABLE LIVE partition
+      // (survives finalize purge) using the admin's canonicalized email + the
+      // captured sheet name; defer_until_modified stays wizard-scoped (it is an
+      // auto-expiring state purged with the session, not a permanent ignore).
+      const wroteDeferral =
+        action === "permanent_ignore"
+          ? await upsertLivePermanentIgnore(tx, current.row, admin.email)
+          : await upsertWizardDeferral(tx, current.row, action);
       if (!wroteDeferral) {
         throw new WizardSessionSupersededRollbackError({
           attemptedAction: action,

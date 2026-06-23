@@ -78,47 +78,53 @@ If verification doesn't succeed, one of these is why:
   has been notified." There's nothing to fix on your side; the wizard waits until it's resolved.
 </Callout>
 
-<h2 id="step-3">Step 3: First sheets review</h2>
+<h2 id="step-3">Step 3: Review and publish your sheets</h2>
 
-After verification, the wizard scans the whole folder and shows you every sheet it found, one row per sheet. This is the only step where you do meaningful work; steps 1 and 2 are setup.
+After verification, the wizard scans the whole folder and shows you every sheet it found, one card per sheet. This is the only step where you do meaningful work; steps 1 and 2 are setup.
 
-Each row carries a status badge. You start with three first-contact statuses and add a fourth as soon as you've acted on a row; the resolved statuses below replace the first-contact one in place once you've made the call.
+Each clean sheet gets an inline review card. The card opens collapsed with a quick summary (show title, client, dates, and counts of crew, rooms, hotels, and schedule days). Expand a card to see the breakdown the app pulled from the sheet, so you can confirm the parse before anything goes live.
 
-First-contact statuses:
+Every clean card has a publish checkbox. Ticking it means "make this show live now." A **Select all** control at the top of the list ticks every clean card at once, and a running count shows how many you have selected.
 
-| Badge                           | What it means                                                                                                | Your options                                                                                                                                                         |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Ready for review**            | The sheet parsed cleanly.                                                                                    | **Review and apply** to walk through what the app extracted and approve it.                                                                                          |
-| **Couldn't parse**              | A column wasn't recognized, or a date cell didn't read as a date (the badge shows the plain-English reason). | **Retry now** (re-read after you fix the cell in Drive) · **Defer until modified** (re-check on the next change) · **Permanently ignore** (stays out of the system). |
-| **Skipped: not a Google Sheet** | The folder held a non-Sheet file (a doc, a PDF, an image).                                                   | Nothing; informational, auto-resolved.                                                                                                                               |
-| **Live row conflict**           | (Rare recovery) the same sheet already exists in your live data, so the wizard won't promote it again.       | Resolve the live row from the dashboard, then re-run setup.                                                                                                          |
+A clean sheet has two outcomes, set by that one checkbox:
 
-After you act on a row, its badge flips to a resolved state:
+| Your choice on a clean card | What happens                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Tick the publish checkbox   | The show goes live the moment you finish setup. Crew can open it right away.                                             |
+| Leave it unticked           | The show is still created, but stays a draft. You will find it later under **Unpublished**, ready to publish in one tap. |
 
-| Resolved badge                      | Meaning                                                                                                                                                                                                                                                   |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Applied**                         | The sheet has been promoted.                                                                                                                                                                                                                              |
-| **Deferred until modified**         | We'll re-check on the next change.                                                                                                                                                                                                                        |
-| **Permanently ignored**             | The sheet stays out of the system.                                                                                                                                                                                                                        |
-| **Set aside (try again next sync)** | You discarded a staged change with the "try again next sync" option. **This is the one resolved-looking badge that still needs another decision** before you can finish setup; the wizard lists which rows are still pending in the count above the list. |
+Sheets the app could not read sit in a separate **Needs your attention** group below the clean cards. Each one offers **Retry now** (re-read after you fix the cell in Drive), **Defer until modified** (re-check on the next change), or **Permanently ignore** (no show is created and the sync skips the sheet for good; it moves to the **Ignored sheets** view, where you can bring it back anytime). You have to clear that group before you can finish, so setup is never a dead end.
 
 What you do on this step:
 
 <Step n={1}>
-  **Open each row and review what the app extracted.** "Parsed and ready" rows are the ones that
-  need your eyeballs; the other statuses are informational.
+  **Skim each card, expanding the ones you want to double-check.** The summary is enough for a sheet
+  you trust; expand to confirm crew, schedule, rooms, and hotels when you want a closer look.
 </Step>
 
 <Step n={2}>
-  **Approve or discard each row.** Approving stages the sheet for promotion; discarding has three
-  flavors (try again next sync, defer until the sheet changes, or permanently ignore). The wizard
-  will not let you finish until every row reaches a resolved state.
+  **Tick the sheets you want live now.** Use the publish checkbox on each card, or **Select all** to
+  tick them in one go. Leave a card unticked to keep it as a draft instead.
 </Step>
 
 <Step n={3}>
-  **Click Finalize once every row is resolved.** This promotes every approved sheet into the live
-  system, makes them visible to crew, and points cron at the folder for ongoing sync. From that
+  **Clear the Needs your attention group.** Retry the sheets you can fix, and defer or permanently
+  ignore the rest. Once that group is empty, you are free to finish.
+</Step>
+
+<Step n={4}>
+  **Click "Publish N shows & finish setup."** This creates every show, publishes the ones you
+  ticked, and points cron at the folder for ongoing sync. If you left clean sheets unticked, the
+  wizard asks you to confirm first, since those become drafts under **Unpublished**. From that
   moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work happens there.
 </Step>
 
-If something goes wrong during finalize (the most common cause is someone editing one of the sheets in Drive between approval and finalize), the wizard tells you which specific rows failed and gives you a link to re-approve them. The rest of the batch still goes through; you don't have to start over.
+If a sheet fails to publish during finish (the most common cause is someone editing it in Drive at the wrong moment), the wizard tells you which one and gives you a recovery page to try again. The rest of the batch still goes through; you don't have to start over.
+
+<h2 id="unpublished">Unpublished shows</h2>
+
+Every clean sheet you left unticked during setup becomes a draft show, created and quietly syncing but not yet visible to crew. You will find these on the **Unpublished** page, a top-nav route of its own (so it never skews your Active and Archived counts). Each row has a one-tap **Publish** that makes the show live and issues a crew link, exactly as if you had ticked it during setup. Nothing expires here; a draft waits until you publish it.
+
+<h2 id="ignored-sheets">Ignored sheets</h2>
+
+A sheet you **Permanently ignore** (during setup or later review) leaves the wizard with no show created, and the sync skips it on every future scan. The **Ignored sheets** page lists each one by name, when it was ignored, and by whom. A per-row **Un-ignore** brings the sheet back: on the next folder scan it returns as a fresh sheet you can review and publish.
