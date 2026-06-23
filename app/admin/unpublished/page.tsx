@@ -62,7 +62,7 @@ export default async function UnpublishedPage() {
         ) : result.rows.length === 0 ? (
           <div
             data-testid="admin-unpublished-empty"
-            className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-4 text-base text-text-subtle"
+            className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
           >
             <p className="font-semibold text-text-strong">No unpublished shows.</p>
             <p>Sheets you leave unchecked during setup will appear here.</p>

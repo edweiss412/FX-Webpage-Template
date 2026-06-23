@@ -57,7 +57,7 @@ export default async function IgnoredSheetsPage() {
         ) : result.rows.length === 0 ? (
           <div
             data-testid="admin-ignored-sheets-empty"
-            className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-4 text-base text-text-subtle"
+            className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
           >
             <p className="font-semibold text-text-strong">No ignored sheets.</p>
             <p>Sheets you ignore during setup or review will appear here.</p>
