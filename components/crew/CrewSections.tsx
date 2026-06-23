@@ -37,6 +37,22 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
   const searchParams = useSearchParams();
   const [active, setActive] = useState<SectionId>(initialSection);
 
+  // Sync to SERVER-driven section changes via the React-recommended "adjust state
+  // during render when a prop changes" pattern (https://react.dev/learn/you-might-
+  // not-need-an-effect) — NOT a setState-in-effect (forbidden by
+  // react-hooks/set-state-in-effect; it would cascade-render). The in-body
+  // SectionChipLink (Today's "Run of show → Agenda" chip) is a next/link <Link> to
+  // ?s=schedule: a real Next nav re-renders _CrewShell with a NEW initialSection,
+  // but the controller stays mounted so `active` would otherwise keep the old value
+  // (URL/server on Schedule, body/nav stale). A router.refresh() (realtime sync)
+  // likewise re-renders with the current URL's section. A shallow CrewSubNav tap
+  // does NOT change initialSection, so this never fires for a tap. (Review R1 [HIGH].)
+  const [syncedInitial, setSyncedInitial] = useState<SectionId>(initialSection);
+  if (initialSection !== syncedInitial) {
+    setSyncedInitial(initialSection);
+    setActive(initialSection);
+  }
+
   const onSelect = useCallback(
     (id: SectionId) => {
       if (id === active) return;
@@ -49,19 +65,6 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
     },
     [active, pathname, searchParams],
   );
-
-  // Sync to SERVER-driven section changes. The in-body SectionChipLink (e.g.
-  // Today's "Run of show → Agenda" chip) is a next/link <Link> to ?s=schedule: a
-  // real Next navigation re-renders _CrewShell with a NEW initialSection, but the
-  // controller stays mounted so its `active` would otherwise keep the old value —
-  // URL/server on Schedule, body/nav stale. A router.refresh() (realtime sync)
-  // likewise re-renders with the current URL's section. Following initialSection
-  // fixes both. This does NOT fight a CrewSubNav tap: a tap is a SHALLOW
-  // history.pushState (no server render), so initialSection is unchanged and this
-  // effect never fires for it. (Whole-diff review R1 [HIGH].)
-  useEffect(() => {
-    setActive(initialSection);
-  }, [initialSection]);
 
   useEffect(() => {
     const onPop = () => {
