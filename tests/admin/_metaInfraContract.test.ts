@@ -377,12 +377,25 @@ describe("META §B Supabase call-boundary contract", () => {
         builderNames.size > 0
           ? new RegExp(`\\bawait\\s+(?:${Array.from(builderNames).join("|")})\\b`)
           : null;
+      // nav-perf Phase 2: also recognize the PARALLEL form `await Promise.all([q1,
+      // q2])` over builder variables (the invariant-9-compliant way to issue two
+      // independent supabase reads concurrently). A line that both awaits AND
+      // names a builder is a supabase-derived await. This BROADENS detection
+      // (stricter — never misses an await), so it cannot weaken the R6 guard.
+      const builderRefAwaitRe =
+        builderNames.size > 0
+          ? new RegExp(`\\bawait\\b.*\\b(?:${Array.from(builderNames).join("|")})\\b`)
+          : null;
       lines.forEach((line, idx) => {
         if (/\bawait\s+supabase\b/.test(line)) {
           awaitLineNumbers.push(idx);
           return;
         }
         if (builderAwaitRe && builderAwaitRe.test(line)) {
+          awaitLineNumbers.push(idx);
+          return;
+        }
+        if (builderRefAwaitRe && builderRefAwaitRe.test(line)) {
           awaitLineNumbers.push(idx);
         }
       });
