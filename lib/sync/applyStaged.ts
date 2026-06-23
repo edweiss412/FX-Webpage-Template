@@ -534,7 +534,15 @@ async function defaultApproveWizardPendingSync(
              wizard_approved_by_email = $4,
              wizard_approved_at = now(),
              wizard_reviewer_choices = $5::jsonb,
-             wizard_reviewer_choices_version = 1
+             wizard_reviewer_choices_version = 1,
+             -- Clear any prior demotion failure code (sibling of the approve route fix):
+             -- the heavy "Apply" button targets the same active-session pending_syncs row,
+             -- and a DEMOTED row carries last_finalize_failure_code != null. An approved row
+             -- MUST have it NULL (CHECK pending_syncs_approved_requires_full_payload), so
+             -- without this clear the re-apply UPDATE violates the CHECK. This path already
+             -- re-validated the Drive revision above (wizardDriveReverify), so clearing the
+             -- stale code is correct — it reflects a fresh successful apply.
+             last_finalize_failure_code = null
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
          and staged_id = $3::uuid

@@ -103,22 +103,70 @@ async function seedStaged(): Promise<void> {
   );
 }
 
+// whole-diff R2 HIGH — the failure code a finalize batch demotes a row with. An
+// approved row MUST carry last_finalize_failure_code IS NULL (CHECK
+// pending_syncs_approved_requires_full_payload), so re-approving this row from the
+// card fails the CHECK unless the approve UPDATE clears the code.
+const DEMOTED_FAILURE_CODE = "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE";
+
+// Seed a DEMOTED row: the exact state demotePending leaves after a failed finalize
+// batch — manifest 'staged', pending_syncs wizard_approved=false (so the CHECK's
+// false-branch permits the lingering code), and last_finalize_failure_code set.
+async function seedDemoted(): Promise<void> {
+  await seedStaged();
+  await sql!.unsafe(
+    `update public.pending_syncs
+        set last_finalize_failure_code = $3
+      where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+    [DRIVE_FILE_ID, SESSION, DEMOTED_FAILURE_CODE],
+  );
+}
+
 async function pendingRow(): Promise<{
   wizard_approved: boolean;
   wizard_approved_by_email: string | null;
   wizard_approved_at: string | null;
   wizard_reviewer_choices: unknown;
   wizard_reviewer_choices_version: number | null;
+  last_finalize_failure_code: string | null;
 }> {
   return one(
     await sql!.unsafe(
       `select wizard_approved, wizard_approved_by_email, wizard_approved_at,
-              wizard_reviewer_choices, wizard_reviewer_choices_version
+              wizard_reviewer_choices, wizard_reviewer_choices_version,
+              last_finalize_failure_code
          from public.pending_syncs
         where drive_file_id = $1 and wizard_session_id = $2::uuid`,
       [DRIVE_FILE_ID, SESSION],
     ),
   ) as never;
+}
+
+// Mirror of the finalize route's unresolvedManifestCount gate predicate
+// (finalize/route.ts countRemainingUnresolvedManifestRows): a manifest row is a
+// BLOCKING (unresolved) row iff its status is hard_failed/live_row_conflict/
+// discard_retryable, OR it is 'staged' with a non-null last_finalize_failure_code
+// (the R1 demoted-row condition). This is what /finalize 409s on; asserting it drops
+// to 0 after approve proves the demoted row is finishable (deadlock broken) without
+// standing up the heavy finalize checkpoint+Drive harness.
+async function unresolvedBlockingCount(): Promise<number> {
+  return (
+    one(
+      await sql!.unsafe(
+        `select count(*)::int as c
+           from public.onboarding_scan_manifest m
+           left join public.pending_syncs ps
+             on ps.wizard_session_id = m.wizard_session_id
+            and ps.drive_file_id = m.drive_file_id
+          where m.wizard_session_id = $1::uuid
+            and (
+              m.status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
+              or (m.status = 'staged' and ps.last_finalize_failure_code is not null)
+            )`,
+        [SESSION],
+      ),
+    ) as { c: number }
+  ).c;
 }
 
 async function manifestStatus(): Promise<string> {
@@ -213,6 +261,43 @@ describe("Task D3 — approve sets durable publish-intent (lightweight, real DB)
       expect(row.wizard_approved).toBe(false);
       expect(row.wizard_approved_by_email).toBeNull();
       expect(await manifestStatus()).toBe("staged");
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "whole-diff R2 HIGH — a DEMOTED finalize-failure row is re-approvable from the card (clears last_finalize_failure_code, no CHECK violation) and is then finishable",
+    async () => {
+      // Seed the deadlock state: a DEMOTED row (manifest 'staged', wizard_approved=false,
+      // last_finalize_failure_code set). Before the fix, approving this row violated the
+      // CHECK pending_syncs_approved_requires_full_payload (approved rows must have a NULL
+      // failure code) -> the route 500'd with SYNC_INFRA_ERROR and the row was un-clearable
+      // AND un-finishable (the R1 gate still counted the demoted 'staged' row).
+      await seedDemoted();
+      // Precondition (derived from seed): genuinely demoted, carrying a failure code.
+      const before = await pendingRow();
+      expect(before.wizard_approved).toBe(false);
+      expect(before.last_finalize_failure_code).toBe(DEMOTED_FAILURE_CODE);
+      expect(await manifestStatus()).toBe("staged");
+      // The finalize gate counts this demoted row as the one unresolved blocker (R1 behavior).
+      expect(await unresolvedBlockingCount()).toBe(1);
+
+      // (a) Re-approve from the Step-3 card SUCCEEDS (no CHECK violation / no SYNC_INFRA_ERROR).
+      const response = await handleWizardStagedApprove(req(), context, {
+        requireAdminIdentity: async () => ({ email: ADMIN_EMAIL }),
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ status: "approved" });
+
+      const row = await pendingRow();
+      expect(row.wizard_approved).toBe(true);
+      // The lingering demotion code is cleared so the CHECK is satisfied.
+      expect(row.last_finalize_failure_code).toBeNull();
+      expect(await manifestStatus()).toBe("applied");
+
+      // (b) The row is now finishable: it no longer matches the finalize route's
+      // unresolved-blocking predicate (manifest is 'applied' AND the code is NULL), so a
+      // subsequent /finalize no longer 409s on it -> the deadlock is broken.
+      expect(await unresolvedBlockingCount()).toBe(0);
     },
   );
 

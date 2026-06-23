@@ -127,7 +127,16 @@ async function approvePendingSync(
              wizard_approved_by_email = $3,
              wizard_approved_at = now(),
              wizard_reviewer_choices = $4::jsonb,
-             wizard_reviewer_choices_version = 1
+             wizard_reviewer_choices_version = 1,
+             -- Clear any prior demotion failure code: an approved row MUST have
+             -- last_finalize_failure_code IS NULL (CHECK
+             -- pending_syncs_approved_requires_full_payload). A DEMOTED row (manifest
+             -- 'staged' + this code set + wizard_approved=false) is re-approved from the
+             -- Step-3 card; without this clear the UPDATE violates the CHECK → the route
+             -- 500s and the demoted row is un-clearable AND un-finishable (deadlock).
+             -- Finalize (B2 processApprovedRow) re-validates the Drive revision at apply
+             -- time, so a still-stale row simply re-demotes — no data loss.
+             last_finalize_failure_code = null
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
          and exists (
