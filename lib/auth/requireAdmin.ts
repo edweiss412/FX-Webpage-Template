@@ -285,5 +285,10 @@ export async function requireAdmin(opts?: RequireAdminOpts): Promise<void> {
     throw new AdminInfraError("test-forced infra fail (H.2)");
   }
 
-  await requireAdminIdentity();
+  // Forward `opts` so the delegated identity gate runs at the caller's layer —
+  // otherwise requireAdmin({ layer: "layout" }) would default the identity hook
+  // to "page" and trip a page-scoped test-only force header on a layout gate
+  // (Codex whole-diff R1, layer-aware-hook contract). No production caller passes
+  // a layer today, so this is contract-correctness, not a runtime behavior change.
+  await requireAdminIdentity(opts);
 }
