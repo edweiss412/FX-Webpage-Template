@@ -500,4 +500,81 @@ describe("onboarding finalize-cas post-commit revalidate", () => {
     expect(response.status).toBe(200);
     expect(revalidateTag).not.toHaveBeenCalled();
   });
+
+  // whole-diff R1 CRITICAL regression guard — mixed-batch PARTIAL commit.
+  //
+  // Per-row shadow applies commit via their OWN `withRowTx` (independent of the outer
+  // result). So a batch where an EARLY row applies (its withRowTx commits, its show id lands
+  // in affectedShowIds) AND a LATER row is BLOCKED returns a 409 Response — yet the early
+  // show's data DID durably change. The handler MUST revalidate affectedShowIds BEFORE the
+  // `if (result instanceof Response) return result` check; otherwise the committed show's data
+  // cache stays stale until the 300s TTL backstop.
+  //
+  // Non-tautological: this FAILS if the revalidate loop sat AFTER the Response check — the 409
+  // short-circuits, the early committed show is never revalidated, and the toHaveBeenCalledWith
+  // below would not match. The blocked row guarantees the result is a Response, so the only way
+  // the committed show gets revalidated is the pre-Response-check loop being correct.
+  test("revalidates an EARLY committed show even though a LATER blocked row yields a 409", async () => {
+    const db = new FakeFinalizeCasDb();
+    // Row order is `order by drive_file_id`, so "aa-early" sorts before "zz-blocked".
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "aa-early",
+        show_id: "committed-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+      {
+        wizard_session_id: W1,
+        drive_file_id: "zz-blocked",
+        show_id: "blocked-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    // No publish flip in this scenario — isolate the per-row commit guard.
+    db.sessionCreatedDriveIds = [];
+    db.publishedShowIds = [];
+
+    // The `select id, last_seen_modified_time, diagrams` live-show probe inside applyShadow
+    // resolves ONLY for the early row; the blocked row finds no live row → returns
+    // STAGED_PARSE_OUTDATED_AT_PHASE_D (code !== "OK") → runFinalizeCas returns the 409.
+    const origQuery = db.query.bind(db);
+    db.query = async function <T>(sql: string, params: readonly unknown[] = []) {
+      const n = sql.replace(/\s+/g, " ").trim();
+      if (n.startsWith("select id, last_seen_modified_time, diagrams")) {
+        if (params[0] === "aa-early") {
+          return {
+            rows: [
+              { id: "committed-show-1", last_seen_modified_time: BASE_TS, diagrams: null } as T,
+            ],
+            rowCount: 1,
+          };
+        }
+        // zz-blocked: no live show row → applyShadow blocks this sibling.
+        return { rows: [], rowCount: 0 };
+      }
+      return origQuery<T>(sql, params);
+    } as typeof db.query;
+
+    const response = await handleOnboardingFinalizeCas(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      casDeps(db),
+    );
+
+    // The overall result is a 409 (STAGED_PARSE_OUTDATED_AT_PHASE_D) because zz-blocked failed.
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { code: string };
+    expect(body.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+
+    // CRITICAL: despite the 409, the EARLY committed show IS revalidated with { expire: 0 }.
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("committed-show-1"), { expire: 0 });
+    // The blocked sibling never committed, so it is NOT revalidated.
+    expect(
+      (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+    ).not.toContain(showCacheTag("blocked-show-1"));
+  });
 });
