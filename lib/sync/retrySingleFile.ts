@@ -119,12 +119,22 @@ function statusFromScan(
   return { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" };
 }
 
-export async function retrySingleFile_unlocked(
+/**
+ * Lock#1 read phase: validate the wizard session is still current and the
+ * pending-ingestion row's provenance matches, returning the pending-folder id +
+ * row to drive the (pre-lock, in the reordered flow) Drive prepare. Asserts the
+ * caller holds the show lock. Returns an early RetrySingleFileResult on
+ * supersession / provenance mismatch.
+ */
+export type RetrySingleFilePreflight =
+  | { result: RetrySingleFileResult }
+  | { pendingFolderId: string; pending: PendingIngestionRow };
+
+export async function retrySingleFilePreflight(
   tx: LockedShowTx<RetrySingleFileTx>,
   driveFileId: string,
   wizardSessionId: string,
-  deps: RetrySingleFileDeps = {},
-): Promise<RetrySingleFileResult> {
+): Promise<RetrySingleFilePreflight> {
   await assertShowLockHeld(tx, driveFileId);
 
   const settings = await readWizardSettings(tx);
@@ -132,7 +142,7 @@ export async function retrySingleFile_unlocked(
     settings.pending_wizard_session_id !== wizardSessionId ||
     settings.pending_folder_id === null
   ) {
-    return { outcome: "wizard_superseded", code: "WIZARD_SESSION_SUPERSEDED" };
+    return { result: { outcome: "wizard_superseded", code: "WIZARD_SESSION_SUPERSEDED" } };
   }
   const pendingFolderId = settings.pending_folder_id;
 
@@ -142,8 +152,51 @@ export async function retrySingleFile_unlocked(
     pending.discovered_during_folder_id !== pendingFolderId ||
     pending.wizard_session_id !== wizardSessionId
   ) {
-    return { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" };
+    return { result: { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" } };
   }
+
+  return { pendingFolderId, pending };
+}
+
+/**
+ * Lock#2 finalize phase: interpret the (already-run, own-connection) scan result
+ * and perform the supersession-guarded delete. Asserts the caller holds the show
+ * lock. THROWS WizardSessionSupersededRollbackError on a statement-time delete
+ * miss so the enclosing per-show-locked transaction ABORTS (the retry route maps
+ * it to the typed 409 + WIZARD_SESSION_SUPERSEDED_RACE alert); the scan's OWN
+ * committed W1-scoped staging rows are accepted, F4-swept residue (spec §7 R5-2).
+ */
+export async function retrySingleFileFinalize(
+  tx: LockedShowTx<RetrySingleFileTx>,
+  driveFileId: string,
+  wizardSessionId: string,
+  scan: OnboardingScanResult,
+  pending: PendingIngestionRow,
+): Promise<RetrySingleFileResult> {
+  await assertShowLockHeld(tx, driveFileId);
+  const result = statusFromScan(scan, driveFileId, pending);
+  if (result.outcome === "retried" && result.status === "staged") {
+    const deleted = await deletePendingIngestion(tx, driveFileId, wizardSessionId);
+    if (!deleted) {
+      throw new WizardSessionSupersededRollbackError({
+        attemptedAction: "retry",
+        supersededSessionId: wizardSessionId,
+        driveFileId,
+      });
+    }
+  }
+  return result;
+}
+
+export async function retrySingleFile_unlocked(
+  tx: LockedShowTx<RetrySingleFileTx>,
+  driveFileId: string,
+  wizardSessionId: string,
+  deps: RetrySingleFileDeps = {},
+): Promise<RetrySingleFileResult> {
+  const preflight = await retrySingleFilePreflight(tx, driveFileId, wizardSessionId);
+  if ("result" in preflight) return preflight.result;
+  const { pendingFolderId, pending } = preflight;
 
   const metadata = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
   if (!metadata.parents.includes(pendingFolderId)) {
@@ -156,22 +209,7 @@ export async function retrySingleFile_unlocked(
       listFolder: async () => [metadata],
     },
   );
-  const result = statusFromScan(scan, driveFileId, pending);
-  if (result.outcome === "retried" && result.status === "staged") {
-    const deleted = await deletePendingIngestion(tx, driveFileId, wizardSessionId);
-    if (!deleted) {
-      // Statement-time supersession: throw so the enclosing per-show-locked
-      // transaction ABORTS (the retry route's catch maps this to the typed
-      // 409 + WIZARD_SESSION_SUPERSEDED_RACE alert). The scan's OWN committed
-      // W1-scoped staging rows are accepted, F4-swept residue (spec §7 R5-2).
-      throw new WizardSessionSupersededRollbackError({
-        attemptedAction: "retry",
-        supersededSessionId: wizardSessionId,
-        driveFileId,
-      });
-    }
-  }
-  return result;
+  return await retrySingleFileFinalize(tx, driveFileId, wizardSessionId, scan, pending);
 }
 
 export async function retrySingleFile(
