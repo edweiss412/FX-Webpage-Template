@@ -12,6 +12,11 @@ import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
+// not-subject-to-revalidate (nav-perf tag-caching Task 9): selecting an identity sets the picker
+// COOKIE and at most touches crew_member_auth — auth columns NOT in the getShowForViewer DATA
+// projection. It writes no rendered crew DATA, so the `show-${id}` data cache need not bust; the
+// LIVE viewerVersionToken (spec §3.1, never cached) drives per-viewer freshness on its own.
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const TOKEN_RE = /^[0-9a-f]{64}$/;

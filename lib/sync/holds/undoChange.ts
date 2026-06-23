@@ -14,14 +14,22 @@
  * rpc fault both map to the same typed SYNC_INFRA_ERROR result — never an uncaught
  * throw / untyped admin 500.
  */
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 
-export type UndoChangeResult = { ok: true } | { ok: false; code: string };
+// nav-perf tag-caching (Task 9): on success the helper surfaces the affected `showId` so
+// undoChangeAction can `revalidateShow(showId)` POST-COMMIT (the self-locking RPC committed by the
+// time the action's `await` resolves). showId is server-resolved from the change-log row, never
+// client-supplied (PF23); optional so a success whose show_id could not be read still type-checks.
+export type UndoChangeResult = { ok: true; showId?: string } | { ok: false; code: string };
 
 type RpcResult = { ok?: boolean; code?: string } | null;
 
-function mapRpcOutcome(data: RpcResult, error: { message?: string } | null): UndoChangeResult {
+function mapRpcOutcome(
+  data: RpcResult,
+  error: { message?: string } | null,
+  showId?: string | null,
+): UndoChangeResult {
   if (error) {
     return { ok: false, code: "SYNC_INFRA_ERROR" };
   }
@@ -29,7 +37,7 @@ function mapRpcOutcome(data: RpcResult, error: { message?: string } | null): Und
     return { ok: false, code: data.code ?? "SYNC_INFRA_ERROR" };
   }
   if (data && data.ok === true) {
-    return { ok: true };
+    return showId ? { ok: true, showId } : { ok: true };
   }
   // null / unexpected shape — never a silent success.
   return { ok: false, code: "SYNC_INFRA_ERROR" };
@@ -38,12 +46,30 @@ function mapRpcOutcome(data: RpcResult, error: { message?: string } | null): Und
 export async function undoChange(changeLogId: string): Promise<UndoChangeResult> {
   // The admin-gate throw is the auth boundary, NOT a Supabase infra fault.
   await requireAdmin();
+
+  // nav-perf tag-caching (Task 9): resolve the AUTHORITATIVE show id for the action's POST-COMMIT
+  // revalidate (NEVER client-supplied; PF23). Non-locking service-role read of the change-log row;
+  // the RPC self-resolves its own drive_file_id for the lock, so this read is off the mutation path
+  // and a failure only skips the data-cache bust (rendered data stays correct on the next refresh).
+  let resolvedShowId: string | null = null;
+  try {
+    const service = createSupabaseServiceRoleClient();
+    const { data } = await service
+      .from("show_change_log")
+      .select("show_id")
+      .eq("id", changeLogId)
+      .maybeSingle();
+    resolvedShowId = (data as { show_id?: string | null } | null)?.show_id ?? null;
+  } catch {
+    resolvedShowId = null;
+  }
+
   try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("undo_change", {
       p_change_log_id: changeLogId,
     });
-    return mapRpcOutcome(data as RpcResult, error);
+    return mapRpcOutcome(data as RpcResult, error, resolvedShowId);
   } catch {
     return { ok: false, code: "SYNC_INFRA_ERROR" };
   }
