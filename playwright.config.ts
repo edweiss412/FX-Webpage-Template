@@ -154,7 +154,7 @@ export default defineConfig({
     },
     {
       name: "help-docs",
-      testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/,
+      testMatch: /(deep-link-walker|help-auth|help-mobile|help-typography)\.spec\.ts/,
       dependencies: ["help-docs-setup"],
       use: {
         ...devices["iPhone 14"],
@@ -176,7 +176,7 @@ export default defineConfig({
       // ONLY the walker spec runs here: the help-auth / help-mobile specs in
       // the shared help-docs testMatch are mobile-shaped.
       name: "help-docs-desktop",
-      testMatch: /deep-link-walker\.spec\.ts/,
+      testMatch: /(deep-link-walker|help-typography)\.spec\.ts/,
       dependencies: ["help-docs-setup"],
       use: {
         baseURL: "http://localhost:3004",

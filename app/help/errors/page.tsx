@@ -24,8 +24,12 @@ export default function ErrorsPage() {
     .filter(isRenderable)
     .sort((a, b) => a.code.localeCompare(b.code));
 
+  // No wrapper element: h1, intro, and the per-code sections render as direct
+  // children of the layout's `.help-prose` div so the prose typography layer
+  // (app/globals.css) styles them. The old Tailwind-typography wrapper classes
+  // were inert here — that plugin is not installed in this project.
   return (
-    <article className="prose prose-neutral max-w-none">
+    <>
       <h1>Errors</h1>
       <p>
         Every error this app surfaces has a plain-language explanation here. If you see one in{" "}
@@ -36,7 +40,7 @@ export default function ErrorsPage() {
           <RefAnchor id={entry.code} as="h3">
             {entry.title}
           </RefAnchor>
-          <p>{entry.longExplanation}</p>
+          <p className="mb-1">{entry.longExplanation}</p>
           <p className="text-sm text-text-subtle">
             {/* aria-label drops the decorative "→" from the accessible name
                 without splitting the text run (text-run splits shift
@@ -52,6 +56,6 @@ export default function ErrorsPage() {
           </p>
         </section>
       ))}
-    </article>
+    </>
   );
 }

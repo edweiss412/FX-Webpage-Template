@@ -41,3 +41,13 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `per-da
 - **What:** `text-text-subtle` at 12px is used on the card fill (`--color-surface`) for the meta line (`DayCard.tsx:105`) + strip labels (`KeyTimesStrip.tsx:133`), but DESIGN.md §1.2 only publishes the ratio on `--color-bg`. Dark surface `#16171C` is slightly lighter than bg → marginally below the 6.4:1 bg figure (still ≥ AA-large; at/near AA-body for these eyebrow/meta uses; not used for any action target).
 - **Why deferred:** exact measurement requires a real render against the live `globals.css` dark surface.
 - **Trigger:** PR Vercel preview — measure subtle-on-dark-surface; add a `--color-surface` row to DESIGN.md §1.2 with the computed ratio.
+
+## /help prose typography layer — impeccable gate (2026-06-22)
+
+Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/help-prose-typography` (the P0 typography fix from the help-center readability audit, `docs/help-readability-audit-2026-06-22.md`). Gate verdict: critique PASS (no P0/P1), audit PASS-WITH-MINOR (no P0/P1), deterministic detector `[]`. One audit P3 deferred here; the system-wide audit P2 is filed as `BL-ACCENT-ON-BG-AA-CONTRAST` in BACKLOG.md. Both the audit P2 (body-link contrast) and P3 (callout-link contrast on tinted fills) were resolved IN this PR across two Codex adversarial-review rounds: prose links inherit the high-contrast body/box text color + underline in EVERY state (no sub-AA accent at rest OR on :hover — round 2 caught the hover regression; WCAG 1.4.3 is not waived for hover text), so they clear AA everywhere. Hover feedback is the cursor + the always-present underline.
+
+### D7 — [P3] /help/errors heading order skips h2 (h1 → RefAnchor `as="h3"`)
+
+- **What:** `app/help/errors/page.tsx:33` renders `<h1>Errors</h1>` then each code entry as `RefAnchor as="h3"` (`:40`) — there is no h2, so the heading outline skips a level (WCAG 1.3.1 best-practice). The new `.help-prose` scale (h1 24px → h3 18px) makes the skip visually apparent; before the layer every heading was 16px so it was invisible.
+- **Why deferred:** pre-existing (the skip predates this PR — the page always used `as="h3"`); my change only restyled it. The fix (change the per-code entries to `as="h2"`, or add an h2 grouping heading) touches the ratified RefAnchor D.5 catalog-vs-chapter contract (`RefAnchor.tsx:11-29`), so it needs a deliberate decision rather than a drive-by edit inside a typography pass.
+- **Trigger:** the next `/help/errors` touch, the planned errors-index restructure (audit §6 Chunk 4 — code-family grouping + jump-list, which will introduce real h2 groupings anyway), OR an SR/heading-order a11y audit. Confirm against the D.5 contract before editing.
