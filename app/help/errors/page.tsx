@@ -52,8 +52,8 @@ export default function ErrorsPage() {
       <h1>Errors</h1>
       <p>
         Every error this app surfaces has a plain-language explanation here. When you hit one in{" "}
-        <code>/admin</code>, it shows a short code (like <code>SYNC_STALLED</code>). Find that code
-        below to learn what it means and what to do.
+        <code>/admin</code>, it shows a short code in capital letters. Find that code below to learn
+        what it means and what to do.
       </p>
       <p>
         Entries are grouped by the part of the app they come from. Jump to a section, or search the
