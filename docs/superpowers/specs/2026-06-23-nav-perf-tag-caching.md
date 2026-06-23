@@ -105,6 +105,7 @@ NEW `tests/db/showCacheRevalidateCoverage.test.ts` (registry-style, mirrors `_me
 - **DB-trigger-only / RPC-side writes can't revalidateTag** — the Next code that invokes the trigger-firing write or `await`s the RPC must add it (§3.2); the meta-test catches omissions.
 - **Per-viewer key is a security boundary** — a key collision leaks another viewer's financials; the per-viewer-isolation test pins it.
 - **unstable_cache is Next-version-coupled** — it's the available API now (`use cache` needs cacheComponents, out of scope); note for future migration.
+- **revalidateTag profile MUST be `{ expire: 0 }` (Next-16 API finding, verified via docs):** Next 16 made `revalidateTag(tag, profile)`'s 2nd arg mandatory; `profile="max"`/`{expire:N>0}` is STALE-WHILE-REVALIDATE (a stale window) which DEFEATS near-zero staleness here (live token + stale data → bridge match → page stuck stale). `{ expire: 0 }` = immediate (blocking cache miss next read). `updateTag` is immediate but Server-Action-only (the sync writes are route handlers), so `{expire:0}` is used uniformly. DO NOT relitigate to `"max"`/`updateTag`. Tests assert the `{expire:0}` profile, not just the call.
 
 ## 9. Out of scope
 - Enabling `experimental.cacheComponents`/`use cache` (app-wide).
