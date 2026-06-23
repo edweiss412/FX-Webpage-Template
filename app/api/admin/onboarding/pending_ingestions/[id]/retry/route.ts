@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
-import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
+import type { ConcurrentSyncSkipped, LockedShowTx } from "@/lib/sync/lockedShowTx";
 import {
-  retrySingleFile_unlocked as defaultRetrySingleFileUnlocked,
-  type RetrySingleFileDeps,
+  retrySingleFile as defaultRetrySingleFile,
   type RetrySingleFileResult,
 } from "@/lib/sync/retrySingleFile";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
@@ -27,12 +26,15 @@ export type WizardPendingIngestionRouteDeps = {
     driveFileId: string,
     fn: (tx: WizardPendingIngestionRouteTx) => Promise<R> | R,
   ) => Promise<R>;
-  retrySingleFileUnlocked?: (
-    tx: WizardPendingIngestionRouteTx,
+  // Retry runs OUTSIDE this route's lock now: retrySingleFile owns its own
+  // Lock#1 (preflight) → pre-lock Drive prepare + own-connection scan → Lock#2
+  // (finalize) topology, so the slow Drive export no longer nests inside — and
+  // deadlocks against — the route's per-show lock on the same key.
+  retrySingleFile?: (
     driveFileId: string,
     wizardSessionId: string,
-    deps?: RetrySingleFileDeps,
-  ) => Promise<RetrySingleFileResult>;
+  ) => Promise<RetrySingleFileResult | ConcurrentSyncSkipped>;
+  readWizardSessionForPendingIngestion?: (id: string) => Promise<string | null>;
   // F5 Task 5.3: post-rollback WIZARD_SESSION_SUPERSEDED_RACE alert producer
   // (its own transaction — the Supabase service-role RPC — never the aborted
   // one) + best-effort current-session read for the alert payload.
@@ -79,6 +81,19 @@ async function defaultReadDriveFileIdForPendingIngestion(id: string): Promise<st
   }
 }
 
+async function defaultReadWizardSessionForPendingIngestion(id: string): Promise<string | null> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      `select wizard_session_id from public.pending_ingestions where id = $1::uuid limit 1`,
+      [id],
+    )) as Array<{ wizard_session_id: string | null }>;
+    return rows[0]?.wizard_session_id ?? null;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 async function defaultWithRowTx<R>(
   driveFileId: string,
   fn: (tx: WizardPendingIngestionRouteTx) => Promise<R> | R,
@@ -101,11 +116,9 @@ function depsWithDefaults(deps: WizardPendingIngestionRouteDeps) {
     readDriveFileIdForPendingIngestion:
       deps.readDriveFileIdForPendingIngestion ?? defaultReadDriveFileIdForPendingIngestion,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
-    retrySingleFileUnlocked:
-      deps.retrySingleFileUnlocked ??
-      (defaultRetrySingleFileUnlocked as unknown as NonNullable<
-        WizardPendingIngestionRouteDeps["retrySingleFileUnlocked"]
-      >),
+    retrySingleFile: deps.retrySingleFile ?? defaultRetrySingleFile,
+    readWizardSessionForPendingIngestion:
+      deps.readWizardSessionForPendingIngestion ?? defaultReadWizardSessionForPendingIngestion,
   };
 }
 
@@ -315,31 +328,36 @@ async function handleAction(
   if (!driveFileId) return errorResponse(404, "PENDING_INGESTION_NOT_FOUND");
 
   try {
+    if (action === "retry") {
+      // Retry owns its own locking (Lock#1 preflight → pre-lock Drive prepare +
+      // own-connection scan → Lock#2 finalize), so it runs OUTSIDE this route's
+      // per-show lock. Running the scan under that lock nests the SAME show key
+      // across two connections and deadlocks. A genuine post-scan supersession
+      // throws WizardSessionSupersededRollbackError from finalize, which the
+      // catch below maps to the typed 409 + race alert.
+      const wizardSessionId = await deps.readWizardSessionForPendingIngestion(id);
+      if (wizardSessionId === null) {
+        return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+      }
+      const result = await deps.retrySingleFile(driveFileId, wizardSessionId);
+      if (typeof result === "object" && result !== null && "skipped" in result) {
+        // tryOnly:false never skips; defensive parity with defaultWithRowTx.
+        return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
+      }
+      if (result.outcome === "wizard_superseded") {
+        return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+      }
+      if (result.outcome === "not_found") {
+        return errorResponse(404, result.code);
+      }
+      return retryResponse(result);
+    }
+
     return await deps.withRowTx(driveFileId, async (tx) => {
       const current = await requireCurrentWizardRow(tx, id);
       if (!current.ok) return current.response;
       if (current.row.drive_file_id !== driveFileId) {
         return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
-      }
-      if (action === "retry") {
-        // F5 Task 5.5 S5: retrySingleFile_unlocked THROWS
-        // WizardSessionSupersededRollbackError on a statement-time delete
-        // miss — the catch below maps it to the typed 409 + race alert.
-        // The returned wizard_superseded outcome here is the PRE-mutation
-        // refusal (empty-tx commit, the S1/S2-benign shape).
-        const result = await deps.retrySingleFileUnlocked(
-          tx,
-          current.row.drive_file_id,
-          current.row.wizard_session_id,
-          {},
-        );
-        if (result.outcome === "wizard_superseded") {
-          return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
-        }
-        if (result.outcome === "not_found") {
-          return errorResponse(404, result.code);
-        }
-        return retryResponse(result);
       }
 
       // M12 R41-R9/R11/R16: run the manifest CAS UPDATE first so a wizard

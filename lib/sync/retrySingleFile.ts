@@ -1,6 +1,10 @@
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
-import { runOnboardingScan, type OnboardingScanResult } from "@/lib/sync/runOnboardingScan";
+import {
+  prepareOnboardingFiles,
+  scanOnboardingPreparedFiles,
+  type OnboardingScanResult,
+} from "@/lib/sync/runOnboardingScan";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -21,7 +25,8 @@ export type RetrySingleFileResult =
   | { outcome: "schema_missing"; code: "WIZARD_ISOLATION_INDEXES_MISSING" };
 
 export type RetrySingleFileDeps = {
-  runOnboardingScan?: typeof runOnboardingScan;
+  prepareOnboardingFiles?: typeof prepareOnboardingFiles;
+  scanOnboardingPreparedFiles?: typeof scanOnboardingPreparedFiles;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
 };
 
@@ -65,32 +70,6 @@ async function readPendingIngestion(
     `,
     [driveFileId, wizardSessionId],
   );
-}
-
-// F5 Task 5.5 S5 (R12 HIGH): the delete carries the wizard-session currency
-// EXISTS predicate — readWizardSettings runs ONCE up front, then Drive I/O +
-// runOnboardingScan open a LONG window before this statement; a supersession
-// committing in that window must 0-row the delete (caller throws).
-async function deletePendingIngestion(
-  tx: LockedShowTx<RetrySingleFileTx>,
-  driveFileId: string,
-  wizardSessionId: string,
-): Promise<boolean> {
-  const deleted = await tx.queryOne<{ deleted: boolean } | null>(
-    `
-      delete from public.pending_ingestions
-       where drive_file_id = $1
-         and wizard_session_id = $2::uuid
-         and exists (
-           select 1 from public.app_settings
-            where id = 'default'
-              and pending_wizard_session_id = $2::uuid
-         )
-      returning true as deleted
-    `,
-    [driveFileId, wizardSessionId],
-  );
-  return Boolean(deleted?.deleted);
 }
 
 function statusFromScan(
@@ -176,8 +155,17 @@ export async function retrySingleFileFinalize(
   await assertShowLockHeld(tx, driveFileId);
   const result = statusFromScan(scan, driveFileId, pending);
   if (result.outcome === "retried" && result.status === "staged") {
-    const deleted = await deletePendingIngestion(tx, driveFileId, wizardSessionId);
-    if (!deleted) {
+    // The scan already (a) detects a supersession committing DURING staging
+    // (returns `superseded`) and (b) deletes the wizard-scoped pending_ingestion
+    // on a successful stage (phase1.ts:355). So a supersession that commits in
+    // the post-scan window is detected by RE-READING the wizard-session currency
+    // here — NOT by re-deleting the pending_ingestion, which the scan has already
+    // removed (a 0-row delete would now false-fire). A genuine currency mismatch
+    // throws the typed rollback (the retry route maps it to a 409 +
+    // WIZARD_SESSION_SUPERSEDED_RACE alert); the scan's staged rows are the
+    // accepted F4-swept residue (spec §7 R5-2).
+    const settings = await readWizardSettings(tx);
+    if (settings.pending_wizard_session_id !== wizardSessionId) {
       throw new WizardSessionSupersededRollbackError({
         attemptedAction: "retry",
         supersededSessionId: wizardSessionId,
@@ -188,38 +176,55 @@ export async function retrySingleFileFinalize(
   return result;
 }
 
-export async function retrySingleFile_unlocked(
-  tx: LockedShowTx<RetrySingleFileTx>,
-  driveFileId: string,
-  wizardSessionId: string,
-  deps: RetrySingleFileDeps = {},
-): Promise<RetrySingleFileResult> {
-  const preflight = await retrySingleFilePreflight(tx, driveFileId, wizardSessionId);
-  if ("result" in preflight) return preflight.result;
-  const { pendingFolderId, pending } = preflight;
-
-  const metadata = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
-  if (!metadata.parents.includes(pendingFolderId)) {
-    return { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" };
-  }
-  const scan = await (deps.runOnboardingScan ?? runOnboardingScan)(
-    pendingFolderId,
-    wizardSessionId,
-    {
-      listFolder: async () => [metadata],
-    },
-  );
-  return await retrySingleFileFinalize(tx, driveFileId, wizardSessionId, scan, pending);
-}
-
+/**
+ * Manual single-file retry. Three phases, with the slow Drive work BETWEEN two
+ * short pipeline-lock windows so the per-show advisory lock is never held across
+ * the scan:
+ *
+ *   Lock#1 — retrySingleFilePreflight: validate wizard-session currency +
+ *            pending-ingestion provenance (fast DB reads).
+ *   PRE-LOCK — fetch metadata + prepareOnboardingFiles + scanOnboardingPreparedFiles:
+ *            download + parse + stage. The scan uses its OWN connection + own
+ *            show-lock and commits independently (the R32-1 residue).
+ *   Lock#2 — retrySingleFileFinalize: supersession-guarded delete + the typed
+ *            WizardSessionSupersededRollbackError throw (mapped to 409 by the route).
+ *
+ * The old shape ran the scan INSIDE the retry's pipeline lock, so the scan's
+ * own-connection show-lock blocked on the SAME `show:driveFileId` key the retry
+ * held — a two-connection / one-key deadlock (single-holder rule, AGENTS.md
+ * invariant 2). Splitting the scan out of the lock removes the nesting entirely.
+ */
 export async function retrySingleFile(
   driveFileId: string,
   wizardSessionId: string,
   deps: RetrySingleFileDeps = {},
 ): Promise<RetrySingleFileResult | ConcurrentSyncSkipped> {
+  const pre = await withPostgresSyncPipelineLock(
+    driveFileId,
+    (tx) => retrySingleFilePreflight(tx, driveFileId, wizardSessionId),
+    { tryOnly: false },
+  );
+  if (typeof pre === "object" && pre !== null && "skipped" in pre) return pre;
+  if ("result" in pre) return pre.result;
+  const { pendingFolderId, pending } = pre;
+
+  const metadata = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
+  if (!metadata.parents.includes(pendingFolderId)) {
+    return { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" };
+  }
+  const prepared = await (deps.prepareOnboardingFiles ?? prepareOnboardingFiles)(pendingFolderId, {
+    listFolder: async () => [metadata],
+  });
+  const scan = await (deps.scanOnboardingPreparedFiles ?? scanOnboardingPreparedFiles)(
+    pendingFolderId,
+    wizardSessionId,
+    prepared,
+    {},
+  );
+
   return await withPostgresSyncPipelineLock(
     driveFileId,
-    (tx) => retrySingleFile_unlocked(tx, driveFileId, wizardSessionId, deps),
+    (tx) => retrySingleFileFinalize(tx, driveFileId, wizardSessionId, scan, pending),
     { tryOnly: false },
   );
 }

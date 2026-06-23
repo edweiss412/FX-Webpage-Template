@@ -85,7 +85,8 @@ function deps(
       fn(tx as unknown as WizardPendingIngestionRouteTx),
     ),
     readDriveFileIdForPendingIngestion: vi.fn(async () => tx.row?.drive_file_id ?? null),
-    retrySingleFileUnlocked: vi.fn(async () => ({
+    readWizardSessionForPendingIngestion: vi.fn(async () => tx.row?.wizard_session_id ?? null),
+    retrySingleFile: vi.fn(async () => ({
       outcome: "retried" as const,
       status: "staged" as const,
     })),
@@ -108,7 +109,7 @@ async function json(response: Response): Promise<unknown> {
 }
 
 describe("wizard pending_ingestions actions", () => {
-  test("retry locks by drive_file_id and delegates to retrySingleFile_unlocked", async () => {
+  test("retry runs OUTSIDE the route lock and delegates to retrySingleFile", async () => {
     const tx = new FakeWizardPendingTx();
     const routeDeps = deps(tx);
 
@@ -116,20 +117,23 @@ describe("wizard pending_ingestions actions", () => {
 
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "staged" });
-    expect(routeDeps.withRowTx).toHaveBeenCalledWith("file-1", expect.any(Function));
-    expect(routeDeps.retrySingleFileUnlocked).toHaveBeenCalledWith(
-      tx,
-      "file-1",
-      W1,
-      expect.any(Object),
-    );
+    // retrySingleFile owns its own locking, so the route does NOT wrap retry in
+    // its own withRowTx (that nesting on the same show key is the deadlock fix).
+    expect(routeDeps.withRowTx).not.toHaveBeenCalled();
+    expect(routeDeps.readWizardSessionForPendingIngestion).toHaveBeenCalledWith(ID1);
+    expect(routeDeps.retrySingleFile).toHaveBeenCalledWith("file-1", W1);
   });
 
-  test("retry rejects stale wizard session after the row lock", async () => {
+  test("retry maps retrySingleFile's wizard_superseded to a 409", async () => {
     const tx = new FakeWizardPendingTx();
-    tx.activeWizardSessionId = "22222222-2222-4222-8222-222222222222";
+    const routeDeps = deps(tx, {
+      retrySingleFile: vi.fn(async () => ({
+        outcome: "wizard_superseded" as const,
+        code: "WIZARD_SESSION_SUPERSEDED" as const,
+      })),
+    });
 
-    const response = await handleWizardPendingIngestionRetry(req("/retry"), context, deps(tx));
+    const response = await handleWizardPendingIngestionRetry(req("/retry"), context, routeDeps);
 
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });

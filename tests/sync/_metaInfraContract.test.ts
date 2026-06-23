@@ -252,16 +252,22 @@ const infraRegistry = [
       "wizard staged discard route gates admin and delegates to discardStaged_unlocked under caller-owned show lock",
   },
   {
-    helper: "retrySingleFile_unlocked",
+    helper: "retrySingleFilePreflight",
     path: "lib/sync/retrySingleFile.ts",
     contract:
-      "wizard single-file retry asserts caller-held show lock and preserves wizard CAS/provenance failures as typed outcomes",
+      "wizard single-file retry Lock#1 read: asserts caller-held show lock and returns wizard CAS/provenance failures as typed outcomes",
+  },
+  {
+    helper: "retrySingleFileFinalize",
+    path: "lib/sync/retrySingleFile.ts",
+    contract:
+      "wizard single-file retry Lock#2: asserts caller-held show lock, interprets the (own-connection) scan result, and re-checks wizard-session currency (typed rollback on a post-scan supersession)",
   },
   {
     helper: "handleWizardPendingIngestionRetry",
     path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
     contract:
-      "wizard pending-ingestion retry gates admin, locks by drive_file_id, and delegates to retrySingleFile_unlocked",
+      "wizard pending-ingestion retry gates admin and delegates to retrySingleFile (its own two-lock topology, run OUTSIDE the route lock)",
   },
   {
     helper: "handleWizardPendingIngestionDeferUntilModified",

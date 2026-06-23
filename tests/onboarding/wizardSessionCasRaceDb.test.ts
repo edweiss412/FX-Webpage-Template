@@ -381,9 +381,14 @@ test.skipIf(!dbUp)(
       {
         requireAdminIdentity: async () => ({ email: "admin@example.com" }), // real withRowTx + real DB
         upsertAdminAlert: directSqlAlertWriter as never,
-        retrySingleFileUnlocked: async (tx, driveFileId, wizardSessionId) =>
-          (await import("@/lib/sync/retrySingleFile")).retrySingleFile_unlocked(
-            tx as never,
+        // R2: the route delegates retry to retrySingleFile (its own two-lock
+        // topology — no nested same-key lock / deadlock). The race is injected
+        // at the scan: it writes W1 staging residue on its OWN connection, flips
+        // the session to W2, and reports staged. The scan owns the
+        // pending-ingestion delete now, so finalize detects the post-scan
+        // supersession via a currency RE-CHECK (W2 != W1) and throws.
+        retrySingleFile: async (driveFileId, wizardSessionId) =>
+          (await import("@/lib/sync/retrySingleFile")).retrySingleFile(
             driveFileId,
             wizardSessionId,
             {
@@ -394,15 +399,14 @@ test.skipIf(!dbUp)(
                 modifiedTime: "2026-06-11T00:00:00.000Z",
                 parents: [FOLDER],
               }),
-              runOnboardingScan: async () => {
-                // The scan's own committed tx writes W1-scoped staging rows
-                // BEFORE the supersession lands (real-write residue, R32-1).
+              prepareOnboardingFiles: async () => [],
+              scanOnboardingPreparedFiles: async () => {
                 await superseder!.unsafe(
                   `insert into public.pending_syncs
-                     (drive_file_id, staged_modified_time, parse_result, source_kind,
-                      warning_summary, wizard_session_id, triggered_review_items)
-                   values ($1, '2026-06-11T00:00:00.000Z'::timestamptz, $2::jsonb,
-                           'onboarding_scan', '', $3::uuid, '[]'::jsonb)`,
+                   (drive_file_id, staged_modified_time, parse_result, source_kind,
+                    warning_summary, wizard_session_id, triggered_review_items)
+                 values ($1, '2026-06-11T00:00:00.000Z'::timestamptz, $2::jsonb,
+                         'onboarding_scan', '', $3::uuid, '[]'::jsonb)`,
                   [FILE, JSON.stringify({ show: { title: "F5 Retry Race" } }), W1],
                 );
                 await flipSessionTo(W2);
@@ -413,6 +417,7 @@ test.skipIf(!dbUp)(
               },
             },
           ),
+        readWizardSessionForPendingIngestion: async () => W1,
       },
       "retry",
     );
