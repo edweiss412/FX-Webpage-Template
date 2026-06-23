@@ -1,6 +1,5 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
-import remarkGfm from "remark-gfm";
 
 /**
  * NEXT_DIST_DIR allows separate build artifacts to coexist on disk so the
@@ -22,7 +21,11 @@ const withMDX = createMDX({
   // as a table. GFM also enables autolinks/strikethrough/task-lists; the help
   // MDX uses none of those except that bare example URLs would autolink — those
   // are code-fenced (`https://…`) in onboarding-wizard so they stay literal.
-  options: { remarkPlugins: [remarkGfm] },
+  // Passed by STRING NAME, not the imported function: @next/mdx's loader
+  // requires serializable options, and a plugin function is not serializable
+  // ("does not have serializable options"). The loader resolves the string at
+  // build time. (vitest.config.ts uses @mdx-js/rollup, which takes the function.)
+  options: { remarkPlugins: [["remark-gfm"]] },
 });
 
 const nextConfig: NextConfig = {
