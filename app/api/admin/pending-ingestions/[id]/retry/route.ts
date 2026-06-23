@@ -330,9 +330,10 @@ export async function handleLivePendingIngestionRetry(
   const driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
   if (!driveFileId) return transitioned();
 
-  // nav-perf tag-caching (Task 5): capture the applied show id INSIDE the tx, but
-  // call revalidateShow AFTER withRowTryLock resolves (post-commit) — never inside
-  // the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
+  // nav-perf tag-caching (Task 5 / whole-diff R2): capture the show id of any
+  // showId-carrying outcome (applied + parse_error/source_gone recovery) INSIDE the
+  // tx, but call revalidateShow AFTER withRowTryLock resolves (post-commit) — never
+  // inside the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
   let appliedShowId: string | null = null;
   const result = await deps.withRowTryLock(driveFileId, async (tx) => {
     const row = await readLockedPendingIngestion(tx, id);
@@ -366,7 +367,11 @@ export async function handleLivePendingIngestionRetry(
         metadata,
         {},
       );
-      if ("outcome" in syncResult && syncResult.outcome === "applied") {
+      // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
+      // applied AND the parse_error/source_gone recovery outcomes (which now carry
+      // showId + commit last_sync_status). Post-commit revalidate happens after
+      // withRowTryLock resolves below. Non-showId outcomes leave appliedShowId null.
+      if ("showId" in syncResult && typeof syncResult.showId === "string" && syncResult.showId) {
         appliedShowId = syncResult.showId;
       }
       return await manualSyncResponse(tx, row.drive_file_id, syncResult);

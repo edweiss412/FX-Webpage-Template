@@ -1,11 +1,19 @@
 /**
- * tests/sync/syncRevalidate.test.ts (nav-perf tag-caching, plan Task 5)
+ * tests/sync/syncRevalidate.test.ts (nav-perf tag-caching, plan Task 5 + whole-diff R2)
  *
  * Asserts the SYNC-apply post-commit revalidate sites: every locked sync caller
- * (cron apply tail + cron missingShows, push runner, manual sync) and the LIVE
- * pending-ingestion retry route call `revalidateTag(showCacheTag(showId))` —
- * AFTER the outermost lock/tx resolves (post-commit), once per applied show, and
- * NEVER on a non-applied outcome (skip / error / ConcurrentSyncSkipped).
+ * (cron apply tail + cron missingShows, push runner, manual sync incl. its
+ * early-error exits) and the LIVE pending-ingestion retry route call
+ * `revalidateTag(showCacheTag(showId))` — AFTER the outermost lock/tx resolves
+ * (post-commit), once per show.
+ *
+ * Whole-diff R2 broadened the gate from "applied-only" to "ANY result carrying a
+ * non-empty showId". The showId-carrying outcomes are exactly applied +
+ * parse_error + source_gone — the trio that commits `shows.last_sync_status`
+ * (projected by StaleFooter via getShowForViewer's `lastSyncStatus`). So:
+ *   - applied / parse_error / source_gone WITH a showId  → revalidate
+ *   - skipped / stale / revision_race / stage / hard_fail / ConcurrentSyncSkipped
+ *     (NO showId)                                          → NO revalidate
  *
  * Ordering proof: each injected lock/tx wrapper pushes a `committed` marker onto
  * a shared `order` log when it RESOLVES; `revalidateTag` is a spy that pushes a
@@ -52,7 +60,7 @@ beforeEach(() => {
 });
 
 describe("cron apply tail", () => {
-  test("revalidates each applied show AFTER the lock resolves; never on non-applied", async () => {
+  test("revalidates each applied show AFTER the lock resolves; not on a no-showId skip", async () => {
     const { runScheduledCronSync } = await import("@/lib/sync/runScheduledCronSync");
     const appliedFile = driveFile("file-applied");
     const skippedFile = driveFile("file-skipped");
@@ -74,7 +82,8 @@ describe("cron apply tail", () => {
     });
 
     expect(result.processed).toHaveLength(2);
-    // Exactly one revalidate (the applied file), for the applied show's tag.
+    // Exactly one revalidate (the applied file), for the applied show's tag. The
+    // skipped file carries NO showId, so the showId-presence gate no-ops for it.
     expect(revalidateTag).toHaveBeenCalledTimes(1);
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(SHOW_ID), { expire: 0 });
     // Post-commit ordering: the applied file's commit precedes its revalidate.
@@ -83,6 +92,63 @@ describe("cron apply tail", () => {
       `revalidate:${showCacheTag(SHOW_ID)}`,
       `committed:${skippedFile.driveFileId}`,
     ]);
+  });
+
+  test("revalidates a parse_error/source_gone outcome that carries a showId (whole-diff R2)", async () => {
+    // Whole-diff R2: parse_error / source_gone outcomes ALSO commit
+    // `shows.last_sync_status` (handleFetchFailure_unlocked → markShow{DriveError,
+    // SheetUnavailable}) and now carry the read-back showId. The broadened gate
+    // MUST bust the cache tag for them — the bug was these going stale until TTL.
+    const { runScheduledCronSync } = await import("@/lib/sync/runScheduledCronSync");
+    const parseErrFile = driveFile("file-parse-err");
+    const sourceGoneFile = driveFile("file-source-gone");
+    const parseErrShowId = "44444444-4444-4444-4444-444444444444";
+    const sourceGoneShowId = "55555555-5555-5555-5555-555555555555";
+
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: async () => [parseErrFile, sourceGoneFile],
+      listLiveShows: async () => [],
+      processOneFile: async (driveFileId) => {
+        order.push(`committed:${driveFileId}`);
+        if (driveFileId === parseErrFile.driveFileId) {
+          return { outcome: "parse_error", code: "SYNC_INFRA_ERROR", showId: parseErrShowId };
+        }
+        return { outcome: "source_gone", code: "SHEET_UNAVAILABLE", showId: sourceGoneShowId };
+      },
+      writeSyncCronHeartbeat: async () => ({ kind: "ok" }) as never,
+    });
+
+    // Both showId-carrying recovery outcomes bust their tag, each post-commit.
+    expect(revalidateTag).toHaveBeenCalledTimes(2);
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(parseErrShowId), { expire: 0 });
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(sourceGoneShowId), { expire: 0 });
+    expect(order).toEqual([
+      `committed:${parseErrFile.driveFileId}`,
+      `revalidate:${showCacheTag(parseErrShowId)}`,
+      `committed:${sourceGoneFile.driveFileId}`,
+      `revalidate:${showCacheTag(sourceGoneShowId)}`,
+    ]);
+  });
+
+  test("does NOT revalidate a parse_error/source_gone outcome with NO showId (no projected show)", async () => {
+    // First-seen / pending-ingestion path: handleFetchFailure_unlocked matched no
+    // public.shows row → result carries no showId → nothing projected to bust.
+    const { runScheduledCronSync } = await import("@/lib/sync/runScheduledCronSync");
+    const noShowFile = driveFile("file-no-show");
+
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: async () => [noShowFile],
+      listLiveShows: async () => [],
+      processOneFile: async (driveFileId) => {
+        order.push(`committed:${driveFileId}`);
+        return { outcome: "parse_error", code: "SYNC_INFRA_ERROR" };
+      },
+      writeSyncCronHeartbeat: async () => ({ kind: "ok" }) as never,
+    });
+
+    expect(revalidateTag).not.toHaveBeenCalled();
   });
 });
 
@@ -160,6 +226,26 @@ describe("push runner", () => {
     order.length = 0;
     (revalidateTag as unknown as ReturnType<typeof vi.fn>).mockClear();
 
+    // Whole-diff R2: a push that ends in source_gone (sheet left the folder /
+    // 404) carries showId + commits last_sync_status → must revalidate post-commit.
+    const sourceGone = await runPushSyncForShow(DRIVE_FILE_ID, {
+      fileMeta: driveFile(),
+      isShowArchived: async () => false,
+      readPushDuplicatePreflight: async () => ({ outcome: "proceed" }),
+      processOneFile: async (driveFileId) => {
+        order.push(`committed:${driveFileId}`);
+        return { outcome: "source_gone", code: "SHEET_UNAVAILABLE", showId: SHOW_ID };
+      },
+      logSync: async () => undefined,
+    });
+    expect("outcome" in sourceGone && sourceGone.outcome).toBe("source_gone");
+    expect(revalidateTag).toHaveBeenCalledTimes(1);
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(SHOW_ID), { expire: 0 });
+    expect(order).toEqual([`committed:${DRIVE_FILE_ID}`, `revalidate:${showCacheTag(SHOW_ID)}`]);
+
+    order.length = 0;
+    (revalidateTag as unknown as ReturnType<typeof vi.fn>).mockClear();
+
     await runPushSyncForShow(DRIVE_FILE_ID, {
       fileMeta: driveFile(),
       isShowArchived: async () => false,
@@ -221,6 +307,64 @@ describe("manual sync", () => {
     });
     expect(revalidateTag).not.toHaveBeenCalled();
   });
+
+  test("revalidates a manual EARLY-ERROR exit (markManualSheetUnavailable) AFTER the recovery lock resolves (whole-diff R2)", async () => {
+    // Whole-diff R2: the early-error exits (markManualDriveError_unlocked /
+    // markManualSheetUnavailable_unlocked) commit `shows.last_sync_status` and
+    // return BEFORE the post-pipeline-lock revalidate at the function tail. The bug:
+    // these returns skipped revalidate entirely → crew page stale until TTL. We
+    // drive the source-gone branch (fetchDriveFileMetadata throws 404) and assert
+    // the cache tag is busted post-commit (after the recovery withLock resolves).
+    const { runManualSyncForShow } = await import("@/lib/sync/runManualSyncForShow");
+    const earlyShowId = "66666666-6666-6666-6666-666666666666";
+
+    // The recovery lock's tx must satisfy: readShowArchived_unlocked (archived:false),
+    // assertShowLockHeld (held:true), markShowSheetUnavailable (returns showId),
+    // insertSyncLog/upsertAdminAlert (no-op), resolveStaleSyncProblemAlerts (update).
+    const recoveryTx = {
+      queryOne: async (sql: string) => {
+        if (sql.includes("select archived")) return { archived: false };
+        if (sql.includes("pg_locks")) return { held: true };
+        return undefined; // resolveStaleSyncProblemAlerts_unlocked update
+      },
+      markShowSheetUnavailable: async () => ({
+        showId: earlyShowId,
+        lastSeenModifiedTime: null,
+        title: "Early Error Show",
+      }),
+      markShowDriveError: async () => ({
+        showId: earlyShowId,
+        lastSeenModifiedTime: null,
+        title: "Early Error Show",
+      }),
+      insertSyncLog: async () => undefined,
+      upsertAdminAlert: async () => null,
+    } as unknown;
+
+    const earlyResult = await runManualSyncForShow(DRIVE_FILE_ID, "manual", {
+      // The preflight withLock returns proceed (archived:false, not finalize-owned),
+      // then the source-gone recovery routes through THIS same injected lock; its
+      // resolution is the commit boundary, so push `committed` AFTER fn resolves.
+      withPipelineLock: (async (_id: string, fn: (tx: unknown) => unknown) => {
+        const r = await fn(recoveryTx);
+        order.push("committed");
+        return r;
+      }) as never,
+      checkFinalizeOwnership: async () => false,
+      getActiveWatchedFolderId: async () => ({ folderId: "folder-1" }) as never,
+      // 404 → isDriveSourceGone → markManualSheetUnavailable_unlocked → source_gone.
+      fetchDriveFileMetadata: async () => {
+        throw { code: 404 };
+      },
+    });
+
+    expect("outcome" in earlyResult && earlyResult.outcome).toBe("source_gone");
+    expect(revalidateTag).toHaveBeenCalledTimes(1);
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(earlyShowId), { expire: 0 });
+    // Post-commit ordering: the LAST `committed` (the recovery lock) precedes revalidate.
+    expect(order[order.length - 2]).toBe("committed");
+    expect(order[order.length - 1]).toBe(`revalidate:${showCacheTag(earlyShowId)}`);
+  });
 });
 
 describe("live pending-ingestion retry route", () => {
@@ -270,6 +414,55 @@ describe("live pending-ingestion retry route", () => {
     expect(revalidateTag).toHaveBeenCalledTimes(1);
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(SHOW_ID), { expire: 0 });
     // Post-commit ordering: revalidate fires AFTER the withRowTryLock `committed`.
+    expect(order).toEqual(["committed", `revalidate:${showCacheTag(SHOW_ID)}`]);
+  });
+
+  test("revalidates a retry whose live re-sync ends in source_gone WITH a showId (whole-diff R2)", async () => {
+    // Whole-diff R2: a live re-sync that ends source_gone/parse_error commits
+    // last_sync_status + carries showId; the route's capture is now showId-presence,
+    // not applied-only, so the tag is busted post-commit.
+    const { handleLivePendingIngestionRetry } =
+      await import("@/app/api/admin/pending-ingestions/[id]/retry/route");
+
+    const response = await handleLivePendingIngestionRetry(
+      new Request("http://test/retry", { method: "POST" }),
+      { params: Promise.resolve({ id: "00000000-0000-0000-0000-0000000000aa" }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@test" }),
+        readDriveFileIdForPendingIngestion: async () => DRIVE_FILE_ID,
+        withRowTryLock: (async (_driveFileId: string, fn: (tx: unknown) => unknown) => {
+          const r = await fn({
+            queryOne: async (sql: string) => {
+              if (sql.includes("from public.pending_ingestions")) {
+                return {
+                  id: "00000000-0000-0000-0000-0000000000aa",
+                  drive_file_id: DRIVE_FILE_ID,
+                  wizard_session_id: null,
+                  last_seen_modified_time: null,
+                };
+              }
+              if (sql.includes("exists")) return { exists: true };
+              if (sql.includes("watched_folder_id")) return { watched_folder_id: "folder-1" };
+              if (sql.includes("slug")) return { slug: "show-one" };
+              return null;
+            },
+          });
+          order.push("committed");
+          return r;
+        }) as never,
+        fetchDriveFileMetadata: async () => driveFile(),
+        readFinalizeOwnershipGuardUnlocked: async () => false,
+        runManualSyncForShowUnlocked: (async () => ({
+          outcome: "source_gone",
+          code: "SHEET_UNAVAILABLE",
+          showId: SHOW_ID,
+        })) as never,
+      },
+    );
+
+    expect(response.status).toBeGreaterThanOrEqual(200);
+    expect(revalidateTag).toHaveBeenCalledTimes(1);
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag(SHOW_ID), { expire: 0 });
     expect(order).toEqual(["committed", `revalidate:${showCacheTag(SHOW_ID)}`]);
   });
 

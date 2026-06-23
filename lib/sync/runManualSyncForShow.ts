@@ -22,7 +22,7 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
-import { revalidateOnApplied } from "@/lib/data/showCacheTag";
+import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
 
 export const FINALIZE_OWNED_SHOW = "FINALIZE_OWNED_SHOW" as const;
 
@@ -192,7 +192,9 @@ async function markManualSheetUnavailable_unlocked(
     syncProblemCodeForStatus("sheet_unavailable"),
   );
 
-  return { outcome: "source_gone", code };
+  // nav-perf tag-caching (whole-diff R2): carry the showId the markShowSheetUnavailable
+  // write read back so the post-commit gate busts the projected last_sync_status.
+  return { outcome: "source_gone", code, showId };
 }
 
 async function markManualDriveError_unlocked(
@@ -234,7 +236,9 @@ async function markManualDriveError_unlocked(
     updated.showId,
     syncProblemCodeForStatus("drive_error"),
   );
-  return { outcome: "parse_error", code: SYNC_INFRA_ERROR };
+  // nav-perf tag-caching (whole-diff R2): carry the showId the markShowDriveError
+  // write read back so the post-commit gate busts the projected last_sync_status.
+  return { outcome: "parse_error", code: SYNC_INFRA_ERROR, showId: updated.showId };
 }
 
 async function emitManualParseErrorAlert_unlocked(
@@ -299,7 +303,11 @@ export async function runManualSyncForShow(
 
   const folderResult = await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
   if ("kind" in folderResult) {
-    return await withLock(driveFileId, async (tx) => {
+    // nav-perf tag-caching (whole-diff R2): early-error exit — the markManualDriveError_unlocked
+    // branch commits `shows.last_sync_status` and returns a parse_error result carrying showId.
+    // Revalidate POST-COMMIT (after withLock resolves), then return. The blocked/skipped branches
+    // carry no showId, so the gate no-ops for them.
+    const earlyResult = await withLock(driveFileId, async (tx) => {
       // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
       // ran under a separate lock that was released before the Drive/folder work; an Archive may have
       // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
@@ -314,6 +322,8 @@ export async function runManualSyncForShow(
       }
       return await markManualDriveError_unlocked(tx, driveFileId, folderResult.kind);
     });
+    revalidateShowFromResult(earlyResult);
+    return earlyResult;
   }
 
   const watchedFolderId = folderResult.folderId;
@@ -322,7 +332,10 @@ export async function runManualSyncForShow(
     fileMeta = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
   } catch (error) {
     if (!isDriveSourceGone(error)) {
-      return await withLock(driveFileId, async (tx) => {
+      // nav-perf tag-caching (whole-diff R2): early-error exit (drive metadata fetch failed) —
+      // markManualDriveError_unlocked commits last_sync_status + returns a parse_error result with
+      // showId. Revalidate POST-COMMIT (after withLock resolves), then return.
+      const earlyResult = await withLock(driveFileId, async (tx) => {
         // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock (preflight lock released).
         if (await readShowArchived_unlocked(tx, driveFileId)) {
           return { outcome: "blocked" as const, code: SHOW_ARCHIVED_IMMUTABLE };
@@ -340,8 +353,13 @@ export async function runManualSyncForShow(
           error,
         );
       });
+      revalidateShowFromResult(earlyResult);
+      return earlyResult;
     }
-    return await withLock(driveFileId, async (tx) => {
+    // nav-perf tag-caching (whole-diff R2): early-error exit (drive source gone) —
+    // markManualSheetUnavailable_unlocked commits last_sync_status + returns a source_gone result
+    // with showId. Revalidate POST-COMMIT (after withLock resolves), then return.
+    const earlyResult = await withLock(driveFileId, async (tx) => {
       // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
       // ran under a separate lock that was released before the Drive/folder work; an Archive may have
       // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
@@ -361,10 +379,15 @@ export async function runManualSyncForShow(
         error,
       );
     });
+    revalidateShowFromResult(earlyResult);
+    return earlyResult;
   }
 
   if (!fileMeta.parents.includes(watchedFolderId)) {
-    return await withLock(driveFileId, async (tx) => {
+    // nav-perf tag-caching (whole-diff R2): early-error exit (file left the watched folder) —
+    // markManualSheetUnavailable_unlocked commits last_sync_status + returns a source_gone result
+    // with showId. Revalidate POST-COMMIT (after withLock resolves), then return.
+    const earlyResult = await withLock(driveFileId, async (tx) => {
       // DEF-3 (R-impl-1 TOCTOU): re-read archived under THIS recovery lock. The preflight archived guard
       // ran under a separate lock that was released before the Drive/folder work; an Archive may have
       // committed since. An archived show must not get a marked error / sync_log / admin_alert row.
@@ -379,6 +402,8 @@ export async function runManualSyncForShow(
       }
       return await markManualSheetUnavailable_unlocked(tx, driveFileId, SHEET_UNAVAILABLE);
     });
+    revalidateShowFromResult(earlyResult);
+    return earlyResult;
   }
 
   const applyResult = await runOne(driveFileId, mode, fileMeta, {
@@ -414,12 +439,13 @@ export async function runManualSyncForShow(
         return result;
       })) as ProcessOneFileResult | ConcurrentSyncSkipped,
   });
-  // nav-perf tag-caching (Task 5): the apply ran through processOneFile, whose
+  // nav-perf tag-caching (Task 5 / whole-diff R2): the apply ran through processOneFile, whose
   // injected withShowLock wraps withPostgresSyncPipelineLock (sql.begin); when
   // `runOne` resolves the apply tx has COMMITTED. Revalidate the show's cache tag
-  // HERE — post-commit — never inside the lock callback above (pre-commit). No-op
-  // on every non-applied outcome (incl. ConcurrentSyncSkipped, which lacks
-  // outcome/showId).
-  revalidateOnApplied(applyResult);
+  // HERE — post-commit — never inside the lock callback above (pre-commit).
+  // showId-presence gate: busts on applied AND on the in-apply parse_error/source_gone
+  // recovery outcomes (which now carry showId + commit last_sync_status). No-op on
+  // skipped/stale/revision_race/stage/hard_fail/ConcurrentSyncSkipped (no showId).
+  revalidateShowFromResult(applyResult);
   return applyResult;
 }
