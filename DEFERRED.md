@@ -77,3 +77,27 @@ esolve + re-run setup'" round-trip, not an in-wizard Ignore button.
 - **What:** `live_row_conflict` and `discard_retryable` rows render the cataloged copy + a `/admin` dashboard link ("Resolve in the dashboard, then re-run setup"), but NO in-wizard "Ignore this sheet" button (unlike `hard_failed`, which has one). AC11 is satisfied via the external-resolve + re-run dashboard exit.
 - **Why deferred:** these are rare re-run-setup / legacy-only statuses — they never occur during fresh-folder v1 onboarding (all sheets are first-seen). `live_row_conflict` only arises when a sheet collides with an already-live show on a re-run, and `discard_retryable` is no longer produced by the redesign at all (the "Retry on next sync" action was removed). Wiring an in-wizard Ignore would need to plumb the live-partition permanent_ignore write for a path with no `pendingIngestionId`, for zero fresh-onboarding benefit.
 - **Trigger:** a user hits a `live_row_conflict` during re-run-setup and wants to dismiss the conflicting sheet without leaving the wizard. Then add an Ignore button to these branches that writes the LIVE `deferred_ingestions` permanent_ignore (mirroring §6.1 / the C1 writer) keyed on `driveFileId` and removes the row from the manifest.
+
+## CI speedup — Phase 2 items needing live-runner validation (2026-06-23)
+
+Source: the verified CI-speedup analysis (41-agent workflow, every finding adversarially confirmed). PR A shipped the high-confidence Phase 1 + Phase 2c wins (concurrency cancel-in-progress, screenshots-drift path filter, apt-get fast-path, Playwright browser-binary cache). The items below are the rest of Phase 2 — each is genuinely off the merge-critical path (only `quality` is a required check) and needs a measurement or live-runner probe that an autonomous run can't safely guess, so they are deferred with concrete triggers rather than shipped half-verified.
+
+### D10 — [P3] Supabase Docker-image cache on the Supabase-booting jobs
+
+- **What:** `unit-suite`, `crew-e2e`, `help-affordances`, `dev-gate-e2e` (+ screenshots-drift) each `supabase start`, which pulls several GB of Postgres/GoTrue/Realtime/Storage/Kong images cold. Caching them (`docker save`/`load` via `actions/cache`) could cut boot time.
+- **Why deferred:** the verifier flagged two unmeasured risks — (a) a guessed `docker images` filter that matches zero images silently no-ops the cache (must capture the BEFORE/AFTER `supabase start` image-ID diff, which means editing the shared `scripts/ci/supabase-local-bootstrap.sh`), and (b) the multi-GB save/load/transfer may cost as much as the gross pull, so net saving is unknown without a live measurement. Boot is only ~5% of unit-suite's 806s (the long pole is the sequential vitest run — see PR B), so even a perfect cache barely moves the required-check wall-clock.
+- **Trigger:** measure gross `supabase start` image-pull time on a live `unit-suite` run (add a timed `docker pull` step or read the boot log). Implement only if pull >60s AND total image set <8GB (GitHub's 10GB cache budget). Capture the pulled image IDs via a `docker images -q` diff around `supabase start`, not a registry-name grep.
+
+### D11 — [P3] Restore Next `.next/cache` before the screenshot / help builds
+
+- **What:** `help-affordances` (and `screenshots-drift`) build the Next app cold each run; restoring `.next/cache` (the compiler cache, NOT build output) could save ~30s/build.
+- **Why deferred:** (a) the walker's `:3004` webServer may use a custom `NEXT_DIST_DIR` (per the M3 custom-dist-dir history) so the cache path needs verifying against `playwright.config.ts`'s webServer command before it can target the right dir; (b) in `screenshots-drift` the build runs as root inside the pinned Docker container while `actions/cache` saves as the runner user — a real ownership boundary; and (c) it touches the byte-comparison screenshot gate, so a warm build must be proven byte-identical to a cold build (via a `screenshots-regen` dispatch) before it's trusted. None of (a)–(c) is safely guessable autonomously.
+- **Trigger:** read the `:3004`/`:3000` webServer commands in `playwright.config.ts`, confirm the dist dir, cache ONLY `.next/cache`; for screenshots-drift, first dispatch `screenshots-regen` to prove warm-build byte-identity, and chown the cache dir back to the runner user.
+
+### D12 — [P3] Composite setup action to DRY the per-job preamble
+
+- **What:** all 8 workflows repeat checkout → pnpm/action-setup → setup-node → `pnpm install --frozen-lockfile` (and several repeat psql + supabase-cli setup). A `.github/actions/setup` composite action would de-duplicate it and become the home for D10/D11.
+- **Why deferred:** 0s direct speedup (pure anti-drift plumbing); its value is contingent on D10/D11 landing. It also touches all 8 workflow files, so it conflicts with in-flight CI PRs (e.g. PR #104 pinning supabase-cli) — better done when the CI files are quiet. Note: 2 of the psql installs are INSIDE the Docker container (screenshots-drift / screenshots-regen) and can't move to a host composite step.
+- **Trigger:** after PR #104 (supabase-cli pin) and this PR merge, and when D10 or D11 is ready to implement (so the composite action has a consumer beyond DRY). Also add `"packageManager": "pnpm@10.33.2"` to package.json as the single version source.
+
+> Note: the verified report's "pin supabase/setup-cli to 2.98.2" Phase-2 item is NOT deferred — it shipped independently in PR #104.
