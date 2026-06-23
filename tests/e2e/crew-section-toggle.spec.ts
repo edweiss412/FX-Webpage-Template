@@ -160,11 +160,22 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
     // Venue becomes visible purely from the client toggle.
     await expect(page.getByTestId("section-venue")).toBeVisible();
 
-    // THE HARD ASSERTION: the tap caused NO network request at all. A regressed
-    // router.push would emit at least one RSC fetch (or a full document nav).
+    // THE HARD ASSERTION: the tap caused NO fetch of the CREW ROUTE — neither a
+    // full document navigation nor an RSC payload fetch. A regressed router.push
+    // would emit exactly that: an RSC fetch to /show/<slug>/<token>?s=venue (the
+    // dynamic route re-running getShowForViewer). We scope to the crew-route path
+    // (rather than `reqs.length === 0`) so an incidental Next <Link> prefetch of
+    // some OTHER route, analytics, or realtime HTTP can't flake the proof — the
+    // win is "the SECTION nav does not round-trip the crew page," which is exactly
+    // a crew-route request count of 0. (Total request count is logged for review.)
+    const crewRoutePath = `/show/${slug}/${shareToken}`;
+    const crewRouteReqs = reqs.filter((u) => new URL(u).pathname.includes(crewRoutePath));
+    console.log(
+      `CREW_TAP_REQS total=${reqs.length} crewRoute=${crewRouteReqs.length} ${JSON.stringify(reqs.slice(0, 8))}`,
+    );
     expect(
-      reqs,
-      `a section tap must fire ZERO network requests (client toggle, no server round-trip); got ${reqs.length}: ${JSON.stringify(reqs.slice(0, 8))}`,
+      crewRouteReqs,
+      `a section tap must NOT fetch the crew route (client toggle, no server round-trip); got ${crewRouteReqs.length}: ${JSON.stringify(crewRouteReqs)}`,
     ).toHaveLength(0);
 
     // The shallow URL + client state both reflect Venue.
