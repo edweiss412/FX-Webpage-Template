@@ -797,8 +797,13 @@ describe("E2. Unknown response code falls back to generic network copy", () => {
 
     // The unknown code must NOT be persisted as a cataloged errorCode —
     // a cross-mount resume would otherwise rehydrate a blank explainer.
+    // Poll: the status persistence can lag the DOM retry button under load
+    // (same flake class as ReportModalAdminExplainer's persisted-status read).
+    await waitFor(() => {
+      const p = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+      expect(p.status).toBe("failed-retryable");
+    });
     const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
-    expect(persisted.status).toBe("failed-retryable");
     expect(persisted.errorCode).toBeNull();
   });
 
