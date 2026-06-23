@@ -174,9 +174,12 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
       offending.push(`${type} ${r.url()}`);
     });
 
-    // Tap the Venue tab. `.first()` selects whichever responsive nav is visible
-    // (desktop row at ≥720px, mobile bar <720px) — both carry data-section.
-    await page.getByTestId("crew-sub-nav").locator('[data-section="venue"]').first().click();
+    // Tap the Venue tab. There are TWO data-section="venue" tabs (desktop row +
+    // mobile bar); at the 390px mobile-safari viewport ONLY the mobile bar is
+    // visible (the desktop row is `hidden min-[720px]:flex`). `.first()` is the
+    // hidden DESKTOP tab — Playwright would wait it out and the gate would never
+    // run (review R3 [HIGH]). Target the VISIBLE tab via the :visible engine.
+    await page.getByTestId("crew-sub-nav").locator('[data-section="venue"]:visible').click();
 
     // Venue becomes visible purely from the client toggle.
     await expect(page.getByTestId("section-venue")).toBeVisible();
@@ -214,12 +217,14 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
     await page.waitForLoadState("networkidle");
     await expect(page.getByTestId("section-today")).toBeVisible();
 
+    // :visible targets the mobile-bar tab (the desktop row is hidden at 390px);
+    // `.first()` would hit the hidden desktop tab and time out (review R3 [HIGH]).
     const subNav = page.getByTestId("crew-sub-nav");
-    await subNav.locator('[data-section="venue"]').first().click();
+    await subNav.locator('[data-section="venue"]:visible').click();
     await expect(page.getByTestId("section-venue")).toBeVisible();
     await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("venue");
 
-    await subNav.locator('[data-section="schedule"]').first().click();
+    await subNav.locator('[data-section="schedule"]:visible').click();
     await expect(page.getByTestId("section-schedule")).toBeVisible();
     await expect.poll(() => new URL(page.url()).searchParams.get("s")).toBe("schedule");
 
