@@ -59,8 +59,12 @@ The implementation diverged from that intent:
 - The list (`components/admin/wizard/Step3Review.tsx`) renders one card per `onboarding_scan_manifest` row.
 - **Header:** eyebrow "Step 3 of 3", heading "Review & publish your sheets", intro copy, a **Select all** control, and a live count line ("N of M selected to publish").
 - **Clean sheet card (manifest `staged`):** a publish **checkbox** + the **summary** (always visible) + an **expand** toggle revealing the **breakdown**. No navigation link.
-- **Couldn't-read group (manifest `hard_failed`):** rendered as a distinct grouped section below the clean cards, each with **Retry** / **Ignore this sheet** (no checkbox — there is no show to publish).
-- **Footer:** "Publish N shows & finish setup" (`FinalizeButton`), N = checked count. The button is **enabled per the `finishable` predicate** (§7.3) — unchecked-clean rows do **not** disable it; only un-actioned `hard_failed`/`live_row_conflict` rows do. A soft-confirm dialog fires when clean sheets remain unchecked.
+- **"Needs your attention" group (the blocking statuses):** a distinct grouped section below the clean cards (no checkbox — there is no show to publish). Every row here has an in-wizard resolution path so finish is never a dead-end (codex R2 HIGH):
+  - `hard_failed` (couldn't read): **Retry** / **Ignore this sheet**.
+  - `live_row_conflict` (sheet collides with an existing live show): the cataloged `LIVE_ROW_CONFLICT` copy + a link to the dashboard to resolve it there, **and** **Ignore this sheet** (the in-wizard way out — Doug declines to onboard the conflicting sheet; the live show is untouched). Resolving externally + re-running setup also clears it.
+  - `discard_retryable` (legacy only — not produced by the redesign): **Ignore this sheet** (or Retry where a re-parse applies).
+  Each action transitions the row to a resolved/removed state (§7.7); once the group is empty, finish is unblocked.
+- **Footer:** "Publish N shows & finish setup" (`FinalizeButton`), N = checked count. The button is **enabled per the `finishable` predicate** (§7.3) — unchecked-clean rows do **not** disable it; only un-actioned blocking rows (`{ hard_failed, live_row_conflict, discard_retryable }`) do. A soft-confirm dialog fires when clean sheets remain unchecked.
 
 ### 4.2 Summary fields (always visible) — all from `parse_result` (already fetched; see §7.1)
 | Field | Source | Empty/null/0 behavior |
@@ -178,7 +182,7 @@ Today an unchecked clean row is manifest status `staged`, which `unresolvedManif
 
 **Decision:** prefer **not** adding a new status value (no CHECK migration on `status`). Instead define a single named predicate used everywhere:
 
-> **`finishable`** = no manifest row is in a genuine *error* state needing acknowledgement. Blocking statuses = **`{ hard_failed, live_row_conflict }`** only. A clean `staged` row (unchecked → Held) and `applied` (checked) are **NOT** blocking. `discard_retryable` is removed from the onboarding card flow (no "Retry on next sync"); a legacy `discard_retryable` row is treated as blocking until Retried/Ignored.
+> **`finishable`** = no manifest row is in a genuine *error/conflict* state needing acknowledgement. **Blocking statuses = `{ hard_failed, live_row_conflict, discard_retryable }`.** A clean `staged` row (unchecked → Held) and `applied` (checked) are **NOT** blocking. Note: the redesign **stops producing** `discard_retryable` (the "Retry on next sync" action is removed); it stays in the blocking set only so a **legacy/stray** row can't silently slip past finish — it is resolvable in-wizard via **Ignore** (§4.1). This set is the single source of truth, referenced verbatim by §4 footer, §7.7, and AC3.
 
 **This predicate must change in TWO enforcement points, in lockstep (codex R1 HIGH):**
 1. **UI gate.** `fetchStep3Data`'s `allResolved` (`OnboardingWizard.tsx:234`) is replaced by `finishable`, and `FinalizeButton`'s `disabled={!result.allResolved}` (`OnboardingWizard.tsx:267`) becomes `disabled={!result.finishable}`. **If only the server gate is relaxed, the button stays disabled and Doug can never finish with unchecked rows.** (This was the round-1 finding: relaxing the API gate alone is insufficient.)
@@ -187,7 +191,16 @@ Today an unchecked clean row is manifest status `staged`, which `unresolvedManif
 A hard-failed sheet left un-actioned still blocks finish (it is an *error* the admin should acknowledge via Retry or Ignore) — this is the only remaining hard gate. Unchecked clean sheets never block; the §4 soft confirm enumerates them.
 
 ### 7.4 Held creation at finalize + narrowed CAS flip
-- **Batch phase (`finalize/route.ts`)** must process **every clean row**, not only `wizard_approved=true`: `selectApprovedRows` (`:300-318`, today `where wizard_approved = true`) is widened to select clean rows regardless of `wizard_approved` (excluding `hard_failed`/`live_row_conflict`). Each runs the **same** first-seen apply core (`:683-704`, `firstSeenPublished:false`, `wizardCreatedSessionId`) so it is **born Held** (`published=false`), and its manifest row is stamped `status='applied'`, `created_show_id=<new id>`, `publish_intent = wizard_approved`.
+- **Batch phase (`finalize/route.ts`)** must process **every clean row**, not only `wizard_approved=true`: `selectApprovedRows` (`:300-318`, today `where wizard_approved = true`) is widened to select clean rows regardless of `wizard_approved` (excluding the blocking statuses, which the gate already prevents reaching here). Each clean row is processed by **one of four explicit branches** keyed on `(showExists, wizard_approved)` — this is the resolution of codex R2 HIGH (the prior "every clean row → first-seen apply core" wording was wrong for existing shows):
+
+  | `showExists` | `wizard_approved` (checkbox) | Action | Result |
+  |---|---|---|---|
+  | false (first-seen) | **true** (checked) | first-seen apply core (`:683-704`, `firstSeenPublished:false`, `wizardCreatedSessionId`); consume pending row (`deleteApprovedPending`); manifest → `applied`, `created_show_id`, `publish_intent=true` | born Held, **CAS flip publishes → Live** |
+  | false (first-seen) | **false** (unchecked) | **same** first-seen apply core; consume pending row; manifest → `applied`, `created_show_id`, `publish_intent=false` | born Held, **CAS flip skips → stays Held** |
+  | true (existing show) | **true** (checked) | existing `stageExistingShowShadow` path (`:666-670`); CAS applies the shadow to the live show (existing behavior); manifest → `applied`; `publish_intent` is **N/A to the flip** (the flip is first-seen-only) | live show **content updated**, stays published |
+  | true (existing show) | **false** (unchecked) — **D10 no-op** | **do NOT stage a shadow and do NOT touch the live show.** Still **consume** the wizard `pending_syncs` row and **resolve** its manifest row to a non-blocking terminal status (`skipped_non_sheet`-style "declined", or a `created_show_id IS NULL` `applied` that the flip ignores) so finish is not blocked and no orphan remains | live show **unchanged**; staged re-apply discarded |
+
+  The existing-show-unchecked branch is the only net-new finalize branch beyond first-seen; it MUST consume the pending row (else the row stays `staged` and blocks finish) while leaving `public.shows` untouched (D10). It writes **no** `created_show_id` (no show was created) so the CAS flip's `created_show_id IS NOT NULL` predicate already excludes it.
 - **CAS flip (`finalize-cas` `publishAppliedWizardShows`, `:446-481`)** currently selects `status='applied' AND created_show_id IS NOT NULL` and flips `published=true`. It is **narrowed** by adding **`AND publish_intent = true`** to both the manifest SELECT (`:450-459`) and the UPDATE join (`:466-480`), so unchecked (`publish_intent=false`) Held shows are **not** published while checked ones are. Existing-show shadows already preserve `published` (payload never carries it; the UPDATE arm never writes it — confirmed `:443-444`), so only the first-seen flip narrows.
 - After `final_cas_done`, an unflipped Held show reads as stable "Held" (the `readfinalizeowned_b2` "Publishing…" gate keys only on checkpoint status `in_progress`/`all_batches_complete`).
 
@@ -217,9 +230,14 @@ Every sheet's path through the wizard and out the other side, so implementation 
 | `staged` (unchecked) | **Ignore** | row removed from manifest; LIVE `deferred_ingestions` permanent_ignore | leaves list → Ignored-sheets view |
 | `hard_failed` | **Retry** | re-parse → `staged` (clean) or stays `hard_failed` | existing retry route |
 | `hard_failed` | **Ignore** | LIVE permanent_ignore | leaves list → Ignored-sheets view |
-| `applied` (publish_intent=true) | **Finish → CAS flip** | show `published=true` (**Live**) | crew-visible |
-| `staged`/`applied` (publish_intent=false, clean) | **Finish → batch create, no flip** | show `published=false` (**Held**) | → Unpublished view |
-| `hard_failed`/`live_row_conflict` left un-actioned | **Finish attempt** | **blocked** (`!finishable`) | finish disabled + 409 ONBOARDING_NOT_RESOLVED |
+| `live_row_conflict` | **Ignore** | LIVE permanent_ignore | leaves list (Doug declines the conflicting sheet); live show untouched |
+| `live_row_conflict` | **resolve in dashboard + re-run setup** | row re-scanned → `staged`/clean or gone | external resolution path (existing) |
+| `discard_retryable` (legacy) | **Ignore** | LIVE permanent_ignore | leaves list |
+| first-seen `applied` (publish_intent=true) | **Finish → CAS flip** | show `published=true` (**Live**) | crew-visible |
+| first-seen `applied` (publish_intent=false) | **Finish → batch create, no flip** | show `published=false` (**Held**) | → Unpublished view |
+| existing-show, checked | **Finish → shadow applied** | live show **content updated**, stays published | re-run-setup re-apply (existing path) |
+| existing-show, unchecked (**D10**) | **Finish → no-op + consume** | live show **unchanged**; pending row consumed, manifest resolved | staged re-apply discarded; no Held show created |
+| any blocking row (`hard_failed`/`live_row_conflict`/`discard_retryable`) left un-actioned | **Finish attempt** | **blocked** (`!finishable`) | finish disabled + 409 ONBOARDING_NOT_RESOLVED |
 | any session row | **session completes** (`final_cas_done`) | wizard ends; manifest purged; folder watched | Held + Live shows persist; cleanup never deletes them (§7.5) |
 | any first-seen row | **session abandoned** (>24h, never `final_cas_done`) | interim shows reaped | re-run-setup re-scans |
 | ignored sheet | **Un-ignore** | LIVE deferral deleted | re-surfaces on next scan |
@@ -277,12 +295,13 @@ Any catalog-prose edit (the codes whose `dougFacing`/`helpfulContext` literally 
 ## 12. Acceptance criteria
 - AC1: Step 3 shows, per clean sheet, the summary (title/client/dates + counts + diagrams/reel/warnings) without navigation; expand reveals crew/schedule/rooms/hotels from `parse_result`. (Derived from fixture dimensions, not hardcoded.)
 - AC2: A checked sheet becomes a Live (published) show after "Publish N shows & finish setup"; an unchecked clean first-seen sheet becomes a **Held** show, visible in `/admin/unpublished`, publishable one-tap there.
-- AC3: An unchecked clean sheet does **not** block finish — the `FinalizeButton` stays **enabled** (UI `finishable` gate) **and** finalize does **not** 409 (server gate) when only unchecked-clean rows remain; a soft confirm appears when any remain unchecked. An un-actioned `hard_failed`/`live_row_conflict` row **does** block both (button disabled + `ONBOARDING_NOT_RESOLVED`).
+- AC3: An unchecked clean sheet does **not** block finish — the `FinalizeButton` stays **enabled** (UI `finishable` gate) **and** finalize does **not** 409 (server gate) when only unchecked-clean rows remain; a soft confirm appears when any remain unchecked. An un-actioned blocking row (`hard_failed`/`live_row_conflict`/`discard_retryable`) **does** block both (button disabled + `ONBOARDING_NOT_RESOLVED`), and each is resolvable in-wizard (Retry where applicable, or Ignore).
 - AC4: "Ignore this sheet" durably keeps the sheet out of sync (survives finish), shows in the Ignored-sheets view by name, and un-ignore returns it on next scan.
 - AC5: A Held show created by a **completed** finalize session survives `cleanupAbandonedFinalize` (no deletion). (§7.5 structural test.)
 - AC6: The staged detail page shows failure copy only when `last_finalize_failure_code` is set; first review no longer routes through it.
 - AC7: The live-show staged "Apply this change" wording is unchanged (D9); onboarding uses Approve/Publish.
-- AC8: An unchecked **existing-show** (re-run-setup) sheet leaves the live show untouched (D10).
+- AC8: An unchecked **existing-show** (re-run-setup) sheet leaves the live show untouched (D10) **and** its wizard `pending_syncs` row is consumed + manifest resolved, so it neither blocks finish nor leaves an orphan (no `shows` row created, no shadow staged).
+- AC11: Every blocking row has an in-wizard exit: `hard_failed` → Retry/Ignore, `live_row_conflict` → Ignore (or external resolve + re-run), `discard_retryable` → Ignore. After the "Needs your attention" group is emptied, finish is unblocked (no dead-end). `live_row_conflict` → Ignore writes a LIVE permanent_ignore and removes the row.
 - AC9: `published` flips only via `publish_show`; `deferred_ingestions` mutations only via server routes under advisory lock; new Supabase calls follow the call-boundary contract.
 - AC10: All UI surfaces pass the impeccable critique + audit dual-gate (externally attested).
 
