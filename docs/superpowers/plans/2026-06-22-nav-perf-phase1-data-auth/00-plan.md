@@ -348,7 +348,7 @@ export async function requireAdminIdentity(opts?: RequireAdminOpts): Promise<Adm
   maybeForceTestInfraFail(forceHeaders, layer);
   return resolveAdminIdentity();
 }
-// requireAdmin() unchanged: own hooks + `await requireAdminIdentity()` (no opts forwarding — preserved latent behavior).
+// requireAdmin(opts): own hooks + `await requireAdminIdentity(opts)` — forwards the layer to the delegated gate (Codex whole-diff R1 fix; prior no-opts delegation was a latent layer-drop).
 ```
 
 > Preserve EXACT redirect/forbidden semantics: `redirectToSignIn()` and `forbidden()` throw (they are `Promise<never>` / never) — keep `await` on `redirectToSignIn()` and bare `forbidden()` exactly as today. Keep `{ data, error }` destructure on getClaims and the client construction in `try` so the auth meta-test grep-shape keeps matching.
