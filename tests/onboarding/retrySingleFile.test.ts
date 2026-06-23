@@ -140,4 +140,27 @@ describe("retrySingleFileFinalize", () => {
       },
     });
   });
+
+  // Codex R3 (HIGH): an IN-scan supersession — the session flips after the scan's
+  // wizard pending_sync upsert but before its manifest write, whose EXISTS guard
+  // 0-rows, so runPhase1 reports `superseded`. Because the scan ran on THIS locked
+  // tx, finalize MUST throw (not return wizard_superseded), or the tx commits the
+  // scan's pre-flip wizard writes (the staged pending_sync + the deleted
+  // pending_ingestion) as residue.
+  test("an in-scan supersession (scan reports superseded) throws the typed rollback, not a normal return", async () => {
+    const tx = new FakeRetrySingleFileTx();
+
+    const call = retrySingleFileFinalize(
+      tx as never,
+      "file-1",
+      W1,
+      { outcome: "superseded" } as OnboardingScanResult,
+      pending(),
+    );
+
+    await expect(call).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    await expect(call).rejects.toMatchObject({
+      context: { attemptedAction: "retry", supersededSessionId: W1, driveFileId: "file-1" },
+    });
+  });
 });

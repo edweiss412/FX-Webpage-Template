@@ -462,6 +462,80 @@ test.skipIf(!dbUp)(
   },
 );
 
+// Codex R3 (HIGH) — the IN-scan window (distinct from the post-scan window above):
+// the session flips AFTER the scan's wizard pending_sync upsert + pending_ingestion
+// delete but BEFORE the manifest write, whose EXISTS guard then 0-rows, so the scan
+// reports `superseded` (not `staged`). finalize must THROW on that (not return
+// wizard_superseded), or the locked tx commits the pre-flip wizard writes as residue.
+test.skipIf(!dbUp)(
+  "retry race: an in-scan supersession (scan reports superseded after partial wizard writes) → typed rollback, staging + delete both roll back (no residue), route 409s",
+  async () => {
+    const { pendingIngestionId } = await seed();
+    assertLoopbackOpenersPinned();
+
+    const response = await handleWizardPendingIngestionAction(
+      { params: Promise.resolve({ id: pendingIngestionId }) },
+      {
+        requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+        upsertAdminAlert: directSqlAlertWriter as never,
+        retrySingleFile: async (driveFileId, wizardSessionId) =>
+          (await import("@/lib/sync/retrySingleFile")).retrySingleFile(
+            driveFileId,
+            wizardSessionId,
+            {
+              fetchDriveFileMetadata: async () => ({
+                driveFileId: FILE,
+                name: "f5-race.xlsx",
+                mimeType: "application/vnd.google-apps.spreadsheet",
+                modifiedTime: "2026-06-11T00:00:00.000Z",
+                parents: [FOLDER],
+              }),
+              prepareOnboardingFiles: async () => [],
+              scanOnboardingPreparedFiles: async (_folderId, _sessionId, _prepared, scanDeps) => {
+                // Pre-flip wizard writes on the LOCKED connection: stage a W1 sync AND
+                // delete the W1 pending_ingestion (exactly what runPhase1 does before
+                // the manifest write).
+                await scanDeps!.tx!.queryOne(
+                  `insert into public.pending_syncs
+                   (drive_file_id, staged_modified_time, parse_result, source_kind,
+                    warning_summary, wizard_session_id, triggered_review_items)
+                 values ($1, '2026-06-11T00:00:00.000Z'::timestamptz, $2::jsonb,
+                         'onboarding_scan', '', $3::uuid, '[]'::jsonb)
+                 returning drive_file_id`,
+                  [FILE, JSON.stringify({ show: { title: "F5 In-Scan Race" } }), W1],
+                );
+                await scanDeps!.tx!.queryOne(
+                  `delete from public.pending_ingestions
+                  where drive_file_id = $1 and wizard_session_id = $2::uuid returning drive_file_id`,
+                  [FILE, W1],
+                );
+                // Supersession commits, THEN the manifest guard would 0-row → superseded.
+                await flipSessionTo(W2);
+                return {
+                  outcome: "superseded" as const,
+                  code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" as const,
+                  processed: [{ driveFileId: FILE, outcome: "staged" as const }],
+                };
+              },
+            },
+          ),
+        readWizardSessionForPendingIngestion: async () => W1,
+      },
+      "retry",
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    // The throw aborts the locked tx → BOTH pre-flip writes roll back.
+    expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull(); // delete rolled back
+    const residue = (await sql!.unsafe(
+      `select 1 from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+      [FILE, W1],
+    )) as unknown as unknown[];
+    expect(residue).toHaveLength(0); // staging rolled back — no wizard-scoped residue
+  },
+);
+
 test.skipIf(!dbUp)(
   "half (i): a supersession visible BEFORE any mutating statement → typed 409, nothing commits (route-level)",
   async () => {

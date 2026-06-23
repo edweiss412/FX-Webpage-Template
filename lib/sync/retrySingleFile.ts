@@ -159,25 +159,31 @@ export async function retrySingleFileFinalize(
 ): Promise<RetrySingleFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const result = statusFromScan(scan, driveFileId, pending);
-  if (result.outcome === "retried" && result.status === "staged") {
-    // The scan already (a) detects a supersession committing DURING staging
-    // (returns `superseded`) and (b) deletes the wizard-scoped pending_ingestion
-    // on a successful stage (phase1.ts:355). So a supersession that commits in
-    // the post-scan window is detected by RE-READING the wizard-session currency
-    // here — NOT by re-deleting the pending_ingestion, which the scan has already
-    // removed (a 0-row delete would now false-fire). A genuine currency mismatch
-    // throws the typed rollback (the retry route maps it to a 409 +
-    // WIZARD_SESSION_SUPERSEDED_RACE alert). Because the scan ran on THIS locked
-    // transaction (not its own connection), the throw rolls its staging back
-    // atomically — no orphan residue to F4-sweep.
-    const settings = await readWizardSettings(tx);
-    if (settings.pending_wizard_session_id !== wizardSessionId) {
-      throw new WizardSessionSupersededRollbackError({
-        attemptedAction: "retry",
-        supersededSessionId: wizardSessionId,
-        driveFileId,
-      });
-    }
+
+  // The scan runs on THIS locked transaction (PostgresOnboardingScanTx on holdPort).
+  // Any supersession it observes must ABORT the transaction so the scan's already-
+  // executed wizard-scoped writes (the pending_ingestion delete + the pending_sync
+  // stage) roll back, instead of returning normally and committing them as residue.
+  // Two windows:
+  //   (a) In-scan supersession — the session flips AFTER the wizard upsert but
+  //       BEFORE the manifest write, whose EXISTS guard then 0-rows; runPhase1
+  //       reports `superseded` (statusFromScan → wizard_superseded). Returning here
+  //       would commit the pre-flip pending_sync stage + pending_ingestion delete.
+  //   (b) Post-scan supersession — a clean `staged` result, but the wizard-session
+  //       currency changed before finalize; detected by re-reading app_settings.
+  // Both throw the typed rollback (the retry route maps it to a 409 +
+  // WIZARD_SESSION_SUPERSEDED_RACE alert); the shared locked tx makes it atomic.
+  const supersededDuringScan = result.outcome === "wizard_superseded";
+  const supersededAfterStage =
+    result.outcome === "retried" &&
+    result.status === "staged" &&
+    (await readWizardSettings(tx)).pending_wizard_session_id !== wizardSessionId;
+  if (supersededDuringScan || supersededAfterStage) {
+    throw new WizardSessionSupersededRollbackError({
+      attemptedAction: "retry",
+      supersededSessionId: wizardSessionId,
+      driveFileId,
+    });
   }
   return result;
 }
