@@ -45,7 +45,7 @@ The original analysis (against pre-#103 main) concluded "first-seen shows auto-p
 2. **Scope: all three detector classes** ship in v1 (field-unreadable, unknown-section, block-disappeared).
 3. **Surfacing is per-path** (one surface per §3 path; discovered via the mandated pre-draft re-verification + corrected in spec adversarial R1 — full detail §6):
    - **P2 — cron flag-OFF first-seen** (stages in `pending_syncs`): the staged-review card at `/admin/show/staged/[stagedId]` (`StagedReviewCard.warningSummary`, today hardcoded `""`).
-   - **P3 — wizard step-3** (held `shows` row): `/admin/unpublished` data-gaps chip (`loadHeldShows`).
+   - **P3 — wizard step-3** (the onboarding publish-decision point): **primary** = wizard Step 3 (`Step3SheetCard`/`Step3Review`) per-class data-gap detail before the publish checkbox/finalize; **secondary** = `/admin/unpublished` data-gaps chip (`loadHeldShows`) for held *unchecked* rows.
    - **P4 — recurring existing-show edit** (no `SHOW_FIRST_PUBLISHED` fires): the per-show **Changes feed** (`writeAutoApplyChanges` → `ChangesFeed`).
    - **P1 — cron flag-ON first-seen** (auto-publishes): a `data_gaps` digest sub-line on the existing `SHOW_FIRST_PUBLISHED` alert (`PerShowAlertSection`).
    - **All paths** also land in a per-show **Data-Quality panel** (reads `shows_internal.parse_warnings`).
@@ -156,7 +156,17 @@ The per-show admin page (`app/admin/show/[slug]/page.tsx`) renders the full warn
 
 ## 8. Dimensional invariants / UI
 
-The only new rendered elements are (a) a data-gaps chip per held-show row in `ShowsTable`, (b) a "Data quality" list panel on the per-show page, (c) a sub-line in `PerShowAlertSection`. None introduce a fixed-dimension parent containing flex/grid children with a non-obvious dimensional relationship. **Dimensional invariants:** the chip is inline within the existing row cell (inherits row height; no `items-stretch` dependency). If the chip is placed in a flex container alongside the publish button, the container uses `items-center` (explicit) — to be verified with a real-browser Playwright assertion per the writing-plans layout-dimensions rule (the plan adds that task). **Transition inventory:** the chip has two states (present / absent) — instant, no animation needed (it reflects static parse state, not a live toggle).
+**Complete new-rendered-element inventory (expanded R6 F2)** — every surface that gains a data-gaps element:
+1. **P2** — `StagedReviewCard` data-gaps chip/detail (the populated `warningSummary` + structured detail) on `/admin/show/staged/[stagedId]`, near the existing card controls.
+2. **P3 primary** — wizard Step 3 per-class data-gap detail in `Step3SheetCard` (within `Step3Review`), adjacent to the publish **checkbox**.
+3. **P3 secondary** — data-gaps chip per held-show row in `ShowsTable` on `/admin/unpublished`, near `PublishShowButton`.
+4. **P4** — the `section_emptied` change rendered by `ChangeFeedEntry` within `ChangesFeed`.
+5. **P1** — the `data_gaps` sub-line in `PerShowAlertSection`.
+6. **All** — the "Data quality" list panel on the per-show page (`app/admin/show/[slug]/page.tsx`).
+
+**Dimensional invariants:** none introduces a fixed-dimension parent with a non-obvious flex/grid child relationship; each new element is inline text/chip within an existing row/card that sets its own height. The two adjacency risks are (a) the Step-3 detail next to the publish **checkbox** and (b) the held-row chip next to `PublishShowButton` — both use explicit `items-center` (this project's Tailwind v4 does not default `.flex` to `align-items:stretch`). **Transition inventory:** every new element has two states (present / absent) reflecting static parse state — instant, no animation; the `ChangeFeedEntry` `section_emptied` row uses the feed's existing entry-render path (no new transition).
+
+**Layout-dimensions verification (plan task):** real-browser Playwright assertion per writing-plans rule for the two adjacency cases — the Step-3 card row (checkbox + data-gap detail) and the `/admin/unpublished` row (chip + `PublishShowButton`): assert vertical-center alignment and no overflow at the documented viewport.
 
 This is a **UI surface** (`app/admin/unpublished/page.tsx`, `app/admin/show/[slug]/page.tsx`, `app/admin/show/staged/[stagedId]/page.tsx`, and `components/admin/{ShowsTable,StagedReviewCard,PerShowAlertSection,ChangesFeed,ChangeFeedEntry}.tsx`, `components/admin/wizard/{Step3SheetCard,Step3Review}.tsx`, + the new Data-Quality panel) → **invariant 8 applies**: `/impeccable critique` + `/impeccable audit` on the diff before cross-model review; HIGH/CRITICAL fixed or `DEFERRED.md`'d.
 
@@ -191,7 +201,7 @@ This is a **UI surface** (`app/admin/unpublished/page.tsx`, `app/admin/show/[slu
 ## 12. Watchpoints / do-not-relitigate (for the adversarial reviewer)
 
 - **Advisory-not-blocking is a ratified user decision** (2026-06-23), not an oversight. Pre-cited: blocking reverses `getAutoPublishCleanFirstSeen` (the auto-publish-clean win) and the held-model publish flow.
-- **Four-path surface coverage (corrected in spec adversarial R1)** — P2 (cron flag-OFF) → `StagedReviewCard` (`pending_syncs`), P3 (wizard) → `/admin/unpublished` (held `shows`), P4 (recurring) → Changes feed, P1 (flag-ON) → `SHOW_FIRST_PUBLISHED` digest; all also land in the per-show Data-Quality panel. The earlier "single `/admin/unpublished` surface" framing was wrong (P2 stages in `pending_syncs`, not held shows) and is fixed in §6 — do not revert to it.
+- **Four-path surface coverage (corrected R1/R5/R6)** — P2 (cron flag-OFF) → `StagedReviewCard` (`pending_syncs`); P3 (wizard) → **primary** wizard Step 3 (`Step3SheetCard`/`Step3Review`, the publish-decision point), **secondary** `/admin/unpublished` (held unchecked); P4 (recurring) → Changes feed (`section_emptied`); P1 (flag-ON) → `SHOW_FIRST_PUBLISHED` digest; all also land in the per-show Data-Quality panel. Do NOT collapse P3 back to `/admin/unpublished`-only (checked Step-3 rows publish before that page — R5/R6) and do NOT collapse P2 into the held path (it stages in `pending_syncs`).
 - **No new admin_alert code is by design** — reuse `SHOW_FIRST_PUBLISHED` (P1) + the change feed (P4), per anti-dilution guidance.
 - **Parser warning codes DO get admin-log-only §12.4 rows** (corrected R1) — required by `codes.test.ts` active-code parity, per the `SECTION_HEADER_NO_FIELDS` precedent; they still render via `.message`, not `lookup.ts`.
 - **Flag default is `true`** (`20260601000000:6`) — the auto-publish bypass path is the default for cron-discovered sheets, so the secondary alert surface is load-bearing, not an edge.
@@ -213,4 +223,4 @@ Each test states the concrete failure mode it catches:
 - **P1 auto-publish surfacing**: flag-ON first-seen with warnings → `SHOW_FIRST_PUBLISHED` `context.data_gaps` populated; `PerShowAlertSection` renders the digest sub-line only when present.
 - **Catalog parity**: `tests/cross-cutting/codes.test.ts` green with the three new admin-log-only §12.4 rows + regenerated `spec-codes` + `catalog.ts` entries (negative-verify: removing one row fails the gate).
 - **Registry meta-test**: every block parser header matcher ∈ `knownSections.ts`.
-- **Layout-dimensions** (Playwright, per writing-plans rule): the `/admin/unpublished` data-gaps chip + `PublishShowButton` row — assert chip and button share the row's vertical center / the row renders without overflow at the documented viewport.
+- **Layout-dimensions** (Playwright, per writing-plans rule), both adjacency cases: (a) the `/admin/unpublished` data-gaps chip + `PublishShowButton` row, and (b) the wizard Step-3 card row (publish checkbox + data-gap detail) — assert the chip/detail and the control share the row's vertical center and the row renders without overflow at the documented viewport.
