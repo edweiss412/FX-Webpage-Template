@@ -142,10 +142,14 @@ comment on column public.deferred_ingestions.drive_file_name is
 
 ## Phase B — Server: finalize Held creation + gate
 
-### Task B1: Narrow the server finish gate (drop `staged`)
+> **⚠️ SEQUENCING (CRITICAL — codex plan R1 HIGH): execute B2 BEFORE B1.** Tasks are listed below as B1 (gate) then B2 (Held creation), but they **MUST land in the order B2 → B1**. If B1 (drop `staged` from the gate) lands first, a finalize whose only remaining rows are unchecked-clean would have `approvedRows.length===0` **and** `unresolved===0`, so it falls through to completion (`final_cas_done`) and **purges those rows without ever creating their Held shows — the sheets silently vanish (data loss).** B2 widens the selector so unchecked-clean rows are *processed into Held shows* first; only then is it safe to stop counting `staged` as blocking. The subagent-driven executor MUST run B2's commit before B1's. (B2-before-B1 is safe: the gate's 409 fires only when `approvedRows.length===0`, and after B2 those rows are in the processed set.)
+
+### Task B1: Narrow the server finish gate (drop `staged`) — **run AFTER Task B2**
 
 **Files:** Modify `app/api/admin/onboarding/finalize/route.ts:284-298` (`unresolvedManifestCount`) and the `finalize-cas` peer; Test `tests/api/onboarding-finalize-gate.test.ts`.
-**Interfaces:** Produces: finalize 409s `ONBOARDING_NOT_RESOLVED` iff a row in `{hard_failed, live_row_conflict, discard_retryable}` remains; a clean `staged` row no longer blocks.
+**Interfaces:**
+- **Consumes: Task B2 must already be landed** (the widened selector creates Held shows for unchecked-clean rows). Relaxing this gate before B2 silently purges unchecked-clean rows — see Phase B sequencing note.
+- Produces: finalize 409s `ONBOARDING_NOT_RESOLVED` iff a row in `{hard_failed, live_row_conflict, discard_retryable}` remains; a clean `staged` row no longer blocks.
 
 - [ ] **Step 1: Failing test** — with a manifest containing one clean `staged` row (no blocking rows) + approved rows, `handleOnboardingFinalize` must NOT 409; with one `hard_failed` row it MUST 409 `ONBOARDING_NOT_RESOLVED`. (Use the route's injected deps `withTx`/`withRowTx` per its existing test harness; assert response status + code.)
 - [ ] **Step 2: Run → FAIL** (today `staged` blocks).
@@ -165,6 +169,7 @@ comment on column public.deferred_ingestions.drive_file_name is
   - first-seen + `wizard_approved=false` → `shows` row created `published=false`, manifest `publish_intent=false`, pending row deleted.
   - existing-show + checked → `shows_pending_changes` shadow inserted (existing behavior), no `published` change.
   - existing-show + **unchecked** → **no** shadow inserted, **no** `shows` mutation, `pending_syncs` row deleted, manifest resolved (non-blocking). (Assert against the injected tx.)
+  - **Data-loss guard (the sequencing-hazard regression test):** a finalize batch with **zero** `wizard_approved=true` rows but **N unchecked-clean** first-seen rows must process **all N** (create N Held shows, `published=false`) and consume their pending rows — **none** left unprocessed/purged-without-a-show. This is the test that proves the widened selector picks up unchecked rows, so it is safe to later relax the gate (B1).
 - [ ] **Step 2: Run → FAIL** (today only `wizard_approved=true` rows are selected/processed).
 - [ ] **Step 3: Implement**
   - Widen the batch selector: rename/adjust `selectApprovedRows` → `selectFinishableCleanRows` selecting rows where `wizard_session_id=$1` and the manifest status is **not** in the blocking set (i.e. clean `staged` OR `applied`), regardless of `wizard_approved`, ordered by `drive_file_id`, `limit $2`. Carry `wizard_approved` into the row shape.
@@ -321,7 +326,7 @@ comment on column public.deferred_ingestions.drive_file_name is
 - [ ] **Step 1: Failing tests** — loader returns only Held shows (a published show + an archived show + a finalize-owned show are excluded; uses the `readFinalizeOwned` fan-out to exclude Publishing…); a Publish action is bound per row; empty state copy. Boundary destructures `{ data, error }` → typed infra_error.
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement** — RSC loader (`archived=false, published=false`, minus finalize-owned), render `ShowsTable` (or a focused list) with per-row Publish `.bind(null, slug)`; impeccable for the view.
-- [ ] **Step 4: Run → PASS;** register the loader in `_metaInfraContract.test.ts`.
+- [ ] **Step 4: Run → PASS;** register the loader in `tests/admin/_metaInfraContract.test.ts` (admin-surface registry; the `tests/auth/_metaInfraContract.test.ts` file is for auth helpers and is NOT touched here).
 - [ ] **Step 5: Commit** — `feat(admin): /admin/unpublished Held-shows view`
 
 ### Task E2: Ignored-sheets view
@@ -332,7 +337,7 @@ comment on column public.deferred_ingestions.drive_file_name is
 - [ ] **Step 1: Failing tests** — loader returns `deferred_ingestions where wizard_session_id is null and deferred_kind='permanent_ignore'` with `drive_file_name`, `deferred_at`, `deferred_by_email`; renders name (not raw id); Un-ignore action posts to C2 and the row leaves. Empty state.
 - [ ] **Step 2: Run → FAIL.**
 - [ ] **Step 3: Implement** — RSC loader + Un-ignore client action; impeccable.
-- [ ] **Step 4: Run → PASS;** register loader in `_metaInfraContract.test.ts`.
+- [ ] **Step 4: Run → PASS;** register loader in `tests/admin/_metaInfraContract.test.ts` (admin-surface registry).
 - [ ] **Step 5: Commit** — `feat(admin): ignored-sheets view + un-ignore`
 
 ### Task E3: impeccable dual-gate — new views + nav entry
