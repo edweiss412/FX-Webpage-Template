@@ -600,6 +600,9 @@ body {
     padding: 0.1em 0.35em;
     border-radius: var(--radius-sm);
     font-size: 0.9em;
+    /* Long unbreakable tokens (e.g. the onboarding Drive-folder URL) must wrap
+       rather than force horizontal scroll on a 390px phone. */
+    overflow-wrap: anywhere;
   }
 
   /* Tables — enables the P1 status / decision-table content conversions. */
@@ -617,5 +620,71 @@ body {
   .help-prose th {
     background: var(--color-surface-sunken);
     font-weight: var(--font-weight-semibold);
+  }
+
+  /* D8: dense (≥3-column) catalog tables stack into labeled cards on phones.
+     The HelpTable MDX component tags those tables `data-stack="true"` and
+     injects a real-text `.th-label` per cell. The label is hidden on desktop
+     (the real <th> column header is used); on mobile the table goes to a block
+     layout, the <thead> is removed, and each row becomes a bordered card whose
+     cells are labeled by the injected `.th-label` (real text, so it stays
+     screen-reader-readable once the block layout has dropped the table roles).
+     2-column tables are never tagged, so they keep the normal table layout. */
+  .help-prose .th-label {
+    display: none;
+  }
+
+  @media (max-width: 480px) {
+    .help-prose > table[data-stack="true"] {
+      display: block;
+      border: 0;
+    }
+    .help-prose > table[data-stack="true"] thead {
+      display: none;
+    }
+    .help-prose > table[data-stack="true"] tbody {
+      display: block;
+    }
+    .help-prose > table[data-stack="true"] tbody tr {
+      display: block;
+      margin: 0 0 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+    }
+    .help-prose > table[data-stack="true"] tbody td {
+      display: block;
+      border: 0;
+      padding: 0.35rem 0;
+    }
+    .help-prose > table[data-stack="true"] tbody td:first-child {
+      padding-top: 0;
+    }
+    .help-prose > table[data-stack="true"] tbody td:last-child {
+      padding-bottom: 0;
+    }
+    .help-prose > table[data-stack="true"] .th-label {
+      display: block;
+      margin-bottom: 0.1rem;
+      font-size: var(--text-sm);
+      font-weight: var(--font-weight-semibold);
+      color: var(--color-text-subtle);
+    }
+    /* First cell = the card heading: its value (already bold) is the row's
+       identity, so it leads the card. The redundant first column label
+       ("Status" / "Status line" / "Badge" — every card is one of these) is
+       visually hidden but KEPT in the a11y tree (not display:none) so a screen
+       reader still announces "Status: <value>" on mobile. (D8 critique P2.) */
+    .help-prose > table[data-stack="true"] tbody td:first-child .th-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
   }
 }
