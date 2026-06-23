@@ -7,6 +7,7 @@ import type {
 } from "@/app/api/admin/onboarding/scan/route";
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
 import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
+import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -502,7 +503,7 @@ describe("POST /api/admin/onboarding/scan", () => {
         async (
           _folderId: string,
           _wizardSessionId: string,
-          d?: { onProgress?: (e: unknown) => void },
+          d?: { onProgress?: (e: ScanProgressEvent) => void },
         ) => {
           d?.onProgress?.({ type: "listed", total: 2 });
           d?.onProgress?.({ type: "prepared", done: 1, total: 2, name: "A" });
