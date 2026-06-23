@@ -106,7 +106,9 @@ describe("discardStaged live-scope", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "discarded", variant: "try_again" });
+    // nav-perf tag-caching (Task 9): the live restore-status discard surfaces the showId so the
+    // wrapper can revalidate the data-cache tag POST-COMMIT (last_sync_status is projected).
+    expect(result).toEqual({ outcome: "discarded", variant: "try_again", showId: "show-1" });
     expect(syncDeps.readLivePendingSyncForDiscard).toHaveBeenCalledWith(tx, "drive-file-1");
     expect(syncDeps.restoreShowStatus).toHaveBeenCalledWith(tx, "drive-file-1", "ok", null);
     expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");

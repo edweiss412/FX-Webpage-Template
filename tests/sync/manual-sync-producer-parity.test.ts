@@ -76,7 +76,8 @@ describe("manual-sync producer parity", () => {
       fetchDriveFileMetadata: vi.fn(async () => fileMeta()),
     });
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_INFRA_ERROR" });
+    // whole-diff R2: parse_error result now carries the read-back showId (last_sync_status writer).
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_INFRA_ERROR", showId: "show-1" });
     expect(tx.alerts).toContainEqual({
       showId: "show-1",
       code: "DRIVE_FETCH_FAILED",

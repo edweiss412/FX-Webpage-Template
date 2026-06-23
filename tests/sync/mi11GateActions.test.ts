@@ -89,7 +89,9 @@ describe("approveMi11Hold — two-stage Drive orchestration (Task 3.6)", () => {
       p_observed_modified_time: T1,
       p_expected_base_modified_time: EXPECTED_T0, // NOT re-read from the lookup (anti-vacuous, PF40)
     });
-    expect(res).toEqual({ ok: true });
+    // nav-perf tag-caching (Task 9): a success surfaces the server-resolved show id (from the hold
+    // pre-read) so the feed action can revalidate the show's data-cache tag POST-COMMIT.
+    expect(res).toEqual({ ok: true, showId: "show-1" });
   });
 
   it("hold already gone → MI11_HOLD_ALREADY_RESOLVED, NO Drive call, NO rpc call", async () => {

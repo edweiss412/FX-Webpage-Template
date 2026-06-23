@@ -382,7 +382,8 @@ describe("runManualSyncForShow", () => {
       processDeps,
     });
 
-    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    // whole-diff R2: source_gone/parse_error recovery results now carry the read-back showId.
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED", showId: "show-1" });
     expect(tx.alerts.filter((alert) => alert.code === "DRIVE_FETCH_FAILED")).toHaveLength(1);
     expect(tx.alerts).toContainEqual({
       showId: "show-1",
@@ -416,7 +417,7 @@ describe("runManualSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "source_gone", code: SHEET_UNAVAILABLE });
+    expect(result).toEqual({ outcome: "source_gone", code: SHEET_UNAVAILABLE, showId: "show-1" });
     expect(processOneFile).not.toHaveBeenCalled();
     expect(tx.shows.get("drive-file-1")).toMatchObject({
       lastSyncStatus: "sheet_unavailable",
@@ -472,7 +473,11 @@ describe("runManualSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(result).toEqual({
+      outcome: "source_gone",
+      code: STAGED_PARSE_SOURCE_GONE,
+      showId: "show-1",
+    });
     expect(processOneFile).not.toHaveBeenCalled();
     expect(tx.shows.get("drive-file-1")).toMatchObject({
       lastSyncStatus: "sheet_unavailable",
@@ -511,7 +516,7 @@ describe("runManualSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "parse_error", code: SYNC_INFRA_ERROR });
+    expect(result).toEqual({ outcome: "parse_error", code: SYNC_INFRA_ERROR, showId: "show-1" });
     expect(fetchDriveFileMetadata).not.toHaveBeenCalled();
     expect(processOneFile).not.toHaveBeenCalled();
     expect(tx.shows.get("drive-file-1")).toMatchObject({

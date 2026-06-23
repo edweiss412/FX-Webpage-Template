@@ -22,6 +22,7 @@
 //              neutral 404, no code in the body (invariant 9)
 import { NextResponse, type NextRequest } from "next/server";
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 
 type RouteContext = {
   params: Promise<{ slug: string }>;
@@ -43,6 +44,10 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   }
 
   if (result.outcome === "success") {
+    // nav-perf tag-caching (Task 9): the consume archived the show (published=false) — gates crew
+    // visibility (getShowForViewer.ts:291). unpublishShowViaEmailedLink owns its lock/tx and has
+    // committed by the time it resolves, so revalidateShow here is POST-COMMIT.
+    revalidateShow(result.showId);
     return NextResponse.json({ ok: true, showId: result.showId }, { status: 200 });
   }
   if (result.outcome === "expired") {

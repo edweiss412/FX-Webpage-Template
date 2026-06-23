@@ -12,6 +12,7 @@ import {
 } from "@/lib/sync/applyStaged";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 
 export { INVALID_REVIEWER_ACTION, PENDING_SYNC_NOT_FOUND, WIZARD_SESSION_SUPERSEDED };
 export const STALE_DISCARD_REJECTED = "STALE_DISCARD_REJECTED" as const;
@@ -68,7 +69,13 @@ export type DiscardStagedArgs =
     };
 
 export type DiscardStagedResult =
-  | { outcome: "discarded"; variant: DiscardVariant }
+  // nav-perf tag-caching (Task 9): on the live `try_again` discard against an EXISTING show,
+  // restoreShowStatus reverts shows.last_sync_status to its pre-staging value — and
+  // last_sync_status IS projected by getShowForViewer (rendered by StaleFooter). `showId` is
+  // surfaced ONLY on that rendered-data-mutating path so the wrapper can revalidateShow POST-COMMIT;
+  // the deferral / pending-sync-delete paths (and the wizard branch) write no rendered crew DATA, so
+  // they omit it (no revalidate).
+  | { outcome: "discarded"; variant: DiscardVariant; showId?: string }
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "stale"; code: typeof STALE_DISCARD_REJECTED }
   | { outcome: "invalid_request"; code: typeof INVALID_REVIEWER_ACTION }
@@ -517,18 +524,28 @@ export async function discardStaged_unlocked(
   }
 
   await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
-  return { outcome: "discarded", variant };
+  // nav-perf tag-caching (Task 9): only the restoreShowStatus path (show exists) mutated rendered
+  // data (last_sync_status); surface its showId so the wrapper revalidates POST-COMMIT.
+  return { outcome: "discarded", variant, ...(show ? { showId: show.showId } : {}) };
 }
 
 export async function discardStaged(
   args: DiscardStagedArgs,
   deps: DiscardStagedDeps = {},
 ): Promise<DiscardStagedResult | ConcurrentSyncSkipped> {
-  return await withPostgresSyncPipelineLock(
+  const result = await withPostgresSyncPipelineLock(
     args.driveFileId,
     (tx) => discardStaged_unlocked(tx, args, deps),
     { tryOnly: false },
   );
+  // nav-perf tag-caching (Task 9): the live restore-status discard reverts shows.last_sync_status
+  // (projected → StaleFooter). Revalidate POST-COMMIT — the pipeline lock/tx has committed by the
+  // time it resolves. `showId` is present ONLY on that rendered-data-mutating path (deferral /
+  // pending-delete / wizard paths omit it → no revalidate).
+  if (!("skipped" in result) && result.outcome === "discarded" && result.showId) {
+    revalidateShow(result.showId);
+  }
+  return result;
 }
 
 export async function discardStagedParse(

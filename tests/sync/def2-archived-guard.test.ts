@@ -77,7 +77,9 @@ describe("DEF-2 — apply/discard refuse archived shows; discard clears requires
       // restoreShowStatus intentionally NOT injected → the default runs against fakeTx.
     };
     const res = await discardStaged_unlocked(tx, discardArgs, deps);
-    expect(res).toEqual({ outcome: "discarded", variant: "try_again" });
+    // showId surfaced (nav-perf tag-caching): the live restore path returns the show id so the
+    // caller can revalidateShow(id) post-commit. Restoring this Held show reverts shows.last_sync_status.
+    expect(res).toEqual({ outcome: "discarded", variant: "try_again", showId: "show-1" });
     const restoreCall = tx.calls.find(
       (c) => /update public\.shows/i.test(c.sql) && /requires_resync\s*=\s*false/i.test(c.sql),
     );
