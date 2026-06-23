@@ -80,12 +80,15 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     throw err;
   }
 
-  // Phase 1 helper (already meta-pinned in lib/admin/alertCount.ts).
-  // Threaded into <AdminNav> in Phase 3; stored as a local for now.
-  const alertCount = await fetchUnresolvedAlertCount();
-  // Mobile "Needs attention" tab badge seed (spec §4.2 commit source 1).
-  // infra_error → null → badge hidden (fail-quiet, ratified D-4).
-  const needsAttentionCount = await loadNeedsAttentionCount();
+  // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
+  // parallel so first /admin entry blocks on one wall-time, not two sequential
+  // round-trips. alertCount is meta-pinned in lib/admin/alertCount.ts; the
+  // "Needs attention" tab badge seed (spec §4.2) maps infra_error → null → badge
+  // hidden (fail-quiet, ratified D-4).
+  const [alertCount, needsAttentionCount] = await Promise.all([
+    fetchUnresolvedAlertCount(),
+    loadNeedsAttentionCount(),
+  ]);
   const adminEmail = identity.email;
 
   return (
