@@ -118,6 +118,15 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     file: "app/help/admin/dashboard/page.mdx",
     note: "Status pill label — components/admin/NeedsAttentionInbox.tsx:106 (also lib/admin/syncStatus.ts:29 via ShowsTable's sync column).",
   },
+  // NOTE (audit Chunk 2): the dashboard sync-status table's warn/idle values —
+  // "Couldn't reach Drive" / "Sheet not in folder" / "Couldn't read the sheet" /
+  // "Sync in progress" — are defined ONLY in lib/admin/syncStatus.ts (ShowsTable
+  // renders them via a variable, so the literal strings appear in no app/ or
+  // components/ file the crosswalk scans). They are intentionally QUOTED in the
+  // MDX so the candidate extractor treats them as prose, not bare UI labels —
+  // declaring them here would FAIL the declared-registry layer, which still
+  // requires app/+components presence. Do not un-quote them without first
+  // extending the crosswalk to scan lib/.
   {
     label: "Retry now",
     file: "app/help/admin/dashboard/page.mdx",

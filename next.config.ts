@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
+import remarkGfm from "remark-gfm";
 
 /**
  * NEXT_DIST_DIR allows separate build artifacts to coexist on disk so the
@@ -14,7 +15,14 @@ import createMDX from "@next/mdx";
  */
 
 const withMDX = createMDX({
-  // No remark/rehype plugins in v1 — keep MDX vanilla.
+  // remark-gfm enables GitHub-Flavored Markdown — specifically pipe TABLES,
+  // which the /help reference pages use for the status/decision catalogs
+  // (dashboard sync-status, settings health-badge, onboarding badges,
+  // review-queues Apply/Discard). Vanilla @next/mdx does not parse `| a | b |`
+  // as a table. GFM also enables autolinks/strikethrough/task-lists; the help
+  // MDX uses none of those except that bare example URLs would autolink — those
+  // are code-fenced (`https://…`) in onboarding-wizard so they stay literal.
+  options: { remarkPlugins: [remarkGfm] },
 });
 
 const nextConfig: NextConfig = {
