@@ -180,4 +180,67 @@ test.describe("/help prose typography layer", () => {
     expect(m.thBg, "table header has a (non-transparent) tint").not.toBe("rgba(0, 0, 0, 0)");
     expect(m.thBorderWidth, "table cells are bordered").toBeGreaterThan(0);
   });
+
+  // D8: ALL THREE dense 3-column catalogs become labeled stacked cards at
+  // ≤480px (thead hidden, each row a block card; the first cell's label is
+  // sr-only so its value leads the card, the other cells carry a visible label)
+  // and stay a normal table on desktop. Proven in a real browser at BOTH
+  // help-docs viewports (webkit 390 + chromium 1280) — jsdom can't do this.
+  // (Each iteration also asserts no horizontal overflow, which covers the
+  // onboarding Drive-URL inline-<code> overflow-wrap fix.)
+  const D8_DENSE_PAGES = [
+    { url: "/help/admin/dashboard", firstLabel: "Status" },
+    { url: "/help/admin/settings", firstLabel: "Status line" },
+    { url: "/help/admin/onboarding-wizard", firstLabel: "Badge" },
+  ];
+  for (const { url, firstLabel } of D8_DENSE_PAGES) {
+    test(`D8: ${url} dense catalog stacks into labeled cards on mobile, stays a table on desktop`, async ({
+      page,
+    }) => {
+      await page.goto(url, { waitUntil: "networkidle" });
+
+      const m = await page.evaluate(() => {
+        const table = document.querySelector(
+          'main .help-prose table[data-stack="true"]',
+        ) as HTMLElement | null;
+        if (!table) return { hasStackTable: false as const };
+        const thead = table.querySelector("thead")!;
+        const tr = table.querySelector("tbody tr")!;
+        const labels = Array.from(tr.querySelectorAll(".th-label")) as HTMLElement[];
+        const [first, second] = labels;
+        return {
+          hasStackTable: true as const,
+          vw: window.innerWidth,
+          theadDisplay: getComputedStyle(thead).display,
+          trDisplay: getComputedStyle(tr).display,
+          firstLabelText: first?.textContent ?? "",
+          firstLabelWidth: first ? Math.round(first.getBoundingClientRect().width) : -1,
+          secondLabelText: second?.textContent ?? "",
+          secondLabelDisplay: second ? getComputedStyle(second).display : "none",
+          secondLabelWidth: second ? Math.round(second.getBoundingClientRect().width) : -1,
+          docOverflow: document.documentElement.scrollWidth > window.innerWidth,
+        };
+      });
+
+      expect(m.hasStackTable, `${url}: a dense catalog is tagged data-stack`).toBe(true);
+      if (!m.hasStackTable) return;
+      expect(m.docOverflow, `${url}: no horizontal overflow`).toBe(false);
+      expect(m.firstLabelText, "first cell label is its column header").toBe(firstLabel);
+      expect(m.secondLabelText, "second cell label").toBe("What it means");
+      if (m.vw <= 480) {
+        expect(m.theadDisplay, "thead hidden on mobile").toBe("none");
+        expect(m.trDisplay, "each row is a block card on mobile").toBe("block");
+        // the non-first label is visibly shown...
+        expect(m.secondLabelDisplay, "non-first label shown on mobile").toBe("block");
+        expect(m.secondLabelWidth, "non-first label is visible").toBeGreaterThan(1);
+        // ...while the first cell's label is sr-only (clipped) so the value is the card heading
+        expect(m.firstLabelWidth, "first label is sr-only (visually clipped)").toBeLessThanOrEqual(
+          1,
+        );
+      } else {
+        expect(m.theadDisplay, "thead visible on desktop").toBe("table-header-group");
+        expect(m.secondLabelDisplay, "labels hidden on desktop (real <th> used)").toBe("none");
+      }
+    });
+  }
 });
