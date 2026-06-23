@@ -9,6 +9,14 @@ on:
     - cron: "0 9 * * 1"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed so the 10 parallel
+# audit jobs don't keep holding runners for a commit that's been replaced.
+# github.ref is per-PR; the (currently no-op) scheduled run shares main's ref but
+# its only jobs are `if: false`, so cross-cancellation is harmless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   traceability-audit:
     if: github.event_name != 'schedule'

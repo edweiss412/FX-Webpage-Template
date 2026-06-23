@@ -33,6 +33,12 @@ on:
       - ".github/workflows/crew-e2e.yml"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed — this job boots
+# Supabase + seeds + Playwright, so a stale run holds a heavy runner.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   crew-e2e:
     runs-on: ubuntu-latest

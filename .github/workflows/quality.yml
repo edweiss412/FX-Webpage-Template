@@ -12,6 +12,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed: quality is the one
+# branch-protection-required check, so cancelling the stale run frees the runner
+# and gets the new commit to green faster. github.ref is per-PR (refs/pull/N/merge),
+# so distinct PRs never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

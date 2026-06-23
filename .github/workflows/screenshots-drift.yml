@@ -6,6 +6,14 @@ on:
     - cron: "0 10 * * *"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed — this job boots
+# Supabase + a Docker Playwright image, so a stale run holds a heavy runner.
+# github.ref is per-PR; the nightly `schedule` run shares main's ref but rarely
+# overlaps a PR push, and the full-coverage backstop re-runs daily regardless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   screenshots-drift:
     runs-on: ubuntu-latest

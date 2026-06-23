@@ -16,6 +16,12 @@ on:
       - ".github/workflows/help-affordances.yml"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed — the walker boots
+# Supabase + Playwright, so a stale run holds a heavy runner for ~6 min.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deep-link-walker:
     runs-on: ubuntu-latest
