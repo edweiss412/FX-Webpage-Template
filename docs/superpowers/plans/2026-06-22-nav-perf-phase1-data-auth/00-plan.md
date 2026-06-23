@@ -134,15 +134,21 @@ Run the meta-test: `pnpm exec vitest run tests/admin/_metaInfraContract.test.ts`
 - [ ] **Step 1: Failing test** — mirror Task 1's `mockClient`, asserting the 4 columns map correctly (a missing/null column coerces to `false`, matching the existing single getters' fail-closed default), returned-error → `infra_error`, thrown → `infra_error`.
 
 ```typescript
-test("maps 4 columns → flags", async () => {
+test("maps 4 columns → flags (literal true only)", async () => {
   const row = { auto_publish_clean_first_seen: true, alert_on_sync_problems: false, daily_review_digest: true, alert_on_auto_publish: null };
   const r = await getSettingsPageFlags(mockClient({ data: row, error: null }));
   expect(r).toEqual({ kind: "value", autoPublishCleanFirstSeen: true, alertOnSyncProblems: false, dailyReviewDigest: true, alertOnAutoPublish: false });
 });
+test("FAIL-CLOSED: truthy non-boolean values map to false (matches existing single getters)", async () => {
+  // Codex plan R7 MEDIUM: never enable a toggle on 'false'/'true'/1/etc — only literal true.
+  const row = { auto_publish_clean_first_seen: "false", alert_on_sync_problems: 1, daily_review_digest: "true", alert_on_auto_publish: "yes" };
+  const r = await getSettingsPageFlags(mockClient({ data: row, error: null }));
+  expect(r).toEqual({ kind: "value", autoPublishCleanFirstSeen: false, alertOnSyncProblems: false, dailyReviewDigest: false, alertOnAutoPublish: false });
+});
 ```
 
 - [ ] **Step 2: Run, verify fail.**
-- [ ] **Step 3: Implement** — single `.select("auto_publish_clean_first_seen, alert_on_sync_problems, daily_review_digest, alert_on_auto_publish").eq("id","default").maybeSingle()`; `Boolean(col ?? false)` per flag; `error || !data → infra_error`; `try/catch → infra_error`.
+- [ ] **Step 3: Implement** — single `.select("auto_publish_clean_first_seen, alert_on_sync_problems, daily_review_digest, alert_on_auto_publish").eq("id","default").maybeSingle()`; **map each flag with `row.<column> === true` (literal-true, FAIL-CLOSED — matches the existing single getters; never `Boolean()` coercion, which would enable on `'false'`/`1`/etc)**; `error || !data → infra_error`; `try/catch → infra_error`. (Confirm the existing single getters' exact `=== true` semantics and mirror them.)
 - [ ] **Step 4: Run, verify pass.**
 - [ ] **Step 5: Register row in `tests/admin/_metaInfraContract.test.ts`**; run meta-test → PASS.
 - [ ] **Step 6: Commit** — `perf(admin): add getSettingsPageFlags single-read helper (A3)`
