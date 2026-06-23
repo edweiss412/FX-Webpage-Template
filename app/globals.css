@@ -584,16 +584,15 @@ body {
      high-contrast text color (≈16:1 on the page bg, AAA) so body links clear
      WCAG AA 1.4.3 everywhere — including on the tinted Callout/aside fills,
      where the link inherits the box's own text color. The brand accent is NOT
-     used at rest: --color-accent-on-bg is 4.11:1 on --color-bg, below the 4.5:1
-     normal-text floor (see BL-ACCENT-ON-BG-AA-CONTRAST). This matches the
-     Header/Breadcrumb chrome, which also style links as text-color + underline.
-     The accent appears on hover only (transient, desktop). */
+     used in ANY state — including :hover: --color-accent-on-bg is 4.11:1 on
+     --color-bg and ≈3.6–3.9:1 on the tinted Callout/aside fills, below the
+     4.5:1 normal-text floor, and WCAG 1.4.3 is not waived for hover text (see
+     BL-ACCENT-ON-BG-AA-CONTRAST). This matches the Header/Breadcrumb chrome,
+     which also style links as text-color + underline. Hover feedback comes from
+     the cursor and the always-present underline, not a color change. */
   .help-prose :is(p, li, dd, td) a {
     text-decoration: underline;
     text-underline-offset: 2px;
-  }
-  .help-prose :is(p, li, dd, td) a:hover {
-    color: var(--color-accent-on-bg);
   }
 
   .help-prose code {

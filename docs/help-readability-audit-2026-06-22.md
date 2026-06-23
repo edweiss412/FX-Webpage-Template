@@ -69,7 +69,7 @@ The heading scale below is chosen to match **both** `DESIGN.md §2.2` (text-2xl 
 .help-prose ol { list-style: decimal; }
 .help-prose li { margin-bottom: 0.5rem; }
 .help-prose :is(p,li,dd,td) a {                                /* underline = affordance; inherits AA-safe body text color */
-  text-decoration: underline; text-underline-offset: 2px;       /* accent (4.11:1) only on :hover — see BL-ACCENT-ON-BG-AA-CONTRAST */
+  text-decoration: underline; text-underline-offset: 2px;       /* no accent in any state (4.11:1 fails AA) — underline only; see BL-ACCENT-ON-BG-AA-CONTRAST */
 }
 .help-prose code {
   background: var(--color-surface-sunken); padding: 0.1em 0.35em;

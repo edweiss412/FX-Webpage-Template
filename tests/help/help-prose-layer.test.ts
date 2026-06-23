@@ -42,11 +42,12 @@ describe("/help prose typography layer — structural wiring", () => {
     // List markers restored (preflight strips them).
     expect(region, "ul marker restored").toMatch(/list-style:\s*disc/);
     expect(region, "ol marker restored").toMatch(/list-style:\s*decimal/);
-    // Inline prose links are underlined; the brand accent is hover-only (the
-    // rest-state color is inherited and AA-safe — pinned by the guards below).
+    // Inline prose links are underlined and inherit the AA-safe text color in
+    // EVERY state — the sub-AA brand accent must not appear in the prose-link
+    // rules at all (not at rest, not on :hover). Pinned by the guards below.
     expect(region, "links underlined").toMatch(/text-decoration:\s*underline/);
-    expect(region, "accent reserved for :hover").toMatch(
-      /a:hover\s*\{[^}]*var\(--color-accent-on-bg\)/,
+    expect(region, "prose links never use the sub-AA accent token").not.toMatch(
+      /var\(--color-accent-on-bg\)/,
     );
 
     // Must live in @layer base so per-element Tailwind utilities (RefAnchor /
@@ -76,16 +77,16 @@ describe("/help prose typography layer — structural wiring", () => {
     expect(errors, "errors page must not keep inert `max-w-none`").not.toMatch(/max-w-none/);
   });
 
-  // Codex adversarial-review finding: a prior revision colored body prose links
-  // with --color-accent-on-bg (#c25e00 → 4.11:1 on the page bg, below WCAG AA
-  // 4.5:1 for normal text). The rest-state link must NOT use a sub-AA color; the
-  // underline is the affordance and the link inherits the high-contrast body
-  // text color. These guards pin that contract so the sub-AA accent can't creep
-  // back as the resting link color. (BL-ACCENT-ON-BG-AA-CONTRAST.)
-  it("rest-state prose links set no color (inherit AA-safe text), not the sub-AA accent", () => {
+  // Codex adversarial-review findings (rounds 1+2): a prior revision colored
+  // body prose links with --color-accent-on-bg (#c25e00 → 4.11:1 on the page bg,
+  // ≈3.6–3.9:1 on the tinted Callout fills — below WCAG AA 4.5:1 for normal
+  // text), first at rest (round 1) then on :hover (round 2). WCAG 1.4.3 is not
+  // waived for hover text, so the prose-link rules must NOT set that color in
+  // ANY state: the underline is the affordance and the link inherits the
+  // high-contrast text color. These guards pin that contract.
+  // (BL-ACCENT-ON-BG-AA-CONTRAST.)
+  it("prose links set no explicit color in any state, and never the sub-AA accent", () => {
     const css = read("app/globals.css");
-    // The rest-state rule is `.help-prose :is(p, li, dd, td) a {` (space-brace);
-    // the `a:hover {` variant is a separate block and may carry the accent.
     const m = css.match(/\.help-prose :is\(p, li, dd, td\) a \{([^}]*)\}/);
     expect(m, "rest-state inline-link rule must exist").not.toBeNull();
     const body = m![1] ?? "";
@@ -93,13 +94,10 @@ describe("/help prose typography layer — structural wiring", () => {
     expect(body, "rest-state link must NOT set an explicit color (inherits text)").not.toMatch(
       /(^|\s)color:/,
     );
-    // Belt-and-suspenders: the accent-on-bg token may only appear under :hover.
-    const hover = css.match(/\.help-prose :is\(p, li, dd, td\) a:hover \{([^}]*)\}/);
-    const hoverBody = hover?.[1] ?? "";
-    if (/--color-accent-on-bg/.test(hoverBody)) {
-      // accent on hover is allowed (transient state, not subject to the 1.4.3 floor)
-      expect(hoverBody).toMatch(/--color-accent-on-bg/);
-    }
+    // No :hover (or any) prose-link rule may apply the sub-AA accent token.
+    expect(css, "prose links must not set the sub-AA accent on :hover").not.toMatch(
+      /\.help-prose :is\(p, li, dd, td\) a:hover \{[^}]*--color-accent-on-bg/,
+    );
   });
 
   it("the inherited prose-link text color clears WCAG AA (4.5:1) on the page bg in both modes", () => {
