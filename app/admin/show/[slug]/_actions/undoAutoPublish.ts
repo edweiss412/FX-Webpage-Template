@@ -34,6 +34,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { readUnpublishTokenForSlug, unpublishShow } from "@/lib/sync/unpublishShow";
 
 /** UI-facing outcome of the in-app undo. The button maps each to its render state. */
@@ -79,6 +80,10 @@ export async function undoAutoPublishAction(
 
   switch (result.outcome) {
     case "success":
+      // nav-perf tag-caching (Task 8/9): the undo unpublished + archived the show (published=false)
+      // — gates crew visibility (getShowForViewer.ts:291). `unpublishShow` owns its own lock/tx and
+      // has committed by the time it resolves, so revalidateShow(result.showId) here is POST-COMMIT.
+      revalidateShow(result.showId);
       revalidatePath(`/admin/show/${slug}`);
       revalidatePath("/admin");
       return { outcome: "success" };

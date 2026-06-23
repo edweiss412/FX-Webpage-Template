@@ -48,9 +48,14 @@ vi.mock("@/lib/sync/unpublishShow", () => ({
 }));
 
 const revalidatePath = vi.fn();
-vi.mock("next/cache", () => ({ revalidatePath: (...a: unknown[]) => revalidatePath(...a) }));
+const revalidateTag = vi.fn();
+vi.mock("next/cache", () => ({
+  revalidatePath: (...a: unknown[]) => revalidatePath(...a),
+  revalidateTag: (...a: unknown[]) => revalidateTag(...a),
+}));
 
 import { undoAutoPublishAction } from "@/app/admin/show/[slug]/_actions/undoAutoPublish";
+import { showCacheTag } from "@/lib/data/showCacheTag";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -83,6 +88,8 @@ describe("undoAutoPublishAction (Task 12, spec §6.2)", () => {
     expect(res).toEqual({ outcome: "success" });
     expect(revalidatePath).toHaveBeenCalledWith("/admin/show/rpas");
     expect(revalidatePath).toHaveBeenCalledWith("/admin");
+    // nav-perf tag-caching (Task 8/9): success unpublished+archived the show → revalidate its tag.
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("s1"), { expire: 0 });
   });
 
   it("non-admin → requireAdmin throws and nothing else runs", async () => {
@@ -110,6 +117,7 @@ describe("undoAutoPublishAction (Task 12, spec §6.2)", () => {
     const res = await undoAutoPublishAction("rpas");
     expect(res).toEqual({ outcome: "expired" });
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(revalidateTag).not.toHaveBeenCalled();
   });
 
   it("unpublishShow consumed → consumed catalog outcome (allowed in-app)", async () => {

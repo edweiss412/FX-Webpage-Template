@@ -19,6 +19,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { unarchiveShow } from "@/lib/showLifecycle/unarchiveShow";
 import { resolveShowById } from "./shared";
 
@@ -30,6 +31,11 @@ export async function unarchiveShowAction(showId: string): Promise<void> {
   if (resolved.kind !== "found") return;
   const result = await unarchiveShow(resolved.show.id, resolved.show.driveFileId);
   if (result.ok) {
+    // nav-perf tag-caching (Task 8): unarchive clears shows.archived + sets requires_resync (a
+    // rendered-data change; the row relocates to Active/Held). The self-locking unarchive_show RPC
+    // has committed by the time it resolves → revalidateShow here is POST-COMMIT. (The follow-on
+    // catch-up sync also revalidates via Task 5 if it applies; idempotent.)
+    revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show`);
     revalidatePath("/admin");
   }
