@@ -193,4 +193,4 @@ Because the diff edits UI-surface paths (`app/admin/*` pages, `components/admin/
 
 ## 10. Expected outcome
 
-Migration-free, UI-free server-latency reduction: crew-page and admin navigations issue 1-2 parallel read waves instead of ~8-13 serial round-trips, and the admin auth gate drops from up to 2 network hops + 2 RPCs to 0 network hops + 1 RPC per request. Always-fresh semantics unchanged.
+UI-free server-latency reduction with one small migration (`is_session_live()` RPC): crew-page and admin navigations issue 1-2 parallel read waves instead of ~8-13 serial round-trips, and the admin auth gate drops from a serial Auth-server hop + RPC to 0 network hops + one parallel RPC-pair (`is_session_live`+`is_admin`) per request — strictly faster than today AND preserving immediate session revocation. Always-fresh data semantics unchanged.

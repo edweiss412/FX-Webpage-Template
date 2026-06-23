@@ -160,7 +160,8 @@ test("maps 4 columns → flags", async () => {
 - Consumes: `getClaims()` from the cookie-bound client; `isAuthSessionMissingError` from `@/lib/auth/supabaseAuthError`; `canonicalize` from `@/lib/email/canonicalize`; `cache` from `react`; `supabase.rpc("is_session_live")` + `supabase.rpc("is_admin")`.
 - Produces: unchanged public signatures `requireAdminIdentity(opts?): Promise<AdminIdentity>`, `requireAdmin(opts?): Promise<void>`; new DB function `public.is_session_live() returns boolean`.
 
-- [ ] **Step 0a: Write the migration** (`supabase/migrations/20260622000004_is_session_live_rpc.sql`)
+- [ ] **Step 0a: Write the FAILING DB test FIRST (TDD red)** (`tests/db/isSessionLive.test.ts`, node env, local Supabase) — mirror existing auth DB tests' self-signed-JWT seam: connect as `authenticated` with a JWT carrying a `session_id`; seed an `auth.sessions` row with that id → assert `is_session_live()` returns `true`; delete the row (simulate revocation) → `false`; JWT without `session_id` → `false`. Run: `pnpm exec vitest run tests/db/isSessionLive.test.ts` → **FAIL** with `function public.is_session_live() does not exist` (the migration is not written yet). This is the red step — observe it fail before writing the migration.
+- [ ] **Step 0b: Write the migration + apply locally (TDD green impl)** (`supabase/migrations/20260622000004_is_session_live_rpc.sql`):
 
 ```sql
 -- is_session_live(): immediate admin-session revocation for the admin gate
@@ -182,8 +183,9 @@ revoke all on function public.is_session_live() from public;
 grant execute on function public.is_session_live() to authenticated;
 ```
 
-- [ ] **Step 0b: Apply locally + DB test** (`tests/db/isSessionLive.test.ts`) — apply via the repo's local-apply path (e.g. `psql "$DATABASE_URL" -f supabase/migrations/20260622000004_is_session_live_rpc.sql`), then a test mirroring existing auth DB tests (self-signed JWT seam): seed an `auth.sessions` row + JWT carrying that `session_id` → `is_session_live()` returns `true`; delete the row → `false`; JWT without `session_id` → `false`. Run → PASS after apply.
-- [ ] **Step 0c: Regen manifest + commit** — `pnpm gen:schema-manifest`; commit migration + manifest + DB test: `feat(db): is_session_live() RPC for immediate admin-session revocation`.
+Apply via the repo's local-apply path (e.g. `psql "$DATABASE_URL" -f supabase/migrations/20260622000004_is_session_live_rpc.sql` then `notify pgrst, 'reload schema';`).
+- [ ] **Step 0c: Run the DB test → PASS (TDD green).** `pnpm exec vitest run tests/db/isSessionLive.test.ts` → PASS.
+- [ ] **Step 0d: Regen manifest + commit** — `pnpm gen:schema-manifest`; commit migration + manifest + DB test: `feat(db): is_session_live() RPC for immediate admin-session revocation`.
 
 - [ ] **Step 1: Failing tests** (`tests/auth/requireAdmin.getClaims.test.ts`) — mirror `tests/auth/requireAdmin.test.ts`'s `vi.hoisted`/`vi.mock("@/lib/supabase/server")` + `vi.mock("next/navigation")` (forbidden/redirect throw strings). Stub `client.auth.getClaims` + `client.rpc`:
 
@@ -458,8 +460,8 @@ Keep every supabase await inside try/catch (admin meta-test grep-shape).
 
 ### Task 11: Plan/diff self-review
 
-- [ ] Re-read the spec §1-§10; confirm every workstream item (A1-A5, B1-B3, B-SEC, A2 gate) has a landed task + passing test. List any gap; add a task if missing.
-- [ ] Grep the diff for `allSettled` (must be ZERO), for bare `data` without `error` destructure on new reads, for inline `.toLowerCase()/.trim()`. Confirm no migration files added.
+- [ ] Re-read the spec §1-§10; confirm every workstream item (A1-A5, B1, B1.5, B2, B3, B-SEC, A2 gate) has a landed task + passing test. List any gap; add a task if missing.
+- [ ] Grep the diff for `allSettled` (must be ZERO), for bare `data` without `error` destructure on new reads, for inline `.toLowerCase()/.trim()`. **Confirm the ONLY migration added is `supabase/migrations/20260622000004_is_session_live_rpc.sql`**, that `supabase/__generated__/schema-manifest.json` was regenerated + committed, and that validation has been surgically updated (Task 12 step 1b). Confirm no OTHER migration files were added.
 
 ---
 
