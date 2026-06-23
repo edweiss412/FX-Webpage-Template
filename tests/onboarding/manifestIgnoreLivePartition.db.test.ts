@@ -293,9 +293,7 @@ describe("DS3-1 — manifest-keyed ignore writes the durable live partition (rea
           driveFileId: string,
           fn: (tx: never) => Promise<R> | R,
         ): Promise<R> => {
-          const { withPostgresSyncPipelineLock } = await import(
-            "@/lib/sync/runScheduledCronSync"
-          );
+          const { withPostgresSyncPipelineLock } = await import("@/lib/sync/runScheduledCronSync");
           const result = await withPostgresSyncPipelineLock(
             driveFileId,
             async (tx) => {

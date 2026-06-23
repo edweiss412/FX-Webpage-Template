@@ -73,10 +73,7 @@ type ManifestRow = {
   status: string;
 };
 
-const IGNORABLE_STATUSES: ReadonlySet<string> = new Set([
-  "live_row_conflict",
-  "discard_retryable",
-]);
+const IGNORABLE_STATUSES: ReadonlySet<string> = new Set(["live_row_conflict", "discard_retryable"]);
 
 async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   const { requireAdminIdentity } = await import("@/lib/auth/requireAdmin");
@@ -182,7 +179,8 @@ export async function handleWizardManifestIgnore(
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
-    if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    if (code === "ADMIN_SESSION_LOOKUP_FAILED")
+      return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 

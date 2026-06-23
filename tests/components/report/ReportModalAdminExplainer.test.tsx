@@ -115,10 +115,15 @@ describe("ReportModal cross-mount resume rehydration (Codex R4 finding 2)", () =
     fireEvent.click(screen.getByTestId("report-modal-submit"));
     await waitFor(() => screen.getByTestId("report-modal-retry"));
 
-    // Confirm persistence carries the errorCode.
-    const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
-    expect(persisted.status).toBe("failed-retryable");
-    expect(persisted.errorCode).toBe(code);
+    // Confirm persistence carries the errorCode. Poll the persisted record: the
+    // sessionStorage write lands a tick AFTER the retry button renders, so a
+    // synchronous read can catch the intermediate 'submitting' status under CI
+    // load (async-state flake — assert via waitFor, never synchronously).
+    await waitFor(() => {
+      const persisted = JSON.parse(sessionStorage.getItem(STORAGE_KEY)!);
+      expect(persisted.status).toBe("failed-retryable");
+      expect(persisted.errorCode).toBe(code);
+    });
 
     // Tear down + remount (modeled on the existing close+reopen test
     // in ReportModal.test.tsx). The new mount should rehydrate the

@@ -155,9 +155,7 @@ describe("DS3-1 — POST manifest-keyed permanent_ignore route (mocked tx)", () 
       expect(updateIdx).toBeGreaterThan(insertIdx);
 
       // No pending_ingestions / pending_syncs touch.
-      expect(
-        lastTxCalls.some((c) => /pending_ingestions|pending_syncs/i.test(c.sql)),
-      ).toBe(false);
+      expect(lastTxCalls.some((c) => /pending_ingestions|pending_syncs/i.test(c.sql))).toBe(false);
     },
   );
 
@@ -170,9 +168,9 @@ describe("DS3-1 — POST manifest-keyed permanent_ignore route (mocked tx)", () 
     expect((await response.json()) as { code: string }).toMatchObject({
       code: "INVALID_REVIEWER_ACTION",
     });
-    expect(
-      lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql)),
-    ).toBe(false);
+    expect(lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql))).toBe(
+      false,
+    );
   });
 
   test("supersession: manifest read returns null → 409 WIZARD_SESSION_SUPERSEDED, no writes", async () => {
@@ -192,9 +190,9 @@ describe("DS3-1 — POST manifest-keyed permanent_ignore route (mocked tx)", () 
     expect((await response.json()) as { code: string }).toMatchObject({
       code: "WIZARD_SESSION_SUPERSEDED",
     });
-    expect(
-      lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql)),
-    ).toBe(false);
+    expect(lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql))).toBe(
+      false,
+    );
   });
 
   test("supersession BETWEEN the deferral write and the transition: transition false → 409 + the deferral is rolled back", async () => {
@@ -244,8 +242,8 @@ describe("DS3-1 — POST manifest-keyed permanent_ignore route (mocked tx)", () 
     });
     // The deferral upsert DID run inside the (now-aborted) tx — its effect is gone
     // because the tx threw, but the statement was issued (proving the ordering risk).
-    expect(
-      lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql)),
-    ).toBe(true);
+    expect(lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql))).toBe(
+      true,
+    );
   });
 });
