@@ -260,9 +260,29 @@ async function unresolvedManifestCount(
   const { rows } = await tx.query<{ unresolved_count: number }>(
     `
       select count(*)::int as unresolved_count
-        from public.onboarding_scan_manifest
-       where wizard_session_id = $1::uuid
-         and status in ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')
+        from public.onboarding_scan_manifest m
+        left join public.pending_syncs ps
+          on ps.wizard_session_id = m.wizard_session_id and ps.drive_file_id = m.drive_file_id
+       where m.wizard_session_id = $1::uuid
+         -- Task B1 / spec 7.3 finishable set: blocking statuses are exactly
+         -- (hard_failed, live_row_conflict, discard_retryable). A FRESH clean 'staged'
+         -- row (unchecked, created Held by B2) is NOT counted -- only genuine
+         -- error/conflict rows block finish.
+         --
+         -- whole-diff R1 HIGH (demoted-row finalize-retry bypass): a DEMOTED
+         -- finalize-failure row is reset to status='staged' by demotePending with its
+         -- pending_syncs.last_finalize_failure_code set. Such a row is EXCLUDED by the
+         -- Task-B2 finishable selector (so it isn't auto-Held-created -- it must be
+         -- re-applied), but if it weren't also counted here a SECOND /finalize call would
+         -- see zero selected + zero unresolved rows and advance to all_batches_complete,
+         -- letting finalize-cas promote the folder past the failed sheet. So count a
+         -- 'staged' row whose pending_syncs row carries a non-null last_finalize_failure_code
+         -- as BLOCKING again. A fresh unchecked-clean 'staged' row (no failure code) stays
+         -- non-blocking -> becomes Held.
+         and (
+           m.status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
+           or (m.status = 'staged' and ps.last_finalize_failure_code is not null)
+         )
     `,
     [wizardSessionId],
   );
@@ -462,6 +482,10 @@ async function publishAppliedWizardShows(
        where wizard_session_id = $1::uuid
          and status = 'applied'
          and created_show_id is not null
+         -- Task B3 / spec 7.4: publish only CHECKED rows. publish_intent=true is the
+         -- checked-for-publish first-seen show (created Held, flip it to Live);
+         -- publish_intent=false leaves the unchecked Held show at published=false.
+         and publish_intent = true
        order by drive_file_id
     `,
     [wizardSessionId],
@@ -485,6 +509,9 @@ async function publishAppliedWizardShows(
          and m.drive_file_id = s.drive_file_id
          and s.wizard_created_session_id = m.wizard_session_id
          and m.drive_file_id = any($2::text[])
+         -- Task B3 / spec 7.4: flip only CHECKED (publish_intent=true) rows to Live; an
+         -- unchecked Held show (publish_intent=false) is left at published=false.
+         and m.publish_intent = true
       returning s.id
     `,
     [wizardSessionId, lockedDriveFileIds],

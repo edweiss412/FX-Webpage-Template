@@ -241,16 +241,22 @@ async function seedShadow(
 
 async function seedManifestRow(
   drive: string,
-  opts: { createdShowId?: string | null } = {},
+  opts: { createdShowId?: string | null; publishIntent?: boolean } = {},
 ): Promise<void> {
+  // Task B3: the CAS flip publishes only publish_intent=true rows. These fixtures model the
+  // CHECKED-for-publish case (every created_show_id row published, pre-B3 semantics), so
+  // publish_intent defaults to true — the cases that must NOT publish are excluded by the
+  // created_show_id/discriminator/drive joins, not by publish_intent.
   await sql!.unsafe(
     `insert into public.onboarding_scan_manifest
-       (folder_id, wizard_session_id, drive_file_id, mime_type, name, status, created_show_id)
+       (folder_id, wizard_session_id, drive_file_id, mime_type, name, status, created_show_id,
+        publish_intent)
      values ($1, $2::uuid, $3, 'application/vnd.google-apps.spreadsheet', 'fixture.gsheet',
-             'applied', $4::uuid)
+             'applied', $4::uuid, $5)
      on conflict (wizard_session_id, drive_file_id)
-       do update set status = 'applied', created_show_id = excluded.created_show_id`,
-    [FOLDER, SESSION, drive, opts.createdShowId ?? null],
+       do update set status = 'applied', created_show_id = excluded.created_show_id,
+                     publish_intent = excluded.publish_intent`,
+    [FOLDER, SESSION, drive, opts.createdShowId ?? null, opts.publishIntent ?? true],
   );
 }
 

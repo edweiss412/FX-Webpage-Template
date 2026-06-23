@@ -5,7 +5,10 @@
  * Wizard-scoped staged review surface for per-row finalize failures
  * (and any other wizard-partition row in wizard_approved = FALSE
  * state). Reached via the FinalizeButton / ResumeFinalizeButton's
- * re-apply links and the Step3Review "Review and apply" link.
+ * re-apply links. (The Step3Review "Review and apply" link was removed
+ * in D2 — first-review now renders inline, so this page is
+ * failure-recovery-only; its heading is conditional on
+ * last_finalize_failure_code per D6 / §8.3.)
  *
  * Per plan §M10 Task 10.1 §B finding 2:
  *   - Server Component, admin-gated by app/admin/layout.tsx (we re-call
@@ -257,11 +260,27 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
         >
           Setup
         </p>
-        <h2 className="text-2xl font-semibold text-text-strong">Re-apply this sheet</h2>
-        <p className="max-w-prose text-base text-text-subtle">
-          The last publish attempt could not finish this sheet. Re-make any choices below and click
-          Apply, or set the sheet aside.
-        </p>
+        {/* D6 (§8.3): the failure heading + subcopy are conditional on
+            last_finalize_failure_code. Since the D2 link removal, first-review
+            traffic no longer routes here, so a row reached WITHOUT a finalize
+            failure gets neutral copy — never the "last publish attempt could
+            not finish" claim that didn't happen. State page, no §12.4 code. */}
+        {row.last_finalize_failure_code !== null ? (
+          <>
+            <h2 className="text-2xl font-semibold text-text-strong">Re-apply this sheet</h2>
+            <p className="max-w-prose text-base text-text-subtle">
+              The last publish attempt could not finish this sheet. Re-make any choices below and
+              click Apply, or set the sheet aside.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="text-2xl font-semibold text-text-strong">Re-review this sheet</h2>
+            <p className="max-w-prose text-base text-text-subtle">
+              Re-make any choices below and click Apply, or set the sheet aside.
+            </p>
+          </>
+        )}
       </header>
 
       <StagedReviewCard

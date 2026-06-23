@@ -356,6 +356,36 @@ describe("StagedReviewCard", () => {
     );
   });
 
+  test("F1: live mode (default) submit button reads 'Apply this change' (D9 — live wording unchanged)", () => {
+    const row: StagedRow = {
+      ...baseRow,
+      triggeredReviewItems: [{ id: "mi6", invariant: "MI-6" }],
+    };
+    const { getByTestId } = render(<StagedReviewCard row={row} />);
+    const button = getByTestId("staged-review-apply");
+    expect(button.textContent).toContain("Apply this change");
+    expect(button.textContent).not.toContain("Approve");
+  });
+
+  test("F1: wizard mode submit button reads 'Approve' (onboarding-only re-approve)", () => {
+    const row: StagedRow = {
+      ...baseRow,
+      triggeredReviewItems: [{ id: "mi6", invariant: "MI-6" }],
+    };
+    const { getByTestId } = render(
+      <StagedReviewCard
+        row={row}
+        mode="wizard_failed_reapply"
+        wizardSessionId="11111111-1111-1111-1111-111111111111"
+      />,
+    );
+    const button = getByTestId("staged-review-apply");
+    expect(button.textContent).toContain("Approve");
+    expect(button.textContent).not.toContain("Apply this change");
+    // Not "Publish" — approval ≠ publish (finalize publishes).
+    expect(button.textContent).not.toContain("Publish");
+  });
+
   test("encodes drive_file_id with special characters in URL", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const row: StagedRow = {
