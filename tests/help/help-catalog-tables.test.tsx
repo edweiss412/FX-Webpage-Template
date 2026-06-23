@@ -62,13 +62,19 @@ const bodyRows = (t: HTMLTableElement) => Array.from(t.querySelectorAll("tbody t
 
 describe("Chunk 2 — remark-gfm pipeline + Theme B source conversions (structural)", () => {
   it("remark-gfm is wired into BOTH the production and test MDX pipelines", () => {
+    // next.config (@next/mdx) passes the plugin by STRING NAME — its loader
+    // requires serializable options, so the function form fails the build.
     const next = read("next.config.ts");
-    expect(next, "next.config imports remark-gfm").toMatch(
+    expect(next, "next.config registers remark-gfm by string name (serializable)").toMatch(
+      /remarkPlugins:\s*\[\s*\[\s*["']remark-gfm["']/,
+    );
+    // vitest (@mdx-js/rollup) takes the plugin FUNCTION directly, so it mirrors
+    // remark-gfm via the imported symbol — keeping test renders matched to prod.
+    const vitestCfg = read("vitest.config.ts");
+    expect(vitestCfg, "vitest imports remark-gfm").toMatch(
       /import\s+remarkGfm\s+from\s+["']remark-gfm["']/,
     );
-    expect(next, "next.config registers remarkGfm").toMatch(/remarkPlugins:\s*\[\s*remarkGfm/);
-    const vitestCfg = read("vitest.config.ts");
-    expect(vitestCfg, "vitest mirrors remark-gfm so test renders match prod").toMatch(
+    expect(vitestCfg, "vitest registers the remarkGfm function").toMatch(
       /remarkPlugins:\s*\[\s*remarkGfm/,
     );
   });
