@@ -95,6 +95,9 @@ type PendingRow = {
   wizard_approved_at: string | null;
   triggered_review_items: unknown;
   base_modified_time: string | null;
+  // Task B2: a demoted-not-yet-reapplied row (wizard_approved=false AND this non-null) is excluded
+  // by selectFinishableCleanRows / countRemainingCleanRows until re-apply flips wizard_approved=true.
+  last_finalize_failure_code?: string | null;
 };
 
 function pending(driveFileId: string): PendingRow {
@@ -154,14 +157,19 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     if (n.startsWith("select count(*)::int as unresolved_count")) {
       return { rows: [{ unresolved_count: 0 } as T], rowCount: 1 };
     }
-    if (n.startsWith("select count(*)::int as approved_count")) {
+    // Task B2: a row is FINISHABLE-clean when it is not a demoted-not-yet-reapplied failure
+    // (wizard_approved=true OR last_finalize_failure_code is null). Both selectFinishableCleanRows
+    // and countRemainingCleanRows share this predicate.
+    const isFinishableClean = (row: PendingRow): boolean =>
+      row.wizard_approved === true || row.last_finalize_failure_code == null;
+    if (n.startsWith("select count(*)::int as remaining_count")) {
       return {
-        rows: [{ approved_count: this.approved.filter((r) => r.wizard_approved).length } as T],
+        rows: [{ remaining_count: this.approved.filter(isFinishableClean).length } as T],
         rowCount: 1,
       };
     }
-    if (n.startsWith("select drive_file_id, staged_id")) {
-      const rows = this.approved.filter((r) => r.wizard_approved).slice(0, 100);
+    if (n.startsWith("select ps.drive_file_id, ps.staged_id")) {
+      const rows = this.approved.filter(isFinishableClean).slice(0, 100);
       return { rows: rows as T[], rowCount: rows.length };
     }
     if (n.startsWith("select exists")) {

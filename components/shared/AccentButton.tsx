@@ -41,7 +41,7 @@
  * compositions in the migrated files outside this atom so the class can't
  * re-drift.
  */
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 
 export type AccentButtonSize = "sm" | "md" | "lg";
 export type AccentButtonWeight = "medium" | "semibold";
@@ -68,6 +68,12 @@ export type AccentButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   shadow?: boolean;
   /** min-w-tap-min square-ish tap floor (in addition to the always-on min-h). */
   minWidthTap?: boolean;
+  /**
+   * Forwarded to the underlying <button> (React 19 ref-as-prop). Lets callers
+   * that manage focus (e.g. FinalizeButton's soft-confirm focus trap) drive the
+   * native element without forking the atom.
+   */
+  ref?: Ref<HTMLButtonElement>;
 };
 
 const SIZE_CLASS: Record<AccentButtonSize, string> = {
@@ -105,6 +111,7 @@ export function AccentButton({
   className,
   type,
   children,
+  ref,
   ...rest
 }: AccentButtonProps) {
   const classes = [
@@ -125,7 +132,7 @@ export function AccentButton({
   return (
     // type defaults to "button" so the atom never accidentally submits a
     // surrounding <form>; submit sites pass type="submit" explicitly.
-    <button type={type ?? "button"} className={classes} {...rest}>
+    <button ref={ref} type={type ?? "button"} className={classes} {...rest}>
       {children}
     </button>
   );
