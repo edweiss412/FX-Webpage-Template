@@ -424,15 +424,18 @@ function terminal(messages: unknown[]): unknown {
   return last!.body;
 }
 
-// REWRITE: AC-10.2 success (was response.json())
-test("AC-10.2 success streams NDJSON; terminal body == toScanResponseBody", async () => {
+// REWRITE: AC-10.2 success (was response.json()). Add this import to the file:
+//   import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
+test("AC-10.2 success streams NDJSON; terminal body == toScanResponseBody (derived, anti-tautology)", async () => {
   const db = new FakeScanDb();
-  const routeDeps = deps(db, {
-    runOnboardingScan: vi.fn(async () => ({
-      outcome: "completed" as const,
-      processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
-    })),
-  });
+  // The expected terminal body is computed FROM the injected result via the SAME
+  // helper the route uses — never hand-authored — so the assertion cannot drift
+  // from the shared response contract and cannot pass against a wrong shape.
+  const result = {
+    outcome: "completed" as const,
+    processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
+  };
+  const routeDeps = deps(db, { runOnboardingScan: vi.fn(async () => result) });
   const response = await handleOnboardingScan(
     request("https://drive.google.com/drive/folders/folder-1"),
     routeDeps,
@@ -440,13 +443,12 @@ test("AC-10.2 success streams NDJSON; terminal body == toScanResponseBody", asyn
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("application/x-ndjson");
   const messages = await readNdjson(response);
-  expect(terminal(messages)).toEqual({
-    outcome: "completed",
+  const expectedBody = toScanResponseBody(result, {
     wizardSessionId: W1,
     folderId: "folder-1",
     folderName: "FXAV Onboarding",
-    totals: { staged: 1, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 },
   });
+  expect(terminal(messages)).toEqual(expectedBody);
   // 3rd arg now carries onProgress (the assertion at old :164 must be updated)
   expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith(
     "folder-1", W1, expect.objectContaining({ onProgress: expect.any(Function) }),
@@ -627,25 +629,80 @@ function ndjson(...messages: unknown[]): string {
   return messages.map((m) => JSON.stringify(m) + "\n").join("");
 }
 
-test("streams progress: determinate bar + count + just-read, then success summary", async () => {
-  const total = 3;
-  const result = { type: "result", body: completedScanBody(["staged", "staged", "staged"], "Shows 2026") };
-  fetchMock.mockResolvedValue(
-    streamResponse([
-      ndjson({ type: "listed", total }),
-      ndjson({ type: "prepared", done: 1, total, name: "Alpha" }),
-      ndjson({ type: "prepared", done: 2, total, name: "Bravo" }),
-      ndjson({ type: "prepared", done: 3, total, name: "Charlie" }, { type: "staging" }, result),
-    ]),
+// A stream the TEST drives, so intermediate phases are observable (the prior
+// version enqueued everything synchronously and only saw the success panel).
+function controllableStreamResponse(init: { status?: number } = {}) {
+  const encoder = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start(c) { controller = c; } });
+  const response = {
+    ok: (init.status ?? 200) < 400,
+    status: init.status ?? 200,
+    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "application/x-ndjson" : null) },
+    body,
+    json: async () => { throw new Error("json() must not be called on a stream response"); },
+  } as unknown as Response;
+  const push = async (...messages: unknown[]) => {
+    await act(async () => {
+      controller.enqueue(encoder.encode(messages.map((m) => JSON.stringify(m) + "\n").join("")));
+      await Promise.resolve();
+    });
+  };
+  const close = async () => { await act(async () => { controller.close(); await Promise.resolve(); }); };
+  return { response, push, close };
+}
+
+test("reading phase: determinate bar (aria), count, and Just-read update per prepared event", async () => {
+  const total = 3; // expectations derived from the stream, never hardcoded against a fixture
+  const { response, push, close } = controllableStreamResponse();
+  fetchMock.mockResolvedValue(response);
+  const { getByTestId, findByTestId, queryByTestId } = render(<Step2Verify />);
+  fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+    target: { value: "https://drive.google.com/drive/folders/abc123" },
+  });
+  await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
+
+  // connecting → indeterminate bar (no aria-valuenow yet)
+  expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBeNull();
+
+  await push({ type: "listed", total });
+  await push({ type: "prepared", done: 1, total, name: "Alpha" });
+  // stream reads resolve async — poll with waitFor (CI-flake lesson)
+  await waitFor(() =>
+    expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBe("1"),
   );
+  expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuemax")).toBe(String(total));
+  expect(getByTestId("wizard-step2-count").textContent ?? "").toMatch(new RegExp(`\\b1\\b[^0-9]*\\b${total}\\b`));
+  expect(getByTestId("wizard-step2-lastname").textContent ?? "").toContain("Alpha");
+
+  await push({ type: "prepared", done: 2, total, name: "Bravo" });
+  await waitFor(() =>
+    expect(getByTestId("wizard-step2-progressbar").getAttribute("aria-valuenow")).toBe("2"),
+  );
+  expect(getByTestId("wizard-step2-lastname").textContent ?? "").toContain("Bravo");
+
+  await push({ type: "staging" });
+  // finishing → count line gone, heading flips, bar indeterminate again
+  await waitFor(() => expect(queryByTestId("wizard-step2-count")).toBeNull());
+  expect(getByTestId("wizard-step2-progress").textContent ?? "").toMatch(/Finishing up/i);
+
+  await push({ type: "result", body: completedScanBody(["staged", "staged", "staged"], "Shows 2026") });
+  await close();
+  const success = await findByTestId("wizard-step2-success");
+  expect(success.textContent ?? "").toMatch(new RegExp(`\\b${total}\\b`));
+});
+
+test("result-before-listed: a terminal result with no prior progress still resolves", async () => {
+  const { response, push, close } = controllableStreamResponse();
+  fetchMock.mockResolvedValue(response);
   const { getByTestId, findByTestId } = render(<Step2Verify />);
   fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
     target: { value: "https://drive.google.com/drive/folders/abc123" },
   });
   await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
-  const success = await findByTestId("wizard-step2-success");
-  // count derived from the stream total (anti-hardcode)
-  expect(success.textContent ?? "").toMatch(new RegExp(`\\b${total}\\b`));
+  await push({ type: "result", body: { outcome: "schema_missing", code: "WIZARD_ISOLATION_INDEXES_MISSING" } });
+  await close();
+  expect(await findByTestId("wizard-step2-error")).toBeTruthy();
 });
 
 test("parses NDJSON across chunk boundaries and an unterminated final line", async () => {
@@ -1134,45 +1191,30 @@ git commit -m "feat(crew-page): Step2Verify streams scan progress into a determi
 
 ---
 
-### Task 6: Real-browser bar dimensions (layout assertion)
+### Task 6: Real-browser bar dimensions (standalone-harness manual check)
 
-**Files:**
-- Create: `tests/components/admin/wizard/Step2Verify.layout.test.ts` (Playwright component/page test) **OR** a chrome-devtools MCP `evaluate_script` step run manually during execution.
+**Why this is NOT a committed test (R1 fix):** the repo's `vitest.config.ts` collects `tests/**/*.test.ts` (jsdom — cannot compute layout) and `playwright.config.ts` runs only `tests/e2e` (a crew-route harness with no admin-wizard fixture). A `*.test.ts` Playwright file would be mis-collected by vitest. Per spec §5.5 this component has **no fixed-height parent containing flex children**, and the bar's width comes from an explicit `w-full` (not flex `align-items: stretch`), so the heavy CI-Playwright layout gate the project rule targets is **N/A**. The remaining lightweight invariant is verified once, manually, via the standalone real-browser layout harness and the result recorded — no flaky committed artifact.
 
-**Dimensional Invariants (from spec §5.5):**
-- The `<progress data-testid="wizard-step2-progressbar">` fills the progress panel's content width (`w-full`).
-- The bar has the fixed height from `h-2` (8px).
-- No fixed-height parent constrains it; the only invariant to verify in a real browser is width == panel content width (±0.5px) and height == 8px (±0.5px).
+**Files:** none committed (verification only; record measured numbers in the Task 5 / Task 8 commit body or a `DEFERRED.md` note if it cannot be run).
 
-- [ ] **Step 1: Write the failing assertion** — drive the wizard to Step 2 with a slow/mocked stream so the `reading` phase is on screen, then:
+**Dimensional invariant to confirm (spec §5.5):**
+- `<progress data-testid="wizard-step2-progressbar">` renders at the progress panel's full content width (panel width − horizontal `p-tile-pad`), ±0.5px.
+- Bar height == `h-2` (8px), ±0.5px.
 
-```ts
-// pseudo-Playwright (adapt to the repo's Playwright harness / fixtures)
-const bar = page.getByTestId("wizard-step2-progressbar");
-const panel = page.getByTestId("wizard-step2-progress");
-const barBox = await bar.boundingBox();
-const panelBox = await panel.boundingBox();
-// panel content width = panel width minus its horizontal padding (p-tile-pad ×2)
-const pad = await panel.evaluate((el) => {
-  const s = getComputedStyle(el);
-  return parseFloat(s.paddingLeft) + parseFloat(s.paddingRight);
-});
-expect(Math.abs(barBox!.width - (panelBox!.width - pad))).toBeLessThanOrEqual(0.5);
-expect(Math.abs(barBox!.height - 8)).toBeLessThanOrEqual(0.5);
+- [ ] **Step 1: Render the `reading` phase in a real browser.** Use the standalone real-browser layout harness (`reference_standalone_realbrowser_layout_harness`): compile `app/globals.css` with the Tailwind CLI, drop the progress-panel markup (heading + `<progress className="h-2 w-full" value={1} max={3}>` + count) into a static HTML file inside a `p-tile-pad` bordered panel, serve with `python3 -m http.server`, and inspect with Playwright MCP / chrome-devtools.
+
+- [ ] **Step 2: Assert dimensions via `getBoundingClientRect()` / `getComputedStyle`** in the browser console or MCP `evaluate_script`:
+
+```js
+const bar = document.querySelector('[data-testid="wizard-step2-progressbar"]');
+const panel = document.querySelector('[data-testid="wizard-step2-progress"]');
+const s = getComputedStyle(panel);
+const contentWidth = panel.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight);
+const b = bar.getBoundingClientRect();
+({ widthDelta: Math.abs(b.width - contentWidth), height: b.height }); // expect widthDelta ≤ 0.5, height ≈ 8
 ```
 
-- [ ] **Step 2: Run to verify it fails** (before Task 5 ships, or against a deliberately broken bar) — Expected: FAIL (bar collapsed / wrong height).
-- [ ] **Step 3: Implement** — satisfied by Task 5's `h-2 w-full` bar; no new component code.
-- [ ] **Step 4: Run to verify pass** — Expected: PASS in a real browser.
-
-> If this repo has no Playwright component harness for admin pages, run the assertion via the standalone real-browser layout harness (see memory `reference_standalone_realbrowser_layout_harness`) or a chrome-devtools `evaluate_script` against a local dev render, and record the measured numbers in the task's commit message. jsdom is NOT sufficient for this invariant.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/components/admin/wizard/Step2Verify.layout.test.ts
-git commit -m "test(crew-page): real-browser progress-bar dimension assertion"
-```
+- [ ] **Step 3: Record the measured numbers** (widthDelta, height) in the Task 8 close-out commit body. If the harness cannot be run in this environment, note it in `DEFERRED.md` with the reason and the manual command for a human to run — do NOT commit a non-running `*.test.ts`.
 
 ---
 
@@ -1181,48 +1223,54 @@ git commit -m "test(crew-page): real-browser progress-bar dimension assertion"
 **Files:**
 - Modify: `tests/components/admin/wizard/Step2Verify.test.tsx` (add a transition-audit block)
 
-**Transition Inventory (from spec §5.5) — assert each is the declared treatment:**
+**Structural note (required by the transition-audit rule):** the component uses **no** `framer-motion` / `AnimatePresence`. Every state surface is a plain conditional render (`{state.kind === "…" ? … : null}` / `{cond ? … : null}`), so every transition is **instant** except the native `<progress>` fill, which the browser updates per the `value` attribute (no custom CSS animation — R1 fix; the earlier "CSS width transition" claim was wrong for a native `<progress>`). The audit therefore (a) documents that there are zero animated-presence blocks and (b) behaviorally exercises the non-trivial transitions below.
 
-| From → To | Treatment |
-|---|---|
-| idle → connecting | instant (panel appears on submit) |
-| connecting → reading | instant; bar indeterminate→determinate |
-| reading → reading (done++) | CSS `width` transition; text swaps instantly |
-| reading → finishing | instant; bar → indeterminate |
-| connecting → finishing (empty folder) | instant |
-| reading/finishing → success | instant (today's behavior) |
-| reading/finishing → error | instant |
-| any submitting → idle (superseded) | instant + `router.refresh()` |
-| connecting → error (pre-run JSON branch) | instant |
-| success → connecting (resubmit; form stays rendered) | instant |
-| error → connecting (resubmit) | instant |
+**Transition Inventory (from spec §5.5) — treatment + where covered:**
 
-Unreachable (declared): reading → connecting; success ↔ error directly.
+| From → To | Treatment | Covered by |
+|---|---|---|
+| idle → connecting | instant (panel appears on submit) | Task 5 "reading phase" (asserts indeterminate bar pre-listed) |
+| connecting → reading | instant; bar indeterminate→determinate | Task 5 "reading phase" (aria-valuenow null → "1") |
+| reading → reading (done++) | native `<progress>` value update (no custom anim); text swaps instantly | Task 5 "reading phase" (valuenow 1→2) |
+| reading → finishing | instant; bar → indeterminate | Task 5 "reading phase" (staging → count gone) |
+| connecting → finishing (empty 0/0) | instant | Task 5 "empty folder" |
+| reading/finishing → success | instant | Task 5 "reading phase" / "chunk boundary" |
+| reading/finishing → error | instant | Task 5 "{ok:false,code:null}" / "no result" |
+| any submitting → idle (superseded) | instant + `router.refresh()` | **Task 7 compound test (below)** |
+| connecting → error (pre-run JSON branch) | instant | existing 400/403/404 tests (json path) |
+| success → connecting (resubmit; form stays rendered) | instant | **Task 7 resubmit test (below)** |
+| error → connecting (resubmit) | instant | **Task 7 resubmit test (below)** |
 
-- [ ] **Step 1: Write the failing tests** — the component uses **no** `AnimatePresence` and only conditional (`&&`/ternary) renders; the audit asserts the reachable transitions and the compound case.
+Unreachable (declared, no test): reading → connecting (a started stream only moves forward); success ↔ error directly (a resubmit always passes through `connecting`).
+
+- [ ] **Step 1: Write the failing tests** — Task 7 adds the three transitions not already pinned by Task 5 (compound superseded-mid-reading, success→connecting, error→connecting), plus the structural no-framer assertion.
 
 ```ts
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 describe("Step2Verify transition audit", () => {
-  test("connecting → reading flips the bar from indeterminate to determinate", async () => {
-    // emit listed only, then hold; assert progressbar has no value (indeterminate) before listed,
-    // and aria-valuenow after a prepared event.
-    // (drive via a streamResponse whose chunks are released incrementally, or assert two renders)
+  test("structural: component uses no framer-motion / AnimatePresence (all transitions instant)", () => {
+    const src = readFileSync(
+      resolve(__dirname, "../../../../components/admin/wizard/Step2Verify.tsx"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/framer-motion|AnimatePresence/);
   });
 
-  test("result arriving mid-reading overrides progress immediately (compound)", async () => {
-    // stream: listed, prepared(done:1), result(superseded) → refresh called, no further bar update
-    fetchMock.mockResolvedValue(
-      streamResponse([ ndjson(
-        { type: "listed", total: 5 },
-        { type: "prepared", done: 1, total: 5, name: "A" },
-        { type: "result", body: { outcome: "superseded", code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" } },
-      ) ]),
-    );
+  test("compound: a result arriving mid-reading overrides progress immediately (superseded → refresh)", async () => {
+    const { response, push, close } = controllableStreamResponse();
+    fetchMock.mockResolvedValue(response);
     const { getByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
       target: { value: "https://drive.google.com/drive/folders/abc123" },
     });
     await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
+    await push({ type: "listed", total: 5 });
+    await push({ type: "prepared", done: 1, total: 5, name: "A" });
+    // result wins over the in-flight reading state
+    await push({ type: "result", body: { outcome: "superseded", code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" } });
+    await close();
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
   });
 
@@ -1230,28 +1278,43 @@ describe("Step2Verify transition audit", () => {
     fetchMock
       .mockResolvedValueOnce(streamResponse([ ndjson(
         { type: "listed", total: 1 }, { type: "result", body: completedScanBody(["staged"], "First") }) ]))
-      .mockImplementationOnce(() => new Promise<Response>(() => {})); // second submit hangs in connecting
+      .mockImplementationOnce(() => new Promise<Response>(() => {})); // 2nd submit hangs in connecting
     const { getByTestId, findByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
       target: { value: "https://drive.google.com/drive/folders/abc123" },
     });
     await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
     await findByTestId("wizard-step2-success");
-    // form is still rendered → resubmit
+    await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); }); // form still rendered
+    expect(await findByTestId("wizard-step2-progress")).toBeTruthy();
+  });
+
+  test("error → connecting on resubmit (form stays rendered)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(mockJsonResponse({ ok: false, code: "FOLDER_NOT_FOUND" }, { status: 404 }))
+      .mockImplementationOnce(() => new Promise<Response>(() => {}));
+    const { getByTestId, findByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/missing" },
+    });
+    await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
+    await findByTestId("wizard-step2-error");
     await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
     expect(await findByTestId("wizard-step2-progress")).toBeTruthy();
   });
 });
 ```
 
-- [ ] **Step 2: Run to verify they fail / pass appropriately** — Run the file; the compound + resubmit cases fail until Task 5's reader handles them.
-- [ ] **Step 3: Implement** — satisfied by Task 5 (`dispatchLine` returns true on `result` and `break outer`; `applyResultBody` overrides; form always rendered).
+> `controllableStreamResponse`, `streamResponse`, `ndjson`, `mockJsonResponse`, `completedScanBody`, and `refreshMock` are all defined in Task 5's edits to the same file — reuse them (don't redefine). Verify the relative path in the structural test against the actual test-file depth (`tests/components/admin/wizard/` → repo root is four `..`).
+
+- [ ] **Step 2: Run to verify they fail** — Run the file; compound/resubmit cases fail until Task 5's reader + always-rendered form land.
+- [ ] **Step 3: Implement** — satisfied by Task 5 (`dispatchLine` returns true on `result` → `break outer`; `applyResultBody` overrides; the `<form>` is always rendered, so resubmit re-enters `connecting`).
 - [ ] **Step 4: Run to verify pass.**
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tests/components/admin/wizard/Step2Verify.test.tsx
-git commit -m "test(crew-page): Step2Verify transition audit (incl. compound result-mid-reading)"
+git commit -m "test(crew-page): Step2Verify transition audit (compound + resubmit + no-framer structural)"
 ```
 
 ---

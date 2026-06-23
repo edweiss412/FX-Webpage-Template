@@ -49,7 +49,7 @@ Because the slow phase writes nothing to the DB, a "poll a status table" design 
 | D8 | Route segment config | add `export const maxDuration = 300` |
 | D9 | Empty folder | `total:0` → bar treated as complete; go straight to "Finishing up…" → success ("Found 0 items") |
 | D10 | Name truncation | the "Just read" name is single-line, `truncate` (CSS ellipsis); no character cap in the data |
-| D11 | Reduced motion | `prefers-reduced-motion` → bar width snaps (no transition); no other motion |
+| D11 | Reduced motion | native `<progress>` has no custom animation → nothing to gate; `motion-reduce:transition-none` is a defensive no-op |
 
 ## 5. Architecture
 
@@ -224,12 +224,12 @@ type ScanProgress =
 
 **Accessibility / motion:**
 - Wrapper keeps `role="status" aria-live="polite"` (`:256-257`). To avoid screen-reader spam on every `prepared` tick, the **count/just-read** lines live in an `aria-hidden` visual region; a separate visually-hidden `aria-live="polite"` node announces **phase changes only** ("Looking through your folder", "Finishing up", and the final success/error already announced by their own `role`).
-- `<progress>` bar fill animates via CSS `transition: width`; under `prefers-reduced-motion: reduce`, the transition is removed (snap) (D11).
+- **Motion:** the bar fill is the native `<progress>` element's UA rendering — there is **no custom CSS width animation**, so there is nothing to gate. `motion-reduce:transition-none` is a defensive no-op; reduced-motion is trivially satisfied (D11).
 
 **Dimensional Invariants** (Tailwind v4 here does not default `.flex` to `align-items: stretch` — [[feedback_tailwind_v4_flex_items_stretch]]):
 - The progress panel is the existing bordered container (`:259`); it is height-`auto` (content-driven), no fixed-dimension parent constrains a flex/grid child here.
 - The bar element spans the panel's content width: `w-full` on the `<progress>` (and its wrapper). The bar has a fixed height (e.g. `h-2`) set explicitly on the element; its parent does not impose a conflicting height.
-- This component has **no fixed-height parent containing flex children**, so the only invariant to verify in a real browser is: the `<progress>` (and its fallback track/fill) renders at the panel's full content width and the documented fixed bar height. A Playwright assertion checks `progressEl.clientWidth === panelContentWidth` (±0.5px) and `progressEl.clientHeight === <bar-height>`.
+- This component has **no fixed-height parent containing flex children**, and the bar gets its width from an explicit `w-full` (width:100%), **not** from flex `align-items: stretch` — so the Tailwind-v4 no-default-stretch gotcha ([[feedback_tailwind_v4_flex_items_stretch]]) does not apply here and the heavy CI-Playwright layout gate the project rule targets is **N/A**. The lightweight invariant to confirm in a real browser is: the `<progress>` renders at the panel's full content width (±0.5px) and the documented fixed bar height (`h-2` = 8px). This is verified via the **standalone real-browser layout harness** (or a `chrome-devtools` `evaluate_script` against a local dev render), recorded in the task commit — **not** a committed `*.test.ts` (jsdom cannot compute layout, and `vitest` would mis-collect a Playwright-API file; the repo's `playwright.config.ts` only runs `tests/e2e`).
 
 **Transition Inventory.** Visual states: `idle`, `connecting`, `reading`, `finishing`, `success`, `error`. Treatments:
 
@@ -237,7 +237,7 @@ type ScanProgress =
 |---|---|
 | idle → connecting | instant (panel appears on submit) |
 | connecting → reading | instant swap of heading + reveal of count line; bar goes indeterminate→determinate |
-| reading → reading (done++) | bar `width` animates (CSS transition); count + "Just read" text swap instantly |
+| reading → reading (done++) | native `<progress>` fill updates per the `value` attribute (UA-rendered; **no custom CSS width animation**); count + "Just read" text swap instantly |
 | reading → finishing | heading swaps to "Finishing up…"; bar → indeterminate (or held full); instant |
 | connecting → finishing (empty folder, D9) | instant (skips reading) |
 | reading/finishing → success | panel replaced by success summary (instant; today's behavior) |
