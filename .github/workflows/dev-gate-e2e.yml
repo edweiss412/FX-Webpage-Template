@@ -54,7 +54,17 @@ jobs:
         # the hold-aside list cannot drift between workflows.
         run: bash scripts/ci/supabase-local-bootstrap.sh
       # The dev-gate projects all spread devices["Desktop Chrome"] → chromium only.
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # Split from `install --with-deps`: install-deps (apt) always runs, but the
+      # browser binaries are restored from the cache above on a hit.
+      - run: pnpm exec playwright install-deps chromium
+      - run: pnpm exec playwright install chromium
       - name: Run dev-gate projects (three serialized builds)
         env:
           # signInAs (tests/e2e/helpers/signInAs.ts) runs in the TEST-RUNNER

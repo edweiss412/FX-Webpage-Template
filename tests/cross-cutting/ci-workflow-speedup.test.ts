@@ -133,3 +133,38 @@ describe("CI speedup — host psql install skips apt-get update when psql is pre
     },
   );
 });
+
+describe("CI speedup — Playwright browser binaries are cached on the e2e workflows", () => {
+  // These three native-runner workflows download chromium (+ webkit) every run.
+  // Caching ~/.cache/ms-playwright restores the binaries on a hit so only OS
+  // deps (install-deps) re-run. screenshots-drift is intentionally excluded —
+  // its browsers are baked into the pinned Docker image, not ~/.cache.
+  const PW_WORKFLOWS = ["help-affordances.yml", "crew-e2e.yml", "dev-gate-e2e.yml"];
+
+  it.each(PW_WORKFLOWS)("%s caches ~/.cache/ms-playwright via actions/cache@v4", (file) => {
+    const yaml = readWorkflow(file);
+    expect(
+      yaml.includes("actions/cache@v4") && yaml.includes("~/.cache/ms-playwright"),
+      `${file} must add an actions/cache@v4 step on path ~/.cache/ms-playwright so Playwright ` +
+        `browser binaries are restored instead of re-downloaded every run.`,
+    ).toBe(true);
+  });
+
+  it.each(PW_WORKFLOWS)("%s keys the cache on the lockfile so a Playwright bump invalidates it", (file) => {
+    const yaml = readWorkflow(file);
+    expect(
+      /key:\s*.*playwright.*hashFiles\('pnpm-lock\.yaml'\)/.test(yaml),
+      `${file} Playwright cache key must include hashFiles('pnpm-lock.yaml') so bumping ` +
+        `@playwright/test busts the cache and the matching browser build is downloaded.`,
+    ).toBe(true);
+  });
+
+  it.each(PW_WORKFLOWS)("%s still installs the browsers (cache is an optimization, not a replacement)", (file) => {
+    const yaml = readWorkflow(file);
+    expect(
+      yaml.includes("playwright install chromium"),
+      `${file} must still run \`playwright install chromium ...\` — on a cache hit it is a ` +
+        `fast no-op, on a miss it repopulates the cache.`,
+    ).toBe(true);
+  });
+});

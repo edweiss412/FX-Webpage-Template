@@ -97,7 +97,17 @@ jobs:
       # The mobile-safari project spreads devices["iPhone 14"] → defaultBrowserType
       # "webkit" (NOT chromium). Mirror help-affordances.yml (its iPhone 14 help-docs
       # project) and install BOTH so a chromium-defaulting spec can't fail either.
-      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # Split from `install --with-deps`: install-deps (apt) always runs, but the
+      # browser binaries are restored from the cache above on a hit.
+      - run: pnpm exec playwright install-deps chromium webkit
+      - run: pnpm exec playwright install chromium webkit
       - name: Run crew section-toggle e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)

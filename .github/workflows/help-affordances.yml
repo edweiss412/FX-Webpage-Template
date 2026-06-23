@@ -49,7 +49,18 @@ jobs:
       # webkit as well as chromium: the help-docs project spreads
       # devices["iPhone 14"], whose defaultBrowserType is webkit; the
       # help-docs-setup / help-docs-desktop projects run chromium.
-      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # Split from `install --with-deps`: install-deps (apt) always runs, but the
+      # browser binaries are restored from the cache above on a hit (install is
+      # then a fast no-op; on a miss it downloads + repopulates the cache).
+      - run: pnpm exec playwright install-deps chromium webkit
+      - run: pnpm exec playwright install chromium webkit
       - name: Run walker (mobile + desktop)
         env:
           # help-docs-setup.ts asserts these in the TEST-RUNNER process —
