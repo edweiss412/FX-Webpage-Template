@@ -28,11 +28,17 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
-// Local-dev keys surfaced by `supabase status` (sb_secret_* / sb_publishable_*).
+// Local-dev keys: read from env, falling back to the universal Supabase
+// local-demo JWTs (PUBLIC, not secret — the same non-flagged fallback used by
+// tests/data/getShowForViewer.test.ts). NEVER hardcode sb_secret_*/sb_publishable_*
+// literals — GitHub push-protection flags them (Supabase Secret Key).
 const SUPABASE_SECRET_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "{DEMO_SR}";
+  process.env.SUPABASE_SERVICE_ROLE_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 const SUPABASE_PUBLISHABLE_KEY =
-  process.env.SUPABASE_PUBLISHABLE_KEY ?? "{DEMO_ANON}";
+  process.env.SUPABASE_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 
 const admin = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
