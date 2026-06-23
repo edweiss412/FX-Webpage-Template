@@ -73,7 +73,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned (NOT `latest`): `latest` resolves the newest release via the GitHub
+          # API, which rate-limits on shared runners and fails setup before the build
+          # (crew-e2e on PR #102). 2.98.2 is the version supabase-local-bootstrap.sh is
+          # verified against; a fixed version downloads directly (no API lookup).
+          version: 2.98.2
       - name: Install psql (signInAs admin client + bootstrap shell out to psql)
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Boot local Supabase (guarded migrations)
