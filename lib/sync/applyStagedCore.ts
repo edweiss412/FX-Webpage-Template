@@ -306,8 +306,8 @@ export async function defaultDeleteLivePendingSync(
  * Wizard-scoped tx wrapper: a wizard apply must NEVER touch the LIVE partition. The
  * `ApplyParseResultTx` contract calls `deleteLivePendingIngestion` unconditionally
  * (applyParseResult.ts:131) — for a wizard finalize that would erase an operator-visible live
- * failure record for the same drive_file_id (spec §3.2). Override it to a no-op via the
- * `makeInlineOnboardingScanTx` precedent (applyStaged.ts Object.create prototype override).
+ * failure record for the same drive_file_id (spec §3.2). Override it to a no-op via an
+ * Object.create prototype override (the inherited live method becomes a no-op own-property).
  */
 export function withWizardScopedLivePartitionOps(
   tx: LockedShowTx<SyncPipelineTx>,

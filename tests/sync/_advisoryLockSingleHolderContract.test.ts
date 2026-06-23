@@ -92,7 +92,8 @@ const lockHolderRegistry = [
   {
     path: "lib/sync/retrySingleFile.ts",
     holder: "retrySingleFile",
-    layer: "delegates to withPostgresSyncPipelineLock; retrySingleFile_unlocked never locks",
+    layer:
+      "takes withPostgresSyncPipelineLock TWICE (Lock#1 preflight, Lock#2 finalize) with the pre-lock Drive prepare + own-connection scan BETWEEN them; preflight/finalize never lock — the scan no longer nests the same show key inside the retry lock",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
@@ -362,7 +363,7 @@ describe("M6 advisory-lock single-holder contract", () => {
         }),
         expect.objectContaining({
           holder: "retrySingleFile",
-          layer: expect.stringContaining("retrySingleFile_unlocked never locks"),
+          layer: expect.stringContaining("preflight/finalize never lock"),
         }),
         expect.objectContaining({
           holder: "handleWizardPendingIngestionRetry",
@@ -495,14 +496,9 @@ describe("M6 advisory-lock single-holder contract", () => {
     const roots = ["lib/sync", "lib/drive", "lib/asset"];
     const violations: string[] = [];
 
-    // Known Drive-under-lock instance pending its dedicated reorder
-    // (BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK). retrySingleFile_unlocked runs
-    // runOnboardingScan's Drive export while the per-show pipeline lock is held —
-    // the SAME class as the (now-fixed) wizard revision-race restage. Its fix
-    // restructures the contract-pinned retrySingleFile_unlocked plus two
-    // structural meta-test registries, so it ships as a focused follow-up PR.
-    // REMOVE this exemption in that PR; the guard then enforces the path too.
-    const knownDriveUnderLockPaths = new Set(["lib/sync/retrySingleFile.ts"]);
+    // No exemptions: the retrySingleFile Drive-under-lock instance was fixed (its
+    // scan + export now run BETWEEN two short pipeline-lock windows, not inside
+    // one), so the guard enforces every path with no allowlist.
 
     for (const path of roots.flatMap(tsFiles).sort()) {
       const source = read(path);
@@ -514,7 +510,7 @@ describe("M6 advisory-lock single-holder contract", () => {
         ];
         for (const fragment of lockedFragments) {
           const reached = reachesDriveInvocation(fragment, functions);
-          if (reached && !knownDriveUnderLockPaths.has(path)) {
+          if (reached) {
             violations.push(`${path}::${fn.name} reaches ${reached}`);
           }
         }

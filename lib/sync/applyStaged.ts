@@ -33,6 +33,7 @@ import {
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
 import {
+  PostgresOnboardingScanTx,
   prepareOnboardingFiles,
   scanOnboardingPreparedFiles,
   type OnboardingScanTx,
@@ -1478,65 +1479,6 @@ async function verifyWizardApplyDriveScope(
   return { outcome: "ok", metadata, pendingFolderId };
 }
 
-function makeInlineOnboardingScanTx(
-  tx: LockedShowTx<SyncPipelineTx>,
-): LockedShowTx<OnboardingScanTx> {
-  return Object.assign(Object.create(tx), {
-    async ensureWizardIsolationIndexes() {
-      return { ok: true as const };
-    },
-    async upsertManifest(row) {
-      const written = await tx.queryOne<{ wizard_session_id: string } | null>(
-        `
-          insert into public.onboarding_scan_manifest (
-            folder_id, wizard_session_id, drive_file_id, mime_type, name, status
-          )
-          select $1, $2::uuid, $3, $4, $5, $6
-          where exists (
-            select 1 from public.app_settings
-             where id = 'default'
-               and pending_wizard_session_id = $2::uuid
-          )
-          on conflict (wizard_session_id, drive_file_id) do update
-            set folder_id = excluded.folder_id,
-                mime_type = excluded.mime_type,
-                name = excluded.name,
-                status = excluded.status,
-                transitioned_at = now()
-          returning wizard_session_id
-        `,
-        [row.folderId, row.wizardSessionId, row.driveFileId, row.mimeType, row.name, row.status],
-      );
-      return Boolean(written);
-    },
-    async logSync(entry) {
-      await tx.queryOne<unknown>(
-        `
-          insert into public.sync_log (drive_file_id, status, message, parse_warnings)
-          values ($1, $2, $3, $4::jsonb)
-          returning id
-        `,
-        [
-          entry.driveFileId ?? null,
-          entry.code,
-          `onboarding_scan:${entry.code}`,
-          entry.payload ? [{ ...entry.payload, code: entry.code }] : [],
-        ],
-      );
-    },
-    async upsertAdminAlert(input) {
-      const row = await tx.queryOne<{ id: string } | null>(
-        "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
-        [input.showId, input.code, input.context],
-      );
-      return row?.id ?? null;
-    },
-  } satisfies Pick<
-    OnboardingScanTx,
-    "ensureWizardIsolationIndexes" | "upsertManifest" | "logSync" | "upsertAdminAlert"
-  >) as LockedShowTx<OnboardingScanTx>;
-}
-
 type WizardRestagePrepared =
   | { result: ApplyStagedResult }
   | { folderId: string; prepared: PreparedOnboardingFile[] };
@@ -1585,7 +1527,23 @@ async function stageWizardRestageInline(
   prepared: PreparedOnboardingFile[],
   deps: ReturnType<typeof depsWithDefaults>,
 ): Promise<ApplyStagedResult> {
-  const scanTx = makeInlineOnboardingScanTx(tx);
+  // Wizard-scoped staging on the LOCKED connection. holdPort() exposes the raw
+  // locked tx (rides the held show lock — no new lock), and PostgresOnboardingScanTx
+  // runs the WIZARD-scoped staging SQL. An inheriting inline adapter would pick up
+  // the pipeline tx's LIVE-only upsertLivePendingSync (wizard_session_id null), so
+  // the restaged row would land in the live partition and readWizardPendingSyncForApply
+  // (wizard-scoped) would then report source_gone for a successful restage.
+  const port = tx.holdPort?.();
+  if (!port) {
+    throw new Error(
+      "wizard restage: locked pipeline tx exposes no holdPort for wizard-scoped staging",
+    );
+  }
+  const scanTx = new PostgresOnboardingScanTx(
+    port,
+    folderId,
+    args.wizardSessionId,
+  ) as unknown as LockedShowTx<OnboardingScanTx>;
   const metadata = reverify.metadata;
   const scan = await deps.scanOnboardingPreparedFiles(folderId, args.wizardSessionId, prepared, {
     tx: scanTx,
