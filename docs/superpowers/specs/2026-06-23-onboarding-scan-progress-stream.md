@@ -223,7 +223,7 @@ type ScanProgress =
 - Elapsed-seconds line retained as secondary muted text.
 
 **Accessibility / motion:**
-- Wrapper keeps `role="status" aria-live="polite"` (`:256-257`). To avoid screen-reader spam on every `prepared` tick, the **count/just-read** lines live in an `aria-hidden` visual region; a separate visually-hidden `aria-live="polite"` node announces **phase changes only** ("Looking through your folder", "Finishing up", and the final success/error already announced by their own `role`).
+- The progress wrapper is a **plain container — NOT a live region** (the original wrapper had `role="status" aria-live="polite"`, but it now holds a `prepared`-tick count that would spam screen readers, so the live semantics move off it). Every visual line (heading, URL, count, just-read, elapsed) is `aria-hidden`; a single dedicated visually-hidden `role="status" aria-live="polite"` node announces **phase changes only** — the heading text ("Looking through your folder", "Finishing up"). The final success/error panels are announced by their own `role` (`role="alert"` on error; the success summary is read on focus/landing).
 - **Motion:** the bar fill is the native `<progress>` element's UA rendering — there is **no custom CSS width animation**, so there is nothing to gate. `motion-reduce:transition-none` is a defensive no-op; reduced-motion is trivially satisfied (D11).
 
 **Dimensional Invariants** (Tailwind v4 here does not default `.flex` to `align-items: stretch` — [[feedback_tailwind_v4_flex_items_stretch]]):

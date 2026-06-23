@@ -39,7 +39,7 @@
 | `tests/sync/onboarding.test.ts` | `onProgress` event sequence (reuses existing fakes — DRY) | Extend |
 | `tests/onboarding/scanRoute.test.ts` | NDJSON streaming + preserved pre-stream errors | Rewrite success paths |
 | `tests/components/admin/wizard/Step2Verify.test.tsx` | Streaming fetch reader + bar | Rewrite/extend |
-| `tests/components/admin/wizard/Step2Verify.layout.test.ts` (or e2e) | Real-browser bar dimensions | **Create** (Task 6) |
+| _(Task 6)_ real-browser bar dimensions | Standalone layout-harness **manual** check — no committed file (vitest/playwright can't host it; see Task 6) | Verify-only |
 
 > **DRY note (R3):** the spec named a new `tests/onboarding/scanProgressEvents.test.ts`. The plan instead extends `tests/sync/onboarding.test.ts`, which already owns `FakeOnboardingTx`, `file()`, `parseResult()`, and the `runWith()` deps helper — reusing them avoids duplicating ~200 lines of fakes. Net coverage is identical.
 
@@ -695,14 +695,17 @@ test("reading phase: determinate bar (aria), count, and Just-read update per pre
 test("result-before-listed: a terminal result with no prior progress still resolves", async () => {
   const { response, push, close } = controllableStreamResponse();
   fetchMock.mockResolvedValue(response);
-  const { getByTestId, findByTestId } = render(<Step2Verify />);
+  const { getByTestId, findByTestId, container } = render(<Step2Verify />);
   fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
     target: { value: "https://drive.google.com/drive/folders/abc123" },
   });
   await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
   await push({ type: "result", body: { outcome: "schema_missing", code: "WIZARD_ISOLATION_INDEXES_MISSING" } });
   await close();
-  expect(await findByTestId("wizard-step2-error")).toBeTruthy();
+  const err = await findByTestId("wizard-step2-error");
+  // stream terminal branch routes the code through the catalog (no raw code leaks)
+  expect(err.textContent ?? "").toContain(MESSAGE_CATALOG.WIZARD_ISOLATION_INDEXES_MISSING.dougFacing!);
+  expect(container.textContent ?? "").not.toContain("WIZARD_ISOLATION_INDEXES_MISSING");
 });
 
 test("parses NDJSON across chunk boundaries and an unterminated final line", async () => {
@@ -750,7 +753,8 @@ test("terminal {ok:false, code:null} renders generic copy with no raw code", asy
   });
   await act(async () => { fireEvent.click(getByTestId("wizard-step2-submit")); });
   const err = await findByTestId("wizard-step2-error");
-  expect((err.textContent ?? "").trim().length).toBeGreaterThan(0);
+  // code:null → the generic verify copy (distinctive substring), never a raw "null"
+  expect(err.textContent ?? "").toContain("contact the developer");
   expect(container.textContent ?? "").not.toContain("null");
 });
 
