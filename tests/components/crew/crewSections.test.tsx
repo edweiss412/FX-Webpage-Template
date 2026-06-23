@@ -187,6 +187,31 @@ describe("CrewSections controller", () => {
     expect(routerPush).not.toHaveBeenCalled();
   });
 
+  it("(g) SERVER-NAV SYNC: a re-render with a CHANGED initialSection (SectionChipLink <Link> / router.refresh to a new ?s=) moves active", async () => {
+    const { rerender } = render(
+      <CrewSections initialSection="today" budgetVisible sectionNodes={leadNodes()} />,
+    );
+    expect(screen.getByTestId("body-today")).toBeInTheDocument();
+    expect(controller()).toHaveAttribute("data-active-section", "today");
+
+    // An in-body SectionChipLink <Link href="?s=schedule"> is a REAL Next
+    // navigation: it re-renders _CrewShell with initialSection="schedule". The
+    // controller stays mounted, so without the initialSection sync the body/nav
+    // would stay on today while the URL + server props moved to schedule
+    // (whole-diff review R1 [HIGH]). The controller MUST follow initialSection.
+    rerender(<CrewSections initialSection="schedule" budgetVisible sectionNodes={leadNodes()} />);
+
+    expect(await screen.findByTestId("body-schedule")).toBeInTheDocument();
+    expect(screen.queryByTestId("body-today")).toBeNull();
+    expect(controller()).toHaveAttribute("data-active-section", "schedule");
+    // The active tab follows too (effectiveActive drives CrewSubNav aria-current).
+    for (const tab of screen.getAllByRole("button", { current: "page" })) {
+      expect(tab).toHaveAttribute("data-section", "schedule");
+    }
+    // A server-driven sync is NOT a client router.push.
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
   it("(f) CLAMP CONSISTENCY: initialSection=budget with no budget node → today everywhere (no split state)", () => {
     // Simulates a refresh that flipped budgetVisible true→false while the viewer
     // was on Budget: initialSection is still "budget" but sectionNodes lacks it.

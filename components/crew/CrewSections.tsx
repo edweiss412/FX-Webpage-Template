@@ -50,6 +50,19 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
     [active, pathname, searchParams],
   );
 
+  // Sync to SERVER-driven section changes. The in-body SectionChipLink (e.g.
+  // Today's "Run of show → Agenda" chip) is a next/link <Link> to ?s=schedule: a
+  // real Next navigation re-renders _CrewShell with a NEW initialSection, but the
+  // controller stays mounted so its `active` would otherwise keep the old value —
+  // URL/server on Schedule, body/nav stale. A router.refresh() (realtime sync)
+  // likewise re-renders with the current URL's section. Following initialSection
+  // fixes both. This does NOT fight a CrewSubNav tap: a tap is a SHALLOW
+  // history.pushState (no server render), so initialSection is unchanged and this
+  // effect never fires for it. (Whole-diff review R1 [HIGH].)
+  useEffect(() => {
+    setActive(initialSection);
+  }, [initialSection]);
+
   useEffect(() => {
     const onPop = () => {
       const raw = new URLSearchParams(window.location.search).get("s") ?? undefined;

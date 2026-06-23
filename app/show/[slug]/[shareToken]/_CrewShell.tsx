@@ -312,7 +312,13 @@ export async function CrewShell({
   >;
 
   return (
-    <div data-testid="crew-shell" data-active-section={activeSection}>
+    // NOTE: `data-active-section` lives ONLY on the CrewSections controller's
+    // wrapper (`crew-shell-sections`), which updates client-side on toggle. The
+    // outer shell must NOT also carry it — a static server value here would
+    // diverge from the live one after a tap, exposing two conflicting active
+    // sections in the DOM (whole-diff review R1 [MED]). `activeSection` is still
+    // the controller's `initialSection` seed below.
+    <div data-testid="crew-shell">
       <Header
         show={headerShow}
         statusPill={statusPill}
