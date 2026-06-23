@@ -85,11 +85,23 @@ it("caches the data fan-out but re-reads the version token live", async () => {
 ```
 
 - [ ] **Step 2: Run → FAIL** (`getShowForViewer` not yet split; data read twice).
-- [ ] **Step 3: Implement the split.** Create `lib/data/showCacheTag.ts`:
+- [ ] **Step 3: Implement the split.** Create `lib/data/showCacheTag.ts` (tag helper + the post-commit revalidate helper used by Tasks 5-9):
 
 ```ts
+import { revalidateTag } from "next/cache";
+
 export function showCacheTag(showId: string): string {
   return `show-${showId}`;
+}
+
+/** Revalidate the show's cache tag. Call ONLY post-commit (after the apply tx resolves). */
+export function revalidateShow(showId: string): void {
+  revalidateTag(showCacheTag(showId));
+}
+
+/** Sync convenience: revalidate iff a ProcessOneFileResult applied. Caller MUST be post-commit. */
+export function revalidateOnApplied(result: { outcome?: string; showId?: string } | null | undefined): void {
+  if (result && result.outcome === "applied" && result.showId) revalidateShow(result.showId);
 }
 ```
 
@@ -142,23 +154,24 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   - Registry layer: for each `disposition:"revalidate"` file, assert its source contains `revalidateTag(` with a `show-`/`showCacheTag(` argument; for `disposition:"exempt"`, assert a `// not-subject-to-revalidate:` comment is present.
   - Discovery layer (SITE-level, Codex plan-R1 MED): run the spec §6 regex (raw-SQL on the 7 read-tables + the `.from().{insert,update,upsert,delete}` form) over `lib`+`app` (minus tests/audit). Count the MATCHES per file (a write SITE = one matched line). The registry records `{file, siteCount, disposition}`; the test asserts the discovered match-count per file EQUALS the registered `siteCount` AND the file is registered. A NEW raw-SQL write added inside an already-registered file bumps the discovered count → MISMATCH → FAIL ("new show-data write site in <file>: registered N, found M — add a revalidateTag + bump siteCount or exempt"). An unregistered file → FAIL. This catches both new-file and new-write-in-existing-file (the file-level-registry gap).
   - RPC layer: for each `WRITING_RPCS` name, the wrapper call sites (`lib/showLifecycle/_shared.ts` callers / the `_actions/*`) must have a `revalidateTag`.
-- [ ] **Step 2: Run → FAIL** (registry lists the sites but they don't yet call revalidateTag). This is expected; Tasks 5-9 turn it green. Seed `REVALIDATE_REGISTRY` from Task 1's classification.
-- [ ] **Step 3: Commit** the meta-test (red is OK here — it's the coverage spec). `test(crew-page): show-cache revalidate coverage meta-test (discovery + registry)`
+- [ ] **Step 2: Run → FAIL** (registry lists the sites but they don't yet call revalidateTag). Seed `REVALIDATE_REGISTRY` from Task 1's classification. **DO NOT COMMIT RED** (repo TDD invariant = commit only green; Codex plan-R2). Leave the file authored-but-uncommitted; Tasks 5-9 wire the sites (each its own red→green→commit per-site cycle), then Task 9's final step commits this meta-test GREEN.
+- [ ] **Step 3:** (no commit here — see Task 9 final step). The per-site Tasks 5-9 are the TDD cycles; this meta-test is the structural guard committed once green.
 
 ---
 
-### Task 5: revalidateTag at the sync post-commit OWNERS (R1 fix — NOT inside processOneFile_unlocked)
+### Task 5: revalidateTag at the sync CALLERS post-tx (R1+R2 fix — NOT in the generic lock wrapper, NOT inside the tx)
 
-**Why two owners (Codex plan-R1 HIGH):** `processOneFile_unlocked` runs INSIDE the tx — it has no post-commit point. The tx is owned by the WRAPPER:
-- **Locked path** (cron, webhook, manual sync): `withPostgresSyncPipelineLock` (`runScheduledCronSync.ts:1432`) owns the tx (`sql.begin:1444`); `runManualSyncForShow:279` calls through it. Post-commit = AFTER `withPostgresSyncPipelineLock` resolves. → revalidate HERE covers all 3 locked callers.
-- **Unlocked path** (retry): `runManualSyncForShow_unlocked` (`runManualSyncForShow.ts:261`) calls `processOneFile_unlocked` directly (no lock wrapper); the tx is owned by its caller. Post-commit = after that apply resolves. → revalidate at the unlocked runner's post-commit (confirm exact boundary in impl).
+**Why caller-level (Codex plan-R1+R2 HIGH):** `processOneFile_unlocked` runs INSIDE the tx (pre-commit). `withPostgresSyncPipelineLock` (`runScheduledCronSync.ts:1432`, returns `R | ConcurrentSyncSkipped`) is GENERIC in `R` — it cannot inspect `outcome`/`showId`, so revalidate can't live there either. `runManualSyncForShow_unlocked` (`runManualSyncForShow.ts:261`) takes the `tx` as a PARAM (caller owns the tx) → revalidate inside it is pre-commit. **Post-commit owners are the top-level callers, each after its own lock/tx fully resolves**, using `revalidateOnApplied(result)` (Task 2). Four sites:
+- **Cron:** `runScheduledCronSync` — inside its per-show loop, after `withPipelineLock(processOneFile)` resolves per show (it has the `ProcessOneFileResult`). Revalidate per applied show.
+- **Webhook:** `runPushSyncForShow.ts` — after its `withPipelineLock`/`processOneFile` resolves.
+- **Manual sync:** `runManualSyncForShow` (`:273`) — after its `deps.withPipelineLock` resolves the `ProcessOneFileResult`.
+- **Retry:** the retry ROUTE(s) (`app/api/admin/pending-ingestions/[id]/retry/route.ts`, `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts`) — they own the tx (`withRow*`) and return a `Response`; capture the applied `showId` from the `runManualSyncForShow_unlocked` result, and call `revalidateShow(showId)` AFTER the `withRow*`/tx resolves (post-commit), before building the Response.
 
-**Files:** Modify `lib/sync/runScheduledCronSync.ts` (`withPostgresSyncPipelineLock` post-resolve), `lib/sync/runManualSyncForShow.ts` (`runManualSyncForShow_unlocked` post-apply). Test `tests/sync/syncRevalidate.test.ts`.
+**Files:** `lib/sync/runScheduledCronSync.ts`, `lib/sync/runPushSyncForShow.ts`, `lib/sync/runManualSyncForShow.ts`, both retry routes. Test `tests/sync/syncRevalidate.test.ts`.
 
-- [ ] **Step 1: Failing test** — for the locked wrapper: inject a tx (`sql.begin`) that records a `committed` marker on resolve + returns `{outcome:"applied", showId}`; assert `revalidateTag(showCacheTag(showId))` fires AND the spy records it AFTER `committed` (post-commit ordering). Repeat for the unlocked runner. Non-applied outcomes (skip/error) → NO revalidate.
-- [ ] **Step 2: Run → FAIL.**
-- [ ] **Step 3: Implement** — in `withPostgresSyncPipelineLock`, after `sql.begin(...)` resolves, if the result `outcome==="applied"` call `revalidateTag(showCacheTag(result.showId))`. In `runManualSyncForShow_unlocked`, after its apply resolves, same. Do NOT use the injected publisher; do NOT place inside the `sql.begin` callback.
-- [ ] **Step 4: Run → PASS** + meta-test passes for `runScheduledCronSync.ts` AND `runManualSyncForShow.ts`. **Commit.** `feat(sync): revalidate show cache tag post-commit (lock wrapper + unlocked runner)`
+- [ ] **Step 1: Failing test (locked callers)** — inject a `withPipelineLock` that records a `committed` marker on resolve and returns `{outcome:"applied", showId}`; drive `runManualSyncForShow` (and the cron loop / push runner) and assert `revalidateTag(showCacheTag(showId))` fires AFTER `committed` (post-commit), once per applied show. Non-applied (skip/error/ConcurrentSyncSkipped) → NO revalidate.
+- [ ] **Step 2: Run → FAIL. Step 3: Implement** `revalidateOnApplied(result)` at each locked caller post-`withPipelineLock`. **Step 4: PASS. Commit.** `feat(sync): revalidate show cache tag post-commit at locked sync callers`
+- [ ] **Step 5: Failing test (retry route)** — drive the retry route with a tx wrapper that records `committed` on resolve + an unlocked runner returning applied; assert `revalidateShow(showId)` fires AFTER `committed` and BEFORE the Response is returned. **Step 6: FAIL → implement (capture showId, revalidate post-`withRow*`) → PASS. Commit.** `feat(sync): revalidate show cache tag post-commit in pending-ingestion retry routes`
 
 ---
 
@@ -194,7 +207,8 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
 
 **Files:** Modify `app/admin/show/[slug]/_actions/feed.ts`, the unpublish API route + in-app undo action (`lib/sync/unpublishShow.ts` caller), `app/admin/settings/_actions/validationReset.ts`. Add exemption comments to picker (`selectIdentity`/`clearIdentity`), share-token-rotate / picker-epoch-reset callers, and any Task-1 EXEMPT (discardStaged, sessionLifecycle).
 
-- [ ] **Step 1-4: TDD** the revalidate sites; add `// not-subject-to-revalidate: <reason>` to the exempt sites. Run the meta-test → FULLY GREEN (registry + discovery + RPC layers). **Commit.** `feat(crew-page): complete show-cache revalidate coverage + exemptions`
+- [ ] **Step 1-4: TDD** the revalidate sites; add `// not-subject-to-revalidate: <reason>` to the exempt sites. **Commit.** `feat(crew-page): complete show-cache revalidate coverage + exemptions`
+- [ ] **Step 5: Commit the meta-test GREEN (the Task-4 file, now satisfied).** Run `tests/db/showCacheRevalidateCoverage.test.ts` → all three layers PASS (every registered site has revalidate/exemption; discovery site-counts match; RPC wrappers covered). Reconcile any `siteCount` against the final discovery output. **Commit.** `test(crew-page): show-cache revalidate coverage meta-test (discovery + registry, green)`
 
 ---
 
