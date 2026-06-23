@@ -15,10 +15,27 @@ found that running the **real** exporter surfaces a class of bugs invisible to t
 stale `OLD PULL SHEET` ingestion, etc. These files are the regression inputs that
 pin parser behavior against what production emits.
 
+## Frozen `.xlsx` snapshots + the creds-free round-trip guard
+
+Each `<show>.md` has a committed sibling `<show>.xlsx` — the Drive xlsx export of that
+show, **trimmed to values + merges** (the only inputs the synthesis reads; styling /
+empty template rows stripped, ~12 MB → ~0.6 MB total). `tests/drive/round-trip-fixture.test.ts`
+asserts `synthesizeMarkdownFromXlsx(<show>.xlsx) === <show>.md` for all 7 in the normal
+`unit-suite` — **no live Drive, no secret**. This catches a synthesis-code regression
+(the 2026-06-18 class) deterministically.
+
+Deliberately pinned to the FROZEN snapshot, **not** the live sheet: the live
+`fxav-test-shows` sheets must stay freely editable for exercising the app's sync /
+change-detection behavior, and a live-byte guard would red-flag those intentional edits.
+
 ## Provenance (test-folder copies, not Doug's originals)
 
 These are the `fxav-test-shows` **copies**, distinct from the original Doug sheet IDs
-in `../README.md`. Re-capture: export each as XLSX and run `synthesizeMarkdownFromXlsx`.
+in `../README.md`. **Re-capture (when the synthesis changes or you re-snapshot a sheet) —
+regenerate BOTH `<show>.xlsx` AND `<show>.md` together, then update parser expectations
+in lockstep:** export each sheet as XLSX, run `synthesizeMarkdownFromXlsx` to write the
+`.md`, and trim the `.xlsx` to values + merges (rebuild each tab via
+`aoa_to_sheet(sheet_to_json(header:1))` preserving `!merges`).
 
 | Fixture | Show | Template ver | Spreadsheet ID |
 |---|---|---|---|

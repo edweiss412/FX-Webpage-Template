@@ -1,59 +1,56 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { getDriveClient } from "@/lib/drive/client";
-import { fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import { parseSheet } from "@/lib/parser";
-import { loadLocalEnv } from "./loadLocalEnv";
 
-loadLocalEnv();
-
-const fixtureSpreadsheetId = process.env.M6_REAL_DRIVE_FIXTURE_SPREADSHEET_ID;
-const hasLiveDriveConfig = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && fixtureSpreadsheetId);
-
-// Compare the LIVE sheet's production synthesis against the committed PRODUCTION
-// fixture — the exact output of Drive XLSX export -> synthesizeMarkdownFromXlsx
-// (the renderer production actually feeds parseSheet), captured under
-// fixtures/shows/exporter-xlsx/.
+// Pin the production exporter against FROZEN xlsx snapshots. Each committed
+// fixtures/shows/exporter-xlsx/<show>.xlsx is a Drive xlsx export of that show
+// (trimmed to values + merges — the only inputs the synthesis reads), and
+// synthesizeMarkdownFromXlsx(it) must equal the committed <show>.md. This catches a
+// synthesis-code regression — the 2026-06-18 "restore DETAILS value column" /
+// "skip OLD tabs" class that silently diverged production from the fixtures — in the
+// normal unit-suite, with NO live-Drive access and NO secret.
 //
-// This previously compared against fixtures/shows/raw/2025-05-redefining-...md,
-// which is the OLDER Drive-MCP-`read_file_content` renderer — a DIFFERENT renderer
-// (see fixtures/shows/exporter-xlsx/README.md). The 2026-06-18 synthesis-fidelity
-// fixes ("preserve DETAILS value column / restore event_details" + "skip archived
-// OLD tabs") regenerated the exporter-xlsx fixtures but not the raw ones, so the
-// two renderers diverged across event_details/rooms/transportation/pullSheet and
-// this (creds-gated, CI-skipped) test silently went red. Same-renderer (live
-// production vs committed production) is the correct round trip.
-const fixtureName = "redefining-fi.md";
-const fixturePath = join(process.cwd(), "fixtures/shows/exporter-xlsx", fixtureName);
+// Deliberately creds-free against a frozen snapshot, NOT the live sheet: the live
+// fxav-test-shows sheets must stay freely editable for exercising the app's sync /
+// change-detection behavior (a different test surface), and a live-byte guard would
+// red-flag those intentional edits. (The .md is the production renderer, NOT
+// fixtures/shows/raw/*.md — the older Drive-MCP renderer; see that dir's README.)
+//
+// When synthesizeMarkdownFromXlsx changes intentionally, OR you re-snapshot a sheet:
+// regenerate BOTH <show>.xlsx and <show>.md together (per exporter-xlsx/README.md)
+// and update the parser fixtures' expectations in lockstep.
+const SHOWS = [
+  "redefining-fi",
+  "consultants",
+  "fintech",
+  "east-coast",
+  "ria",
+  "fixed-income",
+  "rpas",
+] as const;
 
-describe.skipIf(!hasLiveDriveConfig)("M6 real Drive fixture round trip", () => {
-  test("live production synthesis matches the committed exporter-xlsx fixture", async () => {
-    const drive = getDriveClient();
-    const metadata = await drive.files.get({
-      fileId: fixtureSpreadsheetId as string,
-      fields: "id, name, mimeType, modifiedTime, headRevisionId",
-      supportsAllDrives: true,
-    });
-    const bindingToken = metadata.data.headRevisionId ?? metadata.data.modifiedTime;
-    expect(bindingToken, "fixture spreadsheet must expose a bindable revision token").toBeTruthy();
+const DIR = join(process.cwd(), "fixtures/shows/exporter-xlsx");
 
-    const freshMarkdown = await fetchSheetAsMarkdownAtRevision(
-      fixtureSpreadsheetId as string,
-      bindingToken as string,
-      { drive },
-    );
-    const fixtureMarkdown = readFileSync(fixturePath, "utf8");
+function toArrayBuffer(buf: Buffer): ArrayBuffer {
+  const ab = new ArrayBuffer(buf.byteLength);
+  new Uint8Array(ab).set(buf);
+  return ab;
+}
 
-    // Same renderer => byte-identical. A drift here means the live sheet changed
-    // OR synthesizeMarkdownFromXlsx changed: regenerate
-    // fixtures/shows/exporter-xlsx/redefining-fi.md from the current export (per
-    // that dir's README) and update the parser fixtures' expectations in lockstep.
-    expect(freshMarkdown).toBe(fixtureMarkdown);
+describe("production exporter fixtures: xlsx → markdown round trip (frozen snapshots)", () => {
+  test.each(SHOWS)("%s: synthesizeMarkdownFromXlsx(committed .xlsx) === committed .md", (show) => {
+    const xlsx = readFileSync(join(DIR, `${show}.xlsx`));
+    const committedMarkdown = readFileSync(join(DIR, `${show}.md`), "utf8");
+
+    const synthesized = synthesizeMarkdownFromXlsx(toArrayBuffer(xlsx));
+
+    expect(synthesized).toBe(committedMarkdown);
     // Belt-and-suspenders: the structural parse must also match (distinguishes a
     // whitespace-only synthesis change from a semantic one in the failure output).
-    expect(parseSheet(freshMarkdown, fixtureName)).toEqual(
-      parseSheet(fixtureMarkdown, fixtureName),
+    expect(parseSheet(synthesized, `${show}.md`)).toEqual(
+      parseSheet(committedMarkdown, `${show}.md`),
     );
-  }, 60_000);
+  });
 });
