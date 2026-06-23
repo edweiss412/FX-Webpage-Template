@@ -16,14 +16,17 @@
 - **Invariant 8 (impeccable UI gate) — APPLIES (path-based):** diff touches `app/` (non-api) + `components/admin/Dashboard.tsx`; `/impeccable critique` + `/impeccable audit` (external attestation) run at close-out before the whole-diff cross-model review. Expected clean (no rendered-output change).
 - **Invariant 3 (email canonicalization):** `canonicalize()` is the only normalization surface; no inline `.toLowerCase()/.trim()`.
 - **Auth freshness (spec §B-SEC):** `getClaims` is freshness-bounded by token TTL for the deleted-user/revoked-session case ONLY; `is_admin()` keeps authorization live. Accepted + bounded — do not re-add a session-freshness RPC (BACKLOG).
-- **No migrations** in Phase 1. **TDD per task; one task per commit;** conventional commits (`perf(...)`, `refactor(...)`, `test(...)`), `--no-verify` (shared hooks), trailers: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: https://claude.ai/code/session_012UbLmBoAmaFbndpRpLNwdp`.
+- **One migration** in Phase 1: `supabase/migrations/20260622000004_is_session_live_rpc.sql` (B1.5). Migration→validation-parity discipline (Task 3 + Task 12): apply locally + test, `pnpm gen:schema-manifest` + commit `supabase/__generated__/schema-manifest.json`, apply surgically to the validation project; the `validation-schema-parity` CI gate enforces it.
+- **TDD per task; one task per commit** (the migration may be its own commit within Task 3); conventional commits (`perf(...)`, `refactor(...)`, `test(...)`, `feat(db)` for the migration), `--no-verify` (shared hooks), trailers: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: https://claude.ai/code/session_012UbLmBoAmaFbndpRpLNwdp`.
 - **Test runner:** `pnpm exec vitest run <file>` (globals off — `import { describe, test, expect, vi, beforeEach } from "vitest"`); `fileParallelism:false`; node env by default, add `// @vitest-environment jsdom` only for React-render tests. `forbidden()`/`redirect()` are mocked to throw strings (`"forbidden()"`, `"redirect(/auth/sign-in?next=...)"`); `AdminInfraError` asserted via `rejects.toBeInstanceOf`.
 
 ## File Structure
 
 - `lib/appSettings/readAppSettingsRow.ts` — **new.** `(client?) → Promise<{kind:'value'; settings: AppSettingsRow} | {kind:'infra_error'}>`. Single full-row `app_settings` select. Used by A2.
 - `lib/appSettings/getSettingsPageFlags.ts` — **new.** `(client?) → Promise<{kind:'value'; autoPublishCleanFirstSeen:boolean; alertOnSyncProblems:boolean; dailyReviewDigest:boolean; alertOnAutoPublish:boolean} | {kind:'infra_error'}>`. Single 4-column select. Used by A3.
-- `lib/auth/requireAdmin.ts` — **modify.** getClaims + no-arg `cache()` core (B).
+- `supabase/migrations/20260622000004_is_session_live_rpc.sql` — **new.** `public.is_session_live()` SECURITY DEFINER RPC (B1.5).
+- `supabase/__generated__/schema-manifest.json` — **regenerate + commit** (introspects local all-migrations-applied DB).
+- `lib/auth/requireAdmin.ts` — **modify.** getClaims + `is_session_live`+`is_admin` parallel + no-arg `cache()` core (B).
 - `lib/data/getShowForViewer.ts` — **modify.** Parallel wave (A1).
 - `lib/sync/feed/readShowChangeFeed.ts` — **modify.** Parallel 3 reads (A4).
 - `components/admin/Dashboard.tsx` — **modify.** fetchDashboardData parallelize + nowDate once + A5 Promise.all (A2/A5).
@@ -146,15 +149,41 @@ test("maps 4 columns → flags", async () => {
 
 ---
 
-### Task 3: Admin auth gate — getClaims + is_admin + React.cache (B)
+### Task 3: Admin auth gate — `is_session_live` migration + getClaims + is_admin + React.cache (B + B1.5)
 
 **Files:**
-- Modify: `lib/auth/requireAdmin.ts`
-- Test: `tests/auth/requireAdmin.getClaims.test.ts` (new; keeps the existing `tests/auth/requireAdmin.test.ts` patterns) + verify `tests/auth/_metaInfraContract.test.ts` still passes.
+- Create: `supabase/migrations/20260622000004_is_session_live_rpc.sql`
+- Modify: `lib/auth/requireAdmin.ts`; `supabase/__generated__/schema-manifest.json` (regen)
+- Test: `tests/db/isSessionLive.test.ts` (new DB test, local Supabase); `tests/auth/requireAdmin.getClaims.test.ts` (new) + verify `tests/auth/_metaInfraContract.test.ts` passes.
 
 **Interfaces:**
-- Consumes: `getClaims()` from the cookie-bound client; `isAuthSessionMissingError` from `@/lib/auth/supabaseAuthError`; `canonicalize` from `@/lib/email/canonicalize`; `cache` from `react`.
-- Produces: unchanged public signatures `requireAdminIdentity(opts?): Promise<AdminIdentity>`, `requireAdmin(opts?): Promise<void>`.
+- Consumes: `getClaims()` from the cookie-bound client; `isAuthSessionMissingError` from `@/lib/auth/supabaseAuthError`; `canonicalize` from `@/lib/email/canonicalize`; `cache` from `react`; `supabase.rpc("is_session_live")` + `supabase.rpc("is_admin")`.
+- Produces: unchanged public signatures `requireAdminIdentity(opts?): Promise<AdminIdentity>`, `requireAdmin(opts?): Promise<void>`; new DB function `public.is_session_live() returns boolean`.
+
+- [ ] **Step 0a: Write the migration** (`supabase/migrations/20260622000004_is_session_live_rpc.sql`)
+
+```sql
+-- is_session_live(): immediate admin-session revocation for the admin gate
+-- (nav-perf phase 1, B1.5). After getClaims() verifies the JWT locally,
+-- requireAdmin calls this to confirm the session row still exists in
+-- auth.sessions (GoTrue deletes it on sign-out / global revocation), so a
+-- stolen/compromised session is cut off immediately rather than valid until
+-- token TTL. SECURITY DEFINER to read auth. Idempotent; apply-twice safe.
+create or replace function public.is_session_live()
+  returns boolean language sql stable security definer
+  set search_path = public, auth, pg_temp
+as $$
+  select exists (
+    select 1 from auth.sessions s
+     where s.id = nullif(auth.jwt() ->> 'session_id', '')::uuid
+  );
+$$;
+revoke all on function public.is_session_live() from public;
+grant execute on function public.is_session_live() to authenticated;
+```
+
+- [ ] **Step 0b: Apply locally + DB test** (`tests/db/isSessionLive.test.ts`) — apply via the repo's local-apply path (e.g. `psql "$DATABASE_URL" -f supabase/migrations/20260622000004_is_session_live_rpc.sql`), then a test mirroring existing auth DB tests (self-signed JWT seam): seed an `auth.sessions` row + JWT carrying that `session_id` → `is_session_live()` returns `true`; delete the row → `false`; JWT without `session_id` → `false`. Run → PASS after apply.
+- [ ] **Step 0c: Regen manifest + commit** — `pnpm gen:schema-manifest`; commit migration + manifest + DB test: `feat(db): is_session_live() RPC for immediate admin-session revocation`.
 
 - [ ] **Step 1: Failing tests** (`tests/auth/requireAdmin.getClaims.test.ts`) — mirror `tests/auth/requireAdmin.test.ts`'s `vi.hoisted`/`vi.mock("@/lib/supabase/server")` + `vi.mock("next/navigation")` (forbidden/redirect throw strings). Stub `client.auth.getClaims` + `client.rpc`:
 
@@ -196,15 +225,29 @@ test("no claims / null data, no error → redirectToSignIn", async () => {
   server.client.auth.getClaims.mockResolvedValue({ data: null, error: null });
   await expect(requireAdminIdentity()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
 });
-test("live-authorization: valid claims but is_admin=false → forbidden()", async () => {
-  server.client.rpc.mockResolvedValue({ data: false, error: null });
+test("live-revocation: is_session_live=false (revoked session) → redirectToSignIn (NOT forbidden/authorized)", async () => {
+  // dispatch: session NOT live, admin true — must redirect, not forbid, not return
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve({ data: fn === "is_session_live" ? false : true, error: null }));
+  await expect(requireAdminIdentity()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
+});
+test("is_session_live RPC error → AdminInfraError", async () => {
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve(fn === "is_session_live" ? { data: null, error: new Error("boom") } : { data: true, error: null }));
+  await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+});
+test("live-authorization: session live but is_admin=false → forbidden()", async () => {
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve({ data: fn === "is_session_live" ? true : false, error: null }));
   await expect(requireAdminIdentity()).rejects.toThrow("forbidden()");
 });
-test("React.cache dedup: layout + page gate in one request → 1 getClaims + 1 is_admin", async () => {
+test("React.cache dedup: layout + page gate in one request → 1 getClaims + 1 is_session_live + 1 is_admin", async () => {
   await requireAdminIdentity({ layer: "layout" });
   await requireAdminIdentity({ layer: "page" });
   expect(server.client.auth.getClaims).toHaveBeenCalledTimes(1);
-  expect(server.client.rpc).toHaveBeenCalledTimes(1);
+  expect(server.client.rpc).toHaveBeenCalledTimes(2); // is_session_live + is_admin, once each (deduped); non-cached = 4
+  expect(server.client.rpc).toHaveBeenCalledWith("is_session_live");
+  expect(server.client.rpc).toHaveBeenCalledWith("is_admin");
 });
 ```
 
@@ -242,16 +285,22 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
   const email = canonicalize((claimsData as { claims?: { email?: string } } | null)?.claims?.email);
   if (!email) await redirectToSignIn();
 
-  let isAdmin: unknown;
+  // B1.5 + B2: session-freshness and admin authz, in PARALLEL (both JWT-only reads).
+  let sessionRes: { data: unknown; error: { message?: string } | null };
+  let adminRes: { data: unknown; error: { message?: string } | null };
   try {
-    const r = await supabase.rpc("is_admin");
-    if (r.error) throw new AdminInfraError(`requireAdmin: is_admin error: ${String(r.error.message)}`);
-    isAdmin = r.data;
+    [sessionRes, adminRes] = await Promise.all([
+      supabase.rpc("is_session_live"),
+      supabase.rpc("is_admin"),
+    ]);
   } catch (err) {
-    if (err instanceof AdminInfraError) throw err;
-    throw new AdminInfraError(`requireAdmin: is_admin threw: ${String(err)}`);
+    throw new AdminInfraError(`requireAdmin: session/admin RPC threw: ${String(err)}`);
   }
-  if (isAdmin !== true) forbidden();
+  // Precedence: a revoked/expired session is unauthenticated → redirect, checked BEFORE the admin verdict.
+  if (sessionRes.error) throw new AdminInfraError(`requireAdmin: is_session_live error: ${String(sessionRes.error.message)}`);
+  if (sessionRes.data !== true) await redirectToSignIn();
+  if (adminRes.error) throw new AdminInfraError(`requireAdmin: is_admin error: ${String(adminRes.error.message)}`);
+  if (adminRes.data !== true) forbidden();
   return { email };
 });
 
@@ -417,15 +466,16 @@ Keep every supabase await inside try/catch (admin meta-test grep-shape).
 ### Task 12: Close-out — cross-model whole-diff review + CI + merge (Stage 4)
 
 - [ ] **Step 1:** Whole-diff cross-model adversarial review (Codex, fresh-eyes, REVIEWER ONLY), iterate to APPROVE (no round budget). Triage via deferral discipline.
-- [ ] **Step 2:** Push branch; open PR (base `main`). Body: summary, spec/plan links, impeccable findings+dispositions, "no migration" note.
-- [ ] **Step 3:** Watch real GitHub Actions CI to green (unit-suite + meta/audit gates). Reconcile if behind base (DIRTY).
+- [ ] **Step 1b: Apply the migration to the validation project** (required for `validation-schema-parity` CI). Confirm the manifest is committed (`supabase/__generated__/schema-manifest.json` regenerated in Task 3 step 0c), then apply `is_session_live()` surgically to validation: `supabase db query --linked "<contents of 20260622000004_is_session_live_rpc.sql>"` (or `psql "$TEST_DATABASE_URL" -f …`), then `notify pgrst, 'reload schema';`. (`supabase db push` is blocked on validation per repo history — apply surgically.) If validation credentials/linking are unavailable in this environment, STOP and surface to the user — CI's `validation-schema-parity` gate will fail otherwise.
+- [ ] **Step 2:** Push branch; open PR (base `main`). Body: summary, spec/plan links, impeccable findings+dispositions, **migration note** (`is_session_live()` RPC applied to local + validation; manifest committed).
+- [ ] **Step 3:** Watch real GitHub Actions CI to green (unit-suite + meta/audit gates + `validation-schema-parity`). Reconcile if behind base (DIRTY).
 - [ ] **Step 4:** `gh pr merge --merge`; fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` == `0  0`.
 
 ---
 
 ## Self-Review (run after drafting — checklist)
 
-1. **Spec coverage:** A1→T4, A2→T7+T1, A3→T8+T2, A4→T5+T6, A5→T7, B1/B2/B3→T3, B-SEC→T3 tests, §6 meta-test→T1/T2/T3, §7-closeout→T10. ✓ no gaps.
+1. **Spec coverage:** A1→T4, A2→T7+T1, A3→T8+T2, A4→T5+T6, A5→T7, B1→T3, B1.5 (is_session_live migration+RPC)→T3 steps 0a-0c + impl, B2/B3→T3, B-SEC (live-auth + live-revocation tests)→T3, §6 meta-test→T1/T2/T3, §6 migration→validation→T3 step 0c + T12 step 1b, §7-closeout→T10. ✓ no gaps.
 2. **Placeholder scan:** the only soft spot is the Task 3 dedup-test request-scope seam — explicitly flagged with an implementer decision point + structural fallback (not a silent TODO). All code steps show code.
 3. **Type consistency:** `readAppSettingsRow`/`getSettingsPageFlags` return `{kind:'value'|'infra_error'}` (matches house getters); `AppSettingsRow` from `@/lib/onboarding/sessionLifecycle`; `requireAdminIdentity` signature unchanged.
 4. **Anti-tautology:** concurrency tests use deferred promises (a serial impl fails); auth tests assert against spy call-counts; settings/dashboard derive expectations from injected fixtures.
