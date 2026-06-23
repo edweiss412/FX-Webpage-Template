@@ -243,12 +243,20 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
 
-  // §4.1 / D2 / D6: a clean `staged` sheet renders its parse preview INLINE
-  // via <Step3SheetCard> (summary + expandable breakdown). This replaces the
-  // old "Review and apply" link to the finalize-failure recovery page (D6).
-  // The card supplies its own <article>; we keep the `wizard-step3-row-<dfid>`
-  // wrapper testid so the per-manifest-row contract still resolves.
-  if (row.status === "staged") {
+  // §4.1 / D2 / D6: a clean review sheet renders its parse preview INLINE via
+  // <Step3SheetCard> (summary + expandable breakdown). This replaces the old
+  // "Review and apply" link to the finalize-failure recovery page (D6). The card
+  // supplies its own <article>; we keep the `wizard-step3-row-<dfid>` wrapper
+  // testid so the per-manifest-row contract still resolves.
+  //
+  // FIX 1 (CRITICAL): BOTH 'staged' (unchecked) and 'applied' (checked) clean
+  // rows route here — a checked card flips the manifest status to 'applied' and
+  // re-renders after router.refresh(); it must stay the card (with a CHECKED,
+  // individually-uncheckable checkbox — the card's checkbox checked-state is
+  // `status === "applied"`, and clicking it POSTs unapprove), NOT collapse to a
+  // dead "Applied" badge. 'applied' is NOT blocking, so it never enters the
+  // "Needs your attention" group.
+  if (isCleanRow(row.status)) {
     return (
       <div data-testid={`wizard-step3-row-${row.driveFileId}`} data-status={row.status}>
         <Step3SheetCard row={row} wizardSessionId={wizardSessionId} />

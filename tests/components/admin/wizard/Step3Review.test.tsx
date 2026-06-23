@@ -341,4 +341,54 @@ describe("Step3Review", () => {
       /empty|no sheets|nothing to review/i,
     );
   });
+
+  // FIX 1 (CRITICAL): a checked card flips manifest status 'staged'→'applied';
+  // after router.refresh() the loader re-runs and the row comes back as
+  // 'applied'. It MUST still render as the same publish CARD (with a CHECKED,
+  // individually-uncheckable checkbox), not collapse to a dead "Applied" badge.
+  // Regression guard: render an 'applied' row WITH a parseResult THROUGH
+  // <Step3Review> (not <Step3SheetCard> directly — that bypass is the gap the
+  // bug shipped through) and assert the card + a checked checkbox whose click
+  // POSTs the unapprove URL.
+  describe("FIX 1: an applied (checked) row renders the publish card so per-row uncheck survives refresh", () => {
+    const APPLIED_WITH_PARSE: Step3Row = {
+      driveFileId: "drive-applied-card-1",
+      driveFileName: "Refreshed.gsheet",
+      status: "applied",
+      parseResult: { show: { title: "Refreshed Show" } } as unknown as Step3Row["parseResult"],
+    };
+
+    test("routes the applied row to <Step3SheetCard> (card + checked checkbox), not a plain Applied badge", () => {
+      const { getByTestId } = render(
+        <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[APPLIED_WITH_PARSE]} />,
+      );
+      // The card renders (proves it is NOT the plain non-card "Applied" badge row).
+      expect(getByTestId(`wizard-step3-card-${APPLIED_WITH_PARSE.driveFileId}`)).not.toBeNull();
+      const box = getByTestId(
+        `wizard-step3-checkbox-${APPLIED_WITH_PARSE.driveFileId}`,
+      ) as HTMLInputElement;
+      // status 'applied' → the checkbox is CHECKED.
+      expect(box.checked).toBe(true);
+    });
+
+    test("clicking the applied row's checked checkbox POSTs the unapprove URL", async () => {
+      fetchMock.mockResolvedValue(mockJsonResponse({ status: "unapproved" }));
+      const { getByTestId } = render(
+        <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[APPLIED_WITH_PARSE]} />,
+      );
+      const box = getByTestId(
+        `wizard-step3-checkbox-${APPLIED_WITH_PARSE.driveFileId}`,
+      ) as HTMLInputElement;
+      await act(async () => {
+        fireEvent.click(box);
+      });
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+      // Derived from the fixture's session + driveFileId, not a hardcoded literal.
+      expect(url).toBe(
+        `/api/admin/onboarding/staged/${WIZARD_SESSION_ID}/${APPLIED_WITH_PARSE.driveFileId}/unapprove`,
+      );
+      expect(init.method).toBe("POST");
+    });
+  });
 });

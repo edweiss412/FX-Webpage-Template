@@ -115,6 +115,14 @@ type Step3FetchResult =
   | { kind: "ok"; rows: Step3Row[]; finishable: boolean }
   | { kind: "infra_error"; message: string };
 
+// FIX 1 (CRITICAL): a "clean review row" is one that renders as the publish
+// CARD — manifest 'staged' (unchecked) OR 'applied' (checked). Both carry the
+// surviving pending_syncs parse preview; an 'applied' row keeps its card +
+// checked, individually-uncheckable checkbox so per-row uncheck survives a
+// router.refresh(). 'applied' is NOT a blocking status.
+const isCleanReviewRow = (s: Step3ManifestStatus): boolean =>
+  s === "staged" || s === "applied";
+
 // Exported for tests/admin/_metaInfraContract.test.ts — the helper is the
 // subject row of the §B Supabase call-boundary registry for the Step 3
 // wizard surface (AGENTS.md §1.9). Production callers use Step3Container.
@@ -229,10 +237,16 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const status = m.status as Step3ManifestStatus;
     const driveFileName = (m.name as string | null) ?? null;
     const base: Step3Row = { driveFileId, status, driveFileName };
-    if (status === "staged") {
+    if (isCleanReviewRow(status)) {
+      // FIX 1 (CRITICAL): a checked card flips the manifest status
+      // 'staged'→'applied', but the pending_syncs row SURVIVES approval (it is
+      // deleted only at finalize). Both 'staged' (unchecked) and 'applied'
+      // (checked) clean rows render as the SAME publish card, so BOTH must carry
+      // the full ParseResult — gating on 'staged' alone made a refreshed applied
+      // row lose its preview + checkbox and collapse to a dead "Applied" badge.
       const staged = stagedByDfid.get(driveFileId);
       if (staged) {
-        // §7.1: a staged row carries its full ParseResult (may be null if the
+        // §7.1: a clean row carries its full ParseResult (may be null if the
         // jsonb was absent/malformed). Title is the back-compat summary field.
         const withParse: Step3Row = { ...base, parseResult: staged.parseResult };
         if (staged.title) return { ...withParse, stagedShowTitle: staged.title };

@@ -163,6 +163,29 @@ describe("fetchStep3Data — parse_result threading (§7.1)", () => {
     expect(stagedRow?.parseResult).toEqual(PARSE_RESULT_FIXTURE);
   });
 
+  // FIX 1 (CRITICAL): an 'applied' row (a checked card, post-refresh) must ALSO
+  // carry its full parse_result — the pending_syncs row survives approval (it is
+  // deleted only at finalize), so the card has everything it needs to keep
+  // rendering. The bug gated the threading on status === 'staged' only, so a
+  // refreshed applied row lost its preview + checkbox and collapsed to a badge.
+  test("an applied row's Step3Row.parseResult equals the full seeded parse_result object", async () => {
+    seedManifest([{ drive_file_id: "dfid-applied", name: "Applied.xlsx", status: "applied" }]);
+    seed.dataByTable["pending_syncs"] = [
+      { staged_id: "s-a", drive_file_id: "dfid-applied", parse_result: PARSE_RESULT_FIXTURE },
+    ];
+
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const appliedRow = result.rows.find((r) => r.driveFileId === "dfid-applied");
+    expect(appliedRow).toBeDefined();
+    expect(appliedRow?.status).toBe("applied");
+    // Full object, not just title — fails if the threading still gates on 'staged' only.
+    expect(appliedRow?.parseResult).toEqual(PARSE_RESULT_FIXTURE);
+  });
+
   test("a non-staged row carries parseResult = null (or undefined)", async () => {
     seedManifest([{ drive_file_id: "dfid-x", name: "Other.xlsx", status: "skipped_non_sheet" }]);
 
