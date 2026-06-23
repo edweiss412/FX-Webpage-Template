@@ -243,6 +243,12 @@ const infraRegistry = [
       "client construction + .from() throw OR returned error OR missing row → { kind: 'infra_error' }",
   },
   {
+    helper: "getSettingsPageFlags",
+    path: "lib/appSettings/getSettingsPageFlags.ts",
+    contract:
+      "single 4-column app_settings read; client construction + .from() throw OR returned error OR missing row → { kind: 'infra_error' }; each flag mapped fail-closed via literal === true",
+  },
+  {
     helper: "resetValidationDataAction",
     path: "app/admin/settings/_actions/validationReset.ts",
     contract:
