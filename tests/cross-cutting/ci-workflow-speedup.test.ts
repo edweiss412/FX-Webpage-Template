@@ -18,17 +18,23 @@ function readWorkflow(name: string): string {
 
 // Every workflow that fires on `pull_request` should cancel superseded runs
 // when the PR branch is re-pushed, so a stale run does not hold a runner while
-// the new commit waits. unit-suite already had this; the rest are added here.
-const PR_FIRING_WORKFLOWS = [
-  "unit-suite.yml",
-  "quality.yml",
-  "x-audits.yml",
-  "screenshots-drift.yml",
-  "help-affordances.yml",
-  "crew-e2e.yml",
-];
+// the new commit waits. Discovered dynamically (not a hardcoded list) so a
+// future pull_request workflow added without a concurrency block fails this
+// guard instead of silently false-greening it.
+const PR_FIRING_WORKFLOWS = readdirSync(WORKFLOWS_DIR)
+  .filter((f) => f.endsWith(".yml"))
+  .filter((f) => /\n {2}pull_request:/.test(readWorkflow(f)));
 
 describe("CI speedup — concurrency cancel-in-progress on every PR-firing workflow", () => {
+  // Anti-vacuity: if the discovery regex broke and matched nothing, it.each
+  // below would pass with zero cases. Pin that discovery actually found the
+  // known PR-firing workflows.
+  it("discovers the known PR-firing workflows (guards against an empty match)", () => {
+    expect(PR_FIRING_WORKFLOWS).toContain("quality.yml");
+    expect(PR_FIRING_WORKFLOWS).toContain("unit-suite.yml");
+    expect(PR_FIRING_WORKFLOWS.length).toBeGreaterThanOrEqual(5);
+  });
+
   it.each(PR_FIRING_WORKFLOWS)(
     "%s declares a concurrency group with cancel-in-progress: true",
     (file) => {
@@ -77,6 +83,7 @@ describe("CI speedup — screenshots-drift runs per-PR only on render-affecting 
     '"fixtures/shows/**"',
     '"supabase/seed.ts"',
     '"supabase/migrations/**"',
+    '"public/help/screenshots/**"',
     '"scripts/help-screenshots.ts"',
     '"scripts/ci/**"',
     '"playwright.screenshots.config.ts"',

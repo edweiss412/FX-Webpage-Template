@@ -22,6 +22,11 @@ on:
       - "supabase/seed.ts"
       - "supabase/seedWalkerFixtures.ts"
       - "supabase/migrations/**"
+      # The committed baselines themselves: the drift job re-captures and
+      # `git diff --exit-code public/help/screenshots/`, so a PR that edits these
+      # bytes directly must re-trigger verification (else a bad baseline ships
+      # until the nightly cron). They are the comparison target, not just an input.
+      - "public/help/screenshots/**"
       - "scripts/help-screenshots.ts"
       - "scripts/help-screenshots.manifest.ts"
       - "scripts/help-screenshots-fixture-range.ts"
