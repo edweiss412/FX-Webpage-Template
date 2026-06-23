@@ -22,7 +22,9 @@ const nextHeaders = vi.hoisted(() => ({
 const server = vi.hoisted(() => ({
   client: {
     auth: {
-      getUser: vi.fn(),
+      // nav-perf phase 1 (B): the gate now verifies the admin JWT LOCALLY
+      // via getClaims() (ES256) instead of getUser() (Auth-server round-trip).
+      getClaims: vi.fn(),
     },
     rpc: vi.fn(),
   },
@@ -47,10 +49,11 @@ describe("requireAdmin", () => {
     nextHeaders.store.clear();
     process.env.ADMIN_DEV_PANEL_ENABLED = "true";
     server.createSupabaseServerClient.mockResolvedValue(server.client);
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: { email: "Admin@FXAV.Test " } },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: { claims: { email: "Admin@FXAV.Test " } },
       error: null,
     });
+    // Default: both gate RPCs (is_session_live + is_admin) return true.
     server.client.rpc.mockResolvedValue({ data: true, error: null });
   });
 
@@ -65,23 +68,25 @@ describe("requireAdmin", () => {
     expect(server.client.rpc).toHaveBeenCalledWith("is_admin");
   });
 
-  test("reads the Supabase Auth user before asking public.is_admin()", async () => {
+  test("verifies claims locally before asking public.is_session_live()/is_admin()", async () => {
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).resolves.toBeUndefined();
 
-    expect(server.client.auth.getUser).toHaveBeenCalledTimes(1);
+    expect(server.client.auth.getClaims).toHaveBeenCalledTimes(1);
+    expect(server.client.rpc).toHaveBeenCalledWith("is_session_live");
     expect(server.client.rpc).toHaveBeenCalledWith("is_admin");
-    const getUserCallOrder = server.client.auth.getUser.mock.invocationCallOrder[0];
+    const getClaimsCallOrder = server.client.auth.getClaims.mock.invocationCallOrder[0];
     const rpcCallOrder = server.client.rpc.mock.invocationCallOrder[0];
-    expect(getUserCallOrder).toBeDefined();
+    expect(getClaimsCallOrder).toBeDefined();
     expect(rpcCallOrder).toBeDefined();
-    expect(getUserCallOrder!).toBeLessThan(rpcCallOrder!);
+    // getClaims gates the (parallel) RPCs — it resolves the email first.
+    expect(getClaimsCallOrder!).toBeLessThan(rpcCallOrder!);
   });
 
   test("Block-1-finding-5: missing canonical email redirects to /auth/sign-in (unauthed, not authed-non-admin)", async () => {
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: { email: "   " } },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: { claims: { email: "   " } },
       error: null,
     });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
@@ -94,8 +99,8 @@ describe("requireAdmin", () => {
   });
 
   test("Block-1-finding-5: Supabase AuthSessionMissingError redirects to /auth/sign-in (unauthed, not 403)", async () => {
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: null },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: null,
       error: {
         name: "AuthSessionMissingError",
         message: "Auth session missing!",
@@ -112,8 +117,8 @@ describe("requireAdmin", () => {
 
   test("Block-1-finding-5 (Option B): redirect target embeds the x-pathname header when present", async () => {
     nextHeaders.store.set("x-pathname", "/admin/settings/admins");
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: null },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: null,
       error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
     });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
@@ -125,8 +130,8 @@ describe("requireAdmin", () => {
 
   test("Block-1-finding-5 (Option B safe-degrade): falls back to next=/admin when x-pathname is null", async () => {
     // nextHeaders.store empty (default after beforeEach clear).
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: null },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: null,
       error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
     });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
@@ -141,8 +146,8 @@ describe("requireAdmin", () => {
     // validateNextParam so the redirect URL invariant holds even if header
     // forwarding is misconfigured (the helper's allowlist regex pins shape).
     nextHeaders.store.set("x-pathname", "//evil.example.com/phish");
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: null },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: null,
       error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
     });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
@@ -153,11 +158,13 @@ describe("requireAdmin", () => {
   });
 
   test("security boundary preserved: authed-but-not-admin still returns 403 via forbidden()", async () => {
-    // is_admin RPC returns false → the user IS signed in but lacks admin role.
-    // This is an authorization denial (correct security boundary). MUST NOT
-    // redirect to sign-in (that would leak that a sign-in could grant access
-    // when in fact the user already has a session).
-    server.client.rpc.mockResolvedValue({ data: false, error: null });
+    // is_admin RPC returns false (session live) → the user IS signed in but
+    // lacks admin role. This is an authorization denial (correct security
+    // boundary). MUST NOT redirect to sign-in (that would leak that a sign-in
+    // could grant access when in fact the user already has a session).
+    server.client.rpc.mockImplementation((fn: string) =>
+      Promise.resolve({ data: fn === "is_session_live" ? true : false, error: null }),
+    );
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toThrow("forbidden()");
@@ -170,21 +177,28 @@ describe("requireAdmin", () => {
     // denials. Now requireAdmin throws AdminInfraError on RPC failure
     // — admin layout/actions map it to a cataloged 500. Auth-negative
     // (RPC returns false) still 403s.
-    server.client.rpc.mockResolvedValue({ data: null, error: new Error("boom") });
+    server.client.rpc.mockImplementation((fn: string) =>
+      Promise.resolve(
+        fn === "is_admin" ? { data: null, error: new Error("boom") } : { data: true, error: null },
+      ),
+    );
     const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });
 
   test("PIN: is_admin RPC { data: null, error: null } fails CLOSED via forbidden() — never auth-success", async () => {
-    // Edge-case pin (2026-06-12): the gate is `if (data !== true) forbidden()`
-    // (lib/auth/requireAdmin.ts:209), so an anomalous null-data/null-error RPC
-    // result is a denial, not a success and not an infra 500. The live
-    // is_admin() function (supabase/migrations/20260501002000_rls_policies.sql:23)
-    // is a SQL `returns boolean` whose body coalesces both arms to false, so
-    // null data should be unreachable in practice — this test pins the
-    // defensive posture if the RPC contract ever drifts. No fail-open exists.
-    server.client.rpc.mockResolvedValue({ data: null, error: null });
+    // Edge-case pin (2026-06-12): the gate is `if (isAdmin !== true) forbidden()`,
+    // so an anomalous null-data/null-error is_admin RPC result is a denial, not
+    // a success and not an infra 500. The live is_admin() function
+    // (supabase/migrations/20260501002000_rls_policies.sql:23) is a SQL
+    // `returns boolean` whose body coalesces both arms to false, so null data
+    // should be unreachable in practice — this test pins the defensive posture
+    // if the RPC contract ever drifts. is_session_live=true so the session is
+    // live and we exercise the is_admin verdict, not the redirect. No fail-open.
+    server.client.rpc.mockImplementation((fn: string) =>
+      Promise.resolve(fn === "is_session_live" ? { data: true, error: null } : { data: null, error: null }),
+    );
     const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toThrow("forbidden()");

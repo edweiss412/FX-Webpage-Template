@@ -40,7 +40,7 @@ const nextHeaders = vi.hoisted(() => ({
 
 const server = vi.hoisted(() => ({
   client: {
-    auth: { getUser: vi.fn() },
+    auth: { getClaims: vi.fn() },
     rpc: vi.fn(),
   },
   createSupabaseServerClient: vi.fn(),
@@ -67,10 +67,11 @@ describe("layer-aware test-only infra-fail hook", () => {
     nextHeaders.store.set("authorization", `Bearer ${SECRET}`);
     // Make the happy path succeed when the hook does NOT fire.
     server.createSupabaseServerClient.mockResolvedValue(server.client);
-    server.client.auth.getUser.mockResolvedValue({
-      data: { user: { email: "Admin@FXAV.Test " } },
+    server.client.auth.getClaims.mockResolvedValue({
+      data: { claims: { email: "Admin@FXAV.Test " } },
       error: null,
     });
+    // Both gate RPCs (is_session_live + is_admin) return true on the happy path.
     server.client.rpc.mockResolvedValue({ data: true, error: null });
   });
 
