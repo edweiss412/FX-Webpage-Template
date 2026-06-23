@@ -101,7 +101,9 @@ test.describe("/help prose typography layer", () => {
     ).toBeLessThanOrEqual(76);
   });
 
-  test("inline prose links are visibly styled (underline + accent color)", async ({ page }) => {
+  test("inline prose links are underlined and inherit the AA-safe body text color", async ({
+    page,
+  }) => {
     await page.goto("/help/admin/per-show-panel", { waitUntil: "networkidle" });
 
     const link = await page.evaluate(() => {
@@ -116,8 +118,14 @@ test.describe("/help prose typography layer", () => {
     });
 
     expect(link, "per-show-panel should contain an inline prose link").not.toBeNull();
+    // Underline is the link affordance (WCAG 1.4.1 — not color alone).
     expect(link!.decoration, "inline link must be underlined").toContain("underline");
-    expect(link!.color, "inline link must not match body text color").not.toBe(link!.bodyColor);
+    // At rest the link inherits the high-contrast body text color (≈16:1, AAA),
+    // NOT the sub-AA brand accent (4.11:1). Pins the AA-safe rest-state color and
+    // catches a regression back to --color-accent-on-bg as the body-link color.
+    expect(link!.color, "inline link must inherit the AA-safe body text color").toBe(
+      link!.bodyColor,
+    );
   });
 
   test("errors page inherits the prose layer (no inert typography-plugin classes)", async ({

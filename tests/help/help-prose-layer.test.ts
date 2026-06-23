@@ -42,9 +42,12 @@ describe("/help prose typography layer — structural wiring", () => {
     // List markers restored (preflight strips them).
     expect(region, "ul marker restored").toMatch(/list-style:\s*disc/);
     expect(region, "ol marker restored").toMatch(/list-style:\s*decimal/);
-    // Inline prose links get an accent color + underline.
+    // Inline prose links are underlined; the brand accent is hover-only (the
+    // rest-state color is inherited and AA-safe — pinned by the guards below).
     expect(region, "links underlined").toMatch(/text-decoration:\s*underline/);
-    expect(region, "links use the accent-on-bg token").toMatch(/var\(--color-accent-on-bg\)/);
+    expect(region, "accent reserved for :hover").toMatch(
+      /a:hover\s*\{[^}]*var\(--color-accent-on-bg\)/,
+    );
 
     // Must live in @layer base so per-element Tailwind utilities (RefAnchor /
     // Step / Callout) still win over the prose defaults.
@@ -71,5 +74,79 @@ describe("/help prose typography layer — structural wiring", () => {
       /prose\s+prose-neutral/,
     );
     expect(errors, "errors page must not keep inert `max-w-none`").not.toMatch(/max-w-none/);
+  });
+
+  // Codex adversarial-review finding: a prior revision colored body prose links
+  // with --color-accent-on-bg (#c25e00 → 4.11:1 on the page bg, below WCAG AA
+  // 4.5:1 for normal text). The rest-state link must NOT use a sub-AA color; the
+  // underline is the affordance and the link inherits the high-contrast body
+  // text color. These guards pin that contract so the sub-AA accent can't creep
+  // back as the resting link color. (BL-ACCENT-ON-BG-AA-CONTRAST.)
+  it("rest-state prose links set no color (inherit AA-safe text), not the sub-AA accent", () => {
+    const css = read("app/globals.css");
+    // The rest-state rule is `.help-prose :is(p, li, dd, td) a {` (space-brace);
+    // the `a:hover {` variant is a separate block and may carry the accent.
+    const m = css.match(/\.help-prose :is\(p, li, dd, td\) a \{([^}]*)\}/);
+    expect(m, "rest-state inline-link rule must exist").not.toBeNull();
+    const body = m![1] ?? "";
+    expect(body, "link affordance is the underline").toMatch(/text-decoration:\s*underline/);
+    expect(body, "rest-state link must NOT set an explicit color (inherits text)").not.toMatch(
+      /(^|\s)color:/,
+    );
+    // Belt-and-suspenders: the accent-on-bg token may only appear under :hover.
+    const hover = css.match(/\.help-prose :is\(p, li, dd, td\) a:hover \{([^}]*)\}/);
+    const hoverBody = hover?.[1] ?? "";
+    if (/--color-accent-on-bg/.test(hoverBody)) {
+      // accent on hover is allowed (transient state, not subject to the 1.4.3 floor)
+      expect(hoverBody).toMatch(/--color-accent-on-bg/);
+    }
+  });
+
+  it("the inherited prose-link text color clears WCAG AA (4.5:1) on the page bg in both modes", () => {
+    const css = read("app/globals.css");
+    // Pull the runtime hex for text + bg from the light (:root) and dark
+    // ([data-theme="dark"]) blocks — derive expected values from the live CSS,
+    // never hardcode.
+    const blockFor = (selector: string): string => {
+      const idx = css.indexOf(selector);
+      expect(idx, `${selector} block must exist`).toBeGreaterThan(-1);
+      return css.slice(idx, idx + 1600);
+    };
+    const hexIn = (block: string, varName: string): string => {
+      const mm = block.match(new RegExp(`${varName}:\\s*(#[0-9a-fA-F]{6})`));
+      expect(mm, `${varName} must be defined`).not.toBeNull();
+      return mm![1] ?? "";
+    };
+    const lin = (c: number) => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    const lum = (hex: string) => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    };
+    const ratio = (a: string, b: string) => {
+      const la = lum(a) + 0.05;
+      const lb = lum(b) + 0.05;
+      return Math.max(la, lb) / Math.min(la, lb);
+    };
+
+    const light = blockFor(":root {");
+    const dark = blockFor('[data-theme="dark"] {');
+    const lightRatio = ratio(
+      hexIn(light, "--color-text-runtime"),
+      hexIn(light, "--color-bg-runtime"),
+    );
+    const darkRatio = ratio(hexIn(dark, "--color-text-runtime"), hexIn(dark, "--color-bg-runtime"));
+
+    expect(
+      lightRatio,
+      `light prose-link contrast ${lightRatio.toFixed(2)}:1`,
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(darkRatio, `dark prose-link contrast ${darkRatio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
+      4.5,
+    );
   });
 });

@@ -44,7 +44,7 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `per-da
 
 ## /help prose typography layer — impeccable gate (2026-06-22)
 
-Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/help-prose-typography` (the P0 typography fix from the help-center readability audit, `docs/help-readability-audit-2026-06-22.md`). Gate verdict: critique PASS (no P0/P1), audit PASS-WITH-MINOR (no P0/P1), deterministic detector `[]`. One audit P3 deferred here; the system-wide audit P2 is filed as `BL-ACCENT-ON-BG-AA-CONTRAST` in BACKLOG.md. The audit P3 callout-link contrast was FIXED in this PR (`.help-prose :is([role="note"], aside) a { color: inherit }`).
+Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/help-prose-typography` (the P0 typography fix from the help-center readability audit, `docs/help-readability-audit-2026-06-22.md`). Gate verdict: critique PASS (no P0/P1), audit PASS-WITH-MINOR (no P0/P1), deterministic detector `[]`. One audit P3 deferred here; the system-wide audit P2 is filed as `BL-ACCENT-ON-BG-AA-CONTRAST` in BACKLOG.md. Both the audit P2 (body-link contrast) and P3 (callout-link contrast on tinted fills) were resolved IN this PR after the Codex adversarial review: prose links now inherit the high-contrast body/box text color + underline at rest (no sub-AA accent), so they clear AA everywhere; accent appears on hover only.
 
 ### D7 — [P3] /help/errors heading order skips h2 (h1 → RefAnchor `as="h3"`)
 

@@ -577,20 +577,23 @@ body {
     margin-bottom: 0.5rem;
   }
 
-  /* Inline cross-reference links inside prose body text — the same inline-link
-     surface (p / li / dd / td) the WCAG-inline-link exception targets. Leaves
-     the RefAnchor copy-link 🔗 and structural links alone. */
+  /* Inline cross-reference links in prose body text — the same inline-link
+     surface (p / li / dd / td) the WCAG-inline-link exception targets; leaves
+     the RefAnchor copy-link 🔗 and structural links alone. The underline is the
+     link affordance (WCAG 1.4.1). At rest the link INHERITS the surrounding
+     high-contrast text color (≈16:1 on the page bg, AAA) so body links clear
+     WCAG AA 1.4.3 everywhere — including on the tinted Callout/aside fills,
+     where the link inherits the box's own text color. The brand accent is NOT
+     used at rest: --color-accent-on-bg is 4.11:1 on --color-bg, below the 4.5:1
+     normal-text floor (see BL-ACCENT-ON-BG-AA-CONTRAST). This matches the
+     Header/Breadcrumb chrome, which also style links as text-color + underline.
+     The accent appears on hover only (transient, desktop). */
   .help-prose :is(p, li, dd, td) a {
-    color: var(--color-accent-on-bg);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-  /* Inside a Callout (role="note") or TipFromSheets (aside), links keep the
-     box's own high-contrast text color — the accent-on-bg orange dips below
-     the AA contrast floor on those tinted backgrounds. The underline above
-     stays, so the link is still discoverable (WCAG 1.4.1 use-of-color). */
-  .help-prose :is([role="note"], aside) a {
-    color: inherit;
+  .help-prose :is(p, li, dd, td) a:hover {
+    color: var(--color-accent-on-bg);
   }
 
   .help-prose code {
