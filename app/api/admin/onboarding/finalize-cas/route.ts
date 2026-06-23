@@ -733,12 +733,15 @@ export async function handleOnboardingFinalizeCas(
   const affectedShowIds = new Set<string>();
   try {
     const result = await deps.withTx((tx) => runFinalizeCas(tx, deps, affectedShowIds));
-    if (result instanceof Response) return result;
-    // POST-COMMIT: the final CAS transaction committed (existing-show applies + publish flip are
-    // durable). Revalidate each affected show's data-cache tag before any further work.
+    // POST-COMMIT: per-row shadow applies commit via their OWN `withRowTx` (independent of the
+    // outer result), so a MIXED batch can durably apply early rows and THEN return a 409 for a
+    // later blocked sibling. Revalidate every committed show BEFORE the Response check — whole-diff
+    // R1 CRITICAL: otherwise a successfully-mutated show's data cache stays stale until the 300s TTL
+    // backstop. Safe to over-bust: affectedShowIds only gains an id once its applyShadow committed.
     for (const showId of affectedShowIds) {
       revalidateShow(showId);
     }
+    if (result instanceof Response) return result;
     await deps.subscribeToWatchedFolder(result.watched_folder_id);
     return NextResponse.json(result);
   } catch (error) {

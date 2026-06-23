@@ -47,30 +47,39 @@ export async function undoChange(changeLogId: string): Promise<UndoChangeResult>
   // The admin-gate throw is the auth boundary, NOT a Supabase infra fault.
   await requireAdmin();
 
-  // nav-perf tag-caching (Task 9): resolve the AUTHORITATIVE show id for the action's POST-COMMIT
-  // revalidate (NEVER client-supplied; PF23). Non-locking service-role read of the change-log row;
-  // the RPC self-resolves its own drive_file_id for the lock, so this read is off the mutation path
-  // and a failure only skips the data-cache bust (rendered data stays correct on the next refresh).
-  let resolvedShowId: string | null = null;
-  try {
-    const service = createSupabaseServiceRoleClient();
-    const { data } = await service
-      .from("show_change_log")
-      .select("show_id")
-      .eq("id", changeLogId)
-      .maybeSingle();
-    resolvedShowId = (data as { show_id?: string | null } | null)?.show_id ?? null;
-  } catch {
-    resolvedShowId = null;
-  }
-
+  let rpcData: RpcResult = null;
+  let rpcError: { message?: string } | null = null;
   try {
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("undo_change", {
-      p_change_log_id: changeLogId,
-    });
-    return mapRpcOutcome(data as RpcResult, error, resolvedShowId);
+    const res = await supabase.rpc("undo_change", { p_change_log_id: changeLogId });
+    rpcData = res.data as RpcResult;
+    rpcError = res.error;
   } catch {
     return { ok: false, code: "SYNC_INFRA_ERROR" };
   }
+
+  // nav-perf tag-caching: resolve the AUTHORITATIVE show id for the action's POST-COMMIT revalidate
+  // (NEVER client-supplied; PF23). Read it ONLY AFTER a successful RPC — whole-diff R1 HIGH: a
+  // PRE-read that fails (transient blip on a different client/connection) while the RPC still applies
+  // would skip the cache bust → stale. Reading post-success is reliable: the change-log row persists
+  // through undo, and the DB just served the undo_change RPC, so this non-locking service-role read
+  // is on a proven-healthy connection. A residual read failure only skips the IMMEDIATE bust; the
+  // show's 300s unstable_cache TTL backstop (spec §4.3) still refreshes. (The RPC does not surface
+  // show_id in its jsonb result, so a row read is the read-path; the authoritative id is the row's.)
+  let resolvedShowId: string | null = null;
+  if (rpcData && rpcData.ok === true) {
+    try {
+      const service = createSupabaseServiceRoleClient();
+      const { data } = await service
+        .from("show_change_log")
+        .select("show_id")
+        .eq("id", changeLogId)
+        .maybeSingle();
+      resolvedShowId = (data as { show_id?: string | null } | null)?.show_id ?? null;
+    } catch {
+      resolvedShowId = null;
+    }
+  }
+
+  return mapRpcOutcome(rpcData, rpcError, resolvedShowId);
 }
