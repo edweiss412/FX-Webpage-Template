@@ -284,3 +284,130 @@ describe("readShowDataForViewer — JSON-roundtrips (Task 2 step 5)", () => {
     expect(roundtripped).toEqual(result);
   });
 });
+
+// === Task 3: per-viewer key isolation + tag bust ===
+
+// Fixture: crewA is LEAD (financials authorized), crewB is non-LEAD (NOT
+// authorized). Expectations are DERIVED from these role_flags, not hardcoded:
+// LEAD ⇒ financials present; non-LEAD ⇒ financials absent.
+function crewRow(id: string, name: string, flags: string[]): CrewRow {
+  return {
+    id,
+    name,
+    email: `${id}@x.com`,
+    phone: null,
+    role: flags.includes("LEAD") ? "Lead" : "Tech",
+    role_flags: flags,
+    flight_info: null,
+    date_restriction: { kind: "none" },
+    stage_restriction: { kind: "none" },
+  };
+}
+
+function isolationClient(financials: { current: { po: string | null } | null }) {
+  const a = crewRow(CREW_A, "Alice Lead", ["LEAD"]);
+  const b = crewRow(CREW_B, "Bob Tech", []);
+  return makeCountingClient({
+    crewById: { [CREW_A]: a, [CREW_B]: b },
+    roster: [a, b],
+    financials,
+  });
+}
+
+describe("getShowForViewer — per-viewer cache isolation (Task 3)", () => {
+  test("crewA / crewB / admin are DISTINCT cache entries; no cross-viewer financials leak", async () => {
+    const { client } = isolationClient({ current: { po: "PO-SECRET" } });
+    supabaseState.client = client;
+
+    // Prime crewA FIRST so a key collision would serve crewA's entry to crewB.
+    const ra = await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_A });
+    const rb = await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_B });
+    const radmin = await getShowForViewer(SHOW_ID, { kind: "admin" });
+
+    // Derived from role_flags: LEAD (crewA) + admin see financials; non-LEAD
+    // (crewB) does NOT.
+    expect(ra.financials).toEqual({
+      po: "PO-SECRET",
+      proposal: null,
+      invoice: null,
+      invoice_notes: null,
+    });
+    expect(radmin.financials).toBeDefined();
+    expect(rb.financials).toBeUndefined();
+
+    // SECURITY: crewB must NOT receive crewA's VIEWER-SPECIFIC identity or
+    // financials (a key collision would serve crewA's cached entry to crewB).
+    // Note: the crewMembers ROSTER is shared (every viewer sees the full crew
+    // list), so "Alice Lead" legitimately appears in crewB's roster — the leak
+    // boundary is the viewer-scoped fields (viewerName + financials), not the
+    // roster.
+    expect(rb.viewerName).toBe("Bob Tech");
+    expect(rb.viewerName).not.toBe(ra.viewerName);
+    expect(rb.financials).toBeUndefined();
+    expect(JSON.stringify(rb)).not.toContain("PO-SECRET");
+
+    // admin has no specific viewer identity.
+    expect(radmin.viewerName).toBeNull();
+  });
+
+  test("distinct viewers each issue their OWN data fan-out (no shared entry)", async () => {
+    const { client, counts } = isolationClient({ current: null });
+    supabaseState.client = client;
+
+    await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_A });
+    await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_B });
+
+    // Two distinct viewers → two distinct cache keys → the shows row read TWICE
+    // (once per key). A collision would memoize to ONE → shows read once.
+    expect(counts.from.shows).toBe(2);
+
+    // Re-calling crewA serves its memoized entry (no third shows read).
+    await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_A });
+    expect(counts.from.shows).toBe(2);
+  });
+});
+
+describe("getShowForViewer — tag bust (Task 3)", () => {
+  test("revalidateShow evicts the cache; the next read re-issues the fan-out fresh", async () => {
+    const financials = { current: { po: "PO-OLD" } as { po: string | null } | null };
+    const { client, counts } = isolationClient(financials);
+    supabaseState.client = client;
+
+    const first = await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_A });
+    expect(first.financials?.po).toBe("PO-OLD");
+    expect(counts.from.shows).toBe(1);
+
+    // Mutate the backing data WITHOUT busting → cached stale value still served.
+    financials.current = { po: "PO-NEW" };
+    const stillCached = await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_A });
+    expect(stillCached.financials?.po).toBe("PO-OLD");
+    expect(counts.from.shows).toBe(1);
+
+    // Bust the show tag → next read re-issues the fan-out and sees fresh data.
+    revalidateShow(SHOW_ID);
+    const fresh = await getShowForViewer(SHOW_ID, { kind: "crew", crewMemberId: CREW_A });
+    expect(fresh.financials?.po).toBe("PO-NEW");
+    expect(counts.from.shows).toBe(2);
+  });
+
+  test("the busting tag string is exactly show-${showId}", async () => {
+    const financials = { current: null as { po: string | null } | null };
+    const { client, counts } = isolationClient(financials);
+    supabaseState.client = client;
+
+    await getShowForViewer(SHOW_ID, { kind: "admin" });
+    expect(counts.from.shows).toBe(1);
+
+    // A WRONG tag must NOT evict this show's entry (proves the tag is keyed on
+    // the show id, not a blanket bust).
+    const { revalidateTag } = await import("next/cache");
+    revalidateTag("show-some-other-show", { expire: 300 });
+    await getShowForViewer(SHOW_ID, { kind: "admin" });
+    expect(counts.from.shows).toBe(1); // still cached — wrong tag did nothing
+
+    // The CORRECT tag evicts.
+    revalidateTag(showCacheTag(SHOW_ID), { expire: 300 });
+    await getShowForViewer(SHOW_ID, { kind: "admin" });
+    expect(counts.from.shows).toBe(2);
+  });
+});
