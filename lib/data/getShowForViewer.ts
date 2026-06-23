@@ -337,67 +337,83 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     // on ShowForViewer is the LEAD-gated channel.
   };
 
+  // Per-tile-domain error map (M9 H1 fix). Each tile-owned sub-query
+  // populates this on failure; the page passes it to each WrappedTile's
+  // load callback to convert a sub-query failure into a per-tile fallback
+  // instead of a whole-page failure.
+  //
+  // PERF (nav-perf phase 1, A1): every read BELOW this point is independent of
+  // every other (they only share `showId`, `isLead`, `tileErrors`), so they fan
+  // out in ONE Promise.all wave instead of a serial await chain. Each read keeps
+  // its EXACT existing discrimination (invariant 9): a returned `{ data, error }`
+  // or a thrown fault records the SAME soft `tileErrors[id]` (tiles) or hard
+  // throw (crew roster, version RPC) it did serially. We `Promise.all` the query
+  // PROMISES (they resolve, never reject — each read wraps its own try/catch);
+  // NEVER `Promise.allSettled`. `tileErrors` is shared but each read writes a
+  // DISTINCT key, so concurrent writes don't collide.
+  const tileErrors: Record<string, string> = {};
+
   // === Crew members (always loaded; tile-visibility predicates need flags) ===
   // Schema columns: see supabase/migrations/20260501000000_initial_public_schema.sql:39-40
   // (date_restriction jsonb, stage_restriction jsonb). Both are JSONB
   // discriminated unions per lib/parser/types.ts:10-16. Fall back to
   // `{ kind: 'none' }` when DB row is null so consumers don't need to
-  // distinguish "no restriction set" from "restriction = none".
-  const crewRes = await supabase
-    .from("crew_members")
-    .select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")
-    .eq("show_id", showId);
-  if (crewRes.error) {
-    throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
-  }
-  const crewMembers = (crewRes.data ?? []).map((row) => ({
-    id: row.id as string,
-    name: row.name as string,
-    email: (row.email as string | null) ?? null,
-    phone: (row.phone as string | null) ?? null,
-    role: row.role as string,
-    roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
-    // Codex round-23 HIGH: parser produces M/D tokens like "6/24"
-    // for explicit date restrictions. ScheduleTile + RightNow
-    // compare to ISO YYYY-MM-DD show dates; format mismatch left
-    // restricted crew with zero matching days. Normalize at the
-    // projection boundary so every UI consumer sees ISO. See
-    // lib/data/normalizeDateRestriction.ts.
-    dateRestriction: normalizeDateRestriction(
-      // decodeJsonbColumn: a legacy double-encoded restriction comes back from
-      // Supabase-JS as a STRING scalar; without decoding, restriction.kind is
-      // undefined → normalizeDateRestriction returns the string and ScheduleTile
-      // mis-renders all days (visibility regression). No-op for correct rows (R8).
-      decodeJsonbColumn<DateRestriction>(row.date_restriction) ?? { kind: "none" },
-      show.dates,
-    ),
-    stageRestriction: decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {
-      kind: "none",
-    },
-  }));
-
-  // Per-tile-domain error map (M9 H1 fix). Each tile-owned sub-query
-  // populates this on failure; the page passes it to each WrappedTile's
-  // load callback to convert a sub-query failure into a per-tile fallback
-  // instead of a whole-page failure.
-  const tileErrors: Record<string, string> = {};
+  // distinguish "no restriction set" from "restriction = none". HARD throw on a
+  // returned error (page cannot render without the roster) — preserved verbatim.
+  type CrewMember = ShowForViewer["crewMembers"][number];
+  const readCrewMembers = async (): Promise<CrewMember[]> => {
+    const crewRes = await supabase
+      .from("crew_members")
+      .select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")
+      .eq("show_id", showId);
+    if (crewRes.error) {
+      throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
+    }
+    return (crewRes.data ?? []).map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      email: (row.email as string | null) ?? null,
+      phone: (row.phone as string | null) ?? null,
+      role: row.role as string,
+      roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
+      // Codex round-23 HIGH: parser produces M/D tokens like "6/24"
+      // for explicit date restrictions. ScheduleTile + RightNow
+      // compare to ISO YYYY-MM-DD show dates; format mismatch left
+      // restricted crew with zero matching days. Normalize at the
+      // projection boundary so every UI consumer sees ISO. See
+      // lib/data/normalizeDateRestriction.ts.
+      dateRestriction: normalizeDateRestriction(
+        // decodeJsonbColumn: a legacy double-encoded restriction comes back from
+        // Supabase-JS as a STRING scalar; without decoding, restriction.kind is
+        // undefined → normalizeDateRestriction returns the string and ScheduleTile
+        // mis-renders all days (visibility regression). No-op for correct rows (R8).
+        decodeJsonbColumn<DateRestriction>(row.date_restriction) ?? { kind: "none" },
+        show.dates,
+      ),
+      stageRestriction: decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {
+        kind: "none",
+      },
+    }));
+  };
 
   // === Hotel reservations (lodging tile + notes tile) ===
   // For crew / admin_preview viewers, filter to those that name the viewer.
-  // Admin viewers see ALL reservations.
-  let allHotels: HotelReservationRow[] = [];
-  try {
-    const hotelRes = await supabase
-      .from("hotel_reservations")
-      .select(
-        "ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes",
-      )
-      .eq("show_id", showId)
-      .order("ordinal", { ascending: true });
-    if (hotelRes.error) {
-      tileErrors["hotel"] = hotelRes.error.message;
-    } else {
-      allHotels = (hotelRes.data ?? []).map((row) => ({
+  // Admin viewers see ALL reservations. (Viewer-name filtering happens AFTER the
+  // wave resolves so it sees the final viewerName.)
+  const readHotels = async (): Promise<HotelReservationRow[]> => {
+    try {
+      const hotelRes = await supabase
+        .from("hotel_reservations")
+        .select(
+          "ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes",
+        )
+        .eq("show_id", showId)
+        .order("ordinal", { ascending: true });
+      if (hotelRes.error) {
+        tileErrors["hotel"] = hotelRes.error.message;
+        return [];
+      }
+      return (hotelRes.data ?? []).map((row) => ({
         ordinal: row.ordinal as number,
         hotel_name: (row.hotel_name as string | null) ?? null,
         hotel_address: (row.hotel_address as string | null) ?? null,
@@ -407,25 +423,21 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
         check_out: (row.check_out as string | null) ?? null,
         notes: (row.notes as string | null) ?? null,
       }));
+    } catch (e) {
+      tileErrors["hotel"] = e instanceof Error ? e.message : String(e);
+      return [];
     }
-  } catch (e) {
-    tileErrors["hotel"] = e instanceof Error ? e.message : String(e);
-  }
-  const hotelReservations: HotelReservationRow[] =
-    isAdmin || viewerName === null
-      ? allHotels
-      : allHotels.filter((res) =>
-          res.names.some((n) => n.toLowerCase().includes((viewerName as string).toLowerCase())),
-        );
+  };
 
   // === Rooms (schedule + audio/video/lighting scope tiles + notes) ===
-  let rooms: ProjectedRoomRow[] = [];
-  try {
-    const roomRes = await supabase.from("rooms").select("*").eq("show_id", showId);
-    if (roomRes.error) {
-      tileErrors["rooms"] = roomRes.error.message;
-    } else {
-      rooms = (roomRes.data ?? []).map((row) => ({
+  const readRooms = async (): Promise<ProjectedRoomRow[]> => {
+    try {
+      const roomRes = await supabase.from("rooms").select("*").eq("show_id", showId);
+      if (roomRes.error) {
+        tileErrors["rooms"] = roomRes.error.message;
+        return [];
+      }
+      return (roomRes.data ?? []).map((row) => ({
         id: row.id as string,
         kind: row.kind as RoomRow["kind"],
         name: row.name as string,
@@ -444,23 +456,26 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
         other: (row.other as string | null) ?? null,
         notes: (row.notes as string | null) ?? null,
       }));
+    } catch (e) {
+      tileErrors["rooms"] = e instanceof Error ? e.message : String(e);
+      return [];
     }
-  } catch (e) {
-    tileErrors["rooms"] = e instanceof Error ? e.message : String(e);
-  }
+  };
 
   // === Transportation (1:1 with show; null when no row) ===
-  let transportation: TransportationRow | null = null;
-  try {
-    const transRes = await supabase
-      .from("transportation")
-      .select("*")
-      .eq("show_id", showId)
-      .maybeSingle();
-    if (transRes.error) {
-      tileErrors["transportation"] = transRes.error.message;
-    } else if (transRes.data) {
-      transportation = {
+  const readTransportation = async (): Promise<TransportationRow | null> => {
+    try {
+      const transRes = await supabase
+        .from("transportation")
+        .select("*")
+        .eq("show_id", showId)
+        .maybeSingle();
+      if (transRes.error) {
+        tileErrors["transportation"] = transRes.error.message;
+        return null;
+      }
+      if (!transRes.data) return null;
+      return {
         driver_name: (transRes.data.driver_name as string | null) ?? null,
         driver_phone: (transRes.data.driver_phone as string | null) ?? null,
         driver_email: (transRes.data.driver_email as string | null) ?? null,
@@ -492,49 +507,53 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
           })),
         notes: (transRes.data.notes as string | null) ?? null,
       };
+    } catch (e) {
+      tileErrors["transportation"] = e instanceof Error ? e.message : String(e);
+      return null;
     }
-  } catch (e) {
-    tileErrors["transportation"] = e instanceof Error ? e.message : String(e);
-  }
+  };
 
   // === Contacts (contacts tile + notes tile) ===
-  let contacts: ContactRow[] = [];
-  try {
-    const contactsRes = await supabase.from("contacts").select("*").eq("show_id", showId);
-    if (contactsRes.error) {
-      tileErrors["contacts"] = contactsRes.error.message;
-    } else {
-      contacts = (contactsRes.data ?? []).map((row) => ({
+  const readContacts = async (): Promise<ContactRow[]> => {
+    try {
+      const contactsRes = await supabase.from("contacts").select("*").eq("show_id", showId);
+      if (contactsRes.error) {
+        tileErrors["contacts"] = contactsRes.error.message;
+        return [];
+      }
+      return (contactsRes.data ?? []).map((row) => ({
         kind: row.kind as ContactRow["kind"],
         name: (row.name as string | null) ?? null,
         email: (row.email as string | null) ?? null,
         phone: (row.phone as string | null) ?? null,
         notes: (row.notes as string | null) ?? null,
       }));
+    } catch (e) {
+      tileErrors["contacts"] = e instanceof Error ? e.message : String(e);
+      return [];
     }
-  } catch (e) {
-    tileErrors["contacts"] = e instanceof Error ? e.message : String(e);
-  }
+  };
 
   // === Run-of-show (agenda) — UNCONDITIONAL read for every viewer (D-4) ===
   // NOT lead-gated: `run_of_show` is DATE-gated, not financial. The read is
   // service-role + fail-soft (returned-error AND thrown exception both →
   // runOfShow=null + a FIXED tileErrors string, never raw infra text). The
-  // date∩DateRestriction intersection below happens at READ only — the stored
-  // shows_internal.run_of_show object is never mutated.
-  let runOfShow: Record<string, ScheduleDay> | null = null;
-  try {
-    // not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan
-    // (tests/auth/_metaInfraContract.test.ts:258-259 walks lib/auth/app/auth/app/api/auth/app/api/show only);
-    // the { data, error } boundary is pinned by the behavioral returned-error + thrown-exception tests below.
-    const r = await supabase
-      .from("shows_internal")
-      .select("run_of_show")
-      .eq("show_id", showId)
-      .maybeSingle();
-    if (r.error) {
-      tileErrors["run_of_show"] = "run_of_show read failed";
-    } else {
+  // date∩DateRestriction intersection below happens at READ only (after the
+  // wave resolves) — the stored shows_internal.run_of_show object is never mutated.
+  const readRunOfShow = async (): Promise<Record<string, ScheduleDay> | null> => {
+    try {
+      // not-subject-to-meta: lib/data is outside _metaInfraContract's auth-domain scan
+      // (tests/auth/_metaInfraContract.test.ts:258-259 walks lib/auth/app/auth/app/api/auth/app/api/show only);
+      // the { data, error } boundary is pinned by the behavioral returned-error + thrown-exception tests below.
+      const r = await supabase
+        .from("shows_internal")
+        .select("run_of_show")
+        .eq("show_id", showId)
+        .maybeSingle();
+      if (r.error) {
+        tileErrors["run_of_show"] = "run_of_show read failed";
+        return null;
+      }
       // `?? null` is LOAD-BEARING: .maybeSingle() returns { data: null } for the
       // common no-row (no-agenda) case → r.data?.run_of_show is `undefined`.
       // Without the coercion the decoder flags `undefined` as corrupt and fires
@@ -546,12 +565,100 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
       if (decoded.corrupt) {
         tileErrors["run_of_show"] = "run_of_show decode: corrupt stored shape";
       }
-      runOfShow = decoded.value;
+      return decoded.value;
+    } catch (e) {
+      void e;
+      tileErrors["run_of_show"] = "run_of_show read failed";
+      return null;
     }
-  } catch (e) {
-    void e;
-    tileErrors["run_of_show"] = "run_of_show read failed";
-  }
+  };
+
+  // === Financials — JOIN shows_internal ONLY when authorized ===
+  // The first-line-of-defense gate: when not LEAD, this read is NEVER issued
+  // (the wave passes Promise.resolve(undefined) instead), so the JSONB column
+  // isn't even queried. RLS on shows_internal (admin-only via is_admin()) is
+  // the second line; physical separation (financials NOT on `shows`) is third.
+  const readFinancials = async (): Promise<FinancialsRow | undefined> => {
+    try {
+      const internalRes = await supabase
+        .from("shows_internal")
+        .select("financials")
+        .eq("show_id", showId)
+        .maybeSingle();
+      if (internalRes.error) {
+        tileErrors["financials"] = internalRes.error.message;
+        return undefined;
+      }
+      if (!internalRes.data?.financials) return undefined;
+      // decodeJsonbColumn: a legacy double-encoded financials is a STRING scalar
+      // from Supabase-JS; decode so f.po/proposal/... read as fields, not chars (R8).
+      const f = decodeJsonbColumn<FinancialsRow>(internalRes.data.financials) ?? {
+        po: null,
+        proposal: null,
+        invoice: null,
+        invoice_notes: null,
+      };
+      return {
+        po: f.po ?? null,
+        proposal: f.proposal ?? null,
+        invoice: f.invoice ?? null,
+        invoice_notes: f.invoice_notes ?? null,
+      };
+    } catch (e) {
+      tileErrors["financials"] = e instanceof Error ? e.message : String(e);
+      return undefined;
+    }
+  };
+
+  // === viewer_version_token RPC (Task 4.16 Checkpoint B SSR fence) ===
+  // Computed by public.viewer_version_token(uuid) — defined in
+  // supabase/migrations/20260501001000_internal_and_admin.sql:18-32. The
+  // function is granted EXECUTE to authenticated, anon, AND service_role,
+  // so this RPC succeeds under every viewer kind. Empty string is the
+  // "no fence" sentinel — the bridge tolerates it. HARD throw on a returned
+  // error (page cannot render without the fence) — preserved verbatim.
+  const readVersionToken = async (): Promise<string> => {
+    const versionRpc = await supabase.rpc("viewer_version_token", { p_show_id: showId });
+    if (versionRpc.error) {
+      throw new Error(
+        `getShowForViewer: viewer_version_token RPC failed: ${versionRpc.error.message}`,
+      );
+    }
+    return typeof versionRpc.data === "string" ? versionRpc.data : "";
+  };
+
+  // === Parallel wave: every independent post-validation read fans out at once ===
+  // Promise.all the query PROMISES (invariant 9 — they resolve, never reject;
+  // each read above owns its try/catch). When !isLead the financials slot is
+  // Promise.resolve(undefined) so ZERO financials reads issue. NEVER allSettled.
+  const [
+    crewMembers,
+    allHotels,
+    rooms,
+    transportation,
+    contacts,
+    runOfShowRaw,
+    viewerVersionToken,
+    financialsResult,
+  ] = await Promise.all([
+    readCrewMembers(),
+    readHotels(),
+    readRooms(),
+    readTransportation(),
+    readContacts(),
+    readRunOfShow(),
+    readVersionToken(),
+    isLead ? readFinancials() : Promise.resolve(undefined),
+  ]);
+
+  const hotelReservations: HotelReservationRow[] =
+    isAdmin || viewerName === null
+      ? allHotels
+      : allHotels.filter((res) =>
+          res.names.some((n) => n.toLowerCase().includes((viewerName as string).toLowerCase())),
+        );
+
+  let runOfShow: Record<string, ScheduleDay> | null = runOfShowRaw;
 
   // Intersection (D-4): emit only days that survive (decoded keys) ∩
   // (current show.dates.showDays) ∩ (the ACTIVE viewer's normalized
@@ -592,57 +699,12 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   const pullSheet: PullSheetCase[] | null =
     decodeJsonbColumn<PullSheetCase[]>(showRowDb.pull_sheet) ?? null;
 
-  // === Financials — JOIN shows_internal ONLY when authorized ===
-  // The first-line-of-defense gate: when not LEAD, this branch is never
-  // taken, so the JSONB column isn't even queried. RLS on shows_internal
-  // (admin-only via is_admin()) is the second line; physical separation
-  // (financials NOT on `shows`) is the third.
-  let financials: FinancialsRow | undefined;
-  if (isLead) {
-    try {
-      const internalRes = await supabase
-        .from("shows_internal")
-        .select("financials")
-        .eq("show_id", showId)
-        .maybeSingle();
-      if (internalRes.error) {
-        tileErrors["financials"] = internalRes.error.message;
-      } else if (internalRes.data?.financials) {
-        // decodeJsonbColumn: a legacy double-encoded financials is a STRING scalar
-        // from Supabase-JS; decode so f.po/proposal/... read as fields, not chars (R8).
-        const f = decodeJsonbColumn<FinancialsRow>(internalRes.data.financials) ?? {
-          po: null,
-          proposal: null,
-          invoice: null,
-          invoice_notes: null,
-        };
-        financials = {
-          po: f.po ?? null,
-          proposal: f.proposal ?? null,
-          invoice: f.invoice ?? null,
-          invoice_notes: f.invoice_notes ?? null,
-        };
-      }
-    } catch (e) {
-      tileErrors["financials"] = e instanceof Error ? e.message : String(e);
-    }
-  }
-
-  // === viewer_version_token RPC (Task 4.16 Checkpoint B SSR fence) ===
-  // Computed by public.viewer_version_token(uuid) — defined in
-  // supabase/migrations/20260501001000_internal_and_admin.sql:18-32. The
-  // function is granted EXECUTE to authenticated, anon, AND service_role,
-  // so this RPC succeeds under every viewer kind. Empty string is the
-  // "no fence" sentinel — the bridge tolerates it.
-  const versionRpc = await supabase.rpc("viewer_version_token", {
-    p_show_id: showId,
-  });
-  if (versionRpc.error) {
-    throw new Error(
-      `getShowForViewer: viewer_version_token RPC failed: ${versionRpc.error.message}`,
-    );
-  }
-  const viewerVersionToken: string = typeof versionRpc.data === "string" ? versionRpc.data : "";
+  // === Financials — from the parallel wave (LEAD-gated; see readFinancials) ===
+  // `financialsResult` is `undefined` for every non-LEAD viewer (the wave passed
+  // Promise.resolve(undefined), so NO shows_internal financials read issued) and
+  // for LEAD viewers whose row has no financials. The spread at the return site
+  // only adds the key when defined, preserving the optional-field contract.
+  const financials: FinancialsRow | undefined = financialsResult;
 
   const diagrams = resolveCurrentDiagrams(decodeJsonbColumn(showRowDb.diagrams));
   const openingReelHasVideo = projectOpeningReelHasVideo({

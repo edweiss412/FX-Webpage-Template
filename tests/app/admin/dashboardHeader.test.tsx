@@ -13,6 +13,14 @@ vi.mock("@/lib/onboarding/sessionLifecycle", () => ({
     settings: { pending_wizard_session_id: null, watched_folder_id: "f1" },
   }),
 }));
+// nav-perf phase 1 (A2): AdminPage now reads app_settings via readAppSettingsRow
+// to gate the purge tx. Mock it to infra_error so the gate deterministically
+// falls back to the purgeAndRotateIfStale mock above — otherwise the real read
+// hits live local Supabase, whose app_settings row other suites mutate, flaking
+// this header test in the full suite. (Same class as AdminPage.test.tsx.)
+vi.mock("@/lib/appSettings/readAppSettingsRow", () => ({
+  readAppSettingsRow: async () => ({ kind: "infra_error" }),
+}));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),

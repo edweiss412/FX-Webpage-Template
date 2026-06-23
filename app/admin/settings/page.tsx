@@ -45,6 +45,7 @@ import { ReapStaleSessionsButton } from "@/components/admin/ReapStaleSessionsBut
 import { MaintenanceResetButtons } from "@/components/admin/MaintenanceResetButtons";
 import { destructiveResetAllowed } from "@/lib/admin/validationDeployment";
 import { Bell, Sparkles, ShieldCheck, Trash2 } from "lucide-react";
+import { getSettingsPageFlags } from "@/lib/appSettings/getSettingsPageFlags";
 import { getAutoPublishCleanFirstSeen } from "@/lib/appSettings/getAutoPublishCleanFirstSeen";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
 import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
@@ -62,6 +63,14 @@ function toNotifyInitial(
   return read.kind === "value" ? { kind: "value", on: read.enabled } : { kind: "infra_error" };
 }
 
+/** Map a fail-closed auto-publish read ({kind:'value',autoPublish} | infra_error)
+ * onto the AutoPublishToggle's {kind:'value',on} | infra_error prop shape. */
+function toAutoPublishInitial(
+  read: { kind: "value"; autoPublish: boolean } | { kind: "infra_error" },
+): AutoPublishInitial {
+  return read.kind === "value" ? { kind: "value", on: read.autoPublish } : { kind: "infra_error" };
+}
+
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings · Admin · FXAV" };
 
@@ -74,20 +83,43 @@ export default async function AdminSettingsPage() {
   // production/staging. Computed once here; the component carries no secret prop.
   const canReset = destructiveResetAllowed();
 
-  // Fail-closed read of the auto-publish toggle (infra_error → degraded control;
-  // never a silent wrong/falsely-ON state — §4). Map the reader's
-  // {autoPublish} shape onto the component's {on} prop.
-  const autoPublishRead = await getAutoPublishCleanFirstSeen();
-  const autoPublishInitial: AutoPublishInitial =
-    autoPublishRead.kind === "value"
-      ? { kind: "value", on: autoPublishRead.autoPublish }
-      : { kind: "infra_error" };
+  // Nav-perf Phase 1 (A3): one app_settings read for all four toggle initials,
+  // run in PARALLEL with the two independent top-level loaders. The happy path
+  // is a single round-trip (getSettingsPageFlags) instead of four sequential
+  // getter awaits. All reads are fail-closed: an infra_error degrades the
+  // affected control to OFF — never a silent wrong/falsely-ON state (§4/§7.2).
+  const [flags, driveHealth, adminEmails] = await Promise.all([
+    getSettingsPageFlags(),
+    fetchDriveConnectionHealth(),
+    fetchEmbeddedAdminEmails(),
+  ]);
 
-  // Fail-closed reads of the two notification toggles (infra_error → degraded
-  // control; never a silent wrong/falsely-ON state — §7.2).
-  const alertOnSyncProblemsInitial = toNotifyInitial(await getAlertOnSyncProblems());
-  const dailyReviewDigestInitial = toNotifyInitial(await getDailyReviewDigest());
-  const alertOnAutoPublishInitial = toNotifyInitial(await getAlertOnAutoPublish());
+  let autoPublishInitial: AutoPublishInitial;
+  let alertOnSyncProblemsInitial: NotifyToggleInitial;
+  let dailyReviewDigestInitial: NotifyToggleInitial;
+  let alertOnAutoPublishInitial: NotifyToggleInitial;
+
+  if (flags.kind === "value") {
+    // Happy path: derive every toggle initial from the single read.
+    autoPublishInitial = { kind: "value", on: flags.autoPublishCleanFirstSeen };
+    alertOnSyncProblemsInitial = { kind: "value", on: flags.alertOnSyncProblems };
+    dailyReviewDigestInitial = { kind: "value", on: flags.dailyReviewDigest };
+    alertOnAutoPublishInitial = { kind: "value", on: flags.alertOnAutoPublish };
+  } else {
+    // Fallback with PER-TOGGLE ISOLATION: the combined read failed, so consult
+    // the four single getters in parallel and map EACH independently. A single
+    // failing column degrades only its own toggle; the rest render real values.
+    const [autoPublishRead, syncRead, digestRead, autoPublishAlertRead] = await Promise.all([
+      getAutoPublishCleanFirstSeen(),
+      getAlertOnSyncProblems(),
+      getDailyReviewDigest(),
+      getAlertOnAutoPublish(),
+    ]);
+    autoPublishInitial = toAutoPublishInitial(autoPublishRead);
+    alertOnSyncProblemsInitial = toNotifyInitial(syncRead);
+    dailyReviewDigestInitial = toNotifyInitial(digestRead);
+    alertOnAutoPublishInitial = toNotifyInitial(autoPublishAlertRead);
+  }
 
   return (
     <main data-testid="admin-settings-page" className="flex w-full flex-col">
@@ -103,10 +135,10 @@ export default async function AdminSettingsPage() {
         data-testid="admin-settings-content"
         className="flex w-full max-w-3xl flex-col gap-section-gap"
       >
-        <DriveConnectionPanel health={await fetchDriveConnectionHealth()} now={now} />
+        <DriveConnectionPanel health={driveHealth} now={now} />
 
         <AdministratorsSection
-          result={await fetchEmbeddedAdminEmails()}
+          result={adminEmails}
           actorCanonicalEmail={canonicalize(identity.email) ?? ""}
           now={now}
         />

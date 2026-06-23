@@ -75,6 +75,21 @@ const infraMock = vi.hoisted(() => ({
   // can pin returned-missing vs returned-non-missing classification
   // (root-landing spec §4.1.3).
   getUserReturnedError: null as null | Record<string, unknown>,
+  // nav-perf phase 1 (B/B1.5): the admin gate migrated getUser()→getClaims()
+  // and added the is_session_live() RPC alongside is_admin(), both run in
+  // parallel. These knobs drive the migrated requireAdmin/requireAdminIdentity
+  // behavioral rows below.
+  // - throwOnGetClaims: the returned client's auth.getClaims throws.
+  // - getClaimsResult: when set, auth.getClaims RESOLVES with this object
+  //   (e.g. an admin-shaped claims success, or a returned-error). Defaults to
+  //   a valid admin claims success so RPC-boundary rows reach the RPCs.
+  // - rpcResultByFn: per-RPC-name resolved result ({ data, error }); lets a
+  //   row pin is_session_live vs is_admin returned-error independently AND
+  //   exercise the ERROR-FIRST combination (is_session_live=false +
+  //   is_admin returned-error → AdminInfraError, NOT redirect).
+  throwOnGetClaims: false,
+  getClaimsResult: null as null | { data: unknown; error: unknown },
+  rpcResultByFn: null as null | Record<string, { data: unknown; error: unknown }>,
 }));
 
 function makeThrowingClient() {
@@ -89,12 +104,26 @@ function makeThrowingClient() {
         }
         return { data: { user: null }, error: null };
       },
+      getClaims: async () => {
+        if (infraMock.throwOnGetClaims) {
+          throw new Error("META: simulated getClaims infrastructure fault");
+        }
+        if (infraMock.getClaimsResult !== null) {
+          return infraMock.getClaimsResult;
+        }
+        // Default: a valid admin-shaped claims success so RPC-boundary rows
+        // reach the parallel is_session_live()/is_admin() calls.
+        return { data: { claims: { email: "meta-admin@example.com" } }, error: null };
+      },
       signOut: async () => ({ error: null }),
       exchangeCodeForSession: async () => ({ error: null }),
     },
-    rpc: async () => {
+    rpc: async (fn?: string) => {
       if (infraMock.throwOnRpc) {
         throw new Error("META: simulated rpc infrastructure fault");
+      }
+      if (infraMock.rpcResultByFn !== null && fn !== undefined && fn in infraMock.rpcResultByFn) {
+        return infraMock.rpcResultByFn[fn]!;
       }
       return { data: null, error: null };
     },
@@ -138,6 +167,9 @@ beforeEach(() => {
   infraMock.throwOnRpc = false;
   infraMock.throwOnFrom = false;
   infraMock.getUserReturnedError = null;
+  infraMock.throwOnGetClaims = false;
+  infraMock.getClaimsResult = null;
+  infraMock.rpcResultByFn = null;
 });
 
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
@@ -376,6 +408,13 @@ describe("META infra-failure contract", () => {
     });
   });
 
+  // nav-perf phase 1 (B/B1.5): the admin gate verifies the JWT locally via
+  // getClaims() (not getUser()) and runs is_session_live() + is_admin() in
+  // PARALLEL. Every infra boundary — construction, getClaims, EITHER RPC
+  // (thrown OR returned-error) — must surface as AdminInfraError, never as a
+  // benign forbidden()/redirect(). The ERROR-FIRST combination row pins the
+  // dangerous Promise.all case: a revoked session (is_session_live=false)
+  // must NOT mask an admin DB outage (is_admin returned-error).
   describe("requireAdmin", () => {
     test("server-client construction throw → AdminInfraError (not forbidden)", async () => {
       infraMock.throwOnConstruct = true;
@@ -383,8 +422,50 @@ describe("META infra-failure contract", () => {
       await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
     });
 
-    test("getUser throw → AdminInfraError", async () => {
-      infraMock.throwOnGetUser = true;
+    test("getClaims throw → AdminInfraError", async () => {
+      infraMock.throwOnGetClaims = true;
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("getClaims non-session returned-error → AdminInfraError", async () => {
+      infraMock.getClaimsResult = {
+        data: null,
+        error: { name: "AuthApiError", message: "META: jwks fetch failed" },
+      };
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("either RPC throw → AdminInfraError", async () => {
+      infraMock.throwOnRpc = true;
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("is_session_live returned-error → AdminInfraError", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: null, error: new Error("META: session RPC fault") },
+        is_admin: { data: true, error: null },
+      };
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("is_admin returned-error → AdminInfraError", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: true, error: null },
+        is_admin: { data: null, error: new Error("META: admin RPC fault") },
+      };
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("ERROR-FIRST: is_session_live=false + is_admin returned-error → AdminInfraError (NOT redirect)", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: false, error: null }, // revoked session
+        is_admin: { data: null, error: new Error("META: admin db outage") }, // infra MUST win
+      };
       const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
     });
@@ -400,8 +481,23 @@ describe("META infra-failure contract", () => {
       await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
     });
 
-    test("getUser throw → AdminInfraError", async () => {
-      infraMock.throwOnGetUser = true;
+    test("getClaims throw → AdminInfraError", async () => {
+      infraMock.throwOnGetClaims = true;
+      const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("either RPC throw → AdminInfraError", async () => {
+      infraMock.throwOnRpc = true;
+      const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("ERROR-FIRST: is_session_live=false + is_admin returned-error → AdminInfraError (NOT redirect)", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: false, error: null },
+        is_admin: { data: null, error: new Error("META: admin db outage") },
+      };
       const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
     });
