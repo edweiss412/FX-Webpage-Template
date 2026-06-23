@@ -84,7 +84,10 @@ jobs:
         # crew-section-toggle.spec resolves the seeded show + share_token by
         # drive_file_id (seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf).
         run: pnpm db:seed
-      - run: pnpm exec playwright install --with-deps chromium
+      # The mobile-safari project spreads devices["iPhone 14"] → defaultBrowserType
+      # "webkit" (NOT chromium). Mirror help-affordances.yml (its iPhone 14 help-docs
+      # project) and install BOTH so a chromium-defaulting spec can't fail either.
+      - run: pnpm exec playwright install --with-deps chromium webkit
       - name: Run crew section-toggle e2e (mobile-safari, :3000 only)
         run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts
       - name: Upload Playwright traces/report (diagnosis artifact)
