@@ -2704,10 +2704,12 @@ export async function runScheduledCronSync(
       continue;
     }
     // nav-perf tag-caching (Task 5): only a source_gone result means
-    // markMissingShow_unlocked ran `update public.shows` (markShowSheetUnavailable)
+    // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
     // inside the now-resolved lock — post-commit here, so revalidate the show's
     // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
-    // WITHOUT mutating public.shows, so it is explicitly excluded.
+    // without writing the shows row, so it is explicitly excluded.
+    // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
+    // showCacheRevalidateCoverage regexes scan for.)
     if (result.outcome === "source_gone") {
       revalidateShow(show.showId);
     }

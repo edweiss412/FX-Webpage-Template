@@ -53,10 +53,11 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   // ---- Task 5 (sync chokepoint callers) — already shipped before this milestone's Tasks 6–9 ----
   {
     file: "lib/sync/runScheduledCronSync.ts",
-    siteCount: 20,
+    siteCount: 19,
     disposition: "revalidate",
     revalidateBranches: 2, // processOneFile apply tail + markMissingShow loop
-    reason: "sync apply spine; revalidateOnApplied(args.result) + revalidateShow(missing show)",
+    reason:
+      "sync apply spine; revalidateShowFromResult(result) (cron loop) + revalidateShow(missing show)",
   },
   {
     file: "lib/sync/runManualSyncForShow.ts",
@@ -302,7 +303,7 @@ function readRegistered(file: string): string {
 }
 
 const REVALIDATE_CALL_RE =
-  /revalidateShow\(|revalidateOnApplied\(|revalidateTag\(\s*showCacheTag\(|revalidateTag\(\s*[`'"]show-/;
+  /revalidateShow(FromResult)?\(|revalidateOnApplied\(|revalidateTag\(\s*showCacheTag\(|revalidateTag\(\s*[`'"]show-/;
 
 describe("show-cache revalidate coverage — registry layer", () => {
   test.each(REVALIDATE_REGISTRY.filter((e) => e.disposition === "revalidate"))(
@@ -348,7 +349,8 @@ describe("show-cache revalidate coverage — registry layer", () => {
     for (const entry of REVALIDATE_REGISTRY) {
       if (entry.disposition !== "revalidate" || !entry.revalidateBranches) continue;
       const src = readRegistered(entry.file);
-      const calls = (src.match(/revalidateShow\(|revalidateOnApplied\(/g) ?? []).length;
+      const calls = (src.match(/revalidateShow(FromResult)?\(|revalidateOnApplied\(/g) ?? [])
+        .length;
       expect(
         calls,
         `${entry.file} expects >= ${entry.revalidateBranches} revalidate call sites, found ${calls}`,
