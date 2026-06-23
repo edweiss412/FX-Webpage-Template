@@ -14,7 +14,18 @@ import createMDX from "@next/mdx";
  */
 
 const withMDX = createMDX({
-  // No remark/rehype plugins in v1 — keep MDX vanilla.
+  // remark-gfm enables GitHub-Flavored Markdown — specifically pipe TABLES,
+  // which the /help reference pages use for the status/decision catalogs
+  // (dashboard sync-status, settings health-badge, onboarding badges,
+  // review-queues Apply/Discard). Vanilla @next/mdx does not parse `| a | b |`
+  // as a table. GFM also enables autolinks/strikethrough/task-lists; the help
+  // MDX uses none of those except that bare example URLs would autolink — those
+  // are code-fenced (`https://…`) in onboarding-wizard so they stay literal.
+  // Passed by STRING NAME, not the imported function: @next/mdx's loader
+  // requires serializable options, and a plugin function is not serializable
+  // ("does not have serializable options"). The loader resolves the string at
+  // build time. (vitest.config.ts uses @mdx-js/rollup, which takes the function.)
+  options: { remarkPlugins: [["remark-gfm"]] },
 });
 
 const nextConfig: NextConfig = {

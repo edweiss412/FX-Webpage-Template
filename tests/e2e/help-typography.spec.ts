@@ -146,4 +146,38 @@ test.describe("/help prose typography layer", () => {
     expect(m.hasProseWrapper, "errors page must be inside .help-prose").toBe(true);
     expect(m.h1Size, "errors h1 must be styled larger than body").toBeGreaterThan(m.pSize);
   });
+
+  // Chunk 2 (audit Theme B): the catalog pages render markdown pipe-tables via
+  // remark-gfm (next.config.ts) — vanilla @next/mdx would render `| a | b |` as
+  // literal text. This proves, in the REAL Next build, that the dashboard
+  // sync-status catalog is an actual <table> AND picks up the .help-prose table
+  // styling shipped in Chunk 1 (tinted header + token border).
+  test("dashboard sync-status renders as a styled .help-prose table (remark-gfm + Chunk-1 styling)", async ({
+    page,
+  }) => {
+    await page.goto("/help/admin/dashboard", { waitUntil: "networkidle" });
+
+    const m = await page.evaluate(() => {
+      const table = document.querySelector("main .help-prose table");
+      if (!table) return { hasTable: false };
+      const th = table.querySelector("thead th");
+      const thCs = th ? getComputedStyle(th) : null;
+      const bodyRows = table.querySelectorAll("tbody tr").length;
+      const headerText = table.querySelector("thead")?.textContent ?? "";
+      return {
+        hasTable: true,
+        bodyRows,
+        headerHasStatus: /Status/.test(headerText) && /What to do/.test(headerText),
+        thBg: thCs?.backgroundColor ?? "",
+        thBorderWidth: thCs ? parseFloat(thCs.borderBottomWidth) : 0,
+      };
+    });
+
+    expect(m.hasTable, "dashboard must render a real <table> (remark-gfm)").toBe(true);
+    expect(m.headerHasStatus, "the sync-status table header is present").toBe(true);
+    expect(m.bodyRows, "five sync-status rows").toBe(5);
+    // .help-prose th styling (Chunk 1): tinted header fill + a token border.
+    expect(m.thBg, "table header has a (non-transparent) tint").not.toBe("rgba(0, 0, 0, 0)");
+    expect(m.thBorderWidth, "table cells are bordered").toBeGreaterThan(0);
+  });
 });
