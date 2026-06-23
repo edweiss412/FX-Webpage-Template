@@ -35,6 +35,7 @@ import {
 } from "@/components/admin/wizard/Step3Review";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { ParseResult } from "@/lib/parser/types";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
@@ -111,8 +112,15 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
 }
 
 type Step3FetchResult =
-  | { kind: "ok"; rows: Step3Row[]; allResolved: boolean }
+  | { kind: "ok"; rows: Step3Row[]; finishable: boolean }
   | { kind: "infra_error"; message: string };
+
+// FIX 1 (CRITICAL): a "clean review row" is one that renders as the publish
+// CARD — manifest 'staged' (unchecked) OR 'applied' (checked). Both carry the
+// surviving pending_syncs parse preview; an 'applied' row keeps its card +
+// checked, individually-uncheckable checkbox so per-row uncheck survives a
+// router.refresh(). 'applied' is NOT a blocking status.
+const isCleanReviewRow = (s: Step3ManifestStatus): boolean => s === "staged" || s === "applied";
 
 // Exported for tests/admin/_metaInfraContract.test.ts — the helper is the
 // subject row of the §B Supabase call-boundary registry for the Step 3
@@ -193,13 +201,23 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     };
   }
 
-  const stagedByDfid = new Map<string, { stagedId: string; title: string | null }>();
+  const stagedByDfid = new Map<
+    string,
+    { stagedId: string; title: string | null; parseResult: ParseResult | null }
+  >();
   for (const ps of pendingSyncsRows) {
     const driveFileId = ps.drive_file_id as string;
-    const parseResult = ps.parse_result as { show?: { title?: string | null } } | null;
+    // §7.1: thread the FULL parse preview, not just the title. The jsonb is
+    // untyped at the call boundary; coerce defensively to `ParseResult | null`
+    // (a non-object/absent value → null) so the card can render summary +
+    // breakdown without re-querying.
+    const rawParse = ps.parse_result;
+    const parseResult =
+      rawParse !== null && typeof rawParse === "object" ? (rawParse as ParseResult) : null;
     stagedByDfid.set(driveFileId, {
       stagedId: ps.staged_id as string,
       title: parseResult?.show?.title ?? null,
+      parseResult,
     });
   }
 
@@ -216,9 +234,21 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const status = m.status as Step3ManifestStatus;
     const driveFileName = (m.name as string | null) ?? null;
     const base: Step3Row = { driveFileId, status, driveFileName };
-    if (status === "staged") {
+    if (isCleanReviewRow(status)) {
+      // FIX 1 (CRITICAL): a checked card flips the manifest status
+      // 'staged'→'applied', but the pending_syncs row SURVIVES approval (it is
+      // deleted only at finalize). Both 'staged' (unchecked) and 'applied'
+      // (checked) clean rows render as the SAME publish card, so BOTH must carry
+      // the full ParseResult — gating on 'staged' alone made a refreshed applied
+      // row lose its preview + checkbox and collapse to a dead "Applied" badge.
       const staged = stagedByDfid.get(driveFileId);
-      if (staged?.title) return { ...base, stagedShowTitle: staged.title };
+      if (staged) {
+        // §7.1: a clean row carries its full ParseResult (may be null if the
+        // jsonb was absent/malformed). Title is the back-compat summary field.
+        const withParse: Step3Row = { ...base, parseResult: staged.parseResult };
+        if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
+        return withParse;
+      }
     }
     if (status === "hard_failed") {
       const ingestion = ingestionByDfid.get(driveFileId);
@@ -231,17 +261,15 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     return base;
   });
 
-  const allResolved =
-    rows.length > 0 &&
-    rows.every(
-      (r) =>
-        r.status === "applied" ||
-        r.status === "defer_until_modified" ||
-        r.status === "permanent_ignore" ||
-        r.status === "skipped_non_sheet",
-    );
+  // §7.3: the UI half of the `finishable` predicate. A row blocks finish iff
+  // it is in a genuine error/conflict state needing acknowledgement. The
+  // canonical blocking set is the identical 3-element set the server gate
+  // (Task B1) uses; a clean `staged` row (unchecked → Held) and `applied`
+  // (checked) are NOT blocking. An empty list is finishable.
+  const BLOCKING = new Set(["hard_failed", "live_row_conflict", "discard_retryable"]);
+  const finishable = rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status));
 
-  return { kind: "ok", rows, allResolved };
+  return { kind: "ok", rows, finishable };
 }
 
 async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) {
@@ -260,11 +288,24 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
       </section>
     );
   }
+  // D5: thread the publish-intent counts into the finish button. publishCount =
+  // rows currently checked (status 'applied' → Live); uncheckedCleanCount =
+  // clean rows left unchecked (status 'staged' → Held). The label reads
+  // "Publish N shows & finish setup" and a soft confirm fires when any clean
+  // row is unchecked. Only clean rows participate (blocking rows never count).
+  const publishCount = result.rows.filter((r) => r.status === "applied").length;
+  const uncheckedCleanCount = result.rows.filter((r) => r.status === "staged").length;
+
   return (
     <div className="flex flex-col gap-section-gap">
       <Step3Review wizardSessionId={wizardSessionId} rows={result.rows} />
       {result.rows.length > 0 ? (
-        <FinalizeButton wizardSessionId={wizardSessionId} disabled={!result.allResolved} />
+        <FinalizeButton
+          wizardSessionId={wizardSessionId}
+          disabled={!result.finishable}
+          publishCount={publishCount}
+          uncheckedCleanCount={uncheckedCleanCount}
+        />
       ) : null}
     </div>
   );

@@ -185,8 +185,17 @@ function describeItem(item: TriggeredReviewItem): string {
   }
 }
 
-function actionLabel(action: ReviewerAction, item: TriggeredReviewItem): string {
-  if (action === "apply") return "Apply";
+function actionLabel(
+  action: ReviewerAction,
+  item: TriggeredReviewItem,
+  isWizardMode: boolean,
+): string {
+  // F1 (§8.1 / D9): the apply affordance is "Approve" only in the onboarding
+  // wizard re-approve context (mode='wizard_failed_reapply' re-approves a
+  // failed sheet for publishing). The live-show staged surface keeps the
+  // unchanged "Apply this change" wording. Approval is not publish — finalize
+  // publishes — so we never label this "Publish".
+  if (action === "apply") return isWizardMode ? "Approve" : "Apply this change";
   if (action === "reject") return "Reject this change";
   if (action === "independent") return "Treat as different people";
   // rename
@@ -577,7 +586,7 @@ export function StagedReviewCard({
                           onChange={() => setChoice(item.id, action)}
                           className="size-4"
                         />
-                        <span>{actionLabel(action, item)}</span>
+                        <span>{actionLabel(action, item, isWizardMode)}</span>
                       </label>
                     );
                   })}
@@ -634,7 +643,7 @@ export function StagedReviewCard({
               minWidthTap
               ringOffset="surface-raised"
             >
-              Apply
+              {isWizardMode ? "Approve" : "Apply this change"}
             </AccentButton>
           )}
           <button
