@@ -1,6 +1,14 @@
 # Preview as crew
 
-Preview as crew lets you open any show through a crew member's eyes, exactly as they would see it on their phone, without sending them a link and without changing what they see on their own page. You launch the preview from the [Preview as a crew member section on the per-show panel](/help/admin/per-show-panel#preview-as-crew-member): each row there is one crew member, and the Preview as action drops you onto their crew page in impersonation mode. Use this to confirm a fix landed for a specific person, to spot-check role-based filtering before a tour day starts, or to sanity-check call times and hotel info after a sheet edit.
+**See any show through a crew member's eyes: exactly what they see on their phone, without sending a link or changing their own page.**
+
+Start from the [Preview as a crew member section](/help/admin/per-show-panel#preview-as-crew-member) on the per-show panel. Each row there is one crew member, and the **Preview as** action drops you onto their crew page in impersonation mode.
+
+Reach for it when you want to:
+
+- Confirm a fix landed for a specific person.
+- Spot-check role-based filtering before a tour day starts.
+- Sanity-check call times and hotel info after a sheet edit.
 
 <Screenshot
   name="preview-as-crew-banner"
@@ -9,7 +17,12 @@ Preview as crew lets you open any show through a crew member's eyes, exactly as 
 
 <h2 id="impersonation-banner">The impersonation banner</h2>
 
-While you're impersonating a crew member, a sticky yellow banner sits along the top of the page with the crew member's name (**Previewing as Alex Rivera**, for example) and a clearly labeled **Exit preview** button on the right. The banner stays pinned as you scroll, so you cannot accidentally forget you're in preview mode. It pairs the yellow fill with the **Previewing as** eyebrow, the crew member's name, the role label pill, and the **Exit preview** button so the state is legible without relying on color alone. Tap **Exit preview** to drop back to the per-show panel; closing the tab works too, since impersonation is scoped to the current browser session and never persists.
+While you're impersonating a crew member, a sticky yellow banner sits along the top of the page: the **Previewing as** eyebrow, the crew member's name (**Previewing as Alex Rivera**, for example), their role pill, and an **Exit preview** button. It stays pinned as you scroll, so you can't forget you're in preview mode.
+
+Two ways out:
+
+- **Tap Exit preview.** Drops you back to the per-show panel.
+- **Close the tab.** Impersonation is scoped to the current browser session and never persists.
 
 This banner is also the target of the small `?` icon you see on the crew page itself when previewing. Tapping the `?` brings you to this section directly.
 
@@ -24,6 +37,10 @@ Walk the page top to bottom with the specific crew member in mind:
 
 ## Why some fields are hidden
 
-The crew page filters what each crew member sees based on their role. A stagehand opens the page and sees their own call, their own hotel, their own schedule, and the contact info they need, and nothing more. A tour manager opens the same show and sees the full picture. This is by design and matches how Doug already handles the printed run sheets.
+The crew page filters what each crew member sees by role. A stagehand sees their own call, hotel, schedule, and the contacts they need, and nothing more; a tour manager sees the full picture. This is by design, matching how you already handle the printed run sheets.
 
-If a field looks missing during preview, that is the role filter doing its job, not a bug. The fastest way to confirm is to preview the same show as a tour manager and compare: anything that shows up there but not in the original preview is correctly role-restricted. If a field is missing across every preview for the show, then it is missing from the sheet and the fix lives there.
+<Callout type="tip">
+  **Hidden on purpose, or missing?** If a field is hidden here but shows when you preview the same
+  show as a **tour manager**, it's correctly role-restricted. If it's missing in **every** preview
+  for the show, it's missing from the sheet, and the fix lives there.
+</Callout>

@@ -1,8 +1,12 @@
 # Onboarding wizard
 
-The first time you open `/admin` on a brand-new install, the app shows a three-step wizard instead of the usual dashboard. The wizard walks you from "I have a Google Sheet" to "the app is showing my crew their pages." You only see it once per setup; most of the time you'll never come back to this page. It exists for the two times you might: the first run, and a future re-run if you ever start over from scratch.
+The first time you open `/admin` on a brand-new install (no folder configured, no shows yet), the app shows a three-step wizard instead of the dashboard. It walks you from "I have a Google Sheet" to "my crew can see their pages."
 
-You'll see the wizard automatically when the app has no folder configured and no shows in the database. After onboarding succeeds, the wizard disappears from `/admin` and the usual dashboard takes its place. If you ever need to point the app at a different Drive folder, you start a new wizard run from `/admin/settings` `→` Re-run setup; the live folder keeps running until the new wizard finalizes.
+<Callout type="note">
+  You only see the wizard once per setup. After it succeeds, `/admin` shows the usual dashboard. To
+  point the app at a different folder later, start a fresh run from `/admin/settings` `→` Re-run
+  setup; the live folder keeps running until the new wizard finalizes.
+</Callout>
 
 The three steps below are what the wizard asks you to do, in order. Each step has a `?` tooltip on the screen itself that links back to the matching section here for the longer explanation.
 
@@ -28,7 +32,11 @@ What you do on this step:
 
 If you want to know more about the email itself, the wizard has a small "What's this email?" disclosure inline; it's the same explanation as the first paragraph of this section.
 
-A "Start over" link sits at the bottom of every wizard step while you're in onboarding mode. Tap it if you closed the tab mid-flow yesterday and want a fresh run with no leftover state. The link disappears once onboarding succeeds; after that, the equivalent reset lives in `/admin/settings` `→` Re-run setup.
+<Callout type="note">
+  A **Start over** link sits at the bottom of every wizard step. Tap it to purge any leftover state
+  and begin a fresh run (handy if you closed the tab mid-flow). It disappears once onboarding
+  succeeds; after that, the equivalent reset is `/admin/settings` `→` Re-run setup.
+</Callout>
 
 <h2 id="step-2">Step 2: Verify access</h2>
 
@@ -49,10 +57,16 @@ What you do on this step:
 </Step>
 
 <Step n={3}>
-  **When the scan returns, you'll see a summary of what was found in the folder, with counts of
-  sheets ready for review, sheets that could not be parsed, non-sheet files we skipped, and any
-  live-row conflicts. Click "Continue to Step 3" to move on.**
+  **Review the scan summary, then click "Continue to Step 3."** The summary counts what the scan
+  found in the folder.
 </Step>
+
+The scan summary breaks the folder down into:
+
+- Sheets ready for review
+- Sheets that couldn't be parsed
+- Non-sheet files skipped
+- Live-row conflicts
 
 If verification doesn't succeed, one of these is why:
 
@@ -60,13 +74,9 @@ If verification doesn't succeed, one of these is why:
 - **"We can't see this folder yet."** The folder exists, but the service-account email doesn't have access to it. Go back to Drive, double-check that you shared the folder with the email exactly as shown in step 1, and try again. The most common cause is sharing a different folder by accident, or pasting the email into a "Notify people" field instead of the "Share" field.
 
 <Callout type="warning">
-  There's a fourth, rare outcome where the app's own credentials are misconfigured. If that happens,
-  the wizard tells you "Something is wrong on our end. The developer has been notified." That's an
-  Eric-side problem, not a Doug-side problem; the wizard will not move forward until it's fixed, and
-  you don't have to do anything from your end.
+  Rarely, the app's own setup is off and you'll see "Something is wrong on our end. The developer
+  has been notified." There's nothing to fix on your side; the wizard waits until it's resolved.
 </Callout>
-
-The wizard never shows raw error codes on this step. If a screen ever does, that's a bug, not a feature.
 
 <h2 id="step-3">Step 3: First sheets review</h2>
 
@@ -76,12 +86,21 @@ Each row carries a status badge. You start with three first-contact statuses and
 
 First-contact statuses:
 
-- **Ready for review.** The sheet parsed cleanly. Click **Review and apply** to walk through what the app extracted and approve it.
-- **Couldn't parse.** Yellow badge with a plain-English explanation of what went wrong. Most of the time this is "the sheet has a column we don't recognize" or "a date cell didn't read as a date." The row offers three buttons: **Retry now** (re-reads the sheet, useful after you fix a cell in Drive), **Defer until modified** (we'll re-check the next time the sheet changes), and **Permanently ignore** (the sheet stays out of the system).
-- **Skipped: not a Google Sheet.** The folder contained something that isn't a Google Sheet (a doc, a PDF, an image). The app ignores it; the row is informational and counts as resolved automatically.
-- **Live row conflict.** This only happens in an unusual recovery situation where the same sheet exists in your live data already; the wizard won't promote it again. You resolve the live row from the dashboard, then re-run setup.
+| Badge                           | What it means                                                                                                | Your options                                                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Ready for review**            | The sheet parsed cleanly.                                                                                    | **Review and apply** to walk through what the app extracted and approve it.                                                                                          |
+| **Couldn't parse**              | A column wasn't recognized, or a date cell didn't read as a date (the badge shows the plain-English reason). | **Retry now** (re-read after you fix the cell in Drive) · **Defer until modified** (re-check on the next change) · **Permanently ignore** (stays out of the system). |
+| **Skipped: not a Google Sheet** | The folder held a non-Sheet file (a doc, a PDF, an image).                                                   | Nothing; informational, auto-resolved.                                                                                                                               |
+| **Live row conflict**           | (Rare recovery) the same sheet already exists in your live data, so the wizard won't promote it again.       | Resolve the live row from the dashboard, then re-run setup.                                                                                                          |
 
-After you act on a row, its badge flips to one of these resolved states: **Applied** (the sheet has been promoted), **Deferred until modified** (we'll re-check on next change), **Permanently ignored** (the sheet stays out of the system), or **Set aside (try again next sync)** if you discarded a staged change with the "try again next sync" option. **Set aside** is the one resolved-looking badge that still needs another decision before you can finish setup; the wizard tells you which rows are still pending in the count above the list.
+After you act on a row, its badge flips to a resolved state:
+
+| Resolved badge                      | Meaning                                                                                                                                                                                                                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Applied**                         | The sheet has been promoted.                                                                                                                                                                                                                              |
+| **Deferred until modified**         | We'll re-check on the next change.                                                                                                                                                                                                                        |
+| **Permanently ignored**             | The sheet stays out of the system.                                                                                                                                                                                                                        |
+| **Set aside (try again next sync)** | You discarded a staged change with the "try again next sync" option. **This is the one resolved-looking badge that still needs another decision** before you can finish setup; the wizard lists which rows are still pending in the count above the list. |
 
 What you do on this step:
 
@@ -103,5 +122,3 @@ What you do on this step:
 </Step>
 
 If something goes wrong during finalize (the most common cause is someone editing one of the sheets in Drive between approval and finalize), the wizard tells you which specific rows failed and gives you a link to re-approve them. The rest of the batch still goes through; you don't have to start over.
-
-If you ever want to abandon a wizard run completely, the "Start over" link at the bottom of any step purges all the staged state and drops you back at step 1. After onboarding succeeds, the equivalent action is "Re-run setup" in `/admin/settings`.

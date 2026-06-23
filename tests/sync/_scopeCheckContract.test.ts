@@ -35,10 +35,6 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "asset metadata lookup during enrichment, not sheet admission by drive_file_id",
   ],
   [
-    "lib/sync/runOnboardingScan.ts::defaultCaptureBinding",
-    "onboarding files arrive from listDriveFolder(pending_folder_id); this helper only captures a revision token",
-  ],
-  [
     "lib/sync/runOnboardingScan.ts::getFile",
     "asset metadata lookup during onboarding enrichment, not sheet admission by drive_file_id",
   ],

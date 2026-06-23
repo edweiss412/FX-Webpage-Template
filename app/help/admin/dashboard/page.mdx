@@ -20,11 +20,13 @@ The column headers — **Show**, **Dates**, **Crew**, **Sync status** — double
 
 The **Sync status** column is the part that matters most. The values you'll see:
 
-- **Synced** — followed by how long ago. The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
-- **`⚠ Changes to review`** — The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. Tap the row to open the per-show panel; the staged-review card sits at the top with Apply + Discard. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
-- **"Couldn't reach Drive"**, **"Sheet not in folder"**, or **"Couldn't read the sheet"** — The most recent sync hard-failed. The crew page still serves the last good version. Tap the row, read the plain-language error on the per-show panel, fix the sheet, and re-sync from there.
-- **"Sync in progress"** — A poll is running right now. Check back in a moment.
-- **"Not synced yet"** — The app hasn't completed a poll for this show yet.
+| Status                                                                                 | What it means                                                                                                                | What to do                                                                                                                       |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Synced** (+ how long ago)                                                            | The sheet polled cleanly; any edits were auto-applied.                                                                       | Nothing.                                                                                                                         |
+| **⚠ Changes to review**                                                                | New edits tripped a review rule, so the app staged them instead of auto-applying. Crew still see the prior approved version. | Tap the row → the staged-review card (Apply + Discard) sits at the top. See [Review queues](/help/admin/review-queues#re-stage). |
+| **"Couldn't reach Drive"** / **"Sheet not in folder"** / **"Couldn't read the sheet"** | The most recent sync hard-failed. The crew page still serves the last good version.                                          | Tap the row, read the plain-language error, fix the sheet, and re-sync from there.                                               |
+| **"Sync in progress"**                                                                 | A poll is running right now.                                                                                                 | Check back in a moment.                                                                                                          |
+| **Not synced yet**                                                                     | The app hasn't completed a poll for this show yet.                                                                           | Nothing; just wait for the next poll.                                                                                            |
 
 Tapping anywhere on a row opens that show's per-show panel — that's where every action lives (re-sync, preview as crew, staged review, sharing). The table itself is a read-only glance.
 
