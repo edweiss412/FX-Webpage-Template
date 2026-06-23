@@ -84,4 +84,68 @@ describe("mapWithConcurrency", () => {
     await expect(mapWithConcurrency([1], -1, async (n) => n)).rejects.toBeInstanceOf(RangeError);
     await expect(mapWithConcurrency([1], 1.5, async (n) => n)).rejects.toBeInstanceOf(RangeError);
   });
+
+  test("fires onItemComplete once per item with a monotonic running done-count", async () => {
+    const items = ["a", "b", "c", "d"];
+    const seen: Array<{ done: number; total: number; index: number; item: string; result: string }> =
+      [];
+    const result = await mapWithConcurrency(
+      items,
+      2,
+      async (s, i) => `${i}:${s}`,
+      (info) => seen.push(info),
+    );
+    expect(result).toEqual(["0:a", "1:b", "2:c", "3:d"]);
+    expect(seen).toHaveLength(items.length);
+    // done is strictly 1..N regardless of completion order (derived from input length)
+    expect(seen.map((s) => s.done)).toEqual(items.map((_, i) => i + 1));
+    expect(seen.every((s) => s.total === items.length)).toBe(true);
+    // every item + its result is reported exactly once
+    expect(new Set(seen.map((s) => s.item))).toEqual(new Set(items));
+    expect(new Set(seen.map((s) => s.result))).toEqual(new Set(["0:a", "1:b", "2:c", "3:d"]));
+  });
+
+  test("does not invoke onItemComplete for an empty input", async () => {
+    let calls = 0;
+    const result = await mapWithConcurrency(
+      [],
+      4,
+      async (n) => n,
+      () => {
+        calls += 1;
+      },
+    );
+    expect(result).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  test("a throwing onItemComplete neither rejects the map nor masks a real fn rejection", async () => {
+    const ok = await mapWithConcurrency(
+      [1, 2],
+      2,
+      async (n) => n,
+      () => {
+        throw new Error("cb boom");
+      },
+    );
+    expect(ok).toEqual([1, 2]);
+    await expect(
+      mapWithConcurrency(
+        [1, 2],
+        2,
+        async (n) => {
+          if (n === 1) throw new Error("fn boom");
+          return n;
+        },
+        () => {
+          throw new Error("cb boom");
+        },
+      ),
+    ).rejects.toThrow("fn boom");
+  });
+
+  test("omitting onItemComplete behaves exactly like the 3-arg form", async () => {
+    const result = await mapWithConcurrency([1, 2, 3], 2, async (n) => n * 10);
+    expect(result).toEqual([10, 20, 30]);
+  });
 });
