@@ -43,9 +43,13 @@ The original analysis (against pre-#103 main) concluded "first-seen shows auto-p
 
 1. **Posture: advisory + visible, never blocking.** Warnings never gate publish or divert auto-apply. (User decision 2026-06-23.) Rationale: preserves the auto-publish-clean win (`getAutoPublishCleanFirstSeen`) and Doug's drop-and-trust flow; blocking would reverse a recently-shipped behavior and add review burden for benign/intentional edits (a deleted hotel block is indistinguishable from an accidental one by data alone). **Do-not-relitigate** (see §12).
 2. **Scope: all three detector classes** ship in v1 (field-unreadable, unknown-section, block-disappeared).
-3. **Surfacing is two-pronged** (refinement of "advisory + visible alert" discovered via the mandated pre-draft re-verification — see §3):
-   - **Primary — `/admin/unpublished` + per-show admin page**: render a data-quality summary from `shows_internal.parse_warnings` at the publish-decision point. Covers held shows (wizard path always; cron-flag-OFF path). No catalog churn (parser warnings render `.message` directly).
-   - **Secondary — the `SHOW_FIRST_PUBLISHED` admin_alert**: for the two surfaces that bypass `/admin/unpublished` (cron-flag-ON auto-publish, recurring auto-apply), carry a data-gaps digest in the alert context and render it conditionally in `PerShowAlertSection`. **No new admin_alert code** (see §9 rationale).
+3. **Surfacing is per-path** (one surface per §3 path; discovered via the mandated pre-draft re-verification + corrected in spec adversarial R1 — full detail §6):
+   - **P2 — cron flag-OFF first-seen** (stages in `pending_syncs`): the staged-review card at `/admin/show/staged/[stagedId]` (`StagedReviewCard.warningSummary`, today hardcoded `""`).
+   - **P3 — wizard step-3** (held `shows` row): `/admin/unpublished` data-gaps chip (`loadHeldShows`).
+   - **P4 — recurring existing-show edit** (no `SHOW_FIRST_PUBLISHED` fires): the per-show **Changes feed** (`writeAutoApplyChanges` → `ChangesFeed`).
+   - **P1 — cron flag-ON first-seen** (auto-publishes): a `data_gaps` digest sub-line on the existing `SHOW_FIRST_PUBLISHED` alert (`PerShowAlertSection`).
+   - **All paths** also land in a per-show **Data-Quality panel** (reads `shows_internal.parse_warnings`).
+   - **No new admin_alert code** (reuse `SHOW_FIRST_PUBLISHED` + the Changes feed). **But the three new ParseWarning `code:` literals DO require admin-log-only §12.4 + `gen:spec-codes` + `catalog.ts` rows** (codes.test.ts active-code parity, `SECTION_HEADER_NO_FIELDS` precedent — §5/§9). They render via `.message`, not `lookup.ts`.
 
 ## 5. Detection design
 
