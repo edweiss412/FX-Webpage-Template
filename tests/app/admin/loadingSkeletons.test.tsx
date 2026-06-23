@@ -80,12 +80,16 @@ describe("admin preview loading — no-Budget tab invariant (§4.17)", () => {
   };
 
   it("renders exactly the 6 BASE_SECTION_IDS tab labels and never a Budget tab", () => {
-    const { container } = render(<PreviewLoading />);
-    const text = container.textContent ?? "";
+    const { container, getAllByTestId } = render(<PreviewLoading />);
+    // EXACTLY 6 rendered tabs — an extra (e.g. Budget) tab would fail this, unlike
+    // a mere "the 6 are present" label check (Codex P2 R2 [low]).
+    const tabs = getAllByTestId("preview-loading-tab");
+    expect(tabs).toHaveLength(6);
     expect(BASE_SECTION_IDS).toHaveLength(6);
+    const tabText = tabs.map((t) => t.textContent ?? "").join(" ");
     for (const id of BASE_SECTION_IDS) {
-      expect(text).toContain(SECTION_LABELS[id]);
+      expect(tabText).toContain(SECTION_LABELS[id]);
     }
-    expect(text.toLowerCase()).not.toContain("budget");
+    expect((container.textContent ?? "").toLowerCase()).not.toContain("budget");
   });
 });

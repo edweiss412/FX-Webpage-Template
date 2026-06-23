@@ -378,13 +378,18 @@ describe("META §B Supabase call-boundary contract", () => {
           ? new RegExp(`\\bawait\\s+(?:${Array.from(builderNames).join("|")})\\b`)
           : null;
       // nav-perf Phase 2: also recognize the PARALLEL form `await Promise.all([q1,
-      // q2])` over builder variables (the invariant-9-compliant way to issue two
-      // independent supabase reads concurrently). A line that both awaits AND
-      // names a builder is a supabase-derived await. This BROADENS detection
-      // (stricter — never misses an await), so it cannot weaken the R6 guard.
-      const builderRefAwaitRe =
+      // q2])` over builder variables (the invariant-9-compliant way to issue
+      // independent reads concurrently). The builder vars may wrap onto the lines
+      // FOLLOWING `await Promise.all([`, so for an actual `await Promise.all(` /
+      // `await Promise.allSettled(` line we scan a forward WINDOW for a builder
+      // name — defeating multiline-format evasion (Codex P2 R2 [med]). The trigger
+      // is the literal `await Promise.all(` call (NOT the bare word "await", which
+      // also appears in prose comments — Codex P2 R2 over-match), so this only
+      // BROADENS detection for genuine parallel reads (stricter; never weakens R6).
+      const AWAIT_BUILDER_WINDOW = 6;
+      const builderNameRe =
         builderNames.size > 0
-          ? new RegExp(`\\bawait\\b.*\\b(?:${Array.from(builderNames).join("|")})\\b`)
+          ? new RegExp(`\\b(?:${Array.from(builderNames).join("|")})\\b`)
           : null;
       lines.forEach((line, idx) => {
         if (/\bawait\s+supabase\b/.test(line)) {
@@ -395,8 +400,11 @@ describe("META §B Supabase call-boundary contract", () => {
           awaitLineNumbers.push(idx);
           return;
         }
-        if (builderRefAwaitRe && builderRefAwaitRe.test(line)) {
-          awaitLineNumbers.push(idx);
+        if (builderNameRe && /\bawait\s+Promise\.all(?:Settled)?\s*\(/.test(line)) {
+          const windowText = lines
+            .slice(idx, Math.min(lines.length, idx + AWAIT_BUILDER_WINDOW))
+            .join("\n");
+          if (builderNameRe.test(windowText)) awaitLineNumbers.push(idx);
         }
       });
       expect(

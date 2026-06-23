@@ -43,7 +43,11 @@ export default function Loading() {
       <div className="mx-auto w-full max-w-[1200px] px-4 sm:px-8">
         <div className="flex items-stretch gap-1 border-b border-border">
           {BASE_SECTION_IDS.map((id) => (
-            <div key={id} className="inline-flex min-h-tap-min items-center justify-center px-3">
+            <div
+              key={id}
+              data-testid="preview-loading-tab"
+              className="inline-flex min-h-tap-min items-center justify-center px-3"
+            >
               <span className="text-sm font-medium text-text-faint">{SECTION_LABELS[id]}</span>
             </div>
           ))}
