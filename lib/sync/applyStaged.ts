@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
-import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
+import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
@@ -33,8 +33,10 @@ import {
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
 import {
-  runOnboardingScan,
+  prepareOnboardingFiles,
+  scanOnboardingPreparedFiles,
   type OnboardingScanTx,
+  type PreparedOnboardingFile,
   type RunOnboardingScanDeps,
 } from "@/lib/sync/runOnboardingScan";
 
@@ -354,7 +356,8 @@ export type ApplyStagedDeps = {
     context: Record<string, unknown>;
   }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
-  runOnboardingScan?: typeof runOnboardingScan;
+  prepareOnboardingFiles?: typeof prepareOnboardingFiles;
+  scanOnboardingPreparedFiles?: typeof scanOnboardingPreparedFiles;
 };
 
 // `Timestampish`/`timestampMs`/`sameTimestamp`/`normalizeTimestamptz` moved to
@@ -839,7 +842,8 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "upsertAdminAlert"
   | "retryEmbeddedRevisionAvailability"
   | "verifyReelOnApply"
-  | "runOnboardingScan"
+  | "prepareOnboardingFiles"
+  | "scanOnboardingPreparedFiles"
   | "emitSuccessfulPhase2Tail"
   | "createUnpublishToken"
   | "now"
@@ -882,7 +886,8 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
-    runOnboardingScan: deps.runOnboardingScan ?? runOnboardingScan,
+    prepareOnboardingFiles: deps.prepareOnboardingFiles ?? prepareOnboardingFiles,
+    scanOnboardingPreparedFiles: deps.scanOnboardingPreparedFiles ?? scanOnboardingPreparedFiles,
     emitSuccessfulPhase2Tail: deps.emitSuccessfulPhase2Tail ?? emitSuccessfulPhase2Tail,
     createUnpublishToken: deps.createUnpublishToken ?? randomUUID,
     now: deps.now ?? (() => new Date()),
@@ -1532,32 +1537,60 @@ function makeInlineOnboardingScanTx(
   >) as LockedShowTx<OnboardingScanTx>;
 }
 
-async function restageWizardRevisionRaceInline(
+type WizardRestagePrepared =
+  | { result: ApplyStagedResult }
+  | { folderId: string; prepared: PreparedOnboardingFile[] };
+
+/**
+ * PRE-LOCK phase of the wizard revision-race restage: download + parse the raced
+ * file, bound to the revision the reverify already pinned. NO advisory lock is
+ * held here, so the slow Drive xlsx export does not block other per-show sync
+ * attempts (the lock-hygiene fix — previously this ran inside the per-show lock).
+ * Returns an early ApplyStagedResult when the source folder is out of scope.
+ */
+async function prepareWizardRestageInline(
+  reverify: Extract<WizardDriveReverify, { outcome: "revision_race" }>,
+  deps: ReturnType<typeof depsWithDefaults>,
+): Promise<WizardRestagePrepared> {
+  if (!reverify.pendingFolderId) {
+    return { result: { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE } };
+  }
+  const metadata = reverify.metadata;
+  const prepared = await deps.prepareOnboardingFiles(reverify.pendingFolderId, {
+    listFolder: async () => [metadata],
+    // Bind to the already-reverified revision and fetch the markdown at exactly
+    // that revision (this runs PRE-LOCK now, so the Drive export is no longer
+    // under the per-show lock).
+    fetchMarkdownWithBinding: async (driveFileId) => {
+      const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
+      const markdown = await fetchSheetAsMarkdownAtRevision(driveFileId, bindingToken);
+      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown };
+    },
+  });
+  return { folderId: reverify.pendingFolderId, prepared };
+}
+
+/**
+ * UNDER-LOCK phase of the wizard revision-race restage: stage the already-prepared
+ * parse (DB only — no Drive I/O happens here). The caller holds the per-show
+ * pipeline lock; the inline scan tx reuses it (single-holder — withShowLock is a
+ * passthrough), and scanOnboardingPreparedFiles does the readiness probe + the
+ * lock-ordered staging without re-fetching from Drive.
+ */
+async function stageWizardRestageInline(
   tx: LockedShowTx<SyncPipelineTx>,
   args: Extract<ApplyStagedArgs, { sourceScope: "wizard" }>,
   reverify: Extract<WizardDriveReverify, { outcome: "revision_race" }>,
+  folderId: string,
+  prepared: PreparedOnboardingFile[],
   deps: ReturnType<typeof depsWithDefaults>,
 ): Promise<ApplyStagedResult> {
-  if (!reverify.pendingFolderId) {
-    return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
-  }
-
   const scanTx = makeInlineOnboardingScanTx(tx);
   const metadata = reverify.metadata;
-  const scanDeps: RunOnboardingScanDeps = {
+  const scan = await deps.scanOnboardingPreparedFiles(folderId, args.wizardSessionId, prepared, {
     tx: scanTx,
-    listFolder: async () => [metadata],
-    captureBinding: async () => ({
-      bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
-      modifiedTime: metadata.modifiedTime,
-    }),
     withShowLock: async (_driveFileId, fn) => fn(scanTx),
-  };
-  const scan = await (deps.runOnboardingScan ?? runOnboardingScan)(
-    reverify.pendingFolderId,
-    args.wizardSessionId,
-    scanDeps,
-  );
+  });
 
   if (scan.outcome === "superseded") {
     return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
@@ -1662,17 +1695,27 @@ async function applyWizardWithDriveReverify(
   );
   if (reverify.outcome === "infra_error") return reverify;
 
+  if (reverify.outcome === "revision_race") {
+    // Download + parse the raced file BEFORE acquiring the per-show lock, then
+    // hold the lock only for the fast DB staging — no slow Drive I/O under the
+    // lock (BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK).
+    const preparedOrEarly = await prepareWizardRestageInline(reverify, deps);
+    if ("result" in preparedOrEarly) return preparedOrEarly.result;
+    const { folderId, prepared } = preparedOrEarly;
+    return await withPipelineLock(
+      args.driveFileId,
+      (tx) => stageWizardRestageInline(tx, args, reverify, folderId, prepared, deps),
+      { tryOnly: false },
+    );
+  }
+
   return await withPipelineLock(
     args.driveFileId,
-    (tx) => {
-      if (reverify.outcome === "revision_race") {
-        return restageWizardRevisionRaceInline(tx, args, reverify, deps);
-      }
-      return applyStaged_unlocked(tx, args, {
+    (tx) =>
+      applyStaged_unlocked(tx, args, {
         ...injectedDeps,
         wizardDriveReverify: reverify,
-      });
-    },
+      }),
     { tryOnly: false },
   );
 }
