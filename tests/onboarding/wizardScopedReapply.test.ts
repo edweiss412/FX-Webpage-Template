@@ -49,6 +49,12 @@ class FakeWizardStagedTx {
     this.lockedDriveIds.push(params[0] as string);
     return { locked: true } as T;
   }
+  // The wizard restage builds a PostgresOnboardingScanTx over holdPort() to stage
+  // wizard-scoped on the locked connection. These tests mock the scan, so the
+  // returned executor is never actually queried — a stub satisfies the wiring.
+  holdPort() {
+    return { unsafe: async (): Promise<unknown[]> => [] };
+  }
 }
 
 function deps(
