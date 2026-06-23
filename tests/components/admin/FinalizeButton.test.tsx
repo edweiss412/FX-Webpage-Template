@@ -211,6 +211,25 @@ describe("FinalizeButton", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    test("opening the soft confirm focuses the Continue button (AccentButton forwards its ref)", async () => {
+      // FIX 2 regression: the proceed control was migrated to <AccentButton>. The
+      // soft-confirm autofocus does proceedRef.current?.focus(); if the atom did
+      // not forward its ref the call would silently no-op and focus would stay on
+      // body. Asserting the button is the activeElement proves the ref forwards.
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={2}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      const proceed = getByTestId("wizard-finalize-confirm-proceed");
+      await waitFor(() => expect(document.activeElement).toBe(proceed));
+    });
+
     test("Escape closes the soft confirm without running the loop", async () => {
       const { getByTestId, queryByTestId } = render(
         <FinalizeButton

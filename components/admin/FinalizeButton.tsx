@@ -412,15 +412,16 @@ function FinalizeSoftConfirm({
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button
+        <AccentButton
           ref={proceedRef}
-          type="button"
           data-testid="wizard-finalize-confirm-proceed"
           onClick={onProceed}
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          size="sm"
+          inline
+          ringOffset="surface-raised"
         >
           Continue
-        </button>
+        </AccentButton>
         <button
           ref={cancelRef}
           type="button"
