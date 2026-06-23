@@ -458,6 +458,10 @@ async function publishAppliedWizardShows(
        where wizard_session_id = $1::uuid
          and status = 'applied'
          and created_show_id is not null
+         -- Task B3 / spec 7.4: publish only CHECKED rows. publish_intent=true is the
+         -- checked-for-publish first-seen show (created Held, flip it to Live);
+         -- publish_intent=false leaves the unchecked Held show at published=false.
+         and publish_intent = true
        order by drive_file_id
     `,
     [wizardSessionId],
@@ -478,6 +482,9 @@ async function publishAppliedWizardShows(
          and m.drive_file_id = s.drive_file_id
          and s.wizard_created_session_id = m.wizard_session_id
          and m.drive_file_id = any($2::text[])
+         -- Task B3 / spec 7.4: flip only CHECKED (publish_intent=true) rows to Live; an
+         -- unchecked Held show (publish_intent=false) is left at published=false.
+         and m.publish_intent = true
       returning true as published
     `,
     [wizardSessionId, lockedDriveFileIds],
