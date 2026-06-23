@@ -33,7 +33,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned (NOT `latest`): `latest` resolves via the GitHub API, which rate-limits
+          # on shared runners and fails setup. 2.98.2 = the supabase-local-bootstrap.sh
+          # verified version; a fixed version downloads directly (no API lookup).
+          version: 2.98.2
       - name: Start Supabase (supply cron-schedule GUC; local-only placeholder)
         # Guarded-migration boot lives in the shared script (M12.12 Task 14) so
         # the hold-aside list cannot drift between workflows (this file's inline
