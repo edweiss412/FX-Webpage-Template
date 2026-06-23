@@ -796,3 +796,44 @@ describe("exporter fidelity — #1a inline GENERAL SESSION header (live v2 forma
     });
   }
 });
+
+// Adversarial-review (Codex) regressions for the east-coast venue-headed-GS fix.
+describe("exporter fidelity — east-coast venue-headed GS: adversarial regressions", () => {
+  it("a same-name breakout MERGES its unique fields into the GS room (no silent data loss)", () => {
+    // MABEL 2 is headed as the GS venue AND reused as a day-2 breakout carrying a video
+    // gear note the GS block lacks. The breakout must be ABSORBED (merged), not dropped
+    // with its distinct fields lost. (Codex HIGH: unconditional same-name drop = data loss.)
+    const md = [
+      "| MABEL 2&#10;APPROXIMATELY 30' x 20' | MABEL 2&#10;APPROXIMATELY 30' x 20' |",
+      "| :---: | :---: |",
+      "| GS Setup | Theater |",
+      "| GS Audio | (2) Speakers |",
+      "",
+      "| MABEL 2&#10;DAY 2 | MABEL 2&#10;DAY 2 |",
+      "| :---: | :---: |",
+      "| BO Video | (1) Projector & Screen |",
+      "| BO Setup | Chevron |",
+    ].join("\n");
+    const m = parseRooms(md, "v1").filter((r) => /MABEL 2/i.test(r.name));
+    expect(m, "one MABEL 2 room, not two").toHaveLength(1);
+    expect(m[0]!.kind).toBe("gs");
+    expect(m[0]!.dimensions).toBe("30' x 20'");
+    expect(m[0]!.audio).toBe("(2) Speakers"); // GS field kept
+    expect(m[0]!.setup).toBe("Theater"); // GS primary wins over breakout's "Chevron"
+    expect(m[0]!.video, "breakout's unique field preserved, not dropped").toBe(
+      "(1) Projector & Screen",
+    );
+  });
+
+  it("a label-only metadata row above GS Setup is NOT a venue header (stays General Session)", () => {
+    // A trimmed single-cell DETAILS label ("| Fonts |", value column empty) directly above
+    // GS Setup must NOT become the GS room name. (Codex MEDIUM: real raw-fixture false
+    // positive — 2025-04-asset-mgmt-cfo-coo named its GS room "Fonts".)
+    for (const label of ["Fonts", "Test Pattern", "Staff Office Room"]) {
+      const md = [`| ${label} |`, "| :---: |", "| GS Setup | Theater |"].join("\n");
+      const gs = parseRooms(md, "v1").filter((r) => r.kind === "gs");
+      expect(gs, `${label} → 1 gs room`).toHaveLength(1);
+      expect(gs[0]!.name, `"${label}" must not become the GS room name`).toBe("General Session");
+    }
+  });
+});

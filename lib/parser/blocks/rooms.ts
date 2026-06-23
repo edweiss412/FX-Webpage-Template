@@ -27,6 +27,25 @@ import type { RoomRow, RoomKind } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 
+// Mergeable room data fields (everything except kind/name) — used to absorb a same-name
+// breakout into its GS room without dropping any populated value.
+const RECONCILE_FIELDS = [
+  "dimensions",
+  "floor",
+  "setup",
+  "set_time",
+  "show_time",
+  "strike_time",
+  "audio",
+  "video",
+  "lighting",
+  "scenic",
+  "power",
+  "digital_signage",
+  "other",
+  "notes",
+] as const;
+
 export function parseRooms(
   markdown: string,
   _version: "v1" | "v2" | "v4",
@@ -51,20 +70,27 @@ export function parseRooms(
     if (fieldsRoom) rooms.push(fieldsRoom);
   }
 
-  // East-coast-class reconciliation: a breakout that names the SAME physical room as
-  // a GS room (east-coast's MABEL 1 is both the general session AND a reused day-1&2
-  // breakout) is the redundant duplicate — the GS room is primary (it carries the GS
-  // production fields + dims). Drop the breakout. No-op for every other show (their GS
-  // and breakout names are distinct).
-  const gsNames = new Set(
-    rooms.filter((r) => r.kind === "gs").map((r) => (r.name ?? "").trim().toUpperCase()),
-  );
+  // East-coast-class reconciliation: a breakout that names the SAME physical room as a
+  // GS room (east-coast's MABEL 1 is both the general session AND a reused day-1&2
+  // breakout) is not a separate room. MERGE its non-null fields into the GS room — GS is
+  // primary, so it only fills GS's STILL-EMPTY fields; no breakout data is dropped — then
+  // remove the now-absorbed duplicate. No-op for every other show (distinct names).
+  const gsByName = new Map<string, RoomRowInternal>();
+  for (const r of rooms) {
+    if (r.kind === "gs") gsByName.set((r.name ?? "").trim().toUpperCase(), r as RoomRowInternal);
+  }
   const reconciled =
-    gsNames.size === 0
+    gsByName.size === 0
       ? rooms
-      : rooms.filter(
-          (r) => !(r.kind === "breakout" && gsNames.has((r.name ?? "").trim().toUpperCase())),
-        );
+      : rooms.filter((r) => {
+          if (r.kind !== "breakout") return true;
+          const gs = gsByName.get((r.name ?? "").trim().toUpperCase());
+          if (!gs) return true;
+          for (const f of RECONCILE_FIELDS) {
+            if (gs[f] == null && r[f] != null) gs[f] = r[f];
+          }
+          return false; // absorbed into the GS room — not a separate entry
+        });
 
   // D1: a recognized room-block header (GENERAL SESSION / BREAKOUT N / ADDITIONAL
   // ROOM) whose body was content-gated out, leaving zero rooms, is a silent
@@ -362,7 +388,13 @@ function findGsBlockVenueHeader(markdown: string): string | null {
     ) {
       return null;
     }
-    return cells[0] ?? null; // raw (keeps &#10; for splitRoomHeader to flatten)
+    // Require STRONG evidence this is a real multi-line room-header cell, not a metadata
+    // label whose value column was trimmed to empty (e.g. "| Fonts |" / "| Test Pattern |"
+    // sitting directly above GS Setup): an in-cell newline OR a dimension token. Without
+    // it, fall back to "General Session" rather than mis-naming the GS room.
+    const raw = cells[0] ?? "";
+    if (!/&#10;/.test(raw) && !/\d+\s*'\s*x/i.test(raw)) return null;
+    return raw; // raw (keeps &#10; for splitRoomHeader to flatten)
   }
   return null;
 }
