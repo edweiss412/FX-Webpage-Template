@@ -15,6 +15,7 @@ import {
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { runInvariants } from "@/lib/parser/invariants";
+import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetMarkdownAndBytesAtRevision } from "@/lib/drive/fetch";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
@@ -2575,6 +2576,25 @@ export async function processOneFile_unlocked(
           return [...invariantItems, ...assetItems];
         })()
       : [];
+
+  // Class C (§5.3, VB10) — derive BLOCK_DISAPPEARED parse-warnings from the MI-7
+  // items (new_count===0) so a vanished block also reaches the parse-warning-based
+  // surfaces (per-show Data-Quality panel). This does NOT add a feed row — MI-7
+  // already wrote its single section_shrunk row — so there is exactly one feed row
+  // and one parse-warning per disappearance. Suppressed when a SECTION_HEADER_NO_FIELDS
+  // warning already covers the (normalized) block. Appended to parseResult.warnings
+  // before Phase 2 persists shows_internal.parse_warnings. First-seen (no prior →
+  // notableItems empty) yields nothing, correctly.
+  {
+    const disappearedWarnings = blockDisappearanceWarnings(
+      notableItems,
+      pipeline.parseResult.warnings,
+    );
+    if (disappearedWarnings.length > 0) {
+      pipeline.parseResult.warnings.push(...disappearedWarnings);
+    }
+  }
+
   const phase2 = await runPhase2_unlocked(
     tx,
     {
