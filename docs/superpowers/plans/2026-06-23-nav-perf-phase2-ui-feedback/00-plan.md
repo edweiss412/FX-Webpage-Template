@@ -57,15 +57,15 @@
 
 ### Task 3: Parallelize badge reads (E-lite)
 
-**Files:** modify `lib/admin/needsAttentionCount.ts`, `app/admin/layout.tsx`; test `tests/admin/needsAttentionCount.parallel.test.ts`; verify `tests/admin/_metaInfraContract.test.ts`.
+**Files:** modify `lib/admin/needsAttentionCount.ts`, `app/admin/layout.tsx`; tests `tests/admin/needsAttentionCount.parallel.test.ts` + `tests/app/admin/layoutBadgeParallel.test.ts`; verify `tests/admin/_metaInfraContract.test.ts`.
 
 - [ ] **Step 1: Failing tests** —
-  (a) `needsAttentionCount.parallel.test.ts`: a deferred mock for the two `count` reads; assert the second read is INITIATED before the first resolves (serial impl fails); assert sum on success; assert `{kind:'infra_error'}` when EITHER query returns an error OR throws (per-query discrimination preserved); assert client-construction throw → `infra_error`.
-  Run → FAIL (currently sequential — second read starts only after the first resolves).
-- [ ] **Step 2: Run, verify fail.**
+  (a) `tests/admin/needsAttentionCount.parallel.test.ts`: a deferred mock for the two `count` reads; assert the second read is INITIATED before the first resolves (serial impl fails); assert sum on success; assert `{kind:'infra_error'}` when EITHER query returns an error OR throws (per-query discrimination preserved); assert client-construction throw → `infra_error`. Run → FAIL (currently sequential).
+  (b) `tests/app/admin/layoutBadgeParallel.test.ts` (spec §7 E-lite (b)): `vi.mock` `@/lib/auth/requireAdmin` (`requireAdminIdentity` → `{email:"a@b.c"}`), `@/components/admin/nav/AdminNav` (stub), `@/lib/admin/alertCount`, `@/lib/admin/needsAttentionCount` — make `fetchUnresolvedAlertCount` + `loadNeedsAttentionCount` DEFERRED (each returns a promise whose resolver the test holds, and each pushes its name to a shared `started[]` array on call). Import the default `AdminLayout`; invoke `AdminLayout({ children: null })` WITHOUT awaiting; after a `setTimeout(0)`/`await Promise.resolve()` microtask-flush assert BOTH `started` entries are present (a serial `await a; await b` impl would have started only `fetchUnresolvedAlertCount`); then resolve both + `await` the layout call to completion. Concrete failure mode: a sequential layout starts the 2nd read only after the 1st resolves. Run → FAIL (layout is currently sequential at L85/L88).
+- [ ] **Step 2: Run both, verify fail.**
 - [ ] **Step 3a: Implement `needsAttentionCount.ts`** — build both query promises, `const [ing, syn] = await Promise.all([ingestionQuery, syncQuery])`, destructure `{count, error}` from each, apply the existing per-query `infra_error` checks, sum on success. Keep `createSupabaseServerClient` (or service client) construction in its `try/catch`; keep `{kind}` return. NEVER `allSettled`.
 - [ ] **Step 3b: Implement `app/admin/layout.tsx`** — replace the sequential `await fetchUnresolvedAlertCount()` (L85) + `await loadNeedsAttentionCount()` (L88) with `const [alertCount, needsAttentionCount] = await Promise.all([fetchUnresolvedAlertCount(), loadNeedsAttentionCount()]);`. AdminNav props unchanged.
-- [ ] **Step 4: Run** `tests/admin/needsAttentionCount.parallel.test.ts` + `tests/admin/_metaInfraContract.test.ts` (grep-shape + behavioral still pass) + any existing layout test → PASS.
+- [ ] **Step 4: Run** `tests/admin/needsAttentionCount.parallel.test.ts` + `tests/app/admin/layoutBadgeParallel.test.ts` + `tests/admin/_metaInfraContract.test.ts` (grep-shape + behavioral still pass) + any existing layout test → PASS.
 - [ ] **Step 5: prettier + commit** — `perf(admin): parallelize admin-entry badge reads (layout + needsAttentionCount queries)`.
 
 ### Task 4: Full verification
