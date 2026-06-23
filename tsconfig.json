@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -23,7 +27,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
@@ -44,7 +50,9 @@
     ".next-build-artifact-gate-test/types/**/*.ts",
     ".next-build-artifact-gate-test/dev/types/**/*.ts",
     ".next-screenshots-help/types/**/*.ts",
-    ".next-screenshots-help/dev/types/**/*.ts"
+    ".next-screenshots-help/dev/types/**/*.ts",
+    ".next-buildcheck/types/**/*.ts",
+    ".next-buildcheck/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

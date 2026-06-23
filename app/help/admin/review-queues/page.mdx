@@ -2,7 +2,12 @@
 
 Most new sheets in your Drive folder publish on their own. Dropping a clean sheet into the folder is the deliberate publish action; the app parses it, mints a show row, and crew can see the page right away.
 
-Two queues exist for the cases where the app cannot publish on its own. The first-seen queue catches brand-new sheets that the app held for your sign-off because something in the parse looked unusual, or that hard-failed before they could become a show. The re-stage queue catches edits to a show that's already live, when those edits tripped a review rule.
+Two queues catch the sheets the app can't publish on its own:
+
+| Queue                         | Catches                                                                                                                |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **[First-seen](#first-seen)** | A brand-new sheet the app held for your sign-off (the parse looked unusual, or it hard-failed before becoming a show). |
+| **[Re-stage](#re-stage)**     | Edits to an already-live show that tripped a review rule.                                                              |
 
 Both queues are durable. Nothing here clears itself.
 
@@ -24,7 +29,10 @@ On a phone, the same queues live behind the **Attention** tab in the bottom bar.
 
 <h2 id="first-seen">First-seen review</h2>
 
-A first-seen sheet is one the app has never published. Most first-seen sheets in your watched folder publish on their own, and you see them in the Active shows panel right away. A first-seen sheet only lands in this queue when the parse tripped a review rule (a crew count that shrank unexpectedly, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty, and so on), or when you discovered the sheet through the onboarding wizard's scan step (which always routes to you before activating sync).
+A first-seen sheet is one the app has never published. Most publish on their own and appear in Active shows right away. A sheet lands in this queue only when:
+
+- the parse tripped a review rule (the same [common triggers](#re-stage) that re-stage an already-live show), or
+- you found it through the onboarding wizard's scan, which always routes new sheets to you before activating sync.
 
 You'll find first-seen review rows in the **Needs attention** panel on the dashboard. Each row shows the candidate title and a **Review** link that opens the staged-review surface, where the items that need your decision are listed.
 
@@ -43,7 +51,7 @@ Two actions are available:
 
 A re-stage happens when you edit a show that's already live and the edit tripped a review rule. The app catches it, holds the new version in staging, and keeps serving the prior approved version to crew. The crew page does not flicker, and stale data does not go out.
 
-Re-stage rows also appear in the **Needs attention** panel, marked **Changes to review**. The **Open show** link takes you straight to the per-show parse panel with the staged review at the top. The show keeps serving its prior approved version to crew until you Apply.
+Re-stage rows also appear in the **Needs attention** panel, marked **Changes to review**. The **Open show** link takes you straight to the per-show parse panel with the staged review at the top.
 
 Common triggers:
 
