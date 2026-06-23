@@ -22,6 +22,7 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
+import { revalidateOnApplied } from "@/lib/data/showCacheTag";
 
 export const FINALIZE_OWNED_SHOW = "FINALIZE_OWNED_SHOW" as const;
 
@@ -380,7 +381,7 @@ export async function runManualSyncForShow(
     });
   }
 
-  return await runOne(driveFileId, mode, fileMeta, {
+  const applyResult = await runOne(driveFileId, mode, fileMeta, {
     ...(deps.processDeps ?? {}),
     withShowLock: async (id, fn) =>
       (await withLock(id, async (tx) => {
@@ -413,4 +414,12 @@ export async function runManualSyncForShow(
         return result;
       })) as ProcessOneFileResult | ConcurrentSyncSkipped,
   });
+  // nav-perf tag-caching (Task 5): the apply ran through processOneFile, whose
+  // injected withShowLock wraps withPostgresSyncPipelineLock (sql.begin); when
+  // `runOne` resolves the apply tx has COMMITTED. Revalidate the show's cache tag
+  // HERE — post-commit — never inside the lock callback above (pre-commit). No-op
+  // on every non-applied outcome (incl. ConcurrentSyncSkipped, which lacks
+  // outcome/showId).
+  revalidateOnApplied(applyResult);
+  return applyResult;
 }

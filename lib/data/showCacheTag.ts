@@ -35,9 +35,14 @@ export function revalidateShow(showId: string): void {
   revalidateTag(showCacheTag(showId), SHOW_CACHE_LIFE);
 }
 
-/** Sync convenience: revalidate iff a ProcessOneFileResult applied. Caller MUST be post-commit. */
+/**
+ * Sync convenience: revalidate iff a ProcessOneFileResult applied. Caller MUST be
+ * post-commit. The optional `skipped` member keeps `ConcurrentSyncSkipped`
+ * (`{ skipped: string }`, a union member of ProcessOneFileResult) structurally
+ * assignable — such a value lacks `outcome:"applied"`, so it correctly no-ops.
+ */
 export function revalidateOnApplied(
-  result: { outcome?: string; showId?: string } | null | undefined,
+  result: { outcome?: string; showId?: string; skipped?: string } | null | undefined,
 ): void {
   if (result && result.outcome === "applied" && result.showId) revalidateShow(result.showId);
 }

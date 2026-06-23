@@ -2,6 +2,7 @@ import { getActiveWatchedFolderId } from "@/lib/appSettings/getWatchedFolderId";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { revalidateOnApplied } from "@/lib/data/showCacheTag";
 import {
   processOneFile,
   type ProcessOneFileDeps,
@@ -291,7 +292,14 @@ export async function runPushSyncForShow(
     });
   }
   const runOne = deps.processOneFile ?? processOneFile;
-  return await runOne(driveFileId, "push", fileMeta, {
+  // nav-perf tag-caching (Task 5): processOneFile owns the per-show pipeline lock
+  // (withPostgresSyncPipelineLock → sql.begin); when this await resolves the apply
+  // tx has COMMITTED. Revalidate the show's cache tag HERE — post-commit — never
+  // inside processOneFile_unlocked (that runs inside sql.begin = pre-commit). No-op
+  // on every non-applied outcome.
+  const result = await runOne(driveFileId, "push", fileMeta, {
     logSync,
   });
+  revalidateOnApplied(result);
+  return result;
 }

@@ -38,6 +38,7 @@ import {
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import { revalidateOnApplied, revalidateShow } from "@/lib/data/showCacheTag";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
@@ -2687,6 +2688,14 @@ export async function runScheduledCronSync(
       });
       continue;
     }
+    // nav-perf tag-caching (Task 5): only a source_gone result means
+    // markMissingShow_unlocked ran `update public.shows` (markShowSheetUnavailable)
+    // inside the now-resolved lock — post-commit here, so revalidate the show's
+    // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
+    // WITHOUT mutating public.shows, so it is explicitly excluded.
+    if (result.outcome === "source_gone") {
+      revalidateShow(show.showId);
+    }
     processed.push({
       driveFileId: show.driveFileId,
       result,
@@ -2695,9 +2704,17 @@ export async function runScheduledCronSync(
 
   for (const file of files) {
     try {
+      // nav-perf tag-caching (Task 5): `runOne` (= processOneFile) owns the
+      // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
+      // this await resolves the apply tx has COMMITTED. Revalidate the show's
+      // cache tag HERE — post-commit — never inside processOneFile_unlocked /
+      // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
+      // would expose a stale-read window). No-op on every non-applied outcome.
+      const result = await runOne(file.driveFileId, "cron", file, processDeps);
+      revalidateOnApplied(result);
       processed.push({
         driveFileId: file.driveFileId,
-        result: await runOne(file.driveFileId, "cron", file, processDeps),
+        result,
       });
     } catch (error) {
       const result = {
