@@ -38,6 +38,7 @@ import {
 } from "@/lib/sync/enrichWithDrivePins";
 import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import { revalidateShow, revalidateShowFromResult } from "@/lib/data/showCacheTag";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
@@ -192,11 +193,19 @@ export type ProcessOneFileResult =
       cooldownRemainingMs: number;
       retryCount: number;
     }
-  | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
-  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
+  // nav-perf tag-caching (whole-diff R2): source_gone / parse_error carry the
+  // OPTIONAL showId the markShow* recovery write read back (RETURNING id). These
+  // outcomes commit `shows.last_sync_status` (projected by StaleFooter via
+  // getShowForViewer's `lastSyncStatus`), so post-commit callers revalidate the
+  // show's cache tag via `revalidateShowFromResult` (showId-presence gate). null /
+  // absent when no public.shows row was matched (first-seen / pending-ingestion
+  // path) — then there is no projected show to bust, so the gate correctly no-ops.
+  | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE; showId?: string | null }
+  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE; showId?: string | null }
   | {
       outcome: "parse_error";
       code: SyncFailureCode;
+      showId?: string | null;
     }
   | ConcurrentSyncSkipped;
 
@@ -1960,7 +1969,7 @@ async function markMissingShow_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   show: CronLiveShowRow,
 ): Promise<
-  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
+  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE; showId?: string | null }
   | { outcome: "skipped"; reason: typeof ARCHIVED_SKIP_REASON }
 > {
   await assertShowLockHeld(tx, show.driveFileId);
@@ -2003,7 +2012,9 @@ async function markMissingShow_unlocked(
     showId,
     syncProblemCodeForStatus("sheet_unavailable"),
   );
-  return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
+  // nav-perf tag-caching (whole-diff R2): carry the showId the markShowSheetUnavailable
+  // write read back so the post-commit gate busts the projected last_sync_status.
+  return { outcome: "source_gone", code: SHEET_UNAVAILABLE, showId };
 }
 
 async function handleFetchFailure_unlocked(
@@ -2082,7 +2093,12 @@ async function handleFetchFailure_unlocked(
         code === STAGED_PARSE_SOURCE_GONE ? "sheet_unavailable" : "drive_error",
       ),
     );
-    return result;
+    // nav-perf tag-caching (whole-diff R2): this branch committed
+    // `shows.last_sync_status` (markShow{SheetUnavailable,DriveError}); carry the
+    // showId so the post-commit gate busts the projected last_sync_status. The
+    // existingPending early-return + the no-show upsertLivePendingIngestion path
+    // below match NO public.shows row, so they correctly leave showId absent.
+    return { ...result, showId };
   }
 
   await tx.upsertLivePendingIngestion({
@@ -2687,6 +2703,16 @@ export async function runScheduledCronSync(
       });
       continue;
     }
+    // nav-perf tag-caching (Task 5): only a source_gone result means
+    // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
+    // inside the now-resolved lock — post-commit here, so revalidate the show's
+    // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
+    // without writing the shows row, so it is explicitly excluded.
+    // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
+    // showCacheRevalidateCoverage regexes scan for.)
+    if (result.outcome === "source_gone") {
+      revalidateShow(show.showId);
+    }
     processed.push({
       driveFileId: show.driveFileId,
       result,
@@ -2695,9 +2721,20 @@ export async function runScheduledCronSync(
 
   for (const file of files) {
     try {
+      // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
+      // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
+      // this await resolves the apply tx has COMMITTED. Revalidate the show's
+      // cache tag HERE — post-commit — never inside processOneFile_unlocked /
+      // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
+      // would expose a stale-read window). showId-presence gate: busts on applied
+      // AND on the parse_error/source_gone recovery outcomes (which carry showId +
+      // commit last_sync_status). No-op on skipped/stale/revision_race/stage/
+      // hard_fail (no showId). The catch-built parse_error below carries no showId.
+      const result = await runOne(file.driveFileId, "cron", file, processDeps);
+      revalidateShowFromResult(result);
       processed.push({
         driveFileId: file.driveFileId,
-        result: await runOne(file.driveFileId, "cron", file, processDeps),
+        result,
       });
     } catch (error) {
       const result = {

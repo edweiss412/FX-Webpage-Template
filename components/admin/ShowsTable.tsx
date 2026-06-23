@@ -424,8 +424,8 @@ export function ShowsTable({
       {visible.some((r) => syncStatusBucket(r.lastSyncStatus).bucket === "review") ? (
         <p className="text-sm text-text-subtle">
           <span aria-hidden="true">⚠ </span>
-          <span className="font-semibold text-text-strong">Changes to review</span> means a sheet
-          edit is staged and waiting for your approval.{" "}
+          <span className="font-semibold text-text-strong">Changes to review</span> means the app is
+          holding a whole staged sheet for your sign-off. Routine sheet edits apply on their own.{" "}
           {/* aria-label drops the decorative "→" from the accessible name
               without splitting the text run (text-run splits shift
               text-decoration paint — byte-level screenshot drift). */}

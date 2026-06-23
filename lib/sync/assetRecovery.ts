@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -717,7 +718,20 @@ export async function runAssetRecoveryCron(
   const processed: AssetRecoveryCronResult["processed"] = [];
   for (const showId of await listRecoverableShows()) {
     try {
-      processed.push({ showId, result: await recover(showId) });
+      const result = await recover(showId);
+      // nav-perf tag-caching (Task 7): recovery writes shows.diagrams (updateRecoveredDiagrams,
+      // projected at getShowForViewer.ts:709) ONLY on the outcomes below — every one ran the
+      // diagrams UPDATE under the show lock, which has committed by the time `recover` resolves
+      // (post-commit). The other outcomes (no_op / revision_drift / drift_cooldown /
+      // bytes_exceeded / skipped / infra_error) wrote NO shows row → no revalidate.
+      if (
+        result.outcome === "recovered" ||
+        result.outcome === "restage_required" ||
+        result.outcome === "partial_failure"
+      ) {
+        revalidateShow(showId);
+      }
+      processed.push({ showId, result });
     } catch (error) {
       processed.push({
         showId,

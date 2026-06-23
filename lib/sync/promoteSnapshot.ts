@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { withPromoteLock } from "@/lib/sync/lockedPromoteTx";
 import { withShowLock } from "@/lib/sync/lockedShowTx";
 
@@ -151,10 +152,12 @@ export async function promoteSnapshotUpload(
   if (!initial) return { outcome: "not_found" };
 
   const storage = deps.storage ?? defaultStorage();
-  return await withPromoteLock(initial.show_id, async (promoteTx) => {
-    const clearRolledBack = async (row: PendingPromotionRow): Promise<void> => {
-      await promoteTx.queryOne<{ ok: boolean }>(
-        `
+  const result: PromoteSnapshotResult = await withPromoteLock(
+    initial.show_id,
+    async (promoteTx): Promise<PromoteSnapshotResult> => {
+      const clearRolledBack = async (row: PendingPromotionRow): Promise<void> => {
+        await promoteTx.queryOne<{ ok: boolean }>(
+          `
           with cleared_show as (
             update public.shows s
                set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
@@ -179,13 +182,13 @@ export async function promoteSnapshotUpload(
           )
           select true as ok
         `,
-        [row.show_id, row.snapshot_revision_id, row.id, row.claim_token],
-      );
-    };
-    const row = await promoteTx.queryOne<
-      (PendingPromotionRow & { promoted_at: string | null }) | null
-    >(
-      `
+          [row.show_id, row.snapshot_revision_id, row.id, row.claim_token],
+        );
+      };
+      const row = await promoteTx.queryOne<
+        (PendingPromotionRow & { promoted_at: string | null }) | null
+      >(
+        `
         update public.pending_snapshot_uploads
            set claim_token = gen_random_uuid(),
                claimed_at = now(),
@@ -198,16 +201,16 @@ export async function promoteSnapshotUpload(
          returning id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text,
                    promoted_at::text, asset_count, claim_token::text
       `,
-      [snapshotRevisionId],
-    );
+        [snapshotRevisionId],
+      );
 
-    if (!row) return { outcome: "not_found" };
-    if (row.promoted_at) return { outcome: "already_promoted", snapshotRevisionId };
-    const promoted = await withShowLock(
-      row.drive_file_id,
-      async (tx) => {
-        const expected = await tx.queryOne<{ count: number }>(
-          `
+      if (!row) return { outcome: "not_found" };
+      if (row.promoted_at) return { outcome: "already_promoted", snapshotRevisionId };
+      const promoted = await withShowLock(
+        row.drive_file_id,
+        async (tx) => {
+          const expected = await tx.queryOne<{ count: number }>(
+            `
         select (
           select count(*)::int
             from public.shows s,
@@ -222,40 +225,40 @@ export async function promoteSnapshotUpload(
              and l->>'snapshotPath' is not null
         ) as count
       `,
-          [row.show_id],
-        );
+            [row.show_id],
+          );
 
-        const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
-        const paths = await storage.list(row.temp_prefix);
-        const expectedAssetCount = expected.count;
-        if (paths.length !== expectedAssetCount) {
-          await clearRolledBack(row);
-          return { outcome: "manifest_mismatch", snapshotRevisionId };
-        }
-
-        const renamed: Array<{ from: string; to: string }> = [];
-        const rollback = async (): Promise<void> => {
-          for (const entry of renamed.toReversed()) {
-            await storage.move(entry.to, entry.from);
-          }
-        };
-
-        try {
-          for (const path of paths) {
-            const to = `${canonical}${basename(path)}`;
-            await storage.move(path, to);
-            renamed.push({ from: path, to });
-          }
-
-          const canonicalPaths = await storage.list(canonical);
-          if (canonicalPaths.length !== expectedAssetCount) {
-            await rollback();
+          const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
+          const paths = await storage.list(row.temp_prefix);
+          const expectedAssetCount = expected.count;
+          if (paths.length !== expectedAssetCount) {
             await clearRolledBack(row);
             return { outcome: "manifest_mismatch", snapshotRevisionId };
           }
 
-          const cutover = await tx.queryOne<{ updated: boolean }>(
-            `
+          const renamed: Array<{ from: string; to: string }> = [];
+          const rollback = async (): Promise<void> => {
+            for (const entry of renamed.toReversed()) {
+              await storage.move(entry.to, entry.from);
+            }
+          };
+
+          try {
+            for (const path of paths) {
+              const to = `${canonical}${basename(path)}`;
+              await storage.move(path, to);
+              renamed.push({ from: path, to });
+            }
+
+            const canonicalPaths = await storage.list(canonical);
+            if (canonicalPaths.length !== expectedAssetCount) {
+              await rollback();
+              await clearRolledBack(row);
+              return { outcome: "manifest_mismatch", snapshotRevisionId };
+            }
+
+            const cutover = await tx.queryOne<{ updated: boolean }>(
+              `
         with target as (
           select s.id
             from public.shows s
@@ -291,33 +294,41 @@ export async function promoteSnapshotUpload(
         )
         select exists(select 1 from update_ledger) as updated
       `,
-            [snapshotRevisionId, row.claim_token],
-          );
+              [snapshotRevisionId, row.claim_token],
+            );
 
-          if (!cutover?.updated) {
-            await rollback();
-            await clearRolledBack(row);
-            return { outcome: "no_pending_payload", snapshotRevisionId };
+            if (!cutover?.updated) {
+              await rollback();
+              await clearRolledBack(row);
+              return { outcome: "no_pending_payload", snapshotRevisionId };
+            }
+            return { outcome: "promoted", snapshotRevisionId };
+          } catch (error) {
+            try {
+              await rollback();
+              await clearRolledBack(row);
+            } catch (rollbackError) {
+              await emitRollbackStuckAlert(row.show_id, row.snapshot_revision_id, rollbackError);
+              return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
+            }
+            throw error;
           }
-          return { outcome: "promoted", snapshotRevisionId };
-        } catch (error) {
-          try {
-            await rollback();
-            await clearRolledBack(row);
-          } catch (rollbackError) {
-            await emitRollbackStuckAlert(row.show_id, row.snapshot_revision_id, rollbackError);
-            return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
-          }
-          throw error;
-        }
-      },
-      { tx: promoteTx, assertInDev: false },
-    );
-    if ("skipped" in promoted) {
-      return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
-    }
-    return promoted as PromoteSnapshotResult;
-  });
+        },
+        { tx: promoteTx, assertInDev: false },
+      );
+      if ("skipped" in promoted) {
+        return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
+      }
+      return promoted as PromoteSnapshotResult;
+    },
+  );
+  // nav-perf tag-caching (Task 7): the cutover writes shows.diagrams (projected at
+  // getShowForViewer.ts:709). Revalidate the show's data-cache tag POST-COMMIT — after
+  // withPromoteLock resolves (the show-lock cutover tx committed), NEVER inside the lock.
+  if (result.outcome === "promoted") {
+    revalidateShow(initial.show_id);
+  }
+  return result;
 }
 
 export async function repairSnapshotRollback(
@@ -358,44 +369,46 @@ export async function repairSnapshotRollback(
   }
 
   const storage = deps.storage ?? defaultStorage();
-  return await withPromoteLock(row.show_id, async (promoteTx) => {
-    const repaired = await withShowLock(
-      row.drive_file_id,
-      async (tx) => {
-        const locked = await tx.queryOne<{ promoted_at: string | null } | null>(
-          "select promoted_at::text from public.pending_snapshot_uploads where id = $1::uuid",
-          [ledgerId],
-        );
-        if (!locked) return { outcome: "not_found" } satisfies RepairSnapshotRollbackResult;
-        if (locked.promoted_at) {
-          return {
-            outcome: "not_stuck",
-            snapshotRevisionId: row.snapshot_revision_id,
-          } satisfies RepairSnapshotRollbackResult;
-        }
-        if (row.delete_started_at && !row.promote_started_at) {
-          await storage.removePrefix?.(row.temp_prefix);
-          await tx.queryOne<{ ok: boolean }>(
-            `
+  const repairResult: RepairSnapshotRollbackResult = await withPromoteLock(
+    row.show_id,
+    async (promoteTx): Promise<RepairSnapshotRollbackResult> => {
+      const repaired = await withShowLock(
+        row.drive_file_id,
+        async (tx) => {
+          const locked = await tx.queryOne<{ promoted_at: string | null } | null>(
+            "select promoted_at::text from public.pending_snapshot_uploads where id = $1::uuid",
+            [ledgerId],
+          );
+          if (!locked) return { outcome: "not_found" } satisfies RepairSnapshotRollbackResult;
+          if (locked.promoted_at) {
+            return {
+              outcome: "not_stuck",
+              snapshotRevisionId: row.snapshot_revision_id,
+            } satisfies RepairSnapshotRollbackResult;
+          }
+          if (row.delete_started_at && !row.promote_started_at) {
+            await storage.removePrefix?.(row.temp_prefix);
+            await tx.queryOne<{ ok: boolean }>(
+              `
               delete from public.pending_snapshot_uploads
                where id = $1::uuid
                  and promoted_at is null
                  and delete_started_at is not null
               returning true as ok
             `,
-            [ledgerId],
-          );
-          return {
-            outcome: "repaired",
-            snapshotRevisionId: row.snapshot_revision_id,
-          } satisfies RepairSnapshotRollbackResult;
-        }
-        const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
-        for (const path of await storage.list(canonical)) {
-          await storage.move(path, `${row.temp_prefix}${basename(path)}`);
-        }
-        await tx.queryOne<{ ok: boolean }>(
-          `
+              [ledgerId],
+            );
+            return {
+              outcome: "repaired",
+              snapshotRevisionId: row.snapshot_revision_id,
+            } satisfies RepairSnapshotRollbackResult;
+          }
+          const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
+          for (const path of await storage.list(canonical)) {
+            await storage.move(path, `${row.temp_prefix}${basename(path)}`);
+          }
+          await tx.queryOne<{ ok: boolean }>(
+            `
             with cleared_show as (
               update public.shows s
                  set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
@@ -418,18 +431,28 @@ export async function repairSnapshotRollback(
             )
             select true as ok
           `,
-          [row.show_id, ledgerId, row.snapshot_revision_id],
-        );
-        return {
-          outcome: "repaired",
-          snapshotRevisionId: row.snapshot_revision_id,
-        } satisfies RepairSnapshotRollbackResult;
-      },
-      { tx: promoteTx, assertInDev: false },
-    );
-    if ("skipped" in repaired) {
-      return { outcome: "promote_in_flight", snapshotRevisionId: row.snapshot_revision_id };
-    }
-    return repaired;
-  });
+            [row.show_id, ledgerId, row.snapshot_revision_id],
+          );
+          return {
+            outcome: "repaired",
+            snapshotRevisionId: row.snapshot_revision_id,
+          } satisfies RepairSnapshotRollbackResult;
+        },
+        { tx: promoteTx, assertInDev: false },
+      );
+      if ("skipped" in repaired) {
+        return { outcome: "promote_in_flight", snapshotRevisionId: row.snapshot_revision_id };
+      }
+      return repaired;
+    },
+  );
+  // nav-perf tag-caching (Task 7): the rollback-repair branch clears shows.diagrams->pending
+  // (a projected-data write). Revalidate POST-COMMIT (after withPromoteLock resolves) on the
+  // `repaired` outcome. (The `not_stuck`/`not_found`/`promote_in_flight` outcomes wrote no shows
+  // row; the delete-only repair removes a pending_snapshot_uploads row, not shows — but `repaired`
+  // covers both repair shapes, and revalidating an unchanged tag is a safe no-op.)
+  if (repairResult.outcome === "repaired") {
+    revalidateShow(row.show_id);
+  }
+  return repairResult;
 }

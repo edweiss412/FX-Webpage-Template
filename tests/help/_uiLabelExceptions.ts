@@ -183,26 +183,12 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     file: "app/help/admin/per-show-panel/page.mdx",
     note: "Per-show manual-sync button — components/admin/ReSyncButton.tsx:99.",
   },
-  {
-    label: "Auto sync",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:86.",
-  },
-  {
-    label: "Drive push",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:87.",
-  },
-  {
-    label: "Manual sync",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:88.",
-  },
-  {
-    label: "Onboarding scan",
-    file: "app/help/admin/per-show-panel/page.mdx",
-    note: "Staged-review card source-kind eyebrow — components/admin/StagedReviewCard.tsx:89.",
-  },
+  // (The "Auto sync / Drive push / Manual sync / Onboarding scan" source-kind
+  // eyebrow labels were declared here when the per-show panel documented a
+  // staged-review card. The Phase-6 ChangesFeed migration retired that card on
+  // the per-show panel — the eyebrows now live only on the first-seen staged
+  // route — so the per-show-panel doc no longer references them and these
+  // declarations were removed.)
   {
     label: "Changes to review",
     file: "app/help/admin/per-show-panel/page.mdx",
@@ -228,9 +214,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
 
   // ─── app/help/admin/review-queues/page.mdx ───
   // (Onboarding step-3 redesign 2026-06-23: "Review and apply" was the dead
-  // Step3Review navigate-in link; it was removed. The live first-seen review
-  // surface uses the inbox "Review" link → the staged-review card's "Apply"
-  // action, both declared below. The stale "Review and apply" entry was removed.)
+  // Step3Review navigate-in link, removed by the redesign. The live first-seen
+  // review surface uses the inbox "Review" link → the staged-review card's
+  // "Apply" action, both declared below / on the wizard. Entry removed.)
   {
     label: "Discard",
     file: "app/help/admin/review-queues/page.mdx",

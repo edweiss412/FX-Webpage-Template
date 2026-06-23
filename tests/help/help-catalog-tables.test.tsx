@@ -84,7 +84,7 @@ describe("Chunk 2 — remark-gfm pipeline + Theme B source conversions (structur
     const dash = read("app/help/admin/dashboard/page.mdx");
     expect(dash).not.toMatch(/^- \*\*Synced\*\* —/m);
     expect(dash).toMatch(/\|\s*Status\s*\|\s*What it means\s*\|\s*What to do\s*\|/);
-    expect(dash).toContain("/help/admin/review-queues#re-stage");
+    expect(dash).toContain("/help/admin/review-queues");
 
     const settings = read("app/help/admin/settings/page.mdx");
     expect(settings).not.toMatch(/^- \*\*Connected\.\*\*/m);
@@ -112,18 +112,20 @@ describe("Chunk 2 — remark-gfm pipeline + Theme B source conversions (structur
 });
 
 describe("Chunk 2 — catalogs render as real <table> elements (behavioral)", () => {
-  it("dashboard sync-status renders a Status/What-it-means/What-to-do table with the re-stage link", async () => {
+  it("dashboard sync-status renders a Status/What-it-means/What-to-do table with the Needs-attention link", async () => {
     const Page = (await import("@/app/help/admin/dashboard/page.mdx")).default;
     const { container } = renderMdx(Page);
     const t = tableByHeader(container, ["Status", "What it means", "What to do"]);
     expect(bodyRows(t).length, "5 sync-status rows").toBe(5);
     expect(t.textContent).toContain("Not synced yet");
-    // the cross-reference link lives INSIDE the table (scoped query — not a sibling)
+    // The "Changes to review" row points to the Needs-attention inbox (same page),
+    // NOT a staged-review card on the panel — that retired model is gone. Scoped
+    // query so the link is the one INSIDE the table, not a sibling.
     expect(
       within(t)
-        .getByRole("link", { name: /Review queues/i })
+        .getByRole("link", { name: /Needs attention inbox/i })
         .getAttribute("href"),
-    ).toContain("/help/admin/review-queues#re-stage");
+    ).toContain("#pending-ingestion");
   });
 
   it("settings health-badge renders a status table with the needs-attention link", async () => {

@@ -230,7 +230,11 @@ export default defineConfig({
         : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1",
       url: "http://127.0.0.1:3000",
       reuseExistingServer: !process.env.CI,
-      timeout: process.env.CI ? 120_000 : 60_000,
+      // 300s in CI: the crew-e2e job (CREW_E2E_ONLY) boots ONLY this server and it
+      // cold-`pnpm build`s before `start` — the prior 120s never ran in CI (no job
+      // booted :3000) and is too short for a cold Next build. Mirrors the
+      // dev-gate/:3001-3003 servers' 300_000.
+      timeout: process.env.CI ? 300_000 : 60_000,
     },
     {
       // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true
@@ -365,6 +369,11 @@ export default defineConfig({
     // Boot ONLY the :3004 webServer for the help-affordances walker (see the
     // long comment above the webServer array).
     if (process.env.HELP_DOCS_WALKER_ONLY) return server.url === "http://localhost:3004";
+    // Boot ONLY the :3000 baseline server for the crew-e2e CI job (mobile-safari
+    // project, crew-section-toggle.spec). Without this the :3001-:3004 servers
+    // also cold-build (4 wasted builds contending on the with-admin-dev-flag
+    // lock); the crew specs only need :3000. See .github/workflows/crew-e2e.yml.
+    if (process.env.CREW_E2E_ONLY) return server.url === "http://127.0.0.1:3000";
     // Boot ONLY the three dev-gate webServers (:3001 dev-build, :3002 prod-build,
     // :3003 prod-runtime-flip) for the B1-D4 dev-gate CI workflow. The baseline
     // :3000 and screenshots/help :3004 servers ALSO run `pnpm build`, and every

@@ -280,6 +280,21 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
 
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSection(page, "today");
+
+    // Settle the section-enter crossfade BEFORE any getBoundingClientRect. The
+    // section body is a framer-motion motion.div (initial opacity:0,y:4) driven by
+    // requestAnimationFrame; the beforeEach freezes the clock (page.clock.install)
+    // for a deterministic hero, so framer's enter animation does NOT auto-advance —
+    // an immediate layout read can catch the subtree mid-commit (transient/zero
+    // heights), which made this dimensional test flaky (crew-e2e: test 4 passed
+    // only on CI retry). Mirror crew-page.spec's goToSection: tick the frozen clock
+    // past the 220ms enter, then wait for the section root to reach a real
+    // (non-zero) laid-out height before reading the bar/tab rects.
+    await page.clock.runFor(400);
+    await expect
+      .poll(async () => (await rectOf(page.getByTestId("section-today"))).height, { timeout: 5000 })
+      .toBeGreaterThan(1);
+
     const viewport = page.viewportSize()!;
 
     // The bottom bar is the mobile nav (DOM order desktop-first, mobile-second →
@@ -345,47 +360,67 @@ test.describe("crew client-side section toggle (0-network win + tradeoff guards)
   }, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
 
+    // Capture transfer sizes via Playwright RESPONSE EVENTS (node-side) — WebKit
+    // (the mobile-safari browser) populates NEITHER resource-timing
+    // encodedBodySize NOR the first-contentful-paint paint entry, so a
+    // page.evaluate(performance...) approach logs 0/-1. Response events are
+    // cross-browser. We sum the DOCUMENT + RSC/data responses (fetch/xhr) — where
+    // the all-sections-render payload lives — and exclude static JS/CSS/img
+    // (constant, cache-shared, unrelated to the section-render tradeoff). Prefer
+    // the content-length header (sync); fall back to the body length (awaited).
+    const docRscBytes: number[] = [];
+    const pendingBodies: Promise<void>[] = [];
+    page.on("response", (r) => {
+      const type = r.request().resourceType();
+      if (type !== "document" && type !== "fetch" && type !== "xhr") return;
+      const cl = r.headers()["content-length"];
+      if (cl) {
+        docRscBytes.push(Number(cl) || 0);
+        return;
+      }
+      pendingBodies.push(
+        r
+          .body()
+          .then((b) => {
+            docRscBytes.push(b.length);
+          })
+          .catch(() => {
+            /* body unavailable (redirect/opaque) — skip */
+          }),
+      );
+    });
+
     await gotoSection(page, "today");
     await page.waitForLoadState("networkidle");
+    await Promise.all(pendingBodies); // settle any awaited body() reads
 
-    const { payloadBytes, fcpMs } = await page.evaluate(() => {
-      // Sum the over-the-wire transfer size of every resource the page pulled
-      // (the navigation document + every JS/CSS/RSC/asset). encodedBodySize is
-      // the compressed body size; transferSize includes headers but is 0 for
-      // cross-origin no-Timing-Allow-Origin entries, so encodedBodySize is the
-      // more reliable same-origin signal. Fall back to transferSize when an
-      // entry reports a 0 encoded body (e.g. a 304).
-      const resources = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
-      let bytes = 0;
-      for (const r of resources) {
-        bytes += r.encodedBodySize || r.transferSize || 0;
-      }
-      // Include the main navigation document's own body.
-      const nav = performance.getEntriesByType("navigation")[0] as
-        | PerformanceNavigationTiming
-        | undefined;
-      if (nav) bytes += nav.encodedBodySize || nav.transferSize || 0;
-
-      const fcpEntry = performance.getEntriesByName("first-contentful-paint")[0] as
-        | PerformanceEntry
-        | undefined;
-      const fcp = fcpEntry ? fcpEntry.startTime : -1;
-      return { payloadBytes: bytes, fcpMs: fcp };
+    const payloadBytes = docRscBytes.reduce((a, b) => a + b, 0);
+    // FCP is best-effort: WebKit lacks PerformancePaintTiming (→ -1). The
+    // document+RSC payload above is the all-sections-render tradeoff metric; FCP
+    // is recorded only when the browser supports it (chromium).
+    const fcpMs = await page.evaluate(() => {
+      const e = performance.getEntriesByName("first-contentful-paint")[0];
+      return e ? e.startTime : -1;
     });
 
     // CI evidence line — grep `CREW_PERF` in the run log for the recorded number.
-    // This is the REAL artifact of this test; the ceilings below are only a
-    // smoke guard against a pathological regression (e.g. a 10MB blob or a
-    // multi-second blank screen), NOT a meaningful performance threshold.
+    // This is the REAL artifact of this test; the ceilings below are only a smoke
+    // guard against a pathological regression, NOT a meaningful perf threshold.
     console.log("CREW_PERF " + JSON.stringify({ payloadBytes, fcpMs }));
 
-    // GENEROUS absolute sanity ceilings (intentionally loose — see comment).
+    // The measurement must actually capture the document+RSC payload — the prior
+    // 0 was a WebKit resource-timing gap, not a real 0. A real number > 0 proves
+    // the evidence is captured (no silent sentinel).
     expect(
       payloadBytes,
-      `first-load payload should be under the 2MB sanity ceiling; got ${payloadBytes} bytes (see CREW_PERF log)`,
+      `document+RSC payload must be captured (>0); got ${payloadBytes} (see CREW_PERF log)`,
+    ).toBeGreaterThan(0);
+    // GENEROUS absolute sanity ceiling (intentionally loose — see comment).
+    expect(
+      payloadBytes,
+      `first-load document+RSC payload should be under the 2MB sanity ceiling; got ${payloadBytes} bytes (see CREW_PERF log)`,
     ).toBeLessThan(2_000_000);
-    // FCP can be -1 if the browser did not record the paint entry; only enforce
-    // the ceiling when a real value was captured.
+    // FCP ceiling only when a real value was captured (chromium).
     if (fcpMs >= 0) {
       expect(
         fcpMs,

@@ -32,6 +32,7 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import {
   PostgresOnboardingScanTx,
@@ -1737,10 +1738,25 @@ export async function applyStaged(
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert(result.roleFlagsNotice);
     }
+    // nav-perf tag-caching (Task 7): the LIVE staged-apply `applied` path ran runPhase2 — the show
+    // row + crew/hotel/rooms/transport/contacts/shows_internal mutate. Revalidate the show's
+    // data-cache tag POST-COMMIT: applyLiveWithDriveReverify resolved its withPipelineLock, so the
+    // tx committed before this point (NEVER inside the lock). The non-applied live outcomes
+    // (discarded/source_gone/outdated/source_out_of_scope) call restoreShowStatus, which sets
+    // last_sync_status back to its PRIOR value — a net-zero rendered change with no showId — so
+    // they do not revalidate here.
+    if (!("skipped" in result) && result.outcome === "applied") {
+      revalidateShow(result.showId);
+    }
     return result;
   }
 
   if (args.sourceScope === "wizard") {
+    // The wizard `applyStaged` path writes ONLY pending_syncs (wizard_approved) +
+    // onboarding_scan_manifest (status) — staging metadata, NOT rendered crew DATA (the actual
+    // apply to public.shows happens later in finalize-cas Phase D, which revalidates there). So no
+    // revalidate here. // not-subject-to-revalidate: wizard apply stages approval/manifest only;
+    // rendered-data write + revalidate happen in finalize-cas.
     return await applyWizardWithDriveReverify(args, deps);
   }
   throw new Error(

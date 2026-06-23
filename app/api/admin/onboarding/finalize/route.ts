@@ -15,6 +15,7 @@ import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { revalidateShow } from "@/lib/data/showCacheTag";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -633,6 +634,12 @@ async function processApprovedRow(input: {
   pipelineTx: SyncPipelineTx;
   fetchDriveFileMetadata: (driveFileId: string) => Promise<DriveListedFile>;
   finalizerEmail: string;
+  // nav-perf tag-caching (Task 6): the first-seen apply writes public.shows (+ children) via the
+  // shared core. The created show's id is collected here so the route can `revalidateShow(id)`
+  // POST-COMMIT (after deps.withTx resolves) — NEVER inside this per-row tx (pre-commit = stale).
+  // The existing-show branch only STAGES into shows_pending_changes (no rendered crew-DATA write
+  // until finalize-cas Phase D), so it does not collect an id here.
+  appliedShowIds: Set<string>;
 }): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
 
@@ -857,6 +864,10 @@ async function processApprovedRow(input: {
     row.wizard_approved,
   );
   await deleteApprovedPending(tx, wizardSessionId, row);
+  // nav-perf tag-caching (Task 6): record the created show for the POST-COMMIT revalidate. Added
+  // ONLY after the apply + provenance + staging-consume all succeed in this per-row tx; the
+  // actual revalidateShow fires after the OUTER deps.withTx resolves (post-commit).
+  input.appliedShowIds.add(core.showId);
   return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
 
@@ -880,8 +891,12 @@ export async function handleOnboardingFinalize(
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
 
+  // nav-perf tag-caching (Task 6): first-seen apply created-show ids, collected DURING the apply
+  // (inside the per-row txns) and revalidated AFTER deps.withTx resolves (post-commit) — never
+  // inside the tx (pre-commit revalidate = stale cache bug, spec §4.2).
+  const appliedShowIds = new Set<string>();
   try {
-    return await runtime.withTx(async (tx) => {
+    const response = await runtime.withTx(async (tx) => {
       // R25-1/R29-1 lock order: discover the candidate session WITHOUT a row lock, acquire
       // finalize:<session>, THEN take the app_settings FOR UPDATE row lock and re-check the
       // candidate is still the active session (supersession between discovery and lock → 409).
@@ -953,6 +968,7 @@ export async function handleOnboardingFinalize(
               pipelineTx,
               fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
               finalizerEmail,
+              appliedShowIds,
             }),
           );
         } catch (error) {
@@ -988,6 +1004,13 @@ export async function handleOnboardingFinalize(
         perRow,
       });
     });
+    // POST-COMMIT: deps.withTx has resolved (the outer finalize transaction committed), so the
+    // first-seen shows are durably visible. Revalidate each show's data-cache tag now, before the
+    // Response — a pre-commit revalidate would re-cache the OLD fan-out (spec §4.2).
+    for (const showId of appliedShowIds) {
+      revalidateShow(showId);
+    }
+    return response;
   } catch (error) {
     // Never leak an empty 500 (Next returns no body for an uncaught throw → the
     // client's response.json() fails with "Unexpected end of JSON input"). Any

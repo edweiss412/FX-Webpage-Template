@@ -1,0 +1,102 @@
+name: Crew e2e (mobile-safari)
+# Runs the crew client-side section-toggle e2e (tests/e2e/crew-section-toggle.spec.ts,
+# the mobile-safari Playwright project) against a real browser + a seeded local
+# Supabase. This is the FIRST CI job to run the mobile-safari project — the rest of
+# that project (crew-page.spec + the M4 tile specs) is still dead-in-CI; lifting it
+# wholesale is filed as BL-RESURRECT-MOBILE-SAFARI-E2E (it would surface latent
+# failures in long-unran specs, so it is its own task). This job is scoped to the
+# one spec so the perf gate + the 0-network/dimensional proofs run in CI now.
+#
+# Why this spec needs CI: it proves the section-toggle win in a real browser —
+#   • a section tab tap fires ZERO data requests (no server round-trip; freshness
+#     invariant: the controller never fetches/caches section data client-side),
+#   • back/forward + deep-link via ?s=,
+#   • the mobile bottom tab-bar dimensional invariant (getBoundingClientRect),
+#   • a CREW_PERF payload+FCP record (the all-sections-render tradeoff measurement).
+#
+# Shape mirrors dev-gate-e2e.yml / help-affordances.yml (native runner + chromium;
+# these specs assert behavior + rects, NOT pixel bytes, so the amd64 Docker raster
+# pin used by screenshots-drift.yml is not needed). CREW_E2E_ONLY=1 boots ONLY the
+# :3000 webServer (playwright.config.ts filter) so the :3001-:3004 servers don't
+# cold-build. workflow_dispatch so close-out can fire it via `gh workflow run`
+# (real-CI-green is its own gate — the local-passes-CI-fails class).
+on:
+  pull_request:
+    paths:
+      - "components/crew/**"
+      - "app/show/**"
+      - "lib/crew/**"
+      - "lib/data/getShowForViewer.ts"
+      - "tests/e2e/crew-section-toggle.spec.ts"
+      - "tests/e2e/helpers/**"
+      - "playwright.config.ts"
+      - ".github/workflows/crew-e2e.yml"
+  workflow_dispatch:
+
+jobs:
+  crew-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # The crew app (lib/supabase/server.ts:35 / browser.ts:34 default to "" and
+      # THROW if unset) + the test runner (signInAs → supabaseAdmin) + db:seed all
+      # need the local Supabase env. The :3000 webServer command sets only
+      # JWT/ADMIN_DEV/ENABLE_TEST_AUTH/TEST_AUTH_SECRET inline, so the Supabase +
+      # build env must be on the runner here (inherited by db:seed, the Playwright
+      # workers, AND the spawned :3000 build/start). Demo local keys mirror the
+      # :3004 webServer env block in playwright.config.ts.
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+      SUPABASE_URL: "http://127.0.0.1:54321"
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+      SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+      JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+      HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+      GOOGLE_SERVICE_ACCOUNT_JSON: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'
+      ENABLE_TEST_AUTH: "true"
+      # MUST match the :3000 webServer's inline TEST_AUTH_SECRET — signInAs sends
+      # this as Authorization: Bearer and the server compares against its own.
+      TEST_AUTH_SECRET: "fxav-m3-test-auth-2026-DO-NOT-SHIP"
+      # Boot ONLY the :3000 baseline server (playwright.config.ts filter).
+      CREW_E2E_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install psql (signInAs admin client + bootstrap shell out to psql)
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Boot local Supabase (guarded migrations)
+        # Shared bootstrap — same Supabase + GUC + guarded-migration setup the
+        # screenshots / help / dev-gate workflows use (hold-aside list can't drift).
+        run: bash scripts/ci/supabase-local-bootstrap.sh
+      - name: Seed the crew corpus (Waldorf fixture the crew specs resolve)
+        # crew-section-toggle.spec resolves the seeded show + share_token by
+        # drive_file_id (seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf).
+        run: pnpm db:seed
+      # The mobile-safari project spreads devices["iPhone 14"] → defaultBrowserType
+      # "webkit" (NOT chromium). Mirror help-affordances.yml (its iPhone 14 help-docs
+      # project) and install BOTH so a chromium-defaulting spec can't fail either.
+      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Run crew section-toggle e2e (mobile-safari, :3000 only)
+        run: pnpm exec playwright test --project=mobile-safari tests/e2e/crew-section-toggle.spec.ts
+      - name: Upload Playwright traces/report (diagnosis artifact)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crew-e2e-playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

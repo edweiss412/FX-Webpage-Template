@@ -37,7 +37,7 @@ describe("walker route derivation (spec §3.1/§6)", () => {
     expect(walksAt(desktopOnly!, "desktop")).toBe(true);
     expect(walksAt(desktopOnly!, "mobile")).toBe(false);
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
-    expect(allWalkableRows).toHaveLength(concrete.length - 2); // minus the two DEFERRED_TESTIDS
+    expect(allWalkableRows).toHaveLength(concrete.length - 1); // minus the one DEFERRED_TESTID (preview-banner; per-show-restage-card removed — DEFERRED.md D9)
     for (const r of allWalkableRows)
       expect(walksAt(r, "mobile") || walksAt(r, "desktop")).toBe(true);
   });

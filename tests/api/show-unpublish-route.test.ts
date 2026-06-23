@@ -16,6 +16,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { revalidateTag } from "next/cache";
+import { showCacheTag } from "@/lib/data/showCacheTag";
 import type { UnpublishShowResult } from "@/lib/sync/unpublishShow";
 
 const routeMock = vi.hoisted(() => ({
@@ -51,6 +53,7 @@ beforeEach(() => {
   routeMock.throws = false;
   routeMock.calls = [];
   routeMock.plainCalls = 0;
+  (revalidateTag as unknown as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe("POST /api/show/[slug]/unpublish — token+r contract (M12.13 R8)", () => {
@@ -58,6 +61,9 @@ describe("POST /api/show/[slug]/unpublish — token+r contract (M12.13 R8)", () 
     const response = await post(`${BASE}?token=tok-1&r=0123456789abcdef`);
     await expect(response.json()).resolves.toEqual({ ok: true, showId: "show-1" });
     expect(response.status).toBe(200);
+    // nav-perf tag-caching (Task 9): a successful consume archived the show (published=false) →
+    // revalidate its data-cache tag POST-COMMIT.
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
     expect(routeMock.calls).toEqual([
       { slug: "client-show", token: "tok-1", r: "0123456789abcdef" },
     ]);

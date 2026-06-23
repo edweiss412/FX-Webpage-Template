@@ -3,6 +3,10 @@
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+// not-subject-to-revalidate (nav-perf tag-caching Task 9): rotating the share token mutates only
+// shows.share_token / picker_epoch — picker/auth columns NOT in the getShowForViewer DATA
+// projection. The rendered crew DATA is unchanged, so the `show-${id}` data cache need not bust.
+
 type RotateShareTokenResult =
   | { ok: true; new_share_token: string; new_epoch: number }
   | { ok: false; code: "PICKER_RESOLVER_LOOKUP_FAILED" };

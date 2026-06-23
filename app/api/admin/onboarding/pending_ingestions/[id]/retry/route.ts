@@ -397,6 +397,12 @@ async function handleAction(
       if (wizardSessionId === null) {
         return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
       }
+      // not-subject-to-revalidate (nav-perf tag-caching Task 5): the wizard retry
+      // path only STAGES a file into the onboarding flow — retrySingleFile's
+      // RetrySingleFileResult has no "applied" outcome (staged / live_row_conflict
+      // / hard_failed / not_found / wizard_superseded / schema_missing). Show DATA
+      // is applied to public.shows at FINALIZE (covered by Task 6), never here, so
+      // there is no getShowForViewer-projected mutation to bust the cache tag for.
       const result = await deps.retrySingleFile(driveFileId, wizardSessionId);
       if (typeof result === "object" && result !== null && "skipped" in result) {
         // tryOnly:false never skips; defensive parity with defaultWithRowTx.

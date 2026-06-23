@@ -172,7 +172,9 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       "shows_internal:run_of_show",
       "crew_members", // the roster read (second crew_members read)
     ];
-    const deferredRpcs = ["viewer_version_token"];
+    // viewer_version_token is read LIVE after the cached data wave (not in it),
+    // so it must NOT be gated — it fires once the released wave resolves.
+    const deferredRpcs: string[] = [];
     const harness = makeDeferredClient({
       deferredTables,
       deferredRpcs,
@@ -202,8 +204,14 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
     await Promise.resolve();
     await new Promise((r) => setTimeout(r, 0));
 
-    // Every independent read must have been INITIATED already, before release.
-    // A serial impl would have started only the first (hotel_reservations).
+    // Every independent DATA read must have been INITIATED already, before
+    // release. A serial impl would have started only the first
+    // (hotel_reservations).
+    //
+    // nav-perf tag-caching: `viewer_version_token` is NO LONGER part of this
+    // concurrent wave — it is read LIVE, OUTSIDE the cached data fan-out (spec
+    // §3.1), so it only fires AFTER the cached `readShowDataForViewer` wave
+    // resolves. It is therefore asserted post-release below, not here.
     for (const key of [
       "hotel_reservations",
       "rooms",
@@ -212,13 +220,18 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
       "shows_internal:run_of_show",
       "shows_internal:financials", // admin → isLead → financials read issues
       "crew_members", // roster
-      "rpc:viewer_version_token",
     ]) {
       expect(harness.started).toContain(key);
     }
+    // The live version-token RPC must NOT have started yet (it runs after the
+    // cached data resolves — proving the split is sequential, not in-wave).
+    expect(harness.started).not.toContain("rpc:viewer_version_token");
 
     harness.releaseAll();
     await p;
+
+    // After the data wave resolves, the live token RPC fires (spec §3.1).
+    expect(harness.started).toContain("rpc:viewer_version_token");
   });
 
   test("per-tile discrimination: one read's returned error sets only its tileErrors entry", async () => {
