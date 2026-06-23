@@ -1478,7 +1478,17 @@ async function verifyWizardApplyDriveScope(
   return { outcome: "ok", metadata, pendingFolderId };
 }
 
-function makeInlineOnboardingScanTx(
+/**
+ * Adapt a per-show-locked pipeline tx into an OnboardingScanTx that performs the
+ * scan's DB writes on the SAME connection/transaction (no new connection, no new
+ * lock). Used by under-lock staging paths (wizard restage here; manual retry in
+ * retrySingleFile.ts) so `scanOnboardingPreparedFiles` runs atomically inside the
+ * caller's pipeline lock instead of opening its own connection + own show lock
+ * (the latter nests the same show key across two connections and deadlocks).
+ * Pair it with a passthrough `withShowLock` (`async (_id, fn) => fn(scanTx)`) so
+ * the held lock is reused as the single holder.
+ */
+export function makeInlineOnboardingScanTx(
   tx: LockedShowTx<SyncPipelineTx>,
 ): LockedShowTx<OnboardingScanTx> {
   return Object.assign(Object.create(tx), {

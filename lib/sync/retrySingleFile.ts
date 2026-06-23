@@ -11,6 +11,7 @@ import {
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { makeInlineOnboardingScanTx } from "@/lib/sync/applyStaged";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 export type RetrySingleFileTx = {
@@ -138,12 +139,14 @@ export async function retrySingleFilePreflight(
 }
 
 /**
- * Lock#2 finalize phase: interpret the (already-run, own-connection) scan result
- * and perform the supersession-guarded delete. Asserts the caller holds the show
- * lock. THROWS WizardSessionSupersededRollbackError on a statement-time delete
- * miss so the enclosing per-show-locked transaction ABORTS (the retry route maps
- * it to the typed 409 + WIZARD_SESSION_SUPERSEDED_RACE alert); the scan's OWN
- * committed W1-scoped staging rows are accepted, F4-swept residue (spec §7 R5-2).
+ * Lock#2 finalize phase: interpret the scan result and detect a POST-scan
+ * supersession. The scan runs on the SAME locked connection/transaction as this
+ * finalize (makeInlineOnboardingScanTx — it has NOT committed independently).
+ * Asserts the caller holds the show lock. THROWS WizardSessionSupersededRollbackError
+ * when the wizard-session currency changed after a staged scan, which ABORTS the
+ * enclosing per-show-locked transaction and rolls the scan's staging back with it
+ * (no orphan residue, unlike the old separate-connection design); the retry route
+ * maps the throw to the typed 409 + WIZARD_SESSION_SUPERSEDED_RACE alert.
  */
 export async function retrySingleFileFinalize(
   tx: LockedShowTx<RetrySingleFileTx>,
@@ -162,8 +165,9 @@ export async function retrySingleFileFinalize(
     // here — NOT by re-deleting the pending_ingestion, which the scan has already
     // removed (a 0-row delete would now false-fire). A genuine currency mismatch
     // throws the typed rollback (the retry route maps it to a 409 +
-    // WIZARD_SESSION_SUPERSEDED_RACE alert); the scan's staged rows are the
-    // accepted F4-swept residue (spec §7 R5-2).
+    // WIZARD_SESSION_SUPERSEDED_RACE alert). Because the scan ran on THIS locked
+    // transaction (not its own connection), the throw rolls its staging back
+    // atomically — no orphan residue to F4-sweep.
     const settings = await readWizardSettings(tx);
     if (settings.pending_wizard_session_id !== wizardSessionId) {
       throw new WizardSessionSupersededRollbackError({
@@ -177,22 +181,31 @@ export async function retrySingleFileFinalize(
 }
 
 /**
- * Manual single-file retry. Three phases, with the slow Drive work BETWEEN two
- * short pipeline-lock windows so the per-show advisory lock is never held across
- * the scan:
+ * Manual single-file retry. The slow Drive work runs PRE-LOCK; the DB staging and
+ * finalize run together UNDER a single pipeline lock so they are atomic with the
+ * selected pending-row state:
  *
  *   Lock#1 — retrySingleFilePreflight: validate wizard-session currency +
- *            pending-ingestion provenance (fast DB reads).
- *   PRE-LOCK — fetch metadata + prepareOnboardingFiles + scanOnboardingPreparedFiles:
- *            download + parse + stage. The scan uses its OWN connection + own
- *            show-lock and commits independently (the R32-1 residue).
- *   Lock#2 — retrySingleFileFinalize: supersession-guarded delete + the typed
- *            WizardSessionSupersededRollbackError throw (mapped to 409 by the route).
+ *            pending-ingestion provenance and read the pending folder id.
+ *   PRE-LOCK — fetch metadata + prepareOnboardingFiles: download + parse. NO lock
+ *            is held, so the slow Drive xlsx export never blocks the per-show lock.
+ *   Lock#2 — re-preflight (a defer/ignore or supersession that landed during the
+ *            Drive window aborts the retry here) → scanOnboardingPreparedFiles on
+ *            the SAME locked connection via makeInlineOnboardingScanTx + a
+ *            passthrough withShowLock (no second connection, no second lock) →
+ *            retrySingleFileFinalize.
  *
- * The old shape ran the scan INSIDE the retry's pipeline lock, so the scan's
- * own-connection show-lock blocked on the SAME `show:driveFileId` key the retry
- * held — a two-connection / one-key deadlock (single-holder rule, AGENTS.md
- * invariant 2). Splitting the scan out of the lock removes the nesting entirely.
+ * Two properties fall out of running the scan on the locked connection:
+ *   1. No deadlock. The original shape ran the scan on its OWN connection while
+ *      the retry held the pipeline lock, so that connection blocked on the SAME
+ *      `show:driveFileId` key — a two-connection / one-key deadlock (single-holder
+ *      rule, AGENTS.md invariant 2). The inline scan tx reuses the held lock.
+ *   2. Serialized against defer/ignore. Those actions take the same show lock, so
+ *      a concurrent resolution either commits BEFORE Lock#2 (the re-preflight sees
+ *      the pending row gone / superseded and returns early — nothing staged) or
+ *      AFTER (it observes the row already removed). The scan no longer commits on
+ *      its own connection, so a supersession throw rolls its staging back
+ *      atomically (no orphan residue).
  */
 export async function retrySingleFile(
   driveFileId: string,
@@ -206,7 +219,7 @@ export async function retrySingleFile(
   );
   if (typeof pre === "object" && pre !== null && "skipped" in pre) return pre;
   if ("result" in pre) return pre.result;
-  const { pendingFolderId, pending } = pre;
+  const { pendingFolderId } = pre;
 
   const metadata = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
   if (!metadata.parents.includes(pendingFolderId)) {
@@ -215,16 +228,24 @@ export async function retrySingleFile(
   const prepared = await (deps.prepareOnboardingFiles ?? prepareOnboardingFiles)(pendingFolderId, {
     listFolder: async () => [metadata],
   });
-  const scan = await (deps.scanOnboardingPreparedFiles ?? scanOnboardingPreparedFiles)(
-    pendingFolderId,
-    wizardSessionId,
-    prepared,
-    {},
-  );
 
   return await withPostgresSyncPipelineLock(
     driveFileId,
-    (tx) => retrySingleFileFinalize(tx, driveFileId, wizardSessionId, scan, pending),
+    async (tx) => {
+      // Re-validate UNDER the lock: a defer/ignore or supersession may have
+      // resolved this pending row during the (unlocked) Drive window. A
+      // resolved/superseded row returns early — nothing is staged.
+      const recheck = await retrySingleFilePreflight(tx, driveFileId, wizardSessionId);
+      if ("result" in recheck) return recheck.result;
+      const scanTx = makeInlineOnboardingScanTx(tx);
+      const scan = await (deps.scanOnboardingPreparedFiles ?? scanOnboardingPreparedFiles)(
+        pendingFolderId,
+        wizardSessionId,
+        prepared,
+        { tx: scanTx, withShowLock: async (_driveFileId, fn) => fn(scanTx) },
+      );
+      return retrySingleFileFinalize(tx, driveFileId, wizardSessionId, scan, recheck.pending);
+    },
     { tryOnly: false },
   );
 }

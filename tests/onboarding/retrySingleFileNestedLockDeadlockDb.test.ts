@@ -3,19 +3,22 @@
  * manual single-file retry path (BL-WIZARD-RESTAGE-FETCH-BEFORE-LOCK, second
  * instance).
  *
- * Bug: `retrySingleFile` (and the retry route) acquire the per-show advisory lock
- * via `withPostgresSyncPipelineLock` → `withShowLock(driveFileId)` =
- * `pg_advisory_xact_lock(hashtext('show:' || driveFileId))` on connection A, then
- * `await` `runOnboardingScan`, whose own connection B blocks acquiring the SAME
- * key via the default `withShowLock`. A waits on B's return; B waits on A's lock
- * → app-level deadlock (Postgres's detector can't see it). Every other test mocks
- * the scan, so the real second `withShowLock`-on-B is never exercised; this test
- * runs the REAL `runOnboardingScan` (Drive layer mocked, but withShowLock REAL)
- * under the REAL `retrySingleFile` lock to reproduce the hang.
+ * Bug (original shape): `retrySingleFile` held the per-show advisory lock
+ * (`withPostgresSyncPipelineLock` → `pg_advisory_xact_lock(hashtext('show:' ||
+ * driveFileId))`) on connection A, then `await`ed the scan, whose OWN connection B
+ * blocked acquiring the SAME key. A waits on B's return; B waits on A's lock →
+ * app-level deadlock (Postgres's detector can't see it). Every other test mocks
+ * the scan, so the real second `withShowLock`-on-B was never exercised.
  *
- * Assertion: the retry COMPLETES within a bounded time. RED (times out) before
- * the fetch-before-lock reorder; GREEN after (the scan runs pre-lock, so there is
- * no nested same-key acquisition).
+ * Fix: the slow Drive prepare runs pre-lock, and the DB scan runs on the SAME
+ * locked connection (inline scan tx + passthrough `withShowLock`), so there is no
+ * second connection to nest. This test runs the REAL `scanOnboardingPreparedFiles`
+ * (Drive prepare mocked) through the REAL `retrySingleFile` lock topology.
+ *
+ * Assertion: the retry COMPLETES within a bounded time. It is a live regression
+ * guard for the nesting: if `retrySingleFile` ever runs the scan on a SEPARATE
+ * connection while holding the pipeline lock again, the injected real scan blocks
+ * on the held key and this test times out.
  *
  * Cleanup safety: a deliberately-deadlocked test must not leak the hung backends
  * (they would hold `show:<file>` and wedge other DB tests). We snapshot the
@@ -136,12 +139,12 @@ function listedMetadata(): DriveListedFile {
   };
 }
 
-// A prepared sheet (the Drive prepare is mocked — no real Google). The retry
-// then runs the REAL scanOnboardingPreparedFiles, whose REAL per-show
-// `withShowLock` acquisition (own connection) is the regression guard: with the
-// fetch-before-lock reorder it runs OUTSIDE the retry's pipeline lock and
-// acquires freely; if it ever runs back inside that lock, the same-key nesting
-// deadlocks again and this test times out.
+// A prepared sheet (the Drive prepare is mocked — no real Google). The retry then
+// runs the REAL scanOnboardingPreparedFiles, which retrySingleFile invokes on the
+// locked connection (inline scan tx + passthrough withShowLock). That is the
+// regression guard: if retrySingleFile reverted to running the scan on a separate
+// connection while holding the pipeline lock, the real scan's withShowLock would
+// block on the held key and this test would time out.
 function preparedSheet(): PreparedOnboardingFile[] {
   return [
     {
@@ -295,6 +298,80 @@ test.skipIf(!dbUp)(
             rejection instanceof Error ? rejection.stack : String(rejection)
           }`,
     ).toBe(true);
+  },
+  20000,
+);
+
+// Concurrency regression (Codex R1 HIGH): running the scan OUTSIDE the lock would
+// let a concurrent defer/ignore decision be silently overwritten by the retry's
+// staging. The atomic design closes this — the scan + finalize run under one
+// pipeline lock and a re-preflight aborts the retry if the pending row was
+// resolved during the (unlocked) Drive window. Here a defer/ignore resolves the
+// row mid-Drive-window (it takes + releases the same show lock); the retry must
+// then abort with not_found, stage nothing, and leave the defer manifest intact.
+test.skipIf(!dbUp)(
+  "a defer/ignore that resolves the pending ingestion during the unlocked Drive window aborts the retry (no staging, defer manifest preserved)",
+  async () => {
+    // Seed a manifest row so we can prove the retry does not overwrite a
+    // concurrent defer/ignore manifest transition.
+    await sql!.unsafe(
+      `insert into public.onboarding_scan_manifest
+         (folder_id, wizard_session_id, drive_file_id, mime_type, name, status)
+       values ($1, $2::uuid, $3, $4, $5, 'hard_failed')
+       on conflict (wizard_session_id, drive_file_id) do update set status = 'hard_failed'`,
+      [FOLDER, SESSION, FILE, "application/vnd.google-apps.spreadsheet", `${FILE}.gsheet`],
+    );
+
+    let scanInvoked = false;
+    const result = await retrySingleFile(FILE, SESSION, {
+      fetchDriveFileMetadata: async () => listedMetadata(),
+      // During the unlocked Drive window, a concurrent defer/ignore resolves the
+      // SAME pending row: it takes the show lock, deletes the pending_ingestion,
+      // and transitions the manifest to defer_until_modified — then releases the
+      // lock (committed) before retry's Lock#2 acquires it.
+      prepareOnboardingFiles: async () => {
+        const other = postgres(DB_URL, { max: 1, idle_timeout: 2, prepare: false });
+        try {
+          await other.begin(async (t) => {
+            await t.unsafe(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [FILE]);
+            await t.unsafe(`delete from public.pending_ingestions where drive_file_id = $1`, [
+              FILE,
+            ]);
+            await t.unsafe(
+              `update public.onboarding_scan_manifest
+                  set status = 'defer_until_modified', transitioned_at = now()
+                where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+              [FILE, SESSION],
+            );
+          });
+        } finally {
+          await other.end().catch(() => {});
+        }
+        return preparedSheet();
+      },
+      scanOnboardingPreparedFiles: ((folderId, sessionId, prepared, scanDeps) => {
+        scanInvoked = true;
+        return scanOnboardingPreparedFiles(folderId, sessionId, prepared, scanDeps);
+      }) as typeof scanOnboardingPreparedFiles,
+    });
+
+    // The retry aborts at Lock#2 re-preflight (pending row gone) — it never stages.
+    expect(scanInvoked).toBe(false);
+    expect(result).toMatchObject({ outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" });
+
+    // The concurrent defer/ignore manifest decision is preserved, not overwritten.
+    const manifest = (await sql!.unsafe(
+      `select status from public.onboarding_scan_manifest where drive_file_id = $1`,
+      [FILE],
+    )) as Array<{ status: string }>;
+    expect(manifest[0]?.status).toBe("defer_until_modified");
+
+    // And nothing was staged.
+    const staged = await sql!.unsafe(
+      `select 1 from public.pending_syncs where drive_file_id = $1`,
+      [FILE],
+    );
+    expect(staged).toHaveLength(0);
   },
   20000,
 );

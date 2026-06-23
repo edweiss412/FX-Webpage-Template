@@ -363,15 +363,15 @@ test.skipIf(!dbUp)(
   },
 );
 
-// F5 Task 5.5 S5 (R12 HIGH) — retry race. The natural window is INSIDE the
-// scan (Drive I/O + staging, retrySingleFile.ts): inject a runOnboardingScan
-// stub that (a) actually WRITES a W1 staging row on its own committed
-// connection (runOnboardingScan runs its own transaction in production — R32
-// residue contract: this is real-write residue, not a pure stub), (b) performs
-// the committed flip mid-window, then (c) reports the file staged — exactly
-// the sequence a real takeover produces.
+// F5 Task 5.5 S5 (R12 HIGH) — retry race, atomic design (post-R2). The retry now
+// stages + finalizes under ONE pipeline lock. Inject a scan stub that (a) stages
+// a W1 row on the LOCKED connection (the inline scan tx — exactly where the real
+// scan writes now), (b) commits the supersession flip to W2 on a separate
+// connection mid-scan, then (c) reports staged. finalize's currency re-check sees
+// W2 != W1 and throws, aborting the locked transaction — so the staging row is
+// rolled back atomically (no residue) and the route 409s.
 test.skipIf(!dbUp)(
-  "retry race: supersession lands between the app_settings read and the pending-ingestion delete → typed rollback, row survives, route 409s, alert carries attempted_action retry",
+  "retry race: supersession lands after the scan stages but before finalize → typed rollback, staging + delete both roll back atomically (no residue), route 409s, alert carries attempted_action retry",
   async () => {
     const { pendingIngestionId } = await seed();
     assertLoopbackOpenersPinned();
@@ -381,12 +381,13 @@ test.skipIf(!dbUp)(
       {
         requireAdminIdentity: async () => ({ email: "admin@example.com" }), // real withRowTx + real DB
         upsertAdminAlert: directSqlAlertWriter as never,
-        // R2: the route delegates retry to retrySingleFile (its own two-lock
-        // topology — no nested same-key lock / deadlock). The race is injected
-        // at the scan: it writes W1 staging residue on its OWN connection, flips
-        // the session to W2, and reports staged. The scan owns the
-        // pending-ingestion delete now, so finalize detects the post-scan
-        // supersession via a currency RE-CHECK (W2 != W1) and throws.
+        // R2: the route delegates retry to retrySingleFile, whose DB staging +
+        // finalize now run UNDER one pipeline lock (atomic). The race is injected
+        // at the scan: it stages a W1 row on the LOCKED connection (the inline
+        // scan tx), then flips the session to W2 on a separate connection, then
+        // reports staged. finalize's currency RE-CHECK sees W2 != W1 and throws,
+        // which rolls the whole locked transaction (including this staging row)
+        // back — so unlike the old separate-connection design there is NO residue.
         retrySingleFile: async (driveFileId, wizardSessionId) =>
           (await import("@/lib/sync/retrySingleFile")).retrySingleFile(
             driveFileId,
@@ -400,15 +401,19 @@ test.skipIf(!dbUp)(
                 parents: [FOLDER],
               }),
               prepareOnboardingFiles: async () => [],
-              scanOnboardingPreparedFiles: async () => {
-                await superseder!.unsafe(
+              scanOnboardingPreparedFiles: async (_folderId, _sessionId, _prepared, scanDeps) => {
+                // Stage on the LOCKED connection (the inline scan tx) exactly as
+                // the real scan does now — so the finalize throw rolls it back.
+                await scanDeps!.tx!.queryOne(
                   `insert into public.pending_syncs
                    (drive_file_id, staged_modified_time, parse_result, source_kind,
                     warning_summary, wizard_session_id, triggered_review_items)
                  values ($1, '2026-06-11T00:00:00.000Z'::timestamptz, $2::jsonb,
-                         'onboarding_scan', '', $3::uuid, '[]'::jsonb)`,
+                         'onboarding_scan', '', $3::uuid, '[]'::jsonb)
+                 returning drive_file_id`,
                   [FILE, JSON.stringify({ show: { title: "F5 Retry Race" } }), W1],
                 );
+                // The external supersession commits mid-scan (separate connection).
                 await flipSessionTo(W2);
                 return {
                   outcome: "completed" as const,
@@ -428,16 +433,16 @@ test.skipIf(!dbUp)(
     expect(await response.json()).toMatchObject({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
     expect(await readPendingIngestionRow(pendingIngestionId)).not.toBeNull(); // delete rolled back
 
-    // R32-1 residue contract: the scan's OWN committed W1 rows are NOT rolled
-    // back by the route-tx abort — they are accepted, session-scoped (inert to
-    // live sync by the wizard_session_id IS NULL filter shape) residue.
-    // F5b (Task 5.4) closes the F5a-deferred half below: the F4 reap sweeps it.
+    // Atomic design (post-R2): the scan stages on the LOCKED connection, so the
+    // finalize supersession throw rolls its W1 staging row back with the rest of
+    // the locked transaction. Unlike the old separate-connection design there is
+    // NO orphan residue for the F4 reap to sweep — the row simply never persists.
     const residue = (await sql!.unsafe(
       `select wizard_session_id from public.pending_syncs
         where drive_file_id = $1 and wizard_session_id = $2::uuid`,
       [FILE, W1],
     )) as unknown as Array<{ wizard_session_id: string }>;
-    expect(residue).toHaveLength(1); // documented residue — committed and visible
+    expect(residue).toHaveLength(0); // rolled back atomically — no residue
 
     // Retry-alert copy parity (plan R17-1): the persisted alert row carries
     // attempted_action "retry" — the only durable signal for the race must
@@ -454,71 +459,7 @@ test.skipIf(!dbUp)(
       superseded_session_id: W1,
       drive_file_id: FILE,
     });
-
-    // ── F5b (Task 5.4, F5a-deferred half): the F4 reap sweeps the S5 residue ──
-    const reapStaleOnboardingSessions = await importReap();
-
-    // FRESH residue is NOT reaped — F4's 24h activity guard working as
-    // intended (the scan rows were just written: parsed_at / observed_at /
-    // first_seen_at / last_attempt_at all default to now()). This protects the
-    // guard from being weakened to make sweep tests pass.
-    const freshRun = await reapStaleOnboardingSessions(REAP_ADMIN_DEPS);
-    expect(freshRun.sessions.map((s) => s.wizardSessionId)).not.toContain(W1);
-    expect(
-      await sql!.unsafe(
-        `select 1 from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
-        [FILE, W1],
-      ),
-    ).toHaveLength(1); // residue untouched while fresh
-
-    // Backdate EVERY W1 activity timestamp the F4 GREATEST window reads
-    // (sessionLifecycle.ts freshness re-check) past 24h. W1's committed
-    // surfaces after this test: the scan-residue pending_syncs row
-    // (parsed_at; wizard_approved_at is NULL), the seeded manifest row
-    // (observed_at, transitioned_at), and the surviving pending_ingestions
-    // row (first_seen_at, last_attempt_at). No checkpoints / shadows /
-    // deferrals exist for W1 here.
-    await superseder!.unsafe(
-      `update public.pending_syncs set parsed_at = now() - interval '25 hours'
-        where wizard_session_id = $1::uuid`,
-      [W1],
-    );
-    await superseder!.unsafe(
-      `update public.onboarding_scan_manifest
-          set observed_at = now() - interval '25 hours',
-              transitioned_at = now() - interval '25 hours'
-        where wizard_session_id = $1::uuid`,
-      [W1],
-    );
-    await superseder!.unsafe(
-      `update public.pending_ingestions
-          set first_seen_at = now() - interval '25 hours',
-              last_attempt_at = now() - interval '25 hours'
-        where wizard_session_id = $1::uuid`,
-      [W1],
-    );
-
-    // NOW the orphan-row eligibility sweeps the committed W1 scan residue
-    // (W1 non-active, stale, checkpoint-less), regardless of W2's state.
-    const staleRun = await reapStaleOnboardingSessions(REAP_ADMIN_DEPS);
-    expect(staleRun.sessions.map((s) => s.wizardSessionId)).toContain(W1);
-    expect(
-      await sql!.unsafe(
-        `select 1 from public.pending_syncs where drive_file_id = $1 and wizard_session_id = $2::uuid`,
-        [FILE, W1],
-      ),
-    ).toHaveLength(0); // the S5 scan residue is swept
-    expect(
-      await sql!.unsafe(
-        `select 1 from public.onboarding_scan_manifest where wizard_session_id = $1::uuid`,
-        [W1],
-      ),
-    ).toHaveLength(0); // the committed W1 manifest row is swept too
   },
-  // Headroom, NOT the fix (the fix is pooledReapWithTx above): the reap's
-  // candidate enumeration scans EVERY leaked wizard session in the shared
-  // local DB, so this test's runtime grows with other suites' debris.
-  15_000,
 );
 
 test.skipIf(!dbUp)(
