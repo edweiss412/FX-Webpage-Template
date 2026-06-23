@@ -75,6 +75,7 @@
     "deferred_by_email",
     "deferred_kind",
     "drive_file_id",
+    "drive_file_name",
     "id",
     "reason",
     "wizard_session_id"
