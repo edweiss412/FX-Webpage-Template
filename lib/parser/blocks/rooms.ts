@@ -86,10 +86,20 @@ export function parseRooms(
           if (r.kind !== "breakout") return true;
           const gs = gsByName.get((r.name ?? "").trim().toUpperCase());
           if (!gs) return true;
+          // Absorb the breakout ONLY when it is a lossless SUBSET of the GS room — every
+          // populated breakout field is either absent in the GS room (copy it in) or an
+          // exact duplicate. If ANY field conflicts (both populated, different values),
+          // the breakout is a genuinely distinct use of the room (east-coast's MABEL 1 is
+          // the general session AND a day-1&2 breakout with its own AV) → keep it as a
+          // separate room so no crew-visible value is ever dropped.
+          const conflicts = RECONCILE_FIELDS.some(
+            (f) => r[f] != null && gs[f] != null && gs[f] !== r[f],
+          );
+          if (conflicts) return true; // distinct room — keep both
           for (const f of RECONCILE_FIELDS) {
             if (gs[f] == null && r[f] != null) gs[f] = r[f];
           }
-          return false; // absorbed into the GS room — not a separate entry
+          return false; // pure subset — absorbed into the GS room
         });
 
   // D1: a recognized room-block header (GENERAL SESSION / BREAKOUT N / ADDITIONAL

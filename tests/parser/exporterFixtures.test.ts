@@ -395,19 +395,22 @@ describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitte
     expect(bo.some((r) => /STATE B/i.test(r.name))).toBe(true);
   });
 
-  it("R11: east-coast's venue-headed GS block becomes the GS room MABEL 1 (dims + GS fields), no redundant breakout", () => {
+  it("R11: east-coast's venue-headed GS block becomes the GS room MABEL 1 (dims + GS fields); the distinct day-1&2 breakout is kept losslessly", () => {
     const rooms = parse("east-coast").rooms;
-    const mabel = rooms.find((r) => /MABEL 1/i.test(r.name));
-    expect(mabel, "MABEL 1 room").toBeDefined();
+    const mabelRooms = rooms.filter((r) => /MABEL 1/i.test(r.name));
     // The GS block is headed by the venue cell "MABEL 1\nAPPROXIMATELY 60' x 45'"
-    // (no GENERAL SESSION label) → the GS room adopts that name + dims.
-    expect(mabel!.kind, "MABEL 1 is the general session room").toBe("gs");
-    expect(mabel!.dimensions).toBe("60' x 45'");
-    expect(mabel!.setup, "carries the GS Setup, not the sparse breakout fields").toContain(
-      "18 Tables",
-    );
-    // the redundant MABEL 1 breakout (same physical room) is dropped
-    expect(rooms.filter((r) => r.kind === "breakout" && /MABEL 1/i.test(r.name))).toEqual([]);
+    // (no GENERAL SESSION label) → the GS room adopts that name + dims + GS fields.
+    const gs = mabelRooms.find((r) => r.kind === "gs");
+    expect(gs, "MABEL 1 GS room").toBeDefined();
+    expect(gs!.dimensions).toBe("60' x 45'");
+    expect(gs!.setup, "GS room carries the GS Setup").toContain("18 Tables");
+    expect(gs!.video, "GS room keeps the GS Eiki rig").toContain("Eiki");
+    // The same-named MABEL 1 breakout (day-1&2 reuse) has a DISTINCT BO Video, so it is
+    // kept as a separate room — Codex adversarial regression: that value must survive,
+    // not be lost to a same-name merge.
+    const bo = mabelRooms.find((r) => r.kind === "breakout");
+    expect(bo, "MABEL 1 day-1&2 breakout is kept (distinct AV)").toBeDefined();
+    expect(bo!.video, "breakout's BO Video survives").toBe("Projector & Screen");
   });
 
   it("R15: adjacent breakout blocks (NO blank separator) don't bleed fields into each other", () => {
@@ -742,10 +745,12 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
     ],
     // east-coast (v1 legacy): the GS block is headed by the venue cell
     // "MABEL 1\nAPPROXIMATELY 60' x 45'" (no GENERAL SESSION label), so the GS room
-    // ADOPTS that name + dims; the redundant MABEL 1 breakout (same physical room,
-    // reused for a day-1&2 breakout) is dropped. LAUDERDALE stays.
+    // ADOPTS that name + dims. The same-named MABEL 1 BREAKOUT (the day-1&2 reuse) has
+    // DISTINCT AV (BO Video "Projector & Screen" ≠ the GS Eiki rig), so it is KEPT as a
+    // separate room — losslessly — rather than absorbed into the GS room. LAUDERDALE stays.
     "east-coast": [
       { kind: "gs", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
+      { kind: "breakout", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
       { kind: "breakout", name: "LAUDERDALE 1, 2, 3", dimensions: null, floor: null },
     ],
   };
@@ -799,10 +804,10 @@ describe("exporter fidelity — #1a inline GENERAL SESSION header (live v2 forma
 
 // Adversarial-review (Codex) regressions for the east-coast venue-headed-GS fix.
 describe("exporter fidelity — east-coast venue-headed GS: adversarial regressions", () => {
-  it("a same-name breakout MERGES its unique fields into the GS room (no silent data loss)", () => {
-    // MABEL 2 is headed as the GS venue AND reused as a day-2 breakout carrying a video
-    // gear note the GS block lacks. The breakout must be ABSORBED (merged), not dropped
-    // with its distinct fields lost. (Codex HIGH: unconditional same-name drop = data loss.)
+  it("a LOSSLESS-SUBSET same-name breakout is absorbed (its gs-absent field merges in, one room)", () => {
+    // MABEL 2 is headed as the GS venue AND reused as a day-2 breakout whose only populated
+    // field (BO Video) is ABSENT in the GS room — a lossless subset → absorb into the GS
+    // room (video merged in), one room. (Codex HIGH part 1: never drop a populated value.)
     const md = [
       "| MABEL 2&#10;APPROXIMATELY 30' x 20' | MABEL 2&#10;APPROXIMATELY 30' x 20' |",
       "| :---: | :---: |",
@@ -812,15 +817,37 @@ describe("exporter fidelity — east-coast venue-headed GS: adversarial regressi
       "| MABEL 2&#10;DAY 2 | MABEL 2&#10;DAY 2 |",
       "| :---: | :---: |",
       "| BO Video | (1) Projector & Screen |",
-      "| BO Setup | Chevron |",
     ].join("\n");
     const m = parseRooms(md, "v1").filter((r) => /MABEL 2/i.test(r.name));
-    expect(m, "one MABEL 2 room, not two").toHaveLength(1);
+    expect(m, "subset breakout absorbed → one MABEL 2 room").toHaveLength(1);
     expect(m[0]!.kind).toBe("gs");
-    expect(m[0]!.dimensions).toBe("30' x 20'");
     expect(m[0]!.audio).toBe("(2) Speakers"); // GS field kept
-    expect(m[0]!.setup).toBe("Theater"); // GS primary wins over breakout's "Chevron"
-    expect(m[0]!.video, "breakout's unique field preserved, not dropped").toBe(
+    expect(m[0]!.video, "breakout's gs-absent field merged in, not dropped").toBe(
+      "(1) Projector & Screen",
+    );
+  });
+
+  it("a CONFLICTING same-name breakout is KEPT as a separate room (its distinct value survives)", () => {
+    // MABEL 3's day-2 breakout BO Video differs from the GS Video — a conflict, so the
+    // breakout is NOT absorbed (that would drop one of the two values); both rooms are
+    // kept and BOTH videos survive. (Codex HIGH part 2: fill-null merge still dropped the
+    // conflicting breakout value.)
+    const md = [
+      "| MABEL 3&#10;APPROXIMATELY 30' x 20' | MABEL 3&#10;APPROXIMATELY 30' x 20' |",
+      "| :---: | :---: |",
+      "| GS Setup | Theater |",
+      "| GS Video | (2) Eiki Projectors |",
+      "",
+      "| MABEL 3&#10;DAY 2 | MABEL 3&#10;DAY 2 |",
+      "| :---: | :---: |",
+      "| BO Video | (1) Projector & Screen |",
+    ].join("\n");
+    const m = parseRooms(md, "v1").filter((r) => /MABEL 3/i.test(r.name));
+    expect(m, "conflict → two MABEL 3 rooms, not one").toHaveLength(2);
+    const gs = m.find((r) => r.kind === "gs")!;
+    const bo = m.find((r) => r.kind === "breakout")!;
+    expect(gs.video).toBe("(2) Eiki Projectors"); // GS value intact
+    expect(bo.video, "breakout's conflicting value survives, not dropped").toBe(
       "(1) Projector & Screen",
     );
   });
