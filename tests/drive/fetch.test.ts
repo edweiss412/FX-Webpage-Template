@@ -565,3 +565,108 @@ describe("Drive fetch wrappers", () => {
     expect(synthesizeMarkdownFromXlsx).not.toHaveBeenCalled();
   });
 });
+
+describe("Drive transient-throttle retry (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+  });
+
+  // Deterministic + fast: no real backoff wait, zero jitter.
+  const fastRetry = { sleep: async () => {}, random: () => 0 };
+  const META = {
+    data: {
+      id: "sheet-1",
+      name: "Show Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      parents: ["folder-1"],
+    },
+  };
+  const EXPORT_META = {
+    data: {
+      id: "sheet-1",
+      name: "Show Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      headRevisionId: "rev-1",
+      exportLinks: {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "https://export",
+      },
+    },
+  };
+
+  test("fetchDriveFileMetadata retries a transient 429 files.get, then succeeds", async () => {
+    const filesGet = vi.fn().mockRejectedValueOnce({ status: 429 }).mockResolvedValue(META);
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    const meta = await fetchDriveFileMetadata("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      retry: fastRetry,
+    });
+
+    expect(meta.driveFileId).toBe("sheet-1");
+    expect(filesGet).toHaveBeenCalledTimes(2);
+  });
+
+  test("fetchDriveFileMetadata does NOT retry a non-transient 404", async () => {
+    const filesGet = vi.fn().mockRejectedValue({ status: 404 });
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: fastRetry,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(filesGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("fetchDriveFileMetadata exhausts bounded retries on a persistent 503, then throws", async () => {
+    const filesGet = vi.fn().mockRejectedValue({ response: { status: 503 } });
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: { ...fastRetry, maxRetries: 2 },
+      }),
+    ).rejects.toBeTruthy();
+    expect(filesGet).toHaveBeenCalledTimes(3); // initial + 2 retries
+  });
+
+  test("the xlsx export retries a transient 429 response, then succeeds", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 429 })
+      .mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    const result = await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "tok",
+      retry: fastRetry,
+    });
+
+    expect(result.markdown).toBe("md");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("the xlsx export does NOT retry a non-transient 404 export response", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "tok",
+        retry: fastRetry,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

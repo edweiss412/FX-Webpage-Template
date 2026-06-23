@@ -327,7 +327,11 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 ---
 
-### BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY — Retry/backoff for transient Drive throttling during the onboarding folder scan
+### BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY — ✅ RESOLVED (shared Drive-fetch-layer retry/backoff)
+
+**✅ RESOLVED (2026-06-23).** Fixed in the follow-up via the **shared Drive-fetch-layer** option (the BL's "natural home"). `lib/drive/fetch.ts` now: (a) `DriveFetchError` carries `status` (transient export 429/5xx are detectable, not flattened into the message); (b) `withDriveRetry(op, opts?)` retries ONLY transient statuses (429/500/502/503/504) with bounded exponential backoff (250/500/1000ms) + jitter, default 3 retries — non-transient errors (revision races, 404, omitted metadata) propagate immediately; (c) a named `driveFilesGet`/`driveFilesGetCall` thunk wraps every `drive.files.get` and the xlsx export `fetch` is wrapped too, so ALL callers benefit — onboarding scan + cron (`runPushSyncForShow`) + manual sync (`runManualSyncForShow`) + retry. Test injection via `DriveFetchOptions.retry` ({sleep, maxRetries, random}); 5 new `tests/drive/fetch.test.ts` cases (transient-retry-then-succeed, non-transient-no-retry, bounded-exhaustion, export-retry, export-non-transient). Two structural meta-tests updated for the new named thunk site: `_scopeCheckContract` (`driveFilesGetCall` exempt raw wrapper) + `_sharedDriveSupportContract` (`supportsAllDrives: true` inlined at the single `.files.get` site).
+
+<details><summary>Original filing</summary>
 
 **Filed:** 2026-06-22 from PR #73 (onboarding folder-scan prepare parallelization) Codex adversarial review R1 (MEDIUM).
 
@@ -335,7 +339,9 @@ Speculative scope: 1-2 weeks of milestone-shape work (design pass + impl + tests
 
 **Why backlog, not deferred:** No concrete trigger. On the real FXAV workload (a bounded number of shows per folder, ≤~6 Drive calls per sheet, cap-6 in-flight) a transient-throttle-induced scan failure is low-probability, and the conservative cap is the standing mitigation. A real fix needs a design call: retry-with-backoff scoped to the prepare path, vs. hardening the shared `lib/drive/fetch.ts` layer (which would also change the cron + manual-sync paths and needs the Drive error shape surfaced first — `DriveFetchError` currently flattens the HTTP status into its message, so transient detection requires carrying the status). Either path is its own focused change + tests, not in-scope for a parallelization PR.
 
-**Promotion prerequisite:** EITHER (a) an operator observes a real onboarding-scan failure traced to a transient Drive throttle/blip, OR (b) a v1.x sync-robustness milestone bundles Drive-layer retry/backoff across the onboarding + cron + manual-sync paths (the natural home, since the gap is shared).
+**Promotion prerequisite:** EITHER (a) an operator observes a real onboarding-scan failure traced to a transient Drive throttle/blip, OR (b) a v1.x sync-robustness milestone bundles Drive-layer retry/backoff across the onboarding + cron + manual-sync paths (the natural home, since the gap is shared). _(Resolved via option (b).)_
+
+</details>
 
 ---
 
