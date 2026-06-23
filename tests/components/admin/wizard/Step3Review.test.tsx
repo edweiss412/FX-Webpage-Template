@@ -111,17 +111,18 @@ describe("Step3Review", () => {
     );
   });
 
-  test("staged row renders a Review link to the wizard-scoped staged route", () => {
-    const { getByTestId } = render(
+  test("staged row renders the inline preview card and NO staged-page link (D2/D6)", () => {
+    const { getByTestId, queryByTestId, container } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
     );
-    const review = getByTestId(
-      `wizard-step3-review-${STAGED_ROW.driveFileId}`,
-    ) as HTMLAnchorElement;
-    expect(review.getAttribute("href")).toBe(
-      `/admin/onboarding/staged/${WIZARD_SESSION_ID}/${STAGED_ROW.driveFileId}`,
+    // The inline parse-preview card replaces the old "Review and apply" link.
+    expect(getByTestId(`wizard-step3-card-${STAGED_ROW.driveFileId}`)).not.toBeNull();
+    // The old wizard-scoped staged route link is gone.
+    expect(queryByTestId(`wizard-step3-review-${STAGED_ROW.driveFileId}`)).toBeNull();
+    const stagedLinks = Array.from(container.querySelectorAll("a[href]")).filter((a) =>
+      (a.getAttribute("href") ?? "").includes("/admin/onboarding/staged/"),
     );
-    expect(review.textContent ?? "").toMatch(/Review/i);
+    expect(stagedLinks).toHaveLength(0);
   });
 
   test("hard_failed row with a CATALOG code shows interpolated, marker-free copy", () => {

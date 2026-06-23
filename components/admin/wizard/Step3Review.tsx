@@ -34,7 +34,6 @@
  * I-7 wizard-scoped staged review page) so reviewer-choices controls
  * live on a dedicated surface, not inline in the list.
  */
-import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
@@ -43,6 +42,7 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import type { ParseResult } from "@/lib/parser/types";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
@@ -220,9 +220,22 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
   );
 }
 
-function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
+function RowItem({ row }: { row: Step3Row }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
+
+  // §4.1 / D2 / D6: a clean `staged` sheet renders its parse preview INLINE
+  // via <Step3SheetCard> (summary + expandable breakdown). This replaces the
+  // old "Review and apply" link to the finalize-failure recovery page (D6).
+  // The card supplies its own <article>; we keep the `wizard-step3-row-<dfid>`
+  // wrapper testid so the per-manifest-row contract still resolves.
+  if (row.status === "staged") {
+    return (
+      <div data-testid={`wizard-step3-row-${row.driveFileId}`} data-status={row.status}>
+        <Step3SheetCard row={row} />
+      </div>
+    );
+  }
   // Hard-fail rows ARE pending_ingestions rows (row.errorCode = last_error_code).
   // Route through the SHARED resolver the needs-attention inbox + emails use, not
   // the catalog-only lookupDougFacing: the real phase-1 producer codes include
@@ -261,18 +274,6 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
           {badge.label}
         </span>
       </header>
-
-      {row.status === "staged" ? (
-        <div className="flex flex-wrap gap-2">
-          <Link
-            data-testid={`wizard-step3-review-${row.driveFileId}`}
-            href={`/admin/onboarding/staged/${wizardSessionId}/${row.driveFileId}`}
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Review and apply
-          </Link>
-        </div>
-      ) : null}
 
       {row.status === "hard_failed" && row.pendingIngestionId ? (
         <>
@@ -313,7 +314,7 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
   );
 }
 
-export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
+export function Step3Review({ rows }: Step3ReviewProps) {
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
 
@@ -387,7 +388,7 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         <ul className="flex flex-col gap-3">
           {rows.map((row) => (
             <li key={row.driveFileId}>
-              <RowItem row={row} wizardSessionId={wizardSessionId} />
+              <RowItem row={row} />
             </li>
           ))}
         </ul>
