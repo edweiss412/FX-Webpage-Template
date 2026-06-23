@@ -44,8 +44,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Live production synthesis round trip
+      - name: Live production synthesis round trip (all 7 production fixtures)
         env:
+          # The 7 sheet ids are inlined in the test (public in the exporter-xlsx
+          # README); the only secret needed is the service account.
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          M6_REAL_DRIVE_FIXTURE_SPREADSHEET_ID: "1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg"
         run: pnpm exec vitest run tests/drive/round-trip-fixture.test.ts --passWithNoTests
