@@ -10,15 +10,16 @@
  * project — the §sub-nav layout pivot is `min-[720px]:`.
  *
  * Tabs = BASE_SECTION_IDS, plus "budget" iff the caller is Budget-entitled
- * (`budgetVisible`). The tab list, the URL `?s=`, and the resolved section all
- * derive from the same SectionId set, so they can never diverge (§4.1).
+ * (`budgetVisible`). The tab list and the resolved section both derive from the
+ * same SectionId set, so they can never diverge (§4.1).
  *
- * URL discipline (R13-MEDIUM-1): activating a tab builds a FRESH
- * `URLSearchParams` carrying ONLY allow-listed params — never a clone of all
- * current params. It sets `s=<id>`, then re-emits `gate` ONLY when the current
- * value is in `ALLOWED_GATE_VALUES`. Every other key (a stale `evil`, a leaked
- * `token`, etc.) is dropped from the pushed URL and from history. The push is
- * `{ scroll: false }` (we control scroll ourselves) followed by `scrollTo(0,0)`.
+ * CONTROLLED presentational component (client-section-toggle): this component
+ * owns NO navigation. It renders the tabs and calls `onSelect(id)` when a tab is
+ * tapped; the parent controller (`CrewSections`) owns `activeSection` state, the
+ * shallow `?s=` URL (`history.pushState`, NO `router.push`), and scroll-to-top.
+ * There is therefore no `<Link>`/`router.push` to a `?s=` URL anywhere in the
+ * nav — section switching is pure client state + the controller's shallow URL,
+ * so no section-URL anchor exists for Next to prefetch.
  *
  * The active tab — and only the active tab — carries `aria-current="page"`.
  * Tap targets meet the 44px floor (`min-h-tap-min` → `--spacing-tap-min`).
@@ -28,9 +29,7 @@
  * data-testid="crew-sub-nav"; each tab carries `data-section={id}`.
  */
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { JSX } from "react";
-import { useCallback } from "react";
 import {
   BoxIcon,
   CalendarIcon,
@@ -41,7 +40,6 @@ import {
   UsersIcon,
 } from "@/components/crew/icons/sectionIcons";
 import { CREW_PAGE_CONTAINER } from "@/lib/crew/pageContainer";
-import { buildSectionHref } from "@/lib/crew/sectionHref";
 import { BASE_SECTION_IDS, type SectionId } from "@/lib/crew/resolveActiveSection";
 
 const SECTION_LABELS: Record<SectionId, string> = {
@@ -73,27 +71,13 @@ const SECTION_ICON: Record<SectionId, (props: { className?: string }) => JSX.Ele
 export interface CrewSubNavProps {
   activeSection: SectionId;
   budgetVisible: boolean;
+  onSelect: (id: SectionId) => void;
 }
 
-export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
+export function CrewSubNav({ activeSection, budgetVisible, onSelect }: CrewSubNavProps) {
   const sections: SectionId[] = budgetVisible
     ? [...BASE_SECTION_IDS, "budget"]
     : [...BASE_SECTION_IDS];
-
-  const navigate = useCallback(
-    (id: SectionId) => {
-      // FRESH params via the shared builder — carries only `s` + an allow-listed
-      // `gate`, drops everything else (single source of truth with
-      // SectionChipLink; lib/crew/sectionHref.ts).
-      router.push(buildSectionHref(pathname, searchParams, id), { scroll: false });
-      window.scrollTo(0, 0);
-    },
-    [pathname, router, searchParams],
-  );
 
   const tab = (id: SectionId, variant: "desktop" | "mobile") => {
     const isActive = id === activeSection;
@@ -130,7 +114,7 @@ export function CrewSubNav({ activeSection, budgetVisible }: CrewSubNavProps) {
         type="button"
         data-section={id}
         aria-current={isActive ? "page" : undefined}
-        onClick={() => navigate(id)}
+        onClick={() => onSelect(id)}
         className={
           `${base} ${variant === "desktop" ? desktop : mobile}` +
           (variant === "desktop" ? " gap-2" : " gap-0.5 py-1")
