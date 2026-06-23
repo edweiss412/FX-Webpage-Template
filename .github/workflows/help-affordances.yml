@@ -16,6 +16,12 @@ on:
       - ".github/workflows/help-affordances.yml"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed — the walker boots
+# Supabase + Playwright, so a stale run holds a heavy runner for ~6 min.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 jobs:
   deep-link-walker:
     runs-on: ubuntu-latest
@@ -37,13 +43,24 @@ jobs:
           # known CI-passing version (PR #102; older 2.98.2 broke the in-container psql auth); a fixed version downloads directly (no API lookup).
           version: 2.107.0
       - name: Install psql (db:seed shells out via execFileSync("psql", ...))
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Boot local Supabase (guarded migrations)
         run: bash scripts/ci/supabase-local-bootstrap.sh
       # webkit as well as chromium: the help-docs project spreads
       # devices["iPhone 14"], whose defaultBrowserType is webkit; the
       # help-docs-setup / help-docs-desktop projects run chromium.
-      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+      # Split from `install --with-deps`: install-deps (apt) always runs, but the
+      # browser binaries are restored from the cache above on a hit (install is
+      # then a fast no-op; on a miss it downloads + repopulates the cache).
+      - run: pnpm exec playwright install-deps chromium webkit
+      - run: pnpm exec playwright install chromium webkit
       - name: Run walker (mobile + desktop)
         env:
           # help-docs-setup.ts asserts these in the TEST-RUNNER process —

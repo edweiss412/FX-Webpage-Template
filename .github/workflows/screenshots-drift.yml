@@ -1,10 +1,51 @@
 name: Screenshots drift
 
 on:
+  # Per-PR, run only when a render input could have changed — this job boots
+  # Supabase + a Docker Playwright image (~280s), so firing it on PRs that touch
+  # no rendered surface is pure waste. Captured surfaces are the admin routes
+  # (manifest in scripts/help-screenshots.manifest.ts) rendered from the seeded
+  # fixtures → parser → seed pipeline, so the allow-list spans both the render
+  # side (app/**, components/**, globals.css via app/**) and the data side.
+  # The `schedule` cron below stays UNFILTERED and is the full-coverage backstop
+  # that catches drift on any PR this allow-list skipped (do not narrow it).
   pull_request:
+    paths:
+      - "app/**"
+      - "components/**"
+      - "lib/data/**"
+      - "lib/audit/**"
+      - "lib/admin/**"
+      - "lib/messages/**"
+      - "lib/parser/**"
+      - "fixtures/shows/**"
+      - "supabase/seed.ts"
+      - "supabase/seedWalkerFixtures.ts"
+      - "supabase/migrations/**"
+      # The committed baselines themselves: the drift job re-captures and
+      # `git diff --exit-code public/help/screenshots/`, so a PR that edits these
+      # bytes directly must re-trigger verification (else a bad baseline ships
+      # until the nightly cron). They are the comparison target, not just an input.
+      - "public/help/screenshots/**"
+      - "scripts/help-screenshots.ts"
+      - "scripts/help-screenshots.manifest.ts"
+      - "scripts/help-screenshots-fixture-range.ts"
+      - "scripts/capture-launch-args.ts"
+      - "scripts/ci/**"
+      - "playwright.screenshots.config.ts"
+      - "tests/e2e/helpers/**"
+      - ".github/workflows/screenshots-drift.yml"
   schedule:
     - cron: "0 10 * * *"
   workflow_dispatch:
+
+# Cancel a superseded run when the PR branch is re-pushed — this job boots
+# Supabase + a Docker Playwright image, so a stale run holds a heavy runner.
+# Including github.event_name keeps the nightly `schedule` run from ever sharing
+# a group with a PR/dispatch run, so the full-coverage backstop can't be cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
 
 jobs:
   screenshots-drift:
