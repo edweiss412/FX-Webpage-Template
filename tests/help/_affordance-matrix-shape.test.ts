@@ -47,6 +47,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--dashboard-needs-attention--tooltip",
         "help-affordance--dashboard-restage--legend",
         "help-affordance--first-seen-review-card--tooltip",
+        "help-affordance--ignored-sheets-page--tooltip",
         "help-affordance--needs-attention-page--tooltip",
         "help-affordance--per-show-alerts--tooltip",
         "help-affordance--per-show-crew--tooltip",
@@ -58,6 +59,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--settings-drive-health-badge--tooltip",
         "help-affordance--settings-maintenance--tooltip",
         "help-affordance--settings-preferences--tooltip",
+        "help-affordance--unpublished-page--tooltip",
         "help-affordance--wizard-step1--tooltip",
         "help-affordance--wizard-step2--tooltip",
         "help-affordance--wizard-step3--tooltip",
@@ -83,13 +85,16 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 20 concrete rows incl. renames and the legend row", () => {
+  it("pins the 22 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
-    expect(concrete).toHaveLength(20);
+    // 20 + the 2 onboarding step-3 redesign views (Unpublished / Ignored sheets).
+    expect(concrete).toHaveLength(22);
     const ids = concrete.map((r) => r.testid);
     expect(ids).toContain("help-affordance--settings-maintenance--tooltip");
     expect(ids).toContain("help-affordance--dashboard-restage--legend");
     expect(ids).toContain("help-affordance--dashboard-needs-attention--tooltip");
+    expect(ids).toContain("help-affordance--unpublished-page--tooltip");
+    expect(ids).toContain("help-affordance--ignored-sheets-page--tooltip");
     expect(ids).not.toContain("help-affordance--dashboard-pending-ingestion--tooltip");
     expect(ids).not.toContain("help-affordance--dashboard-restage-badge--tooltip");
     expect(ids).not.toContain("help-affordance--per-show-sync-health--tooltip");
