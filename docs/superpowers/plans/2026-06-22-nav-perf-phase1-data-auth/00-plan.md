@@ -253,6 +253,14 @@ test("is_session_live RPC error → AdminInfraError", async () => {
     Promise.resolve(fn === "is_session_live" ? { data: null, error: new Error("boom") } : { data: true, error: null }));
   await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
 });
+test("ERROR-FIRST: is_session_live=false AND is_admin returned-error → AdminInfraError (NOT redirect)", async () => {
+  // The dangerous Promise.all combo: a revoked session must NOT mask an admin DB outage.
+  server.client.rpc.mockImplementation((fn: string) =>
+    Promise.resolve(fn === "is_session_live"
+      ? { data: false, error: null }                          // revoked session
+      : { data: null, error: new Error("admin db outage") })); // infra fault MUST win
+  await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+});
 test("live-authorization: session live but is_admin=false → forbidden()", async () => {
   server.client.rpc.mockImplementation((fn: string) =>
     Promise.resolve({ data: fn === "is_session_live" ? true : false, error: null }));
@@ -315,10 +323,13 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
   // Destructure { data, error } at each boundary (invariant 9).
   const { data: sessionLive, error: sessionError } = sessionRpc;
   const { data: isAdmin, error: adminError } = adminRpc;
-  // Precedence: a revoked/expired session is unauthenticated → redirect, checked BEFORE the admin verdict.
+  // ERROR-FIRST (invariant 9): a returned infra error on EITHER RPC surfaces as
+  // AdminInfraError, BEFORE any data verdict — so {sessionLive:false, adminError}
+  // does NOT collapse into a benign redirect and hide an admin DB outage.
   if (sessionError) throw new AdminInfraError(`requireAdmin: is_session_live error: ${String((sessionError as { message?: string }).message)}`);
-  if (sessionLive !== true) await redirectToSignIn();
   if (adminError) throw new AdminInfraError(`requireAdmin: is_admin error: ${String((adminError as { message?: string }).message)}`);
+  // Then data verdicts: session-not-live → redirect (precedence over forbidden); not-admin → forbidden.
+  if (sessionLive !== true) await redirectToSignIn();
   if (isAdmin !== true) forbidden();
   return { email };
 });
@@ -336,7 +347,7 @@ export async function requireAdminIdentity(opts?: RequireAdminOpts): Promise<Adm
 
 > Preserve EXACT redirect/forbidden semantics: `redirectToSignIn()` and `forbidden()` throw (they are `Promise<never>` / never) — keep `await` on `redirectToSignIn()` and bare `forbidden()` exactly as today. Keep `{ data, error }` destructure on getClaims and the client construction in `try` so the auth meta-test grep-shape keeps matching.
 
-- [ ] **Step 4: Update meta-test + run all auth tests.** Update `tests/auth/_metaInfraContract.test.ts`'s requireAdmin behavioral describe so its mocks match the new boundaries: stub `getClaims` (not `getUser`) + `rpc("is_session_live")` + `rpc("is_admin")`, and assert the infra contract on EACH new boundary — `createSupabaseServerClient` throw, `getClaims` throw, `is_session_live` throw/returned-error, `is_admin` throw/returned-error → `requireAdmin` throws `AdminInfraError` (never `forbidden`/`redirect`). Update the existing `tests/auth/requireAdmin.test.ts` mock from `getUser`→`getClaims` + add `is_session_live` (keeping its assertions). Run `tests/auth/requireAdmin.getClaims.test.ts` + `tests/auth/requireAdmin.test.ts` + `tests/auth/_metaInfraContract.test.ts` + `tests/admin/no-inline-email-normalization.test.ts` → all PASS.
+- [ ] **Step 4: Update meta-test + run all auth tests.** Update `tests/auth/_metaInfraContract.test.ts`'s requireAdmin behavioral describe so its mocks match the new boundaries: stub `getClaims` (not `getUser`) + `rpc("is_session_live")` + `rpc("is_admin")`, and assert the infra contract on EACH new boundary — `createSupabaseServerClient` throw, `getClaims` throw, `is_session_live` throw/returned-error, `is_admin` throw/returned-error → `requireAdmin` throws `AdminInfraError` (never `forbidden`/`redirect`). **Structural defense (Codex plan R6, error-first): add the COMBINATION row — `is_session_live=false` + `is_admin` returned-error → `AdminInfraError`, NOT redirect** — pinning that a benign revoked-session signal can never mask an admin infra fault. Update the existing `tests/auth/requireAdmin.test.ts` mock from `getUser`→`getClaims` + add `is_session_live` (keeping its assertions). Run `tests/auth/requireAdmin.getClaims.test.ts` + `tests/auth/requireAdmin.test.ts` + `tests/auth/_metaInfraContract.test.ts` + `tests/admin/no-inline-email-normalization.test.ts` → all PASS.
 - [ ] **Step 5: Commit** — `perf(auth): getClaims local verify + React.cache dedup on admin gate (keep is_admin RPC)`
 
 ---
