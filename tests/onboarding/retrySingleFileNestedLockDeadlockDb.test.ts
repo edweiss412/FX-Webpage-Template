@@ -375,3 +375,40 @@ test.skipIf(!dbUp)(
   },
   20000,
 );
+
+// Partition regression (Codex R2 + independent review, CRITICAL): the under-lock
+// scan MUST stage into the WIZARD partition (wizard_session_id = SESSION), not the
+// live partition (null). An inheriting inline scan tx would pick up the pipeline
+// tx's live-only upsertLivePendingSync (wizard_session_id null) and silently stage
+// where the wizard finalize/approve pipeline (which filters wizard_session_id =
+// SESSION) can never see it — wedging the onboarding session. This is the
+// assertion the earlier tests lacked, which masked the bug.
+test.skipIf(!dbUp)(
+  "a successful retry stages into the WIZARD partition (wizard_session_id = SESSION), visible to the wizard apply query",
+  async () => {
+    const result = await retrySingleFile(FILE, SESSION, {
+      fetchDriveFileMetadata: async () => listedMetadata(),
+      prepareOnboardingFiles: async () => preparedSheet(),
+      scanOnboardingPreparedFiles,
+    });
+    expect(result).toMatchObject({ outcome: "retried", status: "staged" });
+
+    const rows = (await sql!.unsafe(
+      `select wizard_session_id from public.pending_syncs where drive_file_id = $1`,
+      [FILE],
+    )) as Array<{ wizard_session_id: string | null }>;
+    expect(rows).toHaveLength(1);
+    // The load-bearing assertion: wizard-scoped, NOT the live (null) partition.
+    expect(rows[0]?.wizard_session_id).toBe(SESSION);
+
+    // And the row is matched by the wizard-scoped apply filter (the query the
+    // finalize/approve pipeline uses), proving it is reachable, not orphaned.
+    const visible = await sql!.unsafe(
+      `select 1 from public.pending_syncs
+        where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+      [FILE, SESSION],
+    );
+    expect(visible).toHaveLength(1);
+  },
+  20000,
+);

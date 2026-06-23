@@ -1,9 +1,11 @@
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import {
+  PostgresOnboardingScanTx,
   prepareOnboardingFiles,
   scanOnboardingPreparedFiles,
   type OnboardingScanResult,
+  type OnboardingScanTx,
 } from "@/lib/sync/runOnboardingScan";
 import {
   assertShowLockHeld,
@@ -11,7 +13,6 @@ import {
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
-import { makeInlineOnboardingScanTx } from "@/lib/sync/applyStaged";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 export type RetrySingleFileTx = {
@@ -141,7 +142,8 @@ export async function retrySingleFilePreflight(
 /**
  * Lock#2 finalize phase: interpret the scan result and detect a POST-scan
  * supersession. The scan runs on the SAME locked connection/transaction as this
- * finalize (makeInlineOnboardingScanTx — it has NOT committed independently).
+ * finalize (PostgresOnboardingScanTx on the locked connection — it has NOT
+ * committed independently).
  * Asserts the caller holds the show lock. THROWS WizardSessionSupersededRollbackError
  * when the wizard-session currency changed after a staged scan, which ABORTS the
  * enclosing per-show-locked transaction and rolls the scan's staging back with it
@@ -191,9 +193,9 @@ export async function retrySingleFileFinalize(
  *            is held, so the slow Drive xlsx export never blocks the per-show lock.
  *   Lock#2 — re-preflight (a defer/ignore or supersession that landed during the
  *            Drive window aborts the retry here) → scanOnboardingPreparedFiles on
- *            the SAME locked connection via makeInlineOnboardingScanTx + a
- *            passthrough withShowLock (no second connection, no second lock) →
- *            retrySingleFileFinalize.
+ *            the SAME locked connection via a wizard-scoped PostgresOnboardingScanTx
+ *            bound to the locked tx (holdPort) + a passthrough withShowLock (no
+ *            second connection, no second lock) → retrySingleFileFinalize.
  *
  * Two properties fall out of running the scan on the locked connection:
  *   1. No deadlock. The original shape ran the scan on its OWN connection while
@@ -237,7 +239,25 @@ export async function retrySingleFile(
       // resolved/superseded row returns early — nothing is staged.
       const recheck = await retrySingleFilePreflight(tx, driveFileId, wizardSessionId);
       if ("result" in recheck) return recheck.result;
-      const scanTx = makeInlineOnboardingScanTx(tx);
+      // Wizard-scoped staging on the LOCKED connection. holdPort() exposes the raw
+      // locked tx (it rides the held show lock — no new lock, AGENTS.md invariant 2),
+      // and PostgresOnboardingScanTx runs the WIZARD-scoped staging SQL
+      // (wizard_session_id-bound pending_syncs / pending_ingestions). An inheriting
+      // inline adapter would instead pick up the pipeline tx's LIVE-only staging
+      // methods (wizard_session_id null) and silently stage into the wrong partition.
+      const port = tx.holdPort?.();
+      if (!port) {
+        throw new Error(
+          "retrySingleFile: locked pipeline tx exposes no holdPort for wizard-scoped staging",
+        );
+      }
+      // Branded as LockedShowTx because it runs on the already-locked connection
+      // (the held show lock is reused via the passthrough withShowLock below).
+      const scanTx = new PostgresOnboardingScanTx(
+        port,
+        pendingFolderId,
+        wizardSessionId,
+      ) as unknown as LockedShowTx<OnboardingScanTx>;
       const scan = await (deps.scanOnboardingPreparedFiles ?? scanOnboardingPreparedFiles)(
         pendingFolderId,
         wizardSessionId,
