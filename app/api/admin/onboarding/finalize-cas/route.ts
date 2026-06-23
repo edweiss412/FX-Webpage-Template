@@ -261,7 +261,11 @@ async function unresolvedManifestCount(
       select count(*)::int as unresolved_count
         from public.onboarding_scan_manifest
        where wizard_session_id = $1::uuid
-         and status in ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')
+         -- Task B1 / spec 7.3 finishable set: blocking statuses are exactly
+         -- (hard_failed, live_row_conflict, discard_retryable). A clean 'staged' row
+         -- (unchecked, created Held by B2) is NO LONGER counted -- only genuine
+         -- error/conflict rows block finish.
+         and status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
     `,
     [wizardSessionId],
   );
