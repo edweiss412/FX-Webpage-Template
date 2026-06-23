@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
+import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
@@ -29,6 +30,16 @@ export const WIZARD_ISOLATION_INDEXES_MISSING = "WIZARD_ISOLATION_INDEXES_MISSIN
 export const WIZARD_SESSION_SUPERSEDED_DURING_SCAN =
   "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" as const;
 export const LIVE_ROW_CONFLICT = "LIVE_ROW_CONFLICT" as const;
+
+/**
+ * Max number of sheets whose per-file preparation (Drive metadata + xlsx export
+ * + parse + enrich) runs concurrently. Preparation is a pre-lock, side-effect-
+ * free read phase, so it parallelizes safely; the downstream lock-ordered scan
+ * phase (`scanPreparedFiles`) stays strictly sequential. Bounded so a large
+ * folder cannot fan out unboundedly against the Drive read quota (~120 qps of
+ * project headroom comfortably absorbs this).
+ */
+export const ONBOARDING_PREPARE_CONCURRENCY = 8;
 
 const REQUIRED_WIZARD_ISOLATION_INDEXES = [
   "pending_syncs_live_drive_file_idx",
@@ -863,17 +874,20 @@ async function prepareOnboardingFiles(
 ): Promise<PreparedOnboardingFile[]> {
   const listFolder = deps.listFolder ?? listDriveFolder;
   const files = await listFolder(folderId);
-  const prepared: PreparedOnboardingFile[] = [];
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
   const fetchMarkdownAtRevision = deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision;
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
 
-  for (const file of files) {
+  // Per-file preparation is a pre-lock, side-effect-free Drive read (metadata +
+  // xlsx export + parse + enrich). Each file is independent, so we prepare them
+  // with bounded concurrency instead of serially — this is the dominant cost of
+  // an onboarding scan. mapWithConcurrency preserves listed order, so the
+  // downstream lock-ordered scanPreparedFiles loop is unaffected.
+  const prepareOne = async (file: DriveListedFile): Promise<PreparedOnboardingFile> => {
     if (!isSpreadsheet(file)) {
-      prepared.push({ file, kind: "non_sheet" });
-      continue;
+      return { file, kind: "non_sheet" };
     }
     const binding = await captureBinding(file.driveFileId, file);
     const markdown = await fetchMarkdownAtRevision(file.driveFileId, binding.bindingToken);
@@ -883,10 +897,10 @@ async function prepareOnboardingFiles(
       fileMeta: toDriveFileMeta(file),
       binding,
     });
-    prepared.push({ file, kind: "sheet", binding, parseResult });
-  }
+    return { file, kind: "sheet", binding, parseResult };
+  };
 
-  return prepared;
+  return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne);
 }
 
 export async function runOnboardingScan(
