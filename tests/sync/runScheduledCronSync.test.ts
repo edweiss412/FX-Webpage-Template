@@ -810,6 +810,93 @@ describe("processOneFile", () => {
     expect(events).toEqual(["lock:start", "broadcast", "alert:first-published", "lock:commit"]);
   });
 
+  // parse-data-quality-warnings Task 11 (P1, §6.4) — the SHOW_FIRST_PUBLISHED
+  // alert gains an additive `context.data_gaps` digest in the SHARED emitter
+  // (emitFirstPublishedNotice) when the parsed sheet carries warn-severity data-
+  // quality warnings, so EVERY first-published emitter (cron tested here; ≥1
+  // staged/manual emitter tested in applyStaged.test.ts) carries it.
+  test("cron auto-publish digest: SHOW_FIRST_PUBLISHED context.data_gaps populated from warn warnings", async () => {
+    const fakeTx = tx();
+    const upsertAdminAlert = vi.fn(
+      async (_input: { showId: string | null; code: string; context: Record<string, unknown> }) =>
+        "alert-1",
+    );
+    // The cron tail reads pipeline.parseResult (enrichWithDrivePins' return), so
+    // inject warn-severity data-quality warnings there.
+    const withWarnings: ParseResult = {
+      ...parseResult(),
+      warnings: [
+        { severity: "warn", code: "FIELD_UNREADABLE", message: "phone unreadable" },
+        { severity: "warn", code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
+        { severity: "warn", code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
+        // info-severity is excluded from the digest count.
+        { severity: "info", code: "FIELD_UNREADABLE", message: "info only" },
+      ] as ParseResult["warnings"],
+    };
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_d, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      upsertAdminAlert,
+      publishShowInvalidation: vi.fn(async () => {}),
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      enrichWithDrivePins: vi.fn(async () => withWarnings),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "auto_publish_ready" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          showId: "show-1",
+          parseWarnings: withWarnings.warnings,
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    const call = upsertAdminAlert.mock.calls.find(([a]) => a.code === "SHOW_FIRST_PUBLISHED");
+    expect(call).toBeDefined();
+    const ctx = call![0].context;
+    // The digest is derived from the warn-severity data-quality warnings (info excluded).
+    expect(ctx.data_gaps).toEqual({
+      total: 3,
+      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 1 },
+    });
+  });
+
+  test("no data_gaps key on the SHOW_FIRST_PUBLISHED context when there are no warn-severity data-quality warnings", async () => {
+    const fakeTx = tx();
+    const upsertAdminAlert = vi.fn(
+      async (_input: { showId: string | null; code: string; context: Record<string, unknown> }) =>
+        "alert-1",
+    );
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_d, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      upsertAdminAlert,
+      publishShowInvalidation: vi.fn(async () => {}),
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      // default enrichWithDrivePins → parseResult() with warnings: []
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "auto_publish_ready" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    const call = upsertAdminAlert.mock.calls.find(([a]) => a.code === "SHOW_FIRST_PUBLISHED");
+    expect(call).toBeDefined();
+    const ctx = call![0].context;
+    expect(ctx).not.toHaveProperty("data_gaps");
+  });
+
   test.each(["cron", "push", "manual"] as const)(
     "%s Drive prep finishes before the advisory lock opens",
     async (mode) => {
