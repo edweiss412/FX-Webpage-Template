@@ -29,6 +29,8 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import type { ParseWarning } from "@/lib/parser/types";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Review first-seen sheet · Admin · FXAV" };
@@ -42,7 +44,14 @@ type LiveFirstSeenRow = {
   drive_file_id: string;
   staged_modified_time: string;
   base_modified_time: string | null;
-  parse_result: { show?: { title?: string | null } } | null;
+  // parse-data-quality-warnings §6.1: parse_result also carries `.warnings`
+  // (the full ParseWarning[]); the staged row's `warning_summary` holds the
+  // already-joined human text. Both feed the StagedReviewCard data-gap surface.
+  parse_result: {
+    show?: { title?: string | null };
+    warnings?: ParseWarning[] | null;
+  } | null;
+  warning_summary: string | null;
   triggered_review_items: unknown;
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
@@ -74,7 +83,7 @@ export async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResu
     const { data, error } = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, triggered_review_items, source_kind",
+        "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, warning_summary, triggered_review_items, source_kind",
       )
       .eq("staged_id", stagedId)
       .is("wizard_session_id", null)
@@ -136,6 +145,47 @@ function summaryFromParseResult(parseResult: LiveFirstSeenRow["parse_result"]): 
   return typeof title === "string" && title.length > 0 ? title : undefined;
 }
 
+// parse-data-quality-warnings §6.1 — build the warn-severity warning text for
+// the StagedReviewCard from the staged row. Prefer the persisted
+// `warning_summary` (already filtered to warn + joined upstream by phase1's
+// warningSummary()); fall back to joining the warn-severity `.message`s when the
+// summary wasn't persisted, so a first-seen warning is never silently dropped.
+function warningSummaryFor(row: LiveFirstSeenRow): string {
+  const persisted = typeof row.warning_summary === "string" ? row.warning_summary : "";
+  if (persisted.length > 0) return persisted;
+  const warnings = row.parse_result?.warnings;
+  if (!Array.isArray(warnings)) return "";
+  return warnings
+    .filter((w) => w?.severity === "warn")
+    .map((w) => w.message)
+    .filter((m): m is string => typeof m === "string" && m.length > 0)
+    .join("; ");
+}
+
+/**
+ * Map a live first-seen `pending_syncs` row to the StagedReviewCard's `StagedRow`
+ * (parse-data-quality-warnings Task 7 / §6.1). Exported so the data-gap surfacing
+ * is unit-testable against the SEEDED warning array (anti-tautology) without a
+ * full server-component render. Replaces the prior `warningSummary: ""` hardcode.
+ */
+export function stagedRowFromLiveFirstSeen(row: LiveFirstSeenRow): StagedRow {
+  const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
+  const warnings = Array.isArray(row.parse_result?.warnings) ? row.parse_result!.warnings! : [];
+  const summaryLine = summaryFromParseResult(row.parse_result);
+  return {
+    driveFileId: row.drive_file_id,
+    stagedId: row.staged_id,
+    sourceKind: row.source_kind,
+    stagedModifiedTime: row.staged_modified_time,
+    baseModifiedTime: row.base_modified_time,
+    warningSummary: warningSummaryFor(row),
+    dataGaps: summarizeDataGaps(warnings as ParseWarning[]),
+    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
+    reviewItemsCorrupt: !parsedReviewItems.ok,
+    ...(summaryLine !== undefined ? { parseSummaryLine: summaryLine } : {}),
+  };
+}
+
 export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
   await requireAdmin();
   const { stagedId } = await params;
@@ -173,20 +223,7 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
 
   const row = result.row;
 
-  const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
-  const stagedRow: StagedRow = {
-    driveFileId: row.drive_file_id,
-    stagedId: row.staged_id,
-    sourceKind: row.source_kind,
-    stagedModifiedTime: row.staged_modified_time,
-    baseModifiedTime: row.base_modified_time,
-    warningSummary: "",
-    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
-    reviewItemsCorrupt: !parsedReviewItems.ok,
-    ...(summaryFromParseResult(row.parse_result) !== undefined
-      ? { parseSummaryLine: summaryFromParseResult(row.parse_result)! }
-      : {}),
-  };
+  const stagedRow = stagedRowFromLiveFirstSeen(row);
 
   return (
     <main
