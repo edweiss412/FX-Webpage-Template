@@ -1,0 +1,75 @@
+/**
+ * summarizeDataGaps — single-sourced count logic for the data-quality surfaces
+ * (parse-data-quality-warnings §6). Every operator surface feeds the SAME helper
+ * so the count logic is single-sourced; tests assert against the helper's INPUT
+ * array (the data source), never rendered output (anti-tautology).
+ */
+
+import { describe, it, expect } from "vitest";
+import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import type { ParseWarning } from "@/lib/parser/types";
+
+const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseWarning => ({
+  severity,
+  code,
+  message: `${code} message`,
+});
+
+describe("summarizeDataGaps", () => {
+  it("counts each of the three data-quality classes and the total", () => {
+    const warnings: ParseWarning[] = [
+      warn("FIELD_UNREADABLE"),
+      warn("FIELD_UNREADABLE"),
+      warn("UNKNOWN_SECTION_HEADER"),
+      warn("BLOCK_DISAPPEARED"),
+    ];
+    const out = summarizeDataGaps(warnings);
+    expect(out).toEqual({
+      total: 4,
+      classes: {
+        FIELD_UNREADABLE: 2,
+        UNKNOWN_SECTION_HEADER: 1,
+        BLOCK_DISAPPEARED: 1,
+      },
+    });
+  });
+
+  it("ignores non-data-quality warning codes (does not count them in the total)", () => {
+    const warnings: ParseWarning[] = [
+      warn("FIELD_UNREADABLE"),
+      warn("SECTION_HEADER_NO_FIELDS"),
+      warn("UNKNOWN_ROLE_TOKEN"),
+    ];
+    const out = summarizeDataGaps(warnings);
+    expect(out.total).toBe(1);
+    expect(out.classes.FIELD_UNREADABLE).toBe(1);
+    expect(out.classes.UNKNOWN_SECTION_HEADER).toBe(0);
+    expect(out.classes.BLOCK_DISAPPEARED).toBe(0);
+  });
+
+  it("excludes severity:'info' warnings even when the code is a data-quality class", () => {
+    const warnings: ParseWarning[] = [
+      warn("FIELD_UNREADABLE", "info"),
+      warn("UNKNOWN_SECTION_HEADER", "warn"),
+    ];
+    const out = summarizeDataGaps(warnings);
+    expect(out.total).toBe(1);
+    expect(out.classes.FIELD_UNREADABLE).toBe(0);
+    expect(out.classes.UNKNOWN_SECTION_HEADER).toBe(1);
+  });
+
+  it("returns {total:0} for an empty array", () => {
+    const out = summarizeDataGaps([]);
+    expect(out.total).toBe(0);
+    expect(out.classes).toEqual({
+      FIELD_UNREADABLE: 0,
+      UNKNOWN_SECTION_HEADER: 0,
+      BLOCK_DISAPPEARED: 0,
+    });
+  });
+
+  it("returns {total:0} for null / undefined input", () => {
+    expect(summarizeDataGaps(null).total).toBe(0);
+    expect(summarizeDataGaps(undefined).total).toBe(0);
+  });
+});
