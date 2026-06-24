@@ -281,6 +281,55 @@ describe("Step3SheetCard — summary (§4.2)", () => {
   });
 });
 
+// parse-data-quality-warnings §6.2a (Task 8) — the publish-decision point. A
+// checked/applied-clean row that carries data-gap warnings must show the
+// PER-CLASS detail (not just the generic count) before the publish checkbox.
+describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
+  test("renders per-class detail for a row carrying data-gap warnings; never the raw code", () => {
+    const w = [
+      { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
+      { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
+      { severity: "warn" as const, code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
+      // a non-data-quality warn (counts in the generic chip, NOT the per-class detail)
+      { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" },
+    ];
+    // An applied (checked) row at the publish decision point.
+    const FIX = parseResult({ warnings: w });
+    const q = render(
+      <Step3SheetCard row={stagedRow(FIX, { status: "applied" })} wizardSessionId={WSID} />,
+    );
+    const detail = q.getByTestId(`wizard-step3-card-${DFID}-data-gaps`);
+    // Counts derive from the SEEDED warning array (anti-tautology): 2 field, 1 block.
+    expect(
+      q.getByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`).textContent,
+    ).toContain("2 unreadable fields");
+    expect(
+      q.getByTestId(`wizard-step3-card-${DFID}-data-gap-BLOCK_DISAPPEARED`).textContent,
+    ).toContain("1 vanished block");
+    // UNKNOWN_SECTION_HEADER count is 0 here → no entry.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
+    // invariant 5: no raw §12.4 code literal in the detail DOM.
+    expect(detail.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+  });
+
+  test("no data-gap detail when the row has no data-quality warnings (clean row)", () => {
+    // Only a non-data-quality warning present → the generic chip may show, but
+    // the per-class data-gap detail must be absent.
+    const FIX = parseResult({
+      warnings: [{ severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" }],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
+  });
+
+  test("no data-gap detail when warnings is empty", () => {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
+    );
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
+  });
+});
+
 describe("Step3SheetCard — guard conditions (§4.6)", () => {
   test("parseResult null → couldn't-read note, no expand toggle", () => {
     const q = render(

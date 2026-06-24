@@ -40,6 +40,7 @@ import type {
   RunOfShow,
 } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -359,6 +360,12 @@ export function Step3SheetCard({
   const ros: RunOfShow = pr.runOfShow ?? {};
   const scheduleDays = Object.keys(ros).length;
   const warnings = arr(pr.warnings);
+  // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
+  // per-class data-gap breakdown (single-sourced via summarizeDataGaps) so the
+  // operator sees WHAT dropped, not just a generic warning count, before ticking
+  // the publish checkbox. Distinct from the generic `warnings.length` chip below
+  // (which counts every warning class).
+  const dataGapDetails = dataGapClassDetails(summarizeDataGaps(warnings));
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
@@ -427,6 +434,27 @@ export function Step3SheetCard({
               ) : null}
             </div>
           )}
+
+          {/* parse-data-quality-warnings §6.2a — per-class data-gap detail shown
+              before the publish decision. PLAIN-LANGUAGE labels only (invariant
+              5 — never the raw §12.4 code). Static parse state → present iff
+              total>0 / absent otherwise; instant, no animation. */}
+          {dataGapDetails.length > 0 ? (
+            <ul
+              data-testid={`wizard-step3-card-${dfid}-data-gaps`}
+              className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-warning-text"
+            >
+              {dataGapDetails.map((d) => (
+                <li
+                  key={d.key}
+                  data-testid={`wizard-step3-card-${dfid}-data-gap-${d.key}`}
+                  className="inline-flex items-center gap-1 rounded-sm bg-warning-bg px-2 py-0.5 font-medium"
+                >
+                  <span className="tabular-nums">{d.count}</span> {d.label}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       </div>
 
