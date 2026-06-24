@@ -62,8 +62,15 @@ const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 }) as unknown as LooseSupabaseClient;
 
-// Fixed date so tests are deterministic regardless of when they run.
-const VALIDATION_TODAY_ISO = "2026-06-22";
+// Today's date (UTC, matching Postgres `current_date`). It MUST be derived, not
+// hardcoded: mint_validation_fixture_atomic rejects validationTodayIso when it
+// differs from the server's current_date by >1 day (extreme-clock-skew guard,
+// migration 20260527210000). A hardcoded date silently goes stale and fails the
+// unit-suite gate once the calendar advances past it — which it did (was
+// "2026-06-22"; CI at 2026-06-24 UTC tripped the >1-day guard). The value is
+// still stable within a single run (computed once), so fixtures + assertions
+// remain internally consistent.
+const VALIDATION_TODAY_ISO = new Date().toISOString().slice(0, 10);
 
 const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
