@@ -149,7 +149,15 @@ function parseAdditionalRoomFields(markdown: string): RoomRow | null {
   );
   const setupVal = presence(clean(matchFieldValue(markdown, /^Additional\s+Room\s+Setup$/i) ?? ""));
   if (!nameVal && !setupVal) return null;
-  const room = buildEmptyRoom("additional", nameVal ?? "Additional Room(s)");
+  // These "Additional Room Name(s) / Setup" values come from the CLIENT INTAKE FORM tab
+  // (free-text Google-Form answers), not Doug's INFO room blocks — so the "name" answer is
+  // usually meal/social PROSE ("Lunch in Adorn both days. Reception Social Lounge…"). Do NOT
+  // use it as the room NAME (that renders as a paragraph-as-name card). Surface one generic
+  // "Additional rooms" card and move the prose into `notes` — which the crew Today section
+  // renders as a "Room: Additional rooms" callout (components/crew/sections/TodaySection.tsx),
+  // so the real "which rooms / no AV needed" signal stays visible behind a clean label.
+  const room = buildEmptyRoom("additional", "Additional rooms");
+  room.notes = nameVal;
   room.setup = setupVal;
   return room;
 }
