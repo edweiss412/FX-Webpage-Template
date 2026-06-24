@@ -34,9 +34,12 @@ const SHEET_HEAD = [
 
 describe("Class B — UNKNOWN_SECTION_HEADER detection", () => {
   it("fires for an unknown CATERING band after TRANSPORTATION (with blank separator)", () => {
-    const md = [SHEET_HEAD, "", "| CATERING | NAME | PHONE |", "| | Joe's Catering | 555-9999 |"].join(
-      "\n",
-    );
+    const md = [
+      SHEET_HEAD,
+      "",
+      "| CATERING | NAME | PHONE |",
+      "| | Joe's Catering | 555-9999 |",
+    ].join("\n");
     const warns = unknownSectionWarnings(md);
     expect(warns.length).toBe(1);
     expect(warns[0]!.rawSnippet).toContain("CATERING");
@@ -108,9 +111,10 @@ describe("Class B — corpus regression (zero false positives on the 7 real expo
     for (const f of fixtures) {
       const md = readFileSync(`${dir}/${f}`, "utf8");
       const warns = unknownSectionWarnings(md);
-      expect(warns, `${f} should produce no UNKNOWN_SECTION_HEADER, got: ${JSON.stringify(warns)}`).toEqual(
-        [],
-      );
+      expect(
+        warns,
+        `${f} should produce no UNKNOWN_SECTION_HEADER, got: ${JSON.stringify(warns)}`,
+      ).toEqual([]);
     }
   });
 });

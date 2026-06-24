@@ -32,7 +32,12 @@ describe("data-quality warning code literals", () => {
 describe("emitFieldUnreadable", () => {
   it("pushes a warn-severity FIELD_UNREADABLE warning carrying the raw snippet", () => {
     const agg = newAggregator();
-    emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: "call John", index: 0 });
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "phone",
+      rawSnippet: "call John",
+      index: 0,
+    });
 
     expect(agg.warnings.length).toBe(1);
     const w = agg.warnings[0]!;
@@ -46,7 +51,12 @@ describe("emitFieldUnreadable", () => {
 
   it("no-ops when the aggregator is undefined", () => {
     expect(() =>
-      emitFieldUnreadable(undefined, { section: "crew", field: "phone", rawSnippet: "x", index: 0 }),
+      emitFieldUnreadable(undefined, {
+        section: "crew",
+        field: "phone",
+        rawSnippet: "x",
+        index: 0,
+      }),
     ).not.toThrow();
   });
 });

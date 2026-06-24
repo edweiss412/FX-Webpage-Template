@@ -1156,7 +1156,13 @@ describe("processOneFile", () => {
         priorParseResult: priorWithHotels,
       }));
 
-      const result = await processOneFile_unlocked(fakeTx, "file-1", mode, fileMeta("file-1"), syncDeps);
+      const result = await processOneFile_unlocked(
+        fakeTx,
+        "file-1",
+        mode,
+        fileMeta("file-1"),
+        syncDeps,
+      );
       expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
 
       // (a) MI-7 fired for the hotel block — exactly one MI-7 section item, section = hotel_reservations.
@@ -1168,7 +1174,9 @@ describe("processOneFile", () => {
 
       // (b) Exactly one BLOCK_DISAPPEARED parse-warning reached the parseResult Phase 2 persists,
       //     blockRef.kind = the MI-7 section.
-      const disappeared = (capturedParseWarnings ?? []).filter((w) => w.code === "BLOCK_DISAPPEARED");
+      const disappeared = (capturedParseWarnings ?? []).filter(
+        (w) => w.code === "BLOCK_DISAPPEARED",
+      );
       expect(disappeared.length).toBe(1);
       expect(disappeared[0]!.blockRef?.kind).toBe("hotel_reservations");
 

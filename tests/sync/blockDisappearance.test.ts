@@ -57,10 +57,7 @@ describe("blockDisappearanceWarnings", () => {
   });
 
   it("ignores non-MI-7 triggered items", () => {
-    const items: TriggeredReviewItem[] = [
-      { id: "a", invariant: "MI-6" },
-      mi7("rooms", 2, 0),
-    ];
+    const items: TriggeredReviewItem[] = [{ id: "a", invariant: "MI-6" }, mi7("rooms", 2, 0)];
     const out = blockDisappearanceWarnings(items, []);
     expect(out.length).toBe(1);
     expect(out[0]!.blockRef?.kind).toBe("rooms");
@@ -105,7 +102,12 @@ describe("blockDisappearanceWarnings", () => {
 
   it("suppresses rooms/contacts/transportation directly (kinds match MI-7, no normalization needed)", () => {
     const existing: ParseWarning[] = [
-      { severity: "warn", code: "SECTION_HEADER_NO_FIELDS", message: "x", blockRef: { kind: "rooms" } },
+      {
+        severity: "warn",
+        code: "SECTION_HEADER_NO_FIELDS",
+        message: "x",
+        blockRef: { kind: "rooms" },
+      },
     ];
     const out = blockDisappearanceWarnings([mi7("rooms", 2, 0)], existing);
     expect(out).toEqual([]);
