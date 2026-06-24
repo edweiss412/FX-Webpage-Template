@@ -36,13 +36,19 @@ describe("CI speedup — concurrency cancel-in-progress on every PR-firing workf
   });
 
   it.each(PR_FIRING_WORKFLOWS)(
-    "%s declares a concurrency group with cancel-in-progress: true",
+    "%s declares a concurrency group that cancels superseded PR runs (PR-only)",
     (file) => {
       const yaml = readWorkflow(file);
+      // cancel-in-progress is gated to pull_request so re-pushing a PR cancels
+      // the stale run, but post-merge `push: main` (and schedule) runs are NEVER
+      // cancelled — every main commit gets a full verification run, and a
+      // superseded main run no longer reports as a spurious "cancelled" failure.
       expect(
-        /\nconcurrency:\s*\n\s+group:\s*.+\n\s+cancel-in-progress:\s*true/.test(yaml),
-        `${file} must declare a top-level \`concurrency:\` block with \`cancel-in-progress: true\` ` +
-          `so re-pushing a PR cancels the superseded run instead of queueing both.`,
+        /\nconcurrency:\s*\n\s+group:\s*.+\n\s+cancel-in-progress:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}/.test(
+          yaml,
+        ),
+        `${file} must set \`cancel-in-progress: \${{ github.event_name == 'pull_request' }}\` — ` +
+          `cancel superseded PR re-pushes, but never cancel post-merge main runs.`,
       ).toBe(true);
     },
   );
