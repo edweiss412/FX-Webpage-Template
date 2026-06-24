@@ -62,8 +62,11 @@ const serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 }) as unknown as LooseSupabaseClient;
 
-// Fixed date so tests are deterministic regardless of when they run.
-const VALIDATION_TODAY_ISO = "2026-06-22";
+// Derive "today" from the SERVER current_date (what mint_validation_fixture_atomic's
+// >1-day clock-skew guard compares against) so this can never drift into a time-bomb:
+// a hardcoded past date silently breaks every CI run once the calendar advances >1 day
+// past it (it broke repo-wide when the clock rolled to 2026-06-24).
+const VALIDATION_TODAY_ISO = runPsql("SELECT current_date::text;");
 
 const ALL_COMBOS: Combo[] = [...R_COMBOS, ...SW_COMBOS];
 
