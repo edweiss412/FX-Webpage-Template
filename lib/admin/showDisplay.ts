@@ -10,6 +10,8 @@
  * (spec §13).
  */
 
+import type { DataGapsSummary } from "@/lib/parser/dataGaps";
+
 export type ActiveShowRow = {
   id: string;
   slug: string;
@@ -39,6 +41,12 @@ export type ActiveShowRow = {
   // ArchivedShowRow renders "Archived (date unknown)" + sorts last). Always
   // null for active-segment rows.
   archivedAt: string | null;
+  // parse-data-quality-warnings §6.2b (Task 9) — OPTIONAL per-show data-gaps
+  // summary, populated ONLY by loadHeldShows (the /admin/unpublished view) from
+  // shows_internal.parse_warnings. Other producers (fetchDashboardData, archived
+  // rows) omit it → undefined → ShowsTable renders no chip. `total > 0` →
+  // ShowsTable's data-gaps chip near the row's Publish action.
+  dataGaps?: DataGapsSummary;
 };
 
 export function formatDateRange(start: string | null, end: string | null): string | null {

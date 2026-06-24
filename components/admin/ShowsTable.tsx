@@ -23,6 +23,7 @@ import { formatDateRange, formatRelative, type ActiveShowRow } from "@/lib/admin
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
+import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -155,6 +156,29 @@ function SyncCell({ row, now }: { row: ActiveShowRow; now: Date }) {
 // Title used by both the rendered cell and the Find filter (slug fallback).
 function rowTitle(row: ActiveShowRow): string {
   return row.title ?? row.slug;
+}
+
+// parse-data-quality-warnings §6.2b — compact per-row data-gaps chip rendered in
+// the Held-shows row-action bar, before the Publish control. Renders only when
+// the summary has total>0 (absent/undefined → nothing — instant, no animation).
+// The total reads "N data gap(s)"; the per-class breakdown rides the title
+// attribute (hover) so the row stays compact. PLAIN-LANGUAGE only — never the
+// raw §12.4 code literal (invariant 5).
+function DataGapsChip({ slug, dataGaps }: { slug: string; dataGaps: DataGapsSummary | undefined }) {
+  if (!dataGaps || dataGaps.total === 0) return null;
+  const details = dataGapClassDetails(dataGaps);
+  const breakdown = details.map((d) => `${d.count} ${d.label}`).join(", ");
+  return (
+    <span
+      data-testid={`shows-data-gaps-chip-${slug}`}
+      title={breakdown}
+      className="inline-flex items-center gap-1.5 rounded-pill border border-status-warn px-2 py-0.5 text-xs font-semibold text-status-warn-text"
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-status-warn" />
+      <span className="tabular-nums">{dataGaps.total}</span>{" "}
+      {dataGaps.total === 1 ? "data gap" : "data gaps"}
+    </span>
+  );
 }
 
 export function ShowsTable({
@@ -398,12 +422,16 @@ export function ShowsTable({
                       of the Link (NOT nested) so the interactive control is
                       valid HTML and keeps its own click target. Indented to the
                       title track via px-4; only rendered when a rowAction is
-                      supplied. */}
+                      supplied. parse-data-quality-warnings §6.2b — the data-gaps
+                      chip rides here, BEFORE the Publish action, when this row's
+                      summary has total>0 (items-center keeps it baseline-aligned
+                      with the action; Tailwind v4 has no default stretch). */}
                   {rowAction ? (
                     <div
                       data-testid={`shows-row-action-${row.slug}`}
-                      className="border-t border-border bg-surface-sunken px-4 py-3"
+                      className="flex flex-wrap items-center gap-3 border-t border-border bg-surface-sunken px-4 py-3"
                     >
+                      <DataGapsChip slug={row.slug} dataGaps={row.dataGaps} />
                       {rowAction(row)}
                     </div>
                   ) : null}
