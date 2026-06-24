@@ -51,3 +51,41 @@ export function summarizeDataGaps(
     classes.FIELD_UNREADABLE + classes.UNKNOWN_SECTION_HEADER + classes.BLOCK_DISAPPEARED;
   return { total, classes };
 }
+
+/**
+ * Human, operator-facing label for each data-quality class — used by the
+ * per-class detail rendered on the Step-3 card, the /admin/unpublished chip,
+ * and the per-show panel. These are PLAIN-LANGUAGE labels, never the raw code
+ * literal (invariant 5: no raw §12.4 codes in UI). Single-sourced here so every
+ * surface reads the same wording.
+ */
+export const DATA_GAP_CLASS_LABELS: Record<keyof DataGapsSummary["classes"], string> = {
+  FIELD_UNREADABLE: "unreadable field",
+  UNKNOWN_SECTION_HEADER: "unknown section",
+  BLOCK_DISAPPEARED: "vanished block",
+};
+
+/**
+ * Flatten a summary into ordered per-class detail entries with a count > 0,
+ * pairing the human label with its count and the plural form. Surfaces map this
+ * into chips / list items so the per-class breakdown (NOT just a total) is
+ * single-sourced and consistently ordered. Empty when `total === 0`.
+ */
+export function dataGapClassDetails(
+  summary: DataGapsSummary,
+): Array<{ key: keyof DataGapsSummary["classes"]; count: number; label: string }> {
+  const order: Array<keyof DataGapsSummary["classes"]> = [
+    "FIELD_UNREADABLE",
+    "UNKNOWN_SECTION_HEADER",
+    "BLOCK_DISAPPEARED",
+  ];
+  const out: Array<{ key: keyof DataGapsSummary["classes"]; count: number; label: string }> = [];
+  for (const key of order) {
+    const count = summary.classes[key];
+    if (count > 0) {
+      const base = DATA_GAP_CLASS_LABELS[key];
+      out.push({ key, count, label: count === 1 ? base : `${base}s` });
+    }
+  }
+  return out;
+}

@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import {
+  summarizeDataGaps,
+  dataGapClassDetails,
+  DATA_GAP_CLASS_LABELS,
+} from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
 const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseWarning => ({
@@ -71,5 +75,31 @@ describe("summarizeDataGaps", () => {
   it("returns {total:0} for null / undefined input", () => {
     expect(summarizeDataGaps(null).total).toBe(0);
     expect(summarizeDataGaps(undefined).total).toBe(0);
+  });
+});
+
+describe("dataGapClassDetails — per-class breakdown for the UI surfaces", () => {
+  it("emits one ordered entry per class with count>0, pluralizing the label", () => {
+    const summary = summarizeDataGaps([
+      warn("FIELD_UNREADABLE"),
+      warn("FIELD_UNREADABLE"),
+      warn("BLOCK_DISAPPEARED"),
+    ]);
+    // Derived from the input array, not a hardcoded shape (anti-tautology).
+    expect(dataGapClassDetails(summary)).toEqual([
+      { key: "FIELD_UNREADABLE", count: 2, label: "unreadable fields" },
+      { key: "BLOCK_DISAPPEARED", count: 1, label: "vanished block" },
+    ]);
+  });
+
+  it("returns [] when the summary total is 0", () => {
+    expect(dataGapClassDetails(summarizeDataGaps([]))).toEqual([]);
+  });
+
+  it("labels never expose the raw §12.4 code literal (invariant 5)", () => {
+    for (const [code, label] of Object.entries(DATA_GAP_CLASS_LABELS)) {
+      expect(label).not.toContain(code);
+      expect(label).toMatch(/^[a-z ]+$/); // plain lowercase words only
+    }
   });
 });
