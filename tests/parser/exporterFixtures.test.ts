@@ -395,13 +395,22 @@ describe("exporter fidelity — AR R9: numberless v2 breakout headers are emitte
     expect(bo.some((r) => /STATE B/i.test(r.name))).toBe(true);
   });
 
-  it("R11: east-coast MABEL 1 merges its split blocks (dims + fields), not an empty phantom", () => {
-    const bo = parse("east-coast").rooms.filter((r) => r.kind === "breakout");
-    const mabel = bo.find((r) => /MABEL 1/i.test(r.name));
-    expect(mabel, "MABEL 1 breakout").toBeDefined();
-    // header dims ("APPROXIMATELY 60' x 45'") + the "DAY 1 & 2" block's fields merge
-    expect(mabel!.dimensions).toBe("60' x 45'");
-    expect(mabel!.setup ?? mabel!.set_time, "MABEL 1 must carry merged content").not.toBeNull();
+  it("R11: east-coast's venue-headed GS block becomes the GS room MABEL 1 (dims + GS fields); the distinct day-1&2 breakout is kept losslessly", () => {
+    const rooms = parse("east-coast").rooms;
+    const mabelRooms = rooms.filter((r) => /MABEL 1/i.test(r.name));
+    // The GS block is headed by the venue cell "MABEL 1\nAPPROXIMATELY 60' x 45'"
+    // (no GENERAL SESSION label) → the GS room adopts that name + dims + GS fields.
+    const gs = mabelRooms.find((r) => r.kind === "gs");
+    expect(gs, "MABEL 1 GS room").toBeDefined();
+    expect(gs!.dimensions).toBe("60' x 45'");
+    expect(gs!.setup, "GS room carries the GS Setup").toContain("18 Tables");
+    expect(gs!.video, "GS room keeps the GS Eiki rig").toContain("Eiki");
+    // The same-named MABEL 1 breakout (day-1&2 reuse) has a DISTINCT BO Video, so it is
+    // kept as a separate room — Codex adversarial regression: that value must survive,
+    // not be lost to a same-name merge.
+    const bo = mabelRooms.find((r) => r.kind === "breakout");
+    expect(bo, "MABEL 1 day-1&2 breakout is kept (distinct AV)").toBeDefined();
+    expect(bo!.video, "breakout's BO Video survives").toBe("Projector & Screen");
   });
 
   it("R15: adjacent breakout blocks (NO blank separator) don't bleed fields into each other", () => {
@@ -719,19 +728,28 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
       { kind: "breakout", name: "STATE B", dimensions: null, floor: "8th Floor" },
       { kind: "breakout", name: "BALLROOM C", dimensions: null, floor: null },
     ],
+    // ria / redefining-fi: these STALE 2026-06-18 fixtures predate Doug adding an
+    // inline GENERAL SESSION header — their GS venue only lives in a separate row, so
+    // they correctly stay "General Session". The LIVE sheets now use the inline header
+    // (locked by the "#1a inline GENERAL SESSION header" suite below), which is why the
+    // separate-ROOM-DIMENSIONS-row "#1b" is obsolete. Breakouts are already clean.
     ria: [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b
+      { kind: "gs", name: "General Session", dimensions: null, floor: null },
       { kind: "breakout", name: "DRAWING ROOM A", dimensions: null, floor: null },
       { kind: "breakout", name: "DRAWING ROOM B", dimensions: null, floor: null },
     ],
-    // unchanged-by-#1a shows (numberless derive + mabel paths already clean; GS = 1b)
     "redefining-fi": [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b
+      { kind: "gs", name: "General Session", dimensions: null, floor: null },
       { kind: "breakout", name: "LASALLE A", dimensions: null, floor: null },
       { kind: "breakout", name: "WALTON ROOM", dimensions: null, floor: null },
     ],
+    // east-coast (v1 legacy): the GS block is headed by the venue cell
+    // "MABEL 1\nAPPROXIMATELY 60' x 45'" (no GENERAL SESSION label), so the GS room
+    // ADOPTS that name + dims. The same-named MABEL 1 BREAKOUT (the day-1&2 reuse) has
+    // DISTINCT AV (BO Video "Projector & Screen" ≠ the GS Eiki rig), so it is KEPT as a
+    // separate room — losslessly — rather than absorbed into the GS room. LAUDERDALE stays.
     "east-coast": [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null }, // 1b/mabel
+      { kind: "gs", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
       { kind: "breakout", name: "MABEL 1", dimensions: "60' x 45'", floor: null },
       { kind: "breakout", name: "LAUDERDALE 1, 2, 3", dimensions: null, floor: null },
     ],
@@ -742,4 +760,107 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
       expect(triples(slug)).toEqual(expected);
     });
   }
+});
+
+// Regression lock — the LIVE v2 sheets (redefining/ria/consultants) have since moved
+// their GS venue into an inline "GENERAL SESSION\nNAME\nDIMS\nFLOOR" header cell
+// (verified against the live INFO tabs 2026-06-23 via gsheets MCP) — a format NO
+// committed fixture exercises (those are stale 2026-06-18 snapshots), but which #1a's
+// parseGsRoom + splitRoomHeader MUST keep parsing. This pins it so a future refactor
+// can't silently regress live parsing. It's also why the separate-ROOM-DIMENSIONS-row
+// "#1b" is obsolete: no live sheet uses that shape anymore. The exporter flattens the
+// cell's newlines to spaces and column-duplicates it.
+describe("exporter fidelity — #1a inline GENERAL SESSION header (live v2 format)", () => {
+  const cases: Array<
+    [string, string, { name: string; dimensions: string | null; floor: string | null }]
+  > = [
+    [
+      "redefining",
+      "GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor",
+      { name: "LAKEVIEW BALLROOM", dimensions: "61' x 55' x 11'", floor: "7th Floor" },
+    ],
+    [
+      "ria",
+      "GENERAL SESSION SALON ABCD 41' x 73' x 13'",
+      { name: "SALON ABCD", dimensions: "41' x 73' x 13'", floor: null },
+    ],
+    [
+      "consultants",
+      "GENERAL SESSION GRAND BALLROOM A/B A/B: 82' x 63' x 14' 8th Floor",
+      { name: "GRAND BALLROOM A/B", dimensions: "A/B: 82' x 63' x 14'", floor: "8th Floor" },
+    ],
+  ];
+  for (const [slug, header, want] of cases) {
+    it(`${slug}: inline GS header splits to venue name + dims + floor`, () => {
+      const md = [`| ${header} | ${header} |`, "| :---: | :---: |", "| GS Setup | x |"].join("\n");
+      const gs = parseRooms(md, "v2").filter((r) => r.kind === "gs");
+      expect(gs).toHaveLength(1);
+      expect({ name: gs[0]!.name, dimensions: gs[0]!.dimensions, floor: gs[0]!.floor }).toEqual(
+        want,
+      );
+    });
+  }
+});
+
+// Adversarial-review (Codex) regressions for the east-coast venue-headed-GS fix.
+describe("exporter fidelity — east-coast venue-headed GS: adversarial regressions", () => {
+  it("a LOSSLESS-SUBSET same-name breakout is absorbed (its gs-absent field merges in, one room)", () => {
+    // MABEL 2 is headed as the GS venue AND reused as a day-2 breakout whose only populated
+    // field (BO Video) is ABSENT in the GS room — a lossless subset → absorb into the GS
+    // room (video merged in), one room. (Codex HIGH part 1: never drop a populated value.)
+    const md = [
+      "| MABEL 2&#10;APPROXIMATELY 30' x 20' | MABEL 2&#10;APPROXIMATELY 30' x 20' |",
+      "| :---: | :---: |",
+      "| GS Setup | Theater |",
+      "| GS Audio | (2) Speakers |",
+      "",
+      "| MABEL 2&#10;DAY 2 | MABEL 2&#10;DAY 2 |",
+      "| :---: | :---: |",
+      "| BO Video | (1) Projector & Screen |",
+    ].join("\n");
+    const m = parseRooms(md, "v1").filter((r) => /MABEL 2/i.test(r.name));
+    expect(m, "subset breakout absorbed → one MABEL 2 room").toHaveLength(1);
+    expect(m[0]!.kind).toBe("gs");
+    expect(m[0]!.audio).toBe("(2) Speakers"); // GS field kept
+    expect(m[0]!.video, "breakout's gs-absent field merged in, not dropped").toBe(
+      "(1) Projector & Screen",
+    );
+  });
+
+  it("a CONFLICTING same-name breakout is KEPT as a separate room (its distinct value survives)", () => {
+    // MABEL 3's day-2 breakout BO Video differs from the GS Video — a conflict, so the
+    // breakout is NOT absorbed (that would drop one of the two values); both rooms are
+    // kept and BOTH videos survive. (Codex HIGH part 2: fill-null merge still dropped the
+    // conflicting breakout value.)
+    const md = [
+      "| MABEL 3&#10;APPROXIMATELY 30' x 20' | MABEL 3&#10;APPROXIMATELY 30' x 20' |",
+      "| :---: | :---: |",
+      "| GS Setup | Theater |",
+      "| GS Video | (2) Eiki Projectors |",
+      "",
+      "| MABEL 3&#10;DAY 2 | MABEL 3&#10;DAY 2 |",
+      "| :---: | :---: |",
+      "| BO Video | (1) Projector & Screen |",
+    ].join("\n");
+    const m = parseRooms(md, "v1").filter((r) => /MABEL 3/i.test(r.name));
+    expect(m, "conflict → two MABEL 3 rooms, not one").toHaveLength(2);
+    const gs = m.find((r) => r.kind === "gs")!;
+    const bo = m.find((r) => r.kind === "breakout")!;
+    expect(gs.video).toBe("(2) Eiki Projectors"); // GS value intact
+    expect(bo.video, "breakout's conflicting value survives, not dropped").toBe(
+      "(1) Projector & Screen",
+    );
+  });
+
+  it("a label-only metadata row above GS Setup is NOT a venue header (stays General Session)", () => {
+    // A trimmed single-cell DETAILS label ("| Fonts |", value column empty) directly above
+    // GS Setup must NOT become the GS room name. (Codex MEDIUM: real raw-fixture false
+    // positive — 2025-04-asset-mgmt-cfo-coo named its GS room "Fonts".)
+    for (const label of ["Fonts", "Test Pattern", "Staff Office Room"]) {
+      const md = [`| ${label} |`, "| :---: |", "| GS Setup | Theater |"].join("\n");
+      const gs = parseRooms(md, "v1").filter((r) => r.kind === "gs");
+      expect(gs, `${label} → 1 gs room`).toHaveLength(1);
+      expect(gs[0]!.name, `"${label}" must not become the GS room name`).toBe("General Session");
+    }
+  });
 });
