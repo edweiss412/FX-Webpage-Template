@@ -338,6 +338,38 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
     expect(ria!.hotel_address).toBe("800 N Michigan Ave Chicago, IL 60611");
     expect(ria!.hotel_address).not.toContain('"');
   });
+
+  // Negative-regression: the boundary requires a real STREET SHAPE, so a hotel
+  // whose BRANDING carries a number is not corrupted. The naive "number + word"
+  // predicate would have split "Hotel 71" → name "Hotel" / address "71...".
+  const numericHotel = (cell: string) =>
+    parseHotels(
+      [
+        "| HOTEL | RESERVATION \\#1 |  |  |",
+        "| :---: | :---: | :---: | :---: |",
+        "|  | Hotel Name / Address |  |  |",
+        `|  | ${cell} |  |  |`,
+        "|  | Names on Reservation |  |  |",
+        "|  | Alice Smith |  |  |",
+        "|  | Check In Date | Check Out Date |  |",
+        "|  | 1/1/26 | 1/2/26 |  |",
+      ].join("\n"),
+      "v4",
+    )[0]!;
+
+  it("numeric-branded hotel name with NO street address is left whole (no false split)", () => {
+    const h = numericHotel("Hotel 71");
+    expect(h.hotel_name).toBe("Hotel 71");
+    expect(h.hotel_address).toBeNull();
+  });
+
+  it("numeric-branded hotel name splits at the REAL street number, not the branding", () => {
+    // "Hotel 71 71 E Wacker Dr Chicago, IL 60601" — the first 71 is branding (no
+    // street phrase follows); the second 71 begins "71 E Wacker Dr".
+    const h = numericHotel("Hotel 71 71 E Wacker Dr Chicago, IL 60601");
+    expect(h.hotel_name).toBe("Hotel 71");
+    expect(h.hotel_address).toBe("71 E Wacker Dr Chicago, IL 60601");
+  });
 });
 
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {

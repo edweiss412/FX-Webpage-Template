@@ -170,7 +170,19 @@ function stripConfTokens(name: string): string {
  * stripConfTokens FIRST so a "<dash> #<digits>" run can't masquerade as a street
  * number (the leading-\s anchor below already rejects a "#5001397" with no
  * preceding space, but stripping first is belt-and-suspenders).
+ *
+ * The boundary requires a full STREET SHAPE — `<2–5 digit number> [direction]
+ * <0–4 name words> <street suffix>` — NOT merely "a number followed by a word".
+ * That keeps a numeric-branded hotel name from being mis-split: `Hotel 71` (no
+ * address) stays whole, and `Hotel 71 71 E Wacker Dr …` splits at the REAL street
+ * number (the second `71`, the one that begins a street phrase) → name
+ * `Hotel 71`, not name `Hotel`. When no street shape is found the cell stays
+ * intact as hotel_name (the pre-#3 behavior) — a SAFE failure, never a corrupted
+ * name. Every address in the live corpus carries a suffix, so none regress.
  */
+const STREET_ADDRESS_RE =
+  /\s(\d{2,5})\s+(?:[NSEW]{1,2}\.?\s+)?(?:\p{L}[\p{L}.'-]*\s+){0,4}(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
+
 function splitHotelNameAddress(combined: string | null): {
   name: string | null;
   address: string | null;
@@ -182,11 +194,11 @@ function splitHotelNameAddress(combined: string | null): {
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return { name: null, address: null };
-  // First standalone 2–5 digit street number followed by a street word. The
-  // leading \s anchor means a "#5001397" conf# (no preceding whitespace) can't
-  // trigger; the trailing \p{L} means a 5-digit ZIP at the end can't either; and
-  // first-match-wins keeps the street number ahead of any later ZIP.
-  const m = /\s(\d{2,5})\s+\p{L}/u.exec(cleaned);
+  // The address begins at the first street number that actually starts a street
+  // phrase (see STREET_ADDRESS_RE). The regex only LOCATES the boundary; the
+  // address itself runs from that number to the end of the cell (city/state/ZIP
+  // included). No match → the whole cell stays as the name (safe, glued).
+  const m = STREET_ADDRESS_RE.exec(cleaned);
   if (!m) return { name: presence(cleaned), address: null };
   const splitAt = m.index; // index of the separating whitespace
   const name = cleaned.slice(0, splitAt).replace(/[,\-–—\s]+$/, "").trim();
