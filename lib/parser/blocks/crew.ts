@@ -226,22 +226,21 @@ function buildCrewMember(params: {
 }): CrewMemberRow {
   const { phoneRaw, emailRaw, flightRaw, index, warnings, agg } = params;
 
-  // Class A (§5.1) — a phone cell carried a non-empty value but no digits, so it
-  // produces no tel: link and is otherwise dropped silently (VB08). Flag it as a
-  // FIELD_UNREADABLE warning; the member still parses. Shared across BOTH the
-  // CREW- and TECH-header paths (each computes its own phoneRaw and threads it in).
-  if (presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0) {
+  // Class A — a field carried a non-empty value that yields no usable tap-target:
+  // a phone with no digits (no `tel:` number) or an email with no "@" (not an
+  // address). Flag it AND null the field below, so PersonRow renders NO link at all
+  // — otherwise it would emit a dead `tel:`/`mailto:` anchor and the warning copy
+  // ("no … link will appear") would be false (whole-diff review). The member still
+  // parses; the original value is preserved in the warning's rawSnippet for the
+  // operator. Shared by both header paths (each threads its own phoneRaw/emailRaw);
+  // for email, in practice only the CREW path emits — v1 TECH sheets carry no EMAIL
+  // column, so emailRaw is "" → presence(null) → no-op.
+  const phoneUnreadable = presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0;
+  if (phoneUnreadable) {
     emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: phoneRaw, index });
   }
-
-  // Class A (follow-up) — symmetric to phone: an email cell carried a non-empty
-  // value with no "@", so it is not an address — PersonRow renders no mailto: link
-  // and the value is otherwise dropped. Same crisp bar as phone (no digits ⇒ not a
-  // phone): no "@" ⇒ not an email. The member still parses. Lives in the shared
-  // buildCrewMember so any header path that threads a real email cell flags it; in
-  // practice that's the CREW path (v1 TECH sheets carry no EMAIL column → emailRaw
-  // is "" → presence(null) → no-op).
-  if (presence(emailRaw) !== null && !emailRaw.includes("@")) {
+  const emailUnreadable = presence(emailRaw) !== null && !emailRaw.includes("@");
+  if (emailUnreadable) {
     emitFieldUnreadable(agg, { section: "crew", field: "email", rawSnippet: emailRaw, index });
   }
 
@@ -274,12 +273,14 @@ function buildCrewMember(params: {
     if (agg) agg.warnings.push(tripleAsteriskWarning);
   }
 
-  const email = canonicalize(emailRaw);
+  // Unreadable fields are nulled (see Class-A note above) so PersonRow renders no
+  // dead tap-target and the FIELD_UNREADABLE copy stays accurate.
+  const email = emailUnreadable ? null : canonicalize(emailRaw);
 
   return {
     name: displayName,
     email,
-    phone: presence(phoneRaw),
+    phone: phoneUnreadable ? null : presence(phoneRaw),
     role: cleanedRole,
     role_flags: roleFlags,
     date_restriction: dateRestriction,
