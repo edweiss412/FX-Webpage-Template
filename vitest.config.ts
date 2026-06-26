@@ -5,6 +5,7 @@ import mdx from "@mdx-js/rollup";
 import remarkGfm from "remark-gfm";
 
 import { BASE_INCLUDE, PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES } from "./vitest.projects";
+import { WeightBalancedSequencer } from "./vitest.sequencer";
 
 // unit-suite.yml sets VITEST_EXCLUDE_ENV_BOUND=1 to drop the env-bound files
 // (see vitest.projects.ts). It MUST be a project-level exclude, not a CLI
@@ -46,6 +47,11 @@ export default defineConfig({
     environment: "node",
     globals: false,
     setupFiles: ["tests/setup.ts"],
+    // PR E: weight-balanced --shard partition (the two hot serial files no longer
+    // both land in shard 1). No-op unless --shard is passed (vitest gates shard()
+    // on config.shard), so local `pnpm test` + the x-audits' `vitest run <file>`
+    // are unaffected. Root-level (ProjectConfig omits `sequencer`).
+    sequence: { sequencer: WeightBalancedSequencer },
     projects: [
       {
         extends: true,
