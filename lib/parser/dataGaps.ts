@@ -26,6 +26,26 @@ export type DataGapsSummary = {
 };
 
 /**
+ * The three data-quality warning codes, single-sourced. `shows_internal.parse_warnings`
+ * is NOT limited to these — other producers persist `warn`-severity warnings whose
+ * `.message` may BE the raw code (e.g. asset `reelWarning()` returns
+ * `{ severity:"warn", code, message: code }`). Any surface that renders a warning's
+ * `.message` (the per-show Data-Quality panel) MUST gate on this set first, or it would
+ * print a raw §12.4 code (invariant 5) and misclassify a non-data-quality warning under
+ * "Data quality". Whole-diff review R1 [high].
+ */
+export const DATA_GAP_CODES: ReadonlySet<string> = new Set([
+  FIELD_UNREADABLE,
+  UNKNOWN_SECTION_HEADER,
+  BLOCK_DISAPPEARED,
+]);
+
+/** True when `w` is a `warn`-severity data-quality warning (one of the three DQ codes). */
+export function isDataQualityWarning(w: ParseWarning | null | undefined): boolean {
+  return !!w && w.severity === "warn" && DATA_GAP_CODES.has(w.code);
+}
+
+/**
  * Count the three data-quality warning classes in `warnings`, excluding any
  * `severity:"info"` warning (only operator-actionable `warn`-severity drops
  * count) and any non-data-quality code. `null`/`undefined`/`[]` → `{ total: 0 }`.

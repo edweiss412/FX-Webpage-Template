@@ -52,6 +52,7 @@ import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import type { ParseWarning } from "@/lib/parser/types";
+import { isDataQualityWarning } from "@/lib/parser/dataGaps";
 
 export const dynamic = "force-dynamic";
 
@@ -268,8 +269,12 @@ export default async function AdminShowPage({
         return { messages: [], failed: true };
       }
       const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
+      // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
+      // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
+      // can BE the raw code (asset reelWarning() → message: code), which would print a
+      // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
       const messages = warnings
-        .filter((w) => w?.severity === "warn")
+        .filter(isDataQualityWarning)
         .map((w) => w.message)
         .filter((m): m is string => typeof m === "string" && m.length > 0);
       return { messages, failed: false };
@@ -756,9 +761,9 @@ export default async function AdminShowPage({
               learnMore={{ href: "/help/admin/parse-warnings" }}
             >
               <p>
-                Things we noticed while reading this show&apos;s sheet that may have dropped data: an
-                unreadable field, an unrecognized section, or a block that vanished since the last
-                sync. These are advisory — the show still published.
+                Things we noticed while reading this show&apos;s sheet that may have dropped data:
+                an unreadable field, an unrecognized section, or a block that vanished since the
+                last sync. These are advisory — the show still published.
               </p>
             </HoverHelp>
           </div>

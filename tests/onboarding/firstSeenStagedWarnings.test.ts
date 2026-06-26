@@ -47,11 +47,34 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
 
     const staged = stagedRowFromLiveFirstSeen(row);
 
-    // warningSummary is the persisted joined string, NOT the hardcoded "".
+    // warningSummary is built from the DATA-QUALITY warnings array (data source),
+    // NOT the hardcoded "" and NOT the pre-joined persisted string (R1 [high]).
     expect(staged.warningSummary).toBe("Crew phone unreadable; Hotel block vanished");
     // dataGaps derives from the SEEDED warnings array (the data source), not the card.
     expect(staged.dataGaps).toEqual(summarizeDataGaps(warnings));
     expect(staged.dataGaps?.total).toBe(2);
+  });
+
+  // Whole-diff review R1 [high] class-sweep: the staged card must NOT surface a raw
+  // §12.4 code. The pre-joined phase1 `warning_summary` can contain a non-DQ warn
+  // warning whose .message IS the raw code (asset reelWarning()); we ignore that string
+  // and build only from the DATA-QUALITY warnings, so no raw code can leak (invariant 5).
+  test("ignores the persisted warning_summary and excludes a non-DQ raw-code warning", () => {
+    const warnings: ParseWarning[] = [
+      { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone unreadable" },
+      // reelWarning() shape: non-DQ, message === code.
+      { severity: "warn", code: "OPENING_REEL_UNREADABLE", message: "OPENING_REEL_UNREADABLE" },
+    ];
+    const staged = stagedRowFromLiveFirstSeen(
+      liveRow({
+        parse_result: { show: { title: "X" }, warnings },
+        // A persisted summary that DOES contain the raw code — must be ignored.
+        warning_summary: "Crew phone unreadable; OPENING_REEL_UNREADABLE",
+      }),
+    );
+    expect(staged.warningSummary).toBe("Crew phone unreadable");
+    expect(staged.warningSummary).not.toContain("OPENING_REEL_UNREADABLE");
+    expect(staged.dataGaps?.total).toBe(1);
   });
 
   test("no warnings → empty warningSummary and total:0 dataGaps (no chip)", () => {
@@ -60,9 +83,9 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
     expect(staged.dataGaps?.total).toBe(0);
   });
 
-  test("falls back to the warning array when warning_summary is empty but warnings exist", () => {
-    // Defensive: a row whose warning_summary wasn't persisted still surfaces the
-    // messages so a first-seen warning never silently disappears.
+  test("builds from the warning array even when warning_summary is empty", () => {
+    // A row whose warning_summary wasn't persisted still surfaces the DQ messages
+    // (we always build from the warnings array), so a first-seen gap never disappears.
     const warnings: ParseWarning[] = [
       {
         severity: "warn",

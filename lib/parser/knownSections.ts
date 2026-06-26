@@ -60,6 +60,27 @@ export const KNOWN_SECTION_HEADERS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Section-header families that legitimately carry a room-name / ordinal SUFFIX on
+ * real sheets (rooms.ts splits these): "GENERAL SESSION - GRAND BALLROOM A/B",
+ * "BREAKOUT 2 - SALON C", "ADDITIONAL ROOM 2", "LUNCH ROOM - SALON A". ONLY these
+ * may match as a whole-token PREFIX; every other KNOWN_SECTION_HEADERS entry is a
+ * complete header matched EXACTLY. Whole-diff review R1 [medium]: generic single
+ * labels (CLIENT, HOTEL, DETAILS, DATES) were prefix-matched, so a genuinely-dropped
+ * "CLIENT SERVICES | NAME | PHONE" / "HOTEL STAFF | NAME | PHONE" was inferred "known"
+ * and the unknown-section detector stayed silent — the exact silent-drop it exists to
+ * catch. (These families are also in KNOWN_SECTION_HEADERS, so the bare form matches
+ * exactly too.)
+ */
+export const PREFIX_SECTION_FAMILIES: ReadonlySet<string> = new Set([
+  "GENERAL SESSION",
+  "BREAKOUT",
+  "BREAKOUTS",
+  "ADDITIONAL ROOM",
+  "LUNCH ROOM",
+  "LUNCH SESSION",
+]);
+
+/**
  * Section/sub-field labels and category/value tokens that are all-caps and may
  * carry a multi-column shape but are NOT section headers — they are column
  * sub-headers (agenda/flight grids), pull-sheet equipment categories, boolean
@@ -126,27 +147,47 @@ export const KNOWN_SUB_LABELS: ReadonlySet<string> = new Set([
   "DETAIL CHECKLIST",
 ]);
 
+/** Whole-token prefix: `entry` must be followed by a token boundary, so
+ *  "DATESOMETHING" does not match "DATES" but "DATES - X" / "DATES 2" does. */
+function matchesTokenPrefix(normalized: string, entry: string): boolean {
+  return (
+    normalized.startsWith(entry) &&
+    (normalized.length === entry.length || /[^A-Z0-9]/.test(normalized[entry.length] ?? ""))
+  );
+}
+
 function matchesAsTokenPrefix(normalized: string, registry: ReadonlySet<string>): boolean {
   if (registry.has(normalized)) return true;
   for (const entry of registry) {
-    // Whole-token prefix: entry must be followed by a token boundary, so
-    // "DATESOMETHING" does not match "DATES" but "DATES - X" / "DATES 2" does.
-    if (
-      normalized.startsWith(entry) &&
-      (normalized.length === entry.length || /[^A-Z0-9]/.test(normalized[entry.length] ?? ""))
-    ) {
-      return true;
-    }
+    if (matchesTokenPrefix(normalized, entry)) return true;
   }
   return false;
 }
 
-/** True when `col0` is a recognized section header (registry membership, prefix-aware). */
+/**
+ * True when `col0` is a recognized section header: EXACT membership in the registry,
+ * OR a room-family PREFIX (PREFIX_SECTION_FAMILIES) for the headers that carry a real
+ * name/ordinal suffix. Generic labels match exact-only, so a dropped section sharing a
+ * known label's prefix ("CLIENT SERVICES", "HOTEL STAFF") is NOT masked. (R1 [medium].)
+ */
 export function isKnownSectionHeader(col0: string): boolean {
-  return matchesAsTokenPrefix(normalizeHeader(col0), KNOWN_SECTION_HEADERS);
+  const normalized = normalizeHeader(col0);
+  if (KNOWN_SECTION_HEADERS.has(normalized)) return true;
+  for (const entry of PREFIX_SECTION_FAMILIES) {
+    if (matchesTokenPrefix(normalized, entry)) return true;
+  }
+  return false;
 }
 
-/** True when `col0` is a recognized sub-field/category label (not a section header). */
+/**
+ * True when `col0` is a recognized sub-field/category label (not a section header).
+ * Sub-labels stay PREFIX-matched: this is the conservative "don't-flag" set (column
+ * headers / equipment categories / value cells), empirically tuned to keep the corpus
+ * regression at zero false positives. It is the OPPOSITE-direction bias from the section
+ * registry — over-suppressing a column row is safe, and the ≥2-header-word gate in
+ * index.ts is the primary discriminator — so the R1 [medium] exact-match tightening
+ * applies to the section registry, not here.
+ */
 export function isKnownSubLabel(col0: string): boolean {
   return matchesAsTokenPrefix(normalizeHeader(col0), KNOWN_SUB_LABELS);
 }

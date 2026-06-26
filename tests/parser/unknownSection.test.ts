@@ -15,6 +15,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { parseSheet } from "@/lib/parser";
+import { isKnownSectionHeader } from "@/lib/parser/knownSections";
 
 function unknownSectionWarnings(md: string) {
   return parseSheet(md).warnings.filter((w) => w.code === "UNKNOWN_SECTION_HEADER");
@@ -116,5 +117,41 @@ describe("Class B — corpus regression (zero false positives on the 7 real expo
         `${f} should produce no UNKNOWN_SECTION_HEADER, got: ${JSON.stringify(warns)}`,
       ).toEqual([]);
     }
+  });
+});
+
+describe("Class B — generic-label prefix false-negative (whole-diff review R1 [medium])", () => {
+  // A dropped section whose col0 SHARES A KNOWN GENERIC LABEL'S PREFIX (CLIENT, HOTEL)
+  // must still fire: generic labels are exact-match, only room families prefix-match.
+  // Failure mode caught: the silent-drop where "CLIENT SERVICES | NAME | PHONE" was
+  // inferred "known" because it startsWith "CLIENT" → detector stayed silent.
+  it("FIRES for an unknown section that prefixes a generic known label (CLIENT SERVICES)", () => {
+    const md = [SHEET_HEAD, "", "| CLIENT SERVICES | NAME | PHONE |"].join("\n");
+    const warns = unknownSectionWarnings(md);
+    expect(warns.length).toBe(1);
+    expect(warns[0]!.rawSnippet).toContain("CLIENT SERVICES");
+  });
+
+  it("FIRES for an unknown section that prefixes a generic known label (HOTEL STAFF)", () => {
+    const md = [SHEET_HEAD, "", "| HOTEL STAFF | NAME | PHONE |"].join("\n");
+    const warns = unknownSectionWarnings(md);
+    expect(warns.length).toBe(1);
+    expect(warns[0]!.rawSnippet).toContain("HOTEL STAFF");
+  });
+
+  it("isKnownSectionHeader: generic labels exact-only; room families still prefix-match", () => {
+    // Generic labels: bare form known, suffixed form NOT known (would-be silent drop).
+    expect(isKnownSectionHeader("CLIENT")).toBe(true);
+    expect(isKnownSectionHeader("HOTEL")).toBe(true);
+    expect(isKnownSectionHeader("DATES")).toBe(true);
+    expect(isKnownSectionHeader("DETAILS")).toBe(true);
+    expect(isKnownSectionHeader("CLIENT SERVICES")).toBe(false);
+    expect(isKnownSectionHeader("HOTEL STAFF")).toBe(false);
+    expect(isKnownSectionHeader("DATES OF NOTE")).toBe(false);
+    // Room families: bare AND suffixed forms both known (real room-name/ordinal suffix).
+    expect(isKnownSectionHeader("GENERAL SESSION")).toBe(true);
+    expect(isKnownSectionHeader("GENERAL SESSION - GRAND BALLROOM A/B")).toBe(true);
+    expect(isKnownSectionHeader("ADDITIONAL ROOM 2")).toBe(true);
+    expect(isKnownSectionHeader("BREAKOUT 3 - SALON C")).toBe(true);
   });
 });

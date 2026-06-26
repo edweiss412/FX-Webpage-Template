@@ -632,6 +632,38 @@ describe("per-show Data quality panel (Task 12, §6.5)", () => {
     expect(panel.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
   });
 
+  // Whole-diff review R1 [high]: shows_internal.parse_warnings is NOT limited to the
+  // three DQ codes. A non-DQ producer (asset reelWarning()) persists a warn-severity
+  // warning whose .message IS the raw code. The panel must gate on the DQ codes first,
+  // or it would print a raw §12.4 code (invariant 5) + misclassify it under "Data quality".
+  it("does NOT render a non-DQ warn warning whose message equals its raw code (R1 high)", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [
+        { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone could not be read" },
+        // reelWarning() shape: a non-data-quality warn warning, message === code.
+        { severity: "warn", code: "OPENING_REEL_UNREADABLE", message: "OPENING_REEL_UNREADABLE" },
+      ],
+    };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-data-quality");
+    expect(panel.textContent).toContain("Crew phone could not be read");
+    // The raw non-DQ code must never reach the UI, and the non-DQ warning is not
+    // listed under "Data quality".
+    expect(panel.textContent).not.toContain("OPENING_REEL_UNREADABLE");
+  });
+
+  it("panel ABSENT when only non-DQ warn warnings exist (none are data-quality)", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [
+        { severity: "warn", code: "OPENING_REEL_UNREADABLE", message: "OPENING_REEL_UNREADABLE" },
+      ],
+    };
+    await renderPage();
+    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
+  });
+
   it("panel ABSENT when there are no warn-severity warnings", async () => {
     state.showsInternal = {
       show_id: "s1",

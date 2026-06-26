@@ -29,7 +29,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
-import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { summarizeDataGaps, isDataQualityWarning } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
 export const dynamic = "force-dynamic";
@@ -44,14 +44,14 @@ type LiveFirstSeenRow = {
   drive_file_id: string;
   staged_modified_time: string;
   base_modified_time: string | null;
-  // parse-data-quality-warnings §6.1: parse_result also carries `.warnings`
-  // (the full ParseWarning[]); the staged row's `warning_summary` holds the
-  // already-joined human text. Both feed the StagedReviewCard data-gap surface.
+  // parse-data-quality-warnings §6.1: parse_result carries `.warnings`
+  // (the full ParseWarning[]) — the DATA-QUALITY subset feeds the StagedReviewCard
+  // surface. (The pre-joined `warning_summary` column is intentionally NOT read —
+  // see warningSummaryFor: it can contain a raw non-DQ code, R1 [high].)
   parse_result: {
     show?: { title?: string | null };
     warnings?: ParseWarning[] | null;
   } | null;
-  warning_summary: string | null;
   triggered_review_items: unknown;
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
@@ -83,7 +83,7 @@ export async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResu
     const { data, error } = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, warning_summary, triggered_review_items, source_kind",
+        "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, triggered_review_items, source_kind",
       )
       .eq("staged_id", stagedId)
       .is("wizard_session_id", null)
@@ -145,18 +145,22 @@ function summaryFromParseResult(parseResult: LiveFirstSeenRow["parse_result"]): 
   return typeof title === "string" && title.length > 0 ? title : undefined;
 }
 
-// parse-data-quality-warnings §6.1 — build the warn-severity warning text for
-// the StagedReviewCard from the staged row. Prefer the persisted
-// `warning_summary` (already filtered to warn + joined upstream by phase1's
-// warningSummary()); fall back to joining the warn-severity `.message`s when the
-// summary wasn't persisted, so a first-seen warning is never silently dropped.
+// parse-data-quality-warnings §6.1 — build the warning text for the
+// StagedReviewCard from the staged row's DATA-QUALITY warnings only.
+//
+// Whole-diff review R1 [high] class-sweep: we deliberately do NOT surface the
+// pre-joined phase1 `warning_summary` string. That string joins EVERY warn-severity
+// `.message`, and a non-DQ producer (asset reelWarning()) emits a warn warning whose
+// `.message` IS the raw code — so the joined string can contain a raw §12.4 code that
+// cannot be filtered out post-join (invariant 5). Building from the parse_result
+// warnings array, gated by `isDataQualityWarning`, makes this surface leak-proof and
+// consistent with the per-show panel + the dataGaps breakdown. (Pre-Task-7 this card
+// showed `""`, so DQ-only is strictly more than before — never a regression.)
 function warningSummaryFor(row: LiveFirstSeenRow): string {
-  const persisted = typeof row.warning_summary === "string" ? row.warning_summary : "";
-  if (persisted.length > 0) return persisted;
   const warnings = row.parse_result?.warnings;
   if (!Array.isArray(warnings)) return "";
   return warnings
-    .filter((w) => w?.severity === "warn")
+    .filter(isDataQualityWarning)
     .map((w) => w.message)
     .filter((m): m is string => typeof m === "string" && m.length > 0)
     .join("; ");
