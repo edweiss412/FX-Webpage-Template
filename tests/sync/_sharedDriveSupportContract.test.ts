@@ -110,18 +110,24 @@ describe("Shared Drive support contract", () => {
     expect(violations).toEqual([]);
   });
 
-  test("inline getDriveClient files.get calls are covered by the Shared Drive contract", () => {
+  test("the live verifyReelOnApply files.get call is covered by the Shared Drive contract", () => {
+    // DXT-3 made verifyReelOnApply's metadata read injectable + timed, so the
+    // call is now `driveClient.files.get(...)` (driveClient = deps.drive ??
+    // getDriveClient()) rather than the old inline `getDriveClient().files.get`.
+    // The general arm above (DRIVE_API_SURFACES scan over lib/sync) is the real
+    // enforcement; this remains a live-fixture sanity check on the resolver +
+    // a negative-regression on that one call's supportsAllDrives flag.
     const path = "lib/sync/verifyReelOnApply.ts";
     const source = readFileSync(join(root, path), "utf8");
-    const match = [
-      ...source.matchAll(/\bgetDriveClient\(\)\.(files|revisions)\.(get|list)\s*\(/g),
-    ].find((candidate) => candidate[1] === "files" && candidate[2] === "get");
+    const match = [...source.matchAll(/\.(files|revisions)\.(get|list)\s*\(/g)].find(
+      (candidate) => candidate[1] === "files" && candidate[2] === "get",
+    );
 
-    expect(match, "expected live getDriveClient().files.get inline-callee fixture").toBeDefined();
+    expect(match, "expected live verifyReelOnApply .files.get inline-callee fixture").toBeDefined();
     const object = resolveObjectArgument(source, match!.index! + match![0].length);
 
     // Negative regression confirmation: removing this flag from the live
-    // getDriveClient().files.get call makes this test fail.
+    // verifyReelOnApply .files.get call makes this test fail.
     expect(object).toMatch(/\bsupportsAllDrives\s*:\s*true\b/);
   });
 });
