@@ -191,7 +191,9 @@ function ScheduleDayRow({
 
   return (
     <li className="flex flex-col gap-1">
-      <span className="text-xs font-medium tabular-nums text-text-strong">{iso}</span>
+      <span className="text-xs font-medium tabular-nums text-text-strong">
+        {humanizeDate(iso) ?? iso}
+      </span>
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
         {visible.map((e, i) => (
           <Fragment key={`${iso}-${i}`}>
@@ -499,10 +501,16 @@ export function Step3SheetCard({
   const warnings = arr(pr.warnings);
   // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
   // per-class data-gap breakdown (single-sourced via summarizeDataGaps) so the
-  // operator sees WHAT dropped, not just a generic warning count, before ticking
-  // the publish checkbox. Distinct from the generic `warnings.length` chip below
-  // (which counts every warning class).
-  const dataGapDetails = dataGapClassDetails(summarizeDataGaps(warnings));
+  // operator sees WHAT dropped, not just a count, before ticking the publish
+  // checkbox.
+  const dataGapsSummary = summarizeDataGaps(warnings);
+  const dataGapDetails = dataGapClassDetails(dataGapsSummary);
+  // followup A: warnings that aren't a data-gap class (info-severity or non-DQ
+  // codes) collapse into ONE neutral "+K other" chip instead of a second
+  // warning-colored total. K === warnings.length − the data-gap total, so the
+  // summary reconciles exactly with the breakdown header "Warnings (N)":
+  // per-class chips + "+K other" === warnings.length.
+  const otherWarningCount = warnings.length - dataGapsSummary.total;
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
@@ -574,7 +582,7 @@ export function Step3SheetCard({
             </dd>
           </dl>
 
-          {(hasDiagrams || hasReel || warnings.length > 0) && (
+          {(hasDiagrams || hasReel) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {hasDiagrams ? (
                 <Badge testId={`wizard-step3-card-${dfid}-badge-diagrams`} label="Diagrams ✓" />
@@ -582,24 +590,15 @@ export function Step3SheetCard({
               {hasReel ? (
                 <Badge testId={`wizard-step3-card-${dfid}-badge-reel`} label="Reel ✓" />
               ) : null}
-              {warnings.length > 0 ? (
-                <span
-                  data-testid={`wizard-step3-card-${dfid}-warnings`}
-                  className="inline-flex items-center gap-1.5 rounded-sm bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning-text"
-                >
-                  <span aria-hidden="true" className="size-1.5 rounded-pill bg-warning-text" />
-                  <span className="tabular-nums">{warnings.length}</span>{" "}
-                  {warnings.length === 1 ? "warning" : "warnings"}
-                </span>
-              ) : null}
             </div>
           )}
 
-          {/* parse-data-quality-warnings §6.2a — per-class data-gap detail shown
-              before the publish decision. PLAIN-LANGUAGE labels only (invariant
-              5 — never the raw §12.4 code). Static parse state → present iff
-              total>0 / absent otherwise; instant, no animation. */}
-          {dataGapDetails.length > 0 ? (
+          {/* parse-data-quality-warnings §6.2a + followup A — the single summary
+              warning row: per-class data-gap chips (warning-colored, PLAIN-LANGUAGE
+              labels only — invariant 5, never the raw §12.4 code) followed by one
+              NEUTRAL "+K other" chip for non-data-gap warnings. Present iff there's
+              any data gap OR any other warning; instant, no animation. */}
+          {dataGapDetails.length > 0 || otherWarningCount > 0 ? (
             <ul
               data-testid={`wizard-step3-card-${dfid}-data-gaps`}
               className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-warning-text"
@@ -613,6 +612,21 @@ export function Step3SheetCard({
                   <span className="tabular-nums">{d.count}</span> {d.label}
                 </li>
               ))}
+              {otherWarningCount > 0 ? (
+                <li
+                  data-testid={`wizard-step3-card-${dfid}-warnings-other`}
+                  // NEUTRAL (not warning-colored): these are non-data-gap warnings
+                  // (info-severity or non-DQ codes). Overrides the ul's
+                  // text-warning-text so it reads as a quiet "and N more" tail, not
+                  // a second alarm. Full per-warning detail lives in the expandable
+                  // breakdown below. `bg-surface-sunken` (NOT surface-raised, which
+                  // equals the card's white `bg-surface` in light mode → invisible)
+                  // — matches the <Badge> token so the pill stays visible on the card.
+                  className="inline-flex items-center rounded-sm bg-surface-sunken px-2 py-0.5 font-medium text-text-subtle"
+                >
+                  <span className="tabular-nums">+{otherWarningCount}</span> other
+                </li>
+              ) : null}
             </ul>
           ) : null}
         </div>

@@ -280,22 +280,43 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q2.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).toBeNull();
   });
 
-  test("warnings chip shows the count iff warnings.length > 0", () => {
-    const w = [
-      { severity: "warn" as const, code: "W1", message: "one" },
-      { severity: "info" as const, code: "W2", message: "two" },
-    ];
-    const FIX = parseResult({ warnings: w });
+  // followup A: the generic warning-colored "N warnings" total chip was removed
+  // from the summary (it duplicated, and in the mixed case failed to reconcile
+  // with, the per-class data-gap chips). Non-data-gap warnings (info-severity or
+  // non-DQ codes) now surface as ONE neutral "+K other" chip so the summary still
+  // reconciles with the breakdown header "Warnings (N)": per-class chips + "+K
+  // other" === warnings.length.
+  test("no generic warning-colored total chip in the summary (removed in followup A)", () => {
+    const FIX = parseResult({
+      warnings: [{ severity: "warn" as const, code: "FIELD_UNREADABLE", message: "x" }],
+    });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const chip = q.getByTestId(`wizard-step3-card-${DFID}-warnings`);
-    expect(chip.textContent).toContain(String(FIX.warnings.length));
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 
-  test("no warnings chip when warnings is empty", () => {
+  test("non-data-gap warnings (info or non-DQ codes) surface as one neutral '+K other' chip", () => {
+    const w = [
+      { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "one" },
+      { severity: "info" as const, code: "FLIGHT_UNMATCHED", message: "two" },
+    ];
+    const FIX = parseResult({ warnings: w });
+    // K derives from the fixture (anti-tautology): every warning here is non-DQ,
+    // so the expected "other" count is the full array length.
+    const expectedOther = w.length;
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const other = q.getByTestId(`wizard-step3-card-${DFID}-warnings-other`);
+    expect(other.textContent).toContain(`+${expectedOther} other`);
+    // no per-class data-gap entries (none of these is a data-gap class)
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`)).toBeNull();
+  });
+
+  test("no warning row at all when warnings is empty", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
     );
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
 });
 
@@ -303,12 +324,12 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 // checked/applied-clean row that carries data-gap warnings must show the
 // PER-CLASS detail (not just the generic count) before the publish checkbox.
 describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
-  test("renders per-class detail for a row carrying data-gap warnings; never the raw code", () => {
+  test("renders per-class detail + a '+K other' chip for the non-DQ warn; never the raw code", () => {
     const w = [
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
       { severity: "warn" as const, code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
-      // a non-data-quality warn (counts in the generic chip, NOT the per-class detail)
+      // a non-data-quality warn → surfaces as the neutral "+K other" chip, NOT a per-class entry
       { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" },
     ];
     // An applied (checked) row at the publish decision point.
@@ -317,27 +338,40 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
       <Step3SheetCard row={stagedRow(FIX, { status: "applied" })} wizardSessionId={WSID} />,
     );
     const detail = q.getByTestId(`wizard-step3-card-${DFID}-data-gaps`);
-    // Counts derive from the SEEDED warning array (anti-tautology): 2 field, 1 block.
+    // Counts derive from the SEEDED warning array (anti-tautology), never literals.
+    const fieldCount = w.filter((x) => x.code === "FIELD_UNREADABLE").length;
+    const blockCount = w.filter((x) => x.code === "BLOCK_DISAPPEARED").length;
     expect(
       q.getByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`).textContent,
-    ).toContain("2 unreadable fields");
+    ).toContain(`${fieldCount} unreadable field${fieldCount === 1 ? "" : "s"}`);
     expect(
       q.getByTestId(`wizard-step3-card-${DFID}-data-gap-BLOCK_DISAPPEARED`).textContent,
-    ).toContain("1 vanished block");
+    ).toContain(`${blockCount} vanished block${blockCount === 1 ? "" : "s"}`);
     // UNKNOWN_SECTION_HEADER count is 0 here → no entry.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
+    // The single non-DQ warn surfaces as "+1 other" (warnings.length − data-gap total),
+    // also derived from the fixture rather than hardcoded.
+    const expectedOther = w.length - (fieldCount + blockCount);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-other`).textContent).toContain(
+      `+${expectedOther} other`,
+    );
     // invariant 5: no raw §12.4 code literal in the detail DOM.
     expect(detail.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
   });
 
-  test("no data-gap detail when the row has no data-quality warnings (clean row)", () => {
-    // Only a non-data-quality warning present → the generic chip may show, but
-    // the per-class data-gap detail must be absent.
+  test("a lone non-data-quality warning → '+1 other' chip, but no per-class data-gap entries", () => {
     const FIX = parseResult({
       warnings: [{ severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" }],
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
+    // The warning row renders (carrying the "+1 other" chip)...
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-other`).textContent).toContain(
+      "+1 other",
+    );
+    // ...but NO per-class data-gap entry (the warning isn't a data-gap class).
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-BLOCK_DISAPPEARED`)).toBeNull();
   });
 
   test("no data-gap detail when warnings is empty", () => {
@@ -467,6 +501,16 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     // All 9 now present — nothing is hidden.
     expect(within(region).getAllByTestId(`wizard-step3-card-${DFID}-sched-time`).length).toBe(9);
     expect(within(region).getAllByTestId(`wizard-step3-card-${DFID}-sched-title`).length).toBe(9);
+  });
+
+  // followup E: the breakdown day headers were raw ISO keys ("2026-04-10") while
+  // the summary humanizes the same dates — an internal inconsistency in one card.
+  test("schedule breakdown day headers are humanized (matching the summary), not raw ISO", () => {
+    const FIX = parseResult({ runOfShow: runOfShow(1, 2) }); // 1 day; key "2026-04-10"
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`);
+    expect(region.textContent).toContain("Apr 10"); // humanizeDate("2026-04-10")
+    expect(region.textContent).not.toContain("2026-04-10"); // raw ISO never shown
   });
 
   test("warnings breakdown: catalog title when cataloged, raw message (never the bare code) otherwise, + non-blocking note", () => {

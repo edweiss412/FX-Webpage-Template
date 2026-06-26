@@ -114,9 +114,13 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
   // wrapped so it lingers/animates instead of disappearing the instant its
   // count hits zero. Pin each as a plain ternary-to-null.
   it("Step-3 detail, per-show panel, and alert sub-line are plain ternary-to-null", () => {
-    expect(src("components/admin/wizard/Step3SheetCard.tsx")).toMatch(
-      /\{dataGapDetails\.length > 0 \? \(/,
-    );
+    const step3 = src("components/admin/wizard/Step3SheetCard.tsx");
+    // The summary warning row (per-class data-gap chips + the neutral "+K other"
+    // chip — followup A) is a plain ternary-to-null: present iff any gap OR any
+    // other warning, gone otherwise — instant, no AnimatePresence/motion wrapper.
+    expect(step3).toMatch(/\{dataGapDetails\.length > 0 \|\| otherWarningCount > 0 \? \(/);
+    // the nested "+K other" chip is itself a plain ternary-to-null (instant).
+    expect(step3).toMatch(/\{otherWarningCount > 0 \? \(/);
     // Per-show panel: failed → calm notice; else messages>0 → section; else null.
     const page = src("app/admin/show/[slug]/page.tsx");
     expect(page).toMatch(/\{dataQuality\.failed \? \(/);
