@@ -83,7 +83,7 @@ function cap(hotels: HotelReservationRow[]): HotelReservationRow[] {
 type SlotData = {
   ordinal: number;
   hotel_name?: string | null;
-  hotel_address: null;
+  hotel_address?: string | null;
   names: string[];
   confirmation_no: null;
   check_in?: string | null;
@@ -151,6 +151,66 @@ function stripConfTokens(name: string): string {
     .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Split a flattened "<hotel name> <street address>" string into the venue name
+ * and the street address (§2.6 / BL-PARSER #3). The production exporter flattens
+ * the source cell's `name⏎street⏎city` newlines to spaces, so the boundary is
+ * recovered by PATTERN: the address begins at the FIRST street NUMBER that
+ * actually starts a street PHRASE. Live-MCP grounding of all 7 fxav-test sheets
+ * (2026-06-26) confirmed every hotel name ends at that number and no hotel name
+ * in the corpus contains such a number; on the live cell this boundary is also
+ * the in-cell newline.
+ *
+ * Also strips artifacts the live cells carry that the exporter preserves so the
+ * crew render stays clean (hotel_name = bold line, hotel_address = subtle line,
+ * TravelSection): ria wraps its address in literal double-quotes; fintech's
+ * Holiday Inn embeds U+200C ZWNJ. Conf# removal is the caller's job — run
+ * stripConfTokens FIRST so a "<dash> #<digits>" run can't masquerade as a street
+ * number (the leading-\s anchor below already rejects a "#5001397" with no
+ * preceding space, but stripping first is belt-and-suspenders).
+ *
+ * The boundary requires a full STREET SHAPE — `<1–5 digit number> [direction]
+ * <0–4 name words, letter-word OR ordinal like "37th"> <street suffix>` — NOT
+ * merely "a number followed by a word". Two-sided robustness:
+ *   • Too-loose (Codex R1) — a numeric-branded name is NOT mis-split: `Hotel 71`
+ *     (no address) stays whole; `Hotel 71 71 E Wacker Dr …` splits at the SECOND
+ *     71 (the one that begins a street phrase) → name `Hotel 71`, not `Hotel`.
+ *   • Too-strict (Codex R2) — common shapes still split: a 1-digit street number
+ *     (`1 Newbury St`, `1 Bellevue Ave`) and an ordinal street name (`38 E 37th
+ *     St`, `485 5th Ave`) both match.
+ * When no street shape is found the cell stays intact as hotel_name (the pre-#3
+ * behavior) — a SAFE failure, never a corrupted name. Exotic shapes intentionally
+ * left glued (safe): alphanumeric house numbers (`123A Main St`), PO boxes.
+ */
+const STREET_ADDRESS_RE =
+  /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
+
+function splitHotelNameAddress(combined: string | null): {
+  name: string | null;
+  address: string | null;
+} {
+  if (!combined) return { name: null, address: null };
+  const cleaned = combined
+    .replace(/[​-‍﻿]/g, "") // zero-width: ZWSP / ZWNJ / ZWJ / BOM
+    .replace(/["“”]/g, " ") // straight + smart double-quotes → space
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return { name: null, address: null };
+  // The address begins at the first street number that actually starts a street
+  // phrase (see STREET_ADDRESS_RE). The regex only LOCATES the boundary; the
+  // address itself runs from that number to the end of the cell (city/state/ZIP
+  // included). No match → the whole cell stays as the name (safe, glued).
+  const m = STREET_ADDRESS_RE.exec(cleaned);
+  if (!m) return { name: presence(cleaned), address: null };
+  const splitAt = m.index; // index of the separating whitespace
+  const name = cleaned
+    .slice(0, splitAt)
+    .replace(/[,\-–—\s]+$/, "")
+    .trim();
+  const address = cleaned.slice(splitAt).trim();
+  return { name: presence(name), address: presence(address) };
 }
 
 /**
@@ -270,11 +330,20 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
 
     // Value rows based on current rowState
     if (rowState === "hotel_name" && col0 === "") {
+      // The "Hotel Name / Address" cell glues the venue name and street address
+      // (the exporter flattened the in-cell newline to a space); split them so the
+      // crew render shows the venue on the bold line and the address on its own
+      // subtle line. stripConfTokens first (defensive — conf# lives in the
+      // separate "Names" row here, not the address cell).
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
-        leftSlot.hotel_name = presence(stripConfTokens(col1));
+        const split = splitHotelNameAddress(stripConfTokens(col1));
+        leftSlot.hotel_name = split.name;
+        leftSlot.hotel_address = split.address;
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        rightSlot.hotel_name = presence(stripConfTokens(col3));
+        const split = splitHotelNameAddress(stripConfTokens(col3));
+        rightSlot.hotel_name = split.name;
+        rightSlot.hotel_address = split.address;
       }
       rowState = "idle";
       continue;
@@ -329,7 +398,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     result.push({
       ordinal: i,
       hotel_name: slot.hotel_name ?? null,
-      hotel_address: null,
+      hotel_address: slot.hotel_address ?? null,
       names: slot.names,
       confirmation_no: null, // parsed-but-not-persisted — see parseGuestCell
       check_in: slot.check_in ?? null,
@@ -421,7 +490,15 @@ function buildInlineReservations(raw: string, contextYear: string | null): Hotel
  */
 function stripHotelNameConf(rows: HotelReservationRow[]): HotelReservationRow[] {
   for (const r of rows) {
-    if (r.hotel_name) r.hotel_name = presence(stripConfTokens(r.hotel_name));
+    if (r.hotel_name) {
+      // Strip any conf# (this is the final privacy pass for inline cells), THEN
+      // split the venue name from the glued street address (#3). Only overwrite
+      // hotel_address when the split actually found one — never clobber a value an
+      // upstream path already set with null.
+      const split = splitHotelNameAddress(stripConfTokens(r.hotel_name));
+      r.hotel_name = split.name;
+      if (split.address) r.hotel_address = split.address;
+    }
   }
   return rows;
 }
