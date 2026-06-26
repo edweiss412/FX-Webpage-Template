@@ -127,6 +127,9 @@ describe("Drive fetch wrappers", () => {
         Authorization: "Bearer ya29.test-token",
         Accept: XLSX_EXPORT_MIME_TYPE,
       },
+      // The export fetch is now bound by a stall-guard AbortSignal (see the
+      // "Drive xlsx export stall-guard timeout" describe block below).
+      signal: expect.any(AbortSignal),
     });
     expect(synthesizeMarkdownFromXlsx).toHaveBeenCalledWith(bytes);
   });
@@ -462,6 +465,7 @@ describe("Drive fetch wrappers", () => {
         Authorization: "Bearer ya29.test-token",
         Accept: XLSX_EXPORT_MIME_TYPE,
       },
+      signal: expect.any(AbortSignal),
     });
     expect(synthesizeMarkdownFromXlsx).toHaveBeenCalledWith(bytes);
   });
@@ -668,5 +672,230 @@ describe("Drive transient-throttle retry (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-
       }),
     ).rejects.toMatchObject({ status: 404 });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+  });
+
+  // Deterministic + fast: no real backoff wait, zero jitter.
+  const fastRetry = { sleep: async () => {}, random: () => 0 };
+  const EXPORT_META = {
+    data: {
+      id: "sheet-1",
+      name: "Show Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      headRevisionId: "rev-1",
+      exportLinks: {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "https://export",
+      },
+    },
+  };
+
+  // A fetch that NEVER resolves on its own — it settles only when the caller's
+  // AbortSignal fires. This is the real production failure mode: a Drive export
+  // socket that hangs with no response. Without the stall guard, awaiting this
+  // would hang forever; the test completing at all proves the guard fires.
+  function stallUntilAborted() {
+    return vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason ?? new Error("aborted")),
+          );
+        }),
+    );
+  }
+
+  function okResponse() {
+    return { ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) };
+  }
+
+  // A Response whose HEADERS resolve fine but whose BODY read (arrayBuffer)
+  // hangs until the caller's AbortSignal fires — the distinct second stall leg
+  // the single AbortController must also bound (a body that starts then stalls,
+  // exactly the byte-cap-not-time-cap class DEFERRED.md DXT-1 foregrounds).
+  function responseWithStallingBody(init?: RequestInit) {
+    return {
+      ok: true,
+      arrayBuffer: vi.fn(
+        () =>
+          new Promise<ArrayBuffer>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason ?? new Error("aborted")),
+            );
+          }),
+      ),
+    };
+  }
+
+  test("the xlsx export passes a stall-guard AbortSignal to fetch", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl as unknown as typeof fetch,
+      getAccessToken: async () => "tok",
+      retry: fastRetry,
+    });
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a persistently stalled export times out, retries the bounded budget, then throws a typed DriveFetchError — never hangs", async () => {
+    const maxRetries = 2;
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const stallingFetch = stallUntilAborted();
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: stallingFetch as unknown as typeof fetch,
+        getAccessToken: async () => "tok",
+        exportTimeoutMs: 20,
+        retry: { ...fastRetry, maxRetries },
+      }),
+    ).rejects.toMatchObject({
+      name: "DriveFetchError",
+      status: 504,
+      message: expect.stringContaining("timed out"),
+    });
+    // initial + maxRetries — bounded recovery attempts, not an infinite hang.
+    // Derived from the fixture so the assertion tracks any maxRetries change.
+    expect(stallingFetch).toHaveBeenCalledTimes(1 + maxRetries);
+  });
+
+  test("a single stalled export attempt recovers on retry with a fresh timeout budget (the 20.8s-then-ok real-world case)", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi
+      .fn()
+      .mockImplementationOnce(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason ?? new Error("aborted")),
+            );
+          }),
+      )
+      .mockResolvedValue(okResponse());
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    const result = await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl as unknown as typeof fetch,
+      getAccessToken: async () => "tok",
+      exportTimeoutMs: 20,
+      retry: fastRetry,
+    });
+
+    expect(result.markdown).toBe("md");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  test("the bytes path (fetchSheetAsMarkdownAtRevision) is guarded too — both export sites time out a stall, not just the binding path", async () => {
+    const maxRetries = 1;
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const stallingFetch = stallUntilAborted();
+    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: stallingFetch as unknown as typeof fetch,
+        getAccessToken: async () => "tok",
+        exportTimeoutMs: 20,
+        retry: { ...fastRetry, maxRetries },
+      }),
+    ).rejects.toMatchObject({ name: "DriveFetchError", status: 504 });
+    // initial + maxRetries; the before-`get` ran once and the stall never reached
+    // the after-`get`, so the export site — not the metadata path — is what timed out.
+    expect(stallingFetch).toHaveBeenCalledTimes(1 + maxRetries);
+  });
+
+  test("a fast healthy export within the timeout still succeeds (no false abort)", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    const result = await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl as unknown as typeof fetch,
+      getAccessToken: async () => "tok",
+      exportTimeoutMs: 20,
+      retry: fastRetry,
+    });
+
+    expect(result.markdown).toBe("md");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("a stall in the BODY read (arrayBuffer), not just the header fetch, is bounded by the same guard", async () => {
+    const maxRetries = 1;
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    // Headers resolve immediately; the BODY read hangs until the signal fires.
+    // Proves the single AbortController bounds arrayBuffer(), not only fetch().
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve(responseWithStallingBody(init) as unknown as Response),
+    );
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl as unknown as typeof fetch,
+        getAccessToken: async () => "tok",
+        exportTimeoutMs: 20,
+        retry: { ...fastRetry, maxRetries },
+      }),
+    ).rejects.toMatchObject({
+      name: "DriveFetchError",
+      status: 504,
+      message: expect.stringContaining("timed out"),
+    });
+    // Each attempt resolves headers then stalls the body → still bounded by retries.
+    expect(fetchImpl).toHaveBeenCalledTimes(1 + maxRetries);
+  });
+
+  test("defaults the export budget to DRIVE_EXPORT_TIMEOUT_MS (45s) and clears the guard timer on success", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+    const { fetchSheetMarkdownWithBinding, DRIVE_EXPORT_TIMEOUT_MS } =
+      await import("@/lib/drive/fetch");
+
+    // Pin the production-critical default (sized against the observed 20.8s
+    // export outlier vs the 300s route budget) against a silent edit.
+    expect(DRIVE_EXPORT_TIMEOUT_MS).toBe(45_000);
+
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      await fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl as unknown as typeof fetch,
+        getAccessToken: async () => "tok",
+        // No exportTimeoutMs → the guard must fall back to the default.
+        retry: fastRetry,
+      });
+
+      // The guard timer was scheduled with the default budget (fastRetry stubs
+      // withDriveRetry's sleep, so the only setTimeout here is the stall guard).
+      const guardScheduled = setTimeoutSpy.mock.calls.some(
+        (call) => call[1] === DRIVE_EXPORT_TIMEOUT_MS,
+      );
+      expect(guardScheduled).toBe(true);
+      // …and it was cleared on success, so no dangling timer holds the loop open.
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
   });
 });

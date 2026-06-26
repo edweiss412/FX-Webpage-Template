@@ -86,6 +86,16 @@ describe("<PersonRow> — href sanitization (dead-link guard)", () => {
     const { container } = render(<PersonRow person={person} />);
     expect(mailHrefs(container)).toHaveLength(0);
   });
+
+  // The render half of the FIELD_UNREADABLE contract: buildCrewMember nulls a
+  // digit-less phone / no-@ email, which reaches PersonRow as an absent value — and
+  // an absent phone/email renders no tap-target (proven by the blank/"neither" cases
+  // above + below), so the warning's "no … link will appear" copy is accurate.
+  test("absent phone + absent email → NO tel:/mailto: (the nulled-field render state)", () => {
+    const person = { name: "Doug Larson" };
+    const { container } = render(<PersonRow person={person} />);
+    expect(actionHrefs(container)).toHaveLength(0);
+  });
 });
 
 describe("<PersonRow> — nameless-but-actionable contact", () => {

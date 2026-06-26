@@ -505,20 +505,17 @@ describe("extractRoleFlags — synthetic per-token vocabulary (plan §6.6)", () 
   }
 });
 
-// ── Edge case: unparseable / empty EMAIL cells (pin, AC-1.2 boundary) ─────────
+// ── Edge case: unparseable / empty EMAIL cells (AC-1.2 boundary) ─────────────
 //
-// PINS the current contract at crew.ts:238 + lib/email/canonicalize.ts:2-6:
-// canonicalize() ONLY trims + lowercases — it never validates email format.
-//   - A non-empty garbage value ("Not An Email") is passed through lowercased;
-//     the schema-level CHECK is the validity gate per canonicalize.ts:8-10 and
-//     AGENTS.md invariant 3 ("schema-level CHECK is the safety net").
-//   - canonicalize returns null ONLY for empty/whitespace cells — the common
-//     "row has no email" case — so a warning on the null path would fire for
-//     every emailless crew row (noise, not signal). No warning is emitted on
-//     either path today; adding one would require a NEW §12.4 warning-code row
-//     (three-lockstep spec+gen+catalog update), so the silent behavior is
-//     pinned here as a documented limitation instead.
-describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
+// Class-A email contract: a non-empty cell with NO "@" is not an address → it is
+// flagged FIELD_UNREADABLE AND nulled (member.email = null), so PersonRow renders no
+// mailto: link and the warning copy ("no email link will appear") stays true — same
+// as the digit-less phone. Empty/whitespace cells (presence === null) are the common
+// "no email" case: nulled silently, no warning. Valid addresses are canonicalized
+// (lowercased/trimmed) and kept. canonicalize() itself never validates format
+// (lib/email/canonicalize.ts:8-10); buildCrewMember adds the null-on-unreadable step
+// on top so a bad value never reaches the crew page as a dead link.
+describe("parseCrew — unparseable/empty email cells (AC-1.2 boundary)", () => {
   const md = [
     "| CREW | NAME | ROLE | PHONE | EMAIL |",
     "| :-: | :-: | :-: | :-: | :-: |",
@@ -527,11 +524,13 @@ describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
     "| | Kay Poe | - A1 | 555-0102 | MiXeD@ExAmPle.COM |",
   ].join("\n");
 
-  it("non-empty garbage email is passed through lowercased — NOT nulled, NOT validated", () => {
+  it("no-@ garbage email is NULLED (unreadable) so no dead mailto link can render", () => {
     const members = parseCrew(md, "v2");
     const jane = members.find((m) => m.name === "Jane Doe");
     expect(jane).toBeDefined();
-    expect(jane!.email).toBe("not an email");
+    // the row still parses (name/phone intact); only the unusable email is dropped.
+    expect(jane!.name).toBe("Jane Doe");
+    expect(jane!.email).toBeNull();
   });
 
   it("empty email cell yields email:null silently (row still parsed)", () => {
@@ -548,23 +547,47 @@ describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
     expect(kay!.email).toBe("mixed@example.com");
   });
 
-  it("no email-related ParseWarning is emitted for either path (pinned limitation)", () => {
-    const agg = { warnings: [], rawUnrecognized: [] };
+  it("flags the no-@ email (Jane) with FIELD_UNREADABLE, but NOT the empty (John) or valid (Kay) rows", () => {
+    const agg = newAggregator();
     parseCrew(md, "v2", agg);
-    const emailWarnings = agg.warnings.filter((w: { code: string; message: string }) =>
-      /email/i.test(w.code + w.message),
+    const emailWarnings = agg.warnings.filter(
+      (w) => w.code === "FIELD_UNREADABLE" && /Crew email/.test(w.message),
     );
-    expect(emailWarnings).toHaveLength(0);
+    // exactly one — Jane's "Not An Email"; empty + valid rows do NOT flag (no noise).
+    // The snippet is the CANONICAL value ("not an email") — invariant 3: canonicalize()
+    // is the only function that touches the raw email, so the warning carries the
+    // canonical form, not the raw string.
+    expect(emailWarnings.length).toBe(1);
+    expect(emailWarnings[0]!.rawSnippet).toBe("not an email");
+    expect(emailWarnings[0]!.blockRef?.kind).toBe("crew");
+    expect(emailWarnings[0]!.message).toContain("not an email");
+    // the unusable email is nulled so no dead mailto renders on a fresh publish.
+    expect(parseCrew(md, "v2").find((m) => m.name === "Jane Doe")?.email).toBeNull();
+  });
+
+  it("STRUCTURAL (invariant 3): crew.ts touches the raw email ONLY via canonicalize()", () => {
+    // Guards against future drift: the email-unreadable predicate must derive from the
+    // CANONICAL value, never inspect emailRaw directly (.includes/.toLowerCase/.trim/
+    // .match/.split/etc.). canonicalize() is the single raw-email boundary (AGENTS.md
+    // invariant 3). Whole-diff review R4.
+    const src = readFileSync("lib/parser/blocks/crew.ts", "utf8");
+    const rawInspection =
+      /emailRaw\s*\.\s*(includes|toLowerCase|toUpperCase|trim|match|split|indexOf|replace|slice|substring|charAt)/;
+    expect(
+      rawInspection.test(src),
+      "crew.ts must not inspect emailRaw directly — route through canonicalize() (invariant 3)",
+    ).toBe(false);
   });
 });
 
 // ── Class A — FIELD_UNREADABLE (crew phone, parse-data-quality-warnings Task 2) ──
 //
 // A phone cell that carries a non-empty value but no digits (e.g. "call John")
-// produces no tel: link and is silently swallowed today (VB08). Class A flags it
-// as a FIELD_UNREADABLE warning while still parsing the member. The predicate
-// lives in the shared buildCrewMember, so BOTH the CREW-header path and the
-// TECH-header path (each computes its own phoneRaw) must emit.
+// produces no tel: number. Class A flags it FIELD_UNREADABLE AND nulls member.phone
+// (so PersonRow renders no dead `tel:` link and the warning copy stays true), while
+// still parsing the rest of the member. The predicate lives in the shared
+// buildCrewMember, so BOTH the CREW- and TECH-header paths (each computes its own
+// phoneRaw) emit + null.
 
 describe("Class A — FIELD_UNREADABLE crew phone", () => {
   it("emits FIELD_UNREADABLE for a digit-less phone via the CREW-header path", () => {
@@ -577,9 +600,11 @@ describe("Class A — FIELD_UNREADABLE crew phone", () => {
     const agg = newAggregator();
     const crew = parseCrew(md, "v4", agg);
 
-    // member still parses (row not dropped)
+    // member still parses (row not dropped), but the unusable phone is nulled so
+    // no dead tel: link renders.
     expect(crew.length).toBe(1);
     expect(crew[0]!.name).toBe("John Smith");
+    expect(crew[0]!.phone).toBeNull();
 
     const fieldWarnings = agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE");
     expect(fieldWarnings.length).toBe(1);
@@ -601,6 +626,7 @@ describe("Class A — FIELD_UNREADABLE crew phone", () => {
 
     expect(crew.length).toBe(1);
     expect(crew[0]!.name).toBe("Jane Doe");
+    expect(crew[0]!.phone).toBeNull();
 
     const fieldWarnings = agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE");
     expect(fieldWarnings.length).toBe(1);
@@ -608,7 +634,7 @@ describe("Class A — FIELD_UNREADABLE crew phone", () => {
     expect(fieldWarnings[0]!.blockRef?.kind).toBe("crew");
   });
 
-  it("does NOT emit FIELD_UNREADABLE for a parseable phone (control)", () => {
+  it("does NOT emit FIELD_UNREADABLE for a parseable phone (control) — phone kept", () => {
     const md = [
       "| CREW | NAME | ROLE | PHONE | EMAIL |",
       "| :--: | :--: | :--: | :--: | :--: |",
@@ -616,8 +642,10 @@ describe("Class A — FIELD_UNREADABLE crew phone", () => {
     ].join("\n");
 
     const agg = newAggregator();
-    parseCrew(md, "v4", agg);
+    const crew = parseCrew(md, "v4", agg);
     expect(agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE")).toEqual([]);
+    // a real phone is NOT nulled.
+    expect(crew[0]!.phone).toBe("917-331-4885");
   });
 
   it("does NOT emit FIELD_UNREADABLE for an empty phone (absence is normal)", () => {

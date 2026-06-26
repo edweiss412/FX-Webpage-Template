@@ -21,7 +21,45 @@ export type DriveFetchOptions = {
   fetch?: typeof fetch;
   getAccessToken?: () => Promise<string>;
   retry?: DriveRetryOptions;
+  /**
+   * Per-attempt wall-clock budget for the xlsx export round-trip (fetch + body
+   * read). Defaults to {@link DRIVE_EXPORT_TIMEOUT_MS}. Tests pass a tiny value
+   * to exercise the stall guard without waiting.
+   */
+  exportTimeoutMs?: number;
 };
+
+/**
+ * Per-attempt wall-clock budget for the xlsx export round-trip (the `fetch` of
+ * the export link plus reading its body).
+ *
+ * The Drive export endpoint renders the sheet to xlsx server-side and
+ * INTERMITTENTLY stalls for heavy sheets. A reproduced onboarding-scan hang sat
+ * on a single sheet whose export took 20.8s on one run and never returned on the
+ * next: with `prepareOne` awaiting a `fetch()` that has no time bound, that
+ * worker never settled and the whole scan wedged at "18 of 19" until the route's
+ * 300s maxDuration killed it. `withDriveRetry` could not help — it only retries a
+ * *thrown* 429/5xx, and a silent socket stall never throws.
+ *
+ * The stall guard aborts the export after this budget and surfaces the abort as a
+ * transient `DriveFetchError(504)`, so `withDriveRetry` retries it with a fresh
+ * budget; after the bounded retries it throws a typed error instead of hanging.
+ * 45s clears the worst observed healthy-but-slow export (20.8s) with headroom;
+ * worst-case bound is 45s * (1 + maxRetries) ≈ 180s + backoff, inside the 300s
+ * route budget (and the prepare phase runs files concurrently, so one slow sheet
+ * does not serialize the rest).
+ *
+ * Contract note: a guard that exhausts its retries throws — and the onboarding
+ * prepare phase (`prepareOnboardingFiles`) runs files through fail-fast
+ * `mapWithConcurrency`, so a PERSISTENTLY stalled sheet now fails the whole scan
+ * fast (a bounded, typed error) rather than degrading that one sheet to a
+ * per-file `hard_failed`. That is deliberate and consistent with the existing
+ * no-per-file-isolation contract of `prepareOne` (any prepare-phase Drive read
+ * error already aborts the scan); it converts an indefinite hang into a bounded
+ * failure. A per-file-degradation variant of the prepare path, if ever wanted,
+ * is a separate change — see DEFERRED.md DXT-1.
+ */
+export const DRIVE_EXPORT_TIMEOUT_MS = 45_000;
 
 export class DriveFetchError extends Error {
   readonly status?: number;
@@ -81,6 +119,64 @@ export async function withDriveRetry<T>(
       await sleep(delayMs);
     }
   }
+}
+
+/**
+ * Fetch the xlsx export bytes for an already-resolved export URL, bounded by a
+ * per-attempt stall-guard timeout and wrapped in `withDriveRetry`.
+ *
+ * One `AbortController` covers BOTH the header fetch and the body read, so a
+ * stall at either point aborts the attempt. The abort is surfaced as a transient
+ * `DriveFetchError(504)` (an HTTP-export failure shape `withDriveRetry` already
+ * treats as transient), so a stalled export is retried with a fresh budget rather
+ * than hanging forever; after the bounded retries it propagates as a typed error.
+ * The timer is `clearTimeout`'d in `finally` (and `unref`'d defensively) so a
+ * resolved export never leaves a dangling timer holding the event loop open.
+ */
+async function fetchXlsxExportBytes(
+  exportUrl: string,
+  accessToken: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+  retry?: DriveRetryOptions,
+): Promise<ArrayBuffer> {
+  return withDriveRetry(async () => {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs) as ReturnType<typeof setTimeout> & { unref?: () => void };
+    timer.unref?.();
+    try {
+      const response = await fetchImpl(exportUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: XLSX_EXPORT_MIME_TYPE,
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        // Carry the status so withDriveRetry can retry a transient (429/5xx) export.
+        throw new DriveFetchError(
+          `Drive revision xlsx export failed with HTTP ${response.status}`,
+          response.status,
+        );
+      }
+      return await response.arrayBuffer();
+    } catch (error) {
+      if (timedOut) {
+        // The stall guard fired. Surface it as a transient 504 so withDriveRetry
+        // retries with a fresh budget; after the bounded retries this propagates
+        // as a typed DriveFetchError instead of an indefinite hang. `timedOut`
+        // (our own flag) — not the abort error's name — is the source of truth.
+        throw new DriveFetchError(`Drive xlsx export timed out after ${timeoutMs}ms`, 504);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }, retry);
 }
 
 // Raw Drive files.get with transient-retry. A NAMED helper (not an inline arrow)
@@ -214,24 +310,13 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
   }
   const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
   const fetchImpl = options.fetch ?? fetch;
-  const exportResponse = await withDriveRetry(async () => {
-    const response = await fetchImpl(exportUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: XLSX_EXPORT_MIME_TYPE,
-      },
-    });
-    if (!response.ok) {
-      // Carry the status so withDriveRetry can retry a transient (429/5xx) export.
-      throw new DriveFetchError(
-        `Drive revision xlsx export failed with HTTP ${response.status}`,
-        response.status,
-      );
-    }
-    return response;
-  }, options.retry);
-
-  const bytes = await exportResponse.arrayBuffer();
+  const bytes = await fetchXlsxExportBytes(
+    exportUrl,
+    accessToken,
+    fetchImpl,
+    options.exportTimeoutMs ?? DRIVE_EXPORT_TIMEOUT_MS,
+    options.retry,
+  );
   const after = await fetchFileForExport(driveFileId, drive, options.retry);
   const afterToken = bindingToken(after);
   if (afterToken !== revisionId) {
@@ -275,24 +360,13 @@ export async function fetchSheetMarkdownWithBinding(
   }
   const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
   const fetchImpl = options.fetch ?? fetch;
-  const exportResponse = await withDriveRetry(async () => {
-    const response = await fetchImpl(exportUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: XLSX_EXPORT_MIME_TYPE,
-      },
-    });
-    if (!response.ok) {
-      // Carry the status so withDriveRetry can retry a transient (429/5xx) export.
-      throw new DriveFetchError(
-        `Drive revision xlsx export failed with HTTP ${response.status}`,
-        response.status,
-      );
-    }
-    return response;
-  }, options.retry);
-
-  const bytes = await exportResponse.arrayBuffer();
+  const bytes = await fetchXlsxExportBytes(
+    exportUrl,
+    accessToken,
+    fetchImpl,
+    options.exportTimeoutMs ?? DRIVE_EXPORT_TIMEOUT_MS,
+    options.retry,
+  );
   const after = await fetchFileForExport(driveFileId, drive, options.retry);
   if (bindingToken(after) !== token) {
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);

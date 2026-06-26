@@ -416,6 +416,224 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
   }
 });
 
+describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)", () => {
+  // east-coast's "Hotel Stays" cell has NO "Check In" marker, so guests sit glued
+  // after the hotel name with mixed dash styles + a middle initial:
+  //   "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525"
+  // The weak inline name patterns missed Carl (en-dash "–-") + Eric W (middle
+  // initial) and—because there is no "Check In" suffix to strip—left every guest
+  // first-name glued into hotel_name. names[] is load-bearing: getShowForViewer
+  // filters hotels by the viewer's name appearing in res.names.
+  it("east-coast: hotel_name is the venue only; all guests extracted into names[]", () => {
+    const h = parse("east-coast").hotelReservations;
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Four Seasons Fort Lauderdale");
+    expect(h[0]!.hotel_address).toBeNull();
+    expect(h[0]!.names).toEqual(["Doug", "Carl", "Eric W"]);
+  });
+
+  it("east-coast: no guest first-name is glued into hotel_name; no conf# anywhere", () => {
+    const h = parse("east-coast").hotelReservations[0]!;
+    for (const guest of ["Doug", "Carl", "Eric"]) {
+      expect(h.hotel_name ?? "", `"${guest}" glued into hotel_name`).not.toMatch(
+        new RegExp(`\\b${guest}\\b`),
+      );
+    }
+    for (const conf of ["103317", "103316", "110525"]) {
+      expect(h.hotel_name ?? "").not.toContain(conf);
+      expect(h.names.join(" ")).not.toContain(conf);
+    }
+  });
+
+  // synthetic: the hotel's LAST word must not bleed into the first guest name (the
+  // "Lauderdale Doug" failure class). Drive through the Hotel Stays path.
+  it("does not bleed the hotel's last word into the first guest", () => {
+    const md = "| Hotel Stays | Hilton Garden Inn Carl –- 999888 Doug--- 777666 |";
+    const h = parseHotels(md, "v1");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Hilton Garden Inn");
+    expect(h[0]!.names).toEqual(["Carl", "Doug"]);
+  });
+
+  // no-regression (Codex R2): a no-Check-In cell with a 2-word name + a 4–5 digit
+  // dash conf ("Doug Larson - 7414") is NOT the east-coast 1-word/6-digit shape, so
+  // it must FALL THROUGH to legacy Pattern 1, which SURFACES the guest — it must NOT
+  // be dropped to names:[] by the guest-less shortcut. The shortcut fires only when
+  // a dash-number is a STREET number (street phrase), not a conf#. (Pattern 1 greedy-
+  // captures the leading hotel word too — "Westin Doug Larson" — a pre-existing bleed
+  // out of this fix's scope; what matters here is the guest is present, not dropped.)
+  it("a no-Check-In 2-word + 4-digit dash conf still SURFACES the guest, not dropped", () => {
+    const h = parseHotels("| Hotel Stays | Westin Doug Larson - 7414 |", "v1");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.names.length).toBeGreaterThan(0); // NOT dropped to []
+    expect(h[0]!.names.join(" ")).toContain("Doug Larson");
+    expect(h[0]!.names.join(" ")).not.toContain("7414"); // conf# stripped from names
+    expect(h[0]!.hotel_name ?? "").not.toContain("7414"); // and from hotel_name
+  });
+
+  // no-regression: the legacy BARE-conf# shape (no dash, "In on the Nth" prose) is
+  // intentionally NOT handled by the dash extractor — it must fall through to the
+  // existing path with the conf# stripped (privacy) and the venue still present.
+  it("legacy bare-conf# Hotel Reservations falls through, conf# still stripped", () => {
+    const md =
+      "| Hotel Reservations | Four Seasons Chicago Eric Weiss 2004173 In on the 6th out on the 10th Jeffrey Justice 2004172 In on the 6th out on the 10th |";
+    const h = parseHotels(md, "v1");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toContain("Four Seasons Chicago");
+    for (const conf of ["2004173", "2004172"]) {
+      expect(h[0]!.hotel_name ?? "").not.toContain(conf);
+      expect(h[0]!.names.join(" ")).not.toContain(conf);
+    }
+  });
+
+  // no-regression: a DATED inline cell (ria/redefining shape) keeps the existing
+  // path — guests after the dates, hotel name unaffected by the new extractor.
+  it("dated inline cell is unaffected by the dash extractor (ria/redefining path)", () => {
+    expect(parse("ria").hotelReservations[0]!.hotel_name).toBe("Park Hyatt Chicago");
+    expect(parse("redefining-fi").hotelReservations[0]!.hotel_name).toBe("The Drake Hotel");
+  });
+
+  // false-positive guard (Codex R1): a dash-separated ADDRESS must not be read as a
+  // "Name - conf#" guest. A street number is ≤5 digits; a hotel conf# is ≥6, so the
+  // dash extractor can't fire on "Hyatt Regency - 1515 Madison Ave" — the cell
+  // routes through splitHotelNameAddress instead. The hotel name + address are
+  // preserved and — critically — NO hotel word leaks into names[] (which gates
+  // per-viewer hotel visibility). (A suffixless street like "Broadway" would stay
+  // glued per the #3 street-shape gate; that safe fallback is unchanged here.)
+  it("a dash-separated address is preserved, not extracted as a guest", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Hyatt Regency - 1515 Madison Ave New York, NY 10036 |",
+      "v1",
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Hyatt Regency");
+    expect(h[0]!.hotel_address).toBe("1515 Madison Ave New York, NY 10036");
+    expect(h[0]!.names).toEqual([]);
+  });
+
+  // a plain no-Check-In hotel+address cell with no guests also splits cleanly.
+  it("a guest-less hotel+address Hotel-Stays cell splits name/address, no guests", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Marriott Downtown 555 Main St Chicago, IL 60601 |",
+      "v1",
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Marriott Downtown");
+    expect(h[0]!.hotel_address).toBe("555 Main St Chicago, IL 60601");
+    expect(h[0]!.names).toEqual([]);
+  });
+
+  // learn-K (Codex R3): in a MULTI-guest list, names 2..N are unambiguously
+  // delimited by their conf#s, so they teach the name length for the ambiguous
+  // FIRST guest. A 2-word multi-guest cell must split the first guest's full name
+  // off the hotel ("Westin" | "Doug Larson"), not just the surname.
+  it("multi-guest 2-word names: the first guest's full name peels off the hotel", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Westin Doug Larson - 123456 Eric Weiss - 123457 |",
+      "v1",
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Westin");
+    expect(h[0]!.names).toEqual(["Doug Larson", "Eric Weiss"]);
+  });
+
+  // STRUCTURAL DEFENSE (Codex R1–R3 same-vector): a matrix locking the guest/
+  // address boundary across shapes. Each row states the exact expected
+  // {hotel_name, names} so any future regex change that re-opens the vector fails
+  // here. Shapes the extractor OWNS vs deliberately FALLS THROUGH are both pinned.
+  type Row = {
+    label: string;
+    cell: string;
+    name: string | null;
+    names: string[];
+    addr?: string | null;
+  };
+  const MATRIX: Row[] = [
+    {
+      label: "east-coast (multi 1-word + initial, 6-digit, mixed dashes)",
+      cell: "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525",
+      name: "Four Seasons Fort Lauderdale",
+      names: ["Doug", "Carl", "Eric W"],
+    },
+    {
+      label: "multi 2-word names (learn-K)",
+      cell: "Westin Doug Larson - 123456 Eric Weiss - 123457",
+      name: "Westin",
+      names: ["Doug Larson", "Eric Weiss"],
+    },
+    {
+      label: "multi 1-word, hotel ends in a capitalized word (no bleed)",
+      cell: "Hilton Garden Inn Carl –- 999888 Doug--- 777666",
+      name: "Hilton Garden Inn",
+      names: ["Carl", "Doug"],
+    },
+    {
+      label: "dash-separated address (no guests, preserved)",
+      cell: "Hyatt Regency - 1515 Madison Ave New York, NY 10036",
+      name: "Hyatt Regency",
+      names: [],
+      addr: "1515 Madison Ave New York, NY 10036",
+    },
+    {
+      // R4+R5: a SUFFIXLESS street (Broadway) is NOT split (splitHotelNameAddress is
+      // suffix-only, so a numeric brand "Hotel 71 Chicago, IL …" is never corrupted),
+      // but it stays glued-AND-PRESERVED: the separator dash is collapsed first so the
+      // street number is NOT dropped as a conf#, and NO fake guest leaks into names[].
+      label: "dash-separated SUFFIXLESS address: glued-and-preserved, no fake guest",
+      cell: "Hyatt Regency - 1515 Broadway New York, NY 10036",
+      name: "Hyatt Regency 1515 Broadway New York, NY 10036",
+      names: [],
+      addr: null,
+    },
+    {
+      // R5: a numeric-branded hotel name with only city/state/ZIP context must stay
+      // glued ("Hotel 71" is the name, not "Hotel" + address "71 Chicago…").
+      label: "numeric hotel brand + city/ZIP (no street) stays glued",
+      cell: "Hotel 71 Chicago, IL 60601",
+      name: "Hotel 71 Chicago, IL 60601",
+      names: [],
+      addr: null,
+    },
+    {
+      label: "plain hotel+address, no dash, no guests",
+      cell: "Marriott Downtown 555 Main St Chicago, IL 60601",
+      name: "Marriott Downtown",
+      names: [],
+      addr: "555 Main St Chicago, IL 60601",
+    },
+  ];
+  for (const row of MATRIX) {
+    it(`matrix: ${row.label}`, () => {
+      const h = parseHotels(`| Hotel Stays | ${row.cell} |`, "v1");
+      expect(h).toHaveLength(1);
+      expect(h[0]!.hotel_name).toBe(row.name);
+      expect(h[0]!.names).toEqual(row.names);
+      if (row.addr !== undefined) expect(h[0]!.hotel_address).toBe(row.addr);
+      // privacy: no conf# survives in any string field on any matrix shape.
+      const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}|\b\d{6,}\b/;
+      for (const v of [h[0]!.hotel_name, h[0]!.hotel_address, ...h[0]!.names]) {
+        expect(v ?? "", `conf# leaked into "${v}"`).not.toMatch(confTok);
+      }
+    });
+  }
+
+  // R6: learn-K fires ONLY when the later guests agree on a name shape. A MIXED row
+  // (later counts 1 and 2) gives no reliable k, so it must NOT mis-capture the first
+  // guest (the old min() yielded hotel "Westin Doug" / first guest "Larson"); it
+  // falls through to legacy instead. Pin the SAFE properties, not the messy legacy
+  // string: no "Westin Doug" hotel, no lone "Larson", no conf# leak.
+  it("mixed one-word + full-name guests do NOT mis-capture the first guest (learn-K guard)", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Westin Doug Larson - 123456 Eric - 123457 John Smith - 123458 |",
+      "v1",
+    )[0]!;
+    expect(h.hotel_name).not.toBe("Westin Doug"); // the R6 mis-capture
+    expect(h.names).not.toContain("Larson"); // first guest not truncated to a surname
+    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}|\b\d{6,}\b/;
+    for (const v of [h.hotel_name, ...h.names]) expect(v ?? "").not.toMatch(confTok);
+  });
+});
+
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
   it("consultants GS does NOT inherit a DETAILS-section Digital Signage sentence", () => {
     const gs = parse("consultants").rooms.find((r) => r.kind === "gs");

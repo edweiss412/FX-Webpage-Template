@@ -226,12 +226,29 @@ function buildCrewMember(params: {
 }): CrewMemberRow {
   const { phoneRaw, emailRaw, flightRaw, index, warnings, agg } = params;
 
-  // Class A (§5.1) — a phone cell carried a non-empty value but no digits, so it
-  // produces no tel: link and is otherwise dropped silently (VB08). Flag it as a
-  // FIELD_UNREADABLE warning; the member still parses. Shared across BOTH the
-  // CREW- and TECH-header paths (each computes its own phoneRaw and threads it in).
-  if (presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0) {
+  // Class A — a field carried a non-empty value that yields no usable tap-target:
+  // a phone with no digits (no `tel:` number) or an email with no "@" (not an
+  // address). Flag it AND null the field below, so a fresh publish renders NO link
+  // (on the MI-11 hold path the prior approved value stays live until approval). The
+  // member still parses. Shared by both header paths; for email, in practice only the
+  // CREW path emits — v1 TECH sheets carry no EMAIL column.
+  const phoneUnreadable = presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0;
+  if (phoneUnreadable) {
     emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: phoneRaw, index });
+  }
+  // INVARIANT 3 (whole-diff R4): canonicalize() is the ONLY function allowed to touch
+  // the raw email. Derive the unreadable check from the CANONICAL value — never inspect
+  // emailRaw directly — and surface that same canonical value (the warning snippet uses
+  // it too, so no raw email enters the system uncanonicalized).
+  const canonicalEmail = canonicalize(emailRaw);
+  const emailUnreadable = canonicalEmail !== null && !canonicalEmail.includes("@");
+  if (emailUnreadable) {
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "email",
+      rawSnippet: canonicalEmail!,
+      index,
+    });
   }
 
   const dayResult = extractDayRestriction({ nameCell: params.nameRaw, roleCell: params.roleRaw });
@@ -263,12 +280,12 @@ function buildCrewMember(params: {
     if (agg) agg.warnings.push(tripleAsteriskWarning);
   }
 
-  const email = canonicalize(emailRaw);
-
   return {
     name: displayName,
-    email,
-    phone: presence(phoneRaw),
+    // Unreadable fields are nulled (see Class-A note above) so a fresh publish renders
+    // no dead tap-target; email uses the already-canonicalized value (invariant 3).
+    email: emailUnreadable ? null : canonicalEmail,
+    phone: phoneUnreadable ? null : presence(phoneRaw),
     role: cleanedRole,
     role_flags: roleFlags,
     date_restriction: dateRestriction,
