@@ -21,7 +21,9 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
+import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
 import { PageTransition } from "@/components/layout/PageTransition";
+import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
@@ -80,6 +82,36 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     throw err;
   }
 
+  const adminEmail = identity.email;
+
+  // Onboarding UX Polish Task 1: during first-run onboarding the setup wizard
+  // owns the screen and the nav tabs point at destinations that do not
+  // meaningfully exist yet, so suppress them and show a slim bar instead. The
+  // gate mirrors the dispatcher precedence in app/admin/page.tsx:147/:193 —
+  // a minted wizard session (precedence 1) OR no watched folder yet
+  // (precedence 2) means we are still mid-onboarding. FAIL OPEN on any
+  // app_settings read fault: a `{kind:"infra_error"}` result keeps the full
+  // nav so a settled admin is never stranded without navigation.
+  const appSettings = await readAppSettingsRow();
+  const inOnboarding =
+    appSettings.kind === "value" &&
+    (appSettings.settings.pending_wizard_session_id !== null ||
+      appSettings.settings.watched_folder_id === null);
+
+  if (inOnboarding) {
+    return (
+      <div
+        data-testid="admin-layout"
+        // No `pb-20`: the slim onboarding bar has no fixed mobile bottom tab
+        // bar to clear, so the mobile-bottom-bar reservation is dropped.
+        className="mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-page-pad-mobile sm:px-page-pad-desktop sm:pt-page-pad-desktop sm:pb-page-pad-desktop"
+      >
+        <OnboardingTopBar email={adminEmail} />
+        <PageTransition>{children}</PageTransition>
+      </div>
+    );
+  }
+
   // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
   // parallel so first /admin entry blocks on one wall-time, not two sequential
   // round-trips. alertCount is meta-pinned in lib/admin/alertCount.ts; the
@@ -89,7 +121,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     fetchUnresolvedAlertCount(),
     loadNeedsAttentionCount(),
   ]);
-  const adminEmail = identity.email;
 
   return (
     <div
