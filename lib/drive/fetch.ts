@@ -48,6 +48,16 @@ export type DriveFetchOptions = {
  * worst-case bound is 45s * (1 + maxRetries) ≈ 180s + backoff, inside the 300s
  * route budget (and the prepare phase runs files concurrently, so one slow sheet
  * does not serialize the rest).
+ *
+ * Contract note: a guard that exhausts its retries throws — and the onboarding
+ * prepare phase (`prepareOnboardingFiles`) runs files through fail-fast
+ * `mapWithConcurrency`, so a PERSISTENTLY stalled sheet now fails the whole scan
+ * fast (a bounded, typed error) rather than degrading that one sheet to a
+ * per-file `hard_failed`. That is deliberate and consistent with the existing
+ * no-per-file-isolation contract of `prepareOne` (any prepare-phase Drive read
+ * error already aborts the scan); it converts an indefinite hang into a bounded
+ * failure. A per-file-degradation variant of the prepare path, if ever wanted,
+ * is a separate change — see DEFERRED.md DXT-1.
  */
 export const DRIVE_EXPORT_TIMEOUT_MS = 45_000;
 

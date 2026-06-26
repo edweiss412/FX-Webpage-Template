@@ -715,6 +715,24 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
     return { ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) };
   }
 
+  // A Response whose HEADERS resolve fine but whose BODY read (arrayBuffer)
+  // hangs until the caller's AbortSignal fires — the distinct second stall leg
+  // the single AbortController must also bound (a body that starts then stalls,
+  // exactly the byte-cap-not-time-cap class DEFERRED.md DXT-1 foregrounds).
+  function responseWithStallingBody(init?: RequestInit) {
+    return {
+      ok: true,
+      arrayBuffer: vi.fn(
+        () =>
+          new Promise<ArrayBuffer>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason ?? new Error("aborted")),
+            );
+          }),
+      ),
+    };
+  }
+
   test("the xlsx export passes a stall-guard AbortSignal to fetch", async () => {
     const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
     const fetchImpl = vi.fn().mockResolvedValue(okResponse());
@@ -732,6 +750,7 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
   });
 
   test("a persistently stalled export times out, retries the bounded budget, then throws a typed DriveFetchError — never hangs", async () => {
+    const maxRetries = 2;
     const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
     const stallingFetch = stallUntilAborted();
     const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
@@ -742,15 +761,16 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
         fetch: stallingFetch as unknown as typeof fetch,
         getAccessToken: async () => "tok",
         exportTimeoutMs: 20,
-        retry: { ...fastRetry, maxRetries: 2 },
+        retry: { ...fastRetry, maxRetries },
       }),
     ).rejects.toMatchObject({
       name: "DriveFetchError",
       status: 504,
       message: expect.stringContaining("timed out"),
     });
-    // initial + 2 retries — bounded recovery attempts, not an infinite hang.
-    expect(stallingFetch).toHaveBeenCalledTimes(3);
+    // initial + maxRetries — bounded recovery attempts, not an infinite hang.
+    // Derived from the fixture so the assertion tracks any maxRetries change.
+    expect(stallingFetch).toHaveBeenCalledTimes(1 + maxRetries);
   });
 
   test("a single stalled export attempt recovers on retry with a fresh timeout budget (the 20.8s-then-ok real-world case)", async () => {
@@ -781,6 +801,7 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
   });
 
   test("the bytes path (fetchSheetAsMarkdownAtRevision) is guarded too — both export sites time out a stall, not just the binding path", async () => {
+    const maxRetries = 1;
     const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
     const stallingFetch = stallUntilAborted();
     const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
@@ -791,12 +812,12 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
         fetch: stallingFetch as unknown as typeof fetch,
         getAccessToken: async () => "tok",
         exportTimeoutMs: 20,
-        retry: { ...fastRetry, maxRetries: 1 },
+        retry: { ...fastRetry, maxRetries },
       }),
     ).rejects.toMatchObject({ name: "DriveFetchError", status: 504 });
-    // initial + 1 retry; the before-`get` ran once and the stall never reached
+    // initial + maxRetries; the before-`get` ran once and the stall never reached
     // the after-`get`, so the export site — not the metadata path — is what timed out.
-    expect(stallingFetch).toHaveBeenCalledTimes(2);
+    expect(stallingFetch).toHaveBeenCalledTimes(1 + maxRetries);
   });
 
   test("a fast healthy export within the timeout still succeeds (no false abort)", async () => {
@@ -814,5 +835,67 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
 
     expect(result.markdown).toBe("md");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("a stall in the BODY read (arrayBuffer), not just the header fetch, is bounded by the same guard", async () => {
+    const maxRetries = 1;
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    // Headers resolve immediately; the BODY read hangs until the signal fires.
+    // Proves the single AbortController bounds arrayBuffer(), not only fetch().
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve(responseWithStallingBody(init) as unknown as Response),
+    );
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl as unknown as typeof fetch,
+        getAccessToken: async () => "tok",
+        exportTimeoutMs: 20,
+        retry: { ...fastRetry, maxRetries },
+      }),
+    ).rejects.toMatchObject({
+      name: "DriveFetchError",
+      status: 504,
+      message: expect.stringContaining("timed out"),
+    });
+    // Each attempt resolves headers then stalls the body → still bounded by retries.
+    expect(fetchImpl).toHaveBeenCalledTimes(1 + maxRetries);
+  });
+
+  test("defaults the export budget to DRIVE_EXPORT_TIMEOUT_MS (45s) and clears the guard timer on success", async () => {
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi.fn().mockResolvedValue(okResponse());
+    const { fetchSheetMarkdownWithBinding, DRIVE_EXPORT_TIMEOUT_MS } =
+      await import("@/lib/drive/fetch");
+
+    // Pin the production-critical default (sized against the observed 20.8s
+    // export outlier vs the 300s route budget) against a silent edit.
+    expect(DRIVE_EXPORT_TIMEOUT_MS).toBe(45_000);
+
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    try {
+      await fetchSheetMarkdownWithBinding("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl as unknown as typeof fetch,
+        getAccessToken: async () => "tok",
+        // No exportTimeoutMs → the guard must fall back to the default.
+        retry: fastRetry,
+      });
+
+      // The guard timer was scheduled with the default budget (fastRetry stubs
+      // withDriveRetry's sleep, so the only setTimeout here is the stall guard).
+      const guardScheduled = setTimeoutSpy.mock.calls.some(
+        (call) => call[1] === DRIVE_EXPORT_TIMEOUT_MS,
+      );
+      expect(guardScheduled).toBe(true);
+      // …and it was cleared on success, so no dangling timer holds the loop open.
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
+    }
   });
 });
