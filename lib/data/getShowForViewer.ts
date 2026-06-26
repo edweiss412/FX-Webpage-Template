@@ -44,6 +44,7 @@
  */
 import { unstable_cache } from "next/cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { namesRefer } from "@/lib/data/nameMatch";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
 import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
@@ -88,6 +89,18 @@ export type Viewer =
   | { kind: "crew"; crewMemberId: string }
   | { kind: "admin" }
   | { kind: "admin_preview"; crewMemberId: string };
+
+/**
+ * Whether a hotel reservation should surface for a viewer — true iff any guest on
+ * the reservation refers to the viewer (`namesRefer`, tolerant of first-name /
+ * nickname / initial / `/`-merged forms). Replaces a naive `guest.includes(viewer)`
+ * substring that hid most crew's own hotels. UX-not-security per the owner
+ * determination (BL-HOTEL-VIEWER-NAME-MATCH); applied only on the non-admin,
+ * non-null-`viewerName` branch.
+ */
+export function hotelVisibleToViewer(res: HotelReservationRow, viewerName: string): boolean {
+  return res.names.some((n) => namesRefer(n, viewerName));
+}
 
 // Crew-page-shaped projection of a show. Mirrors `ParsedSheet` from
 // lib/parser/types.ts:311 with three crew-page-specific differences:
@@ -641,9 +654,7 @@ async function readShowDataForViewer(
   const hotelReservations: HotelReservationRow[] =
     isAdmin || viewerName === null
       ? allHotels
-      : allHotels.filter((res) =>
-          res.names.some((n) => n.toLowerCase().includes((viewerName as string).toLowerCase())),
-        );
+      : allHotels.filter((res) => hotelVisibleToViewer(res, viewerName as string));
 
   let runOfShow: Record<string, ScheduleDay> | null = runOfShowRaw;
 
