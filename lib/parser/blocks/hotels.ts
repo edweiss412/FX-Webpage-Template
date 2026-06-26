@@ -114,24 +114,33 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
 
   const names: string[] = [];
   const confs: string[] = [];
-  // Every "<name> <dash> #?<conf>" token. Guests may be &#10;- OR space-delimited
-  // (the exporter flattens in-cell line breaks; raw sheets glue guests with a
-  // space), so match GLOBALLY rather than per-&#10;-line — otherwise a space-only
-  // multi-guest cell collapses to one "guest". Unicode-aware (\p{L}\p{M}) so
-  // accented names ("José Núñez") match instead of falling through.
-  const tokenRe = /([\p{L}][\p{L}\p{M}.'\- ]*?)\s*[-–—]{1,3}\s*#?\s*(\d{4,})/gu;
-  let consumedEnd = 0;
-  let m: RegExpExecArray | null;
-  while ((m = tokenRe.exec(flat)) !== null) {
-    names.push(clean(m[1]!));
-    confs.push(m[2]!);
-    consumedEnd = m.index + m[0].length;
-  }
-  if (confs.length === 0) {
-    names.push(flat); // no conf# tokens — the cell is just guest name(s)
-  } else {
-    const tail = clean(flat.slice(consumedEnd));
-    if (/\p{L}/u.test(tail)) names.push(tail); // a trailing un-numbered guest
+  // A " / " separates DISTINCT guests in one cell ("David Johnson / Jeffrey
+  // Justice") — split FIRST so each guest (and its own conf#) is parsed
+  // independently, then run the per-guest token extraction over each segment.
+  for (const segment of flat.split(/\s*\/\s*/)) {
+    const seg = segment.trim();
+    if (!seg || seg === "-") continue;
+    // Every "<name> <dash> #?<conf>" token. Guests may be &#10;- OR space-delimited
+    // (the exporter flattens in-cell line breaks; raw sheets glue guests with a
+    // space), so match GLOBALLY rather than per-&#10;-line — otherwise a space-only
+    // multi-guest cell collapses to one "guest". Unicode-aware (\p{L}\p{M}) so
+    // accented names ("José Núñez") match instead of falling through.
+    const tokenRe = /([\p{L}][\p{L}\p{M}.'\- ]*?)\s*[-–—]{1,3}\s*#?\s*(\d{4,})/gu;
+    let consumedEnd = 0;
+    let matched = false;
+    let m: RegExpExecArray | null;
+    while ((m = tokenRe.exec(seg)) !== null) {
+      names.push(clean(m[1]!));
+      confs.push(m[2]!);
+      consumedEnd = m.index + m[0].length;
+      matched = true;
+    }
+    if (!matched) {
+      names.push(seg); // no conf# tokens in this segment — it is just a guest name
+    } else {
+      const tail = clean(seg.slice(consumedEnd));
+      if (/\p{L}/u.test(tail)) names.push(tail); // a trailing un-numbered guest
+    }
   }
   // Belt-and-suspenders: a conf# must NEVER survive in a persisted name, even on
   // the fallback / unmatched-alphabet path — `names` is also show-wide readable.

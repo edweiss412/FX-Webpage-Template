@@ -219,6 +219,35 @@ describe("parseHotels — cardinality cap (synthetic)", () => {
   });
 });
 
+// ── Slash-separated guests (BL-HOTEL-VIEWER-NAME-MATCH) ───────────────────────
+describe("parseHotels — split slash-separated guests in a Names cell", () => {
+  const md = (namesCell: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 |  |  |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address |  |  |",
+      "|  | Park Hyatt 800 N Michigan Ave |  |  |",
+      "|  | Names on Reservation |  |  |",
+      `|  | ${namesCell} |  |  |`,
+      "|  | Check In Date | Check Out Date |  |",
+      "|  | 1/1/26 | 1/2/26 |  |",
+    ].join("\n");
+
+  it("splits 'David Johnson / Jeffrey Justice' into two guest names", () => {
+    // failure mode: the slash-merge persists as one entry → per-viewer hotel filter
+    // can't cleanly match either guest at the source.
+    const h = parseHotels(md("David Johnson / Jeffrey Justice"), "v4");
+    expect(h[0]!.names).toEqual(["David Johnson", "Jeffrey Justice"]);
+  });
+
+  it("strips the conf# per segment ('Alice - #51111 / Bob - #52222' → ['Alice','Bob'])", () => {
+    const h = parseHotels(md("Alice - \\#51111 / Bob - \\#52222"), "v4");
+    expect(h[0]!.names).toEqual(["Alice", "Bob"]);
+    // privacy: no conf# digit run survives in any split name
+    expect(h[0]!.names.join(" ")).not.toMatch(/\d{4,}/);
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseHotels — corpus coverage (every fixture returns array)", () => {
   for (const path of ALL_FIXTURES) {
