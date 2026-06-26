@@ -77,4 +77,13 @@ describe("defaultDriveClient metadata timeouts (DXT-3)", () => {
     expect(id).toBe("rev-9");
     expect(revisionsListMock).toHaveBeenCalledTimes(2);
   });
+
+  test("does NOT retry a non-transient gaxios error (called once) — pins no-over-retry per site", async () => {
+    revisionsListMock.mockRejectedValue({ code: 404 });
+
+    await expect(defaultDriveClient().getSpreadsheetRevisionId!("sheet-1")).rejects.toMatchObject({
+      code: 404,
+    });
+    expect(revisionsListMock).toHaveBeenCalledTimes(1);
+  });
 });

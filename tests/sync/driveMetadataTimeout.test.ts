@@ -87,4 +87,37 @@ describe("applyStaged defaultRetryEmbeddedRevisionAvailability (DXT-3 metadata t
     });
     expect(available).toBe(false);
   });
+
+  test("does NOT retry a non-transient error (called once)", async () => {
+    const list = vi.fn().mockRejectedValue({ code: 404 });
+    await expect(
+      defaultRetryEmbeddedRevisionAvailability("sheet-1", {
+        drive: driveWithRevisionsList(list),
+        retry: fastRetry,
+      }),
+    ).rejects.toMatchObject({ code: 404 });
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("apply-path retry budget is bounded (DXT-3 review)", () => {
+  // No injected retry → the helper's apply-path default (maxRetries: 1) applies,
+  // so a persistent transient error makes exactly 1 + 1 = 2 attempts (not the
+  // cron/scan default of 4) before failing — bounding time held under the
+  // per-show advisory lock. (Real default backoff between the two attempts.)
+  test("verifyReelOnApply defaultDrive defaults to a single retry on the apply path", async () => {
+    const get = vi.fn().mockRejectedValue({ code: "TimeoutError" });
+    await expect(
+      defaultDrive({ drive: driveWithFilesGet(get) }).getFileMetadata("file-1"),
+    ).rejects.toBeTruthy();
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  test("applyStaged defaultRetryEmbeddedRevisionAvailability defaults to a single retry", async () => {
+    const list = vi.fn().mockRejectedValue({ code: "TimeoutError" });
+    await expect(
+      defaultRetryEmbeddedRevisionAvailability("sheet-1", { drive: driveWithRevisionsList(list) }),
+    ).rejects.toBeTruthy();
+    expect(list).toHaveBeenCalledTimes(2);
+  });
 });

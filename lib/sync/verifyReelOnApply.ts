@@ -83,7 +83,11 @@ export function defaultDrive(
           },
           { timeout: deps.timeoutMs ?? DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
         );
-      const response = await withDriveRetry(getFileMetadataCall, deps.retry);
+      // Apply path holds the per-show advisory xact lock, so bound the retry
+      // budget tighter than the cron/scan default (1 retry ≈ 16s worst, vs the
+      // default 3 ≈ 34s) — one retry covers a transient blip without sitting on
+      // the lock for the full default budget. Tests inject deps.retry.
+      const response = await withDriveRetry(getFileMetadataCall, deps.retry ?? { maxRetries: 1 });
       return response.data;
     },
   };

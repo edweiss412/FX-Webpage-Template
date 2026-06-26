@@ -929,13 +929,16 @@ export async function defaultRetryEmbeddedRevisionAvailability(
   deps: { drive?: drive_v3.Drive; retry?: DriveRetryOptions; timeoutMs?: number } = {},
 ): Promise<boolean> {
   const drive = deps.drive ?? getDriveClient();
+  // Apply path holds the per-show advisory xact lock; bound the retry budget
+  // tighter than the default (1 retry ≈ 16s worst vs default 3 ≈ 34s). This read
+  // was previously single-attempt + UNBOUNDED — now single-retry + 8s timeout.
   const response = await withDriveRetry(
     () =>
       drive.revisions.list(
         { fileId: spreadsheetId, fields: "revisions(id)" },
         { timeout: deps.timeoutMs ?? DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
       ),
-    deps.retry,
+    deps.retry ?? { maxRetries: 1 },
   );
   return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
     Boolean(revision.id),
