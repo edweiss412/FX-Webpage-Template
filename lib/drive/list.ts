@@ -6,6 +6,19 @@ export const GOOGLE_SHEETS_MIME_TYPE = "application/vnd.google-apps.spreadsheet"
 export const DRIVE_LIST_FIELDS =
   "nextPageToken, files(id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum)";
 
+/**
+ * Per-page wall-clock budget for the folder `files.list`. `listFolder` is the
+ * FIRST Drive call in the onboarding scan (`prepareOnboardingFiles`), so an
+ * unbounded stall here hangs the whole pass before any sheet is read — the same
+ * silent-stall class as the export/`files.get` fixes, on the same hot path. A
+ * gaxios-7 per-call `timeout` fires via `AbortSignal.timeout` (GaxiosError
+ * `code: "TimeoutError"`), which `driveErrorStatus` maps to a transient 504 so
+ * the wrapping `withDriveRetry` retries with a fresh budget then throws a typed
+ * error. `retry: false` keeps `withDriveRetry` the single retry layer. 15s gives
+ * a paged listing wide headroom while still bounding a stall.
+ */
+export const DRIVE_LIST_TIMEOUT_MS = 15_000;
+
 export type DriveListedFile = {
   driveFileId: string;
   name: string;
@@ -28,6 +41,12 @@ export type ListFolderOptions = {
   drive?: drive_v3.Drive;
   onWarning?: (warning: DriveListWarning) => void;
   retry?: DriveRetryOptions;
+  /**
+   * Per-page wall-clock budget for the `files.list`. Defaults to
+   * {@link DRIVE_LIST_TIMEOUT_MS}. Tests pass a tiny value to exercise the stall
+   * guard without waiting.
+   */
+  listTimeoutMs?: number;
 };
 
 function driveQueryString(value: string): string {
@@ -74,7 +93,16 @@ export async function listFolder(
     // raised prepare concurrency can't be aborted by a single transient list blip.
     // `params` (which carries supportsAllDrives + includeItemsFromAllDrives) is
     // passed by reference so the shared-Drive-support contract resolves both flags.
-    const response = await withDriveRetry(() => drive.files.list(params), options.retry);
+    // The per-call gaxios `timeout` bounds a silent stall on this (hot-path,
+    // first) Drive call; `retry: false` keeps withDriveRetry the single retry layer.
+    const response = await withDriveRetry(
+      () =>
+        drive.files.list(params, {
+          timeout: options.listTimeoutMs ?? DRIVE_LIST_TIMEOUT_MS,
+          retry: false,
+        }),
+      options.retry,
+    );
     for (const rawFile of response.data.files ?? []) {
       const file = toListedFile(rawFile);
       if (!file) continue;
