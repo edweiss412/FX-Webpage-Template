@@ -54,6 +54,6 @@ export function scheduleTimeUnparsed(index: number, iso: string): ParseWarning {
     severity: "warn",
     code: "SCHEDULE_TIME_UNPARSED",
     message: `SHOW DAY ${iso} TIME cell has content but yielded no usable schedule time; falling back to anchors`,
-    blockRef: { kind: "dates", index },
+    blockRef: { kind: "dates", index, iso },
   };
 }

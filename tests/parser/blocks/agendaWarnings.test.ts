@@ -8,7 +8,9 @@ describe("scheduleTimeUnparsed warning constructor", () => {
     const w = scheduleTimeUnparsed(1, "2025-05-14");
     expect(w.code).toBe("SCHEDULE_TIME_UNPARSED");
     expect(w.severity).toBe("warn");
-    expect(w.blockRef).toEqual({ kind: "dates", index: 1 });
+    // blockRef carries `iso` — the stable key the scan uses to attach a source-cell
+    // deep-link anchor (correlated by date, not markdown row index).
+    expect(w.blockRef).toEqual({ kind: "dates", index: 1, iso: "2025-05-14" });
     expect(w.message).toContain("2025-05-14");
   });
 });

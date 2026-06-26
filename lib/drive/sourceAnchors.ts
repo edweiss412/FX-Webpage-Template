@@ -20,7 +20,7 @@ function isBlank(s: string): boolean {
   return !/\S/.test(s);
 }
 
-type AbsGrid = {
+export type AbsGrid = {
   cell: (r: number, c: number) => string;
   minRow: number;
   maxRow: number;
@@ -31,7 +31,7 @@ type AbsGrid = {
 /** Build an absolute-coordinate grid (row/col indices match the sheet's actual
  *  A1-notation). Merges are expanded so the top-left cell's value fills all
  *  cells in the merged region. */
-function buildAbsGrid(sheet: XLSX.WorkSheet): AbsGrid {
+export function buildAbsGrid(sheet: XLSX.WorkSheet): AbsGrid {
   const ref = sheet["!ref"];
   if (!ref) {
     return { cell: () => "", minRow: 0, maxRow: -1, minCol: 0, maxCol: -1 };

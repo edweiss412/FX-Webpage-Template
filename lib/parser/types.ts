@@ -1,9 +1,22 @@
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+
 export type ParseWarning = {
   severity: "info" | "warn";
   code: string;
   message: string;
-  blockRef?: { kind: string; index?: number };
+  // `iso` (when present) is the show-day date the warning is about — the stable
+  // key used to attach a `sourceCell` anchor at scan time (correlated against the
+  // raw grid by date, NOT by markdown row index, which the synthesis pipeline can
+  // shift).
+  blockRef?: { kind: string; index?: number; iso?: string };
   rawSnippet?: string;
+  // Optional deep-link anchor to the exact source cell that triggered the warning
+  // (e.g. the DATES-tab TIME cell for SCHEDULE_TIME_UNPARSED). Attached at scan
+  // time when the raw workbook + tab gids are available (see
+  // lib/drive/showDayTimeAnchors.ts); absent otherwise. jsonb-persisted on
+  // shows_internal.parse_warnings — backward-compatible, no migration. The UI
+  // renders an "Open in Sheet" link via buildSheetDeepLink when present.
+  sourceCell?: SourceAnchor | null;
 };
 export type ParseError = { code: string; message: string; blockRef?: { kind: string } };
 
