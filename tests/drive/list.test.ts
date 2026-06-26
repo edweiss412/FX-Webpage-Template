@@ -39,15 +39,19 @@ describe("listFolder", () => {
         parents: [FOLDER_ID],
       },
     ]);
-    expect(filesList).toHaveBeenCalledWith({
-      q: `'${FOLDER_ID}' in parents and mimeType = '${GOOGLE_SHEETS_MIME_TYPE}' and trashed = false`,
-      pageSize: 100,
-      fields:
-        "nextPageToken, files(id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum)",
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-      corpora: "allDrives",
-    });
+    expect(filesList).toHaveBeenCalledWith(
+      {
+        q: `'${FOLDER_ID}' in parents and mimeType = '${GOOGLE_SHEETS_MIME_TYPE}' and trashed = false`,
+        pageSize: 100,
+        fields:
+          "nextPageToken, files(id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum)",
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+        corpora: "allDrives",
+      },
+      // The folder list now carries a per-call stall-guard timeout + retry:false.
+      { timeout: expect.any(Number), retry: false },
+    );
   });
 
   test("paginates through every nextPageToken before returning files", async () => {
@@ -245,5 +249,61 @@ describe("listFolder", () => {
       listFolder(FOLDER_ID, { drive: fakeDrive(filesList), retry: fastRetry }),
     ).rejects.toMatchObject({ status: 404 });
     expect(filesList).toHaveBeenCalledTimes(1);
+  });
+
+  test("forwards a per-call gaxios timeout (default DRIVE_LIST_TIMEOUT_MS) + retry:false to files.list", async () => {
+    const filesList = vi.fn().mockResolvedValue({ data: { files: [] } });
+    const { listFolder, DRIVE_LIST_TIMEOUT_MS } = await import("@/lib/drive/list");
+
+    expect(DRIVE_LIST_TIMEOUT_MS).toBe(10_000);
+
+    await listFolder(FOLDER_ID, { drive: fakeDrive(filesList), retry: fastRetry });
+
+    // supportsAllDrives/includeItemsFromAllDrives stay in the params (1st arg, for
+    // _sharedDriveSupportContract); the budget + retry:false ride in the 2nd arg.
+    expect(filesList).toHaveBeenCalledWith(
+      expect.objectContaining({ supportsAllDrives: true, includeItemsFromAllDrives: true }),
+      { timeout: DRIVE_LIST_TIMEOUT_MS, retry: false },
+    );
+  });
+
+  test("honors an injected listTimeoutMs over the default", async () => {
+    const filesList = vi.fn().mockResolvedValue({ data: { files: [] } });
+    const { listFolder } = await import("@/lib/drive/list");
+
+    await listFolder(FOLDER_ID, {
+      drive: fakeDrive(filesList),
+      retry: fastRetry,
+      listTimeoutMs: 20,
+    });
+
+    expect(filesList).toHaveBeenCalledWith(expect.objectContaining({ supportsAllDrives: true }), {
+      timeout: 20,
+      retry: false,
+    });
+  });
+
+  test("retries a gaxios TimeoutError on the folder list (classified transient 504), then succeeds", async () => {
+    const ok = { data: { files: [] } };
+    const filesList = vi.fn().mockRejectedValueOnce({ code: "TimeoutError" }).mockResolvedValue(ok);
+    const { listFolder } = await import("@/lib/drive/list");
+
+    await listFolder(FOLDER_ID, { drive: fakeDrive(filesList), retry: fastRetry });
+
+    expect(filesList).toHaveBeenCalledTimes(2);
+  });
+
+  test("exhausts bounded retries on a persistent folder-list timeout, then throws (never hangs)", async () => {
+    const maxRetries = 2;
+    const filesList = vi.fn().mockRejectedValue({ code: "TimeoutError" });
+    const { listFolder } = await import("@/lib/drive/list");
+
+    await expect(
+      listFolder(FOLDER_ID, {
+        drive: fakeDrive(filesList),
+        retry: { ...fastRetry, maxRetries },
+      }),
+    ).rejects.toBeTruthy();
+    expect(filesList).toHaveBeenCalledTimes(1 + maxRetries);
   });
 });
