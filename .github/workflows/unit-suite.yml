@@ -3,32 +3,38 @@ name: Unit + DB suite (full vitest gate)
 # before this job, the workflows only ran TARGETED vitest files (x-audits,
 # deep-link-walker, postgrest-dml-lockdown, affordance-matrix). The 6800+
 # unit/DB tests that implementers + reviewers rely on for "all green" were
-# NOT gated, so PRs merged with failing/stale tests undetected (e.g. an
-# orphaned construction-in-try fix + stale applyStagedCore INSERT-param
-# assertions both landed red on main; the validation-reset feature shipped
-# violating the server-time + emphasis-render meta-tests).
+# NOT gated, so PRs merged with failing/stale tests undetected.
 #
-# This job boots local Supabase (same shared bootstrap as dev-gate-e2e.yml /
+# This gate boots local Supabase (same shared bootstrap as dev-gate-e2e.yml /
 # screenshots-drift.yml) and runs the WHOLE vitest suite so any unit or
 # local-DB test failure blocks merge.
 #
-# Two files are EXCLUDED — they need environments this local-bootstrap runner
-# cannot provide, and each is tracked for separate gating:
-#   - tests/cross-cutting/pg-cron-coverage.test.ts — live-DB introspection of
-#     cron.job rows; the bootstrap deliberately HOLDS ASIDE the two GUC-guarded
-#     pg_cron migrations (app.fxav_vercel_url), so no cron jobs exist locally.
-#     It is designed to run against the validation project (TEST_DATABASE_URL +
-#     VALIDATION_SUPABASE_PROJECT_REF), like validation-schema-parity.
-#   - tests/admin/test-auth-gate.test.ts — Layer 2 drives a real Supabase
-#     auth.admin.createUser → signInWithPassword chain that needs the running
-#     instance's matching service-role key + GoTrue; it returns 501 without it.
-#   - tests/cross-cutting/email-canonicalization.test.ts — three tests set an
-#     EXPLICIT 15s per-test timeout while doc-scanning the (large) master spec +
-#     plan; under full-suite concurrency on the 2-core CI runner they starve and
-#     time out (they pass STANDALONE, with isolated resources, in x5-email-
-#     canonicalization which already gates this file).
-# All three were ALREADY gated (x5) or ungated before this job, so excluding
-# them is not a regression. Follow-up: BL-CI-UNIT-GATE-EXCLUSIONS (BACKLOG.md).
+# PR D — sharded for wall-clock: the suite is split across a 2-leg `shard`
+# matrix (`unit-suite-shard`). Each leg boots its OWN isolated local Supabase
+# and runs `vitest run --shard=i/2`. vitest's --shard is a clean file partition
+# (every file in exactly one leg), and each leg's serial vitest project still
+# runs fileParallelism:false, so the serial-DB guarantee holds WITHIN a leg and
+# the two legs never share a database (separate runners). A tiny aggregator job
+# named `unit-suite` (the REQUIRED check-context) gates merge: it `needs` the
+# matrix and fails unless every leg succeeded — so branch protection needs NO
+# change. Topology pinned by tests/cross-cutting/unit-suite-shard-topology.test.ts.
+#
+# Three files are EXCLUDED via VITEST_EXCLUDE_ENV_BOUND=1 (a project-level
+# exclude in vitest.config.ts) — they need environments this local-bootstrap
+# runner cannot provide, or starve under full-suite concurrency on the 2-core
+# runner. Each is gated elsewhere, so excluding them here is not a regression:
+#   - tests/cross-cutting/pg-cron-coverage.test.ts — live-DB cron.job
+#     introspection; runs against the validation project (like
+#     validation-schema-parity). The bootstrap holds aside the GUC-guarded
+#     pg_cron migrations, so no cron jobs exist locally.
+#   - tests/admin/test-auth-gate.test.ts — drives a real auth.admin.createUser →
+#     signInWithPassword chain needing the running instance's service-role key.
+#   - tests/cross-cutting/email-canonicalization.test.ts — 15s per-test
+#     doc-scans that starve under concurrency (gated standalone by x5).
+# It MUST be the env var, NOT `vitest run --exclude` — vitest IGNORES the CLI
+# `--exclude` flag once a project defines its own `exclude` (the serial project
+# does). The gate keeps those files runnable by x-audits' direct
+# `vitest run <file>` and by local `pnpm test`.
 on:
   pull_request:
   push:
@@ -40,9 +46,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  unit-suite:
+  unit-suite-shard:
+    name: unit-suite-shard
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -55,27 +66,40 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - uses: supabase/setup-cli@v1
         with:
-          # Pinned (NOT `latest`): `latest` resolves via the GitHub API, which rate-limits
-          # on shared runners and fails setup. Critical here — unit-suite is a REQUIRED
-          # check, so a setup rate-limit flake would block merges. 2.107.0 = the
-          # supabase-local-bootstrap.sh known CI-passing version (PR #102; older 2.98.2 broke the in-container psql auth); downloads directly (no API lookup).
+          # Pinned (NOT `latest`): `latest` resolves via the GitHub API, which
+          # rate-limits on shared runners and fails setup. unit-suite is a
+          # REQUIRED check, so a setup rate-limit flake would block merges.
+          # 2.107.0 = the supabase-local-bootstrap.sh known CI-passing version.
           version: 2.107.0
       - name: Install psql (local-DB tests + bootstrap shell out to psql)
         run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Boot local Supabase (guarded migrations)
-        # Shared bootstrap (M12.12 Task 14) — same Supabase + GUC + guarded-
-        # migration setup dev-gate-e2e.yml / screenshots-drift.yml use, so the
-        # hold-aside list cannot drift between workflows. DB tests default to
-        # the local instance (127.0.0.1:54322) when TEST_DATABASE_URL is unset.
+        # Shared bootstrap — same Supabase + GUC + guarded-migration setup
+        # dev-gate-e2e.yml / screenshots-drift.yml use, so the hold-aside list
+        # cannot drift between workflows. Each matrix leg boots its OWN instance.
         run: bash scripts/ci/supabase-local-bootstrap.sh
-      - name: Run full vitest suite (minus the three env-bound files; see header)
-        # VITEST_EXCLUDE_ENV_BOUND=1 drops the three env-bound files via a
-        # PROJECT-level exclude in vitest.config.ts (ENV_BOUND_EXCLUDES). It must
-        # be the env var, NOT `vitest run --exclude` — vitest IGNORES the CLI
-        # `--exclude` flag once a project defines its own `exclude` (which the
-        # serial project does for the parallel/serial split), so the old CLI
-        # flags silently did nothing. The gate keeps those files runnable by the
-        # x-audits' direct `vitest run <file>` and by local `pnpm test`.
+      - name: Run vitest shard ${{ matrix.shard }}/2 (minus the three env-bound files; see header)
+        # --shard=i/2 partitions the test FILES across the two legs (every file
+        # runs in exactly one leg). The two-project structure is unchanged, so
+        # the serial project still runs fileParallelism:false within this leg.
         env:
           VITEST_EXCLUDE_ENV_BOUND: "1"
-        run: pnpm exec vitest run
+        run: pnpm exec vitest run --shard=${{ matrix.shard }}/2
+
+  unit-suite:
+    # Aggregator — PRESERVES the `unit-suite` required check-context name so
+    # branch protection needs no change. Green only when EVERY shard leg passed
+    # (needs.<matrix-job>.result is `success` iff all legs succeeded). `if:
+    # always()` runs it even when a leg fails, so the required context reports
+    # an explicit failure rather than a never-reported skip.
+    name: unit-suite
+    needs: [unit-suite-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every unit-suite-shard leg to have succeeded
+        run: |
+          result='${{ needs.unit-suite-shard.result }}'
+          echo "unit-suite-shard matrix rollup result: $result"
+          test "$result" = "success"
