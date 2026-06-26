@@ -575,13 +575,24 @@ describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)",
       addr: "1515 Madison Ave New York, NY 10036",
     },
     {
-      // R4: a SUFFIXLESS street (Broadway) is recognized via its US ZIP tail, so the
-      // street number is preserved (not stripped as a conf#) and no fake guest leaks.
-      label: "dash-separated SUFFIXLESS address (Broadway, ZIP-tail) preserved",
+      // R4+R5: a SUFFIXLESS street (Broadway) is NOT split (splitHotelNameAddress is
+      // suffix-only, so a numeric brand "Hotel 71 Chicago, IL …" is never corrupted),
+      // but it stays glued-AND-PRESERVED: the separator dash is collapsed first so the
+      // street number is NOT dropped as a conf#, and NO fake guest leaks into names[].
+      label: "dash-separated SUFFIXLESS address: glued-and-preserved, no fake guest",
       cell: "Hyatt Regency - 1515 Broadway New York, NY 10036",
-      name: "Hyatt Regency",
+      name: "Hyatt Regency 1515 Broadway New York, NY 10036",
       names: [],
-      addr: "1515 Broadway New York, NY 10036",
+      addr: null,
+    },
+    {
+      // R5: a numeric-branded hotel name with only city/state/ZIP context must stay
+      // glued ("Hotel 71" is the name, not "Hotel" + address "71 Chicago…").
+      label: "numeric hotel brand + city/ZIP (no street) stays glued",
+      cell: "Hotel 71 Chicago, IL 60601",
+      name: "Hotel 71 Chicago, IL 60601",
+      names: [],
+      addr: null,
     },
     {
       label: "plain hotel+address, no dash, no guests",

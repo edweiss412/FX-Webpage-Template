@@ -197,15 +197,16 @@ const STREET_ADDRESS_RE =
 const STREET_ADDRESS_ZIP_RE =
   /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/u;
 
-/** Earliest index at which a street address begins in `s` (the separating
- * whitespace), via a recognized street suffix OR a US ZIP tail; -1 if none. */
-function streetAddressStart(s: string): number {
+/** True iff `" " + s.slice(i)` begins a street phrase by SUFFIX or by US ZIP tail.
+ * Used ONLY by the Hotel-Stays discriminator to tell a dash-STREET-number from a
+ * dash-CONF#. NOT used to SPLIT (splitHotelNameAddress stays strictly suffix-only,
+ * so a numeric hotel brand like "Hotel 71 Chicago, IL 60601" is never corrupted —
+ * the ZIP tail would otherwise treat "71 Chicago, IL …" as an address, Codex R5). */
+function looksLikeStreetStart(s: string): boolean {
   const a = STREET_ADDRESS_RE.exec(s);
+  if (a && a.index === 0) return true;
   const b = STREET_ADDRESS_ZIP_RE.exec(s);
-  const ai = a ? a.index : Infinity;
-  const bi = b ? b.index : Infinity;
-  const idx = Math.min(ai, bi);
-  return idx === Infinity ? -1 : idx;
+  return b !== null && b.index === 0;
 }
 
 function splitHotelNameAddress(combined: string | null): {
@@ -219,12 +220,14 @@ function splitHotelNameAddress(combined: string | null): {
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return { name: null, address: null };
-  // The address begins at the first street number that actually starts a street
-  // phrase (suffix OR ZIP-tail; see streetAddressStart). It only LOCATES the
-  // boundary; the address runs from that number to the cell end (city/state/ZIP
-  // included). No match → the whole cell stays as the name (safe, glued).
-  const splitAt = streetAddressStart(cleaned);
-  if (splitAt < 0) return { name: presence(cleaned), address: null };
+  // The address begins at the first street number that starts a SUFFIXED street
+  // phrase (see STREET_ADDRESS_RE). Suffix-only by design: a suffixless tail (a
+  // bare number + city + ZIP) is ambiguous with a numeric hotel brand ("Hotel 71
+  // Chicago, IL 60601"), so it stays glued — a SAFE fallback, never a corrupted
+  // name. The regex only LOCATES the boundary; the address runs to the cell end.
+  const m = STREET_ADDRESS_RE.exec(cleaned);
+  if (!m) return { name: presence(cleaned), address: null };
+  const splitAt = m.index;
   const name = cleaned
     .slice(0, splitAt)
     .replace(/[,\-–—\s]+$/, "")
@@ -596,9 +599,10 @@ function buildInlineHotel(
     // res.names (lib/data/getShowForViewer.ts:644).
     //
     // A STREET number begins a street phrase (suffix OR ZIP tail); a confirmation
-    // number does not — so streetAddressStart is the discriminator (prepend a space
-    // so the regexes' leading \s anchors match right at the number).
-    const streetStartsAt = (i: number): boolean => streetAddressStart(" " + text.slice(i)) === 0;
+    // number does not — so looksLikeStreetStart is the discriminator (prepend a
+    // space so the regexes' leading \s anchors match right at the number). Used
+    // only to classify a dash-number as street-vs-conf — never to SPLIT.
+    const streetStartsAt = (i: number): boolean => looksLikeStreetStart(" " + text.slice(i));
     // base word count = words minus a trailing single-letter initial ("Eric W" → 1).
     const baseWords = (s: string): number => {
       const w = s.split(/\s+/).filter(Boolean);
@@ -668,7 +672,14 @@ function buildInlineHotel(
     // is the legacy greedy capture — a documented bound, see BACKLOG).
     const hasGuest = delims.length >= 1 || /\b\d{6,}\b|#\s*\d{4,}/.test(text);
     if (!hasGuest) {
-      const split = splitHotelNameAddress(text);
+      // No guests ⇒ any " - " is a name/address SEPARATOR, not a conf delimiter.
+      // Collapse spaced dash runs to a space FIRST so the downstream stripConfTokens
+      // pass can't later eat a dash-separated street number ("Hyatt Regency - 1515
+      // Broadway …" → "… 1515 Broadway …"). Intra-word hyphens ("Ritz-Carlton", no
+      // surrounding spaces) are untouched. A suffixed street still splits; a
+      // suffixless one stays glued-but-preserved (the #3 safe fallback).
+      const noSepDash = text.replace(/\s+[-–—]{1,3}\s+/g, " ");
+      const split = splitHotelNameAddress(noSepDash);
       if (split.name !== null || split.address !== null) {
         return {
           ordinal,
