@@ -28,7 +28,7 @@
  * height-morph + reduced-motion handling live in app/globals.css
  * (`[data-step3-breakdown]`), consuming --duration-normal.
  */
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown } from "lucide-react";
 import type {
@@ -36,10 +36,14 @@ import type {
   CrewMemberRow,
   HotelReservationRow,
   ParseResult,
+  ParseWarning,
   RoomRow,
   RunOfShow,
 } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
+import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -60,14 +64,26 @@ function overflowNote(total: number, cap: number, noun: string): string | null {
   return extra > 0 ? `…and ${extra} more ${noun}` : null;
 }
 
-// ── Summary date rendering (§4.2): render only present segments. ──
-function dateSegments(dates: ParseResult["show"]["dates"] | undefined): string[] {
+// ── Summary date rendering (§4.2 / plan Task 3): role-LABELED segments built
+// from the structured parser dates. Each present role becomes a "Label <date>"
+// segment; show-days collapse into a single humanized range. `set` is dropped
+// when it equals `travelIn` (the common "travel-and-set same day" case) so the
+// line doesn't read the date twice. Empty/malformed values omit their segment;
+// no dates at all → []. humanizeDate falls back to the raw ISO if a value is
+// somehow unparseable so a present date is never silently dropped. */
+function dateSummarySegments(dates: ParseResult["show"]["dates"] | undefined): string[] {
   if (!dates) return [];
   const segs: string[] = [];
-  if (dates.travelIn) segs.push(dates.travelIn);
-  if (dates.set) segs.push(dates.set);
-  for (const d of arr(dates.showDays)) segs.push(d);
-  if (dates.travelOut) segs.push(dates.travelOut);
+  if (dates.travelIn) segs.push(`Travel in ${humanizeDate(dates.travelIn) ?? dates.travelIn}`);
+  if (dates.set && dates.set !== dates.travelIn) {
+    segs.push(`Set ${humanizeDate(dates.set) ?? dates.set}`);
+  }
+  const showDays = arr(dates.showDays);
+  if (showDays.length > 0) {
+    const range = humanizeDayRange(showDays);
+    if (range) segs.push(`Show ${range}`);
+  }
+  if (dates.travelOut) segs.push(`Travel out ${humanizeDate(dates.travelOut) ?? dates.travelOut}`);
   return segs;
 }
 
@@ -134,6 +150,71 @@ function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow
   );
 }
 
+/**
+ * One day's run-of-show (plan Task 2). The day's entries render as a SINGLE
+ * 2-track grid so times and titles each align to one column.
+ *
+ * Dimensional invariant (Tailwind v4 does NOT default `align-items: stretch`):
+ *   - The grid is `grid-cols-[auto_1fr]`. The `auto` track sizes to the WIDEST
+ *     time across this day's entries, so ALL time cells share one left edge.
+ *   - The `1fr` track's left edge is constant, so ALL title cells share one
+ *     left edge regardless of time width. (`tabular-nums` only equalizes digit
+ *     glyphs; it does NOT align variable-length times like "9:00 AM" vs
+ *     "11:00 AM" — the shared `auto` track is what guarantees the column.)
+ *   - `items-baseline` aligns each row's time/title on the text baseline.
+ *
+ * Truncation is replaced by in-place disclosure: the first SCHEDULE_ENTRIES_CAP
+ * entries show; a "Show all M times" button reveals the rest for THIS day only
+ * (local state). No silent "…+N" tail.
+ */
+function ScheduleDayRow({
+  dfid,
+  iso,
+  entries,
+}: {
+  dfid: string;
+  iso: string;
+  entries: AgendaEntry[];
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? entries : entries.slice(0, SCHEDULE_ENTRIES_CAP);
+  const hidden = entries.length - SCHEDULE_ENTRIES_CAP;
+
+  return (
+    <li className="flex flex-col gap-1">
+      <span className="text-xs font-medium tabular-nums text-text-strong">{iso}</span>
+      <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
+        {visible.map((e, i) => (
+          <Fragment key={`${iso}-${i}`}>
+            <span
+              data-testid={`wizard-step3-card-${dfid}-sched-time`}
+              className="whitespace-nowrap text-sm tabular-nums text-text-subtle"
+            >
+              {e.start}
+            </span>
+            <span
+              data-testid={`wizard-step3-card-${dfid}-sched-title`}
+              className="text-sm text-text"
+            >
+              {e.title || ""}
+            </span>
+          </Fragment>
+        ))}
+      </div>
+      {hidden > 0 && !showAll ? (
+        <button
+          type="button"
+          data-testid={`wizard-step3-card-${dfid}-sched-expand-${iso}`}
+          onClick={() => setShowAll(true)}
+          className="self-start text-xs font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          {`Show all ${entries.length} times`}
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
 function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
   const dayKeys = Object.keys(ros);
   const shownDays = dayKeys.slice(0, SCHEDULE_DAYS_CAP);
@@ -151,25 +232,9 @@ function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
         <p className="text-sm text-text-subtle">No run-of-show parsed.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {shownDays.map((iso) => {
-            const entries: AgendaEntry[] = arr(ros[iso]?.entries);
-            const shownEntries = entries.slice(0, SCHEDULE_ENTRIES_CAP);
-            const extra = entries.length - SCHEDULE_ENTRIES_CAP;
-            return (
-              <li key={iso} className="flex flex-col gap-0.5">
-                <span className="text-xs font-medium tabular-nums text-text-strong">{iso}</span>
-                {shownEntries.map((e, i) => (
-                  <span key={`${iso}-${i}`} className="text-sm text-text">
-                    <span className="tabular-nums text-text-subtle">{e.start}</span>
-                    {e.title ? <span> · {e.title}</span> : null}
-                  </span>
-                ))}
-                {extra > 0 ? (
-                  <span className="text-xs text-text-subtle">{`…+${extra}`}</span>
-                ) : null}
-              </li>
-            );
-          })}
+          {shownDays.map((iso) => (
+            <ScheduleDayRow key={iso} dfid={dfid} iso={iso} entries={arr(ros[iso]?.entries)} />
+          ))}
         </ul>
       )}
       {daysNote ? <p className="text-xs text-text-subtle">{daysNote}</p> : null}
@@ -232,6 +297,68 @@ function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservat
         </ul>
       )}
       {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+/**
+ * Parse-warnings breakdown (plan Task 4). The full `parseResult.warnings` list
+ * is surfaced here (only `.length` was used by the summary chip before). Each
+ * warning routes its DETAIL through the §12.4 catalog:
+ *   - cataloged code  → the catalog `title` (+ `helpfulContext` when present)
+ *   - unknown code    → the raw parser `message` (NEVER the bare code — invariant
+ *     5: a human sentence, never a machine token, reaches the UI)
+ *
+ * One explicit line states that warnings are informational and do NOT block
+ * publishing, so the count badge stops reading as an error. Severity is shown
+ * subtly (a small dot + label). No publish-gate logic changes here.
+ */
+function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWarning[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
+      label="Warnings"
+      count={warnings.length}
+    >
+      <p
+        data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
+        className="text-xs text-text-subtle"
+      >
+        These are informational and don&rsquo;t block publishing.
+      </p>
+      <ul className="flex flex-col gap-2">
+        {warnings.map((w, i) => {
+          const cataloged = isMessageCode(w.code);
+          const entry = cataloged ? messageFor(w.code as MessageCode) : null;
+          // Invariant 5: title is the catalog title when present, else the raw
+          // human message — the bare `code` is never rendered.
+          const title = (entry?.title ?? null) || w.message;
+          const context = entry?.helpfulContext ?? null;
+          const isWarn = w.severity === "warn";
+          return (
+            <li
+              key={`${w.code}-${i}`}
+              data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
+              className="flex flex-col gap-0.5"
+            >
+              <span className="flex items-baseline gap-1.5 text-sm text-text">
+                <span
+                  aria-hidden="true"
+                  className={`mt-1.5 size-1.5 shrink-0 rounded-pill ${
+                    isWarn ? "bg-warning-text" : "bg-text-faint"
+                  }`}
+                />
+                <span className="font-medium text-text-strong">{title}</span>
+                <span className="text-xs uppercase text-text-faint">
+                  {isWarn ? "warn" : "info"}
+                </span>
+              </span>
+              {context ? <p className="pl-3 text-xs text-text-subtle">{context}</p> : null}
+            </li>
+          );
+        })}
+      </ul>
     </BreakdownSection>
   );
 }
@@ -362,7 +489,7 @@ export function Step3SheetCard({
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
-  const segs = dateSegments(pr.show.dates);
+  const segs = dateSummarySegments(pr.show.dates);
 
   const hasDiagrams =
     pr.diagrams?.linkedFolder != null || arr(pr.diagrams?.embeddedImages).length > 0;
@@ -398,14 +525,37 @@ export function Step3SheetCard({
             {title}
           </p>
           {client ? <p className="truncate text-sm text-text-subtle">{client}</p> : null}
-          <p className="mt-1 text-sm tabular-nums text-text-subtle">
-            {segs.length > 0 ? (
-              <span>{segs.join(" → ")}</span>
-            ) : (
-              <span className="text-text-subtle">Dates not found</span>
-            )}
-          </p>
-          <p className="mt-1 text-sm tabular-nums text-text-subtle">{counts}</p>
+
+          {/* Dates and Totals are DISTINCT visual roles (plan Task 3): each row
+              carries a small uppercase eyebrow label so the two stop reading as
+              one run-on metadata block. Shared 2-track grid so both eyebrows
+              share a left edge and both values share a left edge. */}
+          <dl className="mt-1.5 grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1">
+            <dt
+              className="text-xs font-semibold uppercase text-text-faint"
+              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+            >
+              Dates
+            </dt>
+            <dd
+              data-testid={`wizard-step3-card-${dfid}-dates`}
+              className="text-sm text-text-subtle"
+            >
+              {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
+            </dd>
+            <dt
+              className="text-xs font-semibold uppercase text-text-faint"
+              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+            >
+              Totals
+            </dt>
+            <dd
+              data-testid={`wizard-step3-card-${dfid}-totals`}
+              className="text-sm tabular-nums text-text-subtle"
+            >
+              {counts}
+            </dd>
+          </dl>
 
           {(hasDiagrams || hasReel || warnings.length > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -464,6 +614,7 @@ export function Step3SheetCard({
           <ScheduleBreakdown dfid={dfid} ros={ros} />
           <RoomsBreakdown dfid={dfid} rooms={rooms} />
           <HotelsBreakdown dfid={dfid} hotels={hotels} />
+          <WarningsBreakdown dfid={dfid} warnings={warnings} />
         </div>
       </div>
     </article>
