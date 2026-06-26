@@ -476,6 +476,36 @@ describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)",
     expect(parse("ria").hotelReservations[0]!.hotel_name).toBe("Park Hyatt Chicago");
     expect(parse("redefining-fi").hotelReservations[0]!.hotel_name).toBe("The Drake Hotel");
   });
+
+  // false-positive guard (Codex R1): a dash-separated ADDRESS must not be read as a
+  // "Name - conf#" guest. A street number is ≤5 digits; a hotel conf# is ≥6, so the
+  // dash extractor can't fire on "Hyatt Regency - 1515 Madison Ave" — the cell
+  // routes through splitHotelNameAddress instead. The hotel name + address are
+  // preserved and — critically — NO hotel word leaks into names[] (which gates
+  // per-viewer hotel visibility). (A suffixless street like "Broadway" would stay
+  // glued per the #3 street-shape gate; that safe fallback is unchanged here.)
+  it("a dash-separated address is preserved, not extracted as a guest", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Hyatt Regency - 1515 Madison Ave New York, NY 10036 |",
+      "v1",
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Hyatt Regency");
+    expect(h[0]!.hotel_address).toBe("1515 Madison Ave New York, NY 10036");
+    expect(h[0]!.names).toEqual([]);
+  });
+
+  // a plain no-Check-In hotel+address cell with no guests also splits cleanly.
+  it("a guest-less hotel+address Hotel-Stays cell splits name/address, no guests", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Marriott Downtown 555 Main St Chicago, IL 60601 |",
+      "v1",
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Marriott Downtown");
+    expect(h[0]!.hotel_address).toBe("555 Main St Chicago, IL 60601");
+    expect(h[0]!.names).toEqual([]);
+  });
 });
 
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
