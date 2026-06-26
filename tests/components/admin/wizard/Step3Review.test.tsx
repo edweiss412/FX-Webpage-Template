@@ -393,3 +393,48 @@ describe("Step3Review", () => {
     });
   });
 });
+
+describe("Step3Review — detail accordion (single open, full-width)", () => {
+  const pr = { show: { title: "Show" } } as unknown as ParseResult;
+  const rowA: Step3Row = {
+    driveFileId: "acc-A",
+    driveFileName: "A.gsheet",
+    status: "staged",
+    parseResult: pr,
+  };
+  const rowB: Step3Row = {
+    driveFileId: "acc-B",
+    driveFileName: "B.gsheet",
+    status: "staged",
+    parseResult: pr,
+  };
+  const COL_SPAN = "lg:col-span-2"; // the open card spans the full grid width
+
+  test("only one card's detail is open at a time, and the open card spans the full grid width", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
+    );
+    const expandA = getByTestId("wizard-step3-card-acc-A-expand");
+    const expandB = getByTestId("wizard-step3-card-acc-B-expand");
+    const liOf = (dfid: string) => getByTestId(`wizard-step3-row-${dfid}`).closest("li");
+
+    // Both collapsed; neither <li> spans full width.
+    expect(expandA.getAttribute("aria-expanded")).toBe("false");
+    expect(expandB.getAttribute("aria-expanded")).toBe("false");
+    expect(liOf("acc-A")?.className ?? "").not.toContain(COL_SPAN);
+
+    // Open A → A is full-width; B stays collapsed.
+    fireEvent.click(expandA);
+    expect(expandA.getAttribute("aria-expanded")).toBe("true");
+    expect(expandB.getAttribute("aria-expanded")).toBe("false");
+    expect(liOf("acc-A")?.className ?? "").toContain(COL_SPAN);
+    expect(liOf("acc-B")?.className ?? "").not.toContain(COL_SPAN);
+
+    // Open B → A closes (single-open accordion); B becomes full-width.
+    fireEvent.click(expandB);
+    expect(expandB.getAttribute("aria-expanded")).toBe("true");
+    expect(expandA.getAttribute("aria-expanded")).toBe("false");
+    expect(liOf("acc-B")?.className ?? "").toContain(COL_SPAN);
+    expect(liOf("acc-A")?.className ?? "").not.toContain(COL_SPAN);
+  });
+});

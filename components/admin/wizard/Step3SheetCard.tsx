@@ -53,6 +53,10 @@ const ROOMS_CAP = 20;
 const HOTELS_CAP = 12;
 const SCHEDULE_DAYS_CAP = 14;
 const SCHEDULE_ENTRIES_CAP = 6;
+// Collapsed-card crew preview cap: how many name·role lines show in the summary
+// before the "+K more" tail. Kept small because the summary sits in a narrow grid
+// cell; the full roster (CREW_CAP) lives in the expanded breakdown.
+const SUMMARY_CREW_CAP = 3;
 
 // Defensive coercion for the untyped-on-the-wire JSONB (§4.3/§4.6): anything
 // that isn't an array becomes [].
@@ -398,6 +402,12 @@ export function PublishCheckbox({
   initialChecked: boolean;
 }) {
   const router = useRouter();
+  // `checked` seeds from the server-derived `initialChecked` and toggles
+  // optimistically during a write. The call site keys this component on the
+  // server status (`key={row.status}`), so when "Select all" approves every row
+  // server-side and router.refresh()es, THIS box remounts and re-seeds from the
+  // refreshed prop — fixing the bug where a long-lived `useState(initialChecked)`
+  // ignored the updated prop and left the individual boxes unchecked.
   const [checked, setChecked] = useState(initialChecked);
   const [pending, setPending] = useState(false);
 
@@ -462,13 +472,27 @@ export function PublishCheckbox({
 export function Step3SheetCard({
   row,
   wizardSessionId,
+  expanded: expandedProp,
+  onToggleExpanded,
 }: {
   row: Step3Row;
   wizardSessionId: string;
+  // Optional controlled expand state. When the parent grid supplies these, the
+  // card is part of the single-open accordion (only one open at a time, the open
+  // one spans full width). Omitted → the card self-manages its own expand state
+  // (standalone / test usage stays unchanged).
+  expanded?: boolean | undefined;
+  onToggleExpanded?: (() => void) | undefined;
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
-  const [expanded, setExpanded] = useState(false);
+  const [expandedInternal, setExpandedInternal] = useState(false);
+  const isControlled = expandedProp !== undefined;
+  const expanded = isControlled ? expandedProp : expandedInternal;
+  const toggleExpanded = () => {
+    if (isControlled) onToggleExpanded?.();
+    else setExpandedInternal((v) => !v);
+  };
   const panelId = useId();
 
   const titleFallback = row.driveFileName || dfid;
@@ -505,12 +529,6 @@ export function Step3SheetCard({
   // checkbox.
   const dataGapsSummary = summarizeDataGaps(warnings);
   const dataGapDetails = dataGapClassDetails(dataGapsSummary);
-  // followup A: warnings that aren't a data-gap class (info-severity or non-DQ
-  // codes) collapse into ONE neutral "+K other" chip instead of a second
-  // warning-colored total. K === warnings.length − the data-gap total, so the
-  // summary reconciles exactly with the breakdown header "Warnings (N)":
-  // per-class chips + "+K other" === warnings.length.
-  const otherWarningCount = warnings.length - dataGapsSummary.total;
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
@@ -541,6 +559,10 @@ export function Step3SheetCard({
         {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
             long title (min-w-0 flex-1 below) truncates instead of squeezing it. */}
         <PublishCheckbox
+          // Re-seed (remount) when the server status flips, so a "Select all"
+          // (which approves every row server-side, then router.refresh()es) checks
+          // THIS box too instead of leaving stale local state.
+          key={row.status}
           driveFileId={dfid}
           wizardSessionId={wizardSessionId}
           initialChecked={row.status === "applied"}
@@ -580,6 +602,38 @@ export function Step3SheetCard({
             >
               {counts}
             </dd>
+            {/* Crew preview (collapsed card): the first few name · role lines so the
+                operator sees WHO is on the show at a glance, without expanding. The
+                full roster is in the breakdown. Eyebrow aligns to the first name's
+                baseline via the shared dl grid. */}
+            <dt
+              className="text-xs font-semibold uppercase text-text-subtle"
+              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+            >
+              Crew
+            </dt>
+            <dd
+              data-testid={`wizard-step3-card-${dfid}-crew-summary`}
+              className="text-sm text-text-subtle"
+            >
+              {crewMembers.length === 0 ? (
+                "No crew parsed"
+              ) : (
+                <span className="flex flex-col gap-0.5">
+                  {crewMembers.slice(0, SUMMARY_CREW_CAP).map((m, i) => (
+                    <span key={`${m.name}-${i}`}>
+                      <span className="text-text">{m.name || "Unnamed"}</span>
+                      {m.role ? <span> · {m.role}</span> : null}
+                    </span>
+                  ))}
+                  {crewMembers.length > SUMMARY_CREW_CAP ? (
+                    <span className="text-xs text-text-subtle">
+                      +{crewMembers.length - SUMMARY_CREW_CAP} more
+                    </span>
+                  ) : null}
+                </span>
+              )}
+            </dd>
           </dl>
 
           {(hasDiagrams || hasReel) && (
@@ -593,12 +647,13 @@ export function Step3SheetCard({
             </div>
           )}
 
-          {/* parse-data-quality-warnings §6.2a + followup A — the single summary
-              warning row: per-class data-gap chips (warning-colored, PLAIN-LANGUAGE
-              labels only — invariant 5, never the raw §12.4 code) followed by one
-              NEUTRAL "+K other" chip for non-data-gap warnings. Present iff there's
-              any data gap OR any other warning; instant, no animation. */}
-          {dataGapDetails.length > 0 || otherWarningCount > 0 ? (
+          {/* parse-data-quality-warnings §6.2a — the per-class data-gap chips
+              (warning-colored, PLAIN-LANGUAGE labels only — invariant 5, never the
+              raw §12.4 code). Self-explanatory at a glance ("2 unreadable fields");
+              non-data-gap warnings are NOT chipped here — the full per-warning list
+              lives under "Show details". Present iff there's a data gap; instant,
+              no animation. */}
+          {dataGapDetails.length > 0 ? (
             <ul
               data-testid={`wizard-step3-card-${dfid}-data-gaps`}
               className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-warning-text"
@@ -612,21 +667,6 @@ export function Step3SheetCard({
                   <span className="tabular-nums">{d.count}</span> {d.label}
                 </li>
               ))}
-              {otherWarningCount > 0 ? (
-                <li
-                  data-testid={`wizard-step3-card-${dfid}-warnings-other`}
-                  // NEUTRAL (not warning-colored): these are non-data-gap warnings
-                  // (info-severity or non-DQ codes). Overrides the ul's
-                  // text-warning-text so it reads as a quiet "and N more" tail, not
-                  // a second alarm. Full per-warning detail lives in the expandable
-                  // breakdown below. `bg-surface-sunken` (NOT surface-raised, which
-                  // equals the card's white `bg-surface` in light mode → invisible)
-                  // — matches the <Badge> token so the pill stays visible on the card.
-                  className="inline-flex items-center rounded-sm bg-surface-sunken px-2 py-0.5 font-medium text-text-subtle"
-                >
-                  <span className="tabular-nums">+{otherWarningCount}</span> other
-                </li>
-              ) : null}
             </ul>
           ) : null}
         </div>
@@ -639,7 +679,7 @@ export function Step3SheetCard({
         data-testid={`wizard-step3-card-${dfid}-expand`}
         aria-expanded={expanded}
         aria-controls={panelId}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={toggleExpanded}
         className="inline-flex min-h-tap-min items-center justify-between gap-2 rounded-sm border border-border bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
         <span>{expanded ? "Hide details" : "Show details"}</span>
