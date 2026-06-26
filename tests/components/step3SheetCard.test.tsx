@@ -446,6 +446,18 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.textContent).toMatch(/don.t block publishing/i);
   });
 
+  test("the collapsed breakdown is `inert` so its focusable controls (Show-all) aren't tabbable while hidden", () => {
+    // A day with >6 entries means the breakdown contains a focusable "Show all"
+    // button; the collapse is height:0/overflow:hidden (NOT display:none), so
+    // without `inert` that button would stay tab-reachable while hidden.
+    const FIX = parseResult({ runOfShow: runOfShow(1, 9) });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const breakdown = q.getByTestId(`wizard-step3-card-${DFID}-breakdown`);
+    expect(breakdown.hasAttribute("inert")).toBe(true); // collapsed on mount
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    expect(breakdown.hasAttribute("inert")).toBe(false); // operable once expanded
+  });
+
   test("schedule outline caps days at 14 and entries per day at 6", () => {
     const FIX = parseResult({ runOfShow: runOfShow(16, 8) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);

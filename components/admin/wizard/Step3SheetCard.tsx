@@ -357,7 +357,7 @@ function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWa
                   }`}
                 />
                 <span className="font-medium text-text-strong">{title}</span>
-                <span className="text-xs uppercase text-text-faint">
+                <span className="text-xs uppercase text-text-subtle">
                   {isWarn ? "warn" : "info"}
                 </span>
               </span>
@@ -606,12 +606,17 @@ export function Step3SheetCard({
 
       {/* Bounded, height-morphing breakdown region (§4.4/§4.5). overflow-hidden
           via the [data-step3-breakdown] rule in globals.css keeps the
-          fixed-width column from overflowing during the morph. */}
+          fixed-width column from overflowing during the morph. `inert` while
+          collapsed removes the panel's focusable controls (the "Show all N
+          times" expander) from the tab order + a11y tree — the height:0 morph
+          is NOT display:none, so without `inert` they'd be tabbable +
+          AT-discoverable while hidden (whole-diff R2 HIGH). */}
       <div
         id={panelId}
         data-testid={`wizard-step3-card-${dfid}-breakdown`}
         data-step3-breakdown=""
         data-expanded={expanded ? "true" : "false"}
+        inert={!expanded}
       >
         {/* wrap-break-word bounds any unbreakable long token (a run-on role
             label or sheet-derived name) so the breakdown never horizontally
