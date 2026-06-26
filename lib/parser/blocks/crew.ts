@@ -14,6 +14,8 @@
 import type { CrewMemberRow, ParseWarning } from "../types";
 import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence } from "./_helpers";
+import { emitFieldUnreadable } from "@/lib/parser/warnings";
+import { digitsOnly } from "@/lib/format/phone";
 import { canonicalize } from "@/lib/email/canonicalize";
 import {
   extractDayRestriction,
@@ -138,6 +140,7 @@ function parseCrewBlock(
         phoneRaw,
         emailRaw,
         flightRaw,
+        index: members.length,
         warnings: localWarnings,
         ...(agg !== undefined ? { agg } : {}),
       }),
@@ -201,6 +204,7 @@ function parseTechBlock(
         phoneRaw,
         emailRaw: "",
         flightRaw,
+        index: members.length,
         warnings: localWarnings,
         ...(agg !== undefined ? { agg } : {}),
       }),
@@ -216,10 +220,19 @@ function buildCrewMember(params: {
   phoneRaw: string;
   emailRaw: string;
   flightRaw: string | null;
+  index: number;
   warnings: ParseWarning[];
   agg?: ParseAggregator;
 }): CrewMemberRow {
-  const { phoneRaw, emailRaw, flightRaw, warnings, agg } = params;
+  const { phoneRaw, emailRaw, flightRaw, index, warnings, agg } = params;
+
+  // Class A (§5.1) — a phone cell carried a non-empty value but no digits, so it
+  // produces no tel: link and is otherwise dropped silently (VB08). Flag it as a
+  // FIELD_UNREADABLE warning; the member still parses. Shared across BOTH the
+  // CREW- and TECH-header paths (each computes its own phoneRaw and threads it in).
+  if (presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0) {
+    emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: phoneRaw, index });
+  }
 
   const dayResult = extractDayRestriction({ nameCell: params.nameRaw, roleCell: params.roleRaw });
   warnings.push(...dayResult.warnings);

@@ -60,6 +60,7 @@ import { renderEmphasisOr } from "@/components/messages/renderEmphasis";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { AccentButton } from "@/components/shared/AccentButton";
+import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 function safeDougFacing(code: string): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -222,6 +223,15 @@ export type StagedRow = {
   reviewItemsCorrupt?: boolean;
   /** Optional one-line summary derived from `parse_result` by the page. */
   parseSummaryLine?: string;
+  /**
+   * parse-data-quality-warnings §6.1 — structured data-gaps summary derived by
+   * the page from the staged row's `parse_result.warnings`. When `total > 0` the
+   * card renders a per-class breakdown beneath the human `warningSummary` line;
+   * `total === 0` / undefined → no breakdown (the warningSummary text alone, if
+   * any, still shows). Single-sourced via `summarizeDataGaps` — never recounted
+   * in the component.
+   */
+  dataGaps?: DataGapsSummary;
 };
 
 export type StagedReviewCardProps = {
@@ -532,6 +542,26 @@ export function StagedReviewCard({
           <p className="text-sm text-warning-text" data-testid="staged-warning-summary">
             {row.warningSummary}
           </p>
+        ) : null}
+        {/* parse-data-quality-warnings §6.1 — per-class data-gap breakdown. Static
+            parse state → two states (present iff total>0 / absent), no animation
+            (Transition Inventory: instant). Renders human labels, never the raw
+            §12.4 code literal (invariant 5). */}
+        {row.dataGaps && row.dataGaps.total > 0 ? (
+          <ul
+            data-testid="staged-data-gaps"
+            className="flex flex-wrap items-center gap-1.5 text-xs text-warning-text"
+          >
+            {dataGapClassDetails(row.dataGaps).map((d) => (
+              <li
+                key={d.key}
+                data-testid={`staged-data-gap-${d.key}`}
+                className="inline-flex items-center gap-1 rounded-sm bg-warning-bg px-2 py-0.5 font-medium"
+              >
+                <span className="tabular-nums">{d.count}</span> {d.label}
+              </li>
+            ))}
+          </ul>
         ) : null}
         {isWizardMode && lastFinalizeFailureCode ? (
           <p className="text-sm text-warning-text" data-testid="staged-wizard-failure-code">

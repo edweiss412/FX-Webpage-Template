@@ -641,6 +641,18 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 
 **Trigger:** M13 launch-gate checklist, or any milestone reopening finalize-cas / the reject contract.
 
+## ONBOARDING-FIXUPS-DEF-4 — Cron first-seen auto-publish races an in-flight wizard session on a re-onboarded watched folder
+
+**Found:** Validation provenance drill, 2026-06-13. Live evidence: wizard session `99862a4e` held a first-seen `onboarding_scan_manifest` row for drive_file_id `1f2mV_cq0jdmJhrL-lD5Hn7PVnSRTkLyVjZMLGEbbh7k`, but the 5-min cron (the folder was already a `watched_folder_id`) auto-published the same file first-seen at 00:45:50 before the wizard finalized. Proof chain: `shows.created_at` matches the cron `sync_log` applied at 00:45:51; `unpublish_token` is set — only the cron `autoPublishFirstSeen` arm writes it; and the sole `sync_audit` row carries `source=onboarding_finalize_cas`. Wizard Phase B then took the existing-show shadow path (`app/api/admin/onboarding/finalize/route.ts:666-670`, by design) and stamped no provenance — neither `onboarding_scan_manifest.created_show_id` nor `shows.wizard_created_session_id`. The WM-R8 legacy-ambiguity preflight did not fire only because the cron-created show had `published=true`.
+
+**Consequence:** The first-seen provenance contract is silently unmet for wizard-first-seen rows the cron wins — the show exists with no manifest/show provenance linkage, so any downstream consumer of `created_show_id` / `wizard_created_session_id` (finalize-cas narrowing, the WM-R8 preflight family) sees a provenance-less row.
+
+**Why deferred, not fixed here:** the candidate fix needs a spec'd decision, not a one-line guard — e.g. the cron skips first-seen auto-publish for files holding an active wizard manifest row, which interacts directly with DEF-1's scan-vs-finalize session-exclusion analysis (the same scan/finalize/cron concurrency surface) and must be designed with it.
+
+**Fail-posture:** no data corruption — the show is correct and published; the gap is provenance/preflight bookkeeping only.
+
+**Trigger:** M13 launch-gate checklist (same as DEF-1/2/3).
+
 ## AUDIT-2026-06-18-PARSE-FIDELITY — End-to-end parser/exporter fidelity findings (consolidated)
 
 **Found:** Sheet-data grounding audit, 2026-06-18 (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/sheet-data-grounding-audit-2026-06-18.md`). The **end-to-end** layer ran the real production pipeline — Drive XLSX export → `synthesizeMarkdownFromXlsx` (`lib/drive/exportSheetToMarkdown.ts`) → `parseSheet` — against all 7 live `fxav-test-shows` workbooks (fixtures now committed at `fixtures/shows/exporter-xlsx/`). It surfaced a class of bugs invisible to the `fixtures/shows/raw/` (Drive-MCP) corpus: the parser silently loses or corrupts major sections on every show, with `warnings: []` / `raw_unrecognized: []` (fail-silent).

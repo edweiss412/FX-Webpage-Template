@@ -504,6 +504,64 @@ describe("applyStaged live-scope", () => {
     expect(ctx).toHaveProperty("unpublish_token_expires_at");
   });
 
+  // parse-data-quality-warnings Task 11 (§6.4) — proves the data_gaps digest
+  // reaches SHOW_FIRST_PUBLISHED through a STAGED/manual emitter too (not just
+  // the cron path), confirming the digest lives in the SHARED emitter. The
+  // staged row's parse_result.warnings (carried via assetAdjusted.parseResult)
+  // is what emitFirstPublishedNotice summarizes.
+  test("Task 11: first-seen staged apply carries context.data_gaps when the staged parse_result has warn warnings", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const stagedWarnings = [
+      { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
+      { severity: "warn" as const, code: "UNKNOWN_SECTION_HEADER", message: "section CATERING" },
+    ];
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({
+          triggeredReviewItems: [{ id: "fs-1", invariant: "FIRST_SEEN_REVIEW" }],
+          baseModifiedTime: null,
+          parseResult: { ...parseResult(), warnings: stagedWarnings },
+        }),
+      ),
+      readShowForApply: vi.fn(async () => null),
+      liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+      // The tail summarizes assetAdjusted.parseResult (= liveAssetReviewEffects in
+      // production, built from pending.parseResult — preserving its warnings).
+      // Seed the warnings here (the source the tail actually reads).
+      liveAssetReviewEffects: {
+        parseResult: { ...parseResult(), warnings: stagedWarnings },
+        adminAlertCode: null,
+        skipDiagramsWrite: false,
+      },
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new" })),
+      createUnpublishToken: () => "tok-1",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      // real tail + default tx-bound writer (production path).
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "fs-1", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const alertCall = tx.queryOneCalls.find((c) => /upsert_admin_alert/i.test(c.sql));
+    expect(alertCall).toBeDefined();
+    expect(alertCall!.params[1]).toBe("SHOW_FIRST_PUBLISHED");
+    const ctx = alertCall!.params[2] as Record<string, unknown>;
+    // Derived from the seeded staged warnings (the data source).
+    expect(ctx.data_gaps).toEqual({
+      total: 2,
+      classes: { FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
+    });
+  });
+
   test("Task 4.4 negative-regression: a normal apply (no FIRST_SEEN_REVIEW) does NOT call emitSuccessfulPhase2Tail", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const tail = vi.fn(async () => undefined);

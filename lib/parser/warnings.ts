@@ -48,3 +48,54 @@ export function emitEmptySection(agg: ParseAggregator | undefined, section: stri
     blockRef: { kind: section },
   });
 }
+
+/**
+ * Data-quality warning codes (parse-data-quality-warnings, §5). Each is its own
+ * exported string-literal const so tests can pin it, but every EMIT site below
+ * uses the STRING LITERAL (matching `emitEmptySection`) so
+ * `scripts/extract-internal-code-enums.ts`'s `code: "..."` scanner records them
+ * in the internal-code manifest (x2 no-raw-codes). Each is also registered in
+ * §12.4 as admin-log-only + `lib/messages/catalog.ts` (all-null row) so the x1
+ * orphan-code guard passes — every active-style code literal must be in §12.4.
+ * They render via the inline `.message` at operator surfaces, NOT via
+ * `lib/messages/lookup.ts`.
+ */
+export const FIELD_UNREADABLE = "FIELD_UNREADABLE";
+export const UNKNOWN_SECTION_HEADER = "UNKNOWN_SECTION_HEADER";
+export const BLOCK_DISAPPEARED = "BLOCK_DISAPPEARED";
+
+/**
+ * Class A (§5.1) — emit a `severity:"warn"` warning when a field carried a
+ * non-empty value that produced nothing usable (e.g. a crew phone with no
+ * digits → no `tel:` link). v1 scope = crew phone only. No-ops when `agg` is
+ * undefined (the aggregator is optional in block-parser signatures).
+ */
+export function emitFieldUnreadable(
+  agg: ParseAggregator | undefined,
+  params: { section: string; field: string; rawSnippet: string; index: number },
+): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "FIELD_UNREADABLE",
+    message: `Crew phone for row ${params.index + 1} could not be read ("${params.rawSnippet}") — no call link will appear.`,
+    blockRef: { kind: params.section, index: params.index },
+    rawSnippet: params.rawSnippet,
+  });
+}
+
+/**
+ * Class B (§5.2) — emit a `severity:"warn"` warning for a section-header-shaped
+ * row whose col0 matches no known-section-header in the registry (its rows were
+ * silently dropped). No-ops when `agg` is undefined.
+ */
+export function emitUnknownSection(agg: ParseAggregator | undefined, headerText: string): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "UNKNOWN_SECTION_HEADER",
+    message: `Unrecognized section "${headerText}" — its rows were not parsed.`,
+    blockRef: { kind: "unknown_section" },
+    rawSnippet: headerText,
+  });
+}

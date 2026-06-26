@@ -179,4 +179,32 @@ describe("writeAutoApplyChanges (Task 2.9)", () => {
       expect(drift.before_image).toBeNull();
     });
   });
+
+  // Class C (parse-data-quality-warnings §5.3) de-dup guarantee: a recurring
+  // re-sync where MULTIPLE stateful blocks fully disappear (new_count===0) still
+  // writes EXACTLY ONE section_shrunk feed row and NO section_emptied — class C
+  // adds no parallel feed mechanism, so the feed never double-logs a disappearance.
+  it("Class C — multiple MI-7 new_count===0 items write exactly one section_shrunk row, no section_emptied", async () => {
+    await inRollback(async (tx) => {
+      const { showId, driveFileId } = await seedShow(tx);
+      const items: TriggeredReviewItem[] = [
+        { id: "1", invariant: "MI-7", section: "hotel_reservations", prior_count: 2, new_count: 0 },
+        { id: "2", invariant: "MI-7", section: "rooms", prior_count: 3, new_count: 0 },
+        { id: "3", invariant: "MI-7", section: "transportation", prior_count: 1, new_count: 0 },
+      ];
+      await writeAutoApplyChanges({
+        port: holdPort(tx),
+        showId,
+        driveFileId,
+        previousCrewMembers: [],
+        nextCrewMembers: [],
+        triggeredItems: items,
+        heldNames: new Set(),
+      });
+      const log = await readChangeLog(tx, showId);
+      const shrunk = log.filter((r) => r.change_kind === "section_shrunk");
+      expect(shrunk.length).toBe(1);
+      expect(log.some((r) => r.change_kind === "section_emptied")).toBe(false);
+    });
+  });
 });

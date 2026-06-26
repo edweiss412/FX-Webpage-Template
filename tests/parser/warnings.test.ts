@@ -7,10 +7,78 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { newAggregator } from "@/lib/parser/warnings";
+import {
+  newAggregator,
+  emitFieldUnreadable,
+  emitUnknownSection,
+  FIELD_UNREADABLE,
+  UNKNOWN_SECTION_HEADER,
+  BLOCK_DISAPPEARED,
+} from "@/lib/parser/warnings";
 import { parseVenue } from "@/lib/parser/blocks/venue";
 import { parseCrew } from "@/lib/parser/blocks/crew";
 import { detectVersion } from "@/lib/parser/schema";
+
+// ── Data-quality warning codes + emitters (parse-data-quality-warnings Task 1) ──
+
+describe("data-quality warning code literals", () => {
+  it("exports the three new codes as their own string literals", () => {
+    expect(FIELD_UNREADABLE).toBe("FIELD_UNREADABLE");
+    expect(UNKNOWN_SECTION_HEADER).toBe("UNKNOWN_SECTION_HEADER");
+    expect(BLOCK_DISAPPEARED).toBe("BLOCK_DISAPPEARED");
+  });
+});
+
+describe("emitFieldUnreadable", () => {
+  it("pushes a warn-severity FIELD_UNREADABLE warning carrying the raw snippet", () => {
+    const agg = newAggregator();
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "phone",
+      rawSnippet: "call John",
+      index: 0,
+    });
+
+    expect(agg.warnings.length).toBe(1);
+    const w = agg.warnings[0]!;
+    expect(w.severity).toBe("warn");
+    expect(w.code).toBe("FIELD_UNREADABLE");
+    expect(w.blockRef).toEqual({ kind: "crew", index: 0 });
+    expect(w.rawSnippet).toBe("call John");
+    // message must surface the raw snippet so the operator sees what dropped
+    expect(w.message).toContain("call John");
+  });
+
+  it("no-ops when the aggregator is undefined", () => {
+    expect(() =>
+      emitFieldUnreadable(undefined, {
+        section: "crew",
+        field: "phone",
+        rawSnippet: "x",
+        index: 0,
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("emitUnknownSection", () => {
+  it("pushes a warn-severity UNKNOWN_SECTION_HEADER warning carrying the header text", () => {
+    const agg = newAggregator();
+    emitUnknownSection(agg, "CATERING");
+
+    expect(agg.warnings.length).toBe(1);
+    const w = agg.warnings[0]!;
+    expect(w.severity).toBe("warn");
+    expect(w.code).toBe("UNKNOWN_SECTION_HEADER");
+    expect(w.blockRef).toEqual({ kind: "unknown_section" });
+    expect(w.rawSnippet).toBe("CATERING");
+    expect(w.message).toContain("CATERING");
+  });
+
+  it("no-ops when the aggregator is undefined", () => {
+    expect(() => emitUnknownSection(undefined, "CATERING")).not.toThrow();
+  });
+});
 
 // ── 1. TYPO_NORMALIZED ────────────────────────────────────────────────────────
 //

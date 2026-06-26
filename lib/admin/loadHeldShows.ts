@@ -22,6 +22,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
+import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import type { ParseWarning } from "@/lib/parser/types";
 
 // Bounded fan-out for the finalize-owned RPC reads (mirrors the dashboard's
 // FINALIZE_OWNED_CONCURRENCY): sequential chunks, parallel within a chunk, so a
@@ -116,12 +118,47 @@ export async function loadHeldShows(
     };
   }
 
+  const candidateIds = showsRows.map((s) => s.id as string);
+
+  // ── Per-show data-gaps (parse-data-quality-warnings §6.2b / Task 9). Read
+  // shows_internal.parse_warnings for the held candidates and derive each show's
+  // summarizeDataGaps. INVARIANT 9 (R10 F1): a returned error OR a thrown error
+  // becomes a DISCRIMINABLE infra_error — NEVER a silent {total:0}. Collapsing a
+  // failed read to "no data gaps" would hide warnings, recreating the exact
+  // silent-drop this feature exists to kill, so this read FAILS VISIBLE (unlike
+  // the finalize-owned RPC below, which fails TOWARD-Held by design). A show
+  // genuinely absent from shows_internal (or with an empty array) → total 0 → no
+  // chip; that null/absent case is kept distinct from a read failure.
+  const dataGapsByShowId = new Map<string, DataGapsSummary>();
+  if (candidateIds.length > 0) {
+    try {
+      const { data, error } = await supabase
+        .from("shows_internal")
+        .select("show_id, parse_warnings")
+        .in("show_id", candidateIds);
+      if (error) {
+        return { kind: "infra_error", message: `shows_internal query failed: ${error.message}` };
+      }
+      for (const row of (data ?? []) as ReadonlyArray<Record<string, unknown>>) {
+        const showId = row.show_id as string;
+        const warnings = Array.isArray(row.parse_warnings)
+          ? (row.parse_warnings as ParseWarning[])
+          : [];
+        dataGapsByShowId.set(showId, summarizeDataGaps(warnings));
+      }
+    } catch (err) {
+      return {
+        kind: "infra_error",
+        message: `shows_internal query threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
   // ── Finalize-owned exclusion (the "Publishing…" set). Same predicate the
   // dashboard uses. Fail TOWARD Held (id omitted) on any per-call fault so a
   // hiccup never hides a Held show — the conservative direction here (a stray
   // Publishing… row showing for a beat is harmless; hiding a Held show is not).
   const finalizeOwnedIds = new Set<string>();
-  const candidateIds = showsRows.map((s) => s.id as string);
   for (let i = 0; i < candidateIds.length; i += FINALIZE_OWNED_CONCURRENCY) {
     const batch = candidateIds.slice(i, i + FINALIZE_OWNED_CONCURRENCY);
     const resolved = await Promise.all(
@@ -158,6 +195,10 @@ export async function loadHeldShows(
         // ShowsTable's StatePill renders the "Held — not published" pill.
         finalizeOwned: false,
         archivedAt: null,
+        // parse-data-quality-warnings §6.2b — per-show data-gaps summary (absent
+        // from shows_internal → {total:0} → no chip). A read FAILURE returned
+        // earlier as infra_error, so reaching here means the read succeeded.
+        dataGaps: dataGapsByShowId.get(s.id as string) ?? summarizeDataGaps([]),
       };
     });
 

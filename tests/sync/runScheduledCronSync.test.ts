@@ -810,6 +810,93 @@ describe("processOneFile", () => {
     expect(events).toEqual(["lock:start", "broadcast", "alert:first-published", "lock:commit"]);
   });
 
+  // parse-data-quality-warnings Task 11 (P1, §6.4) — the SHOW_FIRST_PUBLISHED
+  // alert gains an additive `context.data_gaps` digest in the SHARED emitter
+  // (emitFirstPublishedNotice) when the parsed sheet carries warn-severity data-
+  // quality warnings, so EVERY first-published emitter (cron tested here; ≥1
+  // staged/manual emitter tested in applyStaged.test.ts) carries it.
+  test("cron auto-publish digest: SHOW_FIRST_PUBLISHED context.data_gaps populated from warn warnings", async () => {
+    const fakeTx = tx();
+    const upsertAdminAlert = vi.fn(
+      async (_input: { showId: string | null; code: string; context: Record<string, unknown> }) =>
+        "alert-1",
+    );
+    // The cron tail reads pipeline.parseResult (enrichWithDrivePins' return), so
+    // inject warn-severity data-quality warnings there.
+    const withWarnings: ParseResult = {
+      ...parseResult(),
+      warnings: [
+        { severity: "warn", code: "FIELD_UNREADABLE", message: "phone unreadable" },
+        { severity: "warn", code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
+        { severity: "warn", code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
+        // info-severity is excluded from the digest count.
+        { severity: "info", code: "FIELD_UNREADABLE", message: "info only" },
+      ] as ParseResult["warnings"],
+    };
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_d, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      upsertAdminAlert,
+      publishShowInvalidation: vi.fn(async () => {}),
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      enrichWithDrivePins: vi.fn(async () => withWarnings),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "auto_publish_ready" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          showId: "show-1",
+          parseWarnings: withWarnings.warnings,
+        };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    const call = upsertAdminAlert.mock.calls.find(([a]) => a.code === "SHOW_FIRST_PUBLISHED");
+    expect(call).toBeDefined();
+    const ctx = call![0].context;
+    // The digest is derived from the warn-severity data-quality warnings (info excluded).
+    expect(ctx.data_gaps).toEqual({
+      total: 3,
+      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 1 },
+    });
+  });
+
+  test("no data_gaps key on the SHOW_FIRST_PUBLISHED context when there are no warn-severity data-quality warnings", async () => {
+    const fakeTx = tx();
+    const upsertAdminAlert = vi.fn(
+      async (_input: { showId: string | null; code: string; context: Record<string, unknown> }) =>
+        "alert-1",
+    );
+    const syncDeps = deps({
+      withShowLock: vi.fn(async (_d, fn) => fn(fakeTx as LockedShowTx<PipelineTx>)),
+      upsertAdminAlert,
+      publishShowInvalidation: vi.fn(async () => {}),
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      // default enrichWithDrivePins → parseResult() with warnings: []
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "auto_publish_ready" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+      }),
+    });
+
+    await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    const call = upsertAdminAlert.mock.calls.find(([a]) => a.code === "SHOW_FIRST_PUBLISHED");
+    expect(call).toBeDefined();
+    const ctx = call![0].context;
+    expect(ctx).not.toHaveProperty("data_gaps");
+  });
+
   test.each(["cron", "push", "manual"] as const)(
     "%s Drive prep finishes before the advisory lock opens",
     async (mode) => {
@@ -1098,6 +1185,137 @@ describe("processOneFile", () => {
         (i) => (i as { invariant?: string }).invariant === "REEL_DRIFT_PENDING",
       ),
     ).toBe(true);
+  });
+
+  // ── Class C — BLOCK_DISAPPEARED recurring re-sync (parse-data-quality-warnings §5.3) ──
+  //
+  // A recurring existing-show re-sync where a stateful block goes prior>0 → next 0
+  // must: (a) derive exactly one BLOCK_DISAPPEARED parse-warning into the
+  // parseResult.warnings that Phase 2 persists into shows_internal.parse_warnings,
+  // and (b) keep MI-7's single section_shrunk feed item — NO parallel section_emptied
+  // comparator, NO double-log. This drives the REAL processOneFile_unlocked (real
+  // runInvariants → MI-7 → notableItems → the Class C append), capturing what Phase 2
+  // would persist. Both the cron and manual modes flow through this same chokepoint.
+  function hotelRow(ordinal: number): ParseResult["hotelReservations"][number] {
+    return {
+      ordinal,
+      hotel_name: `Hotel ${ordinal}`,
+      hotel_address: null,
+      names: [`Guest ${ordinal}`],
+      confirmation_no: null,
+      check_in: null,
+      check_out: null,
+      notes: null,
+    };
+  }
+
+  test.each(["cron", "manual"] as const)(
+    "Class C — %s re-sync of a vanished hotel block: one section_shrunk item + BLOCK_DISAPPEARED in parse_warnings, no section_emptied",
+    async (mode) => {
+      const fakeTx = tx() as LockedShowTx<PipelineTx>;
+      // Prior had 2 hotels; the new parse has zero → MI-7 hotel disappearance.
+      const priorWithHotels: ParseResult = {
+        ...parseResult(),
+        hotelReservations: [hotelRow(1), hotelRow(2)],
+      };
+      const nextNoHotels: ParseResult = { ...parseResult(), hotelReservations: [] };
+
+      let capturedNotableItems: unknown[] | undefined;
+      let capturedParseWarnings: ParseResult["warnings"] | undefined;
+      const syncDeps = deps({
+        enrichWithDrivePins: vi.fn(async () => nextNoHotels),
+        runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+          (lockedTx as PipelineTx).operations.push("runPhase1");
+          return { outcome: "pass" as const };
+        }),
+        runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
+          (lockedTx as PipelineTx).operations.push("runPhase2");
+          capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
+          capturedParseWarnings = (args as { parseResult: ParseResult }).parseResult.warnings;
+          return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        }),
+      });
+      fakeTx.readShowForPhase1 = vi.fn(async () => ({
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        priorParseResult: priorWithHotels,
+      }));
+
+      const result = await processOneFile_unlocked(
+        fakeTx,
+        "file-1",
+        mode,
+        fileMeta("file-1"),
+        syncDeps,
+      );
+      expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+
+      // (a) MI-7 fired for the hotel block — exactly one MI-7 section item, section = hotel_reservations.
+      const mi7Items = (capturedNotableItems ?? []).filter(
+        (i) => (i as { invariant?: string }).invariant === "MI-7",
+      );
+      expect(mi7Items.length).toBe(1);
+      expect((mi7Items[0] as { section?: string }).section).toBe("hotel_reservations");
+
+      // (b) Exactly one BLOCK_DISAPPEARED parse-warning reached the parseResult Phase 2 persists,
+      //     blockRef.kind = the MI-7 section.
+      const disappeared = (capturedParseWarnings ?? []).filter(
+        (w) => w.code === "BLOCK_DISAPPEARED",
+      );
+      expect(disappeared.length).toBe(1);
+      expect(disappeared[0]!.blockRef?.kind).toBe("hotel_reservations");
+
+      // No parallel comparator was introduced: no section_emptied code anywhere.
+      expect((capturedParseWarnings ?? []).some((w) => w.code === "section_emptied")).toBe(false);
+    },
+  );
+
+  test("Class C — transportation object→null disappearance derives BLOCK_DISAPPEARED", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    const priorWithTransport: ParseResult = {
+      ...parseResult(),
+      transportation: {
+        driver_name: "Sam",
+        driver_phone: null,
+        driver_email: null,
+        vehicle: null,
+        license_plate: null,
+        color: null,
+        parking: null,
+        schedule: [],
+        notes: null,
+      },
+    };
+    const nextNoTransport: ParseResult = { ...parseResult(), transportation: null };
+
+    let capturedParseWarnings: ParseResult["warnings"] | undefined;
+    const syncDeps = deps({
+      enrichWithDrivePins: vi.fn(async () => nextNoTransport),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "pass" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        capturedParseWarnings = (args as { parseResult: ParseResult }).parseResult.warnings;
+        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+      }),
+    });
+    fakeTx.readShowForPhase1 = vi.fn(async () => ({
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: priorWithTransport,
+    }));
+
+    await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    const disappeared = (capturedParseWarnings ?? []).filter((w) => w.code === "BLOCK_DISAPPEARED");
+    expect(disappeared.length).toBe(1);
+    expect(disappeared[0]!.blockRef?.kind).toBe("transportation");
   });
 
   test("Phase 1 MI-8 debounce defer logs a skip without Phase 2 or watermark writes", async () => {

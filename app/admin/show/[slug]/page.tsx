@@ -51,6 +51,8 @@ import {
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
+import type { ParseWarning } from "@/lib/parser/types";
+import { isDataQualityWarning } from "@/lib/parser/dataGaps";
 
 export const dynamic = "force-dynamic";
 
@@ -246,12 +248,47 @@ export default async function AdminShowPage({
     }
   };
 
-  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, now] = await Promise.all([
-    readFeed(),
-    readCrew(),
-    readToken(),
-    nowDate(),
-  ]);
+  // parse-data-quality-warnings §6.5/§6.6 (Task 12) — the durable per-show "Data
+  // quality" panel reads shows_internal.parse_warnings and lists each
+  // warn-severity .message. INVARIANT 9 (R10 F1): { data, error } destructure;
+  // a returned error OR a thrown error → `failed: true` (degraded VISIBLE notice,
+  // mirroring the Changes-feed SyncInfraError degrade above), NEVER a silent
+  // empty panel — collapsing a failed read to "no warnings" would recreate the
+  // silent-drop this feature kills. null/absent row (genuinely no warnings) is
+  // kept DISTINCT from a failure: messages=[], failed=false → panel simply
+  // absent. Resolves to a typed local result and never rejects (Promise.all-safe).
+  const readDataQuality = async (): Promise<{ messages: string[]; failed: boolean }> => {
+    try {
+      const { data, error } = await supabase
+        .from("shows_internal")
+        .select("parse_warnings")
+        .eq("show_id", show.id)
+        .maybeSingle<{ parse_warnings: ParseWarning[] | null }>();
+      if (error) {
+        console.error("[/admin/show/[slug]] shows_internal read failed:", error.message);
+        return { messages: [], failed: true };
+      }
+      const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
+      // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
+      // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
+      // can BE the raw code (asset reelWarning() → message: code), which would print a
+      // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
+      const messages = warnings
+        .filter(isDataQualityWarning)
+        .map((w) => w.message)
+        .filter((m): m is string => typeof m === "string" && m.length > 0);
+      return { messages, failed: false };
+    } catch (err) {
+      console.error(
+        "[/admin/show/[slug]] shows_internal read threw:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return { messages: [], failed: true };
+    }
+  };
+
+  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =
+    await Promise.all([readFeed(), readCrew(), readToken(), readDataQuality(), nowDate()]);
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
@@ -678,6 +715,71 @@ export default async function AdminShowPage({
           rejectAction={mi11RejectAction}
         />
       )}
+
+      {/* parse-data-quality-warnings §6.5 — the durable per-show "Data quality"
+          panel: each warn-severity parse warning's human .message (invariant 5 —
+          never a raw code). Mode boundaries: a read FAILURE degrades to a calm
+          notice (invariant 9, mirroring the Changes-feed degrade above); a clean
+          read with zero warn-severity messages renders NOTHING (no empty shell).
+          Static parse state → present/absent is instant, no animation. */}
+      {dataQuality.failed ? (
+        <section
+          aria-labelledby="per-show-data-quality-error-heading"
+          className="flex flex-col gap-3"
+        >
+          <h2
+            id="per-show-data-quality-error-heading"
+            className="text-lg font-semibold text-text-strong"
+          >
+            Data quality
+          </h2>
+          <p
+            data-testid="per-show-data-quality-error"
+            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+          >
+            We couldn&rsquo;t read this show&rsquo;s data-quality notes right now. Refresh to try
+            again.
+          </p>
+        </section>
+      ) : dataQuality.messages.length > 0 ? (
+        <section
+          data-testid="per-show-data-quality"
+          aria-labelledby="per-show-data-quality-heading"
+          className="flex flex-col gap-3"
+        >
+          <div className="flex items-center gap-2">
+            <h2
+              id="per-show-data-quality-heading"
+              className="text-lg font-semibold text-text-strong"
+            >
+              Data quality
+            </h2>
+            <HoverHelp
+              label="Help: Data quality"
+              testId="per-show-data-quality-help"
+              rootTestId="help-affordance--per-show-data-quality--tooltip"
+              learnMore={{ href: "/help/admin/parse-warnings" }}
+            >
+              <p>
+                Things we noticed while reading this show&apos;s sheet that may have dropped data:
+                an unreadable field, an unrecognized section, or a block that vanished since the
+                last sync. These are advisory — the show still published.
+              </p>
+            </HoverHelp>
+          </div>
+          <ul className="flex flex-col gap-2">
+            {dataQuality.messages.map((message, i) => (
+              <li
+                key={i}
+                data-testid="per-show-data-quality-item"
+                className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
+              >
+                {message}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* Quiet sync footer (replaces the standalone Sync health section). */}
       <footer

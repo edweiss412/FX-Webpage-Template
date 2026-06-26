@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseCrew } from "@/lib/parser/blocks/crew";
+import { newAggregator } from "@/lib/parser/warnings";
 import { extractRoleFlags } from "@/lib/parser/personalization";
 import { detectVersion } from "@/lib/parser/schema";
 
@@ -554,5 +555,92 @@ describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
       /email/i.test(w.code + w.message),
     );
     expect(emailWarnings).toHaveLength(0);
+  });
+});
+
+// ── Class A — FIELD_UNREADABLE (crew phone, parse-data-quality-warnings Task 2) ──
+//
+// A phone cell that carries a non-empty value but no digits (e.g. "call John")
+// produces no tel: link and is silently swallowed today (VB08). Class A flags it
+// as a FIELD_UNREADABLE warning while still parsing the member. The predicate
+// lives in the shared buildCrewMember, so BOTH the CREW-header path and the
+// TECH-header path (each computes its own phoneRaw) must emit.
+
+describe("Class A — FIELD_UNREADABLE crew phone", () => {
+  it("emits FIELD_UNREADABLE for a digit-less phone via the CREW-header path", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| :--: | :--: | :--: | :--: | :--: |",
+      "| | John Smith | A1 | call John | john@example.com |",
+    ].join("\n");
+
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v4", agg);
+
+    // member still parses (row not dropped)
+    expect(crew.length).toBe(1);
+    expect(crew[0]!.name).toBe("John Smith");
+
+    const fieldWarnings = agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE");
+    expect(fieldWarnings.length).toBe(1);
+    expect(fieldWarnings[0]!.severity).toBe("warn");
+    expect(fieldWarnings[0]!.rawSnippet).toBe("call John");
+    expect(fieldWarnings[0]!.blockRef?.kind).toBe("crew");
+  });
+
+  it("emits FIELD_UNREADABLE for a digit-less phone via the TECH-header path", () => {
+    // v1 TECH layout: NAME+ROLE merged in col0 (must contain " - "), phone in col1.
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| :--: | :--: | :--: | :--: |",
+      "| Jane Doe - A2 | text me | | |",
+    ].join("\n");
+
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v1", agg);
+
+    expect(crew.length).toBe(1);
+    expect(crew[0]!.name).toBe("Jane Doe");
+
+    const fieldWarnings = agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE");
+    expect(fieldWarnings.length).toBe(1);
+    expect(fieldWarnings[0]!.rawSnippet).toBe("text me");
+    expect(fieldWarnings[0]!.blockRef?.kind).toBe("crew");
+  });
+
+  it("does NOT emit FIELD_UNREADABLE for a parseable phone (control)", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| :--: | :--: | :--: | :--: | :--: |",
+      "| | John Smith | A1 | 917-331-4885 | john@example.com |",
+    ].join("\n");
+
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE")).toEqual([]);
+  });
+
+  it("does NOT emit FIELD_UNREADABLE for an empty phone (absence is normal)", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| :--: | :--: | :--: | :--: | :--: |",
+      "| | John Smith | A1 | | john@example.com |",
+    ].join("\n");
+
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE")).toEqual([]);
+  });
+
+  it("does NOT emit FIELD_UNREADABLE for a whitespace-only phone", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| :--: | :--: | :--: | :--: | :--: |",
+      "| | John Smith | A1 |    | john@example.com |",
+    ].join("\n");
+
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE")).toEqual([]);
   });
 });
