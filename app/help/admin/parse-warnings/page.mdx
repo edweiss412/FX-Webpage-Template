@@ -21,6 +21,18 @@ What to do:
 
 If the panel's error doesn't line up with what you see in the sheet, trust the panel: it names the exact row or section that failed.
 
+## Data quality
+
+Data-quality notes are softer than the warning above: the show **did** publish, but while reading the sheet the app noticed specific pieces that may not have made it onto the crew page. They're advisory — nothing is blocked, the crew page is live — so you can fix the sheet whenever it's convenient and the next sync clears them. They show in the **Data quality** panel on the show's admin page, with a short summary on the staged review, the publish step, and the unpublished list.
+
+Three things get flagged:
+
+- **Unreadable field** — a cell that should hold a usable value (today, a crew member's phone number) had text in it but no number the app could use, so the crew page couldn't turn it into a tap-to-call link. Check the cell for stray words or formatting and leave just the number.
+- **Unknown section** — a heading-style row the app didn't recognize as one of its known sections, so the rows under it weren't read into anything. Usually a renamed or brand-new section: rename it to a heading the app recognizes, or Tell Eric if it's a section the app should learn.
+- **Vanished block** — a section that had entries on the last sync now has none. Often intentional (you cleared it on purpose), but flagged in case rows were deleted by accident. Confirm the section is meant to be empty, or restore the rows.
+
+None of these stops a show from going live, and none of them blanks an existing crew page.
+
 <Callout type="note">
   If you've tried the suggested fix and the warning is still there after the next sync, or if the
   panel keeps pointing at a row that looks correct to you, Tell Eric. Include the show name and the
