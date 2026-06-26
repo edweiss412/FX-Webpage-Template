@@ -201,7 +201,10 @@ function splitHotelNameAddress(combined: string | null): {
   const m = STREET_ADDRESS_RE.exec(cleaned);
   if (!m) return { name: presence(cleaned), address: null };
   const splitAt = m.index; // index of the separating whitespace
-  const name = cleaned.slice(0, splitAt).replace(/[,\-–—\s]+$/, "").trim();
+  const name = cleaned
+    .slice(0, splitAt)
+    .replace(/[,\-–—\s]+$/, "")
+    .trim();
   const address = cleaned.slice(splitAt).trim();
   return { name: presence(name), address: presence(address) };
 }

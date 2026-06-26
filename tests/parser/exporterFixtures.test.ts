@@ -263,7 +263,11 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
       },
     ],
     "fixed-income": [
-      { find: "Park Hyatt", name: "Park Hyatt Chicago", address: "800 N Michigan Ave Chicago, IL 60611" },
+      {
+        find: "Park Hyatt",
+        name: "Park Hyatt Chicago",
+        address: "800 N Michigan Ave Chicago, IL 60611",
+      },
     ],
     rpas: [
       {
@@ -271,24 +275,34 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
         name: "Four Seasons Hotel Chicago",
         address: "120 E Delaware Pl Chicago, IL 60611",
       },
-      { find: "Holiday Inn", name: "Holiday Inn Express", address: "1705 Tollgate Drive Maumee, Ohio 43537" },
+      {
+        find: "Holiday Inn",
+        name: "Holiday Inn Express",
+        address: "1705 Tollgate Drive Maumee, Ohio 43537",
+      },
     ],
     // inline "Hotel Reservations" cell
     consultants: [
-      { find: "Four Seasons", name: "Four Seasons Chicago", address: "120 E Delaware Pl Chicago, IL 60611" },
+      {
+        find: "Four Seasons",
+        name: "Four Seasons Chicago",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+      },
     ],
     "redefining-fi": [
       { find: "Drake", name: "The Drake Hotel", address: "140 E Walton Pl Chicago, IL 60611" },
     ],
     ria: [
-      { find: "Park Hyatt", name: "Park Hyatt Chicago", address: "800 N Michigan Ave Chicago, IL 60611" },
+      {
+        find: "Park Hyatt",
+        name: "Park Hyatt Chicago",
+        address: "800 N Michigan Ave Chicago, IL 60611",
+      },
     ],
     // v1 "Hotel Stays": no street address glued into the reservation cell (the
     // address lives in a separate sheet row the reservation parser doesn't
     // harvest), so hotel_address stays null and the name keeps its as-is shape.
-    "east-coast": [
-      { find: "Four Seasons", name: "Four Seasons Fort Lauderdale", address: null },
-    ],
+    "east-coast": [{ find: "Four Seasons", name: "Four Seasons Fort Lauderdale", address: null }],
   };
 
   for (const [slug, expects] of Object.entries(GROUND_TRUTH)) {
@@ -318,23 +332,23 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
         const n = r.hotel_name ?? "";
         // a street address is "<2-5 digit number> <Street word>"; after the split
         // it must live in hotel_address, never on the prominent name line.
-        expect(n, `${slug} hotel_name "${n}" still glues a street address`).not.toMatch(/\b\d{2,5}\s+[A-Z]/);
+        expect(n, `${slug} hotel_name "${n}" still glues a street address`).not.toMatch(
+          /\b\d{2,5}\s+[A-Z]/,
+        );
         for (const v of [r.hotel_name, r.hotel_address]) {
           // U+200B ZWSP / U+200C ZWNJ / U+200D ZWJ / U+FEFF BOM
-          expect(v ?? "", `${slug} field "${v}" carries a zero-width char`).not.toMatch(
-            /[​-‍﻿]/,
-          );
+          expect(v ?? "", `${slug} field "${v}" carries a zero-width char`).not.toMatch(/[​-‍﻿]/);
           // straight " plus smart “ ” double-quotes
-          expect(v ?? "", `${slug} field "${v}" carries a stray double-quote`).not.toMatch(
-            /["“”]/,
-          );
+          expect(v ?? "", `${slug} field "${v}" carries a stray double-quote`).not.toMatch(/["“”]/);
         }
       }
     }
   });
 
   it("ria: address is unwrapped from its literal double-quotes", () => {
-    const ria = parse("ria").hotelReservations.find((r) => (r.hotel_name ?? "").includes("Park Hyatt"));
+    const ria = parse("ria").hotelReservations.find((r) =>
+      (r.hotel_name ?? "").includes("Park Hyatt"),
+    );
     expect(ria!.hotel_address).toBe("800 N Michigan Ave Chicago, IL 60611");
     expect(ria!.hotel_address).not.toContain('"');
   });
