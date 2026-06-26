@@ -280,13 +280,11 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q2.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).toBeNull();
   });
 
-  // followup A: the generic warning-colored "N warnings" total chip was removed
-  // from the summary (it duplicated, and in the mixed case failed to reconcile
-  // with, the per-class data-gap chips). Non-data-gap warnings (info-severity or
-  // non-DQ codes) now surface as ONE neutral "+K other" chip so the summary still
-  // reconciles with the breakdown header "Warnings (N)": per-class chips + "+K
-  // other" === warnings.length.
-  test("no generic warning-colored total chip in the summary (removed in followup A)", () => {
+  // The summary warning row shows ONLY the self-explanatory per-class data-gap
+  // chips ("2 unreadable fields"). The generic "N warnings" total chip and the
+  // cryptic "+K other" chip were both removed — non-data-gap warnings (info or
+  // non-DQ codes) carry NO summary chip; they live in the "Show details" list.
+  test("no generic warning-colored total chip in the summary", () => {
     const FIX = parseResult({
       warnings: [{ severity: "warn" as const, code: "FIELD_UNREADABLE", message: "x" }],
     });
@@ -294,20 +292,16 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 
-  test("non-data-gap warnings (info or non-DQ codes) surface as one neutral '+K other' chip", () => {
+  test("non-data-gap warnings (info or non-DQ codes) get NO summary chip at all", () => {
     const w = [
       { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "one" },
       { severity: "info" as const, code: "FLIGHT_UNMATCHED", message: "two" },
     ];
     const FIX = parseResult({ warnings: w });
-    // K derives from the fixture (anti-tautology): every warning here is non-DQ,
-    // so the expected "other" count is the full array length.
-    const expectedOther = w.length;
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const other = q.getByTestId(`wizard-step3-card-${DFID}-warnings-other`);
-    expect(other.textContent).toContain(`+${expectedOther} other`);
-    // no per-class data-gap entries (none of these is a data-gap class)
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`)).toBeNull();
+    // No "+K other" chip, and no data-gap row at all (none of these is a data-gap class).
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
 
   test("no warning row at all when warnings is empty", () => {
@@ -318,18 +312,41 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
+
+  test("collapsed card previews the first few crew names + roles with a '+K more' tail", () => {
+    const FIX = parseResult({ crewMembers: crew(12) }); // crew(n): "Crew Person i" · "Role i"
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = q.getByTestId(`wizard-step3-card-${DFID}-crew-summary`);
+    // First member's name AND role show (the cap is the first 3).
+    const first = FIX.crewMembers[0]!;
+    expect(region.textContent).toContain(first.name);
+    expect(region.textContent).toContain(first.role);
+    // A member beyond the cap is NOT named inline (it rolls into the tail).
+    expect(region.textContent).not.toContain(FIX.crewMembers[3]!.name);
+    // Overflow tail derives from the fixture (anti-tautology): total − cap(3).
+    const SUMMARY_CREW_CAP = 3;
+    expect(region.textContent).toContain(`+${FIX.crewMembers.length - SUMMARY_CREW_CAP} more`);
+  });
+
+  test("collapsed card crew line degrades when the roster is empty", () => {
+    const FIX = parseResult({ crewMembers: [] });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-crew-summary`).textContent).toContain(
+      "No crew parsed",
+    );
+  });
 });
 
 // parse-data-quality-warnings §6.2a (Task 8) — the publish-decision point. A
 // checked/applied-clean row that carries data-gap warnings must show the
 // PER-CLASS detail (not just the generic count) before the publish checkbox.
 describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
-  test("renders per-class detail + a '+K other' chip for the non-DQ warn; never the raw code", () => {
+  test("renders per-class detail for data-gap warnings; the non-DQ warn gets no chip; never the raw code", () => {
     const w = [
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
       { severity: "warn" as const, code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
-      // a non-data-quality warn → surfaces as the neutral "+K other" chip, NOT a per-class entry
+      // a non-data-quality warn → NO summary chip; it lives only in "Show details"
       { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" },
     ];
     // An applied (checked) row at the publish decision point.
@@ -349,29 +366,20 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
     ).toContain(`${blockCount} removed section${blockCount === 1 ? "" : "s"}`);
     // UNKNOWN_SECTION_HEADER count is 0 here → no entry.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
-    // The single non-DQ warn surfaces as "+1 other" (warnings.length − data-gap total),
-    // also derived from the fixture rather than hardcoded.
-    const expectedOther = w.length - (fieldCount + blockCount);
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-other`).textContent).toContain(
-      `+${expectedOther} other`,
-    );
+    // The non-DQ warn is NOT chipped in the summary (no "+K other" anymore).
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
     // invariant 5: no raw §12.4 code literal in the detail DOM.
     expect(detail.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
   });
 
-  test("a lone non-data-quality warning → '+1 other' chip, but no per-class data-gap entries", () => {
+  test("a lone non-data-quality warning → no summary chip row at all", () => {
     const FIX = parseResult({
       warnings: [{ severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" }],
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    // The warning row renders (carrying the "+1 other" chip)...
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-warnings-other`).textContent).toContain(
-      "+1 other",
-    );
-    // ...but NO per-class data-gap entry (the warning isn't a data-gap class).
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`)).toBeNull();
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-BLOCK_DISAPPEARED`)).toBeNull();
+    // No data-gap row and no "+K other" chip — the warning is only in "Show details".
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
   });
 
   test("no data-gap detail when warnings is empty", () => {

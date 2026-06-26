@@ -101,6 +101,25 @@ describe("Step3SheetCard publish checkbox (Task D3)", () => {
     expect(init?.method).toBe("POST");
   });
 
+  it("re-syncs to the server status after a refresh (so 'Select all' flips this box too)", () => {
+    // The reported bug: Select-all approves every row server-side and router.refresh()es,
+    // but the individual boxes held a stale `useState(initialChecked)` and ignored the
+    // updated prop. Now the box follows the server prop (status) on re-render.
+    const dfid = "df-resync-1";
+    const { getByTestId, rerender } = render(
+      <Step3SheetCard row={stagedRow(dfid, "Delta")} wizardSessionId={WSID} />,
+    );
+    const box = () => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
+    expect(box().checked).toBe(false);
+    // Simulate the post-Select-all refresh: SAME card, now status 'applied' (the
+    // status-keyed checkbox re-seeds, so re-query the element).
+    rerender(<Step3SheetCard row={appliedRow(dfid, "Delta")} wizardSessionId={WSID} />);
+    expect(box().checked).toBe(true);
+    // ...and the reverse (Select-all clear → status back to 'staged').
+    rerender(<Step3SheetCard row={stagedRow(dfid, "Delta")} wizardSessionId={WSID} />);
+    expect(box().checked).toBe(false);
+  });
+
   it("the checkbox is disabled while a request is in flight (prevents double-toggle, §4.6)", async () => {
     let resolveFetch: (r: Response) => void = () => {};
     const pending = new Promise<Response>((res) => {

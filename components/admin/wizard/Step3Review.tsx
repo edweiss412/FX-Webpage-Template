@@ -311,7 +311,17 @@ function ManifestIgnoreAction({
   );
 }
 
-function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: string }) {
+function RowItem({
+  row,
+  wizardSessionId,
+  expanded,
+  onToggleExpanded,
+}: {
+  row: Step3Row;
+  wizardSessionId: string;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
+}) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
 
@@ -331,7 +341,12 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
   if (isCleanRow(row.status)) {
     return (
       <div data-testid={`wizard-step3-row-${row.driveFileId}`} data-status={row.status}>
-        <Step3SheetCard row={row} wizardSessionId={wizardSessionId} />
+        <Step3SheetCard
+          row={row}
+          wizardSessionId={wizardSessionId}
+          expanded={expanded}
+          onToggleExpanded={onToggleExpanded}
+        />
       </div>
     );
   }
@@ -571,6 +586,12 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const blockingRows = rows.filter((r) => isBlocking(r.status));
   const blockingCount = blockingRows.length;
 
+  // Accordion: at most ONE card's detail open at a time across the whole grid.
+  // The open card spans the full grid width (lg:col-span-2 xl:col-span-3), which
+  // reflows the rest of the grid out of its way — so the detail reads at full
+  // width instead of squeezed into one narrow column. null = all collapsed.
+  const [expandedDfid, setExpandedDfid] = useState<string | null>(null);
+
   return (
     <section
       data-testid="wizard-step3"
@@ -697,11 +718,26 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           {mainRows.length > 0 ? (
             <ul
               data-testid="wizard-step3-card-grid"
-              className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
+              // Accordion: while a card is open the grid collapses to ONE column so
+              // the open card reads at full width and the rest stack below it. A
+              // multi-column grid can't give a single cell full width without
+              // leaving a hole where it sat (CSS sparse packing bumps the wide cell
+              // to a fresh row), so the focused view switches the whole grid to one
+              // column. Closed → the normal responsive grid.
+              className={`grid items-start gap-4 ${
+                expandedDfid !== null ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
+              }`}
             >
               {mainRows.map((row) => (
                 <li key={row.driveFileId}>
-                  <RowItem row={row} wizardSessionId={wizardSessionId} />
+                  <RowItem
+                    row={row}
+                    wizardSessionId={wizardSessionId}
+                    expanded={expandedDfid === row.driveFileId}
+                    onToggleExpanded={() =>
+                      setExpandedDfid((cur) => (cur === row.driveFileId ? null : row.driveFileId))
+                    }
+                  />
                 </li>
               ))}
             </ul>
