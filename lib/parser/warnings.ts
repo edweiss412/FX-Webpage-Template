@@ -76,16 +76,19 @@ export function emitFieldUnreadable(
   params: { section: string; field: string; rawSnippet: string; index: number },
 ): void {
   if (!agg) return;
-  // Field-specific wording: name the field + the tap-target the crew page can no
-  // longer render. Same sentence shape across fields so the panel reads uniformly.
-  // (phone keeps its exact original copy so existing assertions hold.)
+  // OUTCOME-NEUTRAL wording (whole-diff review R2): describe the SHEET problem — the
+  // cell value isn't a usable phone/email — NOT a claim about the rendered crew page.
+  // The parser can't promise "no link will appear": on the MI-11 hold path an existing
+  // member's prior (valid) value is pinned back pending approval, so the OLD link can
+  // still render. Naming the data problem is true on every apply path. Field-specific
+  // only in the noun; same sentence shape so the panel reads uniformly.
   const isEmail = params.field === "email";
   const fieldWord = isEmail ? "email" : "phone";
-  const affordance = isEmail ? "no email link will appear" : "no call link will appear";
+  const kind = isEmail ? "email address" : "phone number";
   agg.warnings.push({
     severity: "warn",
     code: "FIELD_UNREADABLE",
-    message: `Crew ${fieldWord} for row ${params.index + 1} could not be read ("${params.rawSnippet}") — ${affordance}.`,
+    message: `Crew ${fieldWord} for row ${params.index + 1} couldn't be read as a ${kind} ("${params.rawSnippet}") — check the sheet.`,
     blockRef: { kind: params.section, index: params.index },
     rawSnippet: params.rawSnippet,
   });
