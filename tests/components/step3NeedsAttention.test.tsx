@@ -161,9 +161,9 @@ describe('Step 3 "Needs your attention" group (Task D4)', () => {
     expect(container.textContent ?? "").not.toContain(code);
   });
 
-  it("live_row_conflict: renders the cataloged copy + dashboard link, with NO Ignore button", () => {
+  it("live_row_conflict: renders the cataloged copy + dashboard link AND the in-wizard Ignore (DS3-1, AC11 'Ignore OR external resolve')", () => {
     const dfid = "df-conflict";
-    const { getByTestId, queryByTestId } = render(
+    const { getByTestId } = render(
       <Step3Review wizardSessionId={WSID} rows={[liveConflictRow(dfid)]} />,
     );
     const row = getByTestId(`wizard-step3-row-${dfid}`);
@@ -175,8 +175,9 @@ describe('Step 3 "Needs your attention" group (Task D4)', () => {
       `wizard-step3-conflict-dashboard-${dfid}`,
     ) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/admin");
-    // No in-wizard Ignore button for live_row_conflict (deferred to DEFERRED.md).
-    expect(queryByTestId(`wizard-step3-ignore-${dfid}`)).toBeNull();
+    // DS3-1: the in-wizard "Permanently ignore" exit now renders ALONGSIDE the
+    // dashboard link (AC11 offers both exits for live_row_conflict).
+    expect(within(row).getByTestId(`wizard-step3-ignore-${dfid}`)).toBeTruthy();
     // No raw code leaks.
     expect(row.textContent ?? "").not.toContain("LIVE_ROW_CONFLICT");
   });

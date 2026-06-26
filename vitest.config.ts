@@ -1,8 +1,17 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import mdx from "@mdx-js/rollup";
 import remarkGfm from "remark-gfm";
+
+import { BASE_INCLUDE, PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES } from "./vitest.projects";
+
+// unit-suite.yml sets VITEST_EXCLUDE_ENV_BOUND=1 to drop the env-bound files
+// (see vitest.projects.ts). It MUST be a project-level exclude, not a CLI
+// `--exclude` flag — vitest ignores CLI `--exclude` once a project defines its
+// own `exclude`. Gated so the x-audits' direct `vitest run <file>` (and local
+// `pnpm test`) still run those files.
+const envBoundExcludes = process.env.VITEST_EXCLUDE_ENV_BOUND === "1" ? ENV_BOUND_EXCLUDES : [];
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -14,6 +23,14 @@ import remarkGfm from "remark-gfm";
 // MDX pipeline renders the /help catalog tables (Chunk 2) the same way the
 // production build does — otherwise vitest would render `| a | b |` as literal
 // text and page render-tests would assert against a degraded shape.
+//
+// The suite is split into two projects (see vitest.projects.ts for the partition
+// rationale + single source of truth): a SERIAL project (fileParallelism:false)
+// for the DB/fixture-corpus-bound suites, and a PARALLEL project for the ~300
+// verified DB-free render/unit files. This replaces the previous global
+// `fileParallelism: false`, which serialized the ENTIRE suite (the largest chunk
+// of the unit-suite CI wall-clock). vitest runs the projects in separate
+// sequential phases, so the parallel project never overlaps the serial one.
 export default defineConfig({
   plugins: [
     mdx({
@@ -23,21 +40,35 @@ export default defineConfig({
     }),
   ],
   test: {
+    // Root-level options inherited by BOTH projects via `extends: true`. The
+    // node environment is correct even for the React atom tests under
+    // tests/components/atoms/ — they pure-server-render via renderToStaticMarkup.
     environment: "node",
     globals: false,
-    // Match both .test.ts and .test.tsx so React component atom tests
-    // under tests/components/atoms/ (Task 4.4) are picked up. The atom
-    // tests pure-server-render via `renderToStaticMarkup`, so no DOM
-    // environment is needed — `environment: "node"` (above) stays correct.
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     setupFiles: ["tests/setup.ts"],
-    // Run test files sequentially. Several suites share global state — the
-    // local Supabase database (tests/admin/*, tests/sync/dev-routing.test.ts,
-    // tests/db/*) and the fixture corpus (tests/parser/* readdir's
-    // fixtures/shows/raw/*.md). Parallel file execution races on truncates,
-    // upserts, and any synthetic-fixture writes. The trade-off is roughly
-    // 3s → 10s on a clean run, which is well inside the local-TDD budget.
-    fileParallelism: false,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "serial",
+          include: BASE_INCLUDE,
+          // configDefaults.exclude keeps node_modules/dist/etc. excluded (setting
+          // `exclude` overrides the default); then everything in the parallel set
+          // is removed so it runs ONLY in the parallel project. New dirs default
+          // here (safe).
+          exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...envBoundExcludes],
+          fileParallelism: false,
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "parallel",
+          include: PARALLEL_TEST_GLOBS,
+          fileParallelism: true,
+        },
+      },
+    ],
   },
   resolve: {
     alias: { "@": dirname(fileURLToPath(import.meta.url)) },

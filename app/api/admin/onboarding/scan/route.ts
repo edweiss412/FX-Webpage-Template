@@ -7,6 +7,15 @@ import {
   type OnboardingScanResult,
 } from "@/lib/sync/runOnboardingScan";
 import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
+import {
+  SCAN_STREAM_CONTENT_TYPE,
+  type ScanProgressEvent,
+  type ScanStreamMessage,
+} from "@/lib/onboarding/scanProgress";
+
+// A streamed scan holds the function open for the whole scan; 300s is the
+// platform default ceiling and covers worst-case multi-file folders.
+export const maxDuration = 300;
 
 const DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
 const DRIVE_FOLDER_FIELDS = "id, name, mimeType, trashed";
@@ -33,7 +42,11 @@ export type ScanRouteDeps = {
   randomUUID?: () => string;
   verifyFolder?: (folderId: string) => Promise<FolderVerificationResult>;
   withTx?: <R>(fn: (tx: OnboardingScanRouteTx) => Promise<R>) => Promise<R>;
-  runOnboardingScan?: (folderId: string, wizardSessionId: string) => Promise<OnboardingScanResult>;
+  runOnboardingScan?: (
+    folderId: string,
+    wizardSessionId: string,
+    deps?: { onProgress?: (event: ScanProgressEvent) => void },
+  ) => Promise<OnboardingScanResult>;
 };
 
 type AppSettingsForScan = {
@@ -232,14 +245,62 @@ export async function handleOnboardingScan(
     }),
   );
 
-  const result = await runtime.runOnboardingScan(folder.folderId, wizardSessionId);
-  return NextResponse.json(
-    toScanResponseBody(result, {
-      wizardSessionId,
-      folderId: folder.folderId,
-      folderName: folder.folderName,
-    }),
-  );
+  // Stream the run phase as NDJSON. Everything above (auth → URL → verifyFolder
+  // → reserveWizardSession) has already resolved and emitted its non-200 status
+  // on failure; only runOnboardingScan is wrapped, so the HTTP status committed
+  // at the first byte (200) never has to carry a precondition error.
+  const encoder = new TextEncoder();
+  let canceled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      // emit MUST swallow enqueue errors: after a client cancels, enqueue throws,
+      // and emit is also called for `listed`/`staging` OUTSIDE mapWithConcurrency's
+      // isolated callback — an uncaught throw would abort the scan mid-flight and
+      // regress today's "scan always completes regardless of client" semantics.
+      const emit = (msg: ScanStreamMessage) => {
+        if (canceled) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n")); // jsonb-text-exempt: NDJSON wire encoding for the HTTP progress stream, not a postgres.js jsonb param
+        } catch {
+          canceled = true;
+        }
+      };
+      try {
+        const result = await runtime.runOnboardingScan(folder.folderId, wizardSessionId, {
+          onProgress: emit,
+        });
+        emit({
+          type: "result",
+          body: toScanResponseBody(result, {
+            wizardSessionId,
+            folderId: folder.folderId,
+            folderName: folder.folderName,
+          }),
+        });
+      } catch {
+        emit({ type: "result", body: { ok: false, code: null } });
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* already closed/canceled */
+        }
+      }
+    },
+    cancel() {
+      // Client aborted the read; the scan still runs to completion inside start()'s
+      // promise (consistent wizard-session state). emit() no-ops via `canceled`.
+      canceled = true;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": SCAN_STREAM_CONTENT_TYPE,
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
 
 export async function POST(request: Request): Promise<Response> {

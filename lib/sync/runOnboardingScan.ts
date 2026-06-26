@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
+import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
@@ -158,6 +159,14 @@ export type RunOnboardingScanDeps = {
     fn: (tx: LockedShowTx<OnboardingScanTx>) => Promise<R> | R,
     options?: Parameters<typeof defaultWithShowLock<OnboardingScanTx, R>>[2],
   ) => Promise<R | ConcurrentSyncSkipped>;
+  /**
+   * Optional progress sink. Emits `listed` once after the folder listing, one
+   * `prepared` per sheet as its Drive read settles (completion order), and
+   * `staging` once before the DB stage loop. Purely additive — the scan's
+   * outcome is identical whether or not this is supplied. Only the Step-2 route
+   * passes it (to stream NDJSON); cron/retry/restage callers omit it.
+   */
+  onProgress?: (event: ScanProgressEvent) => void;
 };
 
 export class OnboardingScanInfraError extends Error {
@@ -805,12 +814,13 @@ async function scanPreparedFiles(
   folderId: string,
   wizardSessionId: string,
   preparedFiles: PreparedOnboardingFile[],
-  deps: Pick<RunOnboardingScanDeps, "runPhase1" | "withShowLock">,
+  deps: Pick<RunOnboardingScanDeps, "runPhase1" | "withShowLock" | "onProgress">,
   withTx: <R>(fn: (tx: OnboardingScanTx) => Promise<R>) => Promise<R>,
 ): Promise<OnboardingScanResult> {
   const processed: ProcessedOnboardingFile[] = [];
   const runPhase1Impl = deps.runPhase1 ?? runPhase1;
   const lock = deps.withShowLock ?? defaultWithShowLock;
+  deps.onProgress?.({ type: "staging" });
 
   for (const prepared of preparedFiles) {
     let step: OnboardingScanStep;
@@ -894,6 +904,7 @@ export async function prepareOnboardingFiles(
 ): Promise<PreparedOnboardingFile[]> {
   const listFolder = deps.listFolder ?? listDriveFolder;
   const files = await listFolder(folderId);
+  deps.onProgress?.({ type: "listed", total: files.length });
   const fetchMarkdownWithBinding = deps.fetchMarkdownWithBinding ?? fetchSheetMarkdownWithBinding;
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
@@ -921,7 +932,14 @@ export async function prepareOnboardingFiles(
     return { file, kind: "sheet", binding, parseResult };
   };
 
-  return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne);
+  return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne, (info) =>
+    deps.onProgress?.({
+      type: "prepared",
+      done: info.done,
+      total: info.total,
+      name: info.item.name,
+    }),
+  );
 }
 
 /**

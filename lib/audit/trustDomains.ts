@@ -98,6 +98,13 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts",
     chain: ["requireAdmin"],
   },
+  // DS3-1 — manifest-keyed in-wizard permanent_ignore for live_row_conflict /
+  // discard_retryable rows (no pending_ingestions backing). Admin-gated via
+  // requireAdminIdentity() inside the handler.
+  {
+    path: "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts",
+    chain: ["requireAdmin"],
+  },
   {
     path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts",
     chain: ["requireAdmin"],

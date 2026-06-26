@@ -1,42 +1,30 @@
 "use client";
 
 /**
- * components/admin/wizard/Step2Verify.tsx (M10 §B Task 10.3 / Phase 2)
+ * components/admin/wizard/Step2Verify.tsx (M10 §B Task 10.3 / Phase 2; streamed
+ * progress, 2026-06-23)
  *
- * Wizard step 2 — "Verify your folder." Operator pastes a Google Drive
- * folder URL; the component POSTs to /api/admin/onboarding/scan (the
- * §A Pin-1 thick route that validates, mints/reuses the wizard session
- * id, purges prior-session rows, and runs runOnboardingScan).
+ * Wizard step 2 — "Verify your folder." Operator pastes a Google Drive folder
+ * URL; the component POSTs to /api/admin/onboarding/scan (the §A Pin-1 thick
+ * route). The route now STREAMS NDJSON progress (listed → prepared×N → staging
+ * → terminal result); this component reads the stream and renders a determinate
+ * progress bar plus a "Just read: <name>" status line.
  *
- * AC-10.2 paths render via messageFor() — never a raw §12.4 code
- * (AGENTS.md §1.5):
- *   - INVALID_FOLDER_URL (malformed URL)
- *   - FOLDER_NOT_SHARED (service account lacks read)
- *   - FOLDER_NOT_FOUND (folder missing/trashed)
- *   - OPERATOR_ERROR_NOT_FOLDER (URL points at a file not a folder)
- *   - OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA (transient)
- *   - WIZARD_ISOLATION_INDEXES_MISSING (schema rollback)
+ * Response handling:
+ *   - Pre-stream errors (auth / URL / folder / reserve) come back as today's
+ *     non-200 JSON (or any non-NDJSON body) → the `!isStream` branch reads
+ *     response.json() and runs the same outcome handling (safety net).
+ *   - The streamed success path reads body.getReader(), parses NDJSON lines
+ *     (buffering across chunk boundaries), updates the bar on each `prepared`,
+ *     and applies the terminal `result` (completed → success; superseded →
+ *     router.refresh(); schema_missing / {ok:false} → catalog/generic copy).
  *
- * Progress signal (M5-D2 carry-forward — no bare spinner):
- *   While the scan is in flight, display "Looking through your folder…"
- *   plus the folder URL and an elapsed-seconds counter. The scan is
- *   typically sub-minute; contextual elapsed time + the surface telling
- *   the operator what is happening beats an indefinite spinner. Streaming
- *   progress events from the route is intentionally out of Phase 2 scope
- *   (it would require a backend contract extension we have not pinned).
+ * AC-10.2: every documented success/failure path renders via messageFor — never
+ * a raw §12.4 code (AGENTS.md invariant 5). Mid-run failures arrive as a
+ * terminal { ok:false, code:null } → the generic copy (no raw code).
  *
- * Server-side scan response is the OnboardingScanResult discriminated
- * union from runOnboardingScan; outcomes:
- *   - "completed" → render scan summary (folder name + total items found)
- *     plus a "Continue to Step 3" advance link.
- *   - "schema_missing" → render WIZARD_ISOLATION_INDEXES_MISSING copy.
- *   - "superseded" → call router.refresh() so the Phase 2 dispatcher in
- *     app/admin/page.tsx re-reads the rotated session and lands the
- *     operator on the active wizard's surface. Per spec §12.4
- *     (line 2693) WIZARD_SESSION_SUPERSEDED_DURING_SCAN is admin-log-
- *     only and is NEVER rendered to Doug — the new session's UI
- *     implicitly reflects the supersession.
- * 4xx errors render the matching catalog dougFacing copy.
+ * WIZARD_SESSION_SUPERSEDED_DURING_SCAN is admin-log-only (spec §12.4:2693): the
+ * client routes the "superseded" outcome through router.refresh(), never copy.
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -45,9 +33,13 @@ import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import type { MessageCode } from "@/lib/messages/catalog";
+import {
+  SCAN_STREAM_CONTENT_TYPE,
+  type ScanResultBody,
+  type ScanStreamMessage,
+} from "@/lib/onboarding/scanProgress";
 import type {
   OnboardingScanCompletedBody,
-  OnboardingScanResponseBody,
   OnboardingScanTotals,
 } from "@/lib/onboarding/scanResponse";
 
@@ -60,26 +52,25 @@ const RECOGNIZED_CODES = new Set<MessageCode>([
   "WIZARD_ISOLATION_INDEXES_MISSING",
 ]);
 
-// The success/outcome shapes are the canonical scan-response contract shared
-// with the route (lib/onboarding/scanResponse.ts) — importing it here makes a
-// server/client drift a compile error. The `{ ok: false }` error shape is the
-// route's errorResponse() body, orthogonal to the outcome union.
+// not-subject:M5-D8 — code-less generic fallbacks (network unreachable / unknown
+// or null code). There is no §12.4 code to route through messageFor for these;
+// the prior component used these same literals inline at the callsites.
+const GENERIC_DRIVE_ERROR =
+  "We could not reach Drive just now. Check your connection and try again.";
+// not-subject:M5-D8 — generic verify fallback for a null/unrecognized code.
+const GENERIC_VERIFY_ERROR =
+  "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.";
+
 type ScanCompleted = OnboardingScanCompletedBody;
 
-type ScanResponseBody = OnboardingScanResponseBody | { ok: false; code: string };
-
-// Spec §12.4 (line 2693): WIZARD_SESSION_SUPERSEDED_DURING_SCAN is
-// admin-log-only — emitted to structured logs + sync_log but NEVER
-// rendered to Doug. The plan (09-10-admin.md:1495) excludes it from
-// Step2Verify's handled-codes list. We accept the code on the wire so
-// the response-type union stays exhaustive against the §A scan-route
-// contract, but we route the "superseded" outcome through
-// router.refresh() rather than copyForCode(). Do NOT add this code to
-// RECOGNIZED_CODES.
+type ScanProgress =
+  | { phase: "connecting" }
+  | { phase: "reading"; done: number; total: number; lastName: string | null }
+  | { phase: "finishing" };
 
 type FormState =
   | { kind: "idle" }
-  | { kind: "submitting"; startedAt: number; folderUrl: string }
+  | { kind: "submitting"; folderUrl: string; progress: ScanProgress }
   | { kind: "success"; result: ScanCompleted }
   | { kind: "error"; copy: string; code: string | null };
 
@@ -89,13 +80,13 @@ function formatTotals(totals: OnboardingScanTotals): number {
   );
 }
 
-function copyForCode(code: string): string {
-  if (RECOGNIZED_CODES.has(code as MessageCode)) {
+function copyForCode(code: string | null): string {
+  if (code && RECOGNIZED_CODES.has(code as MessageCode)) {
     const entry = messageFor(code as MessageCode);
     if (entry.dougFacing) return entry.dougFacing;
   }
   // Defensive fallback (no raw code).
-  return "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.";
+  return GENERIC_VERIFY_ERROR;
 }
 
 export function Step2Verify() {
@@ -103,80 +94,163 @@ export function Step2Verify() {
   const [folderUrl, setFolderUrl] = useState("");
   const [state, setState] = useState<FormState>({ kind: "idle" });
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const startedAtRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const isSubmitting = state.kind === "submitting";
+
   useEffect(() => {
-    if (state.kind !== "submitting") {
+    if (!isSubmitting) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      // No setState here — the next submit's handleSubmit resets the
-      // counter via setElapsedSeconds(0) before flipping state to
-      // 'submitting'. Resetting synchronously inside the effect
-      // triggers a cascading render that the linter flags.
       return;
     }
     intervalRef.current = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - state.startedAt) / 1000));
+      setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 1000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [state]);
+  }, [isSubmitting]);
+
+  // Apply a terminal result body — shared by the stream + non-stream branches.
+  function applyResultBody(body: ScanResultBody | { ok: false; code: string }) {
+    if ("outcome" in body) {
+      if (body.outcome === "completed") {
+        setState({ kind: "success", result: body });
+        return;
+      }
+      if (body.outcome === "superseded") {
+        // Admin-log-only (spec §12.4:2693): no Doug-facing copy. Reset + refresh
+        // so the Phase 2 dispatcher reads the rotated session.
+        setState({ kind: "idle" });
+        router.refresh();
+        return;
+      }
+      if (body.outcome === "schema_missing") {
+        setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
+        return;
+      }
+    }
+    if ("ok" in body && body.ok === false) {
+      setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
+      return;
+    }
+    setState({ kind: "error", copy: GENERIC_VERIFY_ERROR, code: null });
+  }
+
+  // Returns true if `line` was the terminal result (caller stops reading).
+  function dispatchLine(line: string): boolean {
+    let msg: ScanStreamMessage;
+    try {
+      msg = JSON.parse(line) as ScanStreamMessage;
+    } catch {
+      return false;
+    }
+    if (msg.type === "listed") {
+      const total = msg.total;
+      setState((s) =>
+        s.kind === "submitting"
+          ? {
+              ...s,
+              progress:
+                total <= 0
+                  ? { phase: "finishing" }
+                  : { phase: "reading", done: 0, total, lastName: null },
+            }
+          : s,
+      );
+      return false;
+    }
+    if (msg.type === "prepared") {
+      setState((s) =>
+        s.kind === "submitting"
+          ? {
+              ...s,
+              progress: {
+                phase: "reading",
+                done: msg.done,
+                total: msg.total,
+                lastName: msg.name || null,
+              },
+            }
+          : s,
+      );
+      return false;
+    }
+    if (msg.type === "staging") {
+      setState((s) => (s.kind === "submitting" ? { ...s, progress: { phase: "finishing" } } : s));
+      return false;
+    }
+    if (msg.type === "result") {
+      applyResultBody(msg.body);
+      return true;
+    }
+    return false;
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = folderUrl.trim();
     if (!trimmed) return;
     setElapsedSeconds(0);
-    setState({ kind: "submitting", startedAt: Date.now(), folderUrl: trimmed });
+    startedAtRef.current = Date.now();
+    setState({ kind: "submitting", folderUrl: trimmed, progress: { phase: "connecting" } });
     try {
       const response = await fetch("/api/admin/onboarding/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folderUrl: trimmed }),
       });
-      const body = (await response.json()) as ScanResponseBody;
-      if ("outcome" in body) {
-        if (body.outcome === "completed") {
-          setState({ kind: "success", result: body });
-          return;
-        }
-        if (body.outcome === "superseded") {
-          // Admin-log-only per spec §12.4:2693 — no Doug-facing copy.
-          // Reset to idle and refresh so the Phase 2 dispatcher reads
-          // the rotated wizard session and lands the operator on the
-          // active wizard's surface.
-          setState({ kind: "idle" });
-          router.refresh();
-          return;
-        }
-        if (body.outcome === "schema_missing") {
-          setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
-          return;
-        }
-      }
-      if ("ok" in body && body.ok === false) {
-        setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
+      const contentType = response.headers?.get?.("content-type") ?? "";
+      const isStream =
+        response.ok && contentType.includes(SCAN_STREAM_CONTENT_TYPE) && response.body != null;
+
+      if (!isStream) {
+        // Pre-stream errors (non-200 JSON) + json-path safety net.
+        const body = (await response.json()) as ScanResultBody | { ok: false; code: string };
+        applyResultBody(body);
         return;
       }
-      setState({
-        kind: "error",
-        copy: "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.",
-        code: null,
-      });
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let sawResult = false;
+      outer: for (;;) {
+        const { value, done } = await reader.read();
+        if (value) buffer += decoder.decode(value, { stream: true });
+        let nl = buffer.indexOf("\n");
+        while (nl >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (line && dispatchLine(line)) {
+            sawResult = true;
+            break outer;
+          }
+          nl = buffer.indexOf("\n");
+        }
+        if (done) break;
+      }
+      if (!sawResult) {
+        const tail = buffer.trim();
+        if (tail && dispatchLine(tail)) sawResult = true;
+      }
+      if (!sawResult) {
+        setState({ kind: "error", copy: GENERIC_DRIVE_ERROR, code: null });
+      }
     } catch {
-      setState({
-        kind: "error",
-        copy: "We could not reach Drive just now. Check your connection and try again.",
-        code: null,
-      });
+      setState({ kind: "error", copy: GENERIC_DRIVE_ERROR, code: null });
     }
   }
 
-  const isSubmitting = state.kind === "submitting";
   const submitDisabled = isSubmitting || folderUrl.trim().length === 0;
+  const progress = state.kind === "submitting" ? state.progress : null;
+  const heading =
+    progress?.phase === "finishing" ? "Finishing up…" : "Looking through your folder…";
+  const reading = progress?.phase === "reading" ? progress : null;
 
   return (
     <section
@@ -251,19 +325,58 @@ export function Step2Verify() {
         </button>
       </form>
 
-      {state.kind === "submitting" ? (
+      {state.kind === "submitting" && progress ? (
         <div
-          role="status"
-          aria-live="polite"
           data-testid="wizard-step2-progress"
           className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text"
         >
-          <p className="font-semibold text-text-strong">Looking through your folder…</p>
-          <p className="break-all text-text-subtle">{state.folderUrl}</p>
-          <p className="tabular-nums text-text-subtle" data-testid="wizard-step2-elapsed">
-            {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} so far. We keep going until we
-            have read every sheet. Large folders can take a minute.
+          <p className="text-base font-semibold text-text-strong" aria-hidden="true">
+            {heading}
           </p>
+          <p className="break-all text-text-subtle" aria-hidden="true">
+            {state.folderUrl}
+          </p>
+          <progress
+            data-testid="wizard-step2-progressbar"
+            className="h-2 w-full"
+            max={reading ? reading.total : undefined}
+            value={reading ? reading.done : undefined}
+            aria-label="Folder scan progress"
+            aria-valuemin={0}
+            aria-valuemax={reading ? reading.total : undefined}
+            aria-valuenow={reading ? reading.done : undefined}
+          />
+          {reading ? (
+            <p
+              className="tabular-nums text-text-subtle"
+              data-testid="wizard-step2-count"
+              aria-hidden="true"
+            >
+              {reading.done} of {reading.total} sheet{reading.total === 1 ? "" : "s"}
+            </p>
+          ) : null}
+          {reading && reading.lastName ? (
+            <p
+              className="truncate text-text"
+              data-testid="wizard-step2-lastname"
+              title={reading.lastName}
+              aria-hidden="true"
+            >
+              <span className="text-text-subtle">Just read: </span>
+              {reading.lastName}
+            </p>
+          ) : null}
+          <p
+            className="tabular-nums text-text-subtle"
+            data-testid="wizard-step2-elapsed"
+            aria-hidden="true"
+          >
+            {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} elapsed
+          </p>
+          {/* Screen-reader announcer: phase changes only, not every tick. */}
+          <span className="sr-only" role="status" aria-live="polite">
+            {heading}
+          </span>
         </div>
       ) : null}
 

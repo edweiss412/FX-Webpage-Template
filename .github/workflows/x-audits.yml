@@ -9,6 +9,17 @@ on:
     - cron: "0 9 * * 1"
   workflow_dispatch:
 
+# Cancel a superseded run when the PR branch is re-pushed so the 10 parallel
+# audit jobs don't keep holding runners for a commit that's been replaced.
+# Including github.event_name is load-bearing here: this workflow runs on BOTH
+# `schedule` and `push: main`, which share github.ref (refs/heads/main) — without
+# the event_name the Monday cron and a main-push run would land in the same group
+# and cancel each other. With it, PR re-pushes still cancel (same event+ref) but
+# schedule/push/pull_request never cross-cancel.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   traceability-audit:
     if: github.event_name != 'schedule'
@@ -328,7 +339,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install psql (postgresql-client) for Layer 1
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Run postgrest-dml-lockdown 3-layer meta-test
         shell: bash
         env:
@@ -372,7 +383,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Install psql (postgresql-client) for schema introspection
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Run validation-schema-parity gate
         shell: bash
         env:
