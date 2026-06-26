@@ -23,6 +23,8 @@
  *   - The shell does NOT compose URLs to build-gated routes (memory
  *     `feedback_build_gated_routes_never_fallback_target`).
  */
+import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { messageFor } from "@/lib/messages/lookup";
@@ -84,23 +86,51 @@ function StartOverForm() {
 }
 
 function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
+  // Pill shape shared by all three states; focus ring shared by the two link
+  // states (a plain span is not focusable, so it does not carry the ring).
+  const base =
+    "flex size-7 items-center justify-center rounded-pill text-xs font-semibold tabular-nums transition-colors duration-fast";
+  const focusRing =
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
   return (
     <nav
       aria-label="Onboarding progress"
       data-testid="wizard-step-indicator"
       className="flex items-center gap-3"
     >
-      {[1, 2, 3].map((n) => {
+      {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;
+        // Visited = step ≤ current. Every already-reached pill is a real <Link>
+        // back to that step (keyboard-accessible, focus-visible ring per DESIGN
+        // tokens). A not-yet-reached pill (n > current) stays plain,
+        // non-interactive text — no href, so it cannot be tabbed to or clicked.
+        const isVisited = n <= step;
+        if (isVisited) {
+          return (
+            <Link
+              key={n}
+              href={`/admin?step=${n}`}
+              data-testid={`wizard-step-indicator-${n}`}
+              aria-current={isActive ? "step" : undefined}
+              aria-label={isActive ? `Step ${n}, current step` : `Go back to step ${n}`}
+              className={[
+                base,
+                focusRing,
+                isActive
+                  ? "bg-accent text-accent-text"
+                  : "bg-surface-sunken text-text-subtle hover:text-text-strong",
+              ].join(" ")}
+            >
+              {n}
+            </Link>
+          );
+        }
         return (
           <span
             key={n}
             data-testid={`wizard-step-indicator-${n}`}
-            aria-current={isActive ? "step" : undefined}
-            className={[
-              "flex size-7 items-center justify-center rounded-pill text-xs font-semibold tabular-nums",
-              isActive ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle",
-            ].join(" ")}
+            aria-disabled="true"
+            className={[base, "bg-surface-sunken text-text-faint"].join(" ")}
           >
             {n}
           </span>
@@ -108,6 +138,25 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
       })}
       <span className="sr-only">Step {step} of 3</span>
     </nav>
+  );
+}
+
+// Non-destructive "Back" affordance (Task 5): a plain <Link> to the previous
+// step, matching the existing forward `?step=` pattern (Step2Verify's "Continue
+// to Step 3" link). Step 1 has no Back, so this renders only for steps 2 and 3.
+// SAFETY: mounting `?step=N-1` is read-only. Step2Verify (the ?step=2 body)
+// fires its scan POST ONLY from the form's onSubmit handler, never on mount, so
+// Back cannot re-trigger a scan or orphan the wizard session.
+function BackLink({ step }: { step: 2 | 3 }) {
+  return (
+    <Link
+      href={`/admin?step=${step - 1}`}
+      data-testid="wizard-back-link"
+      className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+    >
+      <ChevronLeft aria-hidden="true" className="size-4" />
+      Back
+    </Link>
   );
 }
 
@@ -351,12 +400,21 @@ export async function OnboardingWizard({ settings, searchParams }: OnboardingWiz
   // folder is connected yet.
   const showStartOver = settings.watched_folder_id === null;
 
+  // Task 6: Steps 1-2 stay narrow (max-w-2xl); Step 3 widens on desktop so its
+  // review cards can lay out in a multi-column grid (the grid itself lives in
+  // <Step3Review>). The chrome (stepper, Back, Start over) is left-aligned, so
+  // the wider container only meaningfully affects the card area.
+  const containerMaxWidth = step === 3 ? "max-w-2xl lg:max-w-6xl" : "max-w-2xl";
+
   return (
     <div
       data-testid="onboarding-wizard"
-      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+      className={`mx-auto flex ${containerMaxWidth} flex-col gap-section-gap`}
     >
-      <StepIndicator step={step} />
+      <div className="flex items-center justify-between gap-3">
+        <StepIndicator step={step} />
+        {step !== 1 ? <BackLink step={step} /> : null}
+      </div>
 
       {service.ok ? (
         <>

@@ -17,6 +17,7 @@
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, fireEvent, within } from "@testing-library/react";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import type {
   ParseResult,
   ShowRow,
@@ -209,7 +210,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(summary(q).textContent).toContain(`${days} schedule days`);
   });
 
-  test("dates render only present segments", () => {
+  test("dates render role-labeled, humanized, present segments only", () => {
     const FIX = parseResult({
       show: show({
         dates: { travelIn: "2026-04-09", set: null, showDays: ["2026-04-10"], travelOut: null },
@@ -217,17 +218,34 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const s = summary(q).textContent ?? "";
-    expect(s).toContain("2026-04-09");
-    expect(s).toContain("2026-04-10");
-    expect(s).not.toContain("Dates not found");
+    // Humanized + role-labeled (Task 3), not the raw ISO chain.
+    expect(s).toContain("Travel in Apr 9");
+    expect(s).toContain("Show Apr 10");
+    expect(s).not.toContain("2026-04-09"); // humanized, not raw ISO
+    expect(s).not.toContain("Travel out"); // travelOut null → segment omitted
+    expect(s).not.toContain("Dates not detected");
   });
 
-  test("'Dates not found' when no date segments are present", () => {
+  test("'Dates not detected' when no date segments are present", () => {
     const FIX = parseResult({
       show: show({ dates: { travelIn: null, set: null, showDays: [], travelOut: null } }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(summary(q).textContent).toContain("Dates not found");
+    expect(summary(q).textContent).toContain("Dates not detected");
+  });
+
+  test("show-days that can't be humanized fall back to the raw ISO (a present date is never dropped)", () => {
+    const FIX = parseResult({
+      show: show({
+        dates: { travelIn: null, set: null, showDays: ["BADDATE-1", "BADDATE-2"], travelOut: null },
+      }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const s = summary(q).textContent ?? "";
+    // humanizeDayRange → null on all-malformed; the builder falls back to the
+    // raw first–last so the Show segment is rendered, not silently omitted.
+    expect(s).toContain("Show BADDATE-1 – BADDATE-2");
+    expect(s).not.toContain("Dates not detected");
   });
 
   test("diagrams badge shown iff linkedFolder OR embeddedImages present", () => {
@@ -434,6 +452,59 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.textContent).toContain(at(FIX.hotelReservations, 11).hotel_name);
     expect(region.textContent).not.toContain(at(FIX.hotelReservations, 12).hotel_name);
     expect(region.textContent).toContain(`${FIX.hotelReservations.length - 12} more`);
+  });
+
+  test("schedule: a day with >6 entries reveals every entry via 'Show all' (no silent truncation), in a 2-track time|title grid", () => {
+    const FIX = parseResult({ runOfShow: runOfShow(1, 9) }); // 1 day, 9 entries (> the 6 cap)
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`);
+    // Collapsed: first 6 entries render as SEPARATE time + title cells (the 2-track
+    // grid that column-aligns them — not one joined span).
+    expect(within(region).getAllByTestId(`wizard-step3-card-${DFID}-sched-time`).length).toBe(6);
+    expect(within(region).getAllByTestId(`wizard-step3-card-${DFID}-sched-title`).length).toBe(6);
+    // The cap is an in-place disclosure, NOT a dead '+N' tail.
+    fireEvent.click(within(region).getByText("Show all 9 times"));
+    // All 9 now present — nothing is hidden.
+    expect(within(region).getAllByTestId(`wizard-step3-card-${DFID}-sched-time`).length).toBe(9);
+    expect(within(region).getAllByTestId(`wizard-step3-card-${DFID}-sched-title`).length).toBe(9);
+  });
+
+  test("warnings breakdown: catalog title when cataloged, raw message (never the bare code) otherwise, + non-blocking note", () => {
+    const titled = Object.entries(MESSAGE_CATALOG).find(([, v]) => v.title != null)!;
+    const titledCode = titled[0];
+    const titledTitle = titled[1].title as string;
+    const FIX = parseResult({
+      warnings: [
+        { severity: "warn" as const, code: titledCode, message: "RAW-FALLBACK-SHOULD-NOT-SHOW" },
+        {
+          severity: "info" as const,
+          code: "UNKNOWN_PARSER_WARNING_XYZ",
+          message: "Two flights could not be matched to crew",
+        },
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    // Cataloged code → the catalog title (NOT the raw fallback message).
+    expect(region.textContent).toContain(titledTitle);
+    expect(region.textContent).not.toContain("RAW-FALLBACK-SHOULD-NOT-SHOW");
+    // Unknown code → the human message, and NEVER the bare code (invariant 5).
+    expect(region.textContent).toContain("Two flights could not be matched to crew");
+    expect(region.textContent).not.toContain("UNKNOWN_PARSER_WARNING_XYZ");
+    // Explicit non-blocking affordance.
+    expect(region.textContent).toMatch(/don.t block publishing/i);
+  });
+
+  test("the collapsed breakdown is `inert` so its focusable controls (Show-all) aren't tabbable while hidden", () => {
+    // A day with >6 entries means the breakdown contains a focusable "Show all"
+    // button; the collapse is height:0/overflow:hidden (NOT display:none), so
+    // without `inert` that button would stay tab-reachable while hidden.
+    const FIX = parseResult({ runOfShow: runOfShow(1, 9) });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const breakdown = q.getByTestId(`wizard-step3-card-${DFID}-breakdown`);
+    expect(breakdown.hasAttribute("inert")).toBe(true); // collapsed on mount
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    expect(breakdown.hasAttribute("inert")).toBe(false); // operable once expanded
   });
 
   test("schedule outline caps days at 14 and entries per day at 6", () => {

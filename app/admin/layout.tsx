@@ -21,7 +21,10 @@
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
+import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
 import { PageTransition } from "@/components/layout/PageTransition";
+import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
+import { readFinalizeCheckpoint, isInfraError } from "@/app/admin/_finalizeCheckpoint";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
@@ -80,6 +83,50 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     throw err;
   }
 
+  const adminEmail = identity.email;
+
+  // Onboarding UX Polish Task 1: during first-run onboarding the setup wizard
+  // owns the screen and the nav tabs point at destinations that do not
+  // meaningfully exist yet, so suppress them and show a slim bar instead.
+  //
+  // The gate must match the /admin dispatcher's wizard-vs-dashboard decision
+  // EXACTLY (app/admin/page.tsx): a minted wizard session renders a
+  // wizard/finalize surface for a null / in_progress / all_batches_complete
+  // checkpoint, but the dispatcher renders the DASHBOARD for the defensive
+  // `final_cas_done` snapshot (Phase D clears the session id atomically, so a
+  // non-null id + final_cas_done is an inconsistent snapshot) — so the full nav
+  // MUST show there too; otherwise the dashboard renders behind a slim
+  // onboarding bar with no navigation. No session + no folder = first-visit
+  // fresh = onboarding. FAIL OPEN on ANY read fault (app_settings OR the
+  // checkpoint): keep the full nav so a settled admin is never stranded.
+  const appSettings = await readAppSettingsRow();
+  let inOnboarding = false;
+  if (appSettings.kind === "value") {
+    const s = appSettings.settings;
+    if (s.pending_wizard_session_id !== null) {
+      const checkpoint = await readFinalizeCheckpoint(s.pending_wizard_session_id);
+      inOnboarding =
+        !isInfraError(checkpoint) &&
+        (checkpoint === null || checkpoint.status !== "final_cas_done");
+    } else {
+      inOnboarding = s.watched_folder_id === null;
+    }
+  }
+
+  if (inOnboarding) {
+    return (
+      <div
+        data-testid="admin-layout"
+        // No `pb-20`: the slim onboarding bar has no fixed mobile bottom tab
+        // bar to clear, so the mobile-bottom-bar reservation is dropped.
+        className="mx-auto max-w-[1600px] p-page-pad-mobile sm:p-page-pad-desktop"
+      >
+        <OnboardingTopBar email={adminEmail} />
+        <PageTransition>{children}</PageTransition>
+      </div>
+    );
+  }
+
   // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
   // parallel so first /admin entry blocks on one wall-time, not two sequential
   // round-trips. alertCount is meta-pinned in lib/admin/alertCount.ts; the
@@ -89,7 +136,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     fetchUnresolvedAlertCount(),
     loadNeedsAttentionCount(),
   ]);
-  const adminEmail = identity.email;
 
   return (
     <div

@@ -648,21 +648,14 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         </div>
       ) : (
         <>
-          {mainRows.length > 0 ? (
-            <ul className="flex flex-col gap-3">
-              {mainRows.map((row) => (
-                <li key={row.driveFileId}>
-                  <RowItem row={row} wizardSessionId={wizardSessionId} />
-                </li>
-              ))}
-            </ul>
-          ) : null}
-
           {/* §4.1 "Needs your attention": a distinct grouped section, set apart
               from the clean publish cards by a heading + a sunken plate, for the
               blocking statuses. Hidden entirely when no blocking row exists.
               Warm-yellow warning treatment (DESIGN.md §1.2 — warning, not red),
-              paired with a heading + per-row icon, never a side-stripe. */}
+              paired with a heading + per-row icon, never a side-stripe.
+              Task 6: rendered ABOVE the card grid and spanning the full
+              container width (a sibling of the grid, never a grid cell) so the
+              blocking rows surface before the publishable cards. */}
           {blockingRows.length > 0 ? (
             <section
               data-testid="wizard-step3-needs-attention"
@@ -691,6 +684,27 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
                 ))}
               </ul>
             </section>
+          ) : null}
+
+          {/* Task 6: the clean + informational review cards lay out in a
+              responsive grid — 1 col on mobile, 2 at lg, 3 at xl. items-start so
+              each card sizes to its own content height: CSS grid defaults to
+              align-items:stretch, which we explicitly override so a short card
+              never stretches to match the tallest in its row (this repo's
+              Tailwind v4 requires every such dimensional relationship to be
+              stated explicitly). Each card stays width-fluid so it fills its
+              grid cell. */}
+          {mainRows.length > 0 ? (
+            <ul
+              data-testid="wizard-step3-card-grid"
+              className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
+            >
+              {mainRows.map((row) => (
+                <li key={row.driveFileId}>
+                  <RowItem row={row} wizardSessionId={wizardSessionId} />
+                </li>
+              ))}
+            </ul>
           ) : null}
         </>
       )}
