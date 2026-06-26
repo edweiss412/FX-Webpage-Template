@@ -616,6 +616,22 @@ describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)",
       }
     });
   }
+
+  // R6: learn-K fires ONLY when the later guests agree on a name shape. A MIXED row
+  // (later counts 1 and 2) gives no reliable k, so it must NOT mis-capture the first
+  // guest (the old min() yielded hotel "Westin Doug" / first guest "Larson"); it
+  // falls through to legacy instead. Pin the SAFE properties, not the messy legacy
+  // string: no "Westin Doug" hotel, no lone "Larson", no conf# leak.
+  it("mixed one-word + full-name guests do NOT mis-capture the first guest (learn-K guard)", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Westin Doug Larson - 123456 Eric - 123457 John Smith - 123458 |",
+      "v1",
+    )[0]!;
+    expect(h.hotel_name).not.toBe("Westin Doug"); // the R6 mis-capture
+    expect(h.names).not.toContain("Larson"); // first guest not truncated to a surname
+    const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}|\b\d{6,}\b/;
+    for (const v of [h.hotel_name, ...h.names]) expect(v ?? "").not.toMatch(confTok);
+  });
 });
 
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {

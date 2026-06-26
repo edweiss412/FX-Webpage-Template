@@ -633,33 +633,42 @@ function buildInlineHotel(
         .slice(1)
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
-      const k = later.length ? Math.min(...later.map(baseWords)) : 1;
-      // name1 = the last k base-words of seg0 (a trailing initial rides with its word).
-      const toks = segs[0]!.trim().split(/\s+/).filter(Boolean);
-      let i = toks.length;
-      let counted = 0;
-      while (i > 0 && counted < k) {
-        i--;
-        if (!/^\p{Lu}\.?$/u.test(toks[i]!)) counted++;
-      }
-      const name1 = toks.slice(i).join(" ");
-      const hotelPart = toks.slice(0, i).join(" ");
-      const names = [name1, ...later]
-        .map(stripConfTokens)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-      if (names.length >= 2 && hotelPart.length > 0) {
-        const split = splitHotelNameAddress(hotelPart);
-        return {
-          ordinal,
-          hotel_name: split.name,
-          hotel_address: split.address,
-          names,
-          confirmation_no: null,
-          check_in: null,
-          check_out: null,
-          notes: null,
-        };
+      // Trust learn-K ONLY when the later guests AGREE on a name shape (same base
+      // word count). A MIXED row ("Eric - … John Smith - …": counts 1 and 2) gives
+      // no reliable k for the ambiguous first guest, so fall through to legacy
+      // rather than guess (Codex R6) — moving a first-name into hotel_name would
+      // hide that reservation from the guest (names[] is the per-viewer filter).
+      const counts = later.map(baseWords);
+      const consistent = counts.length > 0 && counts.every((c) => c === counts[0]);
+      if (consistent) {
+        const k = counts[0]!;
+        // name1 = the last k base-words of seg0 (a trailing initial rides with its word).
+        const toks = segs[0]!.trim().split(/\s+/).filter(Boolean);
+        let i = toks.length;
+        let counted = 0;
+        while (i > 0 && counted < k) {
+          i--;
+          if (!/^\p{Lu}\.?$/u.test(toks[i]!)) counted++;
+        }
+        const name1 = toks.slice(i).join(" ");
+        const hotelPart = toks.slice(0, i).join(" ");
+        const names = [name1, ...later]
+          .map(stripConfTokens)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (names.length >= 2 && hotelPart.length > 0) {
+          const split = splitHotelNameAddress(hotelPart);
+          return {
+            ordinal,
+            hotel_name: split.name,
+            hotel_address: split.address,
+            names,
+            confirmation_no: null,
+            check_in: null,
+            check_out: null,
+            notes: null,
+          };
+        }
       }
     }
 
