@@ -31,14 +31,18 @@ const hotelReservations =
 
 **Two root causes:** (1) the wrong matching primitive; (2) a parser bug — `parseGuestCell` (`lib/parser/blocks/hotels.ts:108`) does not split a slash-separated "Names on Reservation" cell, so fixed-income's `fixed-income.md:49` `David Johnson / Jeffrey Justice` is one `names[]` entry.
 
-### Security / privacy framing (load-bearing)
+### Security / privacy framing (load-bearing — RATIFIED, do not relitigate)
 
-The per-viewer hotel filter is **UX, not security**. `hotel_reservations` is show-wide crew-readable at the DB layer (RLS `crew_read` + SELECT to `authenticated`); any crew member can already read every hotel row via PostgREST. The filter only decides which cards `getShowForViewer` surfaces. Therefore:
+The per-viewer hotel filter is **UX, not a security boundary** — the **owner's 2026-05-23 crew-auth determination**, which the master spec declares the single source of truth: amendment `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:7-10` + `PRODUCT.md:69-73` ("Crew auth & sharing model"). v1 crew auth is **one show-link + a "who are you?" self-identify picker that lists EVERY crew member on the roster**; selection is a free self-identify in a per-device cookie, NOT authentication. Owner, verbatim: "role filtering is a UX feature for crew focus, **not a security gate against the people in the group thread who already have the link.**"
 
-- **Under-match is the real harm** — a missed match hides the viewer's own hotel entirely.
-- **Over-match is benign** — an extra card shows information already DB-readable. The conf#-not-persisted invariant (the actual privacy boundary, `hotels.ts:100-106`, `#4 PRIVACY` meta-test) is untouched by this change.
+**Mechanism (so the reviewer's correct observation is addressed, not ignored):** `getShowForViewer` fetches all show data via a **service-role client** (`getShowForViewer.ts:258`; `readHotels` `:416`), bypassing RLS; the per-viewer name filter is a **presentation** choice, not an access boundary. Picker viewers indeed have no PostgREST/RLS access of their own — true and irrelevant: a picker viewer can already see ANY crew member's view (hotels included) by re-selecting that identity in the picker, so the filter withholds nothing the ratified model protects.
 
-So the matcher is tuned to minimize under-match, accepting a small, documented over-match bound.
+Consequences:
+- **Under-match is the real harm** — it hides the viewer's own hotel.
+- **Over-match is benign** — it re-surfaces a card reachable by re-picking; it exposes only show-logistics (hotel name / dates / guest names), never the conf# (parsed-but-NOT-persisted, `hotels.ts:100-106`, `#4 PRIVACY` meta-test — the actual privacy boundary, untouched here).
+- **Documented residual bound:** the loosest over-match (a hotel guest who is NOT on the crew roster yet shares a surname with a viewer) could surface that non-roster guest's hotel-logistics card. Accepted — it is show-logistics with no credentials, consistent with the owner's not-a-security-gate model; the sensitive conf# is never persisted.
+
+So the matcher minimizes under-match (the harm) and accepts the benign over-match per the ratified determination.
 
 ## 2. Out of scope / what does NOT change
 
@@ -132,6 +136,6 @@ allHotels.filter((res) => res.names.some((n) => namesRefer(n, viewerName as stri
 
 ## 6. Watchpoints (pre-load the reviewer)
 
-- **Do-not-relitigate:** matcher strictness = LENIENT (user-ratified); slash-split scope = INCLUDED (user-ratified); UX-not-security framing (M11.5 picker pivot — `project_crew_auth_pivot_to_show_link_picker`); the over-match bound is accepted by design.
+- **Do-not-relitigate (cited ratifications):** matcher strictness = LENIENT (user-ratified 2026-06-26); slash-split scope = INCLUDED (user-ratified). **The per-viewer hotel filter is UX-not-security by the OWNER's 2026-05-23 determination** — master spec amendment `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:7-10` ("role filtering is a UX feature for crew focus, not a security gate") + `PRODUCT.md:69-73`; the picker is a free self-identify over the full roster, so over-match re-surfaces only what the viewer can already reach by re-picking. The service-role fetch (`getShowForViewer.ts:258`) means this filter is presentation, never an access boundary. The over-match bound (incl. the non-roster-guest residual) is accepted; the conf# privacy boundary (not persisted) is untouched. Do not re-derive the filter as a security control.
 - The filter is pure in-memory over `allHotels` — **no new Supabase call**, so the call-boundary meta-test is not in scope.
 - `viewerName` is non-null on the filtered branch (the `=== null` case short-circuits to `allHotels`), but `namesRefer` is defensively total over empty/whitespace input.
