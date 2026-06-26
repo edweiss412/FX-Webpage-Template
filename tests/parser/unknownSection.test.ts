@@ -139,6 +139,27 @@ describe("Class B — generic-label prefix false-negative (whole-diff review R1 
     expect(warns[0]!.rawSnippet).toContain("HOTEL STAFF");
   });
 
+  it("FIRES for a dropped section with multi-word / punctuated field headers (R2 [medium])", () => {
+    // countFieldHeaderWords must tokenize cells: "Contact Name"→NAME, "Phone #"→PHONE,
+    // "Email Address"→EMAIL. Exact-cell matching scored 0 → this common vendor-table
+    // shape was silently dropped with no UNKNOWN_SECTION_HEADER.
+    const md = [SHEET_HEAD, "", "| CATERING | Contact Name | Phone \\# | Email Address |"].join(
+      "\n",
+    );
+    const warns = unknownSectionWarnings(md);
+    expect(warns.length).toBe(1);
+    expect(warns[0]!.rawSnippet).toContain("CATERING");
+  });
+
+  it("does NOT fire a multi-word header band that carries NO field-header word", () => {
+    // A genuine non-header all-caps row whose cells tokenize to zero header words
+    // stays unflagged (the ≥2-labelled-column gate holds).
+    const md = [SHEET_HEAD, "", "| DLP DATA PROJECTOR | DLP DATA PROJECTOR | | | 1 | 1 |"].join(
+      "\n",
+    );
+    expect(unknownSectionWarnings(md)).toEqual([]);
+  });
+
   it("isKnownSectionHeader: generic labels exact-only; room families still prefix-match", () => {
     // Generic labels: bare form known, suffixed form NOT known (would-be silent drop).
     expect(isKnownSectionHeader("CLIENT")).toBe(true);

@@ -214,12 +214,29 @@ export const SECTION_FIELD_HEADER_WORDS: ReadonlySet<string> = new Set([
   "POSITION",
 ]);
 
-/** Count of DISTINCT field-header words among the given (already-trimmed) cells. */
+/** Tokenize a normalized cell on non-alphanumeric boundaries: "PHONE #" → ["PHONE"],
+ *  "Contact Name" → ["CONTACT","NAME"], "Email Address" → ["EMAIL","ADDRESS"]. */
+function headerTokens(cell: string): string[] {
+  return normalizeHeader(cell)
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Count of field-header COLUMNS — cells that contain at least one field-header word as
+ * a token — among the given cells. Whole-diff review R2 [medium]: matching the ENTIRE
+ * cell against the whitelist missed common multi-word / punctuated labels, so a dropped
+ * "CATERING | Contact Name | Phone # | Email Address" scored 0 and was silently dropped.
+ * Tokenizing each cell counts it ("CONTACT NAME"→NAME, "PHONE #"→PHONE, "EMAIL ADDRESS"
+ * →EMAIL), so the ≥2-labelled-column header band is detected. Counts COLUMNS (not words)
+ * so a single multi-word cell is not a band on its own, and a repeated-equipment-name
+ * GEAR row ("DLP DATA PROJECTOR | DLP DATA PROJECTOR | …", no header-word tokens) still
+ * scores 0 — the corpus regression pins zero false positives.
+ */
 export function countFieldHeaderWords(cells: readonly string[]): number {
-  const seen = new Set<string>();
+  let columns = 0;
   for (const cell of cells) {
-    const n = normalizeHeader(cell);
-    if (SECTION_FIELD_HEADER_WORDS.has(n)) seen.add(n);
+    if (headerTokens(cell).some((t) => SECTION_FIELD_HEADER_WORDS.has(t))) columns += 1;
   }
-  return seen.size;
+  return columns;
 }
