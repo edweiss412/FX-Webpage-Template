@@ -29,6 +29,20 @@ const hotelReservations =
 | redefining-fi | Eric Carroll, Eric Weiss, Connor Hester, … | Eric Carroll, Eric Weiss, Connor Hester | — (exact) |
 | fintech | John Carleo, Eric Weiss, Calvin Saller | John Carleo, Eric Weiss, Carlos Pineda | — (exact) |
 
+**Oracle provenance (live-code citation).** Every "Roster crew" name is `parseSheet(<fixture>).crewMembers[].name` and every "hotel guest" is `parseSheet(<fixture>).hotelReservations[].names[]` — the parser's projection of the committed, round-trip-guarded, creds-free `fixtures/shows/exporter-xlsx/*.md` (pinned by `tests/drive/round-trip-fixture.test.ts`); reproducible by parsing the fixtures. Source blocks (`file:line`, hotel block / "Names on Reservation" row / crew block):
+
+| Show (`fixtures/shows/exporter-xlsx/`) | hotel block | names row | crew block |
+|---|---|---|---|
+| `east-coast.md` | `:32` (Hotel Stays) | — (inline) | `~:21` |
+| `consultants.md` | `:51` (Hotel Reservations) | — (inline) | `~:22` |
+| `rpas.md` | `:43` (HOTEL table) | `:47` | `~:26` |
+| `redefining-fi.md` | `:52` (Hotel Reservations) | — (inline) | `~:23` |
+| `ria.md` | `:56` (Hotel Reservations) | — (inline) | `~:24` |
+| `fixed-income.md` | `:44` (HOTEL table) | `:48` (slash cell `:49`) | `~:26` |
+| `fintech.md` | `:44` (HOTEL table) | `:48` | `~:28` |
+
+The table names are **derived, not hand-transcribed**: the matcher test seeds its representative pairs from these projections, and the filter-integration test re-parses each fixture (§4.2), so a fixture edit surfaces in CI rather than silently staling the oracle.
+
 **Two root causes:** (1) the wrong matching primitive; (2) a parser bug — `parseGuestCell` (`lib/parser/blocks/hotels.ts:108`) does not split a slash-separated "Names on Reservation" cell, so fixed-income's `fixed-income.md:49` `David Johnson / Jeffrey Justice` is one `names[]` entry.
 
 ### Security / privacy framing (load-bearing — RATIFIED, do not relitigate)
@@ -123,7 +137,7 @@ allHotels.filter((res) => res.names.some((n) => namesRefer(n, viewerName as stri
 ## 4. Test plan (TDD)
 
 1. **`namesRefer` unit matrix** (`tests/data/nameMatch.test.ts`): every roster↔guest pair from the §1 oracle, asserting the exact match/no-match, **derived from a data table** (not hand-listed booleans where avoidable). Explicit **over-match exclusions**: `Eric Carroll`↮`Eric Weiss`, `Eric Weiss`↮`Eric Carroll`, `Calvin Saller`↮`Carlos Pineda`, `John Carleo`↮`Carlos Pineda`. Explicit **nickname/legal-name matches**: `Bill Werner`↔`William Werner` and `Bill Werner`↔`William Werner Jr` (suffix-stripped); `DJ Johnson`↔`David Johnson`; `Doug Larson`↔`Douglas Larson`; `Alex Rodrigues`↔`Alexandre Rodrigues`. Explicit **accent/normalization**: `José Núñez` precomposed ↔ decomposed ↔ `Jose Nunez` all match. Assert **symmetry** (`namesRefer(a,b) === namesRefer(b,a)`) for every pair. Edge cases from §3.4 (empty, whitespace, single-token both sides, hyphenated surname). *Failure mode caught:* a regression to substring-only matching (would fail east-coast/ria/rpas/consultants/fixed-income rows), an over-broad matcher (would fail the distinct-surname exclusions), or a re-introduction of the first-name gate (would fail Bill↔William).
-2. **Filter integration** (`tests/data/...`): exercise the real `res.names.some((n) => namesRefer(n, viewerName))` predicate (or full `getShowForViewer` with mocked reads) — a `kind:"crew"` viewer named `Carl Fenton` sees the `names:["Carl"]` reservation; a viewer `Eric Weiss` does **not** see a `names:["Eric Carroll"]` reservation; admin/`viewerName===null` sees all. *Failure mode caught:* the matcher works in isolation but is wired wrong (e.g. argument order, still calling `.includes`).
+2. **Filter integration** (`tests/data/hotelVisibility.test.ts`): exercise the real `res.names.some((n) => namesRefer(n, viewerName))` predicate via the extracted pure `hotelVisibleToViewer`. Two layers: (a) explicit cases — a `Carl Fenton` viewer sees a `names:["Carl"]` reservation; an `Eric Weiss` viewer does **not** see a `names:["Eric Carroll"]` reservation; `viewerName===null` (admin/unknown) returns all. (b) **fixture-derived** — for the 5 currently-broken shows (east-coast, ria, rpas, consultants, fixed-income), `parseSheet(<fixture>)` and assert every crew member whose name `namesRefer`-matches a guest IS surfaced that reservation by the filter, reading BOTH `crewMembers[].name` and `hotelReservations[].names[]` from the parse output (no hardcoded strings) so a fixture edit can't silently stale the oracle. *Failure mode caught:* the matcher works in isolation but is wired wrong (argument order, still `.includes`), or a fixture/parse change drifts the oracle.
 3. **Parser slash-split** (extend `tests/parser/blocks/hotels.test.ts` or `exporterFixtures.test.ts`): fixed-income's structured cell yields two guests `["David Johnson","Jeffrey Justice"]`, no conf# in either, `#4 PRIVACY` meta-test still green. *Failure mode caught:* the slash-merge regressing, or a conf# leaking through the new split path.
 4. **Anti-tautology:** matcher expectations derive from the oracle data table; the integration test asserts membership in the filtered result, not a re-statement of the matcher.
 
