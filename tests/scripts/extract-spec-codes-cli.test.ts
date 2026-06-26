@@ -32,6 +32,8 @@ import { describe, expect, test } from "vitest";
 const REPO_ROOT = process.cwd();
 const TSCONFIG_PATH = join(REPO_ROOT, "tsconfig.json");
 const SCRIPT_PATH = join(REPO_ROOT, "scripts/extract-spec-codes.ts");
+// PR E: absolute tsx bin (not `npx tsx`) — resolves from the hermetic temp cwd.
+const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
 // Mirrors SPEC_PATH / OUTPUT_PATH in scripts/extract-spec-codes.ts:31-32
 // (both resolved relative to cwd, which is the hermetic tmpdir here).
 const SPEC_RELATIVE_PATH = "docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md";
@@ -48,7 +50,7 @@ function runExtractSpecCodes(setup?: (cwd: string) => void): {
   setup?.(hermeticCwd);
   let run: CliRun;
   try {
-    const stdout = execFileSync("npx", ["tsx", "--tsconfig", TSCONFIG_PATH, SCRIPT_PATH], {
+    const stdout = execFileSync(TSX_BIN, ["--tsconfig", TSCONFIG_PATH, SCRIPT_PATH], {
       encoding: "utf-8",
       cwd: hermeticCwd,
       env: process.env,

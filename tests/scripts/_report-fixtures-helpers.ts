@@ -18,6 +18,10 @@ import { type CliRun, runValidationCli } from "./_cli-helpers";
 export const REPO_ROOT = process.cwd();
 export const TSCONFIG_PATH = join(REPO_ROOT, "tsconfig.json");
 export const REPORT_FIXTURES_SCRIPT = join(REPO_ROOT, "scripts/validation-report-fixtures.ts");
+// PR E: spawn the repo's tsx bin by ABSOLUTE path (not `npx tsx`) to drop npx's
+// resolver cold-start (~0.25-0.5s) per spawn — this harness spawns 42-66 of them.
+// Absolute so it resolves from the harness's hermetic temp cwd (no node_modules).
+export const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
 
 export const DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -86,8 +90,8 @@ export function runHarnessInCwd(
     .join("\n");
   writeFileSync(join(cwd, ".env.local"), lines + "\n");
   const result = spawnSync(
-    "npx",
-    ["tsx", "--tsconfig", TSCONFIG_PATH, REPORT_FIXTURES_SCRIPT, ...args, "--allow-local-override"],
+    TSX_BIN,
+    ["--tsconfig", TSCONFIG_PATH, REPORT_FIXTURES_SCRIPT, ...args, "--allow-local-override"],
     { cwd, encoding: "utf-8", env: process.env },
   );
   return {

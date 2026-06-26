@@ -18,6 +18,8 @@ import { join } from "node:path";
 
 const REPO_ROOT = process.cwd();
 const TSCONFIG_PATH = join(REPO_ROOT, "tsconfig.json");
+// PR E: absolute tsx bin (not `npx tsx`) — resolves from the hermetic temp cwd.
+const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
 
 export type CliRun = { code: number; stdout: string; stderr: string };
 
@@ -43,8 +45,8 @@ export function runValidationCli(opts: CliRunOptions): CliRun {
   }
   try {
     const stdout = execFileSync(
-      "npx",
-      ["tsx", "--tsconfig", TSCONFIG_PATH, opts.scriptPath, ...(opts.args ?? [])],
+      TSX_BIN,
+      ["--tsconfig", TSCONFIG_PATH, opts.scriptPath, ...(opts.args ?? [])],
       {
         encoding: "utf-8",
         cwd: hermeticCwd,
