@@ -37,6 +37,7 @@ name: Unit + DB suite (full vitest gate)
 # `vitest run <file>` and by local `pnpm test`.
 on:
   pull_request:
+  merge_group: # required: run on the merge queue's merge_group branch, else the queue hangs
   push:
     branches: [main]
   workflow_dispatch:

@@ -71,7 +71,17 @@ trap restore EXIT
 # retryable failure; a final failure still `exit 1`s.
 SUPABASE_START_ATTEMPTS="${SUPABASE_START_ATTEMPTS:-3}"
 attempt=1
-until supabase start; do
+# `-x` skips Supabase services no CI consumer uses (cuts ~62s of image pull / the
+# ~86-96s boot, paid per booting job across all 6 consumers of this script).
+# KEEP (exercised live by app render / e2e / seed): kong (gateway 54321),
+# postgrest (.from/.rpc + seed), gotrue (auth.admin/signIn — the e2e signInAs
+# path), realtime (crew-e2e ShowRealtimeBridge broadcast), storage-api (signed
+# diagram URLs + sync uploads). EXCLUDE (proven unused): imgproxy
+# (image_transformation disabled), mailpit (email is Resend over HTTPS, not SMTP),
+# studio + postgres-meta (dev UI only; schema introspection uses direct psql),
+# edge-runtime (no supabase/functions dir). Pinned by
+# tests/cross-cutting/supabase-boot-services.test.ts.
+until supabase start -x imgproxy,mailpit,studio,postgres-meta,edge-runtime; do
   if [ "$attempt" -ge "$SUPABASE_START_ATTEMPTS" ]; then
     echo "::error::supabase start failed after ${attempt} attempts (transient Docker pull / start)" >&2
     exit 1
