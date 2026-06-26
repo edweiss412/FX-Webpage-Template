@@ -37,7 +37,7 @@ on:
 # Supabase + seeds + Playwright, so a stale run holds a heavy runner.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   crew-e2e:

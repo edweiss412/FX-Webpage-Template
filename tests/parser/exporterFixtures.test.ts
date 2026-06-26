@@ -338,20 +338,28 @@ describe("exporter fidelity — C1 v4 General Session captured (was dropped)", (
 });
 
 describe("exporter fidelity — C2/R8 additional room: populated fields kept, empty stubs suppressed", () => {
-  it("populated 'Additional Room Name(s)/Setup' fields emit a real room (v2 + v4 shows)", () => {
+  it("populated intake-form 'Additional Room Name(s)/Setup' fields emit ONE 'Additional rooms' card with the prose in notes (not the name)", () => {
+    // These come from the client INTAKE FORM tab (free-text answers), not Doug's INFO room
+    // blocks — so the value is usually meal/social PROSE. It must NOT become the room name
+    // (a paragraph-as-name card); it goes into `notes` (rendered as a Today callout) behind
+    // a clean generic "Additional rooms" label. The "Additional Room Setup" value stays in
+    // setup. (Owner decision 2026-06-23: reformat, keep info, fix the name.)
     const rf = parse("redefining-fi").rooms.filter((r) => r.kind === "additional");
     expect(rf).toHaveLength(1);
-    expect(rf[0]!.name).toContain("Lunch in Adorn");
+    expect(rf[0]!.name).toBe("Additional rooms");
+    expect(rf[0]!.notes).toContain("Lunch in Adorn");
     expect(rf[0]!.setup).toMatch(/Not currently contracted/);
 
     const cons = parse("consultants").rooms.filter((r) => r.kind === "additional");
     expect(cons).toHaveLength(1);
-    expect(cons[0]!.name).toContain("Lunch will be held");
+    expect(cons[0]!.name).toBe("Additional rooms");
+    expect(cons[0]!.notes).toContain("Lunch will be held");
 
     // rpas is v4 — the field must be captured even though parseV4Rooms short-circuits.
     const rp = parse("rpas").rooms.filter((r) => r.kind === "additional");
     expect(rp).toHaveLength(1);
-    expect(rp[0]!.name).toContain("Ballroom C");
+    expect(rp[0]!.name).toBe("Additional rooms");
+    expect(rp[0]!.notes).toContain("Ballroom C");
   });
 
   it("empty Additional Room fields stay suppressed — no phantom (ria/fintech/fixed-income)", () => {
