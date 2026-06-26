@@ -243,6 +243,179 @@ describe("exporter fidelity — AR R4: multi-stay inline cell splits into per-gr
   });
 });
 
+describe("exporter fidelity — #3 hotel name / address split (live-grounded, all 7 sheets)", () => {
+  // The production exporter flattens the in-cell `name⏎street⏎city` newlines to
+  // spaces, so the parser must split the venue name from the street address by
+  // PATTERN, not by the (lost) line break. Live-MCP grounding of all 7
+  // fxav-test sheets (2026-06-26) confirmed: the hotel name ends at the first
+  // standalone 2+ digit STREET NUMBER, no hotel name in the corpus contains such
+  // a number, ria wraps its address in literal double-quotes, and fintech's
+  // Holiday Inn embeds U+200C ZWNJ — quotes + zero-width chars are stripped.
+  type Expect = { find: string; name: string; address: string | null };
+  const GROUND_TRUTH: Record<string, Expect[]> = {
+    // structured HOTEL table
+    fintech: [
+      { find: "Kimpton", name: "Kimpton Gray", address: "122 W Monroe St Chicago, IL 60603" },
+      {
+        find: "Holiday Inn",
+        name: "Holiday Inn Express",
+        address: "13330 Cicero Avenue, Crestwood, IL 60418 United States",
+      },
+    ],
+    "fixed-income": [
+      {
+        find: "Park Hyatt",
+        name: "Park Hyatt Chicago",
+        address: "800 N Michigan Ave Chicago, IL 60611",
+      },
+    ],
+    rpas: [
+      {
+        find: "Four Seasons",
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+      },
+      {
+        find: "Holiday Inn",
+        name: "Holiday Inn Express",
+        address: "1705 Tollgate Drive Maumee, Ohio 43537",
+      },
+    ],
+    // inline "Hotel Reservations" cell
+    consultants: [
+      {
+        find: "Four Seasons",
+        name: "Four Seasons Chicago",
+        address: "120 E Delaware Pl Chicago, IL 60611",
+      },
+    ],
+    "redefining-fi": [
+      { find: "Drake", name: "The Drake Hotel", address: "140 E Walton Pl Chicago, IL 60611" },
+    ],
+    ria: [
+      {
+        find: "Park Hyatt",
+        name: "Park Hyatt Chicago",
+        address: "800 N Michigan Ave Chicago, IL 60611",
+      },
+    ],
+    // v1 "Hotel Stays": no street address glued into the reservation cell (the
+    // address lives in a separate sheet row the reservation parser doesn't
+    // harvest), so hotel_address stays null and the name keeps its as-is shape.
+    "east-coast": [{ find: "Four Seasons", name: "Four Seasons Fort Lauderdale", address: null }],
+  };
+
+  for (const [slug, expects] of Object.entries(GROUND_TRUTH)) {
+    for (const e of expects) {
+      it(`${slug}: "${e.find}" → name "${e.name}" / address ${e.address === null ? "null" : `"${e.address}"`}`, () => {
+        const res = parse(slug).hotelReservations;
+        const hit = res.find(
+          (r) => (r.hotel_name ?? "").includes(e.find) || (r.hotel_address ?? "").includes(e.find),
+        );
+        expect(hit, `no reservation matching "${e.find}" in ${slug}`).toBeDefined();
+        if (e.address === null) {
+          // tolerate the pre-existing v1 Hotel-Stays guest-name glue; assert only
+          // that no street address was split out and the venue name is present.
+          expect(hit!.hotel_name).toContain(e.find);
+          expect(hit!.hotel_address).toBeNull();
+        } else {
+          expect(hit!.hotel_name).toBe(e.name);
+          expect(hit!.hotel_address).toBe(e.address);
+        }
+      });
+    }
+  }
+
+  it("no hotel_name retains a glued street address, and no field carries a ZWNJ/quote (every show)", () => {
+    for (const slug of Object.keys(GROUND_TRUTH)) {
+      for (const r of parse(slug).hotelReservations) {
+        const n = r.hotel_name ?? "";
+        // a street address is "<2-5 digit number> <Street word>"; after the split
+        // it must live in hotel_address, never on the prominent name line.
+        expect(n, `${slug} hotel_name "${n}" still glues a street address`).not.toMatch(
+          /\b\d{2,5}\s+[A-Z]/,
+        );
+        for (const v of [r.hotel_name, r.hotel_address]) {
+          // U+200B ZWSP / U+200C ZWNJ / U+200D ZWJ / U+FEFF BOM
+          expect(v ?? "", `${slug} field "${v}" carries a zero-width char`).not.toMatch(/[​-‍﻿]/);
+          // straight " plus smart “ ” double-quotes
+          expect(v ?? "", `${slug} field "${v}" carries a stray double-quote`).not.toMatch(/["“”]/);
+        }
+      }
+    }
+  });
+
+  it("ria: address is unwrapped from its literal double-quotes", () => {
+    const ria = parse("ria").hotelReservations.find((r) =>
+      (r.hotel_name ?? "").includes("Park Hyatt"),
+    );
+    expect(ria!.hotel_address).toBe("800 N Michigan Ave Chicago, IL 60611");
+    expect(ria!.hotel_address).not.toContain('"');
+  });
+
+  // Negative-regression: the boundary requires a real STREET SHAPE, so a hotel
+  // whose BRANDING carries a number is not corrupted. The naive "number + word"
+  // predicate would have split "Hotel 71" → name "Hotel" / address "71...".
+  const numericHotel = (cell: string) =>
+    parseHotels(
+      [
+        "| HOTEL | RESERVATION \\#1 |  |  |",
+        "| :---: | :---: | :---: | :---: |",
+        "|  | Hotel Name / Address |  |  |",
+        `|  | ${cell} |  |  |`,
+        "|  | Names on Reservation |  |  |",
+        "|  | Alice Smith |  |  |",
+        "|  | Check In Date | Check Out Date |  |",
+        "|  | 1/1/26 | 1/2/26 |  |",
+      ].join("\n"),
+      "v4",
+    )[0]!;
+
+  it("numeric-branded hotel name with NO street address is left whole (no false split)", () => {
+    const h = numericHotel("Hotel 71");
+    expect(h.hotel_name).toBe("Hotel 71");
+    expect(h.hotel_address).toBeNull();
+  });
+
+  it("numeric-branded hotel name splits at the REAL street number, not the branding", () => {
+    // "Hotel 71 71 E Wacker Dr Chicago, IL 60601" — the first 71 is branding (no
+    // street phrase follows); the second 71 begins "71 E Wacker Dr".
+    const h = numericHotel("Hotel 71 71 E Wacker Dr Chicago, IL 60601");
+    expect(h.hotel_name).toBe("Hotel 71");
+    expect(h.hotel_address).toBe("71 E Wacker Dr Chicago, IL 60601");
+  });
+
+  // Coverage for common address shapes the street-shape gate must NOT reject
+  // (1-digit street numbers + ordinal street names) — else those venues silently
+  // regress to a glued name/address on the crew page.
+  const splitCases: Array<[string, string, string]> = [
+    // cell, expected name, expected address
+    [
+      "The Newbury Boston 1 Newbury St Boston, MA 02116",
+      "The Newbury Boston",
+      "1 Newbury St Boston, MA 02116",
+    ],
+    [
+      "Hotel Viking 1 Bellevue Ave Newport, RI 02840",
+      "Hotel Viking",
+      "1 Bellevue Ave Newport, RI 02840",
+    ],
+    [
+      "Union League Club 38 E 37th St New York, NY 10016",
+      "Union League Club",
+      "38 E 37th St New York, NY 10016",
+    ],
+    ["The Langham 485 5th Ave New York, NY 10017", "The Langham", "485 5th Ave New York, NY 10017"],
+  ];
+  for (const [cell, name, address] of splitCases) {
+    it(`splits "${name}" off its address "${address}" (1-digit / ordinal street shapes)`, () => {
+      const h = numericHotel(cell);
+      expect(h.hotel_name).toBe(name);
+      expect(h.hotel_address).toBe(address);
+    });
+  }
+});
+
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
   it("consultants GS does NOT inherit a DETAILS-section Digital Signage sentence", () => {
     const gs = parse("consultants").rooms.find((r) => r.kind === "gs");

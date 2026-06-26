@@ -27,8 +27,9 @@ describe("parseHotels — v4 single hotel (2026-04-asset-mgmt-cfo-coo-waldorf)",
     expect(hotels).toHaveLength(1);
   });
 
-  it("hotel_name is Waldorf Astoria Chicago", () => {
-    expect(hotels[0]!.hotel_name).toBe("Waldorf Astoria Chicago 11 E Walton St Chicago, IL 60611");
+  it("hotel_name is the venue only; the street address splits into hotel_address (#3)", () => {
+    expect(hotels[0]!.hotel_name).toBe("Waldorf Astoria Chicago");
+    expect(hotels[0]!.hotel_address).toBe("11 E Walton St Chicago, IL 60611");
   });
 
   it("ordinal is 1", () => {
