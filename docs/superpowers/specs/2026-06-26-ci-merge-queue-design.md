@@ -1,5 +1,16 @@
 # GitHub merge queue for `main` — design
 
+> **OUTCOME (2026-06-26): NOT ADOPTED — merge queue is unavailable on this plan.**
+> GitHub's merge queue is gated to GitHub Team / Enterprise (and org-owned repos);
+> this is a **free personal public repo**, so it has neither the branch-protection
+> "Require merge queue" UI toggle nor the REST `merge_queue` ruleset rule (the REST
+> POST returns `422 Invalid rule 'merge_queue'`, and `evaluate` enforcement returns
+> "upgrade to Enterprise"). **Resolution:** relaxed classic
+> `required_status_checks.strict` to `false` (keeping all 12 required checks) to end
+> the merge-race treadmill, and reverted the Phase-1 `merge_group` triggers + their
+> meta-test (this PR). The design below is retained for the record / a future
+> plan upgrade. See memory `project_ci_speedup_pr_d_matrix_shard`.
+
 **Date:** 2026-06-26
 **Scope:** CI/repo-policy infra. No app code. Ends the merge-race treadmill (strict "require-up-to-date" + busy main + ~7m CI) that bit PR D and PR E.
 **Branch:** `chore/ci-merge-queue` (off `origin/main`).
