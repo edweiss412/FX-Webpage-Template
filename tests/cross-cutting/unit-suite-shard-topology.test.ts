@@ -9,10 +9,7 @@ import { describe, expect, it } from "vitest";
 // properties whose silent regression would either drop test coverage or let a
 // red shard green the required `unit-suite` check.
 
-const YAML = readFileSync(
-  join(process.cwd(), ".github", "workflows", "unit-suite.yml"),
-  "utf8",
-);
+const YAML = readFileSync(join(process.cwd(), ".github", "workflows", "unit-suite.yml"), "utf8");
 
 describe("unit-suite matrix-shard topology", () => {
   // Anti-vacuity: prove we actually read the unit-suite workflow, so a wrong
@@ -70,7 +67,7 @@ describe("unit-suite matrix-shard topology", () => {
     // it, and tie it to `needs: [unit-suite-shard]` to prove it's the aggregator.
     const agg = /\n {2}unit-suite:\n([\s\S]*?)(?=\n {2}[A-Za-z0-9_-]+:\n|$)/.exec(YAML);
     expect(agg, "aggregator job block `unit-suite:` not found").not.toBeNull();
-    const body = agg![1];
+    const body = agg?.[1] ?? "";
     expect(
       /\n {4}name:\s*unit-suite\n/.test(body),
       "the aggregator must set `name: unit-suite` so the required check-context name is preserved " +

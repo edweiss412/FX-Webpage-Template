@@ -118,7 +118,7 @@ describe("unit-suite matrix-shard topology", () => {
     // it, and tie it to `needs: [unit-suite-shard]` to prove it's the aggregator.
     const agg = /\n {2}unit-suite:\n([\s\S]*?)(?=\n {2}[A-Za-z0-9_-]+:\n|$)/.exec(YAML);
     expect(agg, "aggregator job block `unit-suite:` not found").not.toBeNull();
-    const body = agg![1];
+    const body = agg?.[1] ?? ""; // capture group typed string|undefined under tsc
     expect(
       /\n {4}name:\s*unit-suite\n/.test(body),
       "the aggregator must set `name: unit-suite` so the required check-context name is preserved",
