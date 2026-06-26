@@ -619,8 +619,10 @@ export function Step3SheetCard({
                   // (info-severity or non-DQ codes). Overrides the ul's
                   // text-warning-text so it reads as a quiet "and N more" tail, not
                   // a second alarm. Full per-warning detail lives in the expandable
-                  // breakdown below.
-                  className="inline-flex items-center rounded-sm bg-surface-raised px-2 py-0.5 font-medium text-text-subtle"
+                  // breakdown below. `bg-surface-sunken` (NOT surface-raised, which
+                  // equals the card's white `bg-surface` in light mode → invisible)
+                  // — matches the <Badge> token so the pill stays visible on the card.
+                  className="inline-flex items-center rounded-sm bg-surface-sunken px-2 py-0.5 font-medium text-text-subtle"
                 >
                   <span className="tabular-nums">+{otherWarningCount}</span> other
                 </li>
