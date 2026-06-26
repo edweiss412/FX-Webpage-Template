@@ -27,6 +27,13 @@ export type DriveFetchOptions = {
    * to exercise the stall guard without waiting.
    */
   exportTimeoutMs?: number;
+  /**
+   * Per-attempt wall-clock budget for the `files.get` metadata reads (the
+   * before/after binding gets + plain metadata fetches). Defaults to
+   * {@link DRIVE_FILES_GET_TIMEOUT_MS}. Tests pass a tiny value to exercise the
+   * stall guard without waiting.
+   */
+  metadataTimeoutMs?: number;
 };
 
 /**
@@ -61,6 +68,28 @@ export type DriveFetchOptions = {
  */
 export const DRIVE_EXPORT_TIMEOUT_MS = 45_000;
 
+/**
+ * Per-attempt wall-clock budget for a Drive `files.get` metadata read.
+ *
+ * `getDriveClient()` builds the gaxios client with NO timeout (gaxios default is
+ * unbounded), so a silent socket stall on the before-`get`/after-`get` issued
+ * around every sheet hangs `prepareOne` exactly like the export bug did — on the
+ * SAME onboarding hot path (DXT-1 part C). Healthy gets are 165-255ms, so 10s is
+ * ~40x headroom while still bounding a stall.
+ *
+ * A gaxios-7 per-call timeout fires via `AbortSignal.timeout`, throwing a
+ * `GaxiosError` with `code === "TimeoutError"` (a string, not the gaxios-6/axios
+ * `ECONNABORTED`/`ETIMEDOUT` shape). `driveErrorStatus` maps that — and the
+ * low-level socket-timeout codes, defensively — to a transient 504 so the
+ * already-wrapping `withDriveRetry` retries with a fresh budget, then throws a
+ * typed error after the bounded retries (same bounded contract as the export
+ * guard, not an indefinite hang). The gaxios call passes `retry: false` so
+ * `withDriveRetry` is the SINGLE retry layer and the budget is exactly this many
+ * ms per attempt (worst case 10s * (1 + maxRetries) = 40s, well inside the 300s
+ * route budget).
+ */
+export const DRIVE_FILES_GET_TIMEOUT_MS = 10_000;
+
 export class DriveFetchError extends Error {
   readonly status?: number;
   constructor(message: string, status?: number) {
@@ -81,6 +110,17 @@ const DEFAULT_MAX_DRIVE_RETRIES = 3;
 function driveErrorStatus(error: unknown): number | null {
   if (error instanceof DriveFetchError) {
     return typeof error.status === "number" ? error.status : null;
+  }
+  // A gaxios-7 request timeout (per-call `timeout` -> AbortSignal.timeout) throws
+  // a GaxiosError with `code === "TimeoutError"` (string) and NO numeric status.
+  // Treat that — plus the low-level socket-timeout codes, defensively — as a
+  // transient 504 so withDriveRetry retries a stalled files.get instead of
+  // failing it on the first attempt. (gaxios 7 is the native-fetch rewrite;
+  // ECONNABORTED/ETIMEDOUT are the older gaxios-6/axios shapes, kept for any
+  // undici/socket cause whose .code gaxios copies.)
+  const code = (error as { code?: unknown })?.code;
+  if (code === "TimeoutError" || code === "ETIMEDOUT" || code === "ECONNABORTED") {
+    return 504;
   }
   // gaxios / googleapis error shapes: response.status, status, or numeric code.
   const candidate =
@@ -186,12 +226,17 @@ function driveFilesGet(
   drive: drive_v3.Drive,
   params: drive_v3.Params$Resource$Files$Get,
   retry?: DriveRetryOptions,
+  timeoutMs: number = DRIVE_FILES_GET_TIMEOUT_MS,
 ) {
   // Named thunk so the single-sheet scope-check attributes the .files.get to one
   // specific exempt site (driveFilesGetCall) rather than an anonymous arrow.
-  // supportsAllDrives is set HERE (inline) so the shared-Drive-support contract
-  // sees it on the one real .files.get call site.
-  const driveFilesGetCall = () => drive.files.get({ ...params, supportsAllDrives: true });
+  // supportsAllDrives is set HERE (inline, on the params/1st arg) so the
+  // shared-Drive-support contract sees it on the one real .files.get call site.
+  // The per-call gaxios `timeout` bounds the stall; `retry: false` keeps
+  // withDriveRetry as the single retry layer (so the budget is exactly timeoutMs
+  // per attempt, not multiplied by gaxios's own internal retry).
+  const driveFilesGetCall = () =>
+    drive.files.get({ ...params, supportsAllDrives: true }, { timeout: timeoutMs, retry: false });
   return withDriveRetry(driveFilesGetCall, retry);
 }
 
@@ -226,11 +271,13 @@ async function fetchFileForExport(
   driveFileId: string,
   drive: drive_v3.Drive,
   retry?: DriveRetryOptions,
+  metadataTimeoutMs?: number,
 ): Promise<drive_v3.Schema$File> {
   const response = await driveFilesGet(
     drive,
     { fileId: driveFileId, fields: DRIVE_EXPORT_METADATA_FIELDS, supportsAllDrives: true },
     retry,
+    metadataTimeoutMs,
   );
   if (
     !response.data.id ||
@@ -252,6 +299,7 @@ export async function fetchDriveFileMetadata(
     drive,
     { fileId: driveFileId, fields: DRIVE_FILE_METADATA_FIELDS, supportsAllDrives: true },
     options.retry,
+    options.metadataTimeoutMs,
   );
 
   return toDriveFileMetadata(response.data);
@@ -294,7 +342,12 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
   options: DriveFetchOptions = {},
 ): Promise<{ markdown: string; bytes: ArrayBuffer }> {
   const drive = options.drive ?? getDriveClient();
-  const before = await fetchFileForExport(driveFileId, drive, options.retry);
+  const before = await fetchFileForExport(
+    driveFileId,
+    drive,
+    options.retry,
+    options.metadataTimeoutMs,
+  );
   const beforeToken = bindingToken(before);
   if (beforeToken !== revisionId) {
     throw new DriveFetchError(
@@ -317,7 +370,12 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
     options.exportTimeoutMs ?? DRIVE_EXPORT_TIMEOUT_MS,
     options.retry,
   );
-  const after = await fetchFileForExport(driveFileId, drive, options.retry);
+  const after = await fetchFileForExport(
+    driveFileId,
+    drive,
+    options.retry,
+    options.metadataTimeoutMs,
+  );
   const afterToken = bindingToken(after);
   if (afterToken !== revisionId) {
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
@@ -344,7 +402,12 @@ export async function fetchSheetMarkdownWithBinding(
   options: DriveFetchOptions = {},
 ): Promise<{ binding: { bindingToken: string; modifiedTime: string }; markdown: string }> {
   const drive = options.drive ?? getDriveClient();
-  const before = await fetchFileForExport(driveFileId, drive, options.retry);
+  const before = await fetchFileForExport(
+    driveFileId,
+    drive,
+    options.retry,
+    options.metadataTimeoutMs,
+  );
   const token = bindingToken(before);
   const modifiedTime = before.modifiedTime;
   if (!modifiedTime) {
@@ -367,7 +430,12 @@ export async function fetchSheetMarkdownWithBinding(
     options.exportTimeoutMs ?? DRIVE_EXPORT_TIMEOUT_MS,
     options.retry,
   );
-  const after = await fetchFileForExport(driveFileId, drive, options.retry);
+  const after = await fetchFileForExport(
+    driveFileId,
+    drive,
+    options.retry,
+    options.metadataTimeoutMs,
+  );
   if (bindingToken(after) !== token) {
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }

@@ -49,11 +49,16 @@ describe("Drive fetch wrappers", () => {
       headRevisionId: "head-1",
       md5Checksum: "abc123",
     });
-    expect(filesGet).toHaveBeenCalledWith({
-      fileId: "sheet-1",
-      fields: "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum",
-      supportsAllDrives: true,
-    });
+    expect(filesGet).toHaveBeenCalledWith(
+      {
+        fileId: "sheet-1",
+        fields: "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum",
+        supportsAllDrives: true,
+      },
+      // files.get now carries a per-call stall-guard timeout + retry:false (see
+      // the "Drive files.get stall-guard timeout" describe block below).
+      { timeout: expect.any(Number), retry: false },
+    );
   });
 
   test("fetchSheetAsMarkdown is a test-only helper that binds to the current modifiedTime token", async () => {
@@ -116,12 +121,15 @@ describe("Drive fetch wrappers", () => {
 
     expect(markdown).toBe("| CLIENT |\n| :---: |\n| ACME |");
     expect(filesGet).toHaveBeenCalledTimes(2);
-    expect(filesGet).toHaveBeenCalledWith({
-      fileId: "sheet-1",
-      fields:
-        "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum, exportLinks",
-      supportsAllDrives: true,
-    });
+    expect(filesGet).toHaveBeenCalledWith(
+      {
+        fileId: "sheet-1",
+        fields:
+          "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum, exportLinks",
+        supportsAllDrives: true,
+      },
+      { timeout: expect.any(Number), retry: false },
+    );
     expect(fetchImpl).toHaveBeenCalledWith("https://docs.google.com/export/current.xlsx", {
       headers: {
         Authorization: "Bearer ya29.test-token",
@@ -897,5 +905,139 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
       setTimeoutSpy.mockRestore();
       clearTimeoutSpy.mockRestore();
     }
+  });
+});
+
+describe("Drive files.get stall-guard timeout (DXT-1 C — onboarding hot-path metadata gets)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+  });
+
+  const fastRetry = { sleep: async () => {}, random: () => 0 };
+  const META = {
+    data: {
+      id: "sheet-1",
+      name: "Show Sheet",
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      parents: ["folder-1"],
+    },
+  };
+
+  test("forwards a per-call gaxios timeout (default DRIVE_FILES_GET_TIMEOUT_MS) and disables gaxios internal retry", async () => {
+    const filesGet = vi.fn().mockResolvedValue(META);
+    const { fetchDriveFileMetadata, DRIVE_FILES_GET_TIMEOUT_MS } =
+      await import("@/lib/drive/fetch");
+
+    // Pin the production default (gets are 165-255ms, so 10s is wide headroom
+    // while still bounding a silent stall).
+    expect(DRIVE_FILES_GET_TIMEOUT_MS).toBe(10_000);
+
+    await fetchDriveFileMetadata("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      retry: fastRetry,
+    });
+
+    // supportsAllDrives stays in the params (1st arg, for _sharedDriveSupportContract);
+    // the budget + retry:false ride in the gaxios MethodOptions (2nd arg).
+    expect(filesGet).toHaveBeenCalledWith(
+      expect.objectContaining({ fileId: "sheet-1", supportsAllDrives: true }),
+      { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+    );
+  });
+
+  test("honors an injected metadataTimeoutMs over the default", async () => {
+    const filesGet = vi.fn().mockResolvedValue(META);
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await fetchDriveFileMetadata("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      retry: fastRetry,
+      metadataTimeoutMs: 20,
+    });
+
+    expect(filesGet).toHaveBeenCalledWith(expect.objectContaining({ fileId: "sheet-1" }), {
+      timeout: 20,
+      retry: false,
+    });
+  });
+
+  test.each(["TimeoutError", "ETIMEDOUT", "ECONNABORTED"])(
+    "retries a gaxios %s files.get (classified transient 504), then succeeds",
+    async (code) => {
+      const filesGet = vi.fn().mockRejectedValueOnce({ code }).mockResolvedValue(META);
+      const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+      const meta = await fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: fastRetry,
+      });
+
+      expect(meta.driveFileId).toBe("sheet-1");
+      expect(filesGet).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test("does NOT retry a non-timeout string code (ENOTFOUND) — only the timeout codes map to 504", async () => {
+    const filesGet = vi.fn().mockRejectedValue({ code: "ENOTFOUND" });
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: fastRetry,
+      }),
+    ).rejects.toMatchObject({ code: "ENOTFOUND" });
+    expect(filesGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("exhausts bounded retries on a persistent files.get timeout, then throws (never hangs)", async () => {
+    const maxRetries = 2;
+    const filesGet = vi.fn().mockRejectedValue({ code: "TimeoutError" });
+    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchDriveFileMetadata("sheet-1", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        retry: { ...fastRetry, maxRetries },
+      }),
+    ).rejects.toBeTruthy();
+    expect(filesGet).toHaveBeenCalledTimes(1 + maxRetries);
+  });
+
+  test("the export path's before/after metadata gets are bounded too (same chokepoint)", async () => {
+    const EXPORT_META = {
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        headRevisionId: "rev-1",
+        exportLinks: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "https://export",
+        },
+      },
+    };
+    const filesGet = vi.fn().mockResolvedValue(EXPORT_META);
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) });
+    const { fetchSheetMarkdownWithBinding } = await import("@/lib/drive/fetch");
+
+    await fetchSheetMarkdownWithBinding("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl as unknown as typeof fetch,
+      getAccessToken: async () => "tok",
+      retry: fastRetry,
+      metadataTimeoutMs: 33,
+    });
+
+    // both the before-get and the after-get route through driveFilesGet → bounded.
+    expect(filesGet).toHaveBeenCalledTimes(2);
+    expect(filesGet).toHaveBeenCalledWith(expect.objectContaining({ supportsAllDrives: true }), {
+      timeout: 33,
+      retry: false,
+    });
   });
 });
