@@ -329,6 +329,14 @@ git commit --no-verify -m "perf(infra): spawn tsx via the absolute bin (drop npx
 
 ---
 
+## Plan-review R1 corrections (applied in the implementation)
+
+Codex plan-review R1 returned CHANGES with 3 HIGH; all fixed in the shipped code:
+
+1. **Sequencer no longer key-collapses specs.** The Task 1 Step 4 sketch used `new Map(keyFor(s) → s)`, which would silently drop a spec if a file ever appeared in both projects. Shipped: `lptShard<T>(items, count, weigh, tieKey)` is **generic and operates on the spec objects directly** (never collapses by key), so `shard()` is a clean cover of the actual specs. A `tieKey` callback gives the total order. The balance meta-test adds a **sequencer-level clean-cover test over the real `shard()`** (fake specs + a fake `{config:{shard,root}}` ctx) **including a dup-key case** (same `moduleId`, two projects → both survive).
+2. **Step 8's "counts sum" real-run check was weak** (eyeball two nonzero numbers). The rigorous proof is now the sequencer-level meta-test above (no DB needed); Step 8 stays only as a light parallel-project sanity, and the CI per-leg timing (Task 3) is the authoritative wall-clock check.
+3. **The no-`npx` guard is broadened** to any `(?:spawn|spawnSync|exec|execSync|execFile|execFileSync)\(["']npx["']` (all spawn variants, multiline) **plus a positive assertion** that every tsx-spawning harness references `node_modules/.bin/tsx` / `TSX_BIN`. `TSX_BIN` is defined **locally in each file** (no cross-import side-effect coupling).
+
 ## Self-Review
 
 - **Spec coverage:** §3.1 sequencer → Task 1 (weights/sequencer/config/meta-test). §3.2 lever B → Task 2. §4 meta-tests → Tasks 1–2 (balance + no-npx guards; partition/topology/ci-workflow-speedup unaffected, asserted in Task 1 Step 7). §5 measure-then-tune → Task 3 Step 3. §6 PR-F split → Task 5 Step 3. Covered.
