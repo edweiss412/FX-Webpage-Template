@@ -20,6 +20,16 @@ vi.mock("@/components/layout/PageTransition", () => ({
   PageTransition: ({ children }: { children: unknown }) => children,
 }));
 vi.mock("@/lib/messages/lookup", () => ({ getRequiredDougFacing: () => "load failed" }));
+// The Task-1 nav gate reads app_settings before the badge Promise.all. A settled
+// state (no pending session, folder watched) keeps inOnboarding=false so the
+// layout reaches the parallel badge reads (the checkpoint read is skipped when
+// there's no pending session).
+vi.mock("@/lib/appSettings/readAppSettingsRow", () => ({
+  readAppSettingsRow: async () => ({
+    kind: "value",
+    settings: { pending_wizard_session_id: null, watched_folder_id: "folder-1" },
+  }),
+}));
 vi.mock("@/lib/admin/alertCount", () => ({
   fetchUnresolvedAlertCount: () => {
     state.started.push("alert");

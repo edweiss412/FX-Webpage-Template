@@ -59,7 +59,9 @@ export function humanizeDate(iso: string | null | undefined): string | null {
  * Uses the first and last VALID entries (the parser emits showDays in order);
  * malformed entries are skipped rather than poisoning the whole range.
  */
-export function humanizeDayRange(isos: Array<string | null | undefined> | null | undefined): string | null {
+export function humanizeDayRange(
+  isos: Array<string | null | undefined> | null | undefined,
+): string | null {
   if (!Array.isArray(isos)) return null;
   const valid = isos.map(parseYmd).filter((v): v is Ymd => v !== null);
   if (valid.length === 0) return null;
