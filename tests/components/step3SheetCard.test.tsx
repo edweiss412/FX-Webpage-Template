@@ -547,6 +547,33 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.textContent).toMatch(/don.t block publishing/i);
   });
 
+  test("a warning with a sourceCell renders an 'Open in Sheet' deep link to that cell; none otherwise", () => {
+    const cell = { title: "INFO", gid: 5, a1: "E12" }; // INFO is allowlisted → cell-precise link
+    const FIX = parseResult({
+      warnings: [
+        {
+          severity: "warn" as const,
+          code: "SCHEDULE_TIME_UNPARSED",
+          message: "x",
+          sourceCell: cell,
+        },
+        { severity: "warn" as const, code: "UNKNOWN_ROLE_TOKEN", message: "y" }, // no sourceCell
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q));
+    const link = region.getByTestId(
+      `wizard-step3-card-${DFID}-warning-0-open`,
+    ) as HTMLAnchorElement;
+    // href derived from the seeded anchor (gid + range), not hardcoded.
+    expect(link.getAttribute("href")).toContain(`#gid=${cell.gid}`);
+    expect(link.getAttribute("href")).toContain(`range=${cell.a1}`);
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    // The second warning (no sourceCell) has no link.
+    expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-1-open`)).toBeNull();
+  });
+
   test("the collapsed breakdown is `inert` so its focusable controls (Show-all) aren't tabbable while hidden", () => {
     // A day with >6 entries means the breakdown contains a focusable "Show all"
     // button; the collapse is height:0/overflow:hidden (NOT display:none), so

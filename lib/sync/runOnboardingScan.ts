@@ -3,6 +3,12 @@ import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
+import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
+import {
+  attachSourceCellAnchors,
+  extractShowDayTimeAnchors,
+  hasCellAnchoredWarning,
+} from "@/lib/drive/showDayTimeAnchors";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -145,7 +151,11 @@ export type RunOnboardingScanDeps = {
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
   fetchMarkdownWithBinding?: (
     driveFileId: string,
-  ) => Promise<{ binding: Phase1Binding; markdown: string }>;
+  ) => Promise<{ binding: Phase1Binding; markdown: string; bytes?: ArrayBuffer }>;
+  // Tab title→gid lookup for exact-cell deep-link anchors. Called only when a
+  // cell-anchored warning is present (rare), so it adds no per-sheet round-trip
+  // to the common case. Optional/injectable; defaults to the real Sheets API.
+  listSheetGids?: (driveFileId: string) => Promise<Map<string, number>>;
   parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
@@ -906,6 +916,7 @@ export async function prepareOnboardingFiles(
   const files = await listFolder(folderId);
   deps.onProgress?.({ type: "listed", total: files.length });
   const fetchMarkdownWithBinding = deps.fetchMarkdownWithBinding ?? fetchSheetMarkdownWithBinding;
+  const listSheetGids = deps.listSheetGids ?? fetchSheetTitleToGid;
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
@@ -922,13 +933,24 @@ export async function prepareOnboardingFiles(
     if (!isSpreadsheet(file)) {
       return { file, kind: "non_sheet" };
     }
-    const { binding, markdown } = await fetchMarkdownWithBinding(file.driveFileId);
+    const { binding, markdown, bytes } = await fetchMarkdownWithBinding(file.driveFileId);
     const parsed = parseSheet(markdown, file.name);
     const parseResult = await enrich(parsed, driveClient, {
       driveFileId: file.driveFileId,
       fileMeta: toDriveFileMeta(file),
       binding,
     });
+    // Best-effort exact-cell deep links: ONLY when a cell-anchored warning is
+    // present (rare) do we pay the extra tab-gid fetch. Any failure leaves the
+    // warnings link-less — never breaks the scan.
+    if (bytes && parseResult.warnings && hasCellAnchoredWarning(parseResult.warnings)) {
+      try {
+        const gids = await listSheetGids(file.driveFileId);
+        attachSourceCellAnchors(parseResult.warnings, extractShowDayTimeAnchors(bytes, gids));
+      } catch {
+        // deep-link anchors are optional; ignore and continue the scan.
+      }
+    }
     return { file, kind: "sheet", binding, parseResult };
   };
 
