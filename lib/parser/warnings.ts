@@ -66,19 +66,29 @@ export const BLOCK_DISAPPEARED = "BLOCK_DISAPPEARED";
 
 /**
  * Class A (§5.1) — emit a `severity:"warn"` warning when a field carried a
- * non-empty value that produced nothing usable (e.g. a crew phone with no
- * digits → no `tel:` link). v1 scope = crew phone only. No-ops when `agg` is
- * undefined (the aggregator is optional in block-parser signatures).
+ * non-empty value that produced nothing usable: a crew phone with no digits → no
+ * `tel:` link, or a crew email with no "@" → no `mailto:` link. Scope = crew
+ * phone + email (the two PersonRow tap-targets). No-ops when `agg` is undefined
+ * (the aggregator is optional in block-parser signatures).
  */
 export function emitFieldUnreadable(
   agg: ParseAggregator | undefined,
   params: { section: string; field: string; rawSnippet: string; index: number },
 ): void {
   if (!agg) return;
+  // OUTCOME-NEUTRAL wording (whole-diff review R2): describe the SHEET problem — the
+  // cell value isn't a usable phone/email — NOT a claim about the rendered crew page.
+  // The parser can't promise "no link will appear": on the MI-11 hold path an existing
+  // member's prior (valid) value is pinned back pending approval, so the OLD link can
+  // still render. Naming the data problem is true on every apply path. Field-specific
+  // only in the noun; same sentence shape so the panel reads uniformly.
+  const isEmail = params.field === "email";
+  const fieldWord = isEmail ? "email" : "phone";
+  const kind = isEmail ? "email address" : "phone number";
   agg.warnings.push({
     severity: "warn",
     code: "FIELD_UNREADABLE",
-    message: `Crew phone for row ${params.index + 1} could not be read ("${params.rawSnippet}") — no call link will appear.`,
+    message: `Crew ${fieldWord} for row ${params.index + 1} couldn't be read as a ${kind} ("${params.rawSnippet}") — check the sheet.`,
     blockRef: { kind: params.section, index: params.index },
     rawSnippet: params.rawSnippet,
   });

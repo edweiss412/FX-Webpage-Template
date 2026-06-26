@@ -68,7 +68,7 @@ emitFieldUnreadable(agg, { code: "FIELD_UNREADABLE", section: "crew", field: "ph
     message:`Crew phone for row ${index+1} could not be read ("${rawSnippet}") — no call link will appear.`,
     blockRef:{kind:"crew", index}, rawSnippet }
 ```
-**v1 scope: phone only.** A general field-validation framework (times/dates/conf#s) is explicitly out of scope (§11) to bound false-positive surface and catalog churn.
+**v1 scope: phone only.** A general field-validation framework (times/dates/conf#s) is explicitly out of scope (§11) to bound false-positive surface and catalog churn. _(Follow-up, PR #125: class A was extended to crew **email** — the no-`@` analog of the no-digit phone, the second PersonRow tap-target — reusing the same `FIELD_UNREADABLE` code. The broader framework remains out of scope.)_
 
 **Guard conditions:** empty phone (`presence === null`) → no warning (absence is normal, not a drop). Phone with ≥1 digit → no warning (parseable). Whitespace-only → `presence === null` → no warning.
 
@@ -194,7 +194,7 @@ This is a **UI surface** (`app/admin/unpublished/page.tsx`, `app/admin/show/[slu
 
 ## 11. Out of scope / deferred
 
-- General field-validation framework (times/dates/conf# unreadability) — class A is **phone only** in v1.
+- General field-validation framework (times/dates/conf# unreadability) — class A is **phone only** in v1 (PR #125 follow-up extended it to crew **email**; the broader framework stays out of scope).
 - Blocking/divert-to-review posture — explicitly rejected (§4).
 - Class C as a `TriggeredReviewItem` (MI-style, blocks auto-apply) — rejected in favor of advisory.
 - A re-parse action from the surfaces — read-only visibility in v1.

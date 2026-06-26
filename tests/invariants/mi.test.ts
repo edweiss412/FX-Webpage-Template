@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { runInvariants } from "@/lib/parser/invariants";
+import { parseCrew } from "@/lib/parser/blocks/crew";
+import { newAggregator } from "@/lib/parser/warnings";
 import type { ParseResult, CrewMemberRow, RoomRow, TriggeredReviewItem } from "@/lib/parser/types";
 
 // ---------------------------------------------------------------------------
@@ -1100,6 +1102,45 @@ describe("Stage-for-approval invariants (MI-6..MI-14)", () => {
       if (r.outcome === "stage") {
         const items = findItems(r.triggeredItems, "MI-11");
         expect(items.length).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it("an existing crew email that becomes unreadable (valid → no-@) warns AND stages MI-11 — prior held, not replaced (R2)", () => {
+      // The parser nulls a no-@ (unreadable) email and warns. For an EXISTING member
+      // that null is a valid→null delta → MI-11 stages it → holdAwareApply pins the
+      // prior live email back, so the OLD mailto still renders until approval. That is
+      // why the FIELD_UNREADABLE copy is outcome-neutral — it cannot promise "no link
+      // will appear" when the held path preserves the prior address. (whole-diff R2)
+      const sheetMd = [
+        "| CREW | NAME | ROLE | PHONE | EMAIL |",
+        "| :-: | :-: | :-: | :-: | :-: |",
+        "| | Alice | A1 | 555-0100 | Not An Email |",
+      ].join("\n");
+      const agg = newAggregator();
+      const parsedCrew = parseCrew(sheetMd, "v2", agg);
+      // parser half: warns + nulls the unreadable email so no dead link can auto-apply.
+      expect(
+        agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE" && /Crew email/.test(w.message))
+          .length,
+      ).toBe(1);
+      expect(parsedCrew.find((m) => m.name === "Alice")?.email).toBeNull();
+
+      // existing show: prior had a VALID email; the parsed (unreadable→null) is "next".
+      const prior = synthParseResult({
+        crewMembers: [synthCrewMember({ name: "Alice", email: "alice@a.com" })],
+      });
+      const next = synthParseResult({ crewMembers: parsedCrew });
+      const r = runInvariants(prior, next);
+      expect(r.outcome).toBe("stage");
+      if (r.outcome === "stage") {
+        const item = findItems(r.triggeredItems, "MI-11").find(
+          (i) => i.invariant === "MI-11" && i.crew_name === "Alice",
+        );
+        expect(item).toBeDefined();
+        if (item && item.invariant === "MI-11") {
+          expect(item.prior_email).toBe("alice@a.com");
+          expect(item.new_email).toBeNull();
+        }
       }
     });
 
