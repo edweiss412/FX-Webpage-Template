@@ -22,6 +22,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 let cwd: string;
 const REPO_ROOT = process.cwd();
 const VALIDATION_ENV_TS = join(REPO_ROOT, "scripts/lib/validation-env.ts");
+// PR E: absolute tsx bin (not `npx tsx`) — resolves from the hermetic temp cwd.
+const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "validation-env-precedence-"));
@@ -45,9 +47,8 @@ function runProbeIn(probeCwd: string): string {
   >;
   delete childEnv.VALIDATION_TEST_URL;
   return execFileSync(
-    "npx",
+    TSX_BIN,
     [
-      "tsx",
       "-e",
       `
         import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
@@ -144,9 +145,8 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
     // when the file exists. Inherited process.env loses.
     writeEnv(".env.local", "VALIDATION_TEST_URL=from-env-local\n");
     const result = execFileSync(
-      "npx",
+      TSX_BIN,
       [
-        "tsx",
         "-e",
         `
           import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
@@ -176,9 +176,8 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
     // Other keys retain the conventional inherited-wins behavior.
     writeEnv(".env.local", "UNRELATED_KEY=from-env-local\n");
     const result = execFileSync(
-      "npx",
+      TSX_BIN,
       [
-        "tsx",
         "-e",
         `
           import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
@@ -208,9 +207,8 @@ describe("loadValidationEnv() precedence (R10-F1)", () => {
     // inherited values flow through unchanged. This is the intended
     // production path.
     const result = execFileSync(
-      "npx",
+      TSX_BIN,
       [
-        "tsx",
         "-e",
         `
           import { loadValidationEnv } from "${VALIDATION_ENV_TS}";
