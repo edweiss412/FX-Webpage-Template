@@ -14,10 +14,12 @@ export const DRIVE_LIST_FIELDS =
  * gaxios-7 per-call `timeout` fires via `AbortSignal.timeout` (GaxiosError
  * `code: "TimeoutError"`), which `driveErrorStatus` maps to a transient 504 so
  * the wrapping `withDriveRetry` retries with a fresh budget then throws a typed
- * error. `retry: false` keeps `withDriveRetry` the single retry layer. 15s gives
- * a paged listing wide headroom while still bounding a stall.
+ * error. `retry: false` keeps `withDriveRetry` the single retry layer. The budget
+ * is PER PAGE (each `withDriveRetry` call wraps one `files.list` page), so 10s is
+ * wide headroom for a page of <=100 files while keeping the listing's contribution
+ * to the per-sheet aggregate worst case small (see DRIVE_FILES_GET_TIMEOUT_MS).
  */
-export const DRIVE_LIST_TIMEOUT_MS = 15_000;
+export const DRIVE_LIST_TIMEOUT_MS = 10_000;
 
 export type DriveListedFile = {
   driveFileId: string;

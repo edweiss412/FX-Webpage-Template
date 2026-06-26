@@ -930,9 +930,10 @@ describe("Drive files.get stall-guard timeout (DXT-1 C — onboarding hot-path m
     const { fetchDriveFileMetadata, DRIVE_FILES_GET_TIMEOUT_MS } =
       await import("@/lib/drive/fetch");
 
-    // Pin the production default (gets are 165-255ms, so 10s is wide headroom
-    // while still bounding a silent stall).
-    expect(DRIVE_FILES_GET_TIMEOUT_MS).toBe(10_000);
+    // Pin the production default (gets are 165-255ms, so 8s is wide headroom
+    // while still bounding a silent stall + keeping the per-sheet aggregate
+    // worst case under the 300s route budget).
+    expect(DRIVE_FILES_GET_TIMEOUT_MS).toBe(8_000);
 
     await fetchDriveFileMetadata("sheet-1", {
       drive: fakeDrive({ files: { get: filesGet } }),
@@ -979,18 +980,21 @@ describe("Drive files.get stall-guard timeout (DXT-1 C — onboarding hot-path m
     },
   );
 
-  test("does NOT retry a non-timeout string code (ENOTFOUND) — only the timeout codes map to 504", async () => {
-    const filesGet = vi.fn().mockRejectedValue({ code: "ENOTFOUND" });
-    const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
+  test.each(["ENOTFOUND", "EHOSTUNREACH"])(
+    "does NOT retry a non-timeout string code (%s) — only the timeout codes map to 504",
+    async (code) => {
+      const filesGet = vi.fn().mockRejectedValue({ code });
+      const { fetchDriveFileMetadata } = await import("@/lib/drive/fetch");
 
-    await expect(
-      fetchDriveFileMetadata("sheet-1", {
-        drive: fakeDrive({ files: { get: filesGet } }),
-        retry: fastRetry,
-      }),
-    ).rejects.toMatchObject({ code: "ENOTFOUND" });
-    expect(filesGet).toHaveBeenCalledTimes(1);
-  });
+      await expect(
+        fetchDriveFileMetadata("sheet-1", {
+          drive: fakeDrive({ files: { get: filesGet } }),
+          retry: fastRetry,
+        }),
+      ).rejects.toMatchObject({ code });
+      expect(filesGet).toHaveBeenCalledTimes(1);
+    },
+  );
 
   test("exhausts bounded retries on a persistent files.get timeout, then throws (never hangs)", async () => {
     const maxRetries = 2;
