@@ -38,7 +38,8 @@ import {
   type DriveFileMeta,
   type SpreadsheetSheet,
 } from "@/lib/sync/enrichWithDrivePins";
-import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
+import { readBoundedWebStream } from "@/lib/sync/boundedBytes";
+import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { revalidateShow, revalidateShowFromResult } from "@/lib/data/showCacheTag";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
@@ -1561,6 +1562,40 @@ async function defaultCaptureBinding(
   };
 }
 
+/**
+ * The default cron `getEmbeddedImageBytes` body, extracted as an injectable +
+ * directly-unit-testable function (DXT-2), with the same idle stall guard as the
+ * asset-recovery / snapshot-apply embedded-image helpers: a stalled download trips
+ * at `timeoutMs` and returns null (fail-soft), while a healthy slow download stays
+ * alive via `onChunk`. (This file is not under `_streamingHashContract`, so it uses
+ * `readBoundedWebStream(...).bytes` directly to get the per-chunk hook.)
+ */
+export async function cronFetchEmbeddedImageBytesTimed(
+  contentUrl: string | null | undefined,
+  deps: { fetch?: typeof fetch; getAccessToken?: () => Promise<string>; timeoutMs?: number } = {},
+): Promise<Uint8Array | null> {
+  if (!contentUrl) return null;
+  const fetchImpl = deps.fetch ?? fetch;
+  const token = await (deps.getAccessToken ?? getDriveAccessToken)();
+  const guard = createStallGuard(deps.timeoutMs ?? DRIVE_ASSET_STALL_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(contentUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: guard.signal,
+    });
+    if (!response.ok || !response.body) return null;
+    const result = await readBoundedWebStream(response.body, 50 * 1024 * 1024, {
+      onChunk: () => guard.reset(),
+    });
+    return result.bytes;
+  } catch (error) {
+    if (guard.timedOut()) return null;
+    throw error;
+  } finally {
+    guard.clear();
+  }
+}
+
 export function defaultDriveClient(): DriveClient {
   return {
     async getFile(fileId) {
@@ -1594,13 +1629,7 @@ export function defaultDriveClient(): DriveClient {
       });
     },
     async getEmbeddedImageBytes(_spreadsheetId, _objectId, contentUrl) {
-      if (!contentUrl) return null;
-      const token = await getDriveAccessToken();
-      const response = await fetch(contentUrl, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok || !response.body) return null;
-      return await bytesFromWebStream(response.body, 50 * 1024 * 1024);
+      return cronFetchEmbeddedImageBytesTimed(contentUrl);
     },
     async getSpreadsheetRevisionId(spreadsheetId) {
       const drive = google.drive({ version: "v3", auth: getDriveAuth() });
