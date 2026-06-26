@@ -41,22 +41,46 @@ function stallingWebBody(signal: AbortSignal): ReadableStream<Uint8Array> {
   });
 }
 
-// A web body that enqueues `count` chunks at `intervalMs` gaps then closes —
-// a healthy-but-slow download that keeps making progress.
-function progressingWebBody(count: number, intervalMs: number): ReadableStream<Uint8Array> {
+// A web body that enqueues `count` chunks at `intervalMs` gaps then closes — a
+// healthy-but-slow download that keeps making progress. It is signal-AWARE
+// (errors on abort, like stallingWebBody): this is load-bearing — if the guard
+// were a total-time timer (or the production `onChunk -> guard.reset()` wiring
+// regressed), the guard fires mid-download, aborts the signal, errors this
+// stream, and the read returns null instead of the full bytes, failing the
+// "not aborted" assertion. With correct idle-reset the signal never fires.
+function progressingWebBody(
+  count: number,
+  intervalMs: number,
+  signal: AbortSignal,
+): ReadableStream<Uint8Array> {
   let i = 0;
   return new ReadableStream<Uint8Array>({
+    start(controller) {
+      signal.addEventListener("abort", () =>
+        controller.error(signal.reason ?? new Error("aborted")),
+      );
+    },
     async pull(controller) {
+      if (signal.aborted) return;
       if (i >= count) {
         controller.close();
         return;
       }
       await wait(intervalMs);
+      if (signal.aborted) return;
       controller.enqueue(new Uint8Array([i & 0xff]));
       i += 1;
     },
   });
 }
+
+// Widened margins for the real-timer progressing tests: chunk gap << idle budget
+// (4x headroom) so scheduling jitter on shared CI cannot trip a false abort, and
+// total download (COUNT * GAP) > budget so a broken total-time guard fires
+// mid-download.
+const PROGRESS_COUNT = 6;
+const PROGRESS_GAP_MS = 25;
+const PROGRESS_BUDGET_MS = 100;
 
 const webResponse = (body: ReadableStream<Uint8Array> | null, ok = true) =>
   ({ ok, body }) as unknown as Response;
@@ -85,9 +109,14 @@ describe("fetchEmbeddedImageBytesTimed (DXT-2 stall guard)", () => {
   });
 
   test("a healthy slow-but-progressing download is NOT aborted (idle-reset, not total-time)", async () => {
-    // 4 chunks at 15ms gaps = ~60ms total, well past the 30ms idle budget — but
-    // each chunk resets the guard, so it never fires.
-    const fetchImpl = vi.fn(() => Promise.resolve(webResponse(progressingWebBody(4, 15))));
+    // Total download (6*25=150ms) > the 100ms budget, but each chunk resets the
+    // guard, so it never fires. The signal-aware body means a regressed reset
+    // would surface as null (see progressingWebBody).
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve(
+        webResponse(progressingWebBody(PROGRESS_COUNT, PROGRESS_GAP_MS, init!.signal!)),
+      ),
+    );
 
     const result = await fetchEmbeddedImageBytesTimed(
       embeddedEntry("https://drive/img"),
@@ -95,12 +124,12 @@ describe("fetchEmbeddedImageBytesTimed (DXT-2 stall guard)", () => {
       {
         fetch: fetchImpl as unknown as typeof fetch,
         getAccessToken: async () => "tok",
-        timeoutMs: 30,
+        timeoutMs: PROGRESS_BUDGET_MS,
       },
     );
 
     expect(result).not.toBeNull();
-    expect((result as { bytes: Uint8Array }).bytes).toHaveLength(4);
+    expect((result as { bytes: Uint8Array }).bytes).toHaveLength(PROGRESS_COUNT);
   });
 
   test("a NON-timeout fetch error propagates (only stalls become null)", async () => {
@@ -184,6 +213,36 @@ describe("fetchLinkedRevisionBytesTimed (DXT-2 stall guard)", () => {
       fetchLinkedRevisionBytesTimed(linkedEntry(), {}, { drive, timeoutMs: 1000 }),
     ).rejects.toThrow("boom");
   });
+
+  // revisions.get can (defensively) yield a Web ReadableStream rather than a Node
+  // Readable; cover that branch too. The guard's signal is passed to revisions.get,
+  // so a signal-aware web stream is interrupted on stall.
+  test("web-stream revision branch (data instanceof ReadableStream): stall → null", async () => {
+    const drive = asDrive(
+      vi.fn(async (_params: unknown, options: { signal: AbortSignal }) => ({
+        data: stallingWebBody(options.signal),
+      })),
+    );
+    const result = await fetchLinkedRevisionBytesTimed(linkedEntry(), {}, { drive, timeoutMs: 20 });
+    expect(result).toBeNull();
+  });
+
+  test("web-stream revision branch: healthy progressing → bytes", async () => {
+    const drive = asDrive(
+      vi.fn(async (_params: unknown, options: { signal: AbortSignal }) => ({
+        data: progressingWebBody(PROGRESS_COUNT, PROGRESS_GAP_MS, options.signal),
+      })),
+    );
+    const result = await fetchLinkedRevisionBytesTimed(
+      linkedEntry(),
+      {},
+      {
+        drive,
+        timeoutMs: PROGRESS_BUDGET_MS,
+      },
+    );
+    expect((result as { bytes: Uint8Array }).bytes).toHaveLength(PROGRESS_COUNT);
+  });
 });
 
 // The snapshot-apply port mirrors the recovery port; cover the same load-bearing
@@ -210,16 +269,20 @@ describe("snapshotFetch*Timed (DXT-2 stall guard, apply path)", () => {
   });
 
   test("healthy slow-but-progressing web download is NOT aborted", async () => {
-    const fetchImpl = vi.fn(() => Promise.resolve(webResponse(progressingWebBody(4, 15))));
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve(
+        webResponse(progressingWebBody(PROGRESS_COUNT, PROGRESS_GAP_MS, init!.signal!)),
+      ),
+    );
     const result = await snapshotFetchEmbeddedImageBytesTimed(
       snapshotEmbedded("https://drive/img"),
       {
         fetch: fetchImpl as unknown as typeof fetch,
         getAccessToken: async () => "tok",
-        timeoutMs: 30,
+        timeoutMs: PROGRESS_BUDGET_MS,
       },
     );
-    expect((result as { bytes: Uint8Array }).bytes).toHaveLength(4);
+    expect((result as { bytes: Uint8Array }).bytes).toHaveLength(PROGRESS_COUNT);
   });
 
   test("Node revision stream stall → guard destroys it → null", async () => {
@@ -248,14 +311,18 @@ describe("cronFetchEmbeddedImageBytesTimed (DXT-2 stall guard, cron path)", () =
   });
 
   test("healthy slow-but-progressing download returns the bytes (not aborted)", async () => {
-    const fetchImpl = vi.fn(() => Promise.resolve(webResponse(progressingWebBody(4, 15))));
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) =>
+      Promise.resolve(
+        webResponse(progressingWebBody(PROGRESS_COUNT, PROGRESS_GAP_MS, init!.signal!)),
+      ),
+    );
     const result = await cronFetchEmbeddedImageBytesTimed("https://drive/img", {
       fetch: fetchImpl as unknown as typeof fetch,
       getAccessToken: async () => "tok",
-      timeoutMs: 30,
+      timeoutMs: PROGRESS_BUDGET_MS,
     });
     expect(result).toBeInstanceOf(Uint8Array);
-    expect(result).toHaveLength(4);
+    expect(result).toHaveLength(PROGRESS_COUNT);
   });
 
   test("a NON-timeout fetch error propagates", async () => {

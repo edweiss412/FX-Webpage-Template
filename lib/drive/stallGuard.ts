@@ -62,5 +62,14 @@ export function createStallGuard(idleTimeoutMs: number): StallGuard {
  * Default idle-stall budget for asset/revision byte-stream downloads. A healthy
  * download never has a 30s no-progress gap; a stalled socket trips at 30s. Tests
  * pass a tiny value via the per-call `timeoutMs` seam.
+ *
+ * Note: on the CRON path the embedded-image read also runs inside the enrich
+ * step's `withStepTimeout` (a 30s TOTAL-time Promise.race that already rejected
+ * the step on a hang, but leaked the socket). This guard's marginal value there
+ * is aborting the underlying fetch to free the socket/memory; the recovery/apply
+ * ports are the genuinely unbounded sites it protects. Because that step budget
+ * is total-time (not idle), a healthy-but-slow MULTI-image enrich can still be
+ * cut off by the outer step timeout regardless of this per-download idle guard —
+ * a pre-existing limitation of the cron step timeout, not of this guard.
  */
 export const DRIVE_ASSET_STALL_TIMEOUT_MS = 30_000;

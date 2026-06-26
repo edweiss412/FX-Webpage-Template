@@ -249,6 +249,9 @@ export async function fetchLinkedRevisionBytesTimed(
       const nodeStream = data as NodeJS.ReadableStream & { destroy?: (error?: Error) => void };
       const onAbort = () => nodeStream.destroy?.(new Error("drive revision stream stalled"));
       guard.signal.addEventListener("abort", onAbort);
+      // Cover the race where the guard fired in the get-resolve → addEventListener
+      // gap: addEventListener does not fire for an already-aborted signal.
+      if (guard.signal.aborted) onAbort();
       try {
         return await readBoundedNodeStream(nodeStream, MAX_RECOVERY_SINGLE_BYTES, { onChunk });
       } finally {
