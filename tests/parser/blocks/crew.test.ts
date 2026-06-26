@@ -554,12 +554,29 @@ describe("parseCrew — unparseable/empty email cells (AC-1.2 boundary)", () => 
       (w) => w.code === "FIELD_UNREADABLE" && /Crew email/.test(w.message),
     );
     // exactly one — Jane's "Not An Email"; empty + valid rows do NOT flag (no noise).
+    // The snippet is the CANONICAL value ("not an email") — invariant 3: canonicalize()
+    // is the only function that touches the raw email, so the warning carries the
+    // canonical form, not the raw string.
     expect(emailWarnings.length).toBe(1);
-    expect(emailWarnings[0]!.rawSnippet).toBe("Not An Email");
+    expect(emailWarnings[0]!.rawSnippet).toBe("not an email");
     expect(emailWarnings[0]!.blockRef?.kind).toBe("crew");
-    expect(emailWarnings[0]!.message).toContain("Not An Email");
-    // the unusable email is nulled so no dead mailto renders (warning stays true).
+    expect(emailWarnings[0]!.message).toContain("not an email");
+    // the unusable email is nulled so no dead mailto renders on a fresh publish.
     expect(parseCrew(md, "v2").find((m) => m.name === "Jane Doe")?.email).toBeNull();
+  });
+
+  it("STRUCTURAL (invariant 3): crew.ts touches the raw email ONLY via canonicalize()", () => {
+    // Guards against future drift: the email-unreadable predicate must derive from the
+    // CANONICAL value, never inspect emailRaw directly (.includes/.toLowerCase/.trim/
+    // .match/.split/etc.). canonicalize() is the single raw-email boundary (AGENTS.md
+    // invariant 3). Whole-diff review R4.
+    const src = readFileSync("lib/parser/blocks/crew.ts", "utf8");
+    const rawInspection =
+      /emailRaw\s*\.\s*(includes|toLowerCase|toUpperCase|trim|match|split|indexOf|replace|slice|substring|charAt)/;
+    expect(
+      rawInspection.test(src),
+      "crew.ts must not inspect emailRaw directly — route through canonicalize() (invariant 3)",
+    ).toBe(false);
   });
 });
 
