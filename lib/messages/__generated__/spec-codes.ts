@@ -100,9 +100,9 @@ export const SPEC_CODES = {
   },
   "AGENDA_DAY_TRUNCATED": {
     "crewFacing": null,
-    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed (we cap it at 200 entries per day). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
+    "dougFacing": "A run-of-show day in _<sheet-name>_'s AGENDA was too large and was trimmed to fit our limits (too many entries, or some unusually long text). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "One run-of-show day was much larger than expected (over 200 entries), so we trimmed it to keep things fast. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
+    "helpfulContext": "One run-of-show day was too large and we trimmed it to keep things fast — usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
   },
   "AGENDA_GONE_FOR_CREW": {
     "crewFacing": "This agenda isn't available anymore. Text Doug for a fresh link.",
@@ -822,13 +822,13 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't fully read _<N>_ row(s) on _<sheet-name>_'s PULL SHEET, so those rows show their original text. Let us know if you'd like us to handle that format.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "We couldn't fully read some rows — usually the QTY is blank, a word, or a range like '1-2'. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+    "helpfulContext": "We couldn't read the QTY on some rows — usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
   },
   "PULL_SHEET_UNKNOWN_VARIANT": {
     "crewFacing": null,
-    "dougFacing": "_<sheet-name>_'s PULL SHEET rows are readable, but we couldn't tell which items are packed, so we used the usual layout. Let us know if the packing list looks wrong.",
+    "dougFacing": "_<sheet-name>_'s PULL SHEET rows are readable, but we couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
     "followUp": "Doug → optional Report",
-    "helpfulContext": "We could read this case's rows but couldn't tell which items are packed, so we used the usual layout. Crew still see the list. Let us know if the packing checkmarks or quantities look wrong.",
+    "helpfulContext": "We could read this case's rows but couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
   },
   "REAP_STALE_SESSIONS_FAILED": {
     "crewFacing": null,

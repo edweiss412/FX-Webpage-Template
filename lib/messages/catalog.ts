@@ -1069,10 +1069,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "We couldn't fully read some rows — usually the QTY is blank, a word, or a range like '1-2'. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+      "We couldn't read the QTY on some rows — usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
     title: "Pull sheet rows we couldn't fully read",
     longExplanation:
-      "We couldn't fully read some rows — usually the QTY is blank, a word, or a range like '1-2'. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+      "We couldn't read the QTY on some rows — usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
   AGENDA_GRID_MALFORMED: {
@@ -1117,14 +1117,14 @@ export const MESSAGE_CATALOG = {
   AGENDA_DAY_TRUNCATED: {
     code: "AGENDA_DAY_TRUNCATED",
     dougFacing:
-      "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed (we cap it at 200 entries per day). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
+      "A run-of-show day in _<sheet-name>_'s AGENDA was too large and was trimmed to fit our limits (too many entries, or some unusually long text). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "One run-of-show day was much larger than expected (over 200 entries), so we trimmed it to keep things fast. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
+      "One run-of-show day was too large and we trimmed it to keep things fast — usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
     title: "Run-of-show day trimmed",
     longExplanation:
-      "One run-of-show day was much larger than expected (over 200 entries), so we trimmed it to keep things fast. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
+      "One run-of-show day was too large and we trimmed it to keep things fast — usually too many entries, or some unusually long text. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
     helpHref: "/help/errors#AGENDA_DAY_TRUNCATED",
   },
   AGENDA_DAY_EMPTIED: {
@@ -1169,14 +1169,14 @@ export const MESSAGE_CATALOG = {
   PULL_SHEET_UNKNOWN_VARIANT: {
     code: "PULL_SHEET_UNKNOWN_VARIANT",
     dougFacing:
-      "_<sheet-name>_'s PULL SHEET rows are readable, but we couldn't tell which items are packed, so we used the usual layout. Let us know if the packing list looks wrong.",
+      "_<sheet-name>_'s PULL SHEET rows are readable, but we couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "We could read this case's rows but couldn't tell which items are packed, so we used the usual layout. Crew still see the list. Let us know if the packing checkmarks or quantities look wrong.",
-    title: "Pull sheet packing not detected",
+      "We could read this case's rows but couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
+    title: "Pull sheet layout not detected",
     longExplanation:
-      "We could read this case's rows but couldn't tell which items are packed, so we used the usual layout. Crew still see the list. Let us know if the packing checkmarks or quantities look wrong.",
+      "We could read this case's rows but couldn't identify the column layout, so we used the usual one. Crew still see the list. Let us know if quantities, item names, or categories look wrong.",
     helpHref: "/help/errors#PULL_SHEET_UNKNOWN_VARIANT",
   },
   DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
