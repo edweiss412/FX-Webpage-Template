@@ -123,6 +123,14 @@ const STOPWORDS = new Set<string>([
   "Crew communication",
   "Hotel and room info",
   "Role-restricted information",
+  // parse-data-quality-warnings: the three data-quality CLASS names, bolded as
+  // list leads in /help/admin/parse-warnings. They are conceptual categories, not
+  // UI controls — the shipped chip/panel render the lowercase descriptive form
+  // ("2 unreadable fields") via DATA_GAP_CLASS_LABELS (lib/parser/dataGaps.ts), a
+  // variable, never a literal button/heading string in app/ or components/.
+  "Unreadable field",
+  "Unknown section",
+  "Vanished block",
   // Inline example placeholder: the bolded form "Previewing as Alex Rivera"
   // illustrates the shipped "Previewing as <name>" banner with a sample
   // crew name. The shipped UI string is "Previewing as" (matched separately
