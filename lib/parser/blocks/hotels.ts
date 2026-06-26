@@ -183,9 +183,30 @@ function stripConfTokens(name: string): string {
  * When no street shape is found the cell stays intact as hotel_name (the pre-#3
  * behavior) — a SAFE failure, never a corrupted name. Exotic shapes intentionally
  * left glued (safe): alphanumeric house numbers (`123A Main St`), PO boxes.
+ *
+ * A SUFFIXLESS street (e.g. "1515 Broadway New York, NY 10036") is also recognized
+ * via its trailing US ZIP tail ("…, <ST> <ZIP>") — a confirmation number is never
+ * followed by a state+ZIP, so this can't false-split a hotel name or a guest conf#.
  */
 const STREET_ADDRESS_RE =
   /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
+
+// Suffixless street: "<1–5 digit number> <words…>, <2-letter state> <5-digit ZIP>".
+// The interior (street name + city) is digit-free so it can't run past a conf# or a
+// second number; the comma+state+ZIP tail is what marks it as an address.
+const STREET_ADDRESS_ZIP_RE =
+  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/u;
+
+/** Earliest index at which a street address begins in `s` (the separating
+ * whitespace), via a recognized street suffix OR a US ZIP tail; -1 if none. */
+function streetAddressStart(s: string): number {
+  const a = STREET_ADDRESS_RE.exec(s);
+  const b = STREET_ADDRESS_ZIP_RE.exec(s);
+  const ai = a ? a.index : Infinity;
+  const bi = b ? b.index : Infinity;
+  const idx = Math.min(ai, bi);
+  return idx === Infinity ? -1 : idx;
+}
 
 function splitHotelNameAddress(combined: string | null): {
   name: string | null;
@@ -199,12 +220,11 @@ function splitHotelNameAddress(combined: string | null): {
     .trim();
   if (!cleaned) return { name: null, address: null };
   // The address begins at the first street number that actually starts a street
-  // phrase (see STREET_ADDRESS_RE). The regex only LOCATES the boundary; the
-  // address itself runs from that number to the end of the cell (city/state/ZIP
+  // phrase (suffix OR ZIP-tail; see streetAddressStart). It only LOCATES the
+  // boundary; the address runs from that number to the cell end (city/state/ZIP
   // included). No match → the whole cell stays as the name (safe, glued).
-  const m = STREET_ADDRESS_RE.exec(cleaned);
-  if (!m) return { name: presence(cleaned), address: null };
-  const splitAt = m.index; // index of the separating whitespace
+  const splitAt = streetAddressStart(cleaned);
+  if (splitAt < 0) return { name: presence(cleaned), address: null };
   const name = cleaned
     .slice(0, splitAt)
     .replace(/[,\-–—\s]+$/, "")
@@ -575,12 +595,10 @@ function buildInlineHotel(
     // names[] is load-bearing — getShowForViewer filters hotels by viewer-name ∈
     // res.names (lib/data/getShowForViewer.ts:644).
     //
-    // A STREET number begins a street phrase; a confirmation number does not — so
-    // STREET_ADDRESS_RE is the discriminator (prepend a space for its leading \s).
-    const streetStartsAt = (i: number): boolean => {
-      const m = STREET_ADDRESS_RE.exec(" " + text.slice(i));
-      return m !== null && m.index === 0;
-    };
+    // A STREET number begins a street phrase (suffix OR ZIP tail); a confirmation
+    // number does not — so streetAddressStart is the discriminator (prepend a space
+    // so the regexes' leading \s anchors match right at the number).
+    const streetStartsAt = (i: number): boolean => streetAddressStart(" " + text.slice(i)) === 0;
     // base word count = words minus a trailing single-letter initial ("Eric W" → 1).
     const baseWords = (s: string): number => {
       const w = s.split(/\s+/).filter(Boolean);

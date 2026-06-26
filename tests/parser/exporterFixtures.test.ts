@@ -575,6 +575,15 @@ describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)",
       addr: "1515 Madison Ave New York, NY 10036",
     },
     {
+      // R4: a SUFFIXLESS street (Broadway) is recognized via its US ZIP tail, so the
+      // street number is preserved (not stripped as a conf#) and no fake guest leaks.
+      label: "dash-separated SUFFIXLESS address (Broadway, ZIP-tail) preserved",
+      cell: "Hyatt Regency - 1515 Broadway New York, NY 10036",
+      name: "Hyatt Regency",
+      names: [],
+      addr: "1515 Broadway New York, NY 10036",
+    },
+    {
       label: "plain hotel+address, no dash, no guests",
       cell: "Marriott Downtown 555 Main St Chicago, IL 60601",
       name: "Marriott Downtown",
