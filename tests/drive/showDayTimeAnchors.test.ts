@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
+  attachSourceCellAnchors,
   extractShowDayTimeAnchors,
+  hasCellAnchoredWarning,
   resolveSourceCell,
   type ShowDayTimeAnchor,
 } from "@/lib/drive/showDayTimeAnchors";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
+import type { ParseWarning } from "@/lib/parser/types";
 
 // Build an .xlsx ArrayBuffer from an array-of-arrays for one named sheet.
 function xlsxBuffer(sheets: Record<string, string[][]>): ArrayBuffer {
@@ -90,5 +93,51 @@ describe("resolveSourceCell", () => {
       { iso: "2026-05-11", anchor: { title: "Main", gid: 1, a1: "E9" } },
     ];
     expect(resolveSourceCell(dup, "2026-05-11")).toBeNull();
+  });
+});
+
+describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
+  const anchors: ShowDayTimeAnchor[] = [
+    { iso: "2026-05-11", anchor: { title: "Main", gid: 1, a1: "E2" } },
+    { iso: "2026-05-12", anchor: { title: "Main", gid: 1, a1: "E3" } },
+  ];
+
+  it("sets sourceCell on a SCHEDULE_TIME_UNPARSED warning matching its blockRef.iso", () => {
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "SCHEDULE_TIME_UNPARSED",
+        message: "…",
+        blockRef: { kind: "dates", index: 0, iso: "2026-05-12" },
+      },
+      // a different code → never gets a sourceCell
+      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "…", blockRef: { kind: "crew" } },
+    ];
+    attachSourceCellAnchors(warnings, anchors);
+    expect(warnings[0]!.sourceCell).toEqual(anchors[1]!.anchor);
+    expect(warnings[1]!.sourceCell).toBeUndefined();
+  });
+
+  it("leaves a warning link-less when its date has no (or an ambiguous) anchor", () => {
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "SCHEDULE_TIME_UNPARSED",
+        message: "…",
+        blockRef: { kind: "dates", index: 0, iso: "2026-05-99" },
+      },
+    ];
+    attachSourceCellAnchors(warnings, anchors);
+    expect(warnings[0]!.sourceCell).toBeUndefined();
+  });
+
+  it("hasCellAnchoredWarning gates on the anchored codes", () => {
+    expect(
+      hasCellAnchoredWarning([{ severity: "warn", code: "SCHEDULE_TIME_UNPARSED", message: "x" }]),
+    ).toBe(true);
+    expect(
+      hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x" }]),
+    ).toBe(false);
+    expect(hasCellAnchoredWarning([])).toBe(false);
   });
 });

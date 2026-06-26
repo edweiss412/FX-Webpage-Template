@@ -45,6 +45,7 @@ import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 
 // ── §4.3 caps (single source of truth) ──
@@ -372,6 +373,24 @@ function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWa
               {context ? (
                 <p className="pl-3 text-xs text-text-subtle">{renderEmphasis(context)}</p>
               ) : null}
+              {(() => {
+                // Exact-cell deep link: when the scan captured the offending
+                // source cell, offer a one-click jump to it in the Sheet. Falls
+                // back to the base sheet URL for a non-allowlisted tab (still
+                // useful); omitted when no anchor or no driveFileId.
+                const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
+                return href ? (
+                  <a
+                    data-testid={`wizard-step3-card-${dfid}-warning-${i}-open`}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="self-start pl-3 text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  >
+                    Open in Sheet ↗
+                  </a>
+                ) : null;
+              })()}
             </li>
           );
         })}

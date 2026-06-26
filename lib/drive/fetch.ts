@@ -410,7 +410,14 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
 export async function fetchSheetMarkdownWithBinding(
   driveFileId: string,
   options: DriveFetchOptions = {},
-): Promise<{ binding: { bindingToken: string; modifiedTime: string }; markdown: string }> {
+): Promise<{
+  binding: { bindingToken: string; modifiedTime: string };
+  markdown: string;
+  // The raw xlsx bytes the markdown was synthesized from — returned so the
+  // onboarding scan can compute exact-cell deep-link anchors WITHOUT a second
+  // Drive export.
+  bytes: ArrayBuffer;
+}> {
   const drive = options.drive ?? getDriveClient();
   const before = await fetchFileForExport(
     driveFileId,
@@ -453,5 +460,6 @@ export async function fetchSheetMarkdownWithBinding(
   return {
     binding: { bindingToken: token, modifiedTime },
     markdown: synthesizeMarkdownFromXlsx(bytes),
+    bytes,
   };
 }

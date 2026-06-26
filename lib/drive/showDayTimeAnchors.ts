@@ -1,7 +1,12 @@
 import * as XLSX from "xlsx";
 import { buildAbsGrid } from "@/lib/drive/sourceAnchors";
 import { clean, normalizeDate } from "@/lib/parser/blocks/_helpers";
+import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+
+/** The parse-warning codes that carry a per-show-day source cell (v1: schedule
+ *  time only; extend here as other located warnings gain anchors). */
+const CELL_ANCHORED_CODES = new Set(["SCHEDULE_TIME_UNPARSED"]);
 
 /**
  * extractShowDayTimeAnchors — locate the source cell behind each show-day's TIME
@@ -73,4 +78,26 @@ export function resolveSourceCell(
   if (!iso) return null;
   const matches = anchors.filter((a) => a.iso === iso);
   return matches.length === 1 ? matches[0]!.anchor : null;
+}
+
+/**
+ * Mutate `warnings` in place, setting `sourceCell` on each cell-anchored warning
+ * (currently SCHEDULE_TIME_UNPARSED) whose show-day date matches exactly one
+ * anchor. Best-effort: a warning with no/ambiguous match is left link-less.
+ */
+export function attachSourceCellAnchors(
+  warnings: ParseWarning[],
+  anchors: ShowDayTimeAnchor[],
+): void {
+  for (const w of warnings) {
+    if (!CELL_ANCHORED_CODES.has(w.code)) continue;
+    const cell = resolveSourceCell(anchors, w.blockRef?.iso);
+    if (cell) w.sourceCell = cell;
+  }
+}
+
+/** True iff any warning is cell-anchored — gate the (cost-bearing) gid fetch on
+ *  this so the common warning-free sheet pays no extra round-trip. */
+export function hasCellAnchoredWarning(warnings: ParseWarning[]): boolean {
+  return warnings.some((w) => CELL_ANCHORED_CODES.has(w.code));
 }
