@@ -522,6 +522,80 @@ describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)",
     expect(h[0]!.hotel_address).toBe("555 Main St Chicago, IL 60601");
     expect(h[0]!.names).toEqual([]);
   });
+
+  // learn-K (Codex R3): in a MULTI-guest list, names 2..N are unambiguously
+  // delimited by their conf#s, so they teach the name length for the ambiguous
+  // FIRST guest. A 2-word multi-guest cell must split the first guest's full name
+  // off the hotel ("Westin" | "Doug Larson"), not just the surname.
+  it("multi-guest 2-word names: the first guest's full name peels off the hotel", () => {
+    const h = parseHotels(
+      "| Hotel Stays | Westin Doug Larson - 123456 Eric Weiss - 123457 |",
+      "v1",
+    );
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Westin");
+    expect(h[0]!.names).toEqual(["Doug Larson", "Eric Weiss"]);
+  });
+
+  // STRUCTURAL DEFENSE (Codex R1–R3 same-vector): a matrix locking the guest/
+  // address boundary across shapes. Each row states the exact expected
+  // {hotel_name, names} so any future regex change that re-opens the vector fails
+  // here. Shapes the extractor OWNS vs deliberately FALLS THROUGH are both pinned.
+  type Row = {
+    label: string;
+    cell: string;
+    name: string | null;
+    names: string[];
+    addr?: string | null;
+  };
+  const MATRIX: Row[] = [
+    {
+      label: "east-coast (multi 1-word + initial, 6-digit, mixed dashes)",
+      cell: "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525",
+      name: "Four Seasons Fort Lauderdale",
+      names: ["Doug", "Carl", "Eric W"],
+    },
+    {
+      label: "multi 2-word names (learn-K)",
+      cell: "Westin Doug Larson - 123456 Eric Weiss - 123457",
+      name: "Westin",
+      names: ["Doug Larson", "Eric Weiss"],
+    },
+    {
+      label: "multi 1-word, hotel ends in a capitalized word (no bleed)",
+      cell: "Hilton Garden Inn Carl –- 999888 Doug--- 777666",
+      name: "Hilton Garden Inn",
+      names: ["Carl", "Doug"],
+    },
+    {
+      label: "dash-separated address (no guests, preserved)",
+      cell: "Hyatt Regency - 1515 Madison Ave New York, NY 10036",
+      name: "Hyatt Regency",
+      names: [],
+      addr: "1515 Madison Ave New York, NY 10036",
+    },
+    {
+      label: "plain hotel+address, no dash, no guests",
+      cell: "Marriott Downtown 555 Main St Chicago, IL 60601",
+      name: "Marriott Downtown",
+      names: [],
+      addr: "555 Main St Chicago, IL 60601",
+    },
+  ];
+  for (const row of MATRIX) {
+    it(`matrix: ${row.label}`, () => {
+      const h = parseHotels(`| Hotel Stays | ${row.cell} |`, "v1");
+      expect(h).toHaveLength(1);
+      expect(h[0]!.hotel_name).toBe(row.name);
+      expect(h[0]!.names).toEqual(row.names);
+      if (row.addr !== undefined) expect(h[0]!.hotel_address).toBe(row.addr);
+      // privacy: no conf# survives in any string field on any matrix shape.
+      const confTok = /[-–—]{1,3}\s*#?\s*\d{4,}|#\s*\d{4,}|\b\d{6,}\b/;
+      for (const v of [h[0]!.hotel_name, h[0]!.hotel_address, ...h[0]!.names]) {
+        expect(v ?? "", `conf# leaked into "${v}"`).not.toMatch(confTok);
+      }
+    });
+  }
 });
 
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
