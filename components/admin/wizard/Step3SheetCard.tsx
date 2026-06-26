@@ -387,7 +387,7 @@ function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWa
                     rel="noopener noreferrer"
                     className="self-start pl-3 text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                   >
-                    Open in Sheet ↗
+                    Open in Sheet <span aria-hidden="true">↗</span>
                   </a>
                 ) : null;
               })()}
