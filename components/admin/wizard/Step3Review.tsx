@@ -718,28 +718,28 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           {mainRows.length > 0 ? (
             <ul
               data-testid="wizard-step3-card-grid"
-              className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
+              // Accordion: while a card is open the grid collapses to ONE column so
+              // the open card reads at full width and the rest stack below it. A
+              // multi-column grid can't give a single cell full width without
+              // leaving a hole where it sat (CSS sparse packing bumps the wide cell
+              // to a fresh row), so the focused view switches the whole grid to one
+              // column. Closed → the normal responsive grid.
+              className={`grid items-start gap-4 ${
+                expandedDfid !== null ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
+              }`}
             >
-              {mainRows.map((row) => {
-                const isOpen = expandedDfid === row.driveFileId;
-                return (
-                  <li
-                    key={row.driveFileId}
-                    // The open card spans every column so its detail goes full
-                    // width; the grid reflows the other cards below it.
-                    className={isOpen ? "lg:col-span-2 xl:col-span-3" : undefined}
-                  >
-                    <RowItem
-                      row={row}
-                      wizardSessionId={wizardSessionId}
-                      expanded={isOpen}
-                      onToggleExpanded={() =>
-                        setExpandedDfid((cur) => (cur === row.driveFileId ? null : row.driveFileId))
-                      }
-                    />
-                  </li>
-                );
-              })}
+              {mainRows.map((row) => (
+                <li key={row.driveFileId}>
+                  <RowItem
+                    row={row}
+                    wizardSessionId={wizardSessionId}
+                    expanded={expandedDfid === row.driveFileId}
+                    onToggleExpanded={() =>
+                      setExpandedDfid((cur) => (cur === row.driveFileId ? null : row.driveFileId))
+                    }
+                  />
+                </li>
+              ))}
             </ul>
           ) : null}
         </>

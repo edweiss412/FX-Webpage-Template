@@ -408,33 +408,39 @@ describe("Step3Review — detail accordion (single open, full-width)", () => {
     status: "staged",
     parseResult: pr,
   };
-  const COL_SPAN = "lg:col-span-2"; // the open card spans the full grid width
+  // Opening a card collapses the whole grid to one column (so the open card is
+  // full-width with no sparse-packing hole). `lg:grid-cols-2` is present only in
+  // the closed/multi-column state.
+  const MULTICOL = "lg:grid-cols-2";
 
-  test("only one card's detail is open at a time, and the open card spans the full grid width", () => {
+  test("only one card's detail is open at a time; opening a card collapses the grid to full-width", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
     );
+    const grid = getByTestId("wizard-step3-card-grid");
     const expandA = getByTestId("wizard-step3-card-acc-A-expand");
     const expandB = getByTestId("wizard-step3-card-acc-B-expand");
-    const liOf = (dfid: string) => getByTestId(`wizard-step3-row-${dfid}`).closest("li");
 
-    // Both collapsed; neither <li> spans full width.
+    // Both collapsed → responsive multi-column grid.
     expect(expandA.getAttribute("aria-expanded")).toBe("false");
     expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(liOf("acc-A")?.className ?? "").not.toContain(COL_SPAN);
+    expect(grid.className).toContain(MULTICOL);
 
-    // Open A → A is full-width; B stays collapsed.
+    // Open A → grid collapses to one column (A full-width); B stays collapsed.
     fireEvent.click(expandA);
     expect(expandA.getAttribute("aria-expanded")).toBe("true");
     expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(liOf("acc-A")?.className ?? "").toContain(COL_SPAN);
-    expect(liOf("acc-B")?.className ?? "").not.toContain(COL_SPAN);
+    expect(grid.className).not.toContain(MULTICOL);
 
-    // Open B → A closes (single-open accordion); B becomes full-width.
+    // Open B → A closes (single-open accordion); grid still single-column.
     fireEvent.click(expandB);
     expect(expandB.getAttribute("aria-expanded")).toBe("true");
     expect(expandA.getAttribute("aria-expanded")).toBe("false");
-    expect(liOf("acc-B")?.className ?? "").toContain(COL_SPAN);
-    expect(liOf("acc-A")?.className ?? "").not.toContain(COL_SPAN);
+    expect(grid.className).not.toContain(MULTICOL);
+
+    // Close B → grid returns to multi-column.
+    fireEvent.click(expandB);
+    expect(expandB.getAttribute("aria-expanded")).toBe("false");
+    expect(grid.className).toContain(MULTICOL);
   });
 });

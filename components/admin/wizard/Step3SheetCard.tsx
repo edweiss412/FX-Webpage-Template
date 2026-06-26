@@ -577,7 +577,10 @@ export function Step3SheetCard({
               carries a small uppercase eyebrow label so the two stop reading as
               one run-on metadata block. Shared 2-track grid so both eyebrows
               share a left edge and both values share a left edge. */}
-          <dl className="mt-1.5 grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1">
+          {/* `minmax(0,1fr)` (not the default `1fr` = `minmax(auto,1fr)`) lets the
+              value column shrink below its content so a long unbreakable token
+              wraps instead of forcing horizontal overflow past the card width. */}
+          <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1">
             <dt
               className="text-xs font-semibold uppercase text-text-subtle"
               style={{ letterSpacing: "var(--tracking-eyebrow)" }}
@@ -602,38 +605,45 @@ export function Step3SheetCard({
             >
               {counts}
             </dd>
-            {/* Crew preview (collapsed card): the first few name · role lines so the
-                operator sees WHO is on the show at a glance, without expanding. The
-                full roster is in the breakdown. Eyebrow aligns to the first name's
-                baseline via the shared dl grid. */}
-            <dt
-              className="text-xs font-semibold uppercase text-text-subtle"
-              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-            >
-              Crew
-            </dt>
-            <dd
-              data-testid={`wizard-step3-card-${dfid}-crew-summary`}
-              className="text-sm text-text-subtle"
-            >
-              {crewMembers.length === 0 ? (
-                "No crew parsed"
-              ) : (
-                <span className="flex flex-col gap-0.5">
-                  {crewMembers.slice(0, SUMMARY_CREW_CAP).map((m, i) => (
-                    <span key={`${m.name}-${i}`}>
-                      <span className="text-text">{m.name || "Unnamed"}</span>
-                      {m.role ? <span> · {m.role}</span> : null}
+            {/* Crew preview — COLLAPSED card only: the first few name · role lines
+                so the operator sees WHO is on the show at a glance, without
+                expanding. Hidden when expanded (the breakdown shows the full
+                roster right below — no duplication). Eyebrow aligns to the first
+                name's baseline via the shared dl grid. */}
+            {!expanded ? (
+              <>
+                <dt
+                  className="text-xs font-semibold uppercase text-text-subtle"
+                  style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+                >
+                  Crew
+                </dt>
+                <dd
+                  data-testid={`wizard-step3-card-${dfid}-crew-summary`}
+                  // min-w-0 + wrap-break-word: an arbitrary sheet-derived name/role
+                  // must wrap inside the card, never force horizontal overflow.
+                  className="min-w-0 text-sm text-text-subtle"
+                >
+                  {crewMembers.length === 0 ? (
+                    "No crew parsed"
+                  ) : (
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      {crewMembers.slice(0, SUMMARY_CREW_CAP).map((m, i) => (
+                        <span key={`${m.name}-${i}`} className="wrap-break-word">
+                          <span className="text-text">{m.name || "Unnamed"}</span>
+                          {m.role ? <span> · {m.role}</span> : null}
+                        </span>
+                      ))}
+                      {crewMembers.length > SUMMARY_CREW_CAP ? (
+                        <span className="text-xs text-text-subtle">
+                          +{crewMembers.length - SUMMARY_CREW_CAP} more
+                        </span>
+                      ) : null}
                     </span>
-                  ))}
-                  {crewMembers.length > SUMMARY_CREW_CAP ? (
-                    <span className="text-xs text-text-subtle">
-                      +{crewMembers.length - SUMMARY_CREW_CAP} more
-                    </span>
-                  ) : null}
-                </span>
-              )}
-            </dd>
+                  )}
+                </dd>
+              </>
+            ) : null}
           </dl>
 
           {(hasDiagrams || hasReel) && (
