@@ -51,6 +51,7 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--needs-attention-page--tooltip",
         "help-affordance--per-show-alerts--tooltip",
         "help-affordance--per-show-crew--tooltip",
+        "help-affordance--per-show-data-quality--tooltip",
         "help-affordance--per-show-sync-footer--tooltip",
         "help-affordance--preview-banner--tooltip",
         "help-affordance--settings-administrators--tooltip",
@@ -85,12 +86,14 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 21 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
+  it("pins the 22 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
     // 20 base + 2 step-3 redesign views (Unpublished / Ignored sheets) − 1 removed
-    // per-show re-stage tooltip (moot since Phase 6 swapped that mount for ChangesFeed).
-    expect(concrete).toHaveLength(21);
+    // per-show re-stage tooltip (moot since Phase 6 swapped that mount for ChangesFeed)
+    // + 1 per-show Data-quality panel tooltip (parse-data-quality-warnings).
+    expect(concrete).toHaveLength(22);
     const ids = concrete.map((r) => r.testid);
+    expect(ids).toContain("help-affordance--per-show-data-quality--tooltip");
     expect(ids).toContain("help-affordance--settings-maintenance--tooltip");
     expect(ids).toContain("help-affordance--dashboard-restage--legend");
     expect(ids).toContain("help-affordance--dashboard-needs-attention--tooltip");

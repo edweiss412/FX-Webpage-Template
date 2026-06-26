@@ -84,9 +84,7 @@ describe("data-gaps chip row — layout structure (no fixed-dimension-parent ris
     // …the chip is NOT inside the action (would be invalid + wrong order).
     expect(within(action).queryByTestId("shows-data-gaps-chip-g")).toBeNull();
     // …and the chip comes BEFORE the action in document order.
-    expect(
-      chip.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(chip.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bar.firstElementChild).toBe(chip);
   });
 
