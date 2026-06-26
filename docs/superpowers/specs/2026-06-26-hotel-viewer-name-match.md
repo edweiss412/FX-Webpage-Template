@@ -55,30 +55,38 @@ So the matcher is tuned to minimize under-match, accepting a small, documented o
 Symmetric. Decides whether two human-name strings refer to the same person, tolerant of first-name-only, nickname-prefix, and initialed forms.
 
 ```
-toks(s): s.toLowerCase()
+toks(s): s.normalize("NFD").replace(/\p{M}/gu, "")  // fold diacritics + normalize (José == Jose,
+                                                     // precomposed == decomposed)
+           .toLowerCase()
            .replace(/[\/,]/g, " ")        // slash + comma → space (defensive un-merge)
-           .replace(/[^\p{L}\s-]/gu, "")   // strip punctuation, KEEP hyphen + space
+           .replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")  // drop generational suffixes before tokenizing
+           .replace(/[^\p{L}\s-]/gu, "")   // strip remaining punctuation, KEEP hyphen + space
            .split(/\s+/)
            .map(t => t.replace(/^-+|-+$/g, ""))  // trim stray edge hyphens
            .filter(Boolean)
 
 tokCompat(x, y): x === y || x.startsWith(y) || y.startsWith(x)
-   // prefix covers nicknames (doug⊂douglas, alex⊂alexandre) AND initials (w⊂weiss, e⊂eric)
+   // prefix covers same-initial nicknames (doug⊂douglas, alex⊂alexandre) AND initials (w⊂weiss, e⊂eric)
 
 namesRefer(a, b):
   A = toks(a); B = toks(b)
   if A.length === 0 || B.length === 0: return false
   if A.length === 1: return tokCompat(A[0], B[0]) || tokCompat(A[0], B[B.length-1])
   if B.length === 1: return tokCompat(B[0], A[0]) || tokCompat(B[0], A[A.length-1])
-  // both multi-token: SURNAME compatible AND first names share a first letter
-  return tokCompat(A[last], B[last]) && (A[0][0] === B[0][0] || tokCompat(A[0], B[0]))
+  // both multi-token: SURNAME compatible. The surname is the strong identity signal;
+  // the first name is intentionally NOT required to match, because non-prefix
+  // nicknames (Bill↔William, Bob↔Robert, Joey↔Joseph, Jim↔James) share neither a
+  // prefix nor a first letter, yet are the same person — and the fixtures already
+  // carry exactly this (crew "Bill Werner" / legal "William Werner Jr",
+  // fixtures/shows/raw/2025-10-fixed-income-trading-summit.md:536).
+  return tokCompat(A[last], B[last])
 ```
 
-**Why these tiers (LENIENT, ratified):**
+**Why these tiers (LENIENT, ratified — under-match is the harm, over-match benign):**
 - **single-token side** (guest `Carl`, `Doug`, `Eric`): a lone token matches the other's first **or** last token — catches first-name guests (`Carl`↔`Carl Fenton`) and a lone-surname guest (`Larson`↔`Doug Larson`).
-- **both multi-token**: require **surname-compatible** (`Larson`=`Larson`, `Weiss`⊃`W`) AND first names **share a first letter** (`d`==`d`) or are prefix-compatible. The first-letter clause (not full prefix) handles `DJ`↔`David` (surname `Johnson` + `D`=`D`); the surname gate excludes the cross-Eric over-match (`Eric Carroll` vs `Eric Weiss` → `Carroll`≠`Weiss`) and `Calvin Saller` vs `Carlos Pineda` (`Saller`≠`Pineda`).
+- **both multi-token → surname-compatible ONLY** (`tokCompat` on the last token: `Larson`=`Larson`, `Werner`=`Werner`, `Weiss`⊃`W`). Dropping the first-name gate is deliberate: it catches **every** nickname/legal-name form (Bill↔William, Bob↔Robert, DJ↔David, Doug↔Douglas) since the surname carries the identity, **and still passes every over-match exclusion in §1** because those all have **distinct surnames** (`Carroll`≠`Weiss`, `Saller`≠`Pineda`, `Carleo`≠`Pineda`, `Clark`≠`Carleo`). Generational suffixes (`Jr`/`Sr`/`III`) are stripped in `toks` so `William Werner Jr` ⇒ surname `Werner`.
 
-**Over-match bound (documented, accepted):** two crew who share a surname **and** a first initial (e.g. two `D. Larson`s), or a single-token guest first-name shared by two crew, both match. Benign per §1 (UX-not-security; the data carries no further distinguishing signal).
+**Over-match bound (documented, accepted):** two **distinct** people who share a (prefix-compatible) surname — e.g. crew `Doug Larson` and an unrelated hotel guest `Pat Larson` — both match; a single-token guest first-name shared by two crew also matches. Both are benign per §1 (the surfaced card is already DB-readable; no further distinguishing signal exists in the data). **Under-match residual (rare, documented):** a single-token *cross-initial nickname* guest with no surname (a bare `Bob` vs viewer `Robert Smith`) does not match — not in the corpus (the only single-token guests are `Doug`/`Carl`/`Eric`, all prefix-compatible).
 
 ### 3.2 Wire into the hotel filter
 
@@ -103,12 +111,14 @@ allHotels.filter((res) => res.names.some((n) => namesRefer(n, viewerName as stri
 | guest name `""` / whitespace-only | `toks` → `[]` → `namesRefer` false (no match, no crash) |
 | viewerName `""` | `toks` → `[]` → false (treated as no-match; pre-existing `viewerName` is non-empty from a crew row, but guarded) |
 | single-letter guest/viewer token | handled by `tokCompat` prefix (`w`⊂`weiss`) |
-| accented names (`José`) | `\p{L}` keeps accents; `tokCompat` on normalized tokens |
+| accented names (`José` precomposed vs decomposed vs `Jose`) | `toks` does `NFD` + strip `\p{M}` → all fold to `jose`; equal |
+| generational suffix (`William Werner Jr`) | `toks` strips `jr/sr/ii/iii/iv` → surname token is `werner` |
+| non-prefix nickname (`Bill`↔`William`, multi-token) | surname-only multi-token rule matches on the shared surname |
 | hyphenated surname (`Smith-Jones`) | hyphen kept in token; `tokCompat` prefix lets `Smith` match `Smith-Jones` |
 
 ## 4. Test plan (TDD)
 
-1. **`namesRefer` unit matrix** (`tests/data/nameMatch.test.ts`): every roster↔guest pair from the §1 oracle, asserting the exact match/no-match, **derived from a data table** (not hand-listed booleans where avoidable). Explicit **over-match exclusions**: `Eric Carroll`↮`Eric Weiss`, `Eric Weiss`↮`Eric Carroll`, `Calvin Saller`↮`Carlos Pineda`, `John Carleo`↮`Carlos Pineda`. Assert **symmetry** (`namesRefer(a,b) === namesRefer(b,a)`) for every pair. Edge cases from §3.4 (empty, whitespace, accented, hyphenated, single-token both sides). *Failure mode caught:* a regression to substring-only matching (would fail east-coast/ria/rpas/consultants/fixed-income rows) or an over-broad matcher (would fail the exclusions).
+1. **`namesRefer` unit matrix** (`tests/data/nameMatch.test.ts`): every roster↔guest pair from the §1 oracle, asserting the exact match/no-match, **derived from a data table** (not hand-listed booleans where avoidable). Explicit **over-match exclusions**: `Eric Carroll`↮`Eric Weiss`, `Eric Weiss`↮`Eric Carroll`, `Calvin Saller`↮`Carlos Pineda`, `John Carleo`↮`Carlos Pineda`. Explicit **nickname/legal-name matches**: `Bill Werner`↔`William Werner` and `Bill Werner`↔`William Werner Jr` (suffix-stripped); `DJ Johnson`↔`David Johnson`; `Doug Larson`↔`Douglas Larson`; `Alex Rodrigues`↔`Alexandre Rodrigues`. Explicit **accent/normalization**: `José Núñez` precomposed ↔ decomposed ↔ `Jose Nunez` all match. Assert **symmetry** (`namesRefer(a,b) === namesRefer(b,a)`) for every pair. Edge cases from §3.4 (empty, whitespace, single-token both sides, hyphenated surname). *Failure mode caught:* a regression to substring-only matching (would fail east-coast/ria/rpas/consultants/fixed-income rows), an over-broad matcher (would fail the distinct-surname exclusions), or a re-introduction of the first-name gate (would fail Bill↔William).
 2. **Filter integration** (`tests/data/...`): exercise the real `res.names.some((n) => namesRefer(n, viewerName))` predicate (or full `getShowForViewer` with mocked reads) — a `kind:"crew"` viewer named `Carl Fenton` sees the `names:["Carl"]` reservation; a viewer `Eric Weiss` does **not** see a `names:["Eric Carroll"]` reservation; admin/`viewerName===null` sees all. *Failure mode caught:* the matcher works in isolation but is wired wrong (e.g. argument order, still calling `.includes`).
 3. **Parser slash-split** (extend `tests/parser/blocks/hotels.test.ts` or `exporterFixtures.test.ts`): fixed-income's structured cell yields two guests `["David Johnson","Jeffrey Justice"]`, no conf# in either, `#4 PRIVACY` meta-test still green. *Failure mode caught:* the slash-merge regressing, or a conf# leaking through the new split path.
 4. **Anti-tautology:** matcher expectations derive from the oracle data table; the integration test asserts membership in the filtered result, not a re-statement of the matcher.
