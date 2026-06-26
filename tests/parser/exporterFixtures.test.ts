@@ -416,6 +416,68 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
   }
 });
 
+describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)", () => {
+  // east-coast's "Hotel Stays" cell has NO "Check In" marker, so guests sit glued
+  // after the hotel name with mixed dash styles + a middle initial:
+  //   "Four Seasons Fort Lauderdale Doug--- 103317 Carl –- 103316 Eric W--- 110525"
+  // The weak inline name patterns missed Carl (en-dash "–-") + Eric W (middle
+  // initial) and—because there is no "Check In" suffix to strip—left every guest
+  // first-name glued into hotel_name. names[] is load-bearing: getShowForViewer
+  // filters hotels by the viewer's name appearing in res.names.
+  it("east-coast: hotel_name is the venue only; all guests extracted into names[]", () => {
+    const h = parse("east-coast").hotelReservations;
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Four Seasons Fort Lauderdale");
+    expect(h[0]!.hotel_address).toBeNull();
+    expect(h[0]!.names).toEqual(["Doug", "Carl", "Eric W"]);
+  });
+
+  it("east-coast: no guest first-name is glued into hotel_name; no conf# anywhere", () => {
+    const h = parse("east-coast").hotelReservations[0]!;
+    for (const guest of ["Doug", "Carl", "Eric"]) {
+      expect(h.hotel_name ?? "", `"${guest}" glued into hotel_name`).not.toMatch(
+        new RegExp(`\\b${guest}\\b`),
+      );
+    }
+    for (const conf of ["103317", "103316", "110525"]) {
+      expect(h.hotel_name ?? "").not.toContain(conf);
+      expect(h.names.join(" ")).not.toContain(conf);
+    }
+  });
+
+  // synthetic: the hotel's LAST word must not bleed into the first guest name (the
+  // "Lauderdale Doug" failure class). Drive through the Hotel Stays path.
+  it("does not bleed the hotel's last word into the first guest", () => {
+    const md = "| Hotel Stays | Hilton Garden Inn Carl –- 999888 Doug--- 777666 |";
+    const h = parseHotels(md, "v1");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toBe("Hilton Garden Inn");
+    expect(h[0]!.names).toEqual(["Carl", "Doug"]);
+  });
+
+  // no-regression: the legacy BARE-conf# shape (no dash, "In on the Nth" prose) is
+  // intentionally NOT handled by the dash extractor — it must fall through to the
+  // existing path with the conf# stripped (privacy) and the venue still present.
+  it("legacy bare-conf# Hotel Reservations falls through, conf# still stripped", () => {
+    const md =
+      "| Hotel Reservations | Four Seasons Chicago Eric Weiss 2004173 In on the 6th out on the 10th Jeffrey Justice 2004172 In on the 6th out on the 10th |";
+    const h = parseHotels(md, "v1");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.hotel_name).toContain("Four Seasons Chicago");
+    for (const conf of ["2004173", "2004172"]) {
+      expect(h[0]!.hotel_name ?? "").not.toContain(conf);
+      expect(h[0]!.names.join(" ")).not.toContain(conf);
+    }
+  });
+
+  // no-regression: a DATED inline cell (ria/redefining shape) keeps the existing
+  // path — guests after the dates, hotel name unaffected by the new extractor.
+  it("dated inline cell is unaffected by the dash extractor (ria/redefining path)", () => {
+    expect(parse("ria").hotelReservations[0]!.hotel_name).toBe("Park Hyatt Chicago");
+    expect(parse("redefining-fi").hotelReservations[0]!.hotel_name).toBe("The Drake Hotel");
+  });
+});
+
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
   it("consultants GS does NOT inherit a DETAILS-section Digital Signage sentence", () => {
     const gs = parse("consultants").rooms.find((r) => r.kind === "gs");

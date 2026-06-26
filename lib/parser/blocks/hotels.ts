@@ -555,6 +555,48 @@ function buildInlineHotel(
   const checkInMatch = /check\s+in[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
   const checkOutMatch = /check\s+out[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
 
+  // v1 "Hotel Stays" / no-Check-In dash-delimited shape (east-coast):
+  // "<hotel name+address> <Guest>[ <Initial>] <dash-run> #?<conf> ...". With no
+  // "Check In:" marker to separate hotel from guests, the weak Pattern 1/2/3
+  // below miss single-word guests + middle initials + mixed dash styles (---, –-)
+  // AND leave every guest first-name glued into hotel_name. Extract each
+  // "<short name> <dash> <conf>" guest and take the hotel as the prefix before the
+  // FIRST guest. names[] is load-bearing — getShowForViewer filters hotels by the
+  // viewer's name appearing in res.names (lib/data/getShowForViewer.ts:644). Gate
+  // on !checkInMatch so the dated inline shapes (ria / redefining / consultants),
+  // whose guests sit AFTER the dates, keep their existing "strip Check In" path.
+  if (!checkInMatch) {
+    // Guest NAME = one capitalized word + an OPTIONAL single-letter middle initial
+    // ("Eric W"), immediately followed by a 1–3 char dash run + optional # + a 4+
+    // digit conf#. Limiting the 2nd token to an INITIAL (not a full word) stops a
+    // hotel's last word from pairing with the first guest ("Lauderdale Doug").
+    // The name's inner run may carry '.- for "O'Brien"/"Smith-Jones"/"Jr." but
+    // MUST end in a letter (\p{L}), else a trailing hyphen of the name eats into
+    // the dash separator ("Doug--" instead of "Doug").
+    const dashGuestRe =
+      /(\p{Lu}(?:[\p{L}\p{M}'.-]*\p{L})?(?:\s+\p{Lu}\.?)?)\s*[-–—]{1,3}\s*#?\s*\d{4,}/gu;
+    const dashGuests: string[] = [];
+    let firstGuestAt = -1;
+    let gm: RegExpExecArray | null;
+    while ((gm = dashGuestRe.exec(text)) !== null) {
+      if (firstGuestAt < 0) firstGuestAt = gm.index;
+      dashGuests.push(gm[1]!.trim());
+    }
+    if (dashGuests.length > 0) {
+      const split = splitHotelNameAddress(stripConfTokens(text.slice(0, firstGuestAt).trim()));
+      return {
+        ordinal,
+        hotel_name: split.name,
+        hotel_address: split.address,
+        names: dashGuests.map(stripConfTokens).filter((n) => n.length > 0),
+        confirmation_no: null,
+        check_in: null,
+        check_out: null,
+        notes: null,
+      };
+    }
+  }
+
   const names: string[] = [];
 
   // Pattern 1: "Doug Larson - 7414" style (name dash confirmation)
