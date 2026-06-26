@@ -109,6 +109,26 @@ describe("unit-suite matrix-shard topology", () => {
     ).toBe(false);
   });
 
+  it("the aggregator explicitly sets `name: unit-suite` — pins the REQUIRED check-context name", () => {
+    // The status-check CONTEXT name is the job's `name:`. The job KEY being
+    // `unit-suite` is not enough: a `name: Unit suite` override would orphan the
+    // required `unit-suite` context (blocking ALL PRs) while a key-only check
+    // still passes. Scope to the aggregator block (bounded by the next 2-space
+    // job key or EOF) so the shard job's `name: unit-suite-shard` can't satisfy
+    // it, and tie it to `needs: [unit-suite-shard]` to prove it's the aggregator.
+    const agg = /\n {2}unit-suite:\n([\s\S]*?)(?=\n {2}[A-Za-z0-9_-]+:\n|$)/.exec(YAML);
+    expect(agg, "aggregator job block `unit-suite:` not found").not.toBeNull();
+    const body = agg![1];
+    expect(
+      /\n {4}name:\s*unit-suite\n/.test(body),
+      "the aggregator must set `name: unit-suite` so the required check-context name is preserved",
+    ).toBe(true);
+    expect(
+      /needs:\s*\[\s*unit-suite-shard\s*\]/.test(body),
+      "the block matched must be the aggregator (it `needs: [unit-suite-shard]`), not another job",
+    ).toBe(true);
+  });
+
   it("an aggregator job named `unit-suite` needs the matrix, runs if: always(), and fails unless the rollup is success", () => {
     expect(
       /\n {2}unit-suite:\n/.test(YAML),
@@ -137,7 +157,7 @@ describe("unit-suite matrix-shard topology", () => {
 - [ ] **Step 2: Run the meta-test to verify it FAILS**
 
 Run: `pnpm exec vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts`
-Expected: FAIL — the matrix-job, `--shard`, and aggregator assertions fail against the current single-job `unit-suite.yml` (no `unit-suite-shard`, no `--shard`, no `needs`). (The "reads the workflow", "VITEST_EXCLUDE_ENV_BOUND", and "never continue-on-error" assertions already pass — that's expected; the matrix/shard/aggregator ones drive red.)
+Expected: FAIL (4 of 7 failing) — the matrix-job, `--shard`, `name: unit-suite` aggregator-name, and aggregator-needs/if/result assertions fail against the current single-job `unit-suite.yml` (no `unit-suite-shard`, no `--shard`, no `name:`, no `needs`). (The "reads the workflow", "VITEST_EXCLUDE_ENV_BOUND", and "never continue-on-error" assertions already pass — that's expected; the matrix/shard/name/aggregator ones drive red.)
 
 - [ ] **Step 3: Restructure `.github/workflows/unit-suite.yml`**
 
@@ -254,7 +274,7 @@ jobs:
 - [ ] **Step 4: Run the meta-test to verify it PASSES**
 
 Run: `pnpm exec vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts`
-Expected: PASS (6 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Run the two existing CI-structure meta-tests to verify NO regression**
 
@@ -332,18 +352,18 @@ gh run list --workflow=unit-suite.yml --branch chore/ci-speedup-unit-suite-shard
 ```
 Expected: `unit-suite-shard (1)`, `unit-suite-shard (2)`, and the `unit-suite` aggregator all complete green.
 
-- [ ] **Step 3: Record per-leg wall-clock and apply the §3.3 balance gate**
+- [ ] **Step 3: Record per-leg wall-clock and apply the balance gate**
 
-Read each leg's duration (`gh run view <id>`). Acceptance:
-- **PASS** if `max(leg1, leg2) < 9m` AND `< the pre-split unit-suite time` (~11.3m). Ship as-is.
-- **FALLBACK** (only if a leg is >2m heavier than the other, or max ≥ 9m): replace `--shard` with a curated per-shard include — a `matrix.shard`-keyed env (e.g. `VITEST_SHARD_INCLUDE`) selecting a fixed glob bucket, with the two hottest files (`validation-report-fixtures`, `validation-check-seed-content-coverage`) in different buckets; extend the topology meta-test to assert the buckets partition `BASE_INCLUDE` (every file in exactly one bucket). Re-run Step 2.
+Read each leg's duration (`gh run view <id>`). Acceptance for THIS PR (the structural sharding win):
+- **MERGE** when both `unit-suite-shard` legs are green AND `max(leg1, leg2) < the pre-split unit-suite time` (~11.3m). This satisfies the user's explicit **sub-11m** bar; the expected result is ~6.5-8m.
+- **`<9m` is the stretch target, not a merge blocker.** Do NOT improvise a rebalance inside this merge-bound required-CI change — the exact duration-balanced buckets depend on the measured per-file timings and a new partition must get its own cross-model review. If `max(leg1, leg2) >= 9m` OR the legs differ by `> 2 min`, record the per-leg durations in the PR; the rebalance is handled by **DEFERRED.md D14** (its own meta-test + adversarial review), NOT here. Plain `--shard` ships.
 
 - [ ] **Step 4: Confirm no required-check regression on the PR**
 
 Run: `gh pr checks <PR#> --required`
 Expected: all 12 required contexts report, including `unit-suite` (now the aggregator) green. `unit-suite-shard (1)`/`(2)` appear as non-required checks.
 
-No commit unless the fallback (Step 3) was needed — then commit the curated-bucket change with its meta-test update.
+No commit in this task (verification only); D14 governs any later rebalance.
 
 ---
 

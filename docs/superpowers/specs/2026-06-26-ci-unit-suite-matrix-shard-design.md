@@ -22,7 +22,7 @@ These files are **genuinely DB-bound** (they reach Supabase via imported `runPsq
 
 ## 2. Goal & success criteria
 
-- **Whole-gate wall-clock** (the time before the required `unit-suite` check reports) drops from ~11.3m to **< 9 minutes**, target ~6.5m.
+- **Whole-gate wall-clock** (the time before the required `unit-suite` check reports) drops from ~11.3m to **below the pre-split time** — the merge bar is the user's explicit **sub-11m** goal (expected ~6.5-8m). **`<9m` is a stretch target**, not a merge blocker; if `--shard`'s count-based balance misses it, the duration-balanced rebalance is the deferred **D14** follow-up (its own meta-test + cross-model review), never improvised inside this merge.
 - **Zero coverage loss:** every test file that runs today still runs, exactly once, across the shards combined.
 - **No new race:** the serial-DB and fixture-corpus invariants that justify `fileParallelism: false` still hold.
 - **No branch-protection change** and **no new required context** — `unit-suite` remains the single required check.
@@ -99,8 +99,8 @@ Its known limitation: it balances by **file count, not duration** (the same para
 
 **Empirical balance gate (implementation-time, mandatory).** After the workflow is wired, measure the real per-shard wall-clock on CI (via `workflow_dispatch`). Acceptance:
 
-- **PASS** if `max(shard1, shard2) < 9m` **and** `< the pre-split unit-suite time`. Ship as-is.
-- **FALLBACK** if one leg is heavier than the other by **> 2 minutes** *or* the max exceeds 9m: replace `--shard` with a **curated per-shard include**. Each leg reads a `matrix.shard`-keyed env var (e.g. `VITEST_SHARD_INCLUDE`) selecting a fixed glob bucket; the two buckets are balanced so the two hottest files (`validation-report-fixtures`, `validation-check-seed-content-coverage`) land in **different** buckets, and a meta-test asserts the buckets are a partition of `BASE_INCLUDE` (every file in exactly one bucket — no drop, no double-run). This is a documented contingency, not a coin-flip — the primary path is plain `--shard`.
+- **MERGE** when both legs are green **and** `max(shard1, shard2) < the pre-split unit-suite time` (the sub-11m bar; expected ~6.5-8m). Ship as-is.
+- **STRETCH / DEFERRED** if one leg is heavier than the other by **> 2 minutes** *or* the max reaches 9m: do NOT improvise a rebalance in this merge-bound required-CI change. Record the per-leg durations; the duration-balanced **curated per-shard include** (a `matrix.shard`-keyed env selecting a fixed glob bucket per leg, the two hottest files in **different** buckets, a meta-test asserting the buckets partition `BASE_INCLUDE`) is the deferred **D14** follow-up, designed FROM the measured timings and taken through its own cross-model review. The primary path is plain `--shard`.
 
 ### 3.4 Correctness — no new race, no coverage loss
 
@@ -121,8 +121,9 @@ A new structural test `tests/cross-cutting/unit-suite-shard-topology.test.ts` (s
 2. The shard job runs `vitest ... --shard=${{ matrix.shard }}/N` where **N equals the matrix length** (guards the "shard count drifted from matrix size" bug, which would drop or double-run files).
 3. The shard job sets `VITEST_EXCLUDE_ENV_BOUND: "1"` (guards regressing the env-bound-exclude contract) and boots Supabase (`supabase-local-bootstrap.sh`).
 4. An **`unit-suite`** job exists with `needs: [unit-suite-shard]`, `if: always()`, and a step that fails unless `needs.unit-suite-shard.result == 'success'` (guards the required-context aggregator — its absence or a wrong `needs` would let a red shard merge).
-5. The shard job does **NOT** set `continue-on-error: true` (would mask a failed leg as `success` in the `needs.*.result` rollup → silent coverage hole; see §3.1).
-6. **Anti-vacuity:** the test asserts the file was found and the matrix block was actually matched, so a regex that silently matches nothing fails loudly.
+5. The aggregator block (scoped to the `unit-suite:` job, tied to its `needs: [unit-suite-shard]`) explicitly sets **`name: unit-suite`** — pins the REQUIRED check-context name so a rename like `name: Unit suite` (which would orphan the required context and block all PRs) fails the guard. The shard job's `name: unit-suite-shard` cannot satisfy it (scoped + value-exact).
+6. The shard job does **NOT** set `continue-on-error: true` (would mask a failed leg as `success` in the `needs.*.result` rollup → silent coverage hole; see §3.1).
+7. **Anti-vacuity:** the test asserts the file was found and the matrix block was actually matched, so a regex that silently matches nothing fails loudly.
 
 The existing `tests/cross-cutting/ci-workflow-speedup.test.ts` (concurrency / paths / psql / playwright-cache) and `tests/cross-cutting/vitest-projects-partition.test.ts` (two-project partition) are **unaffected**: the concurrency block stays at workflow level in PR-only form, and the vitest projects are unchanged. Both must still pass.
 
