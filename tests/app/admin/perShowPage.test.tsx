@@ -29,6 +29,12 @@ const state = vi.hoisted(() => ({
   // §3.2 finalize-owned predicate result (readfinalizeowned_b2). Default false
   // → a !published row reads "Held"; set true to exercise the "Publishing…" pill.
   finalizeOwned: false as boolean,
+  // parse-data-quality-warnings Task 12 — the per-show Data-Quality panel reads
+  // shows_internal.parse_warnings (maybeSingle). Seed the row + per-table
+  // throw/error toggles for the invariant-9 read-failure paths.
+  showsInternal: null as Record<string, unknown> | null,
+  throwOnFromTable: null as string | null,
+  errorOnFromTable: null as string | null,
 }));
 
 // Async Server Component children can't be client-rendered by RTL — stub them.
@@ -90,7 +96,12 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
     from(table: string) {
+      if (state.throwOnFromTable === table) {
+        throw new Error(`META: from('${table}') infra fault`);
+      }
       if (table === "crew_members") state.crewReadCalls += 1;
+      const tableError =
+        state.errorOnFromTable === table ? { message: `META: ${table} returned error` } : null;
       const builder: Record<string, unknown> = {};
       const pass = () => builder;
       builder.select = (cols?: string) => {
@@ -99,16 +110,23 @@ vi.mock("@/lib/supabase/server", () => ({
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.in = pass;
       builder.order = pass;
       builder.returns = pass;
       builder.maybeSingle = async () => ({
-        data: table === "shows" ? state.show : null,
-        error: null,
+        data: tableError
+          ? null
+          : table === "shows"
+            ? state.show
+            : table === "shows_internal"
+              ? state.showsInternal
+              : null,
+        error: tableError,
       });
       (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
         const data =
           table === "crew_members" ? state.crew : table === "pending_syncs" ? state.pending : [];
-        return onf({ data, error: null });
+        return onf({ data: tableError ? null : data, error: tableError });
       };
       return builder;
     },
@@ -169,6 +187,9 @@ beforeEach(() => {
   state.crewReadCalls = 0;
   state.selectColsByTable = {};
   state.finalizeOwned = false;
+  state.showsInternal = null;
+  state.throwOnFromTable = null;
+  state.errorOnFromTable = null;
 });
 afterEach(() => {
   cleanup();
@@ -585,5 +606,62 @@ describe("per-show header — M12.3 #16/#18/#15a", () => {
     await renderPage();
     expect(screen.queryByTestId("admin-show-parse-warnings-section")).toBeNull();
     expect(screen.queryByText(/Parse warnings/)).toBeNull();
+  });
+});
+
+// parse-data-quality-warnings Task 12 (§6.5/§6.6) — the durable per-show "Data
+// quality" panel listing each warn-severity .message from
+// shows_internal.parse_warnings, plus invariant-9 read-boundary discipline.
+describe("per-show Data quality panel (Task 12, §6.5)", () => {
+  it("lists each warn-severity .message from shows_internal.parse_warnings", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [
+        { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone could not be read" },
+        { severity: "warn", code: "BLOCK_DISAPPEARED", message: "Hotel block vanished" },
+        // info-severity is admin-log-only — NOT surfaced on the panel.
+        { severity: "info", code: "TYPO_NORMALIZED", message: "info noise" },
+      ],
+    };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-data-quality");
+    expect(panel.textContent).toContain("Crew phone could not be read");
+    expect(panel.textContent).toContain("Hotel block vanished");
+    expect(panel.textContent).not.toContain("info noise");
+    // invariant 5: it renders the human .message, never the raw §12.4 code.
+    expect(panel.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+  });
+
+  it("panel ABSENT when there are no warn-severity warnings", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [{ severity: "info", code: "TYPO_NORMALIZED", message: "info only" }],
+    };
+    await renderPage();
+    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
+  });
+
+  it("panel ABSENT when shows_internal is absent (null) — genuinely no warnings", async () => {
+    state.showsInternal = null;
+    await renderPage();
+    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
+    // null/absent must NOT degrade — it is the no-warnings case, distinct from a failure.
+    expect(screen.queryByTestId("per-show-data-quality-error")).toBeNull();
+  });
+
+  // INVARIANT 9 (R10 F1): a shows_internal read failure degrades VISIBLY (calm
+  // notice), never a silent absent-panel that masquerades as "no data gaps".
+  it("read RETURNS an error → visible degraded notice, NOT a silent absent panel", async () => {
+    state.errorOnFromTable = "shows_internal";
+    await renderPage();
+    expect(screen.getByTestId("per-show-data-quality-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
+  });
+
+  it("read THROWS → visible degraded notice, NOT a silent absent panel", async () => {
+    state.throwOnFromTable = "shows_internal";
+    await renderPage();
+    expect(screen.getByTestId("per-show-data-quality-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
   });
 });
