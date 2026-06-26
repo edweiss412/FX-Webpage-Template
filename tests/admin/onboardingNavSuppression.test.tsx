@@ -33,6 +33,21 @@ vi.mock("@/lib/appSettings/readAppSettingsRow", () => ({
   readAppSettingsRow: vi.fn(async () => settingsState.result),
 }));
 
+// The suppression gate is checkpoint-aware (matches the /admin dispatcher):
+// a pending session reads the finalize checkpoint, and `final_cas_done`
+// (dispatcher renders the dashboard) must show the FULL nav. Mock only
+// readFinalizeCheckpoint; keep the real isInfraError narrowing.
+const checkpointState = vi.hoisted(() => ({
+  result: null as { kind: "infra_error" } | { status: string } | null,
+}));
+vi.mock("@/app/admin/_finalizeCheckpoint", async (importActual) => {
+  const actual = await importActual<typeof import("@/app/admin/_finalizeCheckpoint")>();
+  return {
+    ...actual,
+    readFinalizeCheckpoint: vi.fn(async () => checkpointState.result),
+  };
+});
+
 // The full nav is a client island (usePathname); stub it to a detectable
 // marker so we can assert its presence/absence without a Next request scope.
 vi.mock("@/components/admin/nav/AdminNav", () => ({
@@ -85,6 +100,7 @@ afterEach(() => {
 
 beforeEach(() => {
   settingsState.result = null;
+  checkpointState.result = null; // default: no checkpoint yet → wizard pre-finalize
 });
 
 describe("AdminLayout onboarding nav suppression (Task 1)", () => {
@@ -116,6 +132,34 @@ describe("AdminLayout onboarding nav suppression (Task 1)", () => {
       kind: "value",
       settings: makeSettings({ pending_wizard_session_id: null, watched_folder_id: "folder-1" }),
     };
+    await renderLayout();
+    expect(screen.getByTestId("admin-nav-topbar")).toBeInTheDocument();
+    expect(screen.queryByTestId("onboarding-top-bar")).toBeNull();
+  });
+
+  it("renders the FULL nav when the pending session's checkpoint is final_cas_done (dispatcher shows the dashboard, not the wizard)", async () => {
+    settingsState.result = {
+      kind: "value",
+      settings: makeSettings({
+        pending_wizard_session_id: "sess-1",
+        watched_folder_id: "folder-1",
+      }),
+    };
+    checkpointState.result = { status: "final_cas_done" };
+    await renderLayout();
+    expect(screen.getByTestId("admin-nav-topbar")).toBeInTheDocument();
+    expect(screen.queryByTestId("onboarding-top-bar")).toBeNull();
+  });
+
+  it("FAILS OPEN to the full nav when the checkpoint read faults", async () => {
+    settingsState.result = {
+      kind: "value",
+      settings: makeSettings({
+        pending_wizard_session_id: "sess-1",
+        watched_folder_id: "folder-1",
+      }),
+    };
+    checkpointState.result = { kind: "infra_error" };
     await renderLayout();
     expect(screen.getByTestId("admin-nav-topbar")).toBeInTheDocument();
     expect(screen.queryByTestId("onboarding-top-bar")).toBeNull();

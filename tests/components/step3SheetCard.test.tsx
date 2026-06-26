@@ -234,6 +234,20 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(summary(q).textContent).toContain("Dates not detected");
   });
 
+  test("show-days that can't be humanized fall back to the raw ISO (a present date is never dropped)", () => {
+    const FIX = parseResult({
+      show: show({
+        dates: { travelIn: null, set: null, showDays: ["BADDATE-1", "BADDATE-2"], travelOut: null },
+      }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const s = summary(q).textContent ?? "";
+    // humanizeDayRange → null on all-malformed; the builder falls back to the
+    // raw first–last so the Show segment is rendered, not silently omitted.
+    expect(s).toContain("Show BADDATE-1 – BADDATE-2");
+    expect(s).not.toContain("Dates not detected");
+  });
+
   test("diagrams badge shown iff linkedFolder OR embeddedImages present", () => {
     const withDiagrams = parseResult({
       diagrams: {

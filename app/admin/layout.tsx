@@ -24,6 +24,7 @@ import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
+import { readFinalizeCheckpoint, isInfraError } from "@/app/admin/_finalizeCheckpoint";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
@@ -86,17 +87,31 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   // Onboarding UX Polish Task 1: during first-run onboarding the setup wizard
   // owns the screen and the nav tabs point at destinations that do not
-  // meaningfully exist yet, so suppress them and show a slim bar instead. The
-  // gate mirrors the dispatcher precedence in app/admin/page.tsx:147/:193 —
-  // a minted wizard session (precedence 1) OR no watched folder yet
-  // (precedence 2) means we are still mid-onboarding. FAIL OPEN on any
-  // app_settings read fault: a `{kind:"infra_error"}` result keeps the full
-  // nav so a settled admin is never stranded without navigation.
+  // meaningfully exist yet, so suppress them and show a slim bar instead.
+  //
+  // The gate must match the /admin dispatcher's wizard-vs-dashboard decision
+  // EXACTLY (app/admin/page.tsx): a minted wizard session renders a
+  // wizard/finalize surface for a null / in_progress / all_batches_complete
+  // checkpoint, but the dispatcher renders the DASHBOARD for the defensive
+  // `final_cas_done` snapshot (Phase D clears the session id atomically, so a
+  // non-null id + final_cas_done is an inconsistent snapshot) — so the full nav
+  // MUST show there too; otherwise the dashboard renders behind a slim
+  // onboarding bar with no navigation. No session + no folder = first-visit
+  // fresh = onboarding. FAIL OPEN on ANY read fault (app_settings OR the
+  // checkpoint): keep the full nav so a settled admin is never stranded.
   const appSettings = await readAppSettingsRow();
-  const inOnboarding =
-    appSettings.kind === "value" &&
-    (appSettings.settings.pending_wizard_session_id !== null ||
-      appSettings.settings.watched_folder_id === null);
+  let inOnboarding = false;
+  if (appSettings.kind === "value") {
+    const s = appSettings.settings;
+    if (s.pending_wizard_session_id !== null) {
+      const checkpoint = await readFinalizeCheckpoint(s.pending_wizard_session_id);
+      inOnboarding =
+        !isInfraError(checkpoint) &&
+        (checkpoint === null || checkpoint.status !== "final_cas_done");
+    } else {
+      inOnboarding = s.watched_folder_id === null;
+    }
+  }
 
   if (inOnboarding) {
     return (

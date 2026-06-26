@@ -80,7 +80,14 @@ function dateSummarySegments(dates: ParseResult["show"]["dates"] | undefined): s
   }
   const showDays = arr(dates.showDays);
   if (showDays.length > 0) {
-    const range = humanizeDayRange(showDays);
+    // Fall back to the raw first–last ISO if humanizing fails, mirroring the
+    // `humanizeDate(...) ?? raw` guard used for travelIn/set/travelOut — a
+    // present show-day is never silently dropped (whole-diff review MEDIUM).
+    const range =
+      humanizeDayRange(showDays) ??
+      (showDays.length === 1
+        ? (showDays[0] ?? "")
+        : `${showDays[0] ?? ""} – ${showDays[showDays.length - 1] ?? ""}`);
     if (range) segs.push(`Show ${range}`);
   }
   if (dates.travelOut) segs.push(`Travel out ${humanizeDate(dates.travelOut) ?? dates.travelOut}`);
@@ -206,7 +213,7 @@ function ScheduleDayRow({
           type="button"
           data-testid={`wizard-step3-card-${dfid}-sched-expand-${iso}`}
           onClick={() => setShowAll(true)}
-          className="self-start text-xs font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           {`Show all ${entries.length} times`}
         </button>
@@ -532,7 +539,7 @@ export function Step3SheetCard({
               share a left edge and both values share a left edge. */}
           <dl className="mt-1.5 grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1">
             <dt
-              className="text-xs font-semibold uppercase text-text-faint"
+              className="text-xs font-semibold uppercase text-text-subtle"
               style={{ letterSpacing: "var(--tracking-eyebrow)" }}
             >
               Dates
@@ -544,7 +551,7 @@ export function Step3SheetCard({
               {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
             </dd>
             <dt
-              className="text-xs font-semibold uppercase text-text-faint"
+              className="text-xs font-semibold uppercase text-text-subtle"
               style={{ letterSpacing: "var(--tracking-eyebrow)" }}
             >
               Totals
