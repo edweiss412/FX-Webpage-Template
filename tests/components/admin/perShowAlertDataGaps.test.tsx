@@ -61,7 +61,7 @@ describe("PerShowAlertSection SHOW_FIRST_PUBLISHED data_gaps sub-line", () => {
     const line = screen.getByTestId("per-show-alert-data-gaps-a1");
     // Per-class breakdown derived from context.data_gaps (the data source).
     expect(line.textContent).toMatch(/2 unreadable fields/);
-    expect(line.textContent).toMatch(/1 vanished block/);
+    expect(line.textContent).toMatch(/1 removed section/);
     // The zero-count class is omitted.
     expect(line.textContent).not.toMatch(/unknown section/);
     // invariant 5: never the raw §12.4 code literal.

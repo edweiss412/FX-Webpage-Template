@@ -82,7 +82,7 @@ export function summarizeDataGaps(
 export const DATA_GAP_CLASS_LABELS: Record<keyof DataGapsSummary["classes"], string> = {
   FIELD_UNREADABLE: "unreadable field",
   UNKNOWN_SECTION_HEADER: "unknown section",
-  BLOCK_DISAPPEARED: "vanished block",
+  BLOCK_DISAPPEARED: "removed section",
 };
 
 /**

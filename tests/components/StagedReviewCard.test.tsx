@@ -420,7 +420,7 @@ describe("StagedReviewCard", () => {
         "2 unreadable fields",
       );
       expect(getByTestId("staged-data-gap-BLOCK_DISAPPEARED").textContent).toContain(
-        "1 vanished block",
+        "1 removed section",
       );
       expect(queryByTestId("staged-data-gap-UNKNOWN_SECTION_HEADER")).toBeNull();
       // invariant 5: no raw code literal leaks into the rendered DOM.

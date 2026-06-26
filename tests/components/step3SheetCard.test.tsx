@@ -363,7 +363,7 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
     ).toContain(`${fieldCount} unreadable field${fieldCount === 1 ? "" : "s"}`);
     expect(
       q.getByTestId(`wizard-step3-card-${DFID}-data-gap-BLOCK_DISAPPEARED`).textContent,
-    ).toContain(`${blockCount} vanished block${blockCount === 1 ? "" : "s"}`);
+    ).toContain(`${blockCount} removed section${blockCount === 1 ? "" : "s"}`);
     // UNKNOWN_SECTION_HEADER count is 0 here → no entry.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
     // The non-DQ warn is NOT chipped in the summary (no "+K other" anymore).
