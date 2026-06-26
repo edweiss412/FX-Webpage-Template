@@ -406,6 +406,60 @@
   }
 }
 
+/* Onboarding scan progress bar (wizard Step 2). A native <progress> is unthemed
+   by default (browser chrome blue / platform accent); paint it with the single
+   FXAV accent on a raised track so it reads as the "this matters now" signal
+   (DESIGN.md: one signature accent, no competing hue). The DETERMINATE fill
+   updates instantly per the `value` attribute (no custom transition). The
+   INDETERMINATE state (connecting / finishing — no `value`) shimmers so it still
+   reads as active; the shimmer is the only motion and is gated below. */
+progress[data-testid="wizard-step2-progressbar"] {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--color-border);
+  border-radius: 9999px;
+  overflow: hidden;
+  background-color: var(--color-surface-raised);
+}
+progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-bar {
+  background-color: var(--color-surface-raised);
+  border-radius: 9999px;
+}
+progress[data-testid="wizard-step2-progressbar"]::-webkit-progress-value {
+  background-color: var(--color-accent);
+  border-radius: 9999px;
+}
+progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar {
+  background-color: var(--color-accent);
+  border-radius: 9999px;
+}
+progress[data-testid="wizard-step2-progressbar"]:indeterminate {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  background-position: -40% 0;
+  animation: scan-progress-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes scan-progress-indeterminate {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate {
+    animation: none;
+    background-position: 50% 0; /* static centered accent hint */
+  }
+}
+
 /*
  * Tabular figures default for elements that semantically carry numbers.
  * Components MAY opt in at any element via class="tabular-nums" or via
@@ -495,6 +549,34 @@ body {
     transition:
       height var(--duration-fast) ease-out,
       content-visibility var(--duration-fast) allow-discrete;
+  }
+
+  /* Step-3 sheet card breakdown (Task D2, spec §4.4/§4.5). The breakdown
+     region morphs height collapsed↔expanded via interpolate-size (height: 0
+     when [data-expanded="false"], auto when "true"). `overflow: hidden` bounds
+     it so the fixed-width list column never horizontally overflows during the
+     morph. Consumes --duration-normal (DESIGN.md §5.1 accordion expand), which
+     the reduced-motion block collapses to 0ms — so the transition is instant
+     under prefers-reduced-motion with no per-component opt-in. */
+  [data-step3-breakdown] {
+    overflow: hidden;
+    height: 0;
+    transition:
+      height var(--duration-normal) var(--ease-out-quart),
+      content-visibility var(--duration-normal) allow-discrete;
+  }
+  [data-step3-breakdown][data-expanded="true"] {
+    height: auto;
+  }
+}
+/* No-interpolate-size fallback: instant show/hide so the breakdown is always
+   reachable (progressive enhancement — the morph is enhancement only). */
+@supports not (interpolate-size: allow-keywords) {
+  [data-step3-breakdown] {
+    overflow: hidden;
+  }
+  [data-step3-breakdown][data-expanded="false"] {
+    display: none;
   }
 }
 

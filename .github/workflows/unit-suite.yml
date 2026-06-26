@@ -37,7 +37,7 @@ on:
 
 concurrency:
   group: unit-suite-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   unit-suite:
@@ -61,16 +61,21 @@ jobs:
           # supabase-local-bootstrap.sh known CI-passing version (PR #102; older 2.98.2 broke the in-container psql auth); downloads directly (no API lookup).
           version: 2.107.0
       - name: Install psql (local-DB tests + bootstrap shell out to psql)
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: command -v psql >/dev/null || (sudo apt-get update && sudo apt-get install -y postgresql-client)
       - name: Boot local Supabase (guarded migrations)
         # Shared bootstrap (M12.12 Task 14) — same Supabase + GUC + guarded-
         # migration setup dev-gate-e2e.yml / screenshots-drift.yml use, so the
         # hold-aside list cannot drift between workflows. DB tests default to
         # the local instance (127.0.0.1:54322) when TEST_DATABASE_URL is unset.
         run: bash scripts/ci/supabase-local-bootstrap.sh
-      - name: Run full vitest suite (minus the two env-bound files; see header)
-        run: |
-          pnpm exec vitest run \
-            --exclude '**/tests/admin/test-auth-gate.test.ts' \
-            --exclude '**/tests/cross-cutting/pg-cron-coverage.test.ts' \
-            --exclude '**/tests/cross-cutting/email-canonicalization.test.ts'
+      - name: Run full vitest suite (minus the three env-bound files; see header)
+        # VITEST_EXCLUDE_ENV_BOUND=1 drops the three env-bound files via a
+        # PROJECT-level exclude in vitest.config.ts (ENV_BOUND_EXCLUDES). It must
+        # be the env var, NOT `vitest run --exclude` — vitest IGNORES the CLI
+        # `--exclude` flag once a project defines its own `exclude` (which the
+        # serial project does for the parallel/serial split), so the old CLI
+        # flags silently did nothing. The gate keeps those files runnable by the
+        # x-audits' direct `vitest run <file>` and by local `pnpm test`.
+        env:
+          VITEST_EXCLUDE_ENV_BOUND: "1"
+        run: pnpm exec vitest run

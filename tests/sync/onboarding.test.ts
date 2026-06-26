@@ -7,6 +7,7 @@ import {
   type PreparedOnboardingFile,
   type RunOnboardingScanDeps,
 } from "@/lib/sync/runOnboardingScan";
+import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -265,6 +266,37 @@ async function runWith(
 }
 
 describe("runOnboardingScan", () => {
+  test("emits listed → prepared×N (monotonic done, named) → staging via onProgress; result unchanged", async () => {
+    const files = [file("file-1"), file("file-2"), file("file-3")];
+    const N = files.length; // derive expectations from the fixture (anti-hardcode)
+
+    const events: ScanProgressEvent[] = [];
+    const txWith = new FakeOnboardingTx();
+    const { result: resultWith } = await runWith(
+      txWith,
+      files,
+      {},
+      {
+        onProgress: (e) => events.push(e),
+      },
+    );
+
+    expect(events[0]).toEqual({ type: "listed", total: N });
+    const prepared = events.filter(
+      (e): e is Extract<ScanProgressEvent, { type: "prepared" }> => e.type === "prepared",
+    );
+    expect(prepared).toHaveLength(N);
+    expect(prepared.map((e) => e.done)).toEqual(files.map((_, i) => i + 1));
+    expect(prepared.every((e) => e.total === N)).toBe(true);
+    expect(new Set(prepared.map((e) => e.name))).toEqual(new Set(files.map((f) => f.name)));
+    expect(events.at(-1)).toEqual({ type: "staging" });
+
+    // result identical to a run WITHOUT onProgress (progress is purely additive)
+    const txWithout = new FakeOnboardingTx();
+    const { result: resultWithout } = await runWith(txWithout, files, {});
+    expect(resultWith).toEqual(resultWithout);
+  });
+
   test("runs Phase 1 only and stages wizard-scoped pending_syncs plus manifest rows", async () => {
     const tx = new FakeOnboardingTx();
 

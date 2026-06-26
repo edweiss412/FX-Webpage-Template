@@ -216,6 +216,26 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
     visibleAt: "both",
     owningMilestone: "M10",
   },
+  {
+    kind: "concrete",
+    sourceSurface: "Unpublished (Held shows) page header (/admin/unpublished)",
+    sourceRoute: "/admin/unpublished",
+    affordance: "? tooltip",
+    testid: "help-affordance--unpublished-page--tooltip",
+    target: "/help/admin/onboarding-wizard#unpublished",
+    visibleAt: "both",
+    owningMilestone: "Onboarding step-3 redesign",
+  },
+  {
+    kind: "concrete",
+    sourceSurface: "Ignored sheets page header (/admin/ignored-sheets)",
+    sourceRoute: "/admin/ignored-sheets",
+    affordance: "? tooltip",
+    testid: "help-affordance--ignored-sheets-page--tooltip",
+    target: "/help/admin/onboarding-wizard#ignored-sheets",
+    visibleAt: "both",
+    owningMilestone: "Onboarding step-3 redesign",
+  },
   // (Removed: "Per-show - Staged review card (re-stage)" — a DEFERRED M9 tooltip
   // for a staged-review card on the per-show panel that never shipped and is now
   // moot: Phase 6 replaced that mount with the ChangesFeed, so the per-show panel

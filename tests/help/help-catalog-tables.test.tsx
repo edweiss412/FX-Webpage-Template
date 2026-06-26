@@ -97,11 +97,17 @@ describe("Chunk 2 — remark-gfm pipeline + Theme B source conversions (structur
     expect(rq).toMatch(/<Callout type="tip">/);
     expect(rq, "#re-stage anchor preserved").toMatch(/<h2 id="re-stage">/);
 
+    // Onboarding step-3 redesign (2026-06-23): step 3 is now inline review
+    // cards + a publish checkbox, not the old badge/resolve flow. The catalog
+    // table here is the clean-card outcome table (tick → live / unticked →
+    // draft); the old [Badge, What it means, Your options] and [Resolved badge,
+    // Meaning] tables were removed with the badge model.
     const onb = read("app/help/admin/onboarding-wizard/page.mdx");
     expect(onb).not.toMatch(/^- \*\*Ready for review\.\*\*/m);
-    expect(onb).toMatch(/\|\s*Badge\s*\|\s*What it means\s*\|\s*Your options\s*\|/);
-    expect(onb).toMatch(/\|\s*Resolved badge\s*\|\s*Meaning\s*\|/);
+    expect(onb).toMatch(/\|\s*Your choice on a clean card\s*\|\s*What happens\s*\|/);
     expect(onb, "#step-3 anchor preserved").toMatch(/<h2 id="step-3">/);
+    expect(onb, "#unpublished anchor added").toMatch(/<h2 id="unpublished">/);
+    expect(onb, "#ignored-sheets anchor added").toMatch(/<h2 id="ignored-sheets">/);
   });
 });
 
@@ -144,15 +150,17 @@ describe("Chunk 2 — catalogs render as real <table> elements (behavioral)", ()
     expect(container.textContent).toMatch(/Not sure\?/);
   });
 
-  it("onboarding Step-3 renders first-contact + resolved badge tables (Set-aside gotcha intact)", async () => {
+  it("onboarding Step-3 renders the clean-card outcome table (tick → live / unticked → draft)", async () => {
     const Page = (await import("@/app/help/admin/onboarding-wizard/page.mdx")).default;
     const { container } = renderMdx(Page);
-    const firstContact = tableByHeader(container, ["Badge", "What it means", "Your options"]);
-    expect(bodyRows(firstContact).length, "4 first-contact badges").toBe(4);
-    const resolved = tableByHeader(container, ["Resolved badge", "Meaning"]);
-    expect(bodyRows(resolved).length, "4 resolved states").toBe(4);
-    expect(resolved.textContent, "the Set-aside needs-another-decision gotcha survives").toMatch(
-      /Set aside[\s\S]*still needs another decision/,
+    const outcomes = tableByHeader(container, ["Your choice on a clean card", "What happens"]);
+    expect(bodyRows(outcomes).length, "2 clean-card outcomes").toBe(2);
+    // Both outcomes documented inside the rendered table (anti-tautology: scoped
+    // to the <table>, not the whole container).
+    expect(outcomes.textContent).toContain("Tick the publish checkbox");
+    expect(outcomes.textContent).toContain("Leave it unticked");
+    expect(outcomes.textContent, "unticked → draft under Unpublished").toMatch(
+      /draft[\s\S]*Unpublished/,
     );
   });
 });

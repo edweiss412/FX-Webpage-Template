@@ -282,6 +282,12 @@ const infraRegistry = [
       "wizard pending-ingestion permanent-ignore route gates admin and writes wizard-scoped deferrals under the show lock",
   },
   {
+    helper: "handleWizardManifestIgnore",
+    path: "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts",
+    contract:
+      "DS3-1 manifest-keyed permanent-ignore route gates admin and, under a single show lock, writes the LIVE deferred_ingestions permanent_ignore (drive_file_name from manifest.name) BEFORE flipping the manifest status; a transition CAS miss throws WizardSessionSupersededRollbackError to roll back the orphaned deferral (no pending_ingestions/pending_syncs touch)",
+  },
+  {
     helper: "runManualStageForFirstSeen",
     path: "lib/sync/runManualStageForFirstSeen.ts",
     contract:

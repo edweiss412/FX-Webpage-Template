@@ -31,6 +31,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/show/staged/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },
+  // Step-3 redesign — Unpublished (Held shows) + Ignored-sheets admin views.
+  // Both call requireAdminIdentity() defensively (layout also admin-gates).
+  { path: "app/admin/unpublished/page.tsx", chain: ["requireAdmin"] },
+  { path: "app/admin/ignored-sheets/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
   // Dev-only dimensional-invariant harness for the source-sheet links feature
   // (build-renamed-aside in prod); same requireAdmin chokepoint as /admin/dev.
@@ -94,12 +98,34 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts",
     chain: ["requireAdmin"],
   },
+  // DS3-1 — manifest-keyed in-wizard permanent_ignore for live_row_conflict /
+  // discard_retryable rows (no pending_ingestions backing). Admin-gated via
+  // requireAdminIdentity() inside the handler.
+  {
+    path: "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts",
+    chain: ["requireAdmin"],
+  },
   {
     path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts",
     chain: ["requireAdmin"],
   },
   {
     path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts",
+    chain: ["requireAdmin"],
+  },
+  // Step-3 redesign — lightweight durable publish-intent toggle pair (approve /
+  // un-approve) + ignored-sheet un-ignore. All admin-gated via
+  // requireAdminIdentity() inside the handler.
+  {
+    path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts",
+    chain: ["requireAdmin"],
+  },
+  {
+    path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route.ts",
+    chain: ["requireAdmin"],
+  },
+  {
+    path: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts",
     chain: ["requireAdmin"],
   },
   { path: "app/api/auth/google/start/route.ts", chain: "public" },

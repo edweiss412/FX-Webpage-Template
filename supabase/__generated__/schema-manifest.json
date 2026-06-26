@@ -75,6 +75,7 @@
     "deferred_by_email",
     "deferred_kind",
     "drive_file_id",
+    "drive_file_name",
     "id",
     "reason",
     "wizard_session_id"
@@ -131,6 +132,7 @@
     "mime_type",
     "name",
     "observed_at",
+    "publish_intent",
     "status",
     "transitioned_at",
     "wizard_session_id"
