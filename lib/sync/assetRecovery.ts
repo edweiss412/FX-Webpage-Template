@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { drive_v3 } from "googleapis";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
+import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -176,6 +178,90 @@ function bytesFrom(data: unknown): Uint8Array {
   if (Buffer.isBuffer(data)) return new Uint8Array(data);
   if (typeof data === "string") return new TextEncoder().encode(data);
   return new Uint8Array();
+}
+
+/**
+ * The default `fetchEmbeddedImageBytes` port body, extracted as an injectable +
+ * directly-unit-testable function (DXT-2). The byte-cap bounds memory, not time,
+ * so this adds an idle stall guard: a stalled embedded-image download trips at
+ * `timeoutMs` and returns null (preserving the port's fail-soft contract — a
+ * stalled asset is skipped, NOT an apply-aborting throw), while a healthy slow
+ * download keeps the guard alive via `onChunk`. The `readBoundedWebStream` read
+ * stays inline here (per `_streamingHashContract`).
+ */
+export async function fetchEmbeddedImageBytesTimed(
+  entry: PersistedDiagrams["embeddedImages"][number],
+  options: { onChunk?: (byteLength: number) => void } = {},
+  deps: { fetch?: typeof fetch; getAccessToken?: () => Promise<string>; timeoutMs?: number } = {},
+): Promise<RecoveryAssetBytes | null> {
+  if (!entry.contentUrl) return null;
+  const fetchImpl = deps.fetch ?? fetch;
+  const token = await (deps.getAccessToken ?? getDriveAccessToken)();
+  const guard = createStallGuard(deps.timeoutMs ?? DRIVE_ASSET_STALL_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(entry.contentUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: guard.signal,
+    });
+    if (!response.ok || !response.body) return null;
+    return await readBoundedWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES, {
+      onChunk: (byteLength) => {
+        guard.reset();
+        options.onChunk?.(byteLength);
+      },
+    });
+  } catch (error) {
+    if (guard.timedOut()) return null;
+    throw error;
+  } finally {
+    guard.clear();
+  }
+}
+
+/**
+ * The default `fetchLinkedRevisionBytes` port body, extracted as an injectable +
+ * directly-unit-testable function (DXT-2). Same idle stall guard as
+ * {@link fetchEmbeddedImageBytesTimed}; for the Node-stream branch the guard's
+ * signal also `destroy()`s the stream on timeout, because aborting the gaxios
+ * request does not reliably interrupt an already-returned Node Readable consumed
+ * by `for await`. Both bounded readers stay inline (per `_streamingHashContract`).
+ */
+export async function fetchLinkedRevisionBytesTimed(
+  entry: PersistedDiagrams["linkedFolderItems"][number],
+  options: { onChunk?: (byteLength: number) => void } = {},
+  deps: { drive?: drive_v3.Drive; timeoutMs?: number } = {},
+): Promise<RecoveryAssetBytes | null> {
+  const drive = deps.drive ?? getDriveClient();
+  const guard = createStallGuard(deps.timeoutMs ?? DRIVE_ASSET_STALL_TIMEOUT_MS);
+  const onChunk = (byteLength: number) => {
+    guard.reset();
+    options.onChunk?.(byteLength);
+  };
+  try {
+    const { data } = await drive.revisions.get(
+      { fileId: entry.driveFileId, revisionId: entry.headRevisionId, alt: "media" },
+      { responseType: "stream", signal: guard.signal },
+    );
+    if (data instanceof ReadableStream) {
+      return await readBoundedWebStream(data, MAX_RECOVERY_SINGLE_BYTES, { onChunk });
+    }
+    if (data && typeof data === "object" && "pipe" in data) {
+      const nodeStream = data as NodeJS.ReadableStream & { destroy?: (error?: Error) => void };
+      const onAbort = () => nodeStream.destroy?.(new Error("drive revision stream stalled"));
+      guard.signal.addEventListener("abort", onAbort);
+      try {
+        return await readBoundedNodeStream(nodeStream, MAX_RECOVERY_SINGLE_BYTES, { onChunk });
+      } finally {
+        guard.signal.removeEventListener("abort", onAbort);
+      }
+    }
+    return bytesFrom(data);
+  } catch (error) {
+    if (guard.timedOut()) return null;
+    throw error;
+  } finally {
+    guard.clear();
+  }
 }
 
 function assetPath(
@@ -669,36 +755,9 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
       },
     },
     drive: {
-      async fetchEmbeddedImageBytes(entry, options) {
-        if (!entry.contentUrl) return null;
-        const token = await getDriveAccessToken();
-        const response = await fetch(entry.contentUrl, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!response.ok || !response.body) return null;
-        return await readBoundedWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES, options);
-      },
-      async fetchLinkedRevisionBytes(entry, options) {
-        const { data } = await drive.revisions.get(
-          {
-            fileId: entry.driveFileId,
-            revisionId: entry.headRevisionId,
-            alt: "media",
-          },
-          { responseType: "stream" },
-        );
-        if (data instanceof ReadableStream) {
-          return await readBoundedWebStream(data, MAX_RECOVERY_SINGLE_BYTES, options);
-        }
-        if (data && typeof data === "object" && "pipe" in data) {
-          return await readBoundedNodeStream(
-            data as NodeJS.ReadableStream,
-            MAX_RECOVERY_SINGLE_BYTES,
-            options,
-          );
-        }
-        return bytesFrom(data);
-      },
+      fetchEmbeddedImageBytes: (entry, options) => fetchEmbeddedImageBytesTimed(entry, options),
+      fetchLinkedRevisionBytes: (entry, options) =>
+        fetchLinkedRevisionBytesTimed(entry, options, { drive }),
     },
     upsertAdminAlert: async (alertShowId, code, context) => {
       await defaultUpsertAdminAlert({
