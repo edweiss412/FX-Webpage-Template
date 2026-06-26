@@ -76,7 +76,7 @@ Symmetric. Decides whether two human-name strings refer to the same person, tole
 toks(s): s.normalize("NFD").replace(/\p{M}/gu, "")  // fold diacritics + normalize (José == Jose,
                                                      // precomposed == decomposed)
            .toLowerCase()
-           .replace(/[\/,]/g, " ")        // slash + comma → space (defensive un-merge)
+           .replace(/,/g, " ")            // comma → space  (slash is handled at the PEOPLE level below)
            .replace(/\b(jr|sr|ii|iii|iv)\b/g, " ")  // drop generational suffixes before tokenizing
            .replace(/[^\p{L}\s-]/gu, "")   // strip remaining punctuation, KEEP hyphen + space
            .split(/\s+/)
@@ -86,7 +86,7 @@ toks(s): s.normalize("NFD").replace(/\p{M}/gu, "")  // fold diacritics + normali
 tokCompat(x, y): x === y || x.startsWith(y) || y.startsWith(x)
    // prefix covers same-initial nicknames (doug⊂douglas, alex⊂alexandre) AND initials (w⊂weiss, e⊂eric)
 
-namesRefer(a, b):
+refersSingle(a, b):   // a, b each name ONE person
   A = toks(a); B = toks(b)
   if A.length === 0 || B.length === 0: return false
   if A.length === 1: return tokCompat(A[0], B[0]) || tokCompat(A[0], B[B.length-1])
@@ -98,6 +98,14 @@ namesRefer(a, b):
   // carry exactly this (crew "Bill Werner" / legal "William Werner Jr",
   // fixtures/shows/raw/2025-10-fixed-income-trading-summit.md:536).
   return tokCompat(A[last], B[last])
+
+namesRefer(a, b):     // EITHER side may be a "/"-merged multi-person string
+  // A slash separates DISTINCT people in a single names[] entry. getShowForViewer
+  // reads already-PERSISTED hotel_reservations.names, where legacy rows still hold
+  // the un-split form "David Johnson / Jeffrey Justice" (the parser slash-split,
+  // §3.3, only cleans FUTURE re-ingestions). Splitting on "/" at MATCH time makes
+  // the legacy persisted rows match WITHOUT a backfill/re-sync.
+  return a.split("/").some(pa => b.split("/").some(pb => refersSingle(pa, pb)))
 ```
 
 **Why these tiers (LENIENT, ratified — under-match is the harm, over-match benign):**
@@ -118,7 +126,7 @@ allHotels.filter((res) => res.names.some((n) => namesRefer(n, viewerName as stri
 
 ### 3.3 Parser fix — split slash-separated guests in `parseGuestCell`
 
-`parseGuestCell` (`hotels.ts:108`) tokenizes a "Names on Reservation" cell. Add a pre-split on `/` (with surrounding spaces) so `David Johnson / Jeffrey Justice` yields two guest names. Keep all existing behavior: conf# is parsed only to strip it from names (not persisted), `&#10;`/space delimiting, accented names. Run conf-stripping per split segment so no conf# leaks.
+`parseGuestCell` (`hotels.ts:108`) tokenizes a "Names on Reservation" cell. Add a pre-split on `/` (with surrounding spaces) so `David Johnson / Jeffrey Justice` yields two guest names. Keep all existing behavior: conf# is parsed only to strip it from names (not persisted), `&#10;`/space delimiting, accented names. Run conf-stripping per split segment so no conf# leaks. **This cleans FUTURE re-ingestions only** — already-persisted `hotel_reservations.names` rows that still hold the merged string are handled at MATCH time by `namesRefer`'s `/`-split (§3.1), so **no DB backfill / forced re-sync is required** for legacy rows to start matching.
 
 ### 3.4 Guard conditions (every input edge)
 
@@ -132,11 +140,12 @@ allHotels.filter((res) => res.names.some((n) => namesRefer(n, viewerName as stri
 | accented names (`José` precomposed vs decomposed vs `Jose`) | `toks` does `NFD` + strip `\p{M}` → all fold to `jose`; equal |
 | generational suffix (`William Werner Jr`) | `toks` strips `jr/sr/ii/iii/iv` → surname token is `werner` |
 | non-prefix nickname (`Bill`↔`William`, multi-token) | surname-only multi-token rule matches on the shared surname |
+| legacy `/`-merged persisted name (`"David Johnson / Jeffrey Justice"`) | `namesRefer` splits on `/` into people → `DJ Johnson` matches the `David Johnson` sub-name. Works WITHOUT re-ingestion (the persisted DB row is read as-is) |
 | hyphenated surname (`Smith-Jones`) | hyphen kept in token; `tokCompat` prefix lets `Smith` match `Smith-Jones` |
 
 ## 4. Test plan (TDD)
 
-1. **`namesRefer` unit matrix** (`tests/data/nameMatch.test.ts`): every roster↔guest pair from the §1 oracle, asserting the exact match/no-match, **derived from a data table** (not hand-listed booleans where avoidable). Explicit **over-match exclusions**: `Eric Carroll`↮`Eric Weiss`, `Eric Weiss`↮`Eric Carroll`, `Calvin Saller`↮`Carlos Pineda`, `John Carleo`↮`Carlos Pineda`. Explicit **nickname/legal-name matches**: `Bill Werner`↔`William Werner` and `Bill Werner`↔`William Werner Jr` (suffix-stripped); `DJ Johnson`↔`David Johnson`; `Doug Larson`↔`Douglas Larson`; `Alex Rodrigues`↔`Alexandre Rodrigues`. Explicit **accent/normalization**: `José Núñez` precomposed ↔ decomposed ↔ `Jose Nunez` all match. Assert **symmetry** (`namesRefer(a,b) === namesRefer(b,a)`) for every pair. Edge cases from §3.4 (empty, whitespace, single-token both sides, hyphenated surname). *Failure mode caught:* a regression to substring-only matching (would fail east-coast/ria/rpas/consultants/fixed-income rows), an over-broad matcher (would fail the distinct-surname exclusions), or a re-introduction of the first-name gate (would fail Bill↔William).
+1. **`namesRefer` unit matrix** (`tests/data/nameMatch.test.ts`): every roster↔guest pair from the §1 oracle, asserting the exact match/no-match, **derived from a data table** (not hand-listed booleans where avoidable). Explicit **over-match exclusions**: `Eric Carroll`↮`Eric Weiss`, `Eric Weiss`↮`Eric Carroll`, `Calvin Saller`↮`Carlos Pineda`, `John Carleo`↮`Carlos Pineda`. Explicit **nickname/legal-name matches**: `Bill Werner`↔`William Werner` and `Bill Werner`↔`William Werner Jr` (suffix-stripped); `DJ Johnson`↔`David Johnson`; `Doug Larson`↔`Douglas Larson`; `Alex Rodrigues`↔`Alexandre Rodrigues`. Explicit **legacy `/`-merged persisted row**: `namesRefer("David Johnson / Jeffrey Justice", "DJ Johnson") === true` AND `=== true` for `"Jeffrey Justice"`, AND `=== false` for an unrelated viewer (e.g. `"Eric Weiss"`) — proves match-time slash-split handles un-reingested rows. Explicit **accent/normalization**: `José Núñez` precomposed ↔ decomposed ↔ `Jose Nunez` all match. Assert **symmetry** (`namesRefer(a,b) === namesRefer(b,a)`) for every pair. Edge cases from §3.4 (empty, whitespace, single-token both sides, hyphenated surname). *Failure mode caught:* a regression to substring-only matching (would fail east-coast/ria/rpas/consultants/fixed-income rows), an over-broad matcher (would fail the distinct-surname exclusions), or a re-introduction of the first-name gate (would fail Bill↔William).
 2. **Filter integration** (`tests/data/hotelVisibility.test.ts`): exercise the real `res.names.some((n) => namesRefer(n, viewerName))` predicate via the extracted pure `hotelVisibleToViewer`. Two layers: (a) explicit cases — a `Carl Fenton` viewer sees a `names:["Carl"]` reservation; an `Eric Weiss` viewer does **not** see a `names:["Eric Carroll"]` reservation; `viewerName===null` (admin/unknown) returns all. (b) **fixture-derived** — for the 5 currently-broken shows (east-coast, ria, rpas, consultants, fixed-income), `parseSheet(<fixture>)` and assert every crew member whose name `namesRefer`-matches a guest IS surfaced that reservation by the filter, reading BOTH `crewMembers[].name` and `hotelReservations[].names[]` from the parse output (no hardcoded strings) so a fixture edit can't silently stale the oracle. *Failure mode caught:* the matcher works in isolation but is wired wrong (argument order, still `.includes`), or a fixture/parse change drifts the oracle.
 3. **Parser slash-split** (extend `tests/parser/blocks/hotels.test.ts` or `exporterFixtures.test.ts`): fixed-income's structured cell yields two guests `["David Johnson","Jeffrey Justice"]`, no conf# in either, `#4 PRIVACY` meta-test still green. *Failure mode caught:* the slash-merge regressing, or a conf# leaking through the new split path.
 4. **Anti-tautology:** matcher expectations derive from the oracle data table; the integration test asserts membership in the filtered result, not a re-statement of the matcher.
