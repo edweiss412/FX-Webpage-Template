@@ -8,7 +8,6 @@ name: Quality
 
 on:
   pull_request:
-  merge_group: # required: run on the merge queue's merge_group branch, else the queue hangs
   push:
     branches: [main]
   workflow_dispatch:
