@@ -88,7 +88,7 @@ describe("dataGapClassDetails — per-class breakdown for the UI surfaces", () =
     // Derived from the input array, not a hardcoded shape (anti-tautology).
     expect(dataGapClassDetails(summary)).toEqual([
       { key: "FIELD_UNREADABLE", count: 2, label: "unreadable fields" },
-      { key: "BLOCK_DISAPPEARED", count: 1, label: "vanished block" },
+      { key: "BLOCK_DISAPPEARED", count: 1, label: "removed section" },
     ]);
   });
 

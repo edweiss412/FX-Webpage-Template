@@ -1013,14 +1013,14 @@ export const MESSAGE_CATALOG = {
   UNKNOWN_FIELD: {
     code: "UNKNOWN_FIELD",
     dougFacing:
-      "We saw a row called _<key>_ in _<sheet-name>_ that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
+      "We found a row labeled _<key>_ in _<sheet-name>_ that doesn't match a section we recognize. We kept it as-is and nothing's broken. Want to flag it to us?",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "The parser scans every row of your sheet and matches each label against the canonical block list (CLIENT, DATES, CREW, MAIN/SECONDARY, etc.). Anything that doesn't match is captured into the show's `raw_unrecognized` map and surfaced here so you can decide whether it's noise (a typo, a one-off note) or a sign that your template is drifting. Nothing is broken either way — the row is preserved verbatim. If you'd like the developer to handle the row going forward, click Report; if it's intentional one-off content, ignore the warning.",
+      "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything — we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
     title: "Unrecognized row in sheet",
     longExplanation:
-      "The parser scans every row of your sheet and matches each label against the canonical block list. Anything that doesn't match is captured and surfaced here. Nothing is broken; the row is preserved verbatim. Report it if you'd like the developer to handle the row going forward.",
+      "We found a row that doesn't match any section we read (CLIENT, DATES, CREW, and so on). It isn't breaking anything — we kept the row exactly as it is. If it's something you want handled, use Report; otherwise you can ignore this.",
     helpHref: "/help/errors#UNKNOWN_FIELD",
   },
   UNKNOWN_DAY_RESTRICTION: {
@@ -1039,157 +1039,157 @@ export const MESSAGE_CATALOG = {
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     code: "DAY_RESTRICTION_DOUBLE_LOCATION",
     dougFacing:
-      "_<crew-name>_ has day restrictions written in both the name and role cells. We're using the role-cell version. Remove one copy so the schedule stays clear.",
+      "_<crew-name>_ has day restrictions written in both the name and role cells. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
     crewFacing: null,
     followUp: "Doug → fix sheet",
     helpfulContext:
-      "The parser found day-restriction parentheticals in both the crew member's name cell and role cell. It uses the role-cell version because that is closer to the staffing assignment, but Doug should remove the duplicate marker to avoid conflicting instructions.",
+      "We found day restrictions written in both the name cell and the role cell. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
     title: "Day restriction in two cells",
     longExplanation:
-      "Day-restriction parentheticals appear in both the crew member's name cell and role cell. We use the role-cell version because that's closer to the staffing assignment. Remove the duplicate so the schedule stays clear.",
+      "We found day restrictions written in both the name cell and the role cell. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
     helpHref: "/help/errors#DAY_RESTRICTION_DOUBLE_LOCATION",
   },
   UNKNOWN_ROLE_TOKEN: {
     code: "UNKNOWN_ROLE_TOKEN",
     dougFacing:
-      "_<crew-name>_'s role contains _<token>_ which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using.",
+      "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, let us know and we'll add it.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "A role cell contains a token outside the canonical role vocabulary. The parser ignores the unknown token so it does not grant accidental access or scope. If the token is intentional, report it so the developer can add it to the role vocabulary.",
-    title: "Unknown role token",
+      "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing — nothing else is affected. If the label is correct, let us know and we'll add it.",
+    title: "Role we didn't recognize",
     longExplanation:
-      "A role cell contains a token outside the canonical role vocabulary. We ignore the unknown token so it does not grant accidental access. If the token is intentional, report it so the developer can add it to the role vocabulary.",
+      "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, let us know and we'll add it.",
     helpHref: "/help/errors#UNKNOWN_ROLE_TOKEN",
   },
   PULL_SHEET_PARSE_PARTIAL: {
     code: "PULL_SHEET_PARSE_PARTIAL",
     dougFacing:
-      "We couldn't fully parse _<N>_ row(s) in _<sheet-name>_'s PULL SHEET. They render as the raw text from the sheet. Tell the developer if you'd like us to handle that format.",
+      "We couldn't fully read _<N>_ row(s) on _<sheet-name>_'s PULL SHEET, so those rows show their original text. Let us know if you'd like us to handle that format.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "The PULL SHEET tab parses one row per case. For each row we extract the case label, the QTY column, and the per-item lines. When QTY can't be parsed (blank, non-numeric, range like `1-2`) or a critical column is missing, we keep the case in the manifest with `qty: null` and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade — the rest of the manifest is unaffected. If you'd like the developer to handle the format you used, click Report.",
-    title: "Pull sheet rows partially parsed",
+      "We couldn't fully read some rows — usually the QTY is blank, a word, or a range like '1-2'. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
+    title: "Pull sheet rows we couldn't fully read",
     longExplanation:
-      "Some PULL SHEET rows couldn't be fully parsed, usually because QTY is blank, non-numeric, or a range like '1-2'. We keep those cases in the manifest and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade.",
+      "We couldn't fully read some rows — usually the QTY is blank, a word, or a range like '1-2'. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
   AGENDA_GRID_MALFORMED: {
     code: "AGENDA_GRID_MALFORMED",
     dougFacing:
-      "We couldn't locate the run-of-show grid in _<sheet-name>_'s AGENDA tab, so crew see the standard anchor schedule for every day instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or tell the developer if the layout changed.",
+      "We couldn't find the run-of-show grid in _<sheet-name>_'s AGENDA tab, so every day shows the standard schedule instead of the detailed run-of-show. Check that the AGENDA tab still has its header row, or let us know if the layout changed.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "The parser locates the AGENDA run-of-show grid by its token-header row (NAME / ARRIVAL / START / FINISH / TRT). When that header can't be found — a renamed tab, a removed header, or an export glitch — no run-of-show is stored and every day falls back to the always-correct anchor schedule. Nothing crew-facing breaks; the rich per-day timeline is simply absent until the grid is locatable again.",
+      "We couldn't find the run-of-show grid in the AGENDA tab — usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
     title: "Run-of-show grid not found",
     longExplanation:
-      "We couldn't find the AGENDA run-of-show grid by its header row. Crew see the standard anchor schedule for every day instead of the detailed run-of-show until the grid is locatable again.",
+      "We couldn't find the run-of-show grid in the AGENDA tab — usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
     helpHref: "/help/errors#AGENDA_GRID_MALFORMED",
   },
   AGENDA_BLOCK_UNRESOLVED: {
     code: "AGENDA_BLOCK_UNRESOLVED",
     dougFacing:
-      "One run-of-show day in _<sheet-name>_'s AGENDA couldn't be matched to a show date, so that day shows the standard anchor schedule. Check the AGENDA date/day-name banner, or tell the developer if it keeps happening.",
+      "One run-of-show day in _<sheet-name>_'s AGENDA couldn't be matched to a show date, so that day shows the standard schedule. Check the AGENDA date banner, or let us know if it keeps happening.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "Each run-of-show column is matched to a calendar date using the AGENDA tab's date banner, falling back to the day-name against the show's confirmed days. When neither resolves — a `#REF!` date, a missing banner, or a day-name with no match — that day is not stored and crew see the always-correct anchor schedule for it. Other days are unaffected.",
-    title: "Run-of-show day not resolved",
+      "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Usually the AGENDA date banner is missing or shows an error (like #REF!). Other days are fine.",
+    title: "Run-of-show day not matched to a date",
     longExplanation:
-      "A run-of-show day couldn't be matched to a show date, so that day shows the standard anchor schedule. Other days are unaffected.",
+      "One run-of-show day couldn't be matched to a calendar date, so that day shows the standard schedule. Usually the AGENDA date banner is missing or shows an error (like #REF!). Other days are fine.",
     helpHref: "/help/errors#AGENDA_BLOCK_UNRESOLVED",
   },
   AGENDA_DAY_AMBIGUOUS: {
     code: "AGENDA_DAY_AMBIGUOUS",
     dougFacing:
-      "A run-of-show day in _<sheet-name>_'s AGENDA matched more than one show date (same weekday), so we didn't guess — that day shows the standard anchor schedule. Add an explicit date to the AGENDA banner to fix it.",
+      "A run-of-show day in _<sheet-name>_'s AGENDA only listed a weekday that matches more than one show date, so we didn't guess — that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
     crewFacing: null,
     followUp: "Doug → fix sheet",
     helpfulContext:
-      "When a run-of-show column has no usable date and its day-name (e.g. 'Wednesday') matches two or more of the show's days, the parser refuses to guess which one it is and stores nothing for that column. Crew see the always-correct anchor schedule for it. Add an explicit date to the AGENDA banner so the day resolves unambiguously.",
-    title: "Run-of-show day is ambiguous",
+      "A run-of-show day only listed a weekday (like 'Wednesday') that matches two of the show's days, so we didn't guess and that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
+    title: "Run-of-show day matches two dates",
     longExplanation:
-      "A run-of-show day's weekday matched more than one show date, so the parser didn't guess and that day shows the standard anchor schedule. Add an explicit date to disambiguate.",
+      "A run-of-show day only listed a weekday (like 'Wednesday') that matches two of the show's days, so we didn't guess and that day shows the standard schedule. Add the actual date to the AGENDA banner to fix it.",
     helpHref: "/help/errors#AGENDA_DAY_AMBIGUOUS",
   },
   AGENDA_DAY_TRUNCATED: {
     code: "AGENDA_DAY_TRUNCATED",
     dougFacing:
-      "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed to fit our storage limits (200 entries per day). Crew see the trimmed list. Tell the developer if a real day legitimately needs more.",
+      "A run-of-show day in _<sheet-name>_'s AGENDA was unusually large and was trimmed (we cap it at 200 entries per day). Crew see the trimmed list. Let us know if a real day legitimately needs more.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "To keep the per-show sync fast and the stored data bounded, each run-of-show day is capped at 200 entries, per-field lengths, and 32 KB of serialized data. A day that exceeds any cap is trimmed (tail entries dropped). This is almost always a parse artifact or a pathological cell; if a real day legitimately needs more, ask the developer to raise the ceiling.",
+      "One run-of-show day was much larger than expected (over 200 entries), so we trimmed it to keep things fast. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
     title: "Run-of-show day trimmed",
     longExplanation:
-      "A run-of-show day exceeded our storage limits and was trimmed to fit. Crew see the trimmed list.",
+      "One run-of-show day was much larger than expected (over 200 entries), so we trimmed it to keep things fast. Crew see the trimmed list. This is almost always a stray cell; let us know if a real day genuinely needs more.",
     helpHref: "/help/errors#AGENDA_DAY_TRUNCATED",
   },
   AGENDA_DAY_EMPTIED: {
     code: "AGENDA_DAY_EMPTIED",
     dougFacing:
-      "A run-of-show day in _<sheet-name>_'s AGENDA that we previously published is now empty in the sheet, so that day reverts to the standard anchor schedule. If that's intentional, no action is needed; if not, restore the day's rows.",
+      "A run-of-show day in _<sheet-name>_'s AGENDA that we previously published is now empty in the sheet, so that day reverts to the standard schedule. If that's intentional, no action is needed; if not, restore the day's rows.",
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "A run-of-show day that was previously stored now parses as empty (blank titles or a cleared grid) in the latest sync. Following the confirmed-only rule, we don't keep stale content: the day reverts to the always-correct anchor schedule and the empty state is recorded here so Doug can tell an intentional clear from an accidental one. Restoring the day's rows re-publishes it on the next sync.",
+      "A run-of-show day you'd published before is now blank in the sheet, so that day went back to the standard schedule (we don't keep old content once it's removed). If you cleared it on purpose you're done; if not, put the rows back and it returns on the next sync.",
     title: "Run-of-show day cleared",
     longExplanation:
-      "A previously-published run-of-show day is now empty in the sheet, so it reverts to the standard anchor schedule. Restore the rows to re-publish it.",
+      "A run-of-show day you'd published before is now blank in the sheet, so that day went back to the standard schedule (we don't keep old content once it's removed). If you cleared it on purpose you're done; if not, put the rows back and it returns on the next sync.",
     helpHref: "/help/errors#AGENDA_DAY_EMPTIED",
   },
   SCHEDULE_TIME_UNPARSED: {
     code: "SCHEDULE_TIME_UNPARSED",
     dougFacing:
-      "A show-day TIME entry in _<sheet-name>_'s DATES tab has text we couldn't read as a start time, window, or agenda, so that day shows the standard anchor schedule. Check the TIME cell reads like '7:15am - Registration …' or '7:30am - 5:50pm', or tell the developer if it keeps happening.",
+      "We couldn't read a start time for one of _<sheet-name>_'s show days, so that day shows the standard schedule. Make sure the day's TIME cell starts with a time like '7:15am - Registration' or '7:30am - 5:50pm'.",
     crewFacing: null,
     followUp: "Doug → check sheet",
     helpfulContext:
-      "Each show day's TIME column in the DATES tab is parsed for a first call time, a start–end window, or a titled run-of-show. When a cell has content but none of those can be read — an end-only fragment like 'GS: ... - 6:00 PM', or a placeholder like 'General Session TBD' — we store no per-day time for that day and it falls back to the always-correct anchor schedule. Restoring a readable start (e.g. '7:15am - Registration') re-publishes the per-day time on the next sync.",
+      "One show day's TIME cell had text we couldn't read as a start time, so that day shows the standard schedule instead. Give it a clear start like '7:15am - Registration' and it'll update on the next sync.",
     title: "Show-day time unreadable",
     longExplanation:
-      "A show day's DATES TIME cell has content but no readable start time, window, or agenda, so that day reverts to the standard anchor schedule. Give the cell a readable start time to re-publish it.",
+      "A show day's TIME cell had content we couldn't read as a start time, so that day shows the standard schedule. Give the cell a clear start time and it'll update on the next sync.",
     helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
   },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
     dougFacing:
-      "_<sheet-name>_'s PULL SHEET has columns we don't recognize. The whole block renders as raw text on crew pages. Tell the developer if you'd like us to handle that format.",
+      "_<sheet-name>_'s PULL SHEET has columns we don't recognize, so the block shows as its original text on crew pages. Let us know if you'd like us to handle that format.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "The parser found something that looks like a PULL SHEET block, but the columns do not match the expected format. Crew still see the preserved raw text, but structured packing data is degraded until the format is supported.",
+      "This looks like a PULL SHEET, but the columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like us to support this layout.",
     title: "Pull sheet columns unrecognized",
     longExplanation:
-      "We found something that looks like a PULL SHEET block, but the columns don't match the expected format. Crew see the preserved raw text; structured packing data is degraded until the format is supported. Report it if you'd like the developer to handle it.",
+      "This looks like a PULL SHEET, but the columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like us to support this layout.",
     helpHref: "/help/errors#PULL_SHEET_AMBIGUOUS_FORMAT",
   },
   PULL_SHEET_UNKNOWN_VARIANT: {
     code: "PULL_SHEET_UNKNOWN_VARIANT",
     dougFacing:
-      "_<sheet-name>_'s PULL SHEET has rows we can read, but the packed-column layout isn't one we recognize. We're using the default layout; tell the developer if the packing list looks wrong.",
+      "_<sheet-name>_'s PULL SHEET rows are readable, but we couldn't tell which items are packed, so we used the usual layout. Let us know if the packing list looks wrong.",
     crewFacing: null,
     followUp: "Doug → optional Report",
     helpfulContext:
-      "A pull-sheet case had data rows, but none of them exposed a TRUE/FALSE packed flag in the supported Variant A or Variant B positions. The parser defaults to Variant A so crew still see the list, but Doug should report it if quantities or packing columns look wrong.",
-    title: "Pull sheet packed-column layout unrecognized",
+      "We could read this case's rows but couldn't tell which items are packed, so we used the usual layout. Crew still see the list. Let us know if the packing checkmarks or quantities look wrong.",
+    title: "Pull sheet packing not detected",
     longExplanation:
-      "A pull-sheet case had data rows, but none exposed a TRUE/FALSE packed flag in the supported variants. The parser defaults to Variant A so crew still see the list. Report it if quantities or packing columns look wrong.",
+      "We could read this case's rows but couldn't tell which items are packed, so we used the usual layout. Crew still see the list. Let us know if the packing checkmarks or quantities look wrong.",
     helpHref: "/help/errors#PULL_SHEET_UNKNOWN_VARIANT",
   },
   DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
     code: "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
     dougFacing:
-      "_<sheet-name>_: an image embedded in the DIAGRAMS tab couldn't be downloaded. Crew see a placeholder where it should be. Re-paste the image, or tell the developer if this keeps happening.",
+      "_<sheet-name>_: an image in the DIAGRAMS tab couldn't be downloaded, so crew see a placeholder where it should be. Re-paste the image, or let us know if this keeps happening.",
     crewFacing: null,
     followUp: "Doug → optionally fix",
     helpfulContext:
-      "An image embedded in the DIAGRAMS tab returned a 4xx HTTP status when we tried to download it. Crew see a placeholder where it should be. Re-paste the image (Drive sometimes loses object permissions on the underlying blob), or tell the developer if this keeps happening.",
-    title: "Embedded diagram couldn't be downloaded",
+      "An image in the DIAGRAMS tab wouldn't download, so crew see a placeholder where it should be. Drive sometimes drops an image's permissions — re-pasting it usually fixes it. Let us know if it keeps happening.",
+    title: "Diagram image couldn't load",
     longExplanation:
-      "An image embedded in the DIAGRAMS tab returned an HTTP error when we tried to download it. Crew see a placeholder where it should be. Re-paste the image (Drive sometimes loses object permissions on the underlying blob), or report it if this keeps happening.",
+      "An image in the DIAGRAMS tab wouldn't download, so crew see a placeholder where it should be. Drive sometimes drops an image's permissions — re-pasting it usually fixes it. Let us know if it keeps happening.",
     helpHref: "/help/errors#DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
   },
   DIAGRAMS_EMBEDDED_CAP_EXCEEDED: {
@@ -1215,14 +1215,14 @@ export const MESSAGE_CATALOG = {
   DIAGRAMS_EMBEDDED_NONE_FOUND: {
     code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
     dougFacing:
-      '(first-seen) "_<sheet-name>_ looks like it should have diagrams but we didn\'t find any embedded images. Confirm before we publish, or paste in the images and re-sync." (existing show with prior gallery) "_<sheet-name>_\'s DIAGRAMS tab returned no embedded images this sync — confirm before we replace the existing gallery with empty, or paste in the images and re-sync."',
+      '(first-seen) "_<sheet-name>_ looks like it should have diagrams but we didn\'t find any images. Confirm before we publish, or paste in the images and re-sync." (existing show with prior gallery) "_<sheet-name>_\'s DIAGRAMS tab returned no images this sync — confirm before we replace the existing gallery with an empty one, or paste in the images and re-sync."',
     crewFacing: null,
     followUp: "Doug → confirm or add images",
     helpfulContext:
-      "We expected to find embedded diagrams in this sheet (the DIAGRAMS tab is configured for embedded delivery) but the spreadsheet returned zero embedded objects AND no linked-folder URL was provided. For a brand-new sheet we'd rather hold this for review than publish an empty gallery; for an existing show we just note the empty state and let crew see whatever was there before.",
-    title: "DIAGRAMS tab returned no images",
+      "This sheet's DIAGRAMS tab is set up for pasted-in images, but we didn't find any (and no image-folder link was given). For a new show we'd rather check with you than publish an empty gallery; for an existing show, crew keep seeing the last set.",
+    title: "No images in the DIAGRAMS tab",
     longExplanation:
-      "The DIAGRAMS tab is configured for embedded images, but the sheet returned zero embedded objects and no linked-folder URL was provided. Confirm before publishing an empty gallery, or paste the images into the sheet and re-sync. For an existing show with a prior gallery, crew continues to see the previous version until you Apply.",
+      "This sheet's DIAGRAMS tab is set up for pasted-in images, but we didn't find any (and no image-folder link was given). For a new show we'd rather check with you than publish an empty gallery; for an existing show, crew keep seeing the last set.",
     helpHref: "/help/errors#DIAGRAMS_EMBEDDED_NONE_FOUND",
   },
   TYPO_NORMALIZED: {
