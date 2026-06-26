@@ -119,7 +119,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         data-testid="admin-layout"
         // No `pb-20`: the slim onboarding bar has no fixed mobile bottom tab
         // bar to clear, so the mobile-bottom-bar reservation is dropped.
-        className="mx-auto max-w-[1600px] px-page-pad-mobile pt-page-pad-mobile pb-page-pad-mobile sm:px-page-pad-desktop sm:pt-page-pad-desktop sm:pb-page-pad-desktop"
+        className="mx-auto max-w-[1600px] p-page-pad-mobile sm:p-page-pad-desktop"
       >
         <OnboardingTopBar email={adminEmail} />
         <PageTransition>{children}</PageTransition>

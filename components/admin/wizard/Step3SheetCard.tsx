@@ -44,6 +44,7 @@ import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -356,12 +357,14 @@ function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWa
                     isWarn ? "bg-warning-text" : "bg-text-faint"
                   }`}
                 />
-                <span className="font-medium text-text-strong">{title}</span>
+                <span className="font-medium text-text-strong">{renderEmphasis(title)}</span>
                 <span className="text-xs uppercase text-text-subtle">
                   {isWarn ? "warn" : "info"}
                 </span>
               </span>
-              {context ? <p className="pl-3 text-xs text-text-subtle">{context}</p> : null}
+              {context ? (
+                <p className="pl-3 text-xs text-text-subtle">{renderEmphasis(context)}</p>
+              ) : null}
             </li>
           );
         })}

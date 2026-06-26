@@ -46,7 +46,7 @@ export function OnboardingTopBar({ email }: { email: string }) {
 
       <div className="flex items-center gap-3">
         {hasEmail && (
-          <span className="hidden max-w-[12rem] truncate text-sm text-text-subtle sm:inline">
+          <span className="hidden max-w-48 truncate text-sm text-text-subtle sm:inline">
             {email}
           </span>
         )}
