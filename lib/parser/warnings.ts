@@ -66,19 +66,26 @@ export const BLOCK_DISAPPEARED = "BLOCK_DISAPPEARED";
 
 /**
  * Class A (§5.1) — emit a `severity:"warn"` warning when a field carried a
- * non-empty value that produced nothing usable (e.g. a crew phone with no
- * digits → no `tel:` link). v1 scope = crew phone only. No-ops when `agg` is
- * undefined (the aggregator is optional in block-parser signatures).
+ * non-empty value that produced nothing usable: a crew phone with no digits → no
+ * `tel:` link, or a crew email with no "@" → no `mailto:` link. Scope = crew
+ * phone + email (the two PersonRow tap-targets). No-ops when `agg` is undefined
+ * (the aggregator is optional in block-parser signatures).
  */
 export function emitFieldUnreadable(
   agg: ParseAggregator | undefined,
   params: { section: string; field: string; rawSnippet: string; index: number },
 ): void {
   if (!agg) return;
+  // Field-specific wording: name the field + the tap-target the crew page can no
+  // longer render. Same sentence shape across fields so the panel reads uniformly.
+  // (phone keeps its exact original copy so existing assertions hold.)
+  const isEmail = params.field === "email";
+  const fieldWord = isEmail ? "email" : "phone";
+  const affordance = isEmail ? "no email link will appear" : "no call link will appear";
   agg.warnings.push({
     severity: "warn",
     code: "FIELD_UNREADABLE",
-    message: `Crew phone for row ${params.index + 1} could not be read ("${params.rawSnippet}") — no call link will appear.`,
+    message: `Crew ${fieldWord} for row ${params.index + 1} could not be read ("${params.rawSnippet}") — ${affordance}.`,
     blockRef: { kind: params.section, index: params.index },
     rawSnippet: params.rawSnippet,
   });

@@ -505,20 +505,17 @@ describe("extractRoleFlags — synthetic per-token vocabulary (plan §6.6)", () 
   }
 });
 
-// ── Edge case: unparseable / empty EMAIL cells (pin, AC-1.2 boundary) ─────────
+// ── Edge case: unparseable / empty EMAIL cells (AC-1.2 boundary) ─────────────
 //
-// PINS the current contract at crew.ts:238 + lib/email/canonicalize.ts:2-6:
-// canonicalize() ONLY trims + lowercases — it never validates email format.
-//   - A non-empty garbage value ("Not An Email") is passed through lowercased;
-//     the schema-level CHECK is the validity gate per canonicalize.ts:8-10 and
-//     AGENTS.md invariant 3 ("schema-level CHECK is the safety net").
-//   - canonicalize returns null ONLY for empty/whitespace cells — the common
-//     "row has no email" case — so a warning on the null path would fire for
-//     every emailless crew row (noise, not signal). No warning is emitted on
-//     either path today; adding one would require a NEW §12.4 warning-code row
-//     (three-lockstep spec+gen+catalog update), so the silent behavior is
-//     pinned here as a documented limitation instead.
-describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
+// canonicalize() ONLY trims + lowercases — it never validates email format
+// (lib/email/canonicalize.ts:8-10; schema CHECK is the validity gate per AGENTS.md
+// invariant 3), so person.email always passes the value through. The Class-A email
+// detector is ADDITIVE on top: a non-empty cell with NO "@" is not an address →
+// PersonRow renders no mailto: link → FIELD_UNREADABLE (symmetric to the digit-less
+// phone). Empty/whitespace cells (presence === null) are the common "no email" case
+// and never flag. (Previously pinned as a limitation; lifted now that FIELD_UNREADABLE
+// exists and covers email — no new code, the existing generic code carries field:"email".)
+describe("parseCrew — unparseable/empty email cells (AC-1.2 boundary)", () => {
   const md = [
     "| CREW | NAME | ROLE | PHONE | EMAIL |",
     "| :-: | :-: | :-: | :-: | :-: |",
@@ -548,13 +545,19 @@ describe("parseCrew — unparseable/empty email cells (edge-case pin)", () => {
     expect(kay!.email).toBe("mixed@example.com");
   });
 
-  it("no email-related ParseWarning is emitted for either path (pinned limitation)", () => {
-    const agg = { warnings: [], rawUnrecognized: [] };
+  it("flags the no-@ email (Jane) with FIELD_UNREADABLE, but NOT the empty (John) or valid (Kay) rows", () => {
+    const agg = newAggregator();
     parseCrew(md, "v2", agg);
-    const emailWarnings = agg.warnings.filter((w: { code: string; message: string }) =>
-      /email/i.test(w.code + w.message),
+    const emailWarnings = agg.warnings.filter(
+      (w) => w.code === "FIELD_UNREADABLE" && /Crew email/.test(w.message),
     );
-    expect(emailWarnings).toHaveLength(0);
+    // exactly one — Jane's "Not An Email"; empty + valid rows do NOT flag (no noise).
+    expect(emailWarnings.length).toBe(1);
+    expect(emailWarnings[0]!.rawSnippet).toBe("Not An Email");
+    expect(emailWarnings[0]!.blockRef?.kind).toBe("crew");
+    expect(emailWarnings[0]!.message).toContain("Not An Email");
+    // the member still parses (additive warning, value not dropped).
+    expect(parseCrew(md, "v2").find((m) => m.name === "Jane Doe")?.email).toBe("not an email");
   });
 });
 

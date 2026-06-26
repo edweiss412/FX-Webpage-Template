@@ -234,6 +234,17 @@ function buildCrewMember(params: {
     emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: phoneRaw, index });
   }
 
+  // Class A (follow-up) — symmetric to phone: an email cell carried a non-empty
+  // value with no "@", so it is not an address — PersonRow renders no mailto: link
+  // and the value is otherwise dropped. Same crisp bar as phone (no digits ⇒ not a
+  // phone): no "@" ⇒ not an email. The member still parses. Lives in the shared
+  // buildCrewMember so any header path that threads a real email cell flags it; in
+  // practice that's the CREW path (v1 TECH sheets carry no EMAIL column → emailRaw
+  // is "" → presence(null) → no-op).
+  if (presence(emailRaw) !== null && !emailRaw.includes("@")) {
+    emitFieldUnreadable(agg, { section: "crew", field: "email", rawSnippet: emailRaw, index });
+  }
+
   const dayResult = extractDayRestriction({ nameCell: params.nameRaw, roleCell: params.roleRaw });
   warnings.push(...dayResult.warnings);
   if (agg) agg.warnings.push(...dayResult.warnings);
