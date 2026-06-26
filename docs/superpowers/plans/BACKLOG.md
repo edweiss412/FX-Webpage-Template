@@ -575,6 +575,17 @@ Filed 2026-06-12 (production-bug fix `fix/sheets-drawings-fields-mask`). The cro
 
 **Promotion prerequisite:** a CI pass that adds (a) a remote-validation matrix leg for `pg-cron-coverage` + (b) a live-auth setup (or a root-cause fix) for `test-auth-gate` Layer 2, each verified green in real CI before being added to the gate's run set.
 
+### BL-CONCURRENT-RETRY-DB-TIMEOUT-FLAKE — DB-concurrency tests intermittently time out and fail the `unit-suite` gate
+
+**Filed:** 2026-06-26 (surfaced during PR #121 — the `unit-suite` matrix-shard landing; see memory `project_ci_speedup_pr_d_matrix_shard`). **NOT introduced by sharding:** a re-run of the same commit passed (confirming a flake, not a fault), and sharding *reduces* per-leg DB load. These tests would flake the same way on the pre-split monolithic gate under the same runner noise.
+
+A few DB-concurrency tests intermittently **time out** (Vitest "Test/Hook timed out", NOT assertion failures) under 2-core CI-runner load, failing whichever shard leg they land in → the required `unit-suite` gate goes red until a re-run clears it:
+
+- `tests/reports/concurrentRetry.test.ts` — "only one retry claims the expired lease while the other sees in-flight contention": fires concurrent `submitReport` DB calls racing for an expired processing lease + `await vi.waitFor(() => createIssue called once)`, with an `afterEach` `cleanupReportFixtures` DB call. It uses Vitest's **default** 5s test / 10s hook timeouts (no `vi.setConfig`), so it exceeds them when the local Supabase is momentarily slow.
+- `tests/db/show_share_tokens.test.ts` — "new show insert auto-creates a 64-character lowercase hex token" (trigger-driven) — same default-timeout exposure.
+
+**When picked up:** bump per-file timeouts (`vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })`, mirroring the already-bumped `tests/scripts/validation-report-fixtures.test.ts` at 90s) and/or make the contention test deterministic (gate the second submit on an explicit barrier rather than wall-clock `vi.waitFor`); optionally scope a Vitest `retry: 1` to the DB-concurrency files only. Technical home: the two test files (± `vitest.config.ts`). Cheap to do; low value until the flake rate is annoying enough (a leg re-run currently clears it). Related class: `BL-NEEDS-ATTENTION-DARK-CAPTURE-FLAKE` (CI nondeterminism).
+
 ### BL-ACCENT-ON-BG-AA-CONTRAST — `--color-accent-on-bg` (light) is 4.11:1, below WCAG AA 4.5:1 for normal text
 
 **Filed:** 2026-06-22 (invariant-8 impeccable audit P2 on the `/help` prose typography layer, branch `feat/help-prose-typography`). The light-mode `--color-accent-on-bg-runtime` (`#c25e00`, `app/globals.css:244`) on the page background `#fafaf9` (`:231`) computes to **4.11:1** — below the 4.5:1 AA floor for normal-size text. DESIGN.md §1.1/§1.2 assert this pair is `4.6:1` ("AA body"); that figure is a miscalculation (gamma 2.2-vs-2.4 error). Dark mode (`#ffa047` on `#0f1014`) is 9.39:1 (AAA) and unaffected.
