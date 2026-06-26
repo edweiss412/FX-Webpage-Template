@@ -15,6 +15,8 @@ import {
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { runInvariants } from "@/lib/parser/invariants";
+import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { fetchDriveFileMetadata, fetchSheetMarkdownAndBytesAtRevision } from "@/lib/drive/fetch";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
@@ -1788,6 +1790,15 @@ async function emitFirstPublishedNotice(args: {
   // alert context. The token is still minted + persisted to shows.unpublish_token upstream.
   unpublishTokenExpiresAt: string;
 }): Promise<void> {
+  // parse-data-quality-warnings §6.4 (P1) — additive data-gaps digest. This is
+  // the SHARED first-published emitter (reached by cron auto-publish, applyStaged
+  // FIRST_SEEN_REVIEW, and runManualStageForFirstSeen via emitSuccessfulPhase2Tail),
+  // so adding the digest here covers EVERY first-published emission with one
+  // implementation. Only attached when there is ≥1 warn-severity data-quality
+  // warning (total>0); otherwise the key is omitted (no empty digest). No new
+  // admin_alert code, no §12.4 prose change — PerShowAlertSection renders it as a
+  // bespoke sub-line, not via the catalog dougFacing.
+  const dataGaps = summarizeDataGaps(args.parseResult.warnings);
   await args.deps.upsertAdminAlert({
     showId: args.result.showId,
     code: "SHOW_FIRST_PUBLISHED",
@@ -1800,6 +1811,7 @@ async function emitFirstPublishedNotice(args: {
       // admin session reads). Only the non-secret expiry window stays; the in-app alert-row
       // action re-reads shows.unpublish_token service-role-side when it needs the secret.
       unpublish_token_expires_at: args.unpublishTokenExpiresAt,
+      ...(dataGaps.total > 0 ? { data_gaps: dataGaps } : {}),
     },
   });
 }
@@ -2575,6 +2587,25 @@ export async function processOneFile_unlocked(
           return [...invariantItems, ...assetItems];
         })()
       : [];
+
+  // Class C (§5.3, VB10) — derive BLOCK_DISAPPEARED parse-warnings from the MI-7
+  // items (new_count===0) so a vanished block also reaches the parse-warning-based
+  // surfaces (per-show Data-Quality panel). This does NOT add a feed row — MI-7
+  // already wrote its single section_shrunk row — so there is exactly one feed row
+  // and one parse-warning per disappearance. Suppressed when a SECTION_HEADER_NO_FIELDS
+  // warning already covers the (normalized) block. Appended to parseResult.warnings
+  // before Phase 2 persists shows_internal.parse_warnings. First-seen (no prior →
+  // notableItems empty) yields nothing, correctly.
+  {
+    const disappearedWarnings = blockDisappearanceWarnings(
+      notableItems,
+      pipeline.parseResult.warnings,
+    );
+    if (disappearedWarnings.length > 0) {
+      pipeline.parseResult.warnings.push(...disappearedWarnings);
+    }
+  }
+
   const phase2 = await runPhase2_unlocked(
     tx,
     {

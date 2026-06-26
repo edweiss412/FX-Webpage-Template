@@ -65,6 +65,9 @@ export const INTERNAL_CODE_ENUMS = {
   EXTRA_REVIEWER_CHOICE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  FIELD_UNREADABLE: {
+    source: "parse_warnings.code"
+  },
   FINALIZE_OWNED_SHOW: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
@@ -261,6 +264,9 @@ export const INTERNAL_CODE_ENUMS = {
     source: "parse_warnings.code"
   },
   UNKNOWN_ROLE_TOKEN: {
+    source: "parse_warnings.code"
+  },
+  UNKNOWN_SECTION_HEADER: {
     source: "parse_warnings.code"
   },
   UNPUBLISH_TOKEN_CONSUMED: {

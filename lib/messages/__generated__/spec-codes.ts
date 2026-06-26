@@ -164,6 +164,12 @@ export const SPEC_CODES = {
     "followUp": "informational only",
     "helpfulContext": "Asset recovery fetched and verified diagram bytes against an older snapshot revision, but a newer Apply landed before recovery could write those bytes. The recovery run aborts so it does not attach old assets to the new approved revision.",
   },
+  "BLOCK_DISAPPEARED": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": null,
+    "helpfulContext": null,
+  },
   "BOOTSTRAP_GENERIC": {
     "crewFacing": "Couldn't load the show. Refresh the page, or try signing in.",
     "dougFacing": null,
@@ -301,6 +307,12 @@ export const SPEC_CODES = {
     "dougFacing": "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
     "followUp": "Doug → refresh admin",
     "helpfulContext": "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
+  },
+  "FIELD_UNREADABLE": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": null,
+    "helpfulContext": null,
   },
   "FINALIZE_OWNED_SHOW": {
     "crewFacing": null,
@@ -1285,6 +1297,12 @@ export const SPEC_CODES = {
     "dougFacing": "_<crew-name>_'s role contains _<token>_ which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using.",
     "followUp": "Doug → optional Report",
     "helpfulContext": "A role cell contains a token outside the canonical role vocabulary. The parser ignores the unknown token so it does not grant accidental access or scope. If the token is intentional, report it so the developer can add it to the role vocabulary.",
+  },
+  "UNKNOWN_SECTION_HEADER": {
+    "crewFacing": null,
+    "dougFacing": null,
+    "followUp": null,
+    "helpfulContext": null,
   },
   "UNPUBLISH_TOKEN_CONSUMED": {
     "crewFacing": null,

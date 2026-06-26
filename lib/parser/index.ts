@@ -10,7 +10,8 @@
  */
 
 import { detectVersion } from "./schema";
-import { newAggregator } from "./warnings";
+import { newAggregator, emitUnknownSection } from "./warnings";
+import { isKnownSectionHeader, isKnownSubLabel, countFieldHeaderWords } from "./knownSections";
 import { parseClient } from "./blocks/client";
 import { parseVenue } from "./blocks/venue";
 import { parseDates } from "./blocks/dates";
@@ -433,6 +434,36 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
       }
     }
     mergedRunOfShow = merged;
+  }
+
+  // Class B (§5.2) — scan for section-header-shaped rows whose col0 matches no
+  // known-section-header. Span-independent (registry + header-band shape, NOT
+  // block-slice position) so an unknown section appended right after a block with
+  // no blank separator (the VB09 `CATERING | NAME | PHONE` shape) still fires.
+  // The gate requires col0 to be an all-caps token NOT in the registry, NOT a
+  // recognized sub-label, AND col1+ to carry >=2 distinct field-header words
+  // (NAME/PHONE/EMAIL/...) — pull-sheet equipment rows and repeated-name GEAR
+  // rows lack that band, keeping the corpus regression at zero false positives.
+  // De-dup: track headers already emitted so a repeated unknown header (a few
+  // data rows) fires once.
+  {
+    const emittedUnknownHeaders = new Set<string>();
+    for (const line of markdown.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("|")) continue;
+      const cells = trimmed
+        .split(CELL_SPLIT_RE)
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0);
+      const col0 = cells[0] ?? "";
+      if (!col0 || !/^[A-Z][A-Z\s/&]+$/.test(col0)) continue;
+      if (isKnownSectionHeader(col0) || isKnownSubLabel(col0)) continue;
+      if (countFieldHeaderWords(cells.slice(1)) < 2) continue;
+      const key = col0.toUpperCase();
+      if (emittedUnknownHeaders.has(key)) continue;
+      emittedUnknownHeaders.add(key);
+      emitUnknownSection(agg, col0);
+    }
   }
 
   // Step 6: Return ParsedSheet.

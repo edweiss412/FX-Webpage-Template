@@ -25,6 +25,7 @@ import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
+import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
@@ -69,6 +70,30 @@ type PerShowAlertSectionProps = {
 
 /** §6.3 — the only alert code that carries an in-app undo action. */
 const UNDO_ALERT_CODE = "SHOW_FIRST_PUBLISHED";
+
+// parse-data-quality-warnings §6.4 — read the additive `data_gaps` digest off a
+// SHOW_FIRST_PUBLISHED alert's context (jsonb, untyped on the wire). Returns a
+// well-formed DataGapsSummary with total>0, else null (absent / malformed /
+// total 0 → no sub-line). Defensive: every field is validated since the context
+// is operator-readable jsonb that an older producer may not carry.
+function readDataGapsDigest(context: Record<string, unknown> | null): DataGapsSummary | null {
+  const raw = context?.data_gaps;
+  if (!raw || typeof raw !== "object") return null;
+  const candidate = raw as { total?: unknown; classes?: unknown };
+  if (typeof candidate.total !== "number" || candidate.total <= 0) return null;
+  const classes = candidate.classes;
+  if (!classes || typeof classes !== "object") return null;
+  const c = classes as Record<string, unknown>;
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    total: candidate.total,
+    classes: {
+      FIELD_UNREADABLE: num(c.FIELD_UNREADABLE),
+      UNKNOWN_SECTION_HEADER: num(c.UNKNOWN_SECTION_HEADER),
+      BLOCK_DISAPPEARED: num(c.BLOCK_DISAPPEARED),
+    },
+  };
+}
 
 // §7 fix: interpolate the alert's context so placeholders like `<sheet-name>`
 // resolve to the real value instead of leaking literally. Guards not-in-catalog
@@ -218,6 +243,11 @@ export async function PerShowAlertSection({
                   (k): k is string => typeof k === "string",
                 )
               : null;
+          // parse-data-quality-warnings §6.4 — bespoke data-gaps sub-line for the
+          // first-published digest (SHOW_FIRST_PUBLISHED only). Rendered as a
+          // sibling detail, NOT interpolated into the catalog dougFacing copy.
+          const dataGapsDigest =
+            alert.code === UNDO_ALERT_CODE ? readDataGapsDigest(alert.context) : null;
           return (
             <li
               key={alert.id}
@@ -245,6 +275,21 @@ export async function PerShowAlertSection({
                   className="text-xs text-text-subtle"
                 >
                   Failed sources: {failedKeys.join(", ")}
+                </p>
+              ) : null}
+              {/* parse-data-quality-warnings §6.4 — bespoke data-gaps digest
+                  sub-line. Human per-class labels only (invariant 5 — never the
+                  raw §12.4 code). Static alert state → present iff total>0;
+                  instant, no animation. */}
+              {dataGapsDigest ? (
+                <p
+                  data-testid={`per-show-alert-data-gaps-${alert.id}`}
+                  className="text-xs text-text-subtle"
+                >
+                  Data dropped while parsing:{" "}
+                  {dataGapClassDetails(dataGapsDigest)
+                    .map((d) => `${d.count} ${d.label}`)
+                    .join(", ")}
                 </p>
               ) : null}
               {/* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows carry the shared in-app

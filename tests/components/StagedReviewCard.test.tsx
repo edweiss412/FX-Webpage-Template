@@ -401,4 +401,47 @@ describe("StagedReviewCard", () => {
       `/api/admin/staged/${encodeURIComponent("drive id with spaces/and slashes")}/apply`,
     );
   });
+
+  // parse-data-quality-warnings §6.1 — per-class data-gap breakdown.
+  describe("data-gaps breakdown (P2)", () => {
+    test("renders one chip per class with count>0; never the raw §12.4 code", () => {
+      const row: StagedRow = {
+        ...baseRow,
+        warningSummary: "Crew phone unreadable; Hotel block vanished",
+        dataGaps: {
+          total: 3,
+          classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 1 },
+        },
+      };
+      const { getByTestId, queryByTestId } = render(<StagedReviewCard row={row} />);
+      const list = getByTestId("staged-data-gaps");
+      // Derived from the summary's classes — present classes render, zero classes don't.
+      expect(getByTestId("staged-data-gap-FIELD_UNREADABLE").textContent).toContain(
+        "2 unreadable fields",
+      );
+      expect(getByTestId("staged-data-gap-BLOCK_DISAPPEARED").textContent).toContain(
+        "1 vanished block",
+      );
+      expect(queryByTestId("staged-data-gap-UNKNOWN_SECTION_HEADER")).toBeNull();
+      // invariant 5: no raw code literal leaks into the rendered DOM.
+      expect(list.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+    });
+
+    test("total:0 → no breakdown list at all", () => {
+      const row: StagedRow = {
+        ...baseRow,
+        dataGaps: {
+          total: 0,
+          classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
+        },
+      };
+      const { queryByTestId } = render(<StagedReviewCard row={row} />);
+      expect(queryByTestId("staged-data-gaps")).toBeNull();
+    });
+
+    test("undefined dataGaps → no breakdown (older row shape)", () => {
+      const { queryByTestId } = render(<StagedReviewCard row={baseRow} />);
+      expect(queryByTestId("staged-data-gaps")).toBeNull();
+    });
+  });
 });

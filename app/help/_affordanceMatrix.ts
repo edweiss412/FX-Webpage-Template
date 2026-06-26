@@ -118,6 +118,16 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
+    sourceSurface: "Per-show - Data quality panel header",
+    sourceRoute: "/admin/show/rpas-central-2026",
+    affordance: "? tooltip",
+    testid: "help-affordance--per-show-data-quality--tooltip",
+    target: "/help/admin/parse-warnings",
+    visibleAt: "both",
+    owningMilestone: "parse-data-quality-warnings",
+  },
+  {
+    kind: "concrete",
     sourceSurface: "Per-show - Crew section header",
     sourceRoute: "/admin/show/rpas-central-2026",
     affordance: "? tooltip",

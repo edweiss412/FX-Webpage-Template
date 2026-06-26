@@ -29,6 +29,8 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { summarizeDataGaps, isDataQualityWarning } from "@/lib/parser/dataGaps";
+import type { ParseWarning } from "@/lib/parser/types";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Review first-seen sheet · Admin · FXAV" };
@@ -42,7 +44,14 @@ type LiveFirstSeenRow = {
   drive_file_id: string;
   staged_modified_time: string;
   base_modified_time: string | null;
-  parse_result: { show?: { title?: string | null } } | null;
+  // parse-data-quality-warnings §6.1: parse_result carries `.warnings`
+  // (the full ParseWarning[]) — the DATA-QUALITY subset feeds the StagedReviewCard
+  // surface. (The pre-joined `warning_summary` column is intentionally NOT read —
+  // see warningSummaryFor: it can contain a raw non-DQ code, R1 [high].)
+  parse_result: {
+    show?: { title?: string | null };
+    warnings?: ParseWarning[] | null;
+  } | null;
   triggered_review_items: unknown;
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
@@ -136,6 +145,51 @@ function summaryFromParseResult(parseResult: LiveFirstSeenRow["parse_result"]): 
   return typeof title === "string" && title.length > 0 ? title : undefined;
 }
 
+// parse-data-quality-warnings §6.1 — build the warning text for the
+// StagedReviewCard from the staged row's DATA-QUALITY warnings only.
+//
+// Whole-diff review R1 [high] class-sweep: we deliberately do NOT surface the
+// pre-joined phase1 `warning_summary` string. That string joins EVERY warn-severity
+// `.message`, and a non-DQ producer (asset reelWarning()) emits a warn warning whose
+// `.message` IS the raw code — so the joined string can contain a raw §12.4 code that
+// cannot be filtered out post-join (invariant 5). Building from the parse_result
+// warnings array, gated by `isDataQualityWarning`, makes this surface leak-proof and
+// consistent with the per-show panel + the dataGaps breakdown. (Pre-Task-7 this card
+// showed `""`, so DQ-only is strictly more than before — never a regression.)
+function warningSummaryFor(row: LiveFirstSeenRow): string {
+  const warnings = row.parse_result?.warnings;
+  if (!Array.isArray(warnings)) return "";
+  return warnings
+    .filter(isDataQualityWarning)
+    .map((w) => w.message)
+    .filter((m): m is string => typeof m === "string" && m.length > 0)
+    .join("; ");
+}
+
+/**
+ * Map a live first-seen `pending_syncs` row to the StagedReviewCard's `StagedRow`
+ * (parse-data-quality-warnings Task 7 / §6.1). Exported so the data-gap surfacing
+ * is unit-testable against the SEEDED warning array (anti-tautology) without a
+ * full server-component render. Replaces the prior `warningSummary: ""` hardcode.
+ */
+export function stagedRowFromLiveFirstSeen(row: LiveFirstSeenRow): StagedRow {
+  const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
+  const warnings = Array.isArray(row.parse_result?.warnings) ? row.parse_result!.warnings! : [];
+  const summaryLine = summaryFromParseResult(row.parse_result);
+  return {
+    driveFileId: row.drive_file_id,
+    stagedId: row.staged_id,
+    sourceKind: row.source_kind,
+    stagedModifiedTime: row.staged_modified_time,
+    baseModifiedTime: row.base_modified_time,
+    warningSummary: warningSummaryFor(row),
+    dataGaps: summarizeDataGaps(warnings as ParseWarning[]),
+    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
+    reviewItemsCorrupt: !parsedReviewItems.ok,
+    ...(summaryLine !== undefined ? { parseSummaryLine: summaryLine } : {}),
+  };
+}
+
 export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
   await requireAdmin();
   const { stagedId } = await params;
@@ -173,20 +227,7 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
 
   const row = result.row;
 
-  const parsedReviewItems = parseTriggeredReviewItems(row.triggered_review_items);
-  const stagedRow: StagedRow = {
-    driveFileId: row.drive_file_id,
-    stagedId: row.staged_id,
-    sourceKind: row.source_kind,
-    stagedModifiedTime: row.staged_modified_time,
-    baseModifiedTime: row.base_modified_time,
-    warningSummary: "",
-    triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
-    reviewItemsCorrupt: !parsedReviewItems.ok,
-    ...(summaryFromParseResult(row.parse_result) !== undefined
-      ? { parseSummaryLine: summaryFromParseResult(row.parse_result)! }
-      : {}),
-  };
+  const stagedRow = stagedRowFromLiveFirstSeen(row);
 
   return (
     <main

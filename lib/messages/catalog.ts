@@ -1249,6 +1249,40 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  // Data-quality warnings (parse-data-quality-warnings, admin-log-only): the
+  // operator-facing copy is each inline ParseWarning.message; these catalog rows
+  // exist only to satisfy the §12.4 / x1 orphan-code structural guard (every
+  // active-style `code: "..."` literal must be registered), so all fields are null.
+  FIELD_UNREADABLE: {
+    code: "FIELD_UNREADABLE",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  UNKNOWN_SECTION_HEADER: {
+    code: "UNKNOWN_SECTION_HEADER",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  BLOCK_DISAPPEARED: {
+    code: "BLOCK_DISAPPEARED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   UNEXPECTED_PARENT: {
     code: "UNEXPECTED_PARENT",
     dougFacing: null,
