@@ -183,9 +183,31 @@ function stripConfTokens(name: string): string {
  * When no street shape is found the cell stays intact as hotel_name (the pre-#3
  * behavior) — a SAFE failure, never a corrupted name. Exotic shapes intentionally
  * left glued (safe): alphanumeric house numbers (`123A Main St`), PO boxes.
+ *
+ * A SUFFIXLESS street (e.g. "1515 Broadway New York, NY 10036") is also recognized
+ * via its trailing US ZIP tail ("…, <ST> <ZIP>") — a confirmation number is never
+ * followed by a state+ZIP, so this can't false-split a hotel name or a guest conf#.
  */
 const STREET_ADDRESS_RE =
   /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
+
+// Suffixless street: "<1–5 digit number> <words…>, <2-letter state> <5-digit ZIP>".
+// The interior (street name + city) is digit-free so it can't run past a conf# or a
+// second number; the comma+state+ZIP tail is what marks it as an address.
+const STREET_ADDRESS_ZIP_RE =
+  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/u;
+
+/** True iff `" " + s.slice(i)` begins a street phrase by SUFFIX or by US ZIP tail.
+ * Used ONLY by the Hotel-Stays discriminator to tell a dash-STREET-number from a
+ * dash-CONF#. NOT used to SPLIT (splitHotelNameAddress stays strictly suffix-only,
+ * so a numeric hotel brand like "Hotel 71 Chicago, IL 60601" is never corrupted —
+ * the ZIP tail would otherwise treat "71 Chicago, IL …" as an address, Codex R5). */
+function looksLikeStreetStart(s: string): boolean {
+  const a = STREET_ADDRESS_RE.exec(s);
+  if (a && a.index === 0) return true;
+  const b = STREET_ADDRESS_ZIP_RE.exec(s);
+  return b !== null && b.index === 0;
+}
 
 function splitHotelNameAddress(combined: string | null): {
   name: string | null;
@@ -198,13 +220,14 @@ function splitHotelNameAddress(combined: string | null): {
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned) return { name: null, address: null };
-  // The address begins at the first street number that actually starts a street
-  // phrase (see STREET_ADDRESS_RE). The regex only LOCATES the boundary; the
-  // address itself runs from that number to the end of the cell (city/state/ZIP
-  // included). No match → the whole cell stays as the name (safe, glued).
+  // The address begins at the first street number that starts a SUFFIXED street
+  // phrase (see STREET_ADDRESS_RE). Suffix-only by design: a suffixless tail (a
+  // bare number + city + ZIP) is ambiguous with a numeric hotel brand ("Hotel 71
+  // Chicago, IL 60601"), so it stays glued — a SAFE fallback, never a corrupted
+  // name. The regex only LOCATES the boundary; the address runs to the cell end.
   const m = STREET_ADDRESS_RE.exec(cleaned);
   if (!m) return { name: presence(cleaned), address: null };
-  const splitAt = m.index; // index of the separating whitespace
+  const splitAt = m.index;
   const name = cleaned
     .slice(0, splitAt)
     .replace(/[,\-–—\s]+$/, "")
@@ -554,6 +577,132 @@ function buildInlineHotel(
   // Handle both "Check In: M/D" (no year) and "Check In: M/D/YY"
   const checkInMatch = /check\s+in[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
   const checkOutMatch = /check\s+out[:\s]+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/i.exec(text);
+
+  // v1 "Hotel Stays" / no-Check-In dash-delimited shape (east-coast):
+  // "<hotel name+address> <Guest>[ <Initial>] <dash-run> #?<conf> ...". With no
+  // "Check In:" marker to separate hotel from guests, the weak Pattern 1/2/3
+  // below miss single-word guests + middle initials + mixed dash styles (---, –-)
+  // AND leave every guest first-name glued into hotel_name. Extract each
+  // "<short name> <dash> <conf>" guest and take the hotel as the prefix before the
+  // FIRST guest. names[] is load-bearing — getShowForViewer filters hotels by the
+  // viewer's name appearing in res.names (lib/data/getShowForViewer.ts:644). Gate
+  // on !checkInMatch so the dated inline shapes (ria / redefining / consultants),
+  // whose guests sit AFTER the dates, keep their existing "strip Check In" path.
+  if (!checkInMatch) {
+    // ── v1 "Hotel Stays" / no-Check-In shape ──────────────────────────────────
+    // The cell is "<hotel name+address> name1 <dash> conf1 name2 <dash> conf2 …"
+    // (east-coast) OR a guest-less "<hotel> - <streetnum> <street> …". With no
+    // "Check In:" to separate hotel from guests, the legacy Pattern 1/2 below miss
+    // single-word / en-dash / middle-initial guests, leave guest names glued in
+    // hotel_name, and mis-read a dash before a street number as a "Name - conf#".
+    // names[] is load-bearing — getShowForViewer filters hotels by viewer-name ∈
+    // res.names (lib/data/getShowForViewer.ts:644).
+    //
+    // A STREET number begins a street phrase (suffix OR ZIP tail); a confirmation
+    // number does not — so looksLikeStreetStart is the discriminator (prepend a
+    // space so the regexes' leading \s anchors match right at the number). Used
+    // only to classify a dash-number as street-vs-conf — never to SPLIT.
+    const streetStartsAt = (i: number): boolean => looksLikeStreetStart(" " + text.slice(i));
+    // base word count = words minus a trailing single-letter initial ("Eric W" → 1).
+    const baseWords = (s: string): number => {
+      const w = s.split(/\s+/).filter(Boolean);
+      return w.length > 1 && /^\p{Lu}\.?$/u.test(w[w.length - 1]!) ? w.length - 1 : w.length;
+    };
+
+    // Confirmation delimiters: a dash run + 4+ digit conf# that is NOT a street
+    // number. They cut the cell into "<hotel> name1 | name2 | … | nameN".
+    const delimRe = /[-–—]{1,3}\s*#?\s*(\d{4,})\b/g;
+    const delims: Array<{ start: number; end: number }> = [];
+    let dm: RegExpExecArray | null;
+    while ((dm = delimRe.exec(text)) !== null) {
+      const numStart = dm.index + dm[0].length - dm[1]!.length;
+      if (!streetStartsAt(numStart)) delims.push({ start: dm.index, end: dm.index + dm[0].length });
+    }
+
+    if (delims.length >= 2) {
+      // names 2..N are UNAMBIGUOUSLY delimited (each is the text before its conf#);
+      // only the FIRST guest's name length is ambiguous (how many leading words are
+      // the hotel). Learn that length from the later guests, then peel it off seg0.
+      const segs: string[] = [];
+      let prev = 0;
+      for (const d of delims) {
+        segs.push(text.slice(prev, d.start));
+        prev = d.end;
+      }
+      const later = segs
+        .slice(1)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      // Trust learn-K ONLY when the later guests AGREE on a name shape (same base
+      // word count). A MIXED row ("Eric - … John Smith - …": counts 1 and 2) gives
+      // no reliable k for the ambiguous first guest, so fall through to legacy
+      // rather than guess (Codex R6) — moving a first-name into hotel_name would
+      // hide that reservation from the guest (names[] is the per-viewer filter).
+      const counts = later.map(baseWords);
+      const consistent = counts.length > 0 && counts.every((c) => c === counts[0]);
+      if (consistent) {
+        const k = counts[0]!;
+        // name1 = the last k base-words of seg0 (a trailing initial rides with its word).
+        const toks = segs[0]!.trim().split(/\s+/).filter(Boolean);
+        let i = toks.length;
+        let counted = 0;
+        while (i > 0 && counted < k) {
+          i--;
+          if (!/^\p{Lu}\.?$/u.test(toks[i]!)) counted++;
+        }
+        const name1 = toks.slice(i).join(" ");
+        const hotelPart = toks.slice(0, i).join(" ");
+        const names = [name1, ...later]
+          .map(stripConfTokens)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0);
+        if (names.length >= 2 && hotelPart.length > 0) {
+          const split = splitHotelNameAddress(hotelPart);
+          return {
+            ordinal,
+            hotel_name: split.name,
+            hotel_address: split.address,
+            names,
+            confirmation_no: null,
+            check_in: null,
+            check_out: null,
+            notes: null,
+          };
+        }
+      }
+    }
+
+    // No clean multi-guest list. If there are NO guests at all (no non-street dash
+    // conf#, no bare 6+ / #-conf), it's a plain hotel(+address) cell ("Hyatt Regency
+    // - 1515 Madison Ave …", "Marriott Downtown 555 Main St …"): splitHotelNameAddress
+    // owns the name/address. Otherwise (a single dash-conf guest, or the 2025-04
+    // bare-conf# "In on the …" prose) fall through to the legacy Pattern 1/2/3, which
+    // surfaces the guest (the first-guest/hotel boundary for a lone multi-word name
+    // is the legacy greedy capture — a documented bound, see BACKLOG).
+    const hasGuest = delims.length >= 1 || /\b\d{6,}\b|#\s*\d{4,}/.test(text);
+    if (!hasGuest) {
+      // No guests ⇒ any " - " is a name/address SEPARATOR, not a conf delimiter.
+      // Collapse spaced dash runs to a space FIRST so the downstream stripConfTokens
+      // pass can't later eat a dash-separated street number ("Hyatt Regency - 1515
+      // Broadway …" → "… 1515 Broadway …"). Intra-word hyphens ("Ritz-Carlton", no
+      // surrounding spaces) are untouched. A suffixed street still splits; a
+      // suffixless one stays glued-but-preserved (the #3 safe fallback).
+      const noSepDash = text.replace(/\s+[-–—]{1,3}\s+/g, " ");
+      const split = splitHotelNameAddress(noSepDash);
+      if (split.name !== null || split.address !== null) {
+        return {
+          ordinal,
+          hotel_name: split.name,
+          hotel_address: split.address,
+          names: [],
+          confirmation_no: null,
+          check_in: null,
+          check_out: null,
+          notes: null,
+        };
+      }
+    }
+  }
 
   const names: string[] = [];
 
