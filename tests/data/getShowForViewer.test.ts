@@ -91,6 +91,21 @@ async function seedCrew(opts: {
   return data.id as string;
 }
 
+async function seedHotel(opts: {
+  showId: string;
+  ordinal?: number;
+  names: string[];
+  hotelName?: string;
+}): Promise<void> {
+  const { error } = await admin.from("hotel_reservations").insert({
+    show_id: opts.showId,
+    ordinal: opts.ordinal ?? 1,
+    hotel_name: opts.hotelName ?? "Test Hotel",
+    names: opts.names,
+  });
+  if (error) throw new Error(`seedHotel failed: ${error.message}`);
+}
+
 async function cleanupTestShows(): Promise<void> {
   // Cascade clears crew_members, hotel_reservations, rooms, transportation,
   // contacts, shows_internal via FK on delete cascade.
@@ -128,6 +143,37 @@ describe("getShowForViewer (§7.4)", () => {
     expect(r.financials?.invoice).toBe("INV-456");
     expect(r.financials?.invoice_notes).toBe("Net 30");
     expect(r.show.coi_status).toBe("IN PROCESS");
+  });
+
+  // BL-HOTEL-VIEWER-NAME-MATCH: the per-viewer hotel filter must match by name
+  // (namesRefer), not substring. Drives the REAL getShowForViewer end-to-end.
+  test("crew viewer sees their hotel when the guest is a first-name (not substring)", async () => {
+    const showId = await seedShow({ title: "Hotel FirstName" });
+    const crewId = await seedCrew({ showId, name: "Carl Fenton", roleFlags: ["A1"] });
+    await seedHotel({ showId, names: ["Carl"], hotelName: "Four Seasons" });
+
+    const r = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId });
+    // failure mode: the old `guest.includes(viewer)` hid this ("carl" ⊉ "carl fenton")
+    expect(r.hotelReservations.map((h) => h.hotel_name)).toContain("Four Seasons");
+  });
+
+  test("crew viewer does NOT see a same-first-name different-surname guest's hotel", async () => {
+    const showId = await seedShow({ title: "Hotel OverMatch" });
+    const crewId = await seedCrew({ showId, name: "Eric Weiss", roleFlags: ["A1"] });
+    await seedHotel({ showId, names: ["Eric Carroll"], hotelName: "The Drake" });
+
+    const r = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId });
+    expect(r.hotelReservations).toHaveLength(0); // surnames differ → not the viewer's
+  });
+
+  test("crew viewer matches a LEGACY '/'-merged persisted hotel row (no re-ingest)", async () => {
+    const showId = await seedShow({ title: "Hotel LegacyMerged" });
+    const crewId = await seedCrew({ showId, name: "DJ Johnson", roleFlags: ["A1"] });
+    // the un-split shape that the parser fix only corrects on FUTURE re-ingestion
+    await seedHotel({ showId, names: ["David Johnson / Jeffrey Justice"], hotelName: "Kimpton" });
+
+    const r = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId });
+    expect(r.hotelReservations.map((h) => h.hotel_name)).toContain("Kimpton");
   });
 
   test("admin response includes financials", async () => {
