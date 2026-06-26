@@ -6,6 +6,8 @@ import type {
   ScanRouteDeps,
 } from "@/app/api/admin/onboarding/scan/route";
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
+import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
+import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -133,6 +135,27 @@ async function json(response: Response): Promise<unknown> {
   return await response.json();
 }
 
+// Streaming success path: read all NDJSON lines. Consuming the body also drives
+// the scan (which now runs inside the stream's start()) to completion, so any
+// side effects asserted afterward are settled.
+async function readNdjson(response: Response): Promise<unknown[]> {
+  const text = await response.text();
+  return text
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => JSON.parse(l));
+}
+
+function terminal(messages: unknown[]): unknown {
+  const last = messages.at(-1) as { type?: string; body?: unknown };
+  expect(last?.type).toBe("result");
+  return last!.body;
+}
+
+function expectsOnProgress() {
+  return expect.objectContaining({ onProgress: expect.any(Function) });
+}
+
 describe("POST /api/admin/onboarding/scan", () => {
   test("AC-10.2 success: verifies folder, mints session, purges current-session rows, and returns scan result", async () => {
     const db = new FakeScanDb();
@@ -149,7 +172,9 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({
+    expect(response.headers.get("content-type")).toBe("application/x-ndjson");
+    const messages = await readNdjson(response);
+    expect(terminal(messages)).toEqual({
       outcome: "completed",
       wizardSessionId: W1,
       folderId: "folder-1",
@@ -161,7 +186,7 @@ describe("POST /api/admin/onboarding/scan", () => {
       pending_wizard_session_at: "DB_NOW",
       pending_folder_id: "folder-1",
     });
-    expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-1", W1);
+    expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-1", W1, expectsOnProgress());
   });
 
   test("AC-10.2 completed: aggregates processed[] into client-facing totals + folder context", async () => {
@@ -196,7 +221,7 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({
+    expect(terminal(await readNdjson(response))).toEqual({
       outcome: "completed",
       wizardSessionId: W1,
       folderId: "folder-1",
@@ -287,13 +312,14 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
 
     expect(response.status).toBe(200);
+    await readNdjson(response); // drive the streamed scan to completion
     expect(db.settings.pending_wizard_session_id).toBe(W2);
     expect(db.settings.pending_wizard_session_at).toBe("OLD_DB_NOW");
     expect(db.settings.pending_folder_id).toBe("folder-2");
     expect(db.pendingSyncs).toEqual([]);
     expect(db.pendingIngestions).toEqual([]);
     expect(db.manifest).toEqual([]);
-    expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-2", W2);
+    expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-2", W2, expectsOnProgress());
   });
 
   test("Amendment 9 clean first-seen onboarding fixture stays staged for review", async () => {
@@ -324,6 +350,7 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
 
     expect(response.status).toBe(200);
+    await readNdjson(response); // drive the streamed scan (which mutates db) to completion
     expect(db.shows).toEqual([]);
     expect(db.pendingSyncs).toEqual([
       {
@@ -368,6 +395,7 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
 
     expect(response.status).toBe(200);
+    await readNdjson(response); // drive the streamed scan (which mutates db) to completion
     expect(db.shows).toEqual([]);
     expect(db.pendingSyncs).toEqual([
       {
@@ -412,7 +440,7 @@ describe("POST /api/admin/onboarding/scan", () => {
       );
 
       expect(response.status).toBe(200);
-      expect(await json(response)).toEqual(result);
+      expect(terminal(await readNdjson(response))).toEqual(result);
     },
   );
 
@@ -440,12 +468,83 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({
+    expect(terminal(await readNdjson(response))).toEqual({
       outcome: "completed",
       wizardSessionId: W1,
       folderId: "folder-1",
       folderName: "FXAV Onboarding",
       totals: expectedTotals,
     });
+  });
+
+  test("AC-10.2 success terminal body equals toScanResponseBody(result, ctx) (derived, anti-tautology)", async () => {
+    const result = {
+      outcome: "completed" as const,
+      processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
+    };
+    const db = new FakeScanDb();
+    const routeDeps = deps(db, { runOnboardingScan: vi.fn(async () => result) });
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-1"),
+      routeDeps,
+    );
+    const expectedBody = toScanResponseBody(result, {
+      wizardSessionId: W1,
+      folderId: "folder-1",
+      folderName: "FXAV Onboarding",
+    });
+    expect(terminal(await readNdjson(response))).toEqual(expectedBody);
+  });
+
+  test("forwards progress events as NDJSON lines before the terminal result", async () => {
+    const db = new FakeScanDb();
+    const routeDeps = deps(db, {
+      runOnboardingScan: vi.fn(
+        async (
+          _folderId: string,
+          _wizardSessionId: string,
+          d?: { onProgress?: (e: ScanProgressEvent) => void },
+        ) => {
+          d?.onProgress?.({ type: "listed", total: 2 });
+          d?.onProgress?.({ type: "prepared", done: 1, total: 2, name: "A" });
+          d?.onProgress?.({ type: "prepared", done: 2, total: 2, name: "B" });
+          d?.onProgress?.({ type: "staging" });
+          return {
+            outcome: "completed" as const,
+            processed: [
+              { driveFileId: "a", outcome: "staged" as const },
+              { driveFileId: "b", outcome: "staged" as const },
+            ],
+          };
+        },
+      ),
+    });
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-1"),
+      routeDeps,
+    );
+    const messages = (await readNdjson(response)) as Array<{ type: string }>;
+    expect(messages.map((m) => m.type)).toEqual([
+      "listed",
+      "prepared",
+      "prepared",
+      "staging",
+      "result",
+    ]);
+  });
+
+  test("mid-run throw becomes a terminal {ok:false, code:null} on a 200 stream", async () => {
+    const db = new FakeScanDb();
+    const routeDeps = deps(db, {
+      runOnboardingScan: vi.fn(async () => {
+        throw new Error("drive exploded");
+      }),
+    });
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-1"),
+      routeDeps,
+    );
+    expect(response.status).toBe(200);
+    expect(terminal(await readNdjson(response))).toEqual({ ok: false, code: null });
   });
 });

@@ -90,3 +90,12 @@ Source: the verified CI-speedup analysis (41-agent workflow, every finding adver
 - **Trigger:** after the supabase-cli pin work (#104/#105) and this PR merge, and when D10 or D11 is ready to implement (so the composite action has a consumer beyond DRY). Also add `"packageManager": "pnpm@10.33.2"` to package.json as the single version source.
 
 > Note: the verified report's "pin supabase/setup-cli" Phase-2 item is NOT deferred — it shipped independently (#104 pinned 2.98.2, which broke the bootstrap's in-container psql auth; #105 fixed it to 2.107.0, the version `latest` actually resolved to on green runs).
+
+## Scan-progress bar — real-browser dimension probe (2026-06-23)
+
+### D13 — [P3] Real-browser `getBoundingClientRect` check of the Step-2 progress bar
+
+- **What:** confirm in a real browser that the themed `<progress data-testid="wizard-step2-progressbar">` renders at the progress panel's full content width (±0.5px) and the documented `h-2` (8px) height, in the `reading` phase.
+- **Why deferred (not a blocker):** the AGENTS.md mandatory real-browser layout gate targets **flex/grid children inside fixed-dimension parents** (the Tailwind-v4 no-default-`align-items:stretch` trap). This bar is **not** that case — width comes from an explicit `w-full` (width:100%) and height from an explicit `h-2`, neither depending on flex stretch (spec §5.5 reasons this). jsdom can't compute layout and `vitest` would mis-collect a Playwright file; `playwright.config.ts` only runs `tests/e2e` (a crew-route harness, no admin-wizard fixture). The invariant-8 impeccable gate already reviewed the rendered surface (contrast computed, theming + border ring verified, GATE: PASS). Residual risk ≈ nil; a one-off numeric confirmation is nice-to-have, not gating.
+- **Trigger / how to run:** standalone real-browser layout harness (compile `app/globals.css` with the Tailwind CLI → static HTML with the progress-panel markup inside a `p-tile-pad` bordered panel + `<progress class="h-2 w-full" value=1 max=3>` → `python3 -m http.server` → Playwright MCP), then `evaluate_script`:
+  `const bar=document.querySelector('[data-testid="wizard-step2-progressbar"]'),panel=document.querySelector('[data-testid="wizard-step2-progress"]'),s=getComputedStyle(panel),cw=panel.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight),b=bar.getBoundingClientRect();({widthDelta:Math.abs(b.width-cw),height:b.height})` — expect `widthDelta ≤ 0.5`, `height ≈ 8`.
