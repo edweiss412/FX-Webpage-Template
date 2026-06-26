@@ -399,4 +399,59 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
       expect(first<{ slug: string }>(colliderRows).slug).toBe(DERIVED_BASE_SLUG);
     },
   );
+
+  test.skipIf(!dbUp)(
+    "first-seen finalize on the slug-SUFFIX path still stamps F1 provenance (created_show_id + wizard_created_session_id)",
+    async () => {
+      // Validation drill 2026-06-12 (drive_file_id 1f2mV…): Phase B finalize 200 via the
+      // '-2' suffix path, but the manifest's created_show_id and the show's
+      // wizard_created_session_id were both NULL — the WM-R8 legacy-ambiguity preflight and
+      // the narrowed publish flip (finalize-cas) both depend on this provenance.
+      // Failure mode caught: the suffix-path INSERT returning a row whose provenance inputs
+      // were dropped/skipped, while the non-colliding path (covered by
+      // tests/onboarding/finalizeFirstSeenFullApply.db.test.ts:348-358) still stamps.
+      await sql!.unsafe(
+        `insert into public.shows (drive_file_id, slug, title, client_label, template_version)
+         values ($1, $2, $3, 'Acme Corp', 'v4')`,
+        [COLLIDER_DRIVE_FILE_ID, DERIVED_BASE_SLUG, TITLE],
+      );
+
+      await writeViaRealWriter(PARSE_RESULT);
+      await approveStagedRow();
+
+      const response = await handleOnboardingFinalize(
+        new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
+        finalizeDeps(),
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { per_row: Array<{ code: string }> };
+      expect(body.per_row[0]?.code).toBe("OK");
+
+      const showRows = await sql!.unsafe(
+        `select id, slug, published, wizard_created_session_id
+           from public.shows where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      expect(showRows.length).toBe(1);
+      const show = first<{
+        id: string;
+        slug: string;
+        published: boolean;
+        wizard_created_session_id: string | null;
+      }>(showRows);
+      expect(show.slug).toBe(`${DERIVED_BASE_SLUG}-2`);
+      // Show-side discriminator: written in the SAME INSERT statement (R59-1/R60-1).
+      expect(show.wizard_created_session_id).toBe(SESSION);
+      // First-seen stays a draft until the final CAS publish flip (R30-1).
+      expect(show.published).toBe(false);
+
+      // Manifest-side provenance pointer: recordCreatedShowProvenance in the same per-row tx.
+      const manifestRows = await sql!.unsafe(
+        `select created_show_id from public.onboarding_scan_manifest
+          where wizard_session_id = $1::uuid and drive_file_id = $2`,
+        [SESSION, DRIVE_FILE_ID],
+      );
+      expect(first<{ created_show_id: string | null }>(manifestRows).created_show_id).toBe(show.id);
+    },
+  );
 });
