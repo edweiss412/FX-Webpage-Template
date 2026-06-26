@@ -157,11 +157,11 @@ function stripConfTokens(name: string): string {
  * Split a flattened "<hotel name> <street address>" string into the venue name
  * and the street address (§2.6 / BL-PARSER #3). The production exporter flattens
  * the source cell's `name⏎street⏎city` newlines to spaces, so the boundary is
- * recovered by PATTERN: the address begins at the FIRST standalone 2–5 digit
- * STREET NUMBER that is followed by a street word. Live-MCP grounding of all 7
- * fxav-test sheets (2026-06-26) confirmed every hotel name ends at that number
- * and NO hotel name in the corpus contains such a number, so there is no false
- * split; on the live cell this boundary is also the in-cell newline.
+ * recovered by PATTERN: the address begins at the FIRST street NUMBER that
+ * actually starts a street PHRASE. Live-MCP grounding of all 7 fxav-test sheets
+ * (2026-06-26) confirmed every hotel name ends at that number and no hotel name
+ * in the corpus contains such a number; on the live cell this boundary is also
+ * the in-cell newline.
  *
  * Also strips artifacts the live cells carry that the exporter preserves so the
  * crew render stays clean (hotel_name = bold line, hotel_address = subtle line,
@@ -171,17 +171,21 @@ function stripConfTokens(name: string): string {
  * number (the leading-\s anchor below already rejects a "#5001397" with no
  * preceding space, but stripping first is belt-and-suspenders).
  *
- * The boundary requires a full STREET SHAPE — `<2–5 digit number> [direction]
- * <0–4 name words> <street suffix>` — NOT merely "a number followed by a word".
- * That keeps a numeric-branded hotel name from being mis-split: `Hotel 71` (no
- * address) stays whole, and `Hotel 71 71 E Wacker Dr …` splits at the REAL street
- * number (the second `71`, the one that begins a street phrase) → name
- * `Hotel 71`, not name `Hotel`. When no street shape is found the cell stays
- * intact as hotel_name (the pre-#3 behavior) — a SAFE failure, never a corrupted
- * name. Every address in the live corpus carries a suffix, so none regress.
+ * The boundary requires a full STREET SHAPE — `<1–5 digit number> [direction]
+ * <0–4 name words, letter-word OR ordinal like "37th"> <street suffix>` — NOT
+ * merely "a number followed by a word". Two-sided robustness:
+ *   • Too-loose (Codex R1) — a numeric-branded name is NOT mis-split: `Hotel 71`
+ *     (no address) stays whole; `Hotel 71 71 E Wacker Dr …` splits at the SECOND
+ *     71 (the one that begins a street phrase) → name `Hotel 71`, not `Hotel`.
+ *   • Too-strict (Codex R2) — common shapes still split: a 1-digit street number
+ *     (`1 Newbury St`, `1 Bellevue Ave`) and an ordinal street name (`38 E 37th
+ *     St`, `485 5th Ave`) both match.
+ * When no street shape is found the cell stays intact as hotel_name (the pre-#3
+ * behavior) — a SAFE failure, never a corrupted name. Exotic shapes intentionally
+ * left glued (safe): alphanumeric house numbers (`123A Main St`), PO boxes.
  */
 const STREET_ADDRESS_RE =
-  /\s(\d{2,5})\s+(?:[NSEW]{1,2}\.?\s+)?(?:\p{L}[\p{L}.'-]*\s+){0,4}(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
+  /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
 
 function splitHotelNameAddress(combined: string | null): {
   name: string | null;

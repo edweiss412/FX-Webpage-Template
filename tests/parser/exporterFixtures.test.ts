@@ -384,6 +384,36 @@ describe("exporter fidelity — #3 hotel name / address split (live-grounded, al
     expect(h.hotel_name).toBe("Hotel 71");
     expect(h.hotel_address).toBe("71 E Wacker Dr Chicago, IL 60601");
   });
+
+  // Coverage for common address shapes the street-shape gate must NOT reject
+  // (1-digit street numbers + ordinal street names) — else those venues silently
+  // regress to a glued name/address on the crew page.
+  const splitCases: Array<[string, string, string]> = [
+    // cell, expected name, expected address
+    [
+      "The Newbury Boston 1 Newbury St Boston, MA 02116",
+      "The Newbury Boston",
+      "1 Newbury St Boston, MA 02116",
+    ],
+    [
+      "Hotel Viking 1 Bellevue Ave Newport, RI 02840",
+      "Hotel Viking",
+      "1 Bellevue Ave Newport, RI 02840",
+    ],
+    [
+      "Union League Club 38 E 37th St New York, NY 10016",
+      "Union League Club",
+      "38 E 37th St New York, NY 10016",
+    ],
+    ["The Langham 485 5th Ave New York, NY 10017", "The Langham", "485 5th Ave New York, NY 10017"],
+  ];
+  for (const [cell, name, address] of splitCases) {
+    it(`splits "${name}" off its address "${address}" (1-digit / ordinal street shapes)`, () => {
+      const h = numericHotel(cell);
+      expect(h.hotel_name).toBe(name);
+      expect(h.hotel_address).toBe(address);
+    });
+  }
 });
 
 describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS block", () => {
