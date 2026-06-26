@@ -342,9 +342,18 @@ async function deletePendingIngestion(
 // supersession that lands between requireCurrentWizardRow and this UPDATE
 // no-ops the manifest write. Returns whether a row was affected so the
 // caller can refuse to delete the pending_ingestions row on a 0-row result.
+// DS3-1: the row + tx params are LOOSENED to the minimal structural shapes this
+// helper actually reads, so the new manifest-keyed ignore route
+// (app/api/admin/onboarding/manifest/.../ignore/route.ts) can reuse it for rows
+// that have NO pending_ingestions backing (live_row_conflict / discard_retryable).
+// PendingIngestionRow & { wizard_session_id: string } still satisfies
+// ManifestTransitionRow, so the C1 caller below is unaffected.
+type ManifestTransitionTx = { queryOne<T>(sql: string, params: unknown[]): Promise<T> };
+type ManifestTransitionRow = { wizard_session_id: string; drive_file_id: string };
+
 async function transitionManifestRow(
-  tx: WizardPendingIngestionRouteTx,
-  row: PendingIngestionRow & { wizard_session_id: string },
+  tx: ManifestTransitionTx,
+  row: ManifestTransitionRow,
   kind: "defer_until_modified" | "permanent_ignore",
 ): Promise<boolean> {
   const updated = await tx.queryOne<{ updated: boolean } | null>(

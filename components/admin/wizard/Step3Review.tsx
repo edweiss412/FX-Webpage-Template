@@ -222,11 +222,10 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
   );
 }
 
-// The AC11-accepted external-resolve exit for live_row_conflict (and the
-// legacy discard_retryable): a link to the dashboard where Doug resolves the
-// conflicting live row, then re-runs setup. This is intentionally NOT an
-// in-wizard Ignore button for these statuses (deferred — see DEFERRED.md); the
-// dashboard round-trip is the documented way out.
+// The AC11-accepted external-resolve exit for live_row_conflict: a link to the
+// dashboard where Doug resolves the conflicting live row, then re-runs setup. It
+// renders ALONGSIDE the in-wizard "Permanently ignore" button (DS3-1) — AC11 is
+// "Ignore OR external resolve", so live_row_conflict offers both exits.
 function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
   return (
     <Link
@@ -236,6 +235,79 @@ function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
     >
       Resolve in the dashboard, then re-run setup
     </Link>
+  );
+}
+
+// DS3-1: the in-wizard "Permanently ignore" exit for the two blocking statuses
+// that have NO pending_ingestions row (live_row_conflict / discard_retryable). An
+// ignore-only mirror of HardFailedActions — it does NOT build endpointForAction
+// from row.pendingIngestionId (these rows lack one); it posts the manifest-keyed
+// route keyed on (wizardSessionId, driveFileId). On success it router.refresh()es;
+// an error body routes through lookupDougFacing (no raw §12.4 code leaks, invariant
+// 5) into the shared wizard-step3-error-<dfid> alert.
+function ManifestIgnoreAction({
+  wizardSessionId,
+  row,
+}: {
+  wizardSessionId: string;
+  row: Step3Row;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<{ copy: string; code: string | null } | null>(null);
+
+  async function run() {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/admin/onboarding/manifest/${wizardSessionId}/${row.driveFileId}/ignore`,
+        { method: "POST" },
+      );
+      const body = (await response.json()) as { status: string } | { ok: false; code: string };
+      if ("ok" in body && body.ok === false) {
+        setError({
+          copy:
+            lookupDougFacing(body.code) ??
+            "That action could not complete. Refresh the wizard and try again.",
+          code: body.code,
+        });
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError({
+        copy: "We could not reach the server. Check your connection and try again.",
+        code: null,
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        data-testid={`wizard-step3-ignore-${row.driveFileId}`}
+        onClick={() => void run()}
+        disabled={pending}
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      >
+        {pending ? "Ignoring…" : "Permanently ignore"}
+      </button>
+      {error ? (
+        <div
+          role="alert"
+          data-testid={`wizard-step3-error-${row.driveFileId}`}
+          className="flex flex-col gap-1 text-sm text-warning-text"
+        >
+          <p>{renderEmphasis(error.copy)}</p>
+          <HelpAffordance code={error.code} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -323,25 +395,29 @@ function RowItem({ row, wizardSessionId }: { row: Step3Row; wizardSessionId: str
       {row.status === "discard_retryable" ? (
         // Legacy-only status: the redesign no longer produces discard_retryable
         // (the "Retry on next sync" action was removed). Defensive render so a
-        // stray/legacy row still has an in-wizard exit — the same dashboard
-        // "resolve + re-run setup" path live_row_conflict uses (AC11). The
-        // in-wizard Ignore button for this status is deferred (DEFERRED.md).
+        // stray/legacy row still has an in-wizard exit. DS3-1 wires the in-wizard
+        // "Permanently ignore" (spec §4.1 lists only Ignore for this status) via
+        // the manifest-keyed route (these rows have no pendingIngestionId).
         <div className="flex flex-col gap-2 text-sm text-warning-text">
           <p>
-            This sheet was set aside by an earlier version of setup. Resolve it from the dashboard,
-            then re-run setup to clear it.
+            This sheet was set aside by an earlier version of setup. Permanently ignore it to clear
+            it from setup.
           </p>
-          <DashboardResolveLink driveFileId={row.driveFileId} />
+          <ManifestIgnoreAction wizardSessionId={wizardSessionId} row={row} />
         </div>
       ) : null}
 
       {row.status === "live_row_conflict" ? (
+        // AC11 "Ignore OR external resolve": KEEP the dashboard-resolve link +
+        // LIVE_ROW_CONFLICT help affordance, and ADD the in-wizard Ignore (DS3-1)
+        // via the manifest-keyed route (no pendingIngestionId on these rows).
         <div className="flex flex-col gap-2 text-sm text-warning-text">
           <p>
             {liveConflictCopy
               ? renderEmphasis(liveConflictCopy)
               : "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
           </p>
+          <ManifestIgnoreAction wizardSessionId={wizardSessionId} row={row} />
           <DashboardResolveLink driveFileId={row.driveFileId} />
           <HelpAffordance code="LIVE_ROW_CONFLICT" />
         </div>
