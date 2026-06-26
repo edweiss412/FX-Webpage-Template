@@ -455,6 +455,22 @@ describe("exporter fidelity — v1 Hotel-Stays guest extraction (#3 follow-up)",
     expect(h[0]!.names).toEqual(["Carl", "Doug"]);
   });
 
+  // no-regression (Codex R2): a no-Check-In cell with a 2-word name + a 4–5 digit
+  // dash conf ("Doug Larson - 7414") is NOT the east-coast 1-word/6-digit shape, so
+  // it must FALL THROUGH to legacy Pattern 1, which SURFACES the guest — it must NOT
+  // be dropped to names:[] by the guest-less shortcut. The shortcut fires only when
+  // a dash-number is a STREET number (street phrase), not a conf#. (Pattern 1 greedy-
+  // captures the leading hotel word too — "Westin Doug Larson" — a pre-existing bleed
+  // out of this fix's scope; what matters here is the guest is present, not dropped.)
+  it("a no-Check-In 2-word + 4-digit dash conf still SURFACES the guest, not dropped", () => {
+    const h = parseHotels("| Hotel Stays | Westin Doug Larson - 7414 |", "v1");
+    expect(h).toHaveLength(1);
+    expect(h[0]!.names.length).toBeGreaterThan(0); // NOT dropped to []
+    expect(h[0]!.names.join(" ")).toContain("Doug Larson");
+    expect(h[0]!.names.join(" ")).not.toContain("7414"); // conf# stripped from names
+    expect(h[0]!.hotel_name ?? "").not.toContain("7414"); // and from hotel_name
+  });
+
   // no-regression: the legacy BARE-conf# shape (no dash, "In on the Nth" prose) is
   // intentionally NOT handled by the dash extractor — it must fall through to the
   // existing path with the conf# stripped (privacy) and the venue still present.

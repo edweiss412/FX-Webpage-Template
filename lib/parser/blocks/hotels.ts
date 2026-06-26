@@ -566,49 +566,72 @@ function buildInlineHotel(
   // on !checkInMatch so the dated inline shapes (ria / redefining / consultants),
   // whose guests sit AFTER the dates, keep their existing "strip Check In" path.
   if (!checkInMatch) {
-    // Guest NAME = one capitalized word + an OPTIONAL single-letter middle initial
-    // ("Eric W"), immediately followed by a 1–3 char dash run + optional # + a 6+
-    // digit confirmation number. Design choices:
-    //   • 6+ digits (not 4+): hotel confirmation numbers are ≥6 digits, while US
-    //     STREET numbers are ≤5 — so a dash-separated ADDRESS like "Hyatt Regency -
-    //     1515 Broadway" can never be mis-read as a "Regency - <conf>" guest (Codex).
-    //   • 2nd token is only a single-letter INITIAL, not a full word: stops a
-    //     hotel's last word pairing with the first guest ("Lauderdale Doug").
-    //   • name inner run carries '.- for "O'Brien"/"Smith-Jones"/"Jr." but MUST end
-    //     in a letter (\p{L}), else a trailing name hyphen eats the dash ("Doug--").
-    const dashGuestRe =
+    // A street number begins a STREET phrase; a confirmation number does not — so
+    // STREET_ADDRESS_RE is the discriminator between an address and a guest conf#.
+    // (Prepend a space so the regex's leading \s anchor matches at the number.)
+    const streetStartsAt = (i: number): boolean => {
+      const m = STREET_ADDRESS_RE.exec(" " + text.slice(i));
+      return m !== null && m.index === 0;
+    };
+
+    // (1) east-coast-style guests: "<Name>[ <Initial>] <dash> #?<conf 6+>". 6+
+    // digits ⇒ never a street number (US street numbers are ≤5 digits). The name is
+    // one capitalized word + an OPTIONAL single-letter initial ("Eric W"); the 2nd
+    // token is only an initial (not a full word) so a hotel's last word can't pair
+    // with the first guest ("Lauderdale Doug"); the inner run carries '.- for
+    // "O'Brien"/"Jr." but MUST end in a letter so a trailing name hyphen can't eat
+    // the dash ("Doug--"). The weak Pattern 1/2 below miss these (en-dash, initial,
+    // single-word) and leave the guest names glued into hotel_name.
+    const guestRe =
       /(\p{Lu}(?:[\p{L}\p{M}'.-]*\p{L})?(?:\s+\p{Lu}\.?)?)\s*[-–—]{1,3}\s*#?\s*\d{6,}/gu;
-    const dashGuests: string[] = [];
+    const guests: string[] = [];
     let firstGuestAt = -1;
     let gm: RegExpExecArray | null;
-    while ((gm = dashGuestRe.exec(text)) !== null) {
+    while ((gm = guestRe.exec(text)) !== null) {
       if (firstGuestAt < 0) firstGuestAt = gm.index;
-      dashGuests.push(gm[1]!.trim());
+      guests.push(gm[1]!.trim());
     }
-    if (dashGuests.length > 0) {
-      // Hotel = the prefix before the first guest. Do NOT stripConfTokens it — the
-      // prefix has no conf# (those are on the guests), and stripping would eat a
-      // dash-separated street number out of the address.
+    if (guests.length > 0) {
+      // Hotel = the prefix before the first guest. NOT stripConfTokens'd — the
+      // prefix has no conf# (those are on the guests) and stripping would eat a
+      // dash-separated street number out of the address. names[] is load-bearing —
+      // getShowForViewer filters hotels by viewer-name ∈ res.names (:644).
       const split = splitHotelNameAddress(text.slice(0, firstGuestAt).trim());
       return {
         ordinal,
         hotel_name: split.name,
         hotel_address: split.address,
-        names: dashGuests.map(stripConfTokens).filter((n) => n.length > 0),
+        names: guests.map(stripConfTokens).filter((n) => n.length > 0),
         confirmation_no: null,
         check_in: null,
         check_out: null,
         notes: null,
       };
     }
-    // No dash-guests AND no confirmation number anywhere (no 6+ digit run) → a plain
-    // hotel(+address) cell with no guest list, e.g. "Hyatt Regency - 1515 Broadway
-    // …". Let splitHotelNameAddress own the name/address (it handles a dash before
-    // the street number + the #3 street-shape gate) instead of the legacy Pattern
-    // 1/2 below mis-reading "Name - <streetnum>" as a guest. Cells that DO carry a
-    // conf# (the legacy bare-conf# 2025-04 shape "… 2004173 In on the 6th …") fall
-    // through to the existing path, which strips the prose + conf#.
-    if (!/\d{6,}/.test(text)) {
+
+    // (2) Does the cell still carry guests in a shape the LEGACY path handles — a
+    // 2-word name + 4–5 digit dash conf ("Doug Larson - 7414"), or a bare 6+ /
+    // #-prefixed conf (the 2025-04 "… 2004173 In on the 6th …")? A dash-number is a
+    // guest conf# ONLY if it is NOT a street number.
+    let hasLegacyGuest = /\b\d{6,}\b|#\s*\d{4,}/.test(text);
+    if (!hasLegacyGuest) {
+      const dashNumRe = /[-–—]{1,3}\s*#?\s*(\d{4,5})\b/g;
+      let dm: RegExpExecArray | null;
+      while ((dm = dashNumRe.exec(text)) !== null) {
+        const numStart = dm.index + dm[0].length - dm[1]!.length;
+        if (!streetStartsAt(numStart)) {
+          hasLegacyGuest = true;
+          break;
+        }
+      }
+    }
+
+    // (3) No guests at all → a plain hotel(+address) cell ("Hyatt Regency - 1515
+    // Madison Ave …", "Marriott Downtown 555 Main St …"). splitHotelNameAddress owns
+    // the name/address (it handles a dash before the street number + the #3
+    // street-shape gate) instead of the legacy Pattern 1/2 mis-reading
+    // "Name - <streetnum>" as a guest. When hasLegacyGuest, fall through unchanged.
+    if (!hasLegacyGuest) {
       const split = splitHotelNameAddress(text);
       if (split.name !== null || split.address !== null) {
         return {
