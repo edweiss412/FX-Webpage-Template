@@ -20,7 +20,7 @@ on:
 # Supabase + Playwright, so a stale run holds a heavy runner for ~6 min.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   deep-link-walker:
