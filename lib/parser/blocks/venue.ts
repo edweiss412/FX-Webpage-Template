@@ -1,5 +1,5 @@
 import type { ShowRow } from "@/lib/parser/types";
-import { resolveAlias, resolveAliasFull } from "@/lib/parser/aliases";
+import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser/aliases";
 import type { ParseAggregator } from "@/lib/parser/warnings";
 import { presence, parseTableRows } from "./_helpers";
 
@@ -98,7 +98,19 @@ export function parseVenue(
     const col0 = row[0] ?? "";
     const col0Upper = col0.toUpperCase().trim();
     const col0Full = resolveAliasFull(col0);
-    const col0Canon = col0Full?.canonical ?? null;
+    let col0Canon = col0Full?.canonical ?? null;
+    // Scoped fuzzy fallback (spec §5.2): a misspelled venue field label that exact-resolves
+    // to nothing is recovered to its canonical, so it drives field assignment AND skips the
+    // UNKNOWN_FIELD branch below (which only fires when col0Canon === null). resolveAliasScoped
+    // is venue-scoped: it never borrows another block's canonical.
+    let fieldLabelCorrectedTo: string | null = null;
+    if (col0Canon === null && col0.trim() !== "") {
+      const fuzzy = resolveAliasScoped(col0, "venue.");
+      if (fuzzy?.corrected) {
+        col0Canon = fuzzy.canonical;
+        fieldLabelCorrectedTo = fuzzy.canonical;
+      }
+    }
 
     // Check for block terminators — if we see a strong block-opener label, leave
     // the venue field scope so UNKNOWN_FIELD stops firing for other blocks' rows.
@@ -121,6 +133,20 @@ export function parseVenue(
         severity: "info",
         code: "TYPO_NORMALIZED",
         message: `Typo alias '${col0.trim()}' normalized to canonical '${col0Full.canonical}'`,
+        blockRef: { kind: "venue" },
+        rawSnippet: col0.trim(),
+      });
+    }
+
+    // Emit FIELD_LABEL_AUTOCORRECTED (warn, deep-linked) when the scoped fuzzy fallback
+    // recovered a misspelled label — preserving venue's operator visibility (NOT the silent
+    // info downgrade). `message` is the internal admin diagnostic; the user sees the catalog
+    // copy ("Auto-corrected a field label"). canonical is the precise internal identifier.
+    if (fieldLabelCorrectedTo && agg && inVenueFieldScope) {
+      agg.warnings.push({
+        severity: "warn",
+        code: "FIELD_LABEL_AUTOCORRECTED",
+        message: `Read likely-misspelled field label '${col0.trim()}' as field '${fieldLabelCorrectedTo}'`,
         blockRef: { kind: "venue" },
         rawSnippet: col0.trim(),
       });

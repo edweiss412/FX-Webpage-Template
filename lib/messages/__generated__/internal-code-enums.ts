@@ -68,6 +68,9 @@ export const INTERNAL_CODE_ENUMS = {
   EXTRA_REVIEWER_CHOICE: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  FIELD_LABEL_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   FIELD_UNREADABLE: {
     source: "parse_warnings.code"
   },

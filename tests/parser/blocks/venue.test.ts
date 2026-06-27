@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseVenue } from "@/lib/parser/blocks/venue";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
+import { inScopeAliases } from "@/lib/parser/aliases";
+import { unambiguousTypos } from "@/tests/parser/_typoGenerator";
 
 // ── Fixture paths ────────────────────────────────────────────────────────────
 // 2026-03: v4. VENUE block at lines 40–44 (verified):
@@ -245,4 +248,55 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
       }
     });
   }
+});
+
+describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)", () => {
+  it("recovers a typo'd venue field label, emits FIELD_LABEL_AUTOCORRECTED, and fires NO UNKNOWN_FIELD", () => {
+    // 'Venue Adress' (deletion) → venue.address. Today: empty address + UNKNOWN_FIELD (verified).
+    const md = ["| VENUE NAME | Four Seasons Hotel |", "| Venue Adress | 120 E Delaware Pl Chicago, IL 60611 |"].join("\n");
+    const agg = newAggregator();
+    const r = parseVenue(md, "v4", agg);
+    expect(r?.address).toContain("120 E Delaware Pl"); // value recovered into the right field
+    const notes = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.severity).toBe("warn");
+    expect(notes[0]!.blockRef).toMatchObject({ kind: "venue" });
+    expect(agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD")).toHaveLength(0); // no downgrade
+  });
+
+  it("a correctly-spelled venue label is NOT flagged", () => {
+    const md = ["| VENUE NAME | Four Seasons |", "| VENUE ADDRESS | 120 E Delaware Pl Chicago, IL 60611 |"].join("\n");
+    const agg = newAggregator();
+    parseVenue(md, "v4", agg);
+    expect(agg.warnings.find((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toBeUndefined();
+  });
+
+  it("a typo near an OUT-of-scope alias is NOT fuzzed into venue (stays UNKNOWN_FIELD)", () => {
+    // 'Clent Contact' is Damerau 1 from the OUT-of-scope alias 'Client Contact' (client.contact)
+    // but is NOT near any venue.* alias → the venue-scoped fuzzy returns null → UNKNOWN_FIELD.
+    const md = ["| VENUE NAME | Four Seasons |", "| Clent Contact | someone@x.com |"].join("\n");
+    const agg = newAggregator();
+    parseVenue(md, "v4", agg);
+    expect(agg.warnings.find((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toBeUndefined();
+    expect(agg.warnings.find((w) => w.code === "UNKNOWN_FIELD")).toBeTruthy();
+  });
+
+  it("generator: single-edit typos of venue field aliases (≥5 chars) recover", () => {
+    // pass the FULL alias set so a generated typo that equals a real other-block exact alias is dropped
+    const ALL = inScopeAliases(""); // every REVERSE_MAP key
+    const venueAliases = inScopeAliases("venue.").filter((a) => a.length >= 5);
+    for (const alias of venueAliases.slice(0, 4)) {
+      // bound the loop for speed; a representative sample across venue.* aliases
+      for (const typo of unambiguousTypos(alias.toUpperCase(), ALL.map((a) => a.toUpperCase()), { minLen: 5 }).slice(0, 6)) {
+        const md = ["| VENUE NAME | Four Seasons |", `| ${typo} | some value |`].join("\n");
+        const agg = newAggregator();
+        parseVenue(md, "v4", agg);
+        // the recovered label must NOT be an UNKNOWN_FIELD (it corrected to a venue field)
+        expect(
+          agg.warnings.find((w) => w.code === "UNKNOWN_FIELD"),
+          `typo '${typo}' of '${alias}' should recover, not UNKNOWN_FIELD`,
+        ).toBeUndefined();
+      }
+    }
+  });
 });
