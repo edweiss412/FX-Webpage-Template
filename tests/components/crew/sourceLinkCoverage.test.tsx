@@ -219,7 +219,7 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   const WARNING_ANCHOR_ONLY = new Set<string>(["client"]);
 
   it("(c) every REGION_ID is referenced by ≥1 entry in CARD_REGION_MAP (warning-anchor-only regions exempt)", () => {
-    const referenced = new Set(Object.values(CARD_REGION_MAP));
+    const referenced = new Set<string>(Object.values(CARD_REGION_MAP));
     for (const region of REGION_IDS) {
       if (WARNING_ANCHOR_ONLY.has(region)) continue;
       expect(referenced.has(region), `region "${region}" has no card in CARD_REGION_MAP`).toBe(
