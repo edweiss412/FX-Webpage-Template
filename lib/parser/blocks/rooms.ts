@@ -5,7 +5,10 @@
  *
  * 1. v4 structured blocks (2026+):
  *    Header cell: "GENERAL SESSION <name> <dimensions> <floor>" (first col, all caps)
- *    Followed by rows: Setup | Set Time | Show Time | Strike Time
+ *    Followed by bare-label rows for all 12 v4 fields (V4_LABEL_TO_FIELD): Setup, Set Time,
+ *      Show Time, Strike Time, Audio, Video, Lighting, Scenic, Power, Digital Signage, Other,
+ *      Notes. A misspelled bare label is recovered via a gated fuzzy fallback (PR-D3); do not
+ *      strip the map's "backdrop / scenic" / "gs other" / "bo other" exact aliases.
  *    Breakout header: "BREAKOUT N <name> <dimensions> <floor>"
  *
  * 2. v2/v1 GS-prefix rows (2025 and earlier):
@@ -26,6 +29,8 @@
 import type { RoomRow, RoomKind } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 // Mergeable room data fields (everything except kind/name) — used to absorb a same-name
 // breakout into its GS room without dropping any populated value.
@@ -58,7 +63,7 @@ export function parseRooms(
   // (v4 takes precedence on collision; for a clean v4 sheet the v2 parsers re-match
   // the same headers, which dedupe collapses). Both parsers gate placeholder/empty
   // template stubs, so the merge never introduces phantom rooms.
-  const rooms = mergeRooms(parseV4Rooms(markdown), collectV2V1Rooms(markdown));
+  const rooms = mergeRooms(parseV4Rooms(markdown, agg), collectV2V1Rooms(markdown));
 
   // Free-text "Additional Room Name(s) / Setup" FIELDS (distinct from the all-caps
   // ADDITIONAL ROOM block) carry real crew instructions — meal/social rooms, setup
@@ -195,6 +200,53 @@ const V4_BARE_LABELS = new Set([
   "notes",
 ]);
 
+type RoomFieldKey =
+  | "setup"
+  | "set_time"
+  | "show_time"
+  | "strike_time"
+  | "audio"
+  | "video"
+  | "lighting"
+  | "scenic"
+  | "power"
+  | "digital_signage"
+  | "other"
+  | "notes";
+
+// EXACT label → field. 12 bare labels + 3 aliases the if/else chain handled
+// ("backdrop / scenic"→scenic, "gs other"/"bo other"→other). Lowercase keys (col0 is
+// lowercased), underscore field names. These aliases stay EXACT-only — they are NOT in
+// the fuzzy vocab below.
+const V4_LABEL_TO_FIELD: Record<string, RoomFieldKey> = {
+  setup: "setup",
+  "set time": "set_time",
+  "show time": "show_time",
+  "strike time": "strike_time",
+  audio: "audio",
+  video: "video",
+  lighting: "lighting",
+  scenic: "scenic",
+  "backdrop / scenic": "scenic",
+  power: "power",
+  "digital signage": "digital_signage",
+  other: "other",
+  "gs other": "other",
+  "bo other": "other",
+  notes: "notes",
+};
+
+// Uppercase fuzzable vocab the v4 fuzzy fallback corrects toward — DERIVED from V4_BARE_LABELS
+// (single source; lib/parser/typoVocabRegistry.ts imports this exact const so it can't drift).
+// All 12 members are >=5 chars, so minLen:5 never trips.
+export const V4_BARE_LABEL_VOCAB: readonly string[] = [...V4_BARE_LABELS].map((s) =>
+  s.toUpperCase(),
+);
+// Do-not-fuzz tokens (belt-and-suspenders — all <5 chars so minLen:5 already drops them;
+// passed for parity with the milestone's gate-exclusion convention).
+const ROOM_GATE_EXCLUDE = ["LED", "LEAD", "DATE", "DAY", "ROOM", "TBD", "TBA", "N/A"] as const;
+const ROOM_GATE_OPTS = { minLen: 5, tieAbort: true, exclude: ROOM_GATE_EXCLUDE } as const;
+
 function hasBareV4DataRow(lines: string[], startLine: number): boolean {
   for (let j = startLine; j < lines.length; j++) {
     const t = (lines[j] ?? "").trim();
@@ -206,7 +258,7 @@ function hasBareV4DataRow(lines: string[], startLine: number): boolean {
   return false;
 }
 
-function parseV4Rooms(markdown: string): RoomRow[] {
+function parseV4Rooms(markdown: string, agg?: ParseAggregator): RoomRow[] {
   const rooms: RoomRowInternal[] = [];
   const lines = markdown.split("\n");
   let i = 0;
@@ -233,7 +285,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
-      const result = parseV4RoomBlock(lines, i, col0, "gs");
+      const result = parseV4RoomBlock(lines, i, col0, "gs", agg);
       rooms.push(result.room);
       i = result.nextLine;
       continue;
@@ -251,7 +303,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
-      const result = parseV4RoomBlock(lines, i, col0, "breakout");
+      const result = parseV4RoomBlock(lines, i, col0, "breakout", agg);
       i = result.nextLine;
       if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
         rooms.push(result.room);
@@ -269,7 +321,7 @@ function parseV4Rooms(markdown: string): RoomRow[] {
       !col0.includes("&#10;") &&
       hasBareV4DataRow(lines, i)
     ) {
-      const result = parseV4RoomBlock(lines, i, col0, "additional");
+      const result = parseV4RoomBlock(lines, i, col0, "additional", agg);
       i = result.nextLine;
       if (roomHasContent(result.room) || !isPlaceholderRoomName(result.room.name))
         rooms.push(result.room);
@@ -318,6 +370,7 @@ function parseV4RoomBlock(
   startLine: number,
   headerText: string,
   kind: RoomKind,
+  agg?: ParseAggregator,
 ): { room: RoomRowInternal; nextLine: number } {
   const { name, dimensions, floor } = splitRoomHeader(headerText, kind);
   const room = buildEmptyRoom(kind, name);
@@ -325,6 +378,11 @@ function parseV4RoomBlock(
   room.floor = floor;
 
   let j = startLine;
+
+  // PR-D3 deferred-commit state (block-LOCAL — fresh per block, no cross-block leakage):
+  // fields an EXACT label gave a REAL (non-null, non-sentinel) value, and fuzzy candidates.
+  const exactReal = new Set<RoomFieldKey>();
+  const fuzzyCandidates = new Map<RoomFieldKey, { rawLabel: string; value: string }>();
 
   while (j < lines.length) {
     const line = (lines[j] ?? "").trim();
@@ -350,19 +408,49 @@ function parseV4RoomBlock(
     }
 
     const label = col0.toLowerCase();
-    if (label === "setup") room.setup = presence(col1);
-    else if (label === "set time") room.set_time = presence(col1);
-    else if (label === "show time") room.show_time = presence(col1);
-    else if (label === "strike time") room.strike_time = presence(col1);
-    else if (label === "audio") room.audio = presence(col1);
-    else if (label === "video") room.video = presence(col1);
-    else if (label === "lighting") room.lighting = presence(col1);
-    else if (label === "scenic" || label === "backdrop / scenic") room.scenic = presence(col1);
-    else if (label === "power") room.power = presence(col1);
-    else if (label === "digital signage") room.digital_signage = presence(col1);
-    else if (label === "other" || label === "gs other" || label === "bo other")
-      room.other = presence(col1);
-    else if (label === "notes") room.notes = presence(col1);
+    const exactField = V4_LABEL_TO_FIELD[label];
+    if (exactField !== undefined) {
+      const v = presence(col1);
+      room[exactField] = v;
+      // A real value claims the field (sentinel/empty does NOT — mirrors PR-D1).
+      if (v !== null && !shouldHideGenericOptional(v)) exactReal.add(exactField);
+    } else {
+      // Not an exact label: try a gated fuzzy recovery on the LABEL only (never the value).
+      const fix = gatedVocabCorrect(col0.toUpperCase(), V4_BARE_LABEL_VOCAB, ROOM_GATE_OPTS);
+      const v = presence(col1);
+      if (fix?.corrected && v !== null) {
+        const field = V4_LABEL_TO_FIELD[fix.match.toLowerCase()];
+        if (field) {
+          // Last-write-wins with sentinel-aware precedence (a sentinel never displaces a real
+          // candidate held), matching the exact-write rule.
+          const prev = fuzzyCandidates.get(field);
+          const prevIsReal = prev !== undefined && !shouldHideGenericOptional(prev.value);
+          if (!(shouldHideGenericOptional(v) && prevIsReal)) {
+            fuzzyCandidates.set(field, { rawLabel: col0, value: v });
+          }
+        }
+      }
+    }
+  }
+
+  // Phantom-room guard: for gated kinds (breakout/additional), fuzzy-only content must NOT
+  // resurrect a placeholder stub. roomHasContent here is evaluated on EXACT content only
+  // (fuzzy not yet applied). A dropped room emits no warning. gs is ungated.
+  const gatedKind = kind === "breakout" || kind === "additional";
+  const droppedAsPlaceholder =
+    gatedKind && !roomHasContent(room) && isPlaceholderRoomName(room.name);
+  if (!droppedAsPlaceholder) {
+    for (const [field, cand] of fuzzyCandidates) {
+      if (exactReal.has(field)) continue;
+      room[field] = cand.value;
+      agg?.warnings.push({
+        severity: "warn",
+        code: "FIELD_LABEL_AUTOCORRECTED",
+        message: `Read likely-misspelled room label '${cand.rawLabel}' as field '${field}'`,
+        blockRef: { kind: "rooms", name: room.name },
+        rawSnippet: cand.rawLabel,
+      });
+    }
   }
 
   return { room, nextLine: j };
