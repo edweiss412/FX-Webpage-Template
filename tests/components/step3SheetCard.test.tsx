@@ -617,6 +617,28 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.queryByTestId(`wizard-step3-card-${DFID}-warning-1-open`)).toBeNull();
   });
 
+  test("a newly-anchored UNKNOWN_ROLE_TOKEN (with sourceCell) renders the link + catalog title on the real Step-3 card", () => {
+    const cell = { title: "INFO", gid: 0, a1: "C3" }; // crew ROLE cell (parse-warning deep links)
+    const FIX = parseResult({
+      warnings: [
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_ROLE_TOKEN",
+          message: "Unknown role token: 'WIDGET'",
+          sourceCell: cell,
+        },
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const region = within(expand(q));
+    const link = region.getByTestId(
+      `wizard-step3-card-${DFID}-warning-0-open`,
+    ) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toContain(`range=${cell.a1}`);
+    // invariant 5: the rendered title is the catalog title, not the raw code/message.
+    expect(region.getByText("Role we didn't recognize")).toBeTruthy();
+  });
+
   test("the collapsed breakdown is `inert` so its focusable controls (Show-all) aren't tabbable while hidden", () => {
     // A day with >6 entries means the breakdown contains a focusable "Show all"
     // button; the collapse is height:0/overflow:hidden (NOT display:none), so
