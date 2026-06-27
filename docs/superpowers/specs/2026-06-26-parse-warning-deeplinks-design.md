@@ -89,20 +89,22 @@ This mirrors the existing precedent in the same file family: `emitFieldUnreadabl
 A new function (new module `lib/drive/crewRoleAnchors.ts`, sibling of `showDayTimeAnchors.ts`) that re-walks the **raw** workbook abs-grid (`buildAbsGrid`, `lib/drive/sourceAnchors.ts:34-74`, which carries absolute row/col + gid) on the **INFO** tab and emits, per crew row, an anchor keyed by the crew NAME whose `a1` is the **role cell** for that row. It must reproduce the parser's own crew walk for **both geometries**:
 
 - **New/standardized template** (5 of 6 live shows: RPAS, RFI, Consultants Roundtable, FIT, RIA): header `CREW / NAME / ROLE / PHONE [/ EMAIL]` → dedicated **ROLE column** (detected like `detectColumns`, `crew.ts:69-86`). NAME cell == the row's col-B value; anchor the **ROLE-column cell** (col C). Match key: `clean(grid NAME cell) === clean(blockRef.name)`.
-- **Old "TECH" template** (East Coast): header `TECH / PHONE / ARRIVAL / DEPARTURE`, parsed by the separate `parseTechBlock` (`crew.ts:194`) → name + schedule + role in **one compound col-B cell**. There is no ROLE column; anchor the **compound col-B cell** itself. Match key: the grid compound cell **starts with** `clean(blockRef.name)` (the parser extracted `nameRaw` as the leading segment).
+- **Old "TECH" template** (East Coast): header `TECH / PHONE / ARRIVAL / DEPARTURE`, parsed by the separate `parseTechBlock` (`crew.ts:194`) → name + schedule + role in **one compound col-B cell**. There is no ROLE column; anchor the **compound col-B cell** itself. **Match by EQUALITY of the extracted name segment, never by prefix** — reproduce `parseTechBlock`'s own name extraction (split the compound cell on the leading ` - ` delimiter, take the first segment as the name) and compare `clean(extractedNameSegment) === clean(blockRef.name)`. A bare "starts-with" test is forbidden: it would false-match `Ann` against `Anna - … - A1` and deep-link the wrong row (wrong-cell links are the worst failure mode). Using the parser's own split makes the scanner's name extraction identical to the parser's, which is also the companion-surface-drift mitigation (§9).
 
-Header/column detection and `TERMINATING_LABELS` (`crew.ts:31-48`) MUST be reused/shared with the parser to avoid companion-surface drift (§9). Name cleaning: strip the day-restriction parenthetical (`(… ONLY)`) on both sides before compare — confirmed necessary live (`Calvin Saller (10/7 and 10/9 ONLY)`, `Maria Davila (10/19 ONLY)`). Compare with `clean()` + case-fold (this is exact-cell targeting, not PII matching — prefer strict equality and degrade to null/region on miss).
+Header/column detection and `TERMINATING_LABELS` (`crew.ts:31-48`) MUST be reused/shared with the parser to avoid companion-surface drift (§9). Name cleaning (`clean()`): trim, collapse whitespace, strip the day-restriction parenthetical (`(… ONLY)`) — confirmed necessary live (`Calvin Saller (10/7 and 10/9 ONLY)`, `Maria Davila (10/19 ONLY)`) — and case-fold, applied identically on both sides. This is exact-cell targeting, not PII matching: prefer strict equality and degrade to null/region on any miss.
 
-**Ambiguity → null.** If two crew rows clean to the same name, return no anchor for that name (mirror `resolveSourceCell`'s ambiguity-null, `showDayTimeAnchors.ts:90`). In practice this is essentially unreachable: `MI-5a_DUPLICATE_CREW_NAME` hard-fails the parse on duplicate crew names, so any show that reaches the role-warning stage has unique names (confirmed across six live shows). The guard is defensive.
+**Resolution requires EXACTLY ONE candidate → else null.** For both geometries, after the geometry-specific name extraction + `clean()`, the resolver counts crew rows whose extracted name equals `clean(blockRef.name)`. **Zero or two-or-more matches → no anchor** (mirror `resolveSourceCell`'s ambiguity-null, `showDayTimeAnchors.ts:90`). This subsumes both the duplicate-cleaned-name case and any multi-candidate case (e.g. a hypothetical multi-match in the old geometry), so the rule is uniform and does not depend on prefix semantics. In practice multi-match is essentially unreachable: `MI-5a_DUPLICATE_CREW_NAME` hard-fails the parse on duplicate crew names, so any show that reaches the role-warning stage has unique names (confirmed across six live shows). The exactly-one guard is defensive but mandatory.
 
-### 5.4 `CELL_ANCHORED_CODES` + resolver dispatch
+### 5.4 `CELL_ANCHORED_CODES` (the anchor-population gate) + resolver dispatch
 
-- Add `UNKNOWN_ROLE_TOKEN` and `UNKNOWN_DAY_RESTRICTION` to `CELL_ANCHORED_CODES` (`showDayTimeAnchors.ts:9`).
+`CELL_ANCHORED_CODES` (`showDayTimeAnchors.ts:9`) is the gate for `hasCellAnchoredWarning`, which in turn gates the **entire** shared helper (§5.6) — including the region-anchor computation. Therefore **every** code that should receive a `sourceCell` MUST be in this set, or the helper short-circuits and the link is silently never produced (this includes the region-anchored `FIELD_UNREADABLE`).
+
+- **`CELL_ANCHORED_CODES` must have identical membership to `OPERATOR_ACTIONABLE_ANCHORED`** (§3) — i.e. add all of `UNKNOWN_ROLE_TOKEN`, `UNKNOWN_DAY_RESTRICTION`, **and `FIELD_UNREADABLE`** alongside the existing `SCHEDULE_TIME_UNPARSED`. (The name `CELL_ANCHORED_CODES` is retained for continuity even though `FIELD_UNREADABLE` resolves to a *region* anchor; the set's true meaning is "codes that get a `sourceCell`.") A structural test (§10) pins `CELL_ANCHORED_CODES` ≡ `OPERATOR_ACTIONABLE_ANCHORED` so the two never drift across the `lib/drive` ↔ `lib/parser` layer boundary.
 - `attachSourceCellAnchors` (`showDayTimeAnchors.ts:88-96`) dispatches by `w.code`:
   - `SCHEDULE_TIME_UNPARSED` → resolve by `blockRef.iso` against show-day anchors (unchanged).
-  - `UNKNOWN_ROLE_TOKEN` / `UNKNOWN_DAY_RESTRICTION` → resolve by `blockRef.name` against crew-role anchors; ambiguous/absent → null.
+  - `UNKNOWN_ROLE_TOKEN` / `UNKNOWN_DAY_RESTRICTION` → resolve by `blockRef.name` against crew-role anchors; not-exactly-one match → null (§5.3).
   - `FIELD_UNREADABLE` → resolve to the REGION anchor for `blockRef.kind` (§5.5).
-- `hasCellAnchoredWarning` (`showDayTimeAnchors.ts:101-103`) widens to the new membership; it remains the cost gate (a sheet with no anchored warning pays no extra fetch).
+- `hasCellAnchoredWarning` (`showDayTimeAnchors.ts:101-103`) widens to the new membership; it remains the cost gate (a sheet with no operator-actionable warning pays no extra fetch). A sheet that has **only** `FIELD_UNREADABLE` now correctly passes the gate, so its region anchor is computed and its link is produced.
 
 ### 5.5 `FIELD_UNREADABLE` region anchor
 
@@ -116,13 +118,15 @@ Factor the onboarding anchor block (`runOnboardingScan.ts:946-953`) into one hel
 export async function attachWarningAnchors(
   warnings: ParseWarning[] | undefined,
   bytes: Buffer | Uint8Array | undefined,
-  driveFileId: string,
-  listSheetGids: (id: string) => Promise<Map<string, number>>,
+  // LAZY gids resolver: invoked ONLY after the cost gate passes, so a warning-free
+  // sheet never triggers a Drive fetch. Onboarding passes a fetch thunk; cron passes
+  // its already-computed titleToGid map wrapped in a resolved promise (no extra fetch).
+  resolveGids: () => Promise<Map<string, number>>,
   regionAnchors?: Record<string, SourceAnchor>, // optional precomputed (cron already has it)
 ): Promise<void> {
   if (!bytes || !warnings || !hasCellAnchoredWarning(warnings)) return;
   try {
-    const gids = await listSheetGids(driveFileId);
+    const gids = await resolveGids();
     attachSourceCellAnchors(warnings, {
       showDay: extractShowDayTimeAnchors(bytes, gids),
       crewRole: extractCrewRoleAnchors(bytes, gids),
@@ -134,10 +138,10 @@ export async function attachWarningAnchors(
 }
 ```
 
-The helper **self-computes region anchors** when the caller doesn't supply them, so `FIELD_UNREADABLE` links uniformly on both paths (no onboarding/cron asymmetry). Both region-anchor computations are gated by `hasCellAnchoredWarning`, so they run only when a sheet actually has an anchored warning.
+The single `resolveGids` thunk resolves the API ambiguity between the two callers: the cost gate (`hasCellAnchoredWarning`) runs **before** `resolveGids` is called, so a warning-free sheet pays no Drive round-trip on either path. The helper **self-computes region anchors** only when the caller doesn't supply them, so `FIELD_UNREADABLE` links uniformly on both paths (no onboarding/cron asymmetry).
 
-- **Onboarding** (`runOnboardingScan.prepareOne:946-953`): replace the inline block with a call to the helper. `bytes` + `listSheetGids` already in scope; pass no `regionAnchors` (helper self-computes).
-- **Cron** (`runScheduledCronSync.ts`, immediately after the region-anchor computation at `:2437-2443`): call the helper with `xlsxBytes` + `titleToGid` (already in scope there) + the `sourceAnchors` region map already computed at `:2443` (avoids recomputation). This is the pre-persist, pure-read point; it mutates the in-memory parse warnings before they are written to `shows_internal.parse_warnings`.
+- **Onboarding** (`runOnboardingScan.prepareOne:946-953`): replace the inline block with a call to the helper, passing `resolveGids = () => listSheetGids(file.driveFileId)` (the existing fetch) and no `regionAnchors` (helper self-computes). Behaviorally identical to today's inline gate-then-fetch.
+- **Cron** (`runScheduledCronSync.ts`, immediately after the region-anchor computation at `:2437-2443`): the `titleToGid` map and `xlsxBytes` are already in scope. Call the helper with `resolveGids = async () => titleToGid` (**no fetch** — reuse the precomputed map) and the already-computed `sourceAnchors` region map (`:2443`, avoids recomputation). This is the pre-persist, pure-read point; it mutates the in-memory parse warnings before they are written to `shows_internal.parse_warnings`.
 
 **Advisory lock (invariant 2).** The helper is a pure raw-workbook read — **no DB access, no `pg_advisory*` call**. The cron lock is acquired in `lib/sync/lockedShowTx.ts:59/61`; the helper runs at the parse/prepare stage and acquires no lock of its own, so the single-holder topology is unchanged. No edit to `tests/auth/advisoryLockRpcDeadlock.test.ts` is required (the helper adds no lock surface).
 
@@ -156,7 +160,12 @@ All three surfaces render the **title-or-message** line (§3.1) + a conditional 
 - **`driveFileId` absent:** `buildSheetDeepLink` returns null → no link (existing `Step3SheetCard` guard, `:382`).
 - **Non-allowlisted tab:** `buildSheetDeepLink` falls back to the base sheet URL (existing behavior); INFO is allowlisted (`buildSheetDeepLink.ts:1`), so all four codes (crew/dates on INFO) get a precise region/cell link.
 - **Read failure on per-show panel:** unchanged — the existing `failed` branch renders the fallback copy; the new section is simply not shown.
-- **Multiple warnings on one cell / no cap:** a single role cell with several unknown tokens emits one `UNKNOWN_ROLE_TOKEN` per token (e.g. East Coast's `Strke` cascade → ~4), each carrying the **same** `blockRef.name` and therefore the **same** resolved role-cell anchor (the cell is the anchor unit, not the token). Each renders its own line + identical link — harmless, and matches the existing per-warning render loop (`Step3SheetCard.tsx:348`). No list cap: the operator-actionable list is bounded by crew rows × tokens (small in practice) and the existing surfaces render all warnings uncapped; consistency over an arbitrary truncation.
+- **Multiple warnings on one cell — ordering + dedup:** a single role cell with several unknown tokens emits one `UNKNOWN_ROLE_TOKEN` per token (e.g. East Coast's `Strke` cascade → ~4), each carrying the **same** `blockRef.name` and therefore the **same** resolved anchor (the cell is the anchor unit, not the token). Because the surfaces render the catalog **title** ("Role we didn't recognize"), not the per-token `.message`, those lines would otherwise be visually identical. Rules:
+  - **The two new durable surfaces (StagedReviewCard, per-show panel) dedup** the operator-actionable list by `(code, resolved-anchor-A1 or blockRef.index)` — collapsing the cascade to one line + one link, so the digest stays clean. The operator clicks through to the cell to see all offending tokens in context.
+  - **`Step3SheetCard` is unchanged** (renders the full per-warning list as today). It is the detailed pre-publish review where per-token fidelity is wanted, and altering shipped behavior is out of scope.
+  - **Ordering:** stable parse order (the order warnings were emitted) on all surfaces — deterministic, no re-sort.
+  - **No numeric cap:** the deduped operator-actionable list is bounded by crew rows × distinct anchors (small in practice); a cap would risk hiding a real issue.
+  - A shared selector `operatorActionableWarnings(warnings)` (filter to `OPERATOR_ACTIONABLE_ANCHORED` → stable-order → dedup) is used by both new surfaces so the dedup/order rule lives in one place.
 
 ### 6.2 Dimensional invariants / transition inventory
 
@@ -194,7 +203,7 @@ parse (markdown) ──► warnings[] (UNKNOWN_ROLE_TOKEN/UNKNOWN_DAY_RESTRICTIO
 
 ## 10. Meta-test inventory (declared)
 
-- **CREATES:** `extractCrewRoleAnchors` ↔ parser parity structural test (companion-surface guard, §9). Invariant-5 render test for `OPERATOR_ACTIONABLE_ANCHORED` on each new surface.
+- **CREATES:** `extractCrewRoleAnchors` ↔ parser parity structural test (companion-surface guard, §9). Invariant-5 render test for `OPERATOR_ACTIONABLE_ANCHORED` on each new surface. **`CELL_ANCHORED_CODES` ≡ `OPERATOR_ACTIONABLE_ANCHORED` membership-parity test** (§5.4) — pins that the anchor-population gate and the render gate never drift across the `lib/drive` ↔ `lib/parser` boundary (catches the HIGH-class bug where a code is renderable but never gets its anchor computed).
 - **EXTENDS / INVERTS:** `tests/drive/showDayTimeAnchors.test.ts` — the assertions that `UNKNOWN_ROLE_TOKEN` gets no `sourceCell` (`:114/:118`) and `hasCellAnchoredWarning` is false for it (`:139-141`) MUST be inverted (these are negative-pins of the current absence; the plan must flag the change so it is not mistaken for a regression). `tests/onboarding/prepareSourceCellAnchors.test.ts` (scan-time gate/attach, `:59-77`) — extend to cover the cron path + the new codes.
 - **NOT APPLICABLE:** advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) — the helper adds no lock surface; Supabase call-boundary meta-test (`tests/auth/_metaInfraContract.test.ts`) — the helper performs no Supabase call (pure raw-workbook read); §12.4 admin-alert catalog — no catalog change.
 
