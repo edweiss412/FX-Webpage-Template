@@ -65,7 +65,7 @@ All 7 distinct live shows in `fxav-test-shows` were surveyed via the gsheets MCP
 | RPAS '26 (v4) | `3/25/26 @ 3:30 PM` | `3/25 @ 12:30pm` | 3/25 | Breakout strikes `3/24` (earlier day). |
 | Redefining FI '25 | `5/14 @ 6:00 PM` | `5/14 @ 5:00 PM` | 5/14 | All 3 rooms strike `5/14 @ 5:00 PM` (identical → collapse). |
 | Fixed Income '25 | `10/21/25 @ 7:00 PM` | `10/21 @ 4:15 PM` | 10/21 | — |
-| FinTech '26 (v4) | `5/6/26 @ 6:00 PM` | `5/5 @ 2:50 PM` ⚠️ | 5/6 | GS strike date is a likely **typo** (the 2:50 PM time matches the 5/6 conclude). Per RD5 it renders **faithfully on 5/5** (SHOW DAY 2); 5/5 is in-window so **no warning**. Load-Out renders on 5/6. |
+| FinTech '26 (v4) | `5/6/26 @ 6:00 PM` | `5/5 @ 2:50 PM` ⚠️ | 5/6 | GS strike date is a likely **typo** (the 2:50 PM time matches the 5/6 conclude). Per RD5 it renders **faithfully on 5/5**; 5/5 **is** SHOW DAY 2 (a scheduled day) → shows on admin **and** crew, **no warning**. Load-Out renders on 5/6. |
 | RIA Central '25 (v4) | `6/26 @ 2:00 PM` | `6/26 @ 12:15pm` | 6/26 | Travel-out value `"TRAVEL SAME DAY AS STRIKE"`. |
 
 **Derived facts that drive the design:**
@@ -87,7 +87,7 @@ Fixtures (committed mirrors, may drift from live — verify in plan): `fixtures/
 | RD2 | Event taxonomy | **Two distinct kinds:** per-room `strike_time` → `"Strike"`; transport Pick Up Venue → `"Load Out"`. |
 | RD3 | Strike labeling | **Per-room, collapse identical:** single room → `"Strike — <Room>"`; ≥2 rooms at the same date+time → `"Strike — all rooms"`. |
 | RD4 | Surfaces | **Admin Step-3 review AND crew Schedule/Today.** |
-| RD5 | Data quality | **Faithful + flag suspicious:** render strikes on the exact date the sheet lists (FinTech's in-window 5/5 typo renders on 5/5, no flag); skip entries with no parseable date / `TBD`; emit a parse-warning when a strike date falls **outside** the show window `[travelIn∥set … travelOut]`. |
+| RD5 | Data quality | **Faithful + flag suspicious:** render strikes on the exact date the sheet lists (no typo auto-correction); skip entries with no parseable date / `TBD`. A strike whose date **is** one of the show's scheduled days (travel/set/show/travel-out) renders on **both** admin and crew; a strike on any **other** date is **admin-review-only** on crew and emits `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` (§8) so the operator relocates it. (FinTech's `5/5` is SHOW DAY 2 → renders on both surfaces, no warning.) |
 | RD6 | Architecture | **Derive in the parser merge step** (single source of truth → both surfaces); extend the JSONB decoder; existing shows re-stage on next sync (normal here, see `feedback_parser_rename_restages_via_mi7b`). |
 
 ---
@@ -165,9 +165,10 @@ input: rosIn (Record<iso, ScheduleDay> | undefined), dates, transportation, room
 ros = deepClone(rosIn ?? {})   // new object; per-day entries arrays also copied — never mutate the caller's object
 warnings = []
 
-// window for the out-of-window check (RD5)
-windowStart = dates.travelIn ?? dates.set ?? min(dates.showDays)   // earliest known
-windowEnd   = dates.travelOut ?? max(dates.showDays)               // latest known
+// the show's scheduled-day set — EXACTLY the dates crew can render a card for
+// (mirrors aggregateDays: travelIn/set/showDays/travelOut). Used for the
+// off-schedule warning so "we warn" ⟺ "crew can't show it" (RD5 + §10).
+scheduleDateSet = new Set([dates.travelIn, dates.set, ...dates.showDays, dates.travelOut].filter(Boolean))
 
 // ── STRIKE (per-room) ──────────────────────────────────────────────
 groups = Map<`${iso}|${time}`, { iso, time, rooms: string[] }>
@@ -181,9 +182,9 @@ for room of rooms:
   groups[key].rooms.push(presence(room.name) ?? roomKindFallback(room.kind))   // roomKindFallback: local map gs→"General Session", breakout→"Breakout", additional→"Room"
 for g of groups (sorted by iso asc, then time asc, then rooms join):
   title = g.rooms.length >= 2 ? "Strike — all rooms" : `Strike — ${g.rooms[0]}`
-  appendEntry(ros, g.iso, { start: g.time ?? "", title, kind: "strike" })
-  if g.iso < windowStart || g.iso > windowEnd:
-    warnings.push(strikeDateOutOfWindow(g.iso))     // §8
+  appendEntry(ros, g.iso, { start: g.time ?? "", title, kind: "strike" })   // ALWAYS appended (admin shows it)
+  if !scheduleDateSet.has(g.iso):
+    warnings.push(strikeDateOffSchedule(g.iso))     // §8 — fires ⟺ crew can't render this date
 
 // ── LOAD OUT (transport Pick Up Venue) ─────────────────────────────
 puv = transportation?.schedule.find(s => /pick\s*up\s*venue/i.test(s.stage.trim()))
@@ -211,20 +212,22 @@ Room `strike_time` / `set_time` / `show_time` are free-text with **two** separat
 
 ---
 
-## 8. Data-quality warning — `SCHEDULE_STRIKE_DATE_OUT_OF_WINDOW`
+## 8. Data-quality warning — `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`
 
 Modeled **exactly** on the sibling `SCHEDULE_TIME_UNPARSED` (defined in `lib/parser/blocks/agendaWarnings.ts`; the established 3-part §12.4 lockstep + family mapping). New helper in `agendaWarnings.ts`:
 
 ```ts
-export function strikeDateOutOfWindow(iso: string): ParseWarning {
+export function strikeDateOffSchedule(iso: string): ParseWarning {
   return {
     severity: "warn",
-    code: "SCHEDULE_STRIKE_DATE_OUT_OF_WINDOW",
-    message: `A room strike date (${iso}) falls outside the show window; rendered as entered`,
+    code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+    message: `A room strike date (${iso}) is not one of the show's scheduled days; it shows in the admin review but not on crew schedules until corrected`,
     blockRef: { kind: "rooms", iso },
   };
 }
 ```
+
+**Trigger (refined from R1's "outside the show window" to resolve the R2 crew/admin coherence finding):** the warning fires when the strike's date is **not in `scheduleDateSet`** — i.e. not one of `travelIn` / `set` / `showDays[]` / `travelOut` (the same set `aggregateDays` builds, `agendaDisplay.ts:66`). This is **exactly** the set of dates the crew schedule can render a card for (§10), so the warning fires **if and only if** the strike would be admin-only / crew-invisible. This both (a) flags genuinely suspicious dates (a strike on no real show day — the original RD5 intent) and (b) makes the warning the operator's actionable signal that the entry won't reach crew until the date is corrected. (Out-of-`[travelIn..travelOut]` dates are a strict subset of off-schedule dates, so this is a faithful superset of R1's intent, not a narrowing.)
 
 - **Prefix `SCHEDULE`** → auto-maps to the `crew-schedule` family in `app/help/errors/_families.ts` (its `prefixes` include `SCHEDULE`). No families edit; `tests/help/errors-grouping.test.tsx` orphan check stays green.
 - **§12.4 catalog lockstep** (one commit, enforced by `x1-catalog-parity` = `tests/messages/codes.test.ts`):
@@ -234,7 +237,11 @@ export function strikeDateOutOfWindow(iso: string): ParseWarning {
   4. `pnpm gen:internal-code-enums` (the code literal enters the internal-warning enum, same as `SCHEDULE_TIME_UNPARSED`).
 - **Severity `warn`** (operator-actionable). It is NOT added to `DATA_GAP_CODES` (`dataGaps.ts:37`) or `OPERATOR_ACTIONABLE_ANCHORED` (`:122`) — scope is the warning + catalog only; a source-cell deep link for it is **out of scope** (deferred; the strike cell lives in a per-room block with no existing anchor resolver — note in DEFERRED.md if raised).
 
-**Faithful-render contract (RD5):** the entry is **always rendered** on its listed date regardless of the warning. The warning is informational. FinTech's GS strike `5/5` is *in*-window → renders on 5/5, **no** warning (matches the user's chosen option text precisely; "strike not on the last show day" is NOT the flag criterion — out-of-window is).
+**Faithful-render contract (RD5), made admin/crew-explicit (closes R2 high finding):**
+- The synthetic strike entry is **always appended** to `run_of_show` on its listed date — so the **admin Step-3 review always shows it** (admin iterates `run_of_show` keys, §10).
+- **Crew** renders it **iff** its date is a scheduled day (`scheduleDateSet`) — the normal case (all 7 surveyed strikes are on show days). A strike on an off-schedule date is **admin-only on crew** and emits this warning; the operator corrects the date so it lands on a real day, after which crew shows it. There is **no** silent crew omission of a warned entry that the operator wasn't told about — the warning *is* the signal, and its message names the consequence ("…not on crew schedules until corrected").
+- FinTech's GS strike `5/5` **is** SHOW DAY 2 → it is in `scheduleDateSet` → renders on **both admin and crew on 5/5**, **no warning** (the 2:50 PM/5-6 typo is rendered faithfully as entered, not auto-corrected — D3).
+- Load-Out (transport): a Pick Up Venue date off `scheduleDateSet` is **admin-only on crew, silently** (no warning) — transport dates are authoritative and rarely wrong, and RD5 scoped the warning to *strike* dates (D4). Documented in §10.
 
 ---
 
@@ -282,6 +289,8 @@ The crew "Daily call times" `KeyTimesStrip` continues to show a single GS `strik
 
 **Consequence:** a strike/load-out on a date that is **not** travelIn/set/showDays/travelOut is visible on admin but **not** on the crew schedule. In all 7 surveyed shows every strike/load-out date **is** an aggregate day (strikes on show days; load-out on the last show day), so the corpus is fully covered on both surfaces. The boundary is documented rather than worked around because (a) extending `aggregateDays` would touch the privacy-sensitive `visibleShowDays` drift guard (`ScheduleSection.tsx:170`, `agendaDisplay.ts:88`) and (b) a synthetic-only day would have no `SchedulePhase` label. **Out of scope:** rendering crew schedule cards for non-aggregate synthetic dates.
 
+**This boundary is NOT silent for strikes — it is the warning (§8).** The off-schedule condition (`!scheduleDateSet.has(iso)`) is identical to the crew-invisibility condition, so a strike that hits this boundary **always** emits `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`, telling the operator the entry is admin-only until the date is corrected. The corpus never triggers it (all strikes on show days). **Load-out** on an off-schedule date is admin-only **silently** (no warning — transport dates are authoritative; RD5/D4 scoped the warning to strikes); this is the one intentionally-silent case and is called out here so the reviewer doesn't read it as an oversight.
+
 ---
 
 ## 11. Disagreement-loop preempts (for the reviewer)
@@ -289,8 +298,8 @@ The crew "Daily call times" `KeyTimesStrip` continues to show a single GS `strik
 - **D1 — `schedule_phases` is NOT this feature.** `deriveSchedulePhases` (`index.ts:282-317`) already adds `Strike` (last show day) + `Load Out` (travel-out) at **day granularity** for the pack-list (`WorkPhase`, `types.ts:132`). This feature adds **time-level / per-room** entries to `run_of_show` and deliberately does NOT alter `schedule_phases`. They are complementary surfaces; do not relitigate as duplication.
 - **D2 — KeyTimesStrip overlap is intentional** (§9.5). `resolveKeyTimes` (`resolveKeyTimes.ts:114-117`) keeps its single GS strike summary; we do not remove it. Summary-strip + per-day detail is by design.
 - **D3 — Faithful render of the FinTech 5/5 typo is the chosen behavior** (RD5). In-window → no warning, renders on 5/5. Do not add typo-correction heuristics.
-- **D4 — Out-of-window warning has no source-cell deep link** (§8). Strike cells have no existing anchor resolver; the deep link is out of scope (DEFERRED if raised).
-- **D5 — Non-aggregate-date crew invisibility is a documented boundary** (§10), not a bug; the corpus never triggers it.
+- **D4 — Off-schedule strike warning is strike-only; load-out off-schedule is intentionally silent** (§8, §10). RD5 scoped the warning to strike dates; a load-out on an off-schedule date is admin-only silently (transport dates authoritative). This asymmetry is deliberate, not an oversight. The warning has no source-cell deep link (strike cells have no existing anchor resolver; out of scope, DEFERRED if raised).
+- **D5 — Non-aggregate-date crew invisibility is a documented boundary** (§10), and for strikes it is **surfaced by the §8 warning** (warn ⟺ crew-invisible), not silent. The corpus never triggers it. Do not re-flag as a silent omission — see §8 faithful-render contract + §10.
 - **D6 — Re-staging existing shows is expected** (RD6). A parser-output change re-stages ingested shows once on next sync (`feedback_parser_rename_restages_via_mi7b`); this is the established mechanism, not a regression.
 
 ---
@@ -341,8 +350,9 @@ No `AnimatePresence` / framer-motion is added.
   - **Yearless strike + `contextYear` supplied** (Consultants-shaped: `"10/9 @ 4:30pm"`, `contextYear="2025"`) → entry present on `2025-10-09` (NOT dropped). Negative-regression: pass `contextYear=null` with the same yearless cell → entry skipped (proves the parameter is load-bearing, not decorative). Failure mode: the high-finding-1 case — yearless strikes silently dropped because the year context wasn't threaded.
   - **TBD / unparseable** strike_time → skipped (no entry, no crash).
   - **Date-only** strike (no time) → entry with empty `start`.
-  - **Out-of-window** strike date (synthetic fixture: strike date after travelOut) → `SCHEDULE_STRIKE_DATE_OUT_OF_WINDOW` warning emitted **and** entry still present (faithful). Negative-regression: remove the window check → assert the warning vanishes (proving the test pins it).
-  - **In-window typo** (FinTech 5/5 vs last day 5/6) → entry on 5/5, **no** warning (pins RD5).
+  - **Off-schedule** strike date (synthetic fixture: strike date NOT in travelIn/set/showDays/travelOut, e.g. after travelOut) → `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` warning emitted **and** the entry still present in the returned `runOfShow` (faithful, admin-visible). Negative-regression: remove the `scheduleDateSet` check → assert the warning vanishes (pins it).
+  - **Off-schedule ⇒ crew-invisible (the R2 coherence pin):** a *render* test — the off-schedule strike is in `ParsedSheet.runOfShow` (admin shows it) but the crew `ScheduleSection` renders **no** card/entry for that date (its date is not in `aggregateDays`). Pairs with the warning test to prove warn ⟺ crew-invisible.
+  - **On-schedule typo** (FinTech 5/5, which IS SHOW DAY 2) → entry on 5/5, **no** warning, **rendered on crew** (5/5 ∈ aggregateDays). Pins RD5 + the FinTech §3 note.
   - **Append order / non-mutation:** synthetic entries appended after existing agenda entries; the input `runOfShow` object is not mutated (assert reference inequality / deep-clone).
   - **Expected values derived from fixture dimensions**, never hardcoded (e.g. room count, strike strings read from the fixture rows).
 - `tests/parser/blocks/scheduleTimes.test.ts` (extend): SET row tokenized → SET-day `ScheduleDay` keyed by `dates.set` with the load-in entry; combined `TRAVEL / SET` row tokenizes both clocks; v1 2-col SET → no SET ScheduleDay.
@@ -365,7 +375,7 @@ No `AnimatePresence` / framer-motion is added.
 | `lib/parser/types.ts` | `AgendaEntry.kind?` + `AgendaEntryKind`. |
 | `lib/parser/blocks/scheduleTimes.ts` | SET-row capture + tokenization in `readShowDayTimeCells`. |
 | `lib/parser/blocks/scheduleBookends.ts` | **new** — `deriveScheduleBookends` + `parseRoomTimeCell`. |
-| `lib/parser/blocks/agendaWarnings.ts` | `strikeDateOutOfWindow` helper. |
+| `lib/parser/blocks/agendaWarnings.ts` | `strikeDateOffSchedule` helper. |
 | `lib/parser/index.ts` | compute `inferShowYear(markdown)`; call `deriveScheduleBookends(mergedRunOfShow, dates, transportation, rooms, contextYear)` after merge; replace `mergedRunOfShow` with its result; push its warnings. |
 | `lib/data/decodeRunOfShow.ts` | add `"kind"` to `OPTIONAL_FIELDS`. |
 | `components/crew/sections/ScheduleSection.tsx` | SET-day meta suppression. |
@@ -384,5 +394,5 @@ No `AnimatePresence` / framer-motion is added.
 - Caps: crew `RUN_OF_SHOW_DISPLAY_CAP = 20`; admin `SCHEDULE_ENTRIES_CAP = 6`, `SCHEDULE_DAYS_CAP = 14` — cited from source, single-sourced (not redefined here).
 - Shows surveyed: **7** (§3 table has 7 rows). Pick Up Venue present in **6/7**; GS strike in **7/7**; explicit DATES strike rows **0/7**.
 - `AgendaEntry` field count: 6 existing (`start, finish, trt, title, room, av`) → 7 with `kind`. `decodeRunOfShow` `OPTIONAL_FIELDS`: 4 → 5.
-- Warning code: exactly one new (`SCHEDULE_STRIKE_DATE_OUT_OF_WINDOW`).
+- Warning code: exactly one new (`SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`), fired when a strike date ∉ `scheduleDateSet` (= aggregateDays = travelIn/set/showDays/travelOut).
 - Kinds: exactly 3 (`agenda` default, `strike`, `loadout`).
