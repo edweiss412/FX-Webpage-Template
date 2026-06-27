@@ -25,8 +25,8 @@
 ## Behavior contract
 
 1. **Fuzzy-before-break (v4, CRITICAL).** In `parseClientV4` the fuzzy correction is evaluated in the unknown-label branch BEFORE the `break` (client.ts:66-76). On a near-miss → record a deferred candidate + `continue` (do NOT break, do NOT terminate the block). On null → the original `break`. (If fuzzy ran after the break, a typo'd known sub-label would drop every following row.)
-2. **Exact-real wins; sentinel-aware (mirror PR-D1/D3).** An exact sub-label claims its field only with a real (non-null, non-sentinel via `shouldHideGenericOptional`) value. Empty/sentinel exact does not claim → a real fuzzy still recovers. Fuzzy candidates are applied post-loop only for unclaimed fields, last-write-wins.
-3. **v4 2-column recovery.** A fuzzy v4 row recovers BOTH `col1` (main) and `col2` (secondary), routed by the corrected sub-label.
+2. **Merge-into-empty/sentinel; exact-real wins; no clobber (mirror PR-D1/D3, generalized to 2 columns).** Fuzzy candidates are **collected during the loop and applied ONLY AFTER the block is confirmed** (`clientLabel` set — Codex R1 #2: never warn for an unrecognized client block). Each candidate cell is merged into its parsed field **only when the fuzzy cell is real (non-null after normalize) AND the existing value is empty-or-sentinel** (`=== null || shouldHideGenericOptional(...)`). Consequences: an exact REAL value always wins (merge skips it); a sentinel/empty exact is overridden by a real fuzzy (no data loss); **no real value in ANY column is ever clobbered** (Codex R1 #1 — the v4 main/secondary columns merge independently). A `FIELD_LABEL_AUTOCORRECTED` warning fires **only when at least one cell was actually applied** (so an exact-claimed field suppresses the warn). No `claimed` set is needed — the per-cell merge guard IS the exact-wins mechanism.
+3. **v4 2-column recovery.** A fuzzy v4 row recovers `col1` (main) and `col2` (secondary) **independently** (each via the merge rule above), routed by the corrected sub-label.
 4. **Warning-anchor-only RegionId.** `client` is a RegionId for deep-link resolution only; no crew card renders client data (§30), so it has NO `CARD_REGION_MAP` entry — the no-zombie-region meta-test gets an explicit `WARNING_ANCHOR_ONLY` exemption.
 
 ## Meta-test inventory (mandatory declaration)
@@ -79,9 +79,23 @@ const CLIENT_GATE_OPTS = {
 } as const;
 ```
   - 3b. Thread `agg`: rename `parseClient`'s `_agg` param to `agg` and forward: `return parseClientV4(rows, agg);` / `return parseClientV2orV1(rows, agg);`. Add `agg?: ParseAggregator` to `parseClientV2orV1`'s signature (client.ts:149).
-  - 3c. v2 deferred-commit. At the top of `parseClientV2orV1` (after the `let contact*` decls) add:
+  - 3c. Add a module-scope merge helper (shared by v2 + v4 — Codex R1 #1): applies a fuzzy cell only when it is real and the existing value is empty-or-sentinel; never clobbers a real value.
 ```ts
-  const claimed = new Set<"name" | "phone" | "email">();
+// Merge a fuzzy cell into a parsed field: real fuzzy value fills an empty/sentinel slot only.
+// Returns the (possibly updated) value + whether it changed (drives the warn). `normalize` is
+// presence for text/phone, canonicalize for email.
+function mergeFuzzyCell(
+  cur: string | null,
+  raw: string,
+  normalize: (s: string) => string | null,
+): { val: string | null; changed: boolean } {
+  const v = normalize(raw);
+  if (v !== null && (cur === null || shouldHideGenericOptional(cur))) return { val: v, changed: true };
+  return { val: cur, changed: false };
+}
+```
+  - 3d. v2 deferred candidates (collect during loop, single-source vocab). At the top of `parseClientV2orV1` (after the `let contact*` decls) add:
+```ts
   const fuzzyCandidates = new Map<"name" | "phone" | "email", { rawLabel: string; value: string }>();
   const V2_LABEL_TO_FIELD: Record<string, "name" | "phone" | "email"> = {
     "client contact": "name",
@@ -89,38 +103,28 @@ const CLIENT_GATE_OPTS = {
     "client email": "email",
   };
 ```
-  In each exact v2 branch (client.ts:175/179/183), after the assignment, claim the field when the value is real, e.g. for `client contact`:
+  The exact v2 branches (client.ts:175/179/183) are UNCHANGED (no `claimed` tracking — the post-loop merge guards against the already-assigned exact value). After ALL exact + v1-slash checks (just before the loop's closing `}` at client.ts:202), add the fuzzy fallback (last-write-wins on the map):
 ```ts
-    if (labelLower === "client contact") {
-      contactName = presence(val);
-      if (contactName !== null && !shouldHideGenericOptional(contactName)) claimed.add("name");
-      continue;
-    }
-```
-  (similarly `claimed.add("phone")` / `claimed.add("email")` in their branches; for email use the canonicalized value for the real-check).
-  After ALL exact + v1-slash checks (i.e. just before the loop's closing `}` at client.ts:202), add the fuzzy fallback:
-```ts
-    // Fuzzy fallback (PR-D4): a near-miss of a v2 client label is recovered (deferred). The
-    // 'CLIENT' org marker and the v1 merged-cell slash variants above are intentionally NOT fuzzed.
+    // Fuzzy fallback (PR-D4): a near-miss of a v2 client label is recorded (deferred). The 'CLIENT'
+    // org marker and the v1 merged-cell slash variants above are intentionally NOT fuzzed.
     const fuzzy = gatedVocabCorrect(labelLower, [...CLIENT_V2_LABELS], CLIENT_GATE_OPTS);
-    if (fuzzy?.corrected && val !== "") {
+    if (fuzzy?.corrected) {
       const field = V2_LABEL_TO_FIELD[fuzzy.match];
-      if (field) {
-        const prev = fuzzyCandidates.get(field);
-        const prevIsReal = prev !== undefined && !shouldHideGenericOptional(prev.value);
-        if (!(shouldHideGenericOptional(val) && prevIsReal)) {
-          fuzzyCandidates.set(field, { rawLabel: rawLabel.trim(), value: val });
-        }
-      }
+      if (field && presence(val) !== null) fuzzyCandidates.set(field, { rawLabel: rawLabel.trim(), value: val });
     }
 ```
-  After the loop (before the `if (!clientLabel)` return at client.ts:205), apply candidates:
+  - 3e. Apply candidates **AFTER the `if (!clientLabel) return` guard** (Codex R1 #2 — only for a confirmed client block). Replace `if (!clientLabel) return { client_label: "", client_contact: null };` (client.ts:205) with:
 ```ts
+  if (!clientLabel) return { client_label: "", client_contact: null };
+
   for (const [field, cand] of fuzzyCandidates) {
-    if (claimed.has(field)) continue;
-    if (field === "name") contactName = presence(cand.value);
-    else if (field === "phone") contactPhone = presence(cand.value);
-    else if (field === "email") contactEmail = canonicalize(cand.value);
+    const norm = field === "email" ? canonicalize : presence;
+    const cur = field === "name" ? contactName : field === "phone" ? contactPhone : contactEmail;
+    const r = mergeFuzzyCell(cur, cand.value, norm);
+    if (!r.changed) continue; // exact-claimed (real) — suppress the warn
+    if (field === "name") contactName = r.val;
+    else if (field === "phone") contactPhone = r.val;
+    else contactEmail = r.val;
     agg?.warnings.push({
       severity: "warn",
       code: "FIELD_LABEL_AUTOCORRECTED",
@@ -130,11 +134,11 @@ const CLIENT_GATE_OPTS = {
     });
   }
 ```
-  with a small helper (module scope): `function fuzzyFieldLabel(f: "name" | "phone" | "email"): string { return f === "name" ? "client contact" : f === "phone" ? "client phone" : "client email"; }`.
+  with `function fuzzyFieldLabel(f: "name" | "phone" | "email"): string { return f === "name" ? "client contact" : f === "phone" ? "client phone" : "client email"; }` (module scope). (`canonicalize` returns `null`/empty for `""` — verify; the `presence(val) !== null` recording guard already drops empty raw values.)
 
 - [ ] **Step 4: Run to verify pass** — `pnpm vitest run tests/parser/blocks/client.test.ts` → green. Then `pnpm vitest run tests/parser` → corpus unchanged.
 
-- [ ] **Step 5: Mutation proof** — temporarily delete the post-loop `if (claimed.has(field)) continue;` → the v2 exact-wins test goes RED → revert. (Use a ≥5-char typo that becomes a real candidate, e.g. `client contct`, so the guard is genuinely exercised.)
+- [ ] **Step 5: Mutation proof** — in `mergeFuzzyCell`, temporarily drop the `(cur === null || shouldHideGenericOptional(cur))` condition (so a real fuzzy always overwrites) → the v2 **exact-wins** test goes RED → revert. (Uses `client contct`, a ≥5-char typo that becomes a real candidate, so the guard is genuinely exercised.)
 
 - [ ] **Step 6: Commit** — `git commit -m "feat(parser): fuzzy v2 client field-label recovery + agg threading"`.
 
@@ -148,6 +152,8 @@ const CLIENT_GATE_OPTS = {
   - **block-stop preserved (CRITICAL):** `| Contct Cell | 555-1 | 555-2 |` (typo, Damerau-1 of "contact cell") followed by `| Contact Email | a@x.co | b@x.co |` → the typo recovers (`client_contact.phone === "555-1"`, `secondary.phone === "555-2"`) AND the following `Contact Email` row is STILL parsed (`client_contact.email === "a@x.co"`). 1 warn.
   - **real-unknown still breaks:** `| COORDINATOR | x | |` followed by `| Contact Email | a@x.co | |` → block terminates at COORDINATOR; email NOT parsed (`client_contact.email === null` or contact null). 0 warns.
   - **v4 main+secondary recovery:** a typo'd sub-label recovers BOTH col1 and col2 (assert `secondary` values).
+  - **v4 per-column no-clobber (Codex R1 #1):** exact `| Contact Cell |  | 555-2 |` (empty main, real sec) then fuzzy `| Contct Cell | 555-1 |  |` (real main, empty sec) → `client_contact.phone === "555-1"` AND `client_contact.secondary.phone === "555-2"` (NEITHER lost), 1 warn.
+  - **v4 unrecognized-block no-warn (Codex R1 #2):** a block with NO `CLIENT` marker (e.g. `| Clent | Acme |` + `| Contct Cell | 555 |  |`) → `client_label === ""`, `client_contact === null`, and **0 warns** (no FIELD_LABEL_AUTOCORRECTED for a non-existent client block).
   - **v4 exact-wins:** exact `Contact Cell` (real) before a `Contct Cell` typo → exact phone kept, 0 warns.
   - **v4 empty/sentinel-exact recovers:** exact `Contact Cell` empty + `Contct Cell` real → fuzzy recovers, 1 warn.
   - **MAIN/SECONDARY header + blank rows untouched:** a block with the header row + a blank-col0 row parses normally, no fuzzy warn.
@@ -156,19 +162,15 @@ const CLIENT_GATE_OPTS = {
 - [ ] **Step 2: Run to verify fail** — the block-stop-preserved + recovery + empty-exact tests FAIL; real-unknown-breaks + exact-wins + header-untouched PASS.
 
 - [ ] **Step 3: Implement `parseClientV4` (client.ts:20-133).**
-  - 3a. Signature: `function parseClientV4(rows: string[][], agg?: ParseAggregator): ...`.
-  - 3b. After the `let sec*` decls add deferred state + the v4 map:
+  - 3a. Signature: `function parseClientV4(rows: string[][], agg?: ParseAggregator): ...`. Export the v4 vocab at module scope (single source — Codex R1 #3; the gate AND the registry both use this exact const, no `V4_LABEL_TO_FIELD`):
 ```ts
-  const claimed = new Set<keyof typeof V4_LABEL_TO_FIELD | string>();
-  const fuzzyCandidates = new Map<string, { rawLabel: string; main: string; sec: string }>();
-  const V4_LABEL_TO_FIELD = {
-    contact: "contact",
-    "contact cell": "contact cell",
-    "contact office": "contact office",
-    "contact email": "contact email",
-  } as const;
+export const CLIENT_V4_LABELS = ["contact", "contact cell", "contact office", "contact email"] as const;
 ```
-  - 3c. In the block-stop branch (client.ts:66-76), replace the inner `break` block with a fuzzy-before-break:
+  - 3b. After the `let sec*` decls add the deferred candidate map (no `claimed` set — the merge guard handles exact-wins):
+```ts
+  const fuzzyCandidates = new Map<string, { rawLabel: string; main: string; sec: string }>();
+```
+  - 3c. In the block-stop branch (client.ts:66-76), replace the inner `break` block with fuzzy-before-break (record + continue; last-write-wins on the map):
 ```ts
     if (
       !knownClientLabels.has(normalizedLabel) &&
@@ -176,58 +178,68 @@ const CLIENT_GATE_OPTS = {
       normalizedLabel !== "secondary"
     ) {
       if (label.length > 0 && !isMainSecRow(row)) {
-        // Fuzzy-before-break (PR-D4 CRITICAL): a typo of a known sub-label must NOT terminate
-        // the block. On a near-miss, record a deferred candidate and continue; only a genuine
-        // unknown label breaks.
-        const fuzzy = gatedVocabCorrect(normalizedLabel, Object.keys(V4_LABEL_TO_FIELD), CLIENT_GATE_OPTS);
+        // Fuzzy-before-break (PR-D4 CRITICAL): a typo of a known sub-label must NOT terminate the
+        // block. On a near-miss, record a deferred candidate and continue; only a genuine unknown
+        // label breaks. The post-loop merge (3e) preserves both columns + exact-real values.
+        const fuzzy = gatedVocabCorrect(normalizedLabel, [...CLIENT_V4_LABELS], CLIENT_GATE_OPTS);
         if (fuzzy?.corrected) {
-          const main = row[1] ?? "";
-          const sec = row[2] ?? "";
-          const prev = fuzzyCandidates.get(fuzzy.match);
-          const prevIsReal = prev !== undefined && presence(prev.main) !== null && !shouldHideGenericOptional(presence(prev.main) ?? "");
-          const curRealEmpty = presence(main) === null || shouldHideGenericOptional(presence(main) ?? "");
-          if (!(curRealEmpty && prevIsReal)) {
-            fuzzyCandidates.set(fuzzy.match, { rawLabel: (row[0] ?? "").trim(), main, sec });
-          }
+          fuzzyCandidates.set(fuzzy.match, {
+            rawLabel: (row[0] ?? "").trim(),
+            main: row[1] ?? "",
+            sec: row[2] ?? "",
+          });
           continue; // recovered — do NOT break, do NOT fall through to exact field-detection
         }
         break; // genuine unknown label — original block-stop
       }
     }
 ```
-  - 3d. In the exact field-detection (client.ts:81-101), claim a field when its value is real. After each assignment add the claim, e.g.:
+  - 3d. The exact field-detection (client.ts:81-101) is UNCHANGED (no `claimed` tracking).
+  - 3e. Apply deferred candidates **AFTER the `if (!clientLabel) return` guard** (Codex R1 #2). Replace `if (!clientLabel) return { client_label: "", client_contact: null };` (client.ts:104) with a per-column merge (Codex R1 #1 — main + secondary merge independently; never clobber a real exact value; warn iff a cell changed):
 ```ts
-    if (normalizedLabel === "contact cell") {
-      mainPhone = presence(row[1] ?? "");
-      secPhone = presence(row[2] ?? "");
-      if (mainPhone !== null && !shouldHideGenericOptional(mainPhone)) claimed.add("contact cell");
-    } else if (normalizedLabel === "contact office") { /* …claimed.add("contact office") */ }
-      else if (normalizedLabel === "contact email") { /* …claimed.add("contact email") */ }
-```
-  and for the `contact` (name) branch (client.ts:84-87): `if (mainName !== null && !shouldHideGenericOptional(mainName)) claimed.add("contact");`.
-  - 3e. After the loop (before the `if (!clientLabel)` return at client.ts:104), apply deferred candidates:
-```ts
+  if (!clientLabel) return { client_label: "", client_contact: null };
+
   for (const [sublabel, cand] of fuzzyCandidates) {
-    if (claimed.has(sublabel)) continue;
-    if (sublabel === "contact") { mainName = presence(cand.main); secName = presence(cand.sec); }
-    else if (sublabel === "contact cell") { mainPhone = presence(cand.main); secPhone = presence(cand.sec); }
-    else if (sublabel === "contact office") { mainOfficePhone = presence(cand.main); secOfficePhone = presence(cand.sec); }
-    else if (sublabel === "contact email") { mainEmail = canonicalize(cand.main); secEmail = canonicalize(cand.sec); }
-    agg?.warnings.push({
-      severity: "warn",
-      code: "FIELD_LABEL_AUTOCORRECTED",
-      message: `Read likely-misspelled client label '${cand.rawLabel}' as '${sublabel}'`,
-      blockRef: { kind: "client" },
-      rawSnippet: cand.rawLabel,
-    });
+    let changed = false;
+    const apply = (
+      cur: string | null,
+      raw: string,
+      norm: (s: string) => string | null,
+    ): string | null => {
+      const r = mergeFuzzyCell(cur, raw, norm);
+      if (r.changed) changed = true;
+      return r.val;
+    };
+    if (sublabel === "contact") {
+      mainName = apply(mainName, cand.main, presence);
+      secName = apply(secName, cand.sec, presence);
+    } else if (sublabel === "contact cell") {
+      mainPhone = apply(mainPhone, cand.main, presence);
+      secPhone = apply(secPhone, cand.sec, presence);
+    } else if (sublabel === "contact office") {
+      mainOfficePhone = apply(mainOfficePhone, cand.main, presence);
+      secOfficePhone = apply(secOfficePhone, cand.sec, presence);
+    } else if (sublabel === "contact email") {
+      mainEmail = apply(mainEmail, cand.main, canonicalize);
+      secEmail = apply(secEmail, cand.sec, canonicalize);
+    }
+    if (changed) {
+      agg?.warnings.push({
+        severity: "warn",
+        code: "FIELD_LABEL_AUTOCORRECTED",
+        message: `Read likely-misspelled client label '${cand.rawLabel}' as '${sublabel}'`,
+        blockRef: { kind: "client" },
+        rawSnippet: cand.rawLabel,
+      });
+    }
   }
 ```
 
 - [ ] **Step 4: Run pass + corpus** — `pnpm vitest run tests/parser/blocks/client.test.ts` then `pnpm vitest run tests/parser` → green/unchanged.
 
 - [ ] **Step 5: Mutation proofs** —
-  - Move the fuzzy block to AFTER the `break` (i.e. keep the original `break` first) → the **block-stop-preserved** test goes RED → revert. (Proves fuzzy-before-break is load-bearing.)
-  - Delete the post-loop `if (claimed.has(sublabel)) continue;` → the **v4 exact-wins** test goes RED → revert.
+  - Move the fuzzy block to AFTER the `break` (keep the original `break` first) → the **block-stop-preserved** test goes RED → revert. (Proves fuzzy-before-break is load-bearing.)
+  - In `mergeFuzzyCell`, drop the `(cur === null || shouldHideGenericOptional(cur))` condition → the **v4 exact-wins** AND **v4 per-column no-clobber** tests go RED → revert. (Proves the merge guard is load-bearing.)
 
 - [ ] **Step 6: Commit** — `git commit -m "feat(parser): fuzzy v4 client field-label recovery (fuzzy-before-break)"`.
 
@@ -273,7 +285,7 @@ const CLIENT_GATE_OPTS = {
 ```
   (header-block, NOT row-label-union: the v4 `Contact*` sub-rows would overlap the `contacts` `/^contact\b/i` union. `BLOCK_TERMINATORS` lacks `CLIENT`, so the block spans correctly.) Do NOT add a `CARD_REGION_MAP` entry.
 
-- [ ] **Step 3: Add a deep-link resolution test** (to `tests/parser/blocks/client.test.ts` or `tests/drive/showDayTimeAnchors.test.ts`): a `FIELD_LABEL_AUTOCORRECTED` warning with `blockRef.kind="client"` + a `sources.region.client` anchor → `attachSourceCellAnchors` sets `sourceCell` (non-null) for it. (Mirror an existing `showDayTimeAnchors.test.ts` region-dispatch case.)
+- [ ] **Step 3: Add a REAL-extraction test (Codex R1 #4 — exercise anchor discovery, not a prebuilt anchor).** In `tests/parser/sourceAnchorsCorpus.test.ts`, mirror the existing region assertions (e.g. line 194 `expect(anchors.contacts?.title).toBe("INFO")`): assert `expect(anchors.client?.title).toBe("INFO")` — this runs the real `extractSourceAnchors(buffer, titleToGid)` over an INFO tab containing a `CLIENT` header row (the header-block `/^CLIENT$/i` strategy resolves it). If the corpus INFO fixture lacks a `CLIENT` first-cell row, add one so the assertion exercises discovery (the existing per-anchor allowlist assertion at line ~156 already confirms the title is allowlisted). Confirm it anchors to the **INFO** tab, NOT the legacy non-allowlisted `CLIENT` master-library tab (LEGACY_CLIENT_ROWS, line 72 — produces no anchor because `client` region is `tabs:["INFO"]`). Optionally also add a dispatch test in `tests/drive/showDayTimeAnchors.test.ts` (a `FIELD_LABEL_AUTOCORRECTED` `kind:"client"` warning + a `sources.region.client` anchor → `attachSourceCellAnchors` sets a non-null `sourceCell`).
 
 - [ ] **Step 4: Run** — `pnpm vitest run tests/sheet-links tests/components/crew/sourceLinkCoverage.test.tsx tests/drive/showDayTimeAnchors.test.ts` → green.
 
@@ -312,6 +324,8 @@ const CLIENT_GATE_OPTS = {
 5. **Type consistency:** `blockRef.kind="client"` == RegionId key; `KIND_TO_REGION` unaffected; `REGION_ANCHOR_SPEC: Record<RegionId,…>` exhaustiveness forces the client entry.
 
 ## Adversarial review (cross-model)
+
+**Plan review R1 (Codex): CHANGES_REQUESTED → all 4 resolved** — (1 HIGH) v4 two-column overwrite: replaced the wholesale apply + `claimed` set with a per-column `mergeFuzzyCell` that fills a cell only when the fuzzy value is real AND the existing value is empty/sentinel, so neither column's real value is ever clobbered (pinned by the per-column no-clobber test + mutation); (2 HIGH) v2/v4 warning timing: fuzzy candidates are now applied AFTER the `if (!clientLabel) return` guard, so an unrecognized client block emits no warning (pinned by the unrecognized-block no-warn test); (3 MED) single-source vocab: `CLIENT_V4_LABELS` is now exported and used as both the runtime gate vocab and the registry source (no `V4_LABEL_TO_FIELD`/`Object.keys` divergence); (4 MED) real-extraction test: Task 3 asserts `anchors.client?.title === "INFO"` through the real `extractSourceAnchors` path, not a prebuilt anchor.
 
 After implementation, Codex whole-diff review to APPROVE. Do-not-relitigate preempts (design-workflow-verified): (a) **header-block over row-label-union** — the `contacts` `/^contact\b/i` union would overlap the v4 `Contact*` sub-rows; (b) **`client` as warning-anchor-only with no card** — §30 (client_contact rendered nowhere) + the warning-anchor path (showDayTimeAnchors.ts:146); a zombie `CARD_REGION_MAP` entry would be dishonest; (c) **v1 merged-cell deferral** — label/value fusion in col0; (d) **fuzzy-before-break is required** (not optional) — a typo'd known sub-label otherwise terminates the v4 block; (e) the `CLIENT` org label is intentionally not fuzzed; (f) collision is clean (all client labels Damerau≥4 apart + from other vocabs; tripwire run confirms).
 
