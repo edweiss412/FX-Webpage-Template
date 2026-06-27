@@ -87,7 +87,9 @@ describe("shared agenda-link predicate keeps both selectors aligned", () => {
     const parserSrc = readFileSync("lib/parser/index.ts", "utf8");
     const driveSrc = readFileSync("lib/drive/agendaDrive.ts", "utf8");
     for (const src of [parserSrc, driveSrc]) {
-      expect(src).toMatch(/import\s+\{\s*isAgendaLinkRow\s*\}\s+from\s+["'][^"']*agendaLinkRow["']/);
+      expect(src).toMatch(
+        /import\s+\{\s*isAgendaLinkRow\s*\}\s+from\s+["'][^"']*agendaLinkRow["']/,
+      );
       expect(src).toMatch(/isAgendaLinkRow\(/);
     }
   });

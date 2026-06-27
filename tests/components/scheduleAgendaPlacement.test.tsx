@@ -52,7 +52,12 @@ const AGENDA_LINKS = [
   { label: "AGENDA LINK - RFI", fileId: "fileRFI", extracted: HIGH_EXTRACTION },
 ];
 
-const DATES = { travelIn: null, set: null, showDays: ["2026-05-14", "2026-05-15"], travelOut: null };
+const DATES = {
+  travelIn: null,
+  set: null,
+  showDays: ["2026-05-14", "2026-05-15"],
+  travelOut: null,
+};
 
 afterEach(() => cleanup());
 
@@ -68,7 +73,9 @@ describe("agenda placement — Schedule section (Task 15)", () => {
     );
     const section = container.querySelector('[data-testid="section-schedule"]')!;
     // Affordance present.
-    expect(within(section as HTMLElement).getByRole("button", { name: /view agenda/i })).toBeTruthy();
+    expect(
+      within(section as HTMLElement).getByRole("button", { name: /view agenda/i }),
+    ).toBeTruthy();
     // Structured schedule present.
     const schedule = section.querySelector('[data-testid="agenda-schedule"]');
     expect(schedule).not.toBeNull();
@@ -120,7 +127,9 @@ describe("agenda removed from Venue/Diagrams (Task 15)", () => {
 
   test("DiagramsTile with no diagrams + agenda-only data → null (no empty block)", () => {
     // @ts-expect-error — agendaLinks is removed from DiagramsTileProps in Task 15.
-    const { container } = render(<DiagramsTile showId={SHOW_ID} diagrams={null} agendaLinks={AGENDA_LINKS} />);
+    const { container } = render(
+      <DiagramsTile showId={SHOW_ID} diagrams={null} agendaLinks={AGENDA_LINKS} />,
+    );
     expect(container.firstChild).toBeNull();
   });
 });

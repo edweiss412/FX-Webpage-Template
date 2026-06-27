@@ -114,8 +114,7 @@ export interface DriveClient {
   getAgendaChips?: (
     spreadsheetId: string,
   ) => Promise<
-    | { kind: "rows"; rows: { label: string; chipFileId: string | null }[] }
-    | { kind: "infra_error" }
+    { kind: "rows"; rows: { label: string; chipFileId: string | null }[] } | { kind: "infra_error" }
   >;
 }
 

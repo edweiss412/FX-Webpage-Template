@@ -10,15 +10,16 @@ import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 describe("agenda data-quality codes", () => {
-  test.each(["AGENDA_PDF_UNREADABLE", "AGENDA_SCHEDULE_LOW_CONFIDENCE", "AGENDA_SCHEDULE_TIME_ADJUSTED"])(
-    "%s exists in the catalog with Doug-facing (admin-only) copy",
-    (code) => {
-      const entry = (
-        MESSAGE_CATALOG as Record<string, { dougFacing: string | null; crewFacing: string | null }>
-      )[code];
-      expect(entry).toBeDefined();
-      expect(entry!.dougFacing).toBeTruthy();
-      expect(entry!.crewFacing).toBeNull();
-    },
-  );
+  test.each([
+    "AGENDA_PDF_UNREADABLE",
+    "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+    "AGENDA_SCHEDULE_TIME_ADJUSTED",
+  ])("%s exists in the catalog with Doug-facing (admin-only) copy", (code) => {
+    const entry = (
+      MESSAGE_CATALOG as Record<string, { dougFacing: string | null; crewFacing: string | null }>
+    )[code];
+    expect(entry).toBeDefined();
+    expect(entry!.dougFacing).toBeTruthy();
+    expect(entry!.crewFacing).toBeNull();
+  });
 });

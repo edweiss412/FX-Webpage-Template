@@ -111,7 +111,9 @@ describe("agenda transition audit — content-driven swap is instant (no orphane
   });
 
   it("AgendaEmbed sheet open/close is an instant conditional render (mount/unmount, not animated)", () => {
-    render(<AgendaEmbed showId="show-x" agendaLinks={[{ label: "AGENDA LINK - RFI", fileId: "f1" }]} />);
+    render(
+      <AgendaEmbed showId="show-x" agendaLinks={[{ label: "AGENDA LINK - RFI", fileId: "f1" }]} />,
+    );
     // Closed: no sheet in the tree.
     expect(screen.queryByTestId("agenda-sheet")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /view agenda/i }));

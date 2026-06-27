@@ -5,7 +5,13 @@ test("valid high payload passes", () => {
     confidence: "high",
     corrections: 0,
     extractorVersion: 1,
-    days: [{ dayLabel: "Tue", date: null, sessions: [{ time: "9 AM", title: null, room: null, tracks: [], drift: null }] }],
+    days: [
+      {
+        dayLabel: "Tue",
+        date: null,
+        sessions: [{ time: "9 AM", title: null, room: null, tracks: [], drift: null }],
+      },
+    ],
   };
   expect(normalizeAgendaExtraction(ok)).not.toBeNull();
 });

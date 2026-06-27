@@ -185,8 +185,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   // longer forces this block to render (an agenda-only show shows NO empty
   // Diagrams block here).
   const hasDiagrams =
-    (data.diagrams?.embeddedImages?.length ?? 0) +
-      (data.diagrams?.linkedFolderItems?.length ?? 0) >
+    (data.diagrams?.embeddedImages?.length ?? 0) + (data.diagrams?.linkedFolderItems?.length ?? 0) >
     0;
 
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The parking

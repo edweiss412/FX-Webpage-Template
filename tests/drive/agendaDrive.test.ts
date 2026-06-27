@@ -28,9 +28,7 @@ import { downloadFileBytes, getAgendaChips } from "@/lib/drive/agendaDrive";
 function chipUriCell(formattedValue: string, uri: string | null) {
   return {
     formattedValue,
-    chipRuns: uri
-      ? [{ chip: { richLinkProperties: { uri } } }]
-      : [],
+    chipRuns: uri ? [{ chip: { richLinkProperties: { uri } } }] : [],
   };
 }
 
@@ -82,13 +80,19 @@ describe("getAgendaChips — grid-order chip recovery", () => {
                   {
                     values: [
                       { formattedValue: "AGENDA LINK - RFI" },
-                      chipUriCell("RFI Agenda.pdf", "https://drive.google.com/file/d/RFI_FILE_ID/view"),
+                      chipUriCell(
+                        "RFI Agenda.pdf",
+                        "https://drive.google.com/file/d/RFI_FILE_ID/view",
+                      ),
                     ],
                   },
                   {
                     values: [
                       { formattedValue: "AGENDA LINK - PCF" },
-                      chipUriCell("PCF Agenda.pdf", "https://drive.google.com/file/d/PCF_FILE_ID/view"),
+                      chipUriCell(
+                        "PCF Agenda.pdf",
+                        "https://drive.google.com/file/d/PCF_FILE_ID/view",
+                      ),
                     ],
                   },
                 ],
@@ -117,7 +121,12 @@ describe("getAgendaChips — grid-order chip recovery", () => {
               {
                 rowData: [
                   // plain URL, no chip
-                  { values: [{ formattedValue: "AGENDA" }, { formattedValue: "https://example.com/a.pdf" }] },
+                  {
+                    values: [
+                      { formattedValue: "AGENDA" },
+                      { formattedValue: "https://example.com/a.pdf" },
+                    ],
+                  },
                   // blank value → excluded by isAgendaLinkRow
                   { values: [{ formattedValue: "AGENDA LINK - X" }, { formattedValue: "   " }] },
                   // not an agenda label → excluded
