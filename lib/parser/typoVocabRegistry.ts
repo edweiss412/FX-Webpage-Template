@@ -1,5 +1,6 @@
 import { inScopeAliases } from "@/lib/parser/aliases";
 import { EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";
+import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 
 export type VocabEntry = {
   id: string;
@@ -55,6 +56,9 @@ export const TYPO_VOCABS: readonly VocabEntry[] = [
   // local CANONICAL_KEY_MAP). Members are the SAME derived vocab the gate fuzzes, so the
   // tripwire guards exactly what ships. (Not resolveAliasScoped — event uses a local map.)
   { id: "eventFieldAlias", klass: "fuzzable", minLen: 5, members: EVENT_LABEL_VOCAB },
+  // PR-D2: v2 transport schedule-label fuzzy fallback (gatedVocabCorrect over V2_SCHEDULE_LABELS).
+  // Members are the SAME derived vocab the gate fuzzes, so the tripwire guards exactly what ships.
+  { id: "transportScheduleLabel", klass: "fuzzable", minLen: 5, members: TRANSPORT_SCHEDULE_VOCAB },
   // excluded / do-not-fuzz neighborhoods (spec §8) the meta-test guards against:
   {
     id: "shortRoleCodes",
