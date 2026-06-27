@@ -284,10 +284,12 @@ function buildCrewMember(params: {
 
   const stageRestriction = extractStageRestriction(roleCellForParse);
   const roleFlagResult = extractRoleFlags(roleCellForParse);
-  // Stamp UNKNOWN_ROLE_TOKEN warnings with the crew-row blockRef so they can
-  // deep-link to the offending role cell. extractRoleFlags stays a pure function.
+  // Stamp UNKNOWN_ROLE_TOKEN / ROLE_TOKEN_AUTOCORRECTED warnings with the crew-row
+  // blockRef so they can deep-link to the offending role cell. extractRoleFlags stays pure.
   const stampedRoleWarnings = roleFlagResult.warnings.map((w) =>
-    w.code === "UNKNOWN_ROLE_TOKEN" ? { ...w, blockRef: crewBlockRef } : w,
+    w.code === "UNKNOWN_ROLE_TOKEN" || w.code === "ROLE_TOKEN_AUTOCORRECTED"
+      ? { ...w, blockRef: crewBlockRef }
+      : w,
   );
   warnings.push(...stampedRoleWarnings);
   if (agg) agg.warnings.push(...stampedRoleWarnings);

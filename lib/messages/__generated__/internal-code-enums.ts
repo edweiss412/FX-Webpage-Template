@@ -179,6 +179,9 @@ export const INTERNAL_CODE_ENUMS = {
   REPORT_PIPELINE_FAILED: {
     source: "admin_alerts.code"
   },
+  ROLE_TOKEN_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   SCHEDULE_TIME_UNPARSED: {
     source: "parse_warnings.code"
   },
