@@ -109,3 +109,47 @@ export function dataGapClassDetails(
   }
   return out;
 }
+
+/**
+ * Operator-actionable, source-anchorable parse-warning codes. These get a
+ * source-sheet "Open in Sheet" deep link on the review surfaces. DISJOINT in
+ * meaning from DATA_GAP_CODES (the count-only digest) — though FIELD_UNREADABLE
+ * is intentionally in BOTH (keeps its data-gap count AND gains a region link).
+ * lib/drive/showDayTimeAnchors.ts uses this SAME object as the anchor-population
+ * gate (CELL_ANCHORED_CODES), so the render gate and the population gate cannot
+ * drift.
+ */
+export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
+  "SCHEDULE_TIME_UNPARSED",
+  "UNKNOWN_ROLE_TOKEN",
+  "UNKNOWN_DAY_RESTRICTION",
+  FIELD_UNREADABLE,
+]);
+
+/**
+ * Select the operator-actionable warnings for a durable review surface:
+ * filter to OPERATOR_ACTIONABLE_ANCHORED (warn-severity only), PRESERVE parse
+ * order, and dedup by (code, resolved-anchor-A1). A cascade of same-cell
+ * warnings (one per unknown token) collapses to one line; warnings WITHOUT a
+ * resolved sourceCell are NEVER deduped (the synthesis-unstable blockRef.index
+ * is never a dedup key), so no actionable row is ever hidden.
+ */
+export function operatorActionableWarnings(
+  warnings: readonly ParseWarning[] | null | undefined,
+): ParseWarning[] {
+  if (!warnings) return [];
+  const out: ParseWarning[] = [];
+  const seen = new Set<string>();
+  for (const w of warnings) {
+    if (w.severity !== "warn") continue;
+    if (!OPERATOR_ACTIONABLE_ANCHORED.has(w.code)) continue;
+    const a1 = w.sourceCell?.a1;
+    if (a1) {
+      const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(w);
+  }
+  return out;
+}
