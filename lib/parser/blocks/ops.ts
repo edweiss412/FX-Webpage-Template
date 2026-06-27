@@ -18,6 +18,7 @@
 
 import type { ShowRow } from "../types";
 import type { ParseAggregator } from "@/lib/parser/warnings";
+import { resolveAliasScoped } from "@/lib/parser/aliases";
 import { clean, presence, splitRow } from "./_helpers";
 
 export type OpsResult = Pick<
@@ -43,7 +44,7 @@ export function parseOps(
   markdown: string,
   _version: "v1" | "v2" | "v4",
 
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): OpsResult {
   let po: string | null = null;
   let proposal: string | null = null;
@@ -55,6 +56,22 @@ export function parseOps(
   // Without this, a blank first match leaves the field null, and a later
   // admin-table row (e.g. "PO # | FALSE") would backfill it with garbage.
   const seen = new Set<string>();
+
+  // Scoped fuzzy fallback (PR-C): a row whose label matches none of the exact
+  // patterns above is checked against the in-scope `ops.*` field aliases. A
+  // near-miss (Damerau ≤ 1, minLen 5, tie-abort — so COI/PO# can't be fuzzed)
+  // is recorded as a candidate and applied AFTER the loop, but only if the real
+  // (exact-spelled) field never appeared. Exact rows always win.
+  const CANON_TO_FIELD: Record<string, keyof OpsResult> = {
+    "ops.coi": "coi_status",
+    "ops.po": "po",
+    "ops.proposal": "proposal",
+    "ops.invoice": "invoice",
+    "ops.invoice_notes": "invoice_notes",
+  };
+  const fuzzyCandidates: Partial<
+    Record<keyof OpsResult, { rawLabel: string; value: string | null; canonical: string }>
+  > = {};
 
   for (const line of markdown.split("\n")) {
     const trimmed = line.trim();
@@ -103,7 +120,37 @@ export function parseOps(
         seen.add("invoice");
         invoice = presence(val ?? "");
       }
+    } else {
+      // No exact pattern matched — try a scoped fuzzy recovery on the LABEL only
+      // (never the value). First fuzzy candidate per field wins.
+      const fuzzy = resolveAliasScoped(col0, "ops.");
+      if (fuzzy?.corrected) {
+        const field = CANON_TO_FIELD[fuzzy.canonical];
+        if (field && fuzzyCandidates[field] === undefined) {
+          fuzzyCandidates[field] = { rawLabel: col0, value: val, canonical: fuzzy.canonical };
+        }
+      }
     }
+  }
+
+  // Apply fuzzy candidates only for fields no exact row claimed. Exact wins.
+  for (const key of Object.keys(fuzzyCandidates) as (keyof OpsResult)[]) {
+    if (seen.has(key)) continue;
+    const cand = fuzzyCandidates[key]!;
+    const v = presence(cand.value ?? "");
+    if (key === "coi_status") coi_status = v;
+    else if (key === "po") po = v;
+    else if (key === "proposal") proposal = v;
+    else if (key === "invoice") invoice = v;
+    else if (key === "invoice_notes") invoice_notes = v;
+    seen.add(key);
+    agg?.warnings.push({
+      severity: "warn",
+      code: "FIELD_LABEL_AUTOCORRECTED",
+      message: `Read likely-misspelled field label '${cand.rawLabel}' as field '${cand.canonical}'`,
+      blockRef: { kind: "financials" },
+      rawSnippet: cand.rawLabel,
+    });
   }
 
   return { po, proposal, invoice, invoice_notes, coi_status };

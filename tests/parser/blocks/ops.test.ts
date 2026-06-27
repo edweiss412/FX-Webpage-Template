@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseOps } from "@/lib/parser/blocks/ops";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
 
 const ALL_FIXTURES = [
   "fixtures/shows/raw/2024-05-east-coast-family-office.md",
@@ -218,4 +219,61 @@ describe("parseOps — corpus coverage", () => {
       expect(typeof ops.invoice_notes === "string" || ops.invoice_notes === null).toBe(true);
     });
   }
+});
+
+// ── Fuzzy field-label recovery (PR-C Task 1) ──────────────────────────────────
+// Scoped-alias fuzzy fallback: a misspelled ops field label (Invoice / Proposal /
+// Invoice Notes) is recovered via resolveAliasScoped("...", "ops.") and the value
+// is routed to the right field with a warn-severity FIELD_LABEL_AUTOCORRECTED.
+describe("parseOps — fuzzy field-label recovery", () => {
+  it("recovers misspelled Invoice and Proposal labels and warns once each", () => {
+    const md = ["| Invoce | INV-123 |", "| Propsal | PROP-9 |"].join("\n");
+    const agg = newAggregator();
+    const ops = parseOps(md, "v2", agg);
+    expect(ops.invoice).toBe("INV-123");
+    expect(ops.proposal).toBe("PROP-9");
+    const warns = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(warns).toHaveLength(2);
+    for (const w of warns) {
+      expect(w.severity).toBe("warn");
+      expect(w.blockRef).toEqual({ kind: "financials" });
+    }
+  });
+
+  it("anti-shadow: an exact label later in the block wins over an earlier typo, no warning", () => {
+    // "Invoce" (typo) precedes the exact "Invoice" row; first-match-wins keeps the
+    // real value and the post-loop fuzzy candidate is skipped because the field is seen.
+    const md = ["| Invoce | TYPO-WRONG |", "| Invoice | REAL-456 |"].join("\n");
+    const agg = newAggregator();
+    const ops = parseOps(md, "v2", agg);
+    expect(ops.invoice).toBe("REAL-456");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("exact spellings still route with no fuzzy warning", () => {
+    const md = ["| COI | Sent |", "| PO# | PO-1 |", "| Invoice Note | n |"].join("\n");
+    const agg = newAggregator();
+    const ops = parseOps(md, "v2", agg);
+    expect(ops.coi_status).toBe("Sent");
+    expect(ops.po).toBe("PO-1");
+    expect(ops.invoice_notes).toBe("n");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("VALUE-guard: a typo in the cell VALUE (not the label) is never fuzzed", () => {
+    const md = ["| SomeForeignLabel | Invoce |"].join("\n");
+    const agg = newAggregator();
+    const ops = parseOps(md, "v2", agg);
+    expect(ops.invoice).toBeNull();
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("below-minLen: very short labels (CO, P0) are not fuzz-corrected", () => {
+    const md = ["| CO | x |", "| P0 | y |"].join("\n");
+    const agg = newAggregator();
+    const ops = parseOps(md, "v2", agg);
+    expect(ops.coi_status).toBeNull();
+    expect(ops.po).toBeNull();
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
 });
