@@ -174,6 +174,34 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
   });
 
+  it("resolves ROLE_TOKEN_AUTOCORRECTED by blockRef.name (crew cell)", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "ROLE_TOKEN_AUTOCORRECTED", message: "x", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: crewAnchors, region: {} });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
+  });
+
+  it("resolves COLUMN_HEADER_AUTOCORRECTED by its crew region (blockRef.kind='crew')", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "COLUMN_HEADER_AUTOCORRECTED", message: "x", blockRef: { kind: "crew", index: 0 } },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: { crew: { title: "INFO", gid: 0, a1: "A2:D5" } } });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2:D5" });
+  });
+
+  it("resolves SECTION_HEADER_AUTOCORRECTED by its section region (blockRef.kind=RegionId)", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "SECTION_HEADER_AUTOCORRECTED", message: "x", blockRef: { kind: "transportation", index: 0 } },
+    ];
+    attachSourceCellAnchors(ws, {
+      showDay: [],
+      crewRole: [],
+      region: { transportation: { title: "INFO", gid: 9, a1: "A40" } },
+    });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 9, a1: "A40" });
+  });
+
   it("FIELD_UNREADABLE with no region for its kind → null (no wrong-region link)", () => {
     const ws: ParseWarning[] = [
       {
@@ -254,13 +282,16 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning is TRUE for all fourteen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+  it("hasCellAnchoredWarning is TRUE for all seventeen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
     for (const code of [
       "SCHEDULE_TIME_UNPARSED",
       "UNKNOWN_ROLE_TOKEN",
       "UNKNOWN_DAY_RESTRICTION",
       "UNKNOWN_FIELD",
       "STAGE_WORD_AUTOCORRECTED",
+      "ROLE_TOKEN_AUTOCORRECTED",
+      "COLUMN_HEADER_AUTOCORRECTED",
+      "SECTION_HEADER_AUTOCORRECTED",
       "AGENDA_GRID_MALFORMED",
       "AGENDA_BLOCK_UNRESOLVED",
       "AGENDA_DAY_AMBIGUOUS",

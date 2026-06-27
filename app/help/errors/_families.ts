@@ -57,13 +57,14 @@ export const FAMILIES: Family[] = [
       "APPLY",
       "DUPLICATE",
       "EXTRA",
+      "SECTION",
     ],
   },
   {
     id: "crew-schedule",
     title: "Crew, schedule & travel data",
     blurb: "Reading crew, schedule, and travel rows out of the sheet.",
-    prefixes: ["MI", "MI11", "UNKNOWN", "AGENDA", "TRAVEL", "DAY", "SCHEDULE", "STAGE", "IDENTITY"],
+    prefixes: ["MI", "MI11", "UNKNOWN", "AGENDA", "TRAVEL", "DAY", "SCHEDULE", "STAGE", "ROLE", "COLUMN", "IDENTITY"],
   },
   {
     id: "diagrams-reels",
