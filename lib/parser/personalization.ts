@@ -9,6 +9,7 @@
  */
 
 import type { DateRestriction, StageRestriction, RoleFlag, ParseWarning } from "./types";
+import { closedVocabMatch } from "@/lib/parser/fuzzyMatch";
 
 // ── Role normalization map ────────────────────────────────────────────────────
 // Maps cleaned token strings (trimmed uppercase) to canonical RoleFlag.
@@ -159,6 +160,84 @@ export function extractStageRestriction(roleCell: string): StageRestriction {
     return { kind: "explicit", stages: ["Load Out", "Strike"] };
   }
   return { kind: "none" };
+}
+
+// ── normalizeStageWords (typo-tolerant stage-word correction) ──────────────────
+
+/** Post-tokenization canonical stage tokens (uppercase). */
+const STAGE_VOCAB = ["LOAD IN", "SET", "STRIKE", "LOAD OUT"] as const;
+/** Canonical display casing for the rewrite (regexes downstream are /i, so case
+ *  is cosmetic, but we keep the corpus casing). */
+const STAGE_CANONICAL: Record<string, string> = {
+  "LOAD IN": "Load In",
+  SET: "Set",
+  STRIKE: "Strike",
+  "LOAD OUT": "Load Out",
+};
+/** Trailing restriction marker peeled from a segment's comparison token: a
+ *  `ONLY` (optionally `ONLY***`) or a bare `***` (exactly three). Deliberately
+ *  NOT 1–2 stars — `***`-count tolerance is deferred; `ONLY*`/`ONLY**` are left
+ *  unpeeled (fall through to existing behavior). */
+const STAGE_TRAILING_MARKER_RE = /(\s*\bONLY\b(?:\s*\*{3})?\s*|\s*\*{3}\s*)$/i;
+
+export type StageWordCorrection = { detected: string; corrected: string };
+export type StageNormalization = { corrected: string; corrections: StageWordCorrection[] };
+
+/**
+ * Auto-correct misspelled stage words in a cleaned role cell, confidence-gated.
+ * Returns the corrected cell + the list of corrections. Gate: ≥ 2 stage-ish
+ * tokens (exact OR Damerau ≤ 1) AND ≥ 1 exact stage anchor. A recognized role
+ * (ROLE_NORMALIZATIONS) is classified as a role first and never rewritten. Only
+ * near-miss segments are rewritten; exact-stage and non-stage segments (incl.
+ * hyphenated text) and the peeled ONLY/*** marker are preserved verbatim.
+ */
+export function normalizeStageWords(roleCell: string): StageNormalization {
+  // Split keeping separators (odd indices) so the rebuild is faithful.
+  const parts = roleCell.split(/([/\-])/);
+  let exactCount = 0;
+  let stageIshCount = 0;
+  // candidate[i] holds the canonical UPPER vocab member for a part to rewrite.
+  const candidate: (string | null)[] = new Array(parts.length).fill(null);
+
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) continue; // separator
+    const raw = parts[i] ?? "";
+    const marker = raw.match(STAGE_TRAILING_MARKER_RE)?.[0] ?? "";
+    const head = marker ? raw.slice(0, raw.length - marker.length) : raw;
+    const cmp = head.trim().toUpperCase();
+    if (!cmp) continue;
+    if (ROLE_NORMALIZATIONS[cmp]) continue; // role-exclusion: never a stage word
+    if ((STAGE_VOCAB as readonly string[]).includes(cmp)) {
+      exactCount += 1;
+      stageIshCount += 1;
+      continue;
+    }
+    const match = closedVocabMatch(cmp, STAGE_VOCAB, 1);
+    if (match && !match.exact) {
+      stageIshCount += 1;
+      candidate[i] = match.match;
+    }
+  }
+
+  // Confidence gate.
+  if (!(stageIshCount >= 2 && exactCount >= 1)) {
+    return { corrected: roleCell, corrections: [] };
+  }
+
+  const corrections: StageWordCorrection[] = [];
+  const rebuilt = parts.map((raw, i) => {
+    const cand = candidate[i];
+    if (!cand) return raw;
+    const marker = raw.match(STAGE_TRAILING_MARKER_RE)?.[0] ?? "";
+    const head = marker ? raw.slice(0, raw.length - marker.length) : raw;
+    const detected = head.trim();
+    const corrected = STAGE_CANONICAL[cand] ?? cand;
+    corrections.push({ detected, corrected });
+    // Replace the trimmed head core, preserving head's surrounding whitespace + the marker.
+    return head.replace(detected, corrected) + marker;
+  });
+
+  return { corrected: rebuilt.join(""), corrections };
 }
 
 // ── extractRoleFlags ──────────────────────────────────────────────────────────

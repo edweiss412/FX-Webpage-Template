@@ -1062,6 +1062,19 @@ export const MESSAGE_CATALOG = {
       "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, let us know and we'll add it.",
     helpHref: "/help/errors#UNKNOWN_ROLE_TOKEN",
   },
+  STAGE_WORD_AUTOCORRECTED: {
+    code: "STAGE_WORD_AUTOCORRECTED",
+    dougFacing:
+      "We read a likely-misspelled stage word in _<crew-name>_'s role (for example 'Strke' as 'Strike') and used the corrected version, so their schedule still reads correctly. If it was intentional, update the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix",
+    helpfulContext:
+      "A stage word in this crew member's role looked misspelled (e.g. 'Strke'), so we read it as the closest real stage word ('Strike') and used that — nothing else is affected. If the spelling was intentional, update the sheet.",
+    title: "Auto-corrected a misspelled stage word",
+    longExplanation:
+      "A stage word in a crew member's role cell looked misspelled, so we read it as the closest real stage word and used that — the role and schedule still parse correctly. If the spelling was intentional, update the sheet.",
+    helpHref: "/help/errors#STAGE_WORD_AUTOCORRECTED",
+  },
   PULL_SHEET_PARSE_PARTIAL: {
     code: "PULL_SHEET_PARSE_PARTIAL",
     dougFacing:

@@ -197,6 +197,9 @@ export const INTERNAL_CODE_ENUMS = {
   SHOW_UNPUBLISHED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  STAGE_WORD_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   STAGED_PARSE_OUTDATED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },

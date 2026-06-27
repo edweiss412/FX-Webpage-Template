@@ -672,3 +672,53 @@ describe("Class A — FIELD_UNREADABLE crew phone", () => {
     expect(agg.warnings.filter((w) => w.code === "FIELD_UNREADABLE")).toEqual([]);
   });
 });
+
+describe("parseCrew — stage-word typo auto-correction (STAGE_WORD_AUTOCORRECTED)", () => {
+  it("auto-corrects a misspelled stage word: 0 UNKNOWN_ROLE_TOKEN + 1 STAGE_WORD_AUTOCORRECTED, role parses", () => {
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| --- | --- | --- | --- |",
+      "| Eric Weiss - Load In/Set/Strke/Load Out - A1 | 555 |  |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v1", agg);
+
+    expect(agg.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toHaveLength(0);
+    // EXACTLY ONE drift note per cell (count, not find — guards against double-push
+    // into the aggregator).
+    const notes = agg.warnings.filter((w) => w.code === "STAGE_WORD_AUTOCORRECTED");
+    expect(notes).toHaveLength(1);
+    const note = notes[0]!;
+    expect(note.severity).toBe("warn");
+    expect(note.blockRef).toMatchObject({ kind: "crew", name: "Eric Weiss" }); // deep-link anchor
+    expect(crew[0]!.role_flags).toContain("A1"); // real role still parses
+  });
+
+  it("auto-corrects a typo'd ONLY stage restriction (silent mis-parse fixed)", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE |",
+      "| --- | --- | --- | --- |",
+      "|  | Jane Doe | - Load Out / Strke ONLY | 555 |",
+    ].join("\n");
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v4", agg);
+
+    expect(agg.warnings.find((w) => w.code === "STAGE_WORD_AUTOCORRECTED")).toBeTruthy();
+    // stage_restriction now resolves (was silently { kind: "none" } before the fix).
+    expect(crew[0]!.stage_restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load Out", "Strike"],
+    });
+  });
+
+  it("does NOT emit STAGE_WORD_AUTOCORRECTED for a clean stage list", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE |",
+      "| --- | --- | --- | --- |",
+      "|  | Amy Lane | - Load In / Set / Strike / Load Out - LEAD | 555 |",
+    ].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.find((w) => w.code === "STAGE_WORD_AUTOCORRECTED")).toBeUndefined();
+  });
+});
