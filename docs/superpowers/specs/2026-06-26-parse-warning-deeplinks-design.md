@@ -108,7 +108,12 @@ Header/column detection and `TERMINATING_LABELS` (`crew.ts:31-48`) MUST be reuse
 
 ### 5.5 `FIELD_UNREADABLE` region anchor
 
-`FIELD_UNREADABLE` carries `blockRef: { kind, index }` (`warnings.ts:74-95`); its row index is not synthesis-stable, so region is the safe granularity. Resolve `sourceCell` to the REGION anchor for `blockRef.kind` when `REGION_ANCHOR_SPEC[kind]` exists (`buildSheetDeepLink.ts:52-57` has `crew`). Region anchors come from `extractSourceAnchors` (`sourceAnchors.ts:173-235`) — the shared helper (§5.6) self-computes them (or reuses the cron path's already-computed `sourceAnchors` map from `runScheduledCronSync.ts:2443`) and passes them into `attachSourceCellAnchors`, so `FIELD_UNREADABLE` is stamped with its block region on **both** ingestion paths. When no region spec exists for `blockRef.kind` (e.g. a section without a `REGION_ANCHOR_SPEC` entry), `FIELD_UNREADABLE` gets no link — it keeps its existing data-gap **count** regardless (current surfacing unchanged; the link is purely additive).
+`FIELD_UNREADABLE` carries `blockRef: { kind, index }` (`warnings.ts:74-95`); its row index is not synthesis-stable, so region is the safe granularity. Region anchors come from `extractSourceAnchors` (`sourceAnchors.ts:173-235`), whose output is a `Record<blockKind, SourceAnchor>` — **kind-keyed and 1:1** (one region per section kind; section kinds like `crew`/`dates`/`venue` occur once per show, so there is no kind collision). The resolver uses **`blockRef.kind` only** (NOT `index`) to look up `sourceAnchors[blockRef.kind]`:
+
+- The kind resolves to exactly one region anchor → stamp it as `sourceCell`.
+- The kind has **no** entry (no `REGION_ANCHOR_SPEC` for it, or `extractSourceAnchors` produced none) → **null** (no link). `FIELD_UNREADABLE` keeps its existing data-gap **count** regardless (current surfacing unchanged; the link is purely additive).
+
+Because the region map is structurally 1:1 by kind, `index` is intentionally unused for region resolution — there is no "which of N same-kind regions" ambiguity to resolve, and a missing/duplicate kind degrades to null (never a wrong-region link). The shared helper (§5.6) self-computes the region map (or reuses the cron path's already-computed `sourceAnchors` map from `runScheduledCronSync.ts:2443`) and passes it into `attachSourceCellAnchors`, so this resolution runs on **both** ingestion paths.
 
 ### 5.6 Shared anchor helper — populate on BOTH paths
 
@@ -161,7 +166,7 @@ All three surfaces render the **title-or-message** line (§3.1) + a conditional 
 - **Non-allowlisted tab:** `buildSheetDeepLink` falls back to the base sheet URL (existing behavior); INFO is allowlisted (`buildSheetDeepLink.ts:1`), so all four codes (crew/dates on INFO) get a precise region/cell link.
 - **Read failure on per-show panel:** unchanged — the existing `failed` branch renders the fallback copy; the new section is simply not shown.
 - **Multiple warnings on one cell — ordering + dedup:** a single role cell with several unknown tokens emits one `UNKNOWN_ROLE_TOKEN` per token (e.g. East Coast's `Strke` cascade → ~4), each carrying the **same** `blockRef.name` and therefore the **same** resolved anchor (the cell is the anchor unit, not the token). Because the surfaces render the catalog **title** ("Role we didn't recognize"), not the per-token `.message`, those lines would otherwise be visually identical. Rules:
-  - **The two new durable surfaces (StagedReviewCard, per-show panel) dedup** the operator-actionable list by `(code, resolved-anchor-A1 or blockRef.index)` — collapsing the cascade to one line + one link, so the digest stays clean. The operator clicks through to the cell to see all offending tokens in context.
+  - **The two new durable surfaces (StagedReviewCard, per-show panel) dedup** the operator-actionable list by `(code, resolved-anchor-A1)` — collapsing the cascade to one line + one link, so the digest stays clean. The operator clicks through to the cell to see all offending tokens in context. **Warnings WITHOUT a resolved anchor are never deduped** (each renders on its own line) — the dedup key is the resolved A1 only, never the synthesis-unstable `blockRef.index`, so unrelated unanchored warnings can't be collapsed and the list is stable across re-parses (no actionable row is ever hidden).
   - **`Step3SheetCard` is unchanged** (renders the full per-warning list as today). It is the detailed pre-publish review where per-token fidelity is wanted, and altering shipped behavior is out of scope.
   - **Ordering:** stable parse order (the order warnings were emitted) on all surfaces — deterministic, no re-sort.
   - **No numeric cap:** the deduped operator-actionable list is bounded by crew rows × distinct anchors (small in practice); a cap would risk hiding a real issue.
@@ -176,8 +181,8 @@ All three surfaces render the **title-or-message** line (§3.1) + a conditional 
 ```
 parse (markdown) ──► warnings[] (UNKNOWN_ROLE_TOKEN/UNKNOWN_DAY_RESTRICTION carry blockRef.name; FIELD_UNREADABLE carries blockRef.kind; SCHEDULE_TIME_UNPARSED carries blockRef.iso)
    │
-   ├─ ONBOARDING: runOnboardingScan.prepareOne ──► attachWarningAnchors(bytes, gids, region) ──► warnings[*].sourceCell
-   └─ CRON:       runScheduledCronSync (~:2443)  ──► attachWarningAnchors(xlsxBytes, titleToGid, sourceAnchors) ──► warnings[*].sourceCell
+   ├─ ONBOARDING: runOnboardingScan.prepareOne ──► attachWarningAnchors(warnings, bytes, resolveGids=()=>listSheetGids(id)) ──► warnings[*].sourceCell
+   └─ CRON:       runScheduledCronSync (~:2443)  ──► attachWarningAnchors(warnings, xlsxBytes, resolveGids=async()=>titleToGid, sourceAnchors) ──► warnings[*].sourceCell
    │
    ▼ persist warnings[] (with sourceCell) to shows_internal.parse_warnings (cron) / staged payload (onboarding)
    │
@@ -194,7 +199,7 @@ parse (markdown) ──► warnings[] (UNKNOWN_ROLE_TOKEN/UNKNOWN_DAY_RESTRICTIO
 
 ## 9. Risks & mitigations
 
-- **Companion-surface drift** (highest): the new `extractCrewRoleAnchors` duplicates the parser's crew-block walk (CREW/TECH header detection, `detectColumns` `crew.ts:69-86`, `TERMINATING_LABELS` `crew.ts:31-48`, the `parseTechBlock` old-geometry split `crew.ts:194`). A divergence anchors the wrong cell. **Mitigation:** extract a shared header/column-detection helper used by both parser and scanner, and pin a structural test that, for the committed fixture corpus, the scanner's resolved role cell agrees with the parser's per-row role for every crew row (both geometries).
+- **Companion-surface drift** (highest): the new `extractCrewRoleAnchors` duplicates the parser's crew-block walk (CREW/TECH header detection, `detectColumns` `crew.ts:69-86`, `TERMINATING_LABELS` `crew.ts:31-48`, the `parseTechBlock` old-geometry split `crew.ts:194`). A divergence anchors the wrong cell. **Mitigation:** extract a shared header/column-detection helper used by both parser and scanner. The parity test must **not** be tautological — asserting only "scanner agrees with parser" proves nothing if both consume the same (possibly wrong) shared helper. Therefore the test pins the scanner's resolved A1 against **fixture-known, hand-verified cell expectations** for both geometries: e.g. old-template East Coast `Eric Weiss` → `INFO!B21` (the compound col-B cell), and a new-template fixture's role cell → the known `INFO!C<row>` (the dedicated ROLE column). These expected A1 values are derived from the raw fixture geometry independently of the implementation, so a shared-but-wrong helper fails the test.
 - **Invariant 5 (raw-code leak):** surfaces must render the catalog title or human `.message`, never `w.code`. **Mitigation:** a meta/structural test asserting every `OPERATOR_ACTIONABLE_ANCHORED` code renders a non-code string on each new surface (clone-and-scrub the rendered tree; see anti-tautology rule).
 - **Advisory lock (invariant 2):** the helper must add no `pg_advisory*`. **Mitigation:** pure-read helper; structural assertion that the helper module imports no DB client.
 - **Cron-path anchor cost:** widening `CELL_ANCHORED_CODES` to the common `UNKNOWN_*` codes fires the `listSheetGids` fetch for more sheets. **Mitigation:** the `hasCellAnchoredWarning` gate already bounds this to sheets that actually have an anchored warning, and gids are fetched once per sheet; the crew grid walk is in-memory.
