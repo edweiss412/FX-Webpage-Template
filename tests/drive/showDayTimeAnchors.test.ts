@@ -101,6 +101,8 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     { iso: "2026-05-11", anchor: { title: "Main", gid: 1, a1: "E2" } },
     { iso: "2026-05-12", anchor: { title: "Main", gid: 1, a1: "E3" } },
   ];
+  const crewAnchors = [{ name: "jane doe", anchor: { title: "INFO", gid: 0, a1: "C3" } }];
+  const regionAnchors = { crew: { title: "INFO", gid: 0, a1: "A2:D5" } };
 
   it("sets sourceCell on a SCHEDULE_TIME_UNPARSED warning matching its blockRef.iso", () => {
     const warnings: ParseWarning[] = [
@@ -110,12 +112,37 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
         message: "…",
         blockRef: { kind: "dates", index: 0, iso: "2026-05-12" },
       },
-      // a different code → never gets a sourceCell
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "…", blockRef: { kind: "crew" } },
     ];
-    attachSourceCellAnchors(warnings, anchors);
+    attachSourceCellAnchors(warnings, { showDay: anchors, crewRole: [], region: {} });
     expect(warnings[0]!.sourceCell).toEqual(anchors[1]!.anchor);
-    expect(warnings[1]!.sourceCell).toBeUndefined();
+  });
+
+  it("dispatches by code: ISO→schedule, name→crew, kind→region", () => {
+    const warnings: ParseWarning[] = [
+      { severity: "warn", code: "SCHEDULE_TIME_UNPARSED", message: "t", blockRef: { kind: "dates", index: 0, iso: "2026-05-12" } },
+      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "r", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+      { severity: "warn", code: "FIELD_UNREADABLE", message: "f", blockRef: { kind: "crew", index: 1 } },
+    ];
+    attachSourceCellAnchors(warnings, { showDay: anchors, crewRole: crewAnchors, region: regionAnchors });
+    expect(warnings[0]!.sourceCell).toEqual(anchors[1]!.anchor); // ISO match
+    expect(warnings[1]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" }); // crew name match (INVERTED)
+    expect(warnings[2]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2:D5" }); // crew region
+  });
+
+  it("UNKNOWN_DAY_RESTRICTION resolves by crew name too", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "UNKNOWN_DAY_RESTRICTION", message: "d", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: crewAnchors, region: {} });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
+  });
+
+  it("FIELD_UNREADABLE with no region for its kind → null (no wrong-region link)", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "FIELD_UNREADABLE", message: "f", blockRef: { kind: "venue", index: 0 } },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: {} });
+    expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
   it("leaves a warning link-less when its date has no (or an ambiguous) anchor", () => {
@@ -127,16 +154,21 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
         blockRef: { kind: "dates", index: 0, iso: "2026-05-99" },
       },
     ];
-    attachSourceCellAnchors(warnings, anchors);
+    attachSourceCellAnchors(warnings, { showDay: anchors, crewRole: [], region: {} });
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning gates on the anchored codes", () => {
+  it("hasCellAnchoredWarning is TRUE for all four anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+    for (const code of [
+      "SCHEDULE_TIME_UNPARSED",
+      "UNKNOWN_ROLE_TOKEN",
+      "UNKNOWN_DAY_RESTRICTION",
+      "FIELD_UNREADABLE",
+    ]) {
+      expect(hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
+    }
     expect(
-      hasCellAnchoredWarning([{ severity: "warn", code: "SCHEDULE_TIME_UNPARSED", message: "x" }]),
-    ).toBe(true);
-    expect(
-      hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x" }]),
+      hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }]),
     ).toBe(false);
     expect(hasCellAnchoredWarning([])).toBe(false);
   });

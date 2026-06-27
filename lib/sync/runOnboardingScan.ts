@@ -946,7 +946,13 @@ export async function prepareOnboardingFiles(
     if (bytes && parseResult.warnings && hasCellAnchoredWarning(parseResult.warnings)) {
       try {
         const gids = await listSheetGids(file.driveFileId);
-        attachSourceCellAnchors(parseResult.warnings, extractShowDayTimeAnchors(bytes, gids));
+        // Task 4: new bundle signature (show-day only here; Task 6 swaps this whole
+        // block for the shared attachWarningAnchors helper which adds crew + region).
+        attachSourceCellAnchors(parseResult.warnings, {
+          showDay: extractShowDayTimeAnchors(bytes, gids),
+          crewRole: [],
+          region: {},
+        });
       } catch {
         // deep-link anchors are optional; ignore and continue the scan.
       }
