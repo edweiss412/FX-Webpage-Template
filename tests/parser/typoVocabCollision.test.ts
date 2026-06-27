@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { TYPO_VOCABS } from "@/lib/parser/typoVocabRegistry";
 import { inScopeAliases } from "@/lib/parser/aliases";
+import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
 
 /**
@@ -47,5 +48,25 @@ describe("ops field-alias vocab registration (PR-C)", () => {
       .sort();
     expect([...ops!.members].sort()).toEqual(expected);
     expect(expected).toContain("INVOICE");
+  });
+});
+
+/**
+ * PR-D1: the EVENT DETAILS fuzzy fallback (gatedVocabCorrect over CANONICAL_KEY_MAP) must
+ * have a matching registry entry so the collision tripwire above guards it. The entry is
+ * DERIVED from CANONICAL_KEY_MAP (not hand-listed) so it cannot drift as the map changes.
+ */
+describe("event field-label vocab registration (PR-D1)", () => {
+  it("registers an eventFieldAlias fuzzable vocab derived from CANONICAL_KEY_MAP", () => {
+    const ev = TYPO_VOCABS.find((v) => v.id === "eventFieldAlias");
+    expect(ev).toBeDefined();
+    expect(ev!.klass).toBe("fuzzable");
+    const expected = Object.keys(CANONICAL_KEY_MAP)
+      .filter((k) => k.length >= 5)
+      .map((k) => k.toUpperCase())
+      .sort();
+    expect([...ev!.members].sort()).toEqual(expected);
+    expect(expected).toContain("STAGE SIZE");
+    expect(expected).not.toContain("LED"); // 3 chars — filtered out, stays exact-only
   });
 });

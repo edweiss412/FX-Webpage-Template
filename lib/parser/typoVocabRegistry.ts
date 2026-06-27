@@ -1,4 +1,5 @@
 import { inScopeAliases } from "@/lib/parser/aliases";
+import { EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";
 
 export type VocabEntry = {
   id: string;
@@ -50,6 +51,10 @@ export const TYPO_VOCABS: readonly VocabEntry[] = [
   { id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: VENUE_FIELD_ALIASES },
   // PR-C: ops/financials field-alias fuzzy fallback (resolveAliasScoped), derived above.
   { id: "opsFieldAlias", klass: "fuzzable", minLen: 5, members: OPS_FIELD_ALIASES },
+  // PR-D1: EVENT DETAILS field-label fuzzy fallback (gatedVocabCorrect over the block's
+  // local CANONICAL_KEY_MAP). Members are the SAME derived vocab the gate fuzzes, so the
+  // tripwire guards exactly what ships. (Not resolveAliasScoped — event uses a local map.)
+  { id: "eventFieldAlias", klass: "fuzzable", minLen: 5, members: EVENT_LABEL_VOCAB },
   // excluded / do-not-fuzz neighborhoods (spec §8) the meta-test guards against:
   {
     id: "shortRoleCodes",
