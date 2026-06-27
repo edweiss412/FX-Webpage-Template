@@ -268,6 +268,18 @@ describe("parseClient — v2 fuzzy field-label recovery (PR-D4)", () => {
     expect(r.client_contact).toBeNull();
     expect(FLA(agg)).toHaveLength(0);
   });
+
+  it("two fuzzy siblings: a later sentinel typo does NOT erase an earlier real recovery (Codex R1 #2)", () => {
+    // Both are Damerau-1 typos of "client contact"; the first carries a real value, the second a
+    // sentinel. The in-order array apply keeps "Bob" (a dedup map would let "TBD" overwrite it).
+    const agg = newAggregator();
+    const r = parseClient(
+      v2Client(["| Client Contct | Bob |", "| Client Contac | TBD |"]),
+      "v2",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Bob");
+  });
 });
 
 // ── PR-D4: v4 fuzzy client field-label recovery (fuzzy-before-break) ──────────
@@ -366,5 +378,23 @@ describe("parseClient — v4 fuzzy field-label recovery (PR-D4)", () => {
     );
     expect(r.client_contact?.phone).toBe("555-REAL");
     expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("two fuzzy siblings with disjoint columns: BOTH cells recovered (Codex R1 #1)", () => {
+    // Two distinct Damerau-1 typos of "contact cell": one carries main-only, one secondary-only.
+    // The in-order array apply must keep BOTH (a dedup map would discard the first wholesale).
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley | Lew |",
+        "| Contct Cell | 555-1 |  |",
+        "| Contact Cel |  | 555-2 |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.phone).toBe("555-1");
+    expect(r.client_contact?.secondary?.phone).toBe("555-2");
+    expect(FLA(agg)).toHaveLength(2);
   });
 });

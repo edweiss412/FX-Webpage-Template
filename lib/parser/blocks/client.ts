@@ -79,9 +79,11 @@ function parseClientV4(
     return false;
   };
 
-  // PR-D4 deferred fuzzy candidates per sub-label (last-write-wins). Applied post-loop via a
-  // per-column merge so neither main nor secondary real values are clobbered.
-  const fuzzyCandidates = new Map<string, { rawLabel: string; main: string; sec: string }>();
+  // PR-D4 deferred fuzzy candidates (IN ORDER — not deduped). Applied post-loop via per-column
+  // mergeFuzzyCell, which fills an empty/sentinel slot only — so applying candidates sequentially
+  // merges disjoint cells across repeated typo rows and never clobbers a real value (Codex R1 #1).
+  const fuzzyCandidates: Array<{ sublabel: string; rawLabel: string; main: string; sec: string }> =
+    [];
 
   // Find the CLIENT block: rows where first cell is "CLIENT"
   let inClientBlock = false;
@@ -120,7 +122,8 @@ function parseClientV4(
         // label breaks. The post-loop merge preserves both columns + exact-real values.
         const fuzzy = gatedVocabCorrect(normalizedLabel, [...CLIENT_V4_LABELS], CLIENT_GATE_OPTS);
         if (fuzzy?.corrected) {
-          fuzzyCandidates.set(fuzzy.match, {
+          fuzzyCandidates.push({
+            sublabel: fuzzy.match,
             rawLabel: (row[0] ?? "").trim(),
             main: row[1] ?? "",
             sec: row[2] ?? "",
@@ -163,7 +166,8 @@ function parseClientV4(
   // main + secondary INDEPENDENTLY: a real fuzzy cell fills an empty/sentinel slot only, so an
   // exact real value always wins and no real value (in either column) is clobbered. Warn iff a
   // cell actually changed (an exact-claimed field suppresses the warn).
-  for (const [sublabel, cand] of fuzzyCandidates) {
+  for (const cand of fuzzyCandidates) {
+    const { sublabel } = cand;
     let changed = false;
     const apply = (
       cur: string | null,
@@ -250,10 +254,13 @@ function parseClientV2orV1(
   let contactPhone: string | null = null;
   let contactEmail: string | null = null;
 
-  const fuzzyCandidates = new Map<
-    "name" | "phone" | "email",
-    { rawLabel: string; value: string }
-  >();
+  // Deferred fuzzy candidates IN ORDER (not deduped) — applied post-loop via mergeFuzzyCell so a
+  // later sentinel/empty typo can't erase an earlier real recovery (Codex R1 #2).
+  const fuzzyCandidates: Array<{
+    field: "name" | "phone" | "email";
+    rawLabel: string;
+    value: string;
+  }> = [];
   const V2_LABEL_TO_FIELD: Record<string, "name" | "phone" | "email"> = {
     "client contact": "name",
     "client phone": "phone",
@@ -315,7 +322,7 @@ function parseClientV2orV1(
     if (fuzzy?.corrected) {
       const field = V2_LABEL_TO_FIELD[fuzzy.match];
       if (field && presence(val) !== null)
-        fuzzyCandidates.set(field, { rawLabel: rawLabel.trim(), value: val });
+        fuzzyCandidates.push({ field, rawLabel: rawLabel.trim(), value: val });
     }
   }
 
@@ -324,7 +331,8 @@ function parseClientV2orV1(
   // Apply deferred fuzzy candidates ONLY for a confirmed client block (after the guard above), so
   // an unrecognized block never emits a warning. Merge per field: a real fuzzy value fills an
   // empty/sentinel slot only — an exact real value always wins, and no real value is clobbered.
-  for (const [field, cand] of fuzzyCandidates) {
+  for (const cand of fuzzyCandidates) {
+    const { field } = cand;
     const norm = field === "email" ? canonicalize : presence;
     const cur = field === "name" ? contactName : field === "phone" ? contactPhone : contactEmail;
     const r = mergeFuzzyCell(cur, cand.value, norm);
