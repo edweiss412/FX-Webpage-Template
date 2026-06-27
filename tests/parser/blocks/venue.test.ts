@@ -253,7 +253,10 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
 describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)", () => {
   it("recovers a typo'd venue field label, emits FIELD_LABEL_AUTOCORRECTED, and fires NO UNKNOWN_FIELD", () => {
     // 'Venue Adress' (deletion) → venue.address. Today: empty address + UNKNOWN_FIELD (verified).
-    const md = ["| VENUE NAME | Four Seasons Hotel |", "| Venue Adress | 120 E Delaware Pl Chicago, IL 60611 |"].join("\n");
+    const md = [
+      "| VENUE NAME | Four Seasons Hotel |",
+      "| Venue Adress | 120 E Delaware Pl Chicago, IL 60611 |",
+    ].join("\n");
     const agg = newAggregator();
     const r = parseVenue(md, "v4", agg);
     expect(r?.address).toContain("120 E Delaware Pl"); // value recovered into the right field
@@ -265,7 +268,10 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
   });
 
   it("a correctly-spelled venue label is NOT flagged", () => {
-    const md = ["| VENUE NAME | Four Seasons |", "| VENUE ADDRESS | 120 E Delaware Pl Chicago, IL 60611 |"].join("\n");
+    const md = [
+      "| VENUE NAME | Four Seasons |",
+      "| VENUE ADDRESS | 120 E Delaware Pl Chicago, IL 60611 |",
+    ].join("\n");
     const agg = newAggregator();
     parseVenue(md, "v4", agg);
     expect(agg.warnings.find((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toBeUndefined();
@@ -287,7 +293,11 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
     const venueAliases = inScopeAliases("venue.").filter((a) => a.length >= 5);
     for (const alias of venueAliases.slice(0, 4)) {
       // bound the loop for speed; a representative sample across venue.* aliases
-      for (const typo of unambiguousTypos(alias.toUpperCase(), ALL.map((a) => a.toUpperCase()), { minLen: 5 }).slice(0, 6)) {
+      for (const typo of unambiguousTypos(
+        alias.toUpperCase(),
+        ALL.map((a) => a.toUpperCase()),
+        { minLen: 5 },
+      ).slice(0, 6)) {
         const md = ["| VENUE NAME | Four Seasons |", `| ${typo} | some value |`].join("\n");
         const agg = newAggregator();
         parseVenue(md, "v4", agg);
