@@ -391,6 +391,20 @@ describe("extractCrewRoleAnchors", () => {
     expect(resolveCrewRoleCell(anchors, "Eric Weiss")).toEqual({ title: "INFO", gid: 0, a1: "B2" });
   });
 
+  it("old TECH template terminates on a section label in ANY column (no wrong-cell past the block)", () => {
+    const tpl = {
+      INFO: [
+        ["", "TECH", "PHONE", "ARRIVAL", "DEPARTURE"],
+        ["", "Eric Weiss - Load In/Set/Strke/Load Out - A1", "508", "", ""],
+        ["TRANSPORTATION", "", "", "", ""], // terminator in col A (not techCol)
+        ["", "Van Co - rental - X", "999", "", ""], // stray "X - Y" compound AFTER the block
+      ],
+    };
+    const anchors = extractCrewRoleAnchors(xlsxBuffer(tpl), GID);
+    expect(anchors).toHaveLength(1); // only Eric Weiss; post-terminator row excluded
+    expect(resolveCrewRoleCell(anchors, "Van Co")).toBeNull();
+  });
+
   it("ambiguous (two rows clean to same name) → null", () => {
     const dup = {
       INFO: [
@@ -527,9 +541,14 @@ function collectTech(
   out: CrewRoleAnchor[],
 ): void {
   for (let r = headerRow + 1; r <= grid.maxRow; r++) {
+    // Terminate on a section label in ANY column (not just techCol) — a TECH
+    // block ends when the next section starts, and that label often sits in a
+    // different column than the compound cell. Checking only techCol would scan
+    // PAST the block and risk a wrong-cell match on a later "X - Y" compound.
+    const first = firstNonBlankText(grid, r);
+    if (first && isTerminator(first)) break;
     const cell = clean(grid.cell(r, techCol));
     if (!cell) continue;
-    if (isTerminator(cell)) break;
     const firstDash = cell.indexOf(" - ");
     if (firstDash === -1) continue; // not a "Name - … - role" compound
     out.push({
@@ -700,13 +719,14 @@ import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
 ```
 
-Replace the `CELL_ANCHORED_CODES` declaration (line 9) with the shared set (single source of truth — render gate and population gate cannot drift):
+Replace the `CELL_ANCHORED_CODES` declaration (line 9) with the shared set (single source of truth — render gate and population gate cannot drift). **Export it** so the parity test can assert reference identity:
 
 ```ts
-/** The codes that carry a source-cell/region anchor. SAME set the render
- *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render never
- *  drift. Name retained for continuity; FIELD_UNREADABLE resolves to a region. */
-const CELL_ANCHORED_CODES = OPERATOR_ACTIONABLE_ANCHORED;
+/** The codes that carry a source-cell/region anchor. SAME OBJECT the render
+ *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render cannot
+ *  drift. Name retained for continuity; FIELD_UNREADABLE resolves to a region.
+ *  Exported so a structural test can pin the reference identity. */
+export const CELL_ANCHORED_CODES = OPERATOR_ACTIONABLE_ANCHORED;
 ```
 
 Replace `attachSourceCellAnchors` (lines 83-97) with the dispatching version:
@@ -750,15 +770,33 @@ export function attachSourceCellAnchors(
 
 `hasCellAnchoredWarning` (lines 99-103) needs no change — it already reads `CELL_ANCHORED_CODES`, which is now the four-code set.
 
-- [ ] **Step 4: Run test to verify it passes**
+**Build coherence (mandatory — same commit):** the signature change breaks the sole non-test caller, `runOnboardingScan.prepareOne:949`. Update it in THIS task to the new signature (show-day only for now, behavior-preserving) so the tree compiles after the Task 4 commit. Task 6 then replaces this block entirely with the shared helper:
 
-Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts`
-Expected: PASS. (The compiler will also flag the now-broken `attachSourceCellAnchors` caller in `runOnboardingScan.ts` — that is rewired in Task 6; leave it until then, or temporarily wrap. To keep the tree compiling between tasks, Task 6 follows immediately.)
+```ts
+// runOnboardingScan.ts prepareOne (Task 4: keep the build green; Task 6 swaps to the helper)
+if (bytes && parseResult.warnings && hasCellAnchoredWarning(parseResult.warnings)) {
+  try {
+    const gids = await listSheetGids(file.driveFileId);
+    attachSourceCellAnchors(parseResult.warnings, {
+      showDay: extractShowDayTimeAnchors(bytes, gids),
+      crewRole: [],
+      region: {},
+    });
+  } catch {
+    // deep-link anchors are optional; ignore and continue the scan.
+  }
+}
+```
+
+- [ ] **Step 4: Run test + full typecheck to verify the tree compiles**
+
+Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts && pnpm typecheck`
+Expected: PASS — both the narrow test AND the whole-tree typecheck (the inline caller update keeps the build green; no other caller of `attachSourceCellAnchors` exists outside tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/drive/showDayTimeAnchors.ts tests/drive/showDayTimeAnchors.test.ts
+git add lib/drive/showDayTimeAnchors.ts lib/sync/runOnboardingScan.ts tests/drive/showDayTimeAnchors.test.ts
 git commit --no-verify -m "feat(drive): dispatch attachSourceCellAnchors by code; unify gate with OPERATOR_ACTIONABLE_ANCHORED"
 ```
 
@@ -1377,14 +1415,41 @@ git commit --no-verify -m "feat(admin): render operator-actionable parse warning
 
 ---
 
-## Task 10: Invariant-5 render meta-test + Step-3 verification + gate parity
+## Task 10: Real Step-3 link test + invariant-5 meta-test + gate-identity pin
 
 **Files:**
+- Modify: `tests/components/step3SheetCard.test.tsx` (extend with a real positive-link case)
 - Create: `tests/parser/parseWarningDeepLinkRender.test.tsx`
 
-**Interfaces:** none new — asserts cross-surface invariants.
+**Interfaces:** none new — asserts cross-surface invariants against the REAL surfaces.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1a: Extend the REAL Step-3 surface test (not a proxy)**
+
+`Step3SheetCard` needs no code change — but the spec requires verifying it renders the link for the NEW codes on the actual surface. Open `tests/components/step3SheetCard.test.tsx`; it already builds a `Step3Row` with `parseResult.warnings` and asserts a `no sourceCell` case (the existing test around the `wizard-step3-card-<dfid>-warning-...` testids). Mirror that row builder and add a positive case: a warning of a NEW operator-actionable code carrying a `sourceCell`, asserting the open-link renders to that cell. Use the component's real testids (`wizard-step3-card-${dfid}-warning-${i}-open`):
+
+```tsx
+it("renders an Open-in-Sheet link for an UNKNOWN_ROLE_TOKEN that resolved a sourceCell", () => {
+  // Reuse this file's existing Step3Row builder; set the row's parseResult.warnings to:
+  const warnings = [
+    {
+      severity: "warn" as const,
+      code: "UNKNOWN_ROLE_TOKEN",
+      message: "Unknown role token: 'WIDGET'",
+      sourceCell: { title: "INFO", gid: 0, a1: "C3" },
+    },
+  ];
+  // render <Step3SheetCard row={<builder with warnings>} ... /> exactly as the
+  // existing "no sourceCell" test renders it (same dfid + props), then:
+  const link = screen.getByTestId(`wizard-step3-card-${DFID}-warning-0-open`);
+  expect(link).toHaveAttribute("href", expect.stringContaining("range=C3"));
+  // invariant 5: the rendered title is the catalog title, not the raw code
+  expect(screen.getByText("Role we didn't recognize")).toBeInTheDocument();
+});
+```
+
+(`DFID` = the drive-file-id constant the existing test already uses for its testids. Reuse the file's `render`/`screen` imports and its Step3Row factory — do not invent a new fixture.)
+
+- [ ] **Step 1b: Write the failing cross-surface invariant test**
 
 Create `tests/parser/parseWarningDeepLinkRender.test.tsx`:
 
@@ -1392,67 +1457,64 @@ Create `tests/parser/parseWarningDeepLinkRender.test.tsx`:
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
+import { CELL_ANCHORED_CODES, hasCellAnchoredWarning } from "@/lib/drive/showDayTimeAnchors";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import type { ParseWarning } from "@/lib/parser/types";
 
-// Gate parity: the render gate (OPERATOR_ACTIONABLE_ANCHORED) and the
-// population gate (CELL_ANCHORED_CODES) are the SAME object — pin it so they
-// cannot drift (the HIGH-class bug from spec review R1).
-import * as showDayMod from "@/lib/drive/showDayTimeAnchors";
+// Realistic, human, NON-code messages per code (mirrors what each producer emits)
+// so the invariant-5 assertion is real for ALL FOUR, with no exemption.
+const HUMAN_MESSAGE: Record<string, string> = {
+  SCHEDULE_TIME_UNPARSED: "We couldn't read a start time for one of the show days",
+  UNKNOWN_ROLE_TOKEN: "Unknown role token in a crew member's role cell",
+  UNKNOWN_DAY_RESTRICTION: "Role cell contains *** but no explicit day dates found",
+  FIELD_UNREADABLE: "We couldn't read this crew member's phone number",
+};
 
 describe("parse-warning deep-link render invariants", () => {
-  it("Step-3 already renders a link for any sourceCell-bearing warning (no code change needed)", () => {
-    // Sanity: the new codes resolve a link through the same buildSheetDeepLink path
-    // Step3SheetCard uses. Render the shared renderer as the proxy for that contract.
-    const ws: ParseWarning[] = [
-      { severity: "warn", code: "SCHEDULE_TIME_UNPARSED", message: "x", sourceCell: { title: "INFO", gid: 0, a1: "E2" } },
-    ];
-    const { getByRole } = render(<PerShowActionableWarnings warnings={ws} driveFileId="df" />);
-    expect(getByRole("link", { name: /open in sheet/i })).toHaveAttribute("href", expect.stringContaining("range=E2"));
+  it("population gate IS the render gate — same object reference (no drift)", () => {
+    // Pins the ratified 'one set' contract structurally: a future duplicate set
+    // with the same members would FAIL this identity assertion.
+    expect(CELL_ANCHORED_CODES).toBe(OPERATOR_ACTIONABLE_ANCHORED);
   });
 
-  it("never renders the raw §12.4 code on the surface (invariant 5)", () => {
+  it("hasCellAnchoredWarning is true for every anchored code, false otherwise", () => {
     for (const code of OPERATOR_ACTIONABLE_ANCHORED) {
-      const ws: ParseWarning[] = [{ severity: "warn", code, message: `${code}`, sourceCell: { title: "INFO", gid: 0, a1: "A1" } }];
+      expect(hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
+    }
+    expect(hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }])).toBe(false);
+  });
+
+  it("never renders the raw §12.4 code for ANY of the four codes (invariant 5)", () => {
+    for (const code of OPERATOR_ACTIONABLE_ANCHORED) {
+      const ws: ParseWarning[] = [
+        { severity: "warn", code, message: HUMAN_MESSAGE[code]!, sourceCell: { title: "INFO", gid: 0, a1: "A1" } },
+      ];
       const { container, unmount } = render(<PerShowActionableWarnings warnings={ws} driveFileId="df" />);
-      // The literal code string must not appear (FIELD_UNREADABLE falls back to its
-      // human .message which is NOT the code; the others render their catalog title).
-      if (code !== "FIELD_UNREADABLE") {
-        expect(container.textContent).not.toContain(code);
-      }
+      // No exemption: the literal code string must never appear, for every code.
+      expect(container.textContent).not.toContain(code);
       unmount();
     }
-  });
-
-  it("CELL_ANCHORED_CODES population gate IS the OPERATOR_ACTIONABLE_ANCHORED render gate (no drift)", () => {
-    // hasCellAnchoredWarning gates on the same membership the surfaces render.
-    for (const code of OPERATOR_ACTIONABLE_ANCHORED) {
-      expect(showDayMod.hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
-    }
-    expect(showDayMod.hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }])).toBe(false);
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails (or passes if prior tasks complete)**
+- [ ] **Step 2: Run tests to verify they pass (or catch a real drift)**
 
-Run: `pnpm vitest run tests/parser/parseWarningDeepLinkRender.test.tsx`
-Expected: PASS once Tasks 2-9 are in (this is a cross-cutting guard, not a new behavior). If any assertion fails, it has caught a real drift — fix the offending surface before proceeding.
+Run: `pnpm vitest run tests/parser/parseWarningDeepLinkRender.test.tsx tests/components/step3SheetCard.test.tsx`
+Expected: PASS once Tasks 2-9 are in. A failure here is a REAL drift (gate split, raw-code leak, or Step-3 link regression) — fix the offending surface, do not weaken the test. Note: the identity assertion requires `CELL_ANCHORED_CODES` to be exported from `showDayTimeAnchors.ts` (Task 4).
 
-- [ ] **Step 3: (No new impl — guard test only.)**
-
-If the FIELD_UNREADABLE branch reveals its `.message` could equal its code on some producer, scope the assertion to the catalog-titled codes (already done above). No code change expected.
+- [ ] **Step 3: (No new impl — guard tests only.)** If a code's catalog `.message` could itself equal its code on some producer, that is a real invariant-5 violation in that producer — fix the producer, not the test.
 
 - [ ] **Step 4: Re-run**
 
-Run: `pnpm vitest run tests/parser/parseWarningDeepLinkRender.test.tsx`
+Run: `pnpm vitest run tests/parser/parseWarningDeepLinkRender.test.tsx tests/components/step3SheetCard.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/parser/parseWarningDeepLinkRender.test.tsx
-git commit --no-verify -m "test(parser): pin invariant-5 render + population/render gate parity for parse-warning deep links"
+git add tests/parser/parseWarningDeepLinkRender.test.tsx tests/components/step3SheetCard.test.tsx
+git commit --no-verify -m "test: pin real Step-3 link, invariant-5 (all 4 codes), and gate-identity for parse-warning deep links"
 ```
 
 ---
