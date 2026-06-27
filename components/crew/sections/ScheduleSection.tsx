@@ -39,6 +39,7 @@ import type { JSX } from "react";
 
 import { AgendaEmbed } from "@/components/agenda/AgendaEmbed";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
@@ -109,15 +110,30 @@ export function ScheduleSection({
   // ZERO dates and returns before this point).
   const agendaLinks = data.show.agenda_links;
   const hasAgenda = agendaLinks.some((link) => Boolean(link.fileId));
+  // Show a per-document label on the structured blocks only when there's more
+  // than one agenda PDF (so two "View agenda" buttons + two schedules are
+  // distinguishable — impeccable MEDIUM). A single agenda needs no badge.
+  const agendaPdfCount = agendaLinks.filter((link) => Boolean(link.fileId)).length;
   const agendaArea = hasAgenda ? (
-    <div data-testid="agenda-area" className="flex min-w-0 flex-col gap-3">
+    <section
+      data-testid="agenda-area"
+      aria-labelledby="agenda-heading"
+      className="flex min-w-0 flex-col gap-3"
+    >
+      <h2 id="agenda-heading" className="text-sm font-semibold text-text-strong">
+        Agenda
+      </h2>
       <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
       {agendaLinks.map((link, i) =>
         link.fileId && link.extracted ? (
-          <AgendaScheduleBlock key={i} extraction={link.extracted} />
+          <AgendaScheduleBlock
+            key={i}
+            extraction={link.extracted}
+            label={agendaPdfCount > 1 ? agendaDisplayLabel(link.label) : null}
+          />
         ) : null,
       )}
-    </div>
+    </section>
   ) : null;
 
   // Privacy trust boundary — unknown_asterisk leaks ZERO dates. Render ONLY the

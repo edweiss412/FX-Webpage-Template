@@ -15,7 +15,9 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function normSession(v: unknown): AgendaSession | null {
   if (!isRecord(v)) return null;
-  if (typeof v.time !== "string") return null;
+  // A session is time-anchored (§4.1); an empty/whitespace time is malformed →
+  // reject the whole payload so the UI falls back to embed-only (impeccable LOW).
+  if (typeof v.time !== "string" || v.time.trim() === "") return null;
   if (!(v.title === null || typeof v.title === "string")) return null;
   if (!(v.room === null || typeof v.room === "string")) return null;
   if (!(v.drift === null || typeof v.drift === "string")) return null;

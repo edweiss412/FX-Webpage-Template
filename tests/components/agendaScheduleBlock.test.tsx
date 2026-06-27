@@ -105,9 +105,13 @@ describe("AgendaScheduleBlock", () => {
     const schedule = container.querySelector('[data-testid="agenda-schedule"]')!;
     const driftEls = schedule.querySelectorAll('[data-testid="agenda-drift"]');
     expect(driftEls.length).toBe(EXPECTED_DRIFT_COUNT);
-    // The original (pre-correction) value is available on the indicator.
-    expect(driftEls[0]!.getAttribute("title")).toBe(DRIFT_SESSION.drift);
-    expect(driftEls[0]!.getAttribute("title")).toContain("12:25 AM");
+    // The original (pre-correction) value is shown as VISIBLE text — NOT a
+    // hover-only `title=` (impeccable HIGH: hover is dead on the 390px touch
+    // device + unreachable by keyboard/SR). Derived from DRIFT_SESSION.drift.
+    const originalValue = DRIFT_SESSION.drift!.match(/source:\s*([^)]+)\)/)![1]!.trim();
+    expect(driftEls[0]!.textContent).toContain(originalValue);
+    expect(driftEls[0]!.textContent).toContain("12:25 AM");
+    expect(driftEls[0]!.getAttribute("title")).toBeNull();
   });
 
   test("breakout tracks render indented, one element per track (derived count)", () => {

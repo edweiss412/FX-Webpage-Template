@@ -70,7 +70,7 @@ function agendaHtml(): string {
   </div>
   <div data-testid="agenda-schedule" class="flex min-w-0 flex-col gap-4">
     <div class="flex min-w-0 flex-col gap-2">
-      <h3 class="flex items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle"><span>Tuesday</span><span class="font-normal normal-case tabular-nums text-text-faint">2026-05-14</span></h3>
+      <h3 class="flex items-baseline gap-1.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle"><span>Tuesday</span><span class="font-normal normal-case tabular-nums text-text-subtle">2026-05-14</span></h3>
       <ul class="flex flex-col gap-2">
         <li data-testid="agenda-session" data-session-kind="normal" class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3">
           <span class="shrink-0 text-sm tabular-nums text-text-subtle">9:00 AM – 9:40 AM</span>
@@ -82,7 +82,7 @@ function agendaHtml(): string {
           <span class="shrink-0 text-sm tabular-nums text-text-subtle">10:00 AM – 11:00 AM</span>
           <div class="flex min-w-0 flex-col gap-1">
             <p class="min-w-0 text-sm text-text-strong wrap-break-word">${LONG_TITLE}</p>
-            <span class="inline-flex w-fit items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium text-text-subtle">Adjusted — tap to verify against the agenda</span>
+            <span class="inline-flex w-fit items-center gap-1 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium text-text-subtle">Adjusted from 12:25 AM</span>
             <ul class="mt-0.5 flex flex-col gap-0.5 border-l border-border pl-3">
               <li class="min-w-0 text-sm text-text wrap-break-word"><span class="font-medium text-text-strong">Breakout I</span> · Adapting · Room A</li>
             </ul>
@@ -145,11 +145,16 @@ test.afterAll(async () => {
   if (server) await new Promise<void>((r) => server.close(() => r()));
 });
 
-type Rect = { left: number; right: number; width: number; top: number; bottom: number; height: number };
+type Rect = {
+  left: number;
+  right: number;
+  width: number;
+  top: number;
+  bottom: number;
+  height: number;
+};
 
-async function rectOf(
-  locator: import("@playwright/test").Locator,
-): Promise<Rect> {
+async function rectOf(locator: import("@playwright/test").Locator): Promise<Rect> {
   return locator.evaluate((el) => {
     const r = el.getBoundingClientRect();
     return {
