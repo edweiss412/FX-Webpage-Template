@@ -48,11 +48,12 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const TOL = 0.5;
 const COLUMN_WIDTH = 360; // a fixed-width list column at the 390px mobile viewport
 // A worst-case title: a single UNBREAKABLE long token (no spaces, no hyphens —
-// hyphens are CSS soft-break opportunities and would let the title wrap). This
-// is the adversarial input for the §4.4 "long titles truncate, not overflow"
-// invariant: the test measures, in a real browser against the compiled Tailwind
-// tokens, that the summary block / card / breakdown all stay within the
-// fixed-width column even with this token. The assertion is on real measured
+// hyphens are CSS soft-break opportunities). The title now WRAPS (the deep-link
+// title carries `wrap-break-word`, not `truncate`), so this is the adversarial
+// input for the §4.4 "long titles WRAP, not overflow" invariant: the test
+// measures, in a real browser against the compiled Tailwind tokens, that even an
+// unbreakable token breaks to stay within the fixed-width column — the summary
+// block / card / breakdown all stay within it. The assertion is on real measured
 // geometry (not class presence), so it catches an actual regression such as a
 // child carrying a `w-[Npx]` wider than the column, a non-fixed column, or a
 // `min-w` larger than the column — failure modes jsdom cannot see.
@@ -68,7 +69,7 @@ function cardHtml(dfid: string, title: string): string {
   <div data-testid="wizard-step3-card-${dfid}-summary" class="flex items-start gap-3">
     <span aria-hidden="true" class="mt-0.5 size-5 shrink-0"></span>
     <div data-testid="wizard-step3-card-${dfid}-summary-block" class="min-w-0 flex-1">
-      <p class="truncate text-base font-semibold text-text-strong" title="${title}">${title}</p>
+      <a href="https://docs.google.com/spreadsheets/d/${dfid}/edit" class="wrap-break-word text-base font-semibold text-text-strong hover:underline">${title}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-1 inline-block size-3.5 -translate-y-px align-middle text-text-subtle"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
       <p class="truncate text-sm text-text-subtle">Acme Capital</p>
       <p class="mt-1 text-sm tabular-nums text-text-subtle">2026-04-09 → 2026-04-12</p>
       <p class="mt-1 text-sm tabular-nums text-text-subtle">12 crew · 4 rooms · 2 hotels · 3 schedule days</p>
@@ -78,7 +79,7 @@ function cardHtml(dfid: string, title: string): string {
       </div>
     </div>
   </div>
-  <button type="button" data-testid="wizard-step3-card-${dfid}-expand" aria-expanded="true" class="inline-flex min-h-tap-min items-center justify-between gap-2 rounded-sm border border-border bg-bg px-3 text-sm font-medium text-text-strong">
+  <button type="button" data-testid="wizard-step3-card-${dfid}-expand" aria-expanded="true" class="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong">
     <span>Hide details</span>
   </button>
   <div data-testid="wizard-step3-card-${dfid}-breakdown" data-step3-breakdown="" data-expanded="true">

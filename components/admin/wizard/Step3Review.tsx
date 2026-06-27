@@ -34,7 +34,7 @@
  * I-7 wizard-scoped staged review page) so reviewer-choices controls
  * live on a dedicated surface, not inline in the list.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check } from "lucide-react";
@@ -318,7 +318,6 @@ function RowItem({
   onToggleExpanded,
   checked,
   onToggleChecked,
-  checkboxPending,
   quiet = false,
 }: {
   row: Step3Row;
@@ -329,7 +328,6 @@ function RowItem({
   // Select-all updates every box through Step3Review's shared optimistic state.
   checked?: boolean;
   onToggleChecked?: (next: boolean) => void;
-  checkboxPending?: boolean;
   // Quiet, de-emphasized rendering for the set-aside sections (ignored / deferred /
   // skipped): the section heading already names the status, so the per-row status
   // badge is dropped and the card recedes (sunken surface, lighter title). Keeps the
@@ -363,7 +361,6 @@ function RowItem({
           onToggleExpanded={onToggleExpanded}
           checked={checked}
           onToggleChecked={onToggleChecked}
-          checkboxPending={checkboxPending}
         />
       </div>
     );
@@ -484,21 +481,20 @@ function isCleanRow(status: Step3ManifestStatus): boolean {
  * all clean rows. ALL state is LIFTED into Step3Review — the header, every per-card
  * checkbox, and this count read from one shared optimistic publish-intent overlay,
  * so Select all flips every card instantly (§4.5) without waiting on each box to
- * re-seed from a router.refresh() (the select-all-doesn't-stick bug). Disabled
- * while its batch is in flight (§4.6). The count is tabular-nums so a digit change
- * never shifts layout.
+ * re-seed from a router.refresh() (the select-all-doesn't-stick bug). The control is
+ * NEVER disabled/greyed: the optimistic flip is the feedback, and re-entry is guarded
+ * inside toggleSelectAll. The count is tabular-nums so a digit change never shifts
+ * layout.
  */
 function Step3PublishHeader({
   allChecked,
   appliedCount,
   cleanCount,
-  pending,
   onToggleSelectAll,
 }: {
   allChecked: boolean;
   appliedCount: number;
   cleanCount: number;
-  pending: boolean;
   onToggleSelectAll: () => void;
 }) {
   if (cleanCount === 0) {
@@ -514,12 +510,11 @@ function Step3PublishHeader({
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <label className="inline-flex min-h-tap-min cursor-pointer items-center gap-2 has-disabled:cursor-not-allowed has-disabled:opacity-60">
+      <label className="inline-flex min-h-tap-min cursor-pointer items-center gap-2">
         <input
           type="checkbox"
           data-testid="wizard-step3-select-all"
           checked={allChecked}
-          disabled={pending}
           aria-label="Select all sheets to publish"
           onChange={() => onToggleSelectAll()}
           className="peer sr-only"
@@ -643,22 +638,60 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
 
   // Lifted publish-intent: ONE optimistic overlay shared by the header's Select-all,
   // the live count, and every per-card checkbox. `overlay[dfid]` (when present) is
-  // the in-flight intent; otherwise the box reflects the server status. Select-all
+  // the desired intent; otherwise the box reflects the server status. Select-all
   // writes the overlay for every clean row at once, so all boxes flip instantly —
   // independent of when router.refresh() lands. (The select-all-doesn't-stick bug:
   // the per-box state used to update only when a refresh re-keyed each box, which
   // raced/failed in the real app and left the cards unchecked until a manual click.)
+  //
+  // `overlay` (state) drives the render. `desiredRef` mirrors it synchronously so the
+  // async write coalescing (below) always reads the LATEST desired intent — a click
+  // that lands mid-flight is seen by the in-flight flush before React re-renders.
+  // Event handlers write BOTH together via `setDesired`; the effect re-syncs the ref
+  // after a render-time reconcile (which, to satisfy react-hooks/refs, updates only
+  // state). Ref reads/writes happen only in handlers/effects, never during render.
   const [overlay, setOverlay] = useState<Record<string, boolean>>({});
-  const [pendingDfids, setPendingDfids] = useState<ReadonlySet<string>>(new Set());
-  const [selectAllPending, setSelectAllPending] = useState(false);
+  const desiredRef = useRef<Record<string, boolean>>({});
+  useEffect(() => {
+    desiredRef.current = overlay;
+  }, [overlay]);
+  function setDesired(nextOverlay: Record<string, boolean>) {
+    desiredRef.current = nextOverlay; // synchronous mirror (event-handler context)
+    setOverlay(nextOverlay);
+  }
+  // Per-row in-flight set (NOT used to disable any box — see flush). A box NEVER
+  // greys out: the previous design disabled every per-card box for the whole batch
+  // (the "individual selects grey out for a second or two" complaint). Race-safety
+  // now comes from per-row coalescing instead of disabling.
+  //
+  // `sendingRef` is the SYNCHRONOUS source of truth for flush's coalescing guard;
+  // `sendingDfids` mirrors it into render-visible STATE so the render-time reconcile
+  // can tell which rows have a write in flight (it cannot read sendingRef during
+  // render — react-hooks/refs). `markSending` keeps the two in lockstep.
+  const sendingRef = useRef<Set<string>>(new Set());
+  const [sendingDfids, setSendingDfids] = useState<ReadonlySet<string>>(new Set());
+  function markSending(driveFileId: string, on: boolean) {
+    if (on) sendingRef.current.add(driveFileId);
+    else sendingRef.current.delete(driveFileId);
+    setSendingDfids((prev) => {
+      const n = new Set(prev);
+      if (on) n.add(driveFileId);
+      else n.delete(driveFileId);
+      return n;
+    });
+  }
+  // Re-entry guard for Select-all only (prevents launching overlapping batches). A ref,
+  // not state: it is never rendered, so it needs no re-render and stays a pure guard.
+  const selectAllPendingRef = useRef(false);
 
   // Reconcile during render (React's "adjust state when a prop changes" pattern —
   // not an effect): when a refresh delivers a NEW `rows` reference, drop overlay
   // entries that now match the server status (the server is the source of truth, so
-  // a stale overlay can't mask a later server-side change). Entries that still
-  // differ (refresh not yet landed / write in flight) persist. A same-reference
-  // re-render (Step3Review's own setState) leaves the overlay untouched, which is
-  // what makes the optimistic Select-all stick without depending on a refresh.
+  // a stale overlay can't mask a later server-side change). A same-reference re-render
+  // (Step3Review's own setState) leaves the overlay untouched, which is what makes the
+  // optimistic Select-all stick without depending on a refresh. Reads/writes STATE
+  // only (no ref — that would break react-hooks/refs); the effect above re-syncs
+  // desiredRef to the reconciled overlay.
   const [reconciledRows, setReconciledRows] = useState(rows);
   if (reconciledRows !== rows) {
     setReconciledRows(rows);
@@ -667,7 +700,18 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
       const next: Record<string, boolean> = {};
       for (const row of rows) {
         const o = prev[row.driveFileId];
-        if (o !== undefined && o !== (row.status === "applied")) next[row.driveFileId] = o;
+        if (o === undefined) continue;
+        // Keep an entry while its write is IN FLIGHT (sendingDfids) even if it
+        // currently matches the server status: a stale mid-flight refresh (the read
+        // is not blocked by the show's advisory lock, so it can return the pre-write
+        // snapshot) would otherwise DROP the operator's pending intent, and flush
+        // would then converge to the wrong value with no correcting POST — silently
+        // losing the operator's final publish choice. Otherwise keep it only while it
+        // still differs from the server, so a converged / externally-changed status
+        // drops it (the server can't be masked by a stale overlay).
+        if (sendingDfids.has(row.driveFileId) || o !== (row.status === "applied")) {
+          next[row.driveFileId] = o;
+        }
       }
       return next;
     });
@@ -693,49 +737,66 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
     }
   }
 
-  function setPending(driveFileId: string, on: boolean) {
-    setPendingDfids((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(driveFileId);
-      else next.delete(driveFileId);
-      return next;
-    });
+  // Latest desired publish-intent for a row: the overlay entry if present, else the
+  // given server baseline. Reads the REF (synchronous) so an in-flight flush sees a
+  // toggle that arrived after it started.
+  function desiredFor(driveFileId: string, baseline: boolean): boolean {
+    const o = desiredRef.current;
+    return driveFileId in o ? !!o[driveFileId] : baseline;
   }
 
-  async function toggleOne(driveFileId: string, next: boolean): Promise<void> {
-    // §4.6 guard: ignore re-entry while THIS row is in flight, AND while a
-    // Select-all batch is running — otherwise an individual click races the batch's
-    // POST for the same row (the per-show advisory lock serializes them in
-    // indeterminate order), which can leave the row's optimistic overlay
-    // permanently out of sync with the server (a published show shown as unchecked).
-    if (pendingDfids.has(driveFileId) || selectAllPending) return;
-    setOverlay((o) => ({ ...o, [driveFileId]: next })); // optimistic
-    setPending(driveFileId, true);
-    const ok = await postApproval(driveFileId, next);
-    if (!ok) setOverlay((o) => ({ ...o, [driveFileId]: !next })); // revert on failure
-    setPending(driveFileId, false);
+  // Coalescing writer: drive the server to this row's LATEST desired intent, with at
+  // most one in-flight POST per row. A toggle that lands while a POST is in flight is
+  // picked up by the loop after that POST resolves and sent as a correcting POST —
+  // so concurrent clicks for the SAME row never issue competing parallel POSTs that
+  // the per-show advisory lock would serialize in indeterminate order (the original
+  // select-all race). Different rows still flush concurrently. On a failed POST the
+  // row's overlay entry is dropped so the box falls back to the server truth.
+  async function flush(driveFileId: string, serverApplied: boolean): Promise<void> {
+    if (sendingRef.current.has(driveFileId)) return; // already converging this row
+    markSending(driveFileId, true);
+    try {
+      let baseline = serverApplied;
+      for (;;) {
+        const target = desiredFor(driveFileId, baseline);
+        if (target === baseline) break; // server already matches the desired intent
+        const ok = await postApproval(driveFileId, target);
+        if (!ok) {
+          const next = { ...desiredRef.current };
+          delete next[driveFileId]; // revert to server truth on failure
+          setDesired(next);
+          break;
+        }
+        baseline = target; // server now equals target; loop to catch a mid-flight change
+      }
+    } finally {
+      markSending(driveFileId, false);
+    }
+  }
+
+  async function toggleOne(
+    driveFileId: string,
+    next: boolean,
+    serverApplied: boolean,
+  ): Promise<void> {
+    setDesired({ ...desiredRef.current, [driveFileId]: next }); // optimistic, synchronous
+    await flush(driveFileId, serverApplied);
     router.refresh();
   }
 
   async function toggleSelectAll(): Promise<void> {
-    if (selectAllPending || cleanCount === 0) return; // §4.6 guard
+    if (selectAllPendingRef.current || cleanCount === 0) return; // re-entry guard
     const next = !allChecked;
-    // Only SELECTABLE rows participate (a no-details clean row has no checkbox), and
-    // only those whose current state differs from the target are written.
-    const targets = selectableRows.filter((r) => isChecked(r) !== next);
-    setSelectAllPending(true);
-    setOverlay((o) => {
-      const n = { ...o };
-      for (const r of selectableRows) n[r.driveFileId] = next; // instant flip for every selectable box
-      return n;
-    });
-    await Promise.all(
-      targets.map(async (r) => {
-        const ok = await postApproval(r.driveFileId, next);
-        if (!ok) setOverlay((o) => ({ ...o, [r.driveFileId]: !next })); // revert just this one
-      }),
-    );
-    setSelectAllPending(false);
+    selectAllPendingRef.current = true;
+    // Instant flip for every selectable box (one commit), then converge each row.
+    const flipped = { ...desiredRef.current };
+    for (const r of selectableRows) flipped[r.driveFileId] = next;
+    setDesired(flipped);
+    // flush() skips rows already at the target (no POST) and coalesces per row, so a
+    // box toggled DURING the batch ends in the user's chosen state, corrected after
+    // its batch POST resolves — without a competing parallel POST.
+    await Promise.all(selectableRows.map((r) => flush(r.driveFileId, r.status === "applied")));
+    selectAllPendingRef.current = false;
     router.refresh();
   }
 
@@ -787,7 +848,9 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
             allChecked={allChecked}
             appliedCount={appliedCount}
             cleanCount={cleanCount}
-            pending={selectAllPending}
+            // No greyed/disabled feedback: the overlay flips every box (and the
+            // Select-all box itself) instantly, which IS the feedback. Re-entry is
+            // guarded by selectAllPendingRef inside toggleSelectAll, never a visual.
             onToggleSelectAll={() => void toggleSelectAll()}
           />
         ) : null}
@@ -889,8 +952,13 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
                       setExpandedDfid((cur) => (cur === row.driveFileId ? null : row.driveFileId))
                     }
                     checked={isChecked(row)}
-                    onToggleChecked={(next) => void toggleOne(row.driveFileId, next)}
-                    checkboxPending={pendingDfids.has(row.driveFileId) || selectAllPending}
+                    // No `checkboxPending`: per-card boxes are NEVER disabled now (the
+                    // "individual selects grey out" complaint). Race-safety comes from
+                    // per-row coalescing in flush(), not from disabling. serverApplied
+                    // (row.status) is flush's baseline for converging this row.
+                    onToggleChecked={(next) =>
+                      void toggleOne(row.driveFileId, next, row.status === "applied")
+                    }
                   />
                 </li>
               ))}
