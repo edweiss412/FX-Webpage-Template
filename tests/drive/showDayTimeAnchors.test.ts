@@ -217,7 +217,9 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     ["PULL_SHEET_AMBIGUOUS_FORMAT", "pull_sheet", "gear_packlist"],
     ["PULL_SHEET_UNKNOWN_VARIANT", "pull_sheet", "gear_packlist"],
   ] as const)("resolves %s by its tab region (kind %s → region %s)", (code, kind, regionId) => {
-    const ws: ParseWarning[] = [{ severity: "warn", code, message: "x", blockRef: { kind, index: 0 } }];
+    const ws: ParseWarning[] = [
+      { severity: "warn", code, message: "x", blockRef: { kind, index: 0 } },
+    ];
     attachSourceCellAnchors(ws, {
       showDay: [],
       crewRole: [],
@@ -228,7 +230,12 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
 
   it("AGENDA/PULL warning with no tab region → no link", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "AGENDA_DAY_AMBIGUOUS", message: "x", blockRef: { kind: "agenda", index: 0 } },
+      {
+        severity: "warn",
+        code: "AGENDA_DAY_AMBIGUOUS",
+        message: "x",
+        blockRef: { kind: "agenda", index: 0 },
+      },
     ];
     attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: {} });
     expect(ws[0]!.sourceCell).toBeUndefined();
