@@ -97,6 +97,15 @@ function copyForCode(code: string | null): string {
   return GENERIC_VERIFY_ERROR;
 }
 
+// Primary CTA — the single accent fill allowed per card (DESIGN.md ≤10% accent).
+const PRIMARY_BUTTON =
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+// Secondary CTA (re-scan in resume mode). A recessed `surface-sunken` fill +
+// strong text keeps it reading as a BUTTON, distinct from the `bg-bg` folder
+// input directly above it (which shares the same border token).
+const SECONDARY_BUTTON =
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface-sunken px-6 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+
 export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) {
   const router = useRouter();
   const [folderUrl, setFolderUrl] = useState(priorScan?.folderUrl ?? "");
@@ -257,6 +266,9 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   const submitDisabled = isSubmitting || folderUrl.trim().length === 0;
   // Resume affordance: only while idle (the moment the operator lands back on
   // Step 2). Once a re-scan starts, the progress/success/error blocks take over.
+  // In resume mode "Continue to Step 3" is the primary action, so the co-located
+  // re-scan button steps down to SECONDARY_BUTTON (one accent CTA per card, per
+  // DESIGN.md's ≤10% accent cap).
   const showResume = state.kind === "idle" && priorScan != null;
   const progress = state.kind === "submitting" ? state.progress : null;
   const heading =
@@ -306,60 +318,75 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
         </p>
       </header>
 
-      {showResume && priorScan ? (
-        <div
-          data-testid="wizard-step2-resume"
-          role="group"
-          aria-labelledby="wizard-step2-resume-heading"
-          className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
-        >
-          <p id="wizard-step2-resume-heading" className="text-base font-semibold text-text-strong">
-            {priorScan.folderName
-              ? `You already scanned ${priorScan.folderName}.`
-              : "You already scanned this folder."}
-          </p>
-          <p className="max-w-prose text-sm text-text-subtle">
-            Pick up where you left off and review what we brought in, or scan a different folder
-            below.
-          </p>
-          <Link
-            href="/admin?step=3"
-            data-testid="wizard-step2-resume-advance"
-            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Continue to Step 3
-          </Link>
-        </div>
-      ) : null}
-
+      {/* Single card. In resume mode it leads with the "already scanned →
+          Continue" affordance, a divider, then the (secondary) re-scan form;
+          otherwise it is just the scan form. Consolidating avoids the doubled
+          look of two identical stacked cards. */}
       <form
         onSubmit={handleSubmit}
         noValidate
-        className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+        className="flex flex-col gap-4 rounded-md border border-border bg-surface p-tile-pad"
       >
-        <label htmlFor="wizard-step2-folder-url" className="text-sm font-semibold text-text-strong">
-          Folder link
-        </label>
-        <input
-          id="wizard-step2-folder-url"
-          data-testid="wizard-step2-folder-url-input"
-          type="url"
-          value={folderUrl}
-          onChange={(e) => setFolderUrl(e.target.value)}
-          placeholder="Paste your Drive folder URL"
-          autoComplete="off"
-          spellCheck={false}
-          disabled={isSubmitting}
-          className="min-h-tap-min rounded-sm border border-border-strong bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        />
-        <button
-          type="submit"
-          data-testid="wizard-step2-submit"
-          disabled={submitDisabled}
-          className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          {isSubmitting ? "Verifying…" : "Verify and scan"}
-        </button>
+        {showResume && priorScan ? (
+          <>
+            <div
+              data-testid="wizard-step2-resume"
+              role="group"
+              aria-labelledby="wizard-step2-resume-heading"
+              className="flex flex-col gap-3"
+            >
+              <p
+                id="wizard-step2-resume-heading"
+                className="text-base font-semibold text-text-strong"
+              >
+                {priorScan.folderName
+                  ? `You already scanned ${priorScan.folderName}.`
+                  : "You already scanned this folder."}
+              </p>
+              <p className="max-w-prose text-sm text-text-subtle">
+                Pick up where you left off and review what we brought in, or re-scan this folder (or
+                a different one) below.
+              </p>
+              <Link
+                href="/admin?step=3"
+                data-testid="wizard-step2-resume-advance"
+                className={PRIMARY_BUTTON}
+              >
+                Continue to Step 3
+              </Link>
+            </div>
+            <hr className="border-border" />
+          </>
+        ) : null}
+
+        <div className="flex flex-col gap-3">
+          <label
+            htmlFor="wizard-step2-folder-url"
+            className="text-sm font-semibold text-text-strong"
+          >
+            Folder link
+          </label>
+          <input
+            id="wizard-step2-folder-url"
+            data-testid="wizard-step2-folder-url-input"
+            type="url"
+            value={folderUrl}
+            onChange={(e) => setFolderUrl(e.target.value)}
+            placeholder="Paste your Drive folder URL"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={isSubmitting}
+            className="min-h-tap-min rounded-sm border border-border-strong bg-bg px-3 text-base text-text disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          />
+          <button
+            type="submit"
+            data-testid="wizard-step2-submit"
+            disabled={submitDisabled}
+            className={showResume ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+          >
+            {isSubmitting ? "Verifying…" : "Verify and scan"}
+          </button>
+        </div>
       </form>
 
       {state.kind === "submitting" && progress ? (

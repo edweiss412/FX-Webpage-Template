@@ -631,4 +631,37 @@ describe("Step2Verify — resume after Back (priorScan)", () => {
     const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
     expect(JSON.parse(init.body as string).folderUrl).toBe(PRIOR.folderUrl);
   });
+
+  test("consolidated into ONE card: the resume block lives inside the scan form", () => {
+    // Before consolidation the resume affordance and the re-scan form were two
+    // separate stacked cards. They now share a single bordered card (the form).
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const resume = getByTestId("wizard-step2-resume");
+    const form = resume.closest("form");
+    expect(form).not.toBeNull();
+    // …and that same form holds the folder input + submit → one card, not two.
+    expect(form!.querySelector('[data-testid="wizard-step2-folder-url-input"]')).not.toBeNull();
+    expect(form!.querySelector('[data-testid="wizard-step2-submit"]')).not.toBeNull();
+    // The resume block no longer carries its OWN card chrome (that was the
+    // doubled second card); the surrounding form is the single bordered surface.
+    expect(resume.className).not.toContain("rounded-md");
+    expect(resume.className).not.toContain("border-border");
+    expect(form!.className).toContain("rounded-md");
+    expect(form!.className).toContain("border-border");
+  });
+
+  test("hierarchy: in resume mode Continue is the accent CTA and re-scan steps down to secondary", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    // Primary = Continue to Step 3 (accent fill).
+    expect(getByTestId("wizard-step2-resume-advance").className).toContain("bg-accent");
+    // Secondary = Verify and scan (outlined, no accent fill) — one accent per card.
+    const submit = getByTestId("wizard-step2-submit");
+    expect(submit.className).not.toContain("bg-accent");
+    expect(submit.className).toContain("border-border-strong");
+  });
+
+  test("without priorScan the re-scan button stays the primary accent CTA", () => {
+    const { getByTestId } = render(<Step2Verify />);
+    expect(getByTestId("wizard-step2-submit").className).toContain("bg-accent");
+  });
 });
