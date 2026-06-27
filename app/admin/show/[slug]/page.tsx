@@ -52,7 +52,8 @@ import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import type { ParseWarning } from "@/lib/parser/types";
-import { isDataQualityWarning } from "@/lib/parser/dataGaps";
+import { isDataQualityWarning, operatorActionableWarnings } from "@/lib/parser/dataGaps";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 
 export const dynamic = "force-dynamic";
 
@@ -257,7 +258,11 @@ export default async function AdminShowPage({
   // silent-drop this feature kills. null/absent row (genuinely no warnings) is
   // kept DISTINCT from a failure: messages=[], failed=false → panel simply
   // absent. Resolves to a typed local result and never rejects (Promise.all-safe).
-  const readDataQuality = async (): Promise<{ messages: string[]; failed: boolean }> => {
+  const readDataQuality = async (): Promise<{
+    messages: string[];
+    actionable: ParseWarning[];
+    failed: boolean;
+  }> => {
     try {
       const { data, error } = await supabase
         .from("shows_internal")
@@ -266,7 +271,7 @@ export default async function AdminShowPage({
         .maybeSingle<{ parse_warnings: ParseWarning[] | null }>();
       if (error) {
         console.error("[/admin/show/[slug]] shows_internal read failed:", error.message);
-        return { messages: [], failed: true };
+        return { messages: [], actionable: [], failed: true };
       }
       const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
       // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
@@ -277,13 +282,17 @@ export default async function AdminShowPage({
         .filter(isDataQualityWarning)
         .map((w) => w.message)
         .filter((m): m is string => typeof m === "string" && m.length > 0);
-      return { messages, failed: false };
+      // Carry the full warnings through so the panel can render the operator-
+      // actionable subset WITH their source-sheet deep links (the component filters
+      // + dedups via operatorActionableWarnings); the messages list stays the
+      // data-gap-only `.message` digest.
+      return { messages, actionable: warnings, failed: false };
     } catch (err) {
       console.error(
         "[/admin/show/[slug]] shows_internal read threw:",
         err instanceof Error ? err.message : String(err),
       );
-      return { messages: [], failed: true };
+      return { messages: [], actionable: [], failed: true };
     }
   };
 
@@ -741,7 +750,8 @@ export default async function AdminShowPage({
             again.
           </p>
         </section>
-      ) : dataQuality.messages.length > 0 ? (
+      ) : dataQuality.messages.length > 0 ||
+        operatorActionableWarnings(dataQuality.actionable).length > 0 ? (
         <section
           data-testid="per-show-data-quality"
           aria-labelledby="per-show-data-quality-heading"
@@ -767,17 +777,26 @@ export default async function AdminShowPage({
               </p>
             </HoverHelp>
           </div>
-          <ul className="flex flex-col gap-2">
-            {dataQuality.messages.map((message, i) => (
-              <li
-                key={i}
-                data-testid="per-show-data-quality-item"
-                className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
-              >
-                {message}
-              </li>
-            ))}
-          </ul>
+          {dataQuality.messages.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {dataQuality.messages.map((message, i) => (
+                <li
+                  key={i}
+                  data-testid="per-show-data-quality-item"
+                  className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
+                >
+                  {message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {/* Operator-actionable parse warnings (role/day/schedule/field) with a
+              source-sheet deep link to the offending cell when the scan resolved
+              it. Renders nothing when there are none. */}
+          <PerShowActionableWarnings
+            warnings={dataQuality.actionable}
+            driveFileId={show.drive_file_id}
+          />
         </section>
       ) : null}
 
