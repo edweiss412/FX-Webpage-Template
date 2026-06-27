@@ -151,7 +151,7 @@ FIELD_LABEL_AUTOCORRECTED: "A field label on this sheet looked misspelled (e.g. 
 ```
 
 - [ ] **Step 4:** Add `"FIELD_LABEL_AUTOCORRECTED"` to `OPERATOR_ACTIONABLE_ANCHORED` (`dataGaps.ts`, 17→18).
-- [ ] **Step 5:** Map the `FIELD` prefix in `app/help/errors/_families.ts` — add `"FIELD"` to the `syncing-sheets` family prefixes.
+- [ ] **Step 5: `/help` family prefix — VERIFY, do not blindly add.** `codePrefix("FIELD_LABEL_AUTOCORRECTED")` = `FIELD`, which is the SAME prefix as the existing `FIELD_UNREADABLE`. Run `rg -n '"FIELD"' app/help/errors/_families.ts`: if `"FIELD"` is already in a family's `prefixes` (it is, for `FIELD_UNREADABLE`), this step is a **no-op — make no change** (a double-add would be redundant). Only add `"FIELD"` (→ `syncing-sheets`) if the grep shows it absent.
 - [ ] **Step 5b:** Dispatch wiring in `lib/drive/showDayTimeAnchors.ts` — add `FIELD_LABEL_AUTOCORRECTED` to the region branch condition (alongside `FIELD_UNREADABLE`/`UNKNOWN_FIELD`/`COLUMN_HEADER_AUTOCORRECTED`/`SECTION_HEADER_AUTOCORRECTED`); it carries `blockRef:{kind:"venue"}` → `region["venue"]`. Add a dispatch test mirroring the others.
 **Ordering, made explicit (MEDIUM finding):** two different orderings apply. (a) §12.4 master-spec table + YAML + `catalog.ts` are **insertion-ordered** — append the new row right after `SECTION_HEADER_AUTOCORRECTED` (the gen scripts preserve source order). (b) The pin-test `expect([...SET].sort()).toEqual([...])` array is **alphabetically sorted** — `FIELD_LABEL_AUTOCORRECTED` sorts BEFORE `FIELD_UNREADABLE` (`L` < `U`), so it goes between `COLUMN_HEADER_AUTOCORRECTED` and `FIELD_UNREADABLE`. The `showDayTimeAnchors.test.ts` "all N anchored codes" iteration array is order-insensitive (append anywhere). `FIELD` prefix in `_families.ts` is ALREADY mapped (for `FIELD_UNREADABLE`) — do NOT double-add; confirm `"FIELD"` is present and skip Step 5 if so.
 
@@ -166,7 +166,7 @@ FIELD_LABEL_AUTOCORRECTED: "A field label on this sheet looked misspelled (e.g. 
 
 **Interfaces:** Consumes `resolveAliasScoped` (Task 1), `FIELD_LABEL_AUTOCORRECTED` (Task 2). The venue loop computes `col0Canon` and branches on it for field assignment; `UNKNOWN_FIELD` fires only when `col0Canon === null`.
 
-- [ ] **Step 1: Write the failing test** — a venue block with a typo'd field label (`Venue Adress`) → the address value is recovered into `venue.address` (or the row is no longer `UNKNOWN_FIELD`), AND one `FIELD_LABEL_AUTOCORRECTED` (warn), AND **zero** `UNKNOWN_FIELD` (the no-downgrade guarantee). Also: a CORRECTLY-spelled venue label fires no `FIELD_LABEL_AUTOCORRECTED`. Generator: each `unambiguousTypos(alias, inScopeVenueAliases, {minLen:5})` of a venue alias (≥5 chars) recovers. Negative: an out-of-scope exact alias (`Client Contact`) in a venue row is NOT recovered (still `UNKNOWN_FIELD`).
+- [ ] **Step 1: Write the failing test** — a venue block with a typo'd field label (`Venue Adress`) → the address value is recovered into `venue.address` (or the row is no longer `UNKNOWN_FIELD`), AND one `FIELD_LABEL_AUTOCORRECTED` (warn), AND **zero** `UNKNOWN_FIELD` (the no-downgrade guarantee). Also: a CORRECTLY-spelled venue label fires no `FIELD_LABEL_AUTOCORRECTED`. Generator: each `unambiguousTypos(alias, ALL_REVERSE_MAP_ALIASES, {minLen:5})` of a venue alias recovers — **pass the FULL alias set (every REVERSE_MAP key), not just the venue subset** (LOW finding), so a generated typo that happens to equal a real OTHER-block exact alias is dropped (resolveAliasScoped's exact-first would return `corrected:false` for it, which the test must not assert as a fuzzy correction). Negative: an out-of-scope exact alias (`Client Contact`) in a venue row is NOT recovered (still `UNKNOWN_FIELD`).
 
 - [ ] **Step 2: Run to verify fail.**
 
@@ -223,7 +223,9 @@ const VENUE_FIELD_ALIASES = inScopeAliases("venue.")
   .map((a) => a.toUpperCase());
 ```
 
-then add to `TYPO_VOCABS`: `{ id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: VENUE_FIELD_ALIASES },`. The collision meta-test then asserts none sits within Damerau-1 of any other registered vocab member. **Verify no import cycle** (`aliases.ts` does not import `typoVocabRegistry.ts` — confirmed; aliases→typoGate/knownSections only).
+then add to `TYPO_VOCABS`: `{ id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: VENUE_FIELD_ALIASES },`. The collision meta-test then asserts none sits within Damerau-1 of any other registered vocab member.
+
+**Import-cycle proof (MEDIUM finding) — must rule out the full chain, not just one edge.** The new edge is `typoVocabRegistry → aliases`. Trace the whole transitive closure: `aliases → {typoGate, knownSections}`; `typoGate → fuzzyMatch`; `fuzzyMatch → ∅`; `knownSections → ∅`. None of these import `typoVocabRegistry`, so there is no cycle. **Prove it executably:** the collision meta-test (`tests/parser/typoVocabCollision.test.ts`) imports `TYPO_VOCABS`, which now transitively loads `aliases → typoGate → fuzzyMatch` at module-eval; a real cycle would surface as an `undefined`-at-load error there. If desired, add a one-line import smoke: `it("registry loads without a circular-import error", () => { expect(TYPO_VOCABS.length).toBeGreaterThan(0); });`.
 
 - [ ] **Step 2: Run + mutation proof.** `pnpm vitest run tests/parser/typoVocabCollision.test.ts` → PASS. If a real distance-1 collision surfaces (e.g. two venue aliases one edit apart, or a venue alias near a sub-label), the meta-test fails — FIX the registry/exclusion or drop the colliding member from the fuzzable set (never weaken the test). Then temporarily add a colliding member → confirm FAIL → revert (the load-bearing proof).
 - [ ] **Step 3: Commit** — `test(parser): register venue field-alias vocab in the collision tripwire`
