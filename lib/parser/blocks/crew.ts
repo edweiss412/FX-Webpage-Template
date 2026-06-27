@@ -226,6 +226,11 @@ function buildCrewMember(params: {
 }): CrewMemberRow {
   const { phoneRaw, emailRaw, flightRaw, index, warnings, agg } = params;
 
+  // Stable per-row key for deep-link anchoring of crew-role-cell warnings. name
+  // is the RAW name cell (pre-restriction-strip); the raw-grid scanner re-extracts
+  // and normalizes the same value to locate the cell (lib/drive/crewRoleAnchors.ts).
+  const crewBlockRef = { kind: "crew" as const, index, name: params.nameRaw };
+
   // Class A — a field carried a non-empty value that yields no usable tap-target:
   // a phone with no digits (no `tel:` number) or an email with no "@" (not an
   // address). Flag it AND null the field below, so a fresh publish renders NO link
@@ -260,8 +265,13 @@ function buildCrewMember(params: {
 
   const stageRestriction = extractStageRestriction(cleanedRole);
   const roleFlagResult = extractRoleFlags(cleanedRole);
-  warnings.push(...roleFlagResult.warnings);
-  if (agg) agg.warnings.push(...roleFlagResult.warnings);
+  // Stamp UNKNOWN_ROLE_TOKEN warnings with the crew-row blockRef so they can
+  // deep-link to the offending role cell. extractRoleFlags stays a pure function.
+  const stampedRoleWarnings = roleFlagResult.warnings.map((w) =>
+    w.code === "UNKNOWN_ROLE_TOKEN" ? { ...w, blockRef: crewBlockRef } : w,
+  );
+  warnings.push(...stampedRoleWarnings);
+  if (agg) agg.warnings.push(...stampedRoleWarnings);
   const roleFlags = [...roleFlagResult.flags];
   if (/\bONLY\b/i.test(params.nameRaw) || /\bONLY\b/i.test(params.roleRaw)) {
     if (!roleFlags.includes("ONLY")) roleFlags.push("ONLY");
@@ -275,6 +285,7 @@ function buildCrewMember(params: {
       code: "UNKNOWN_DAY_RESTRICTION",
       message: `Role cell contains *** but no explicit day dates found: '${params.roleRaw}'`,
       rawSnippet: params.roleRaw,
+      blockRef: crewBlockRef,
     };
     warnings.push(tripleAsteriskWarning);
     if (agg) agg.warnings.push(tripleAsteriskWarning);

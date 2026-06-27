@@ -9,7 +9,7 @@ export type ParseWarning = {
   // key used to attach a `sourceCell` anchor at scan time (correlated against the
   // raw grid by date, NOT by markdown row index, which the synthesis pipeline can
   // shift).
-  blockRef?: { kind: string; index?: number; iso?: string };
+  blockRef?: { kind: string; index?: number; iso?: string; name?: string };
   rawSnippet?: string;
   // Optional deep-link anchor to the exact source cell that triggered the warning
   // (e.g. the DATES-tab TIME cell for SCHEDULE_TIME_UNPARSED). Attached at scan

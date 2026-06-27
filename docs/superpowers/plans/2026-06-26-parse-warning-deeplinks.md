@@ -27,6 +27,7 @@
 **Create:**
 - `lib/drive/crewRoleAnchors.ts` — raw-grid crew-role-cell scanner + name-key normalizer + resolver (Task 3).
 - `lib/sync/attachWarningAnchors.ts` — shared anchor-population helper for both ingestion paths (Task 5).
+- `components/admin/PerShowActionableWarnings.tsx` — shared operator-actionable warning renderer (Task 8, reused by Task 9).
 - `tests/drive/crewRoleAnchors.test.ts` — scanner tests incl. fixture-known A1 parity (Task 3).
 - `tests/sync/attachWarningAnchors.test.ts` — helper tests (Task 5).
 - `tests/parser/parseWarningDeepLinkRender.test.tsx` — invariant-5 render meta-test across surfaces (Task 10).
@@ -63,7 +64,7 @@ Create `tests/parser/crewRoleWarningBlockRef.test.ts`:
 ```ts
 import { describe, it, expect } from "vitest";
 import { parseCrew } from "@/lib/parser/blocks/crew";
-import { ParseAggregator } from "@/lib/parser/warnings";
+import { newAggregator } from "@/lib/parser/warnings";
 
 // New-template CREW table with an unrecognized role token ("WIDGETMASTER").
 const NEW_TPL = [
@@ -87,7 +88,7 @@ const TRIPLE = [
 ].join("\n");
 
 function roleWarnings(markdown: string, version: "v1" | "v2" | "v4") {
-  const agg = new ParseAggregator();
+  const agg = newAggregator();
   parseCrew(markdown, version, agg);
   return agg.warnings;
 }
