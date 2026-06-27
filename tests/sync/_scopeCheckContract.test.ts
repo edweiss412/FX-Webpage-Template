@@ -63,6 +63,10 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "agenda-route auth helper extracted from GET; looks up metadata for a fileId already bound to shows.agenda_links and does not admit sheets",
   ],
   [
+    "lib/drive/agendaDrive.ts::downloadFileBytes",
+    "agenda PDF byte download (spec §4.5.3): files.get({alt:'media'}) fetches bytes for an agenda fileId already resolved from THIS show's own agenda_links (parser URL form or ordinal smart-chip recovery from the show's INFO tab inside the per-show enrich context). It is an asset byte fetch, not sheet admission by drive_file_id — it never lists/parses/processes a sheet (mirrors the agenda asset route + runScheduledCronSync::getFile enrichment exceptions).",
+  ],
+  [
     "app/api/admin/onboarding/scan/route.ts::defaultVerifyFolder",
     "onboarding verify-folder route checks a folder id before any sheet admission; runOnboardingScan lists sheets from that pending_folder_id",
   ],
