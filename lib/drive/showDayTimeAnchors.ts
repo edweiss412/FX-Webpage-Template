@@ -111,7 +111,11 @@ export function attachSourceCellAnchors(
     let cell: SourceAnchor | null = null;
     if (w.code === "SCHEDULE_TIME_UNPARSED") {
       cell = resolveSourceCell(sources.showDay, w.blockRef?.iso);
-    } else if (w.code === "UNKNOWN_ROLE_TOKEN" || w.code === "UNKNOWN_DAY_RESTRICTION") {
+    } else if (
+      w.code === "UNKNOWN_ROLE_TOKEN" ||
+      w.code === "UNKNOWN_DAY_RESTRICTION" ||
+      w.code === "STAGE_WORD_AUTOCORRECTED"
+    ) {
       cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
     } else if (w.code === "FIELD_UNREADABLE") {
       const kind = w.blockRef?.kind;

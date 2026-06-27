@@ -161,6 +161,19 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
   });
 
+  it("resolves STAGE_WORD_AUTOCORRECTED by blockRef.name (crew cell), like the other crew codes", () => {
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "STAGE_WORD_AUTOCORRECTED",
+        message: "x",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: crewAnchors, region: {} });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
+  });
+
   it("FIELD_UNREADABLE with no region for its kind → null (no wrong-region link)", () => {
     const ws: ParseWarning[] = [
       {
@@ -187,11 +200,12 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning is TRUE for all four anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+  it("hasCellAnchoredWarning is TRUE for all five anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
     for (const code of [
       "SCHEDULE_TIME_UNPARSED",
       "UNKNOWN_ROLE_TOKEN",
       "UNKNOWN_DAY_RESTRICTION",
+      "STAGE_WORD_AUTOCORRECTED",
       "FIELD_UNREADABLE",
     ]) {
       expect(hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
