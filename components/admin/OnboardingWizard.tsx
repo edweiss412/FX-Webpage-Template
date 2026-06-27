@@ -439,6 +439,7 @@ export async function OnboardingWizard({
     ? {
         folderName: settings.pending_folder_name,
         folderUrl: driveFolderUrl(settings.pending_folder_id),
+        folderId: settings.pending_folder_id,
       }
     : undefined;
 

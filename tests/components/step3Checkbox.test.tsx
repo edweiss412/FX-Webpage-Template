@@ -15,7 +15,7 @@
  * route test (tests/api/wizard-approve-route.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseResult } from "@/lib/parser/types";
 
 const refresh = vi.fn();
@@ -330,31 +330,65 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/2 of 3/);
   });
 
-  it("during a Select-all batch the per-card boxes are disabled, so an individual click can't race the batch", async () => {
-    // Keep the batch in flight (fetch never resolves) so selectAllPending stays true.
-    let resolveAll: (r: Response) => void = () => {};
-    const pendingResp = new Promise<Response>((res) => {
-      resolveAll = res;
+  it("Select-all NEVER greys the per-card boxes, and a click during the batch is race-safe (coalesced, not disabled)", async () => {
+    // This replaces the old disable-based guard. The reported UX issue: Select-all
+    // greyed every individual checkbox for "a second or two." The fix removes the
+    // disable entirely and makes concurrent intents race-safe via per-row coalescing
+    // (one in-flight POST per row; a mid-flight toggle is sent as a SEQUENCED
+    // correction, never a competing parallel POST the advisory lock would reorder).
+    //
+    // Harness: hold every /approve until released so the batch stays in flight while
+    // we click a box; /unapprove (the correction) resolves immediately.
+    let releaseApproves: () => void = () => {};
+    const approveGate = new Promise<void>((res) => {
+      releaseApproves = res;
     });
-    const fetchMock = vi.fn(() => pendingResp);
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string) => {
+      calls.push(String(url));
+      if (String(url).endsWith("/approve")) await approveGate;
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    });
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2")];
     const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
     const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
 
+    // Start the batch: both boxes flip checked instantly (optimistic overlay).
     fireEvent.click(getByTestId("wizard-step3-select-all"));
+    await waitFor(() => {
+      expect(box("s1").checked).toBe(true);
+      expect(box("s2").checked).toBe(true);
+    });
+    // THE FIX: per-card boxes are NOT disabled/greyed while the batch is in flight.
+    expect(box("s1").disabled).toBe(false);
+    expect(box("s2").disabled).toBe(false);
+    // Both approve POSTs are in flight (held by the gate).
+    await waitFor(() => expect(calls.filter((u) => u.endsWith("/approve")).length).toBe(2));
 
-    // While the batch is in flight every per-card box is disabled...
-    await waitFor(() => expect(box("s1").disabled).toBe(true));
-    expect(box("s2").disabled).toBe(true);
-    const callsDuringBatch = fetchMock.mock.calls.length; // the 2 approve POSTs (still pending)
-
-    // ...so an individual click during the batch fires NO competing POST (the exact
-    // race that could otherwise leave a published show stuck displayed as unchecked).
+    // The operator un-checks s1 mid-batch. It flips instantly (overlay) and fires NO
+    // competing parallel POST for s1 (flush is already converging s1; the correction
+    // waits for the in-flight approve to resolve).
     fireEvent.click(box("s1"));
-    expect(fetchMock.mock.calls.length).toBe(callsDuringBatch);
+    await waitFor(() => expect(box("s1").checked).toBe(false));
+    expect(calls.filter((u) => u.includes("/s1/")).length).toBe(1); // still just the approve
 
-    resolveAll(new Response(JSON.stringify({ status: "approved" }), { status: 200 }));
+    // Release the held approves. flush(s1) sees the desired state changed and sends
+    // ONE correcting unapprove for s1, SEQUENCED after its approve (never a race).
+    await act(async () => {
+      releaseApproves();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(calls).toContain(UNAPPROVE_URL("s1")));
+
+    // Settled: s1 unchecked (the mid-batch choice won), s2 checked. Exactly one
+    // approve for s1 was ever issued — no competing parallel POST.
+    await waitFor(() => {
+      expect(box("s1").checked).toBe(false);
+      expect(box("s2").checked).toBe(true);
+    });
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/1 of 2/);
+    expect(calls.filter((u) => u === APPROVE_URL("s1")).length).toBe(1);
   });
 
   it("reconciles the optimistic overlay against refreshed props (a stale overlay can't mask a later server change)", async () => {
@@ -409,6 +443,58 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     fireEvent.click(getByTestId("wizard-step3-select-all"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(String(fetchMock.mock.calls[0]![0])).toBe(APPROVE_URL("ok1"));
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/1 of 1/);
+  });
+
+  it("a re-toggle WHILE a write is in flight survives a stale mid-flight refresh (in-flight intent is not dropped; a correcting POST is sent)", async () => {
+    // Adversarial-review HIGH regression: the render-time reconcile must NOT drop a
+    // row's optimistic overlay entry while its write is in flight, even when a stale
+    // refresh delivers the pre-write server status. Otherwise flush converges to the
+    // wrong value with no correcting POST and the operator's final publish choice is
+    // silently lost. Repro: uncheck (slow unapprove held) → re-check (optimistic) →
+    // a stale refresh re-renders with the OLD 'applied' status → release the unapprove.
+    let releaseUnapprove: () => void = () => {};
+    const gate = new Promise<void>((res) => {
+      releaseUnapprove = res;
+    });
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string) => {
+      calls.push(String(url));
+      if (String(url).endsWith("/unapprove")) await gate; // hold the unapprove in flight
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByTestId, rerender } = render(
+      <Step3Review wizardSessionId={WSID} rows={[appliedRow("s1", "S1")]} />,
+    );
+    const box = () => getByTestId("wizard-step3-checkbox-s1") as HTMLInputElement;
+    expect(box().checked).toBe(true);
+
+    // Uncheck s1 → unapprove fires and is held in flight.
+    fireEvent.click(box());
+    await waitFor(() => expect(box().checked).toBe(false));
+    await waitFor(() => expect(calls.filter((u) => u.endsWith("/unapprove")).length).toBe(1));
+
+    // Re-check s1 WHILE the unapprove is still in flight (optimistic; flush coalesces).
+    fireEvent.click(box());
+    await waitFor(() => expect(box().checked).toBe(true));
+
+    // A STALE refresh lands: a NEW rows reference still carrying the pre-write status
+    // (applied) — the in-flight unapprove has not committed. The reconcile MUST keep
+    // s1's in-flight intent (re-check = stay applied), not drop it.
+    rerender(<Step3Review wizardSessionId={WSID} rows={[appliedRow("s1", "S1")]} />);
+    expect(box().checked).toBe(true);
+
+    // Release the unapprove → flush sees the desired intent (re-checked) still differs
+    // from the just-committed server (unapplied) and sends ONE correcting approve.
+    await act(async () => {
+      releaseUnapprove();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(calls).toContain(APPROVE_URL("s1")));
+    // Final settled state matches the operator's LAST click (publish), not the
+    // mid-flight unapprove.
+    await waitFor(() => expect(box().checked).toBe(true));
     expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/1 of 1/);
   });
 });

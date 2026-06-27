@@ -7,11 +7,12 @@
  * replaces the old "Review and apply" navigation link: instead of routing to
  * the finalize-failure recovery page, the parse preview is shown in place.
  *
- *   - Summary (always visible): show title, client, dates, the counts strip
- *     (N crew · N rooms · N hotels · N schedule days), diagrams/reel badges,
- *     and a warnings chip when warnings exist.
- *   - Breakdown (expand toggle): crew names+roles, schedule outline, rooms,
- *     hotels — each capped per §4.3.
+ *   - Summary (always visible): the show title (a deep link to the SOURCE sheet
+ *     that WRAPS, never truncates), client, dates, venue name, a dedicated city
+ *     row, diagrams/reel badges, and the per-class data-gap chips when present.
+ *   - Breakdown (expand toggle): crew names+roles, schedule outline, rooms, and
+ *     hotels in a balanced multi-column flow, then a FULL-WIDTH warnings callout
+ *     below the rest — each list capped per §4.3.
  *
  * This is a PRESENTATIONAL card (a `row` prop). D2 deliberately adds NO
  * checkbox / select-all / approve / ignore wiring — those are D3/D4/D5. The
@@ -30,7 +31,7 @@
  */
 import { Fragment, useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, ExternalLink } from "lucide-react";
 import type {
   AgendaEntry,
   CrewMemberRow,
@@ -55,10 +56,6 @@ const ROOMS_CAP = 20;
 const HOTELS_CAP = 12;
 const SCHEDULE_DAYS_CAP = 14;
 const SCHEDULE_ENTRIES_CAP = 6;
-// Collapsed-card crew preview cap: how many name·role lines show in the summary
-// before the "+K more" tail. Kept small because the summary sits in a narrow grid
-// cell; the full roster (CREW_CAP) lives in the expanded breakdown.
-const SUMMARY_CREW_CAP = 3;
 
 // Defensive coercion for the untyped-on-the-wire JSONB (§4.3/§4.6): anything
 // that isn't an array becomes [].
@@ -405,8 +402,13 @@ function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWa
  * manifest status is 'applied'. On toggle it POSTs to the LIGHTWEIGHT approve /
  * un-approve pair (NOT the heavy navigation-era apply route — finalize
  * re-validates at apply time, so the checkbox stays cheap) and then refreshes the
- * RSC tree. The control optimistically reflects the new state and DISABLES itself
- * while its request is in flight (§4.6 — prevents a double-toggle race).
+ * RSC tree.
+ *
+ * In UNCONTROLLED (standalone) mode the control optimistically reflects the new
+ * state and DISABLES itself while its own request is in flight (§4.6 — prevents a
+ * double-toggle race). In CONTROLLED (grid) mode the parent (Step3Review) owns the
+ * write and is NEVER disabled: race-safety there comes from the parent's per-row
+ * coalescing, so the box stays interactive (it does not grey out mid-batch).
  *
  * A real <input type=checkbox> (keyboard-operable, sr-only) backs the visible
  * tile; the tile is a ≥44px tap target via the wrapping <label>. The native input
@@ -418,22 +420,20 @@ export function PublishCheckbox({
   initialChecked,
   controlledChecked,
   onToggle,
-  pending: pendingProp,
 }: {
   driveFileId: string;
   wizardSessionId: string;
   initialChecked: boolean;
-  // Optional CONTROLLED mode. When the parent (Step3Review) supplies `onToggle`,
-  // the publish-intent state is LIFTED: the parent owns `checked`/`pending` and
-  // performs the POST + router.refresh(), so "Select all" flips every box
+  // Optional CONTROLLED mode. When the parent (Step3Review) supplies `onToggle`, the
+  // publish-intent state is LIFTED: the parent owns `checked` and performs the POST +
+  // router.refresh() (with per-row coalescing), so "Select all" flips every box
   // instantly through shared optimistic state instead of waiting on each box to
-  // re-seed from a refresh (the select-all-doesn't-stick bug — the per-box
-  // useState was decoupled from the header's optimistic state). Omitted → the box
-  // self-manages its own state and POST (standalone / single-card usage is
-  // unchanged, and the call site keeps `key={row.status}` to re-seed on refresh).
+  // re-seed from a refresh (the select-all-doesn't-stick bug — the per-box useState
+  // was decoupled from the header's optimistic state). Omitted → the box self-manages
+  // its own state and POST (standalone / single-card usage is unchanged, and the call
+  // site keeps `key={row.status}` to re-seed on refresh).
   controlledChecked?: boolean | undefined;
   onToggle?: ((next: boolean) => void) | undefined;
-  pending?: boolean | undefined;
 }) {
   const controlled = onToggle !== undefined;
   const router = useRouter();
@@ -441,7 +441,9 @@ export function PublishCheckbox({
   const [checkedInternal, setCheckedInternal] = useState(initialChecked);
   const [pendingInternal, setPendingInternal] = useState(false);
   const checked = controlled ? !!controlledChecked : checkedInternal;
-  const pending = controlled ? !!pendingProp : pendingInternal;
+  // Controlled mode never disables (the parent coalesces writes); only the
+  // standalone path disables itself while its own request is in flight.
+  const pending = controlled ? false : pendingInternal;
 
   async function toggleSelf(next: boolean) {
     if (pendingInternal) return; // §4.6 guard — ignore re-entry while a write is in flight
@@ -507,6 +509,42 @@ export function PublishCheckbox({
   );
 }
 
+/**
+ * The show title rendered as a deep link to its SOURCE Google Sheet (the base
+ * sheet URL needs only the driveFileId, so it works even for a no-details row).
+ * The title WRAPS (never truncates) so a long show name stays fully readable, and
+ * opens in a new tab. Falls back to plain text only if the deep link can't be
+ * built (a missing driveFileId — not expected for a real row).
+ */
+function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
+  const href = buildSheetDeepLink(dfid);
+  if (!href) {
+    return <p className="wrap-break-word text-base font-semibold text-text-strong">{title}</p>;
+  }
+  return (
+    <a
+      data-testid={`wizard-step3-card-${dfid}-title-link`}
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Open the source sheet for ${title} in Google Sheets (opens in a new tab)`}
+      className="wrap-break-word text-base font-semibold text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+    >
+      {title}
+      {/* Persistent (non-hover) "opens the source sheet" cue, mirroring the
+          warnings' "Open in Sheet ↗" affordance. text-text-subtle (NOT text-text-faint,
+          which DESIGN.md scopes to decorative copy) so it reads as a real, at-rest link
+          affordance; inline so it trails the last word when the title wraps; aria-hidden
+          (the link's aria-label already says it opens the sheet). */}
+      <ExternalLink
+        aria-hidden="true"
+        strokeWidth={2}
+        className="ml-1 inline-block size-3.5 -translate-y-px align-middle text-text-subtle"
+      />
+    </a>
+  );
+}
+
 export function Step3SheetCard({
   row,
   wizardSessionId,
@@ -514,7 +552,6 @@ export function Step3SheetCard({
   onToggleExpanded,
   checked: checkedProp,
   onToggleChecked,
-  checkboxPending,
 }: {
   row: Step3Row;
   wizardSessionId: string;
@@ -530,7 +567,6 @@ export function Step3SheetCard({
   // self-manages (standalone card usage unchanged).
   checked?: boolean | undefined;
   onToggleChecked?: ((next: boolean) => void) | undefined;
-  checkboxPending?: boolean | undefined;
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
@@ -555,7 +591,7 @@ export function Step3SheetCard({
       >
         <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-base font-semibold text-text-strong">{titleFallback}</p>
+            <SheetTitleLink dfid={dfid} title={titleFallback} />
             <p className="mt-1 text-sm text-warning-text">
               We couldn&rsquo;t read the details of this sheet.
             </p>
@@ -616,12 +652,9 @@ export function Step3SheetCard({
             onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
           }
           onToggle={onToggleChecked}
-          pending={checkboxPending}
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-base font-semibold text-text-strong" title={title}>
-            {title}
-          </p>
+          <SheetTitleLink dfid={dfid} title={title} />
           {client ? <p className="truncate text-sm text-text-subtle">{client}</p> : null}
 
           {/* Dates and Venue are DISTINCT visual roles: each row carries a small
@@ -644,10 +677,9 @@ export function Step3SheetCard({
             >
               {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
             </dd>
-            {/* Venue row — replaces the old Totals strip (the counts now live in the
-                expanded breakdown section headers). Venue name is primary; a
-                best-effort city sits muted beneath it. Falls back to a human
-                "Venue not detected" sentence (invariant 5), never an empty cell. */}
+            {/* Venue row — the venue NAME only (the best-effort city moved to its own
+                "City" row below). Falls back to a human "Venue not detected" sentence
+                (invariant 5), never an empty cell. */}
             <dt
               className="text-xs font-semibold uppercase text-text-subtle"
               style={{ letterSpacing: "var(--tracking-eyebrow)" }}
@@ -659,54 +691,32 @@ export function Step3SheetCard({
               className="min-w-0 text-sm text-text-subtle"
             >
               {venueName ? (
-                <>
-                  <span className="wrap-break-word text-text">{venueName}</span>
-                  {venueCity && venueCity !== venueName ? (
-                    <span className="block text-xs text-text-subtle">{venueCity}</span>
-                  ) : null}
-                </>
-              ) : venueCity ? (
-                <span className="wrap-break-word text-text">{venueCity}</span>
+                <span className="wrap-break-word text-text">{venueName}</span>
               ) : (
                 "Venue not detected"
               )}
             </dd>
-            {/* Crew preview — COLLAPSED card only: the first few name · role lines
-                so the operator sees WHO is on the show at a glance, without
-                expanding. Hidden when expanded (the breakdown shows the full
-                roster right below — no duplication). Eyebrow aligns to the first
-                name's baseline via the shared dl grid. */}
-            {!expanded ? (
+            {/* City row — a dedicated best-effort city mined from the venue address
+                (conservative: null rather than a wrong guess). Replaces the old
+                collapsed crew preview. Rendered ONLY when a city is confidently
+                detected: most FXAV sheets put the location in the venue NAME (e.g.
+                "Four Seasons Hotel Chicago") and leave the address blank, so a
+                "City not detected" fallback would be noise on nearly every card.
+                Per the agreed "Venue Name + City IF POSSIBLE", the row simply
+                drops when the city isn't derivable. */}
+            {venueCity ? (
               <>
                 <dt
                   className="text-xs font-semibold uppercase text-text-subtle"
                   style={{ letterSpacing: "var(--tracking-eyebrow)" }}
                 >
-                  Crew
+                  City
                 </dt>
                 <dd
-                  data-testid={`wizard-step3-card-${dfid}-crew-summary`}
-                  // min-w-0 + wrap-break-word: an arbitrary sheet-derived name/role
-                  // must wrap inside the card, never force horizontal overflow.
+                  data-testid={`wizard-step3-card-${dfid}-city`}
                   className="min-w-0 text-sm text-text-subtle"
                 >
-                  {crewMembers.length === 0 ? (
-                    "No crew parsed"
-                  ) : (
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      {crewMembers.slice(0, SUMMARY_CREW_CAP).map((m, i) => (
-                        <span key={`${m.name}-${i}`} className="wrap-break-word">
-                          <span className="text-text">{m.name || "Unnamed"}</span>
-                          {m.role ? <span> · {m.role}</span> : null}
-                        </span>
-                      ))}
-                      {crewMembers.length > SUMMARY_CREW_CAP ? (
-                        <span className="text-xs text-text-subtle">
-                          +{crewMembers.length - SUMMARY_CREW_CAP} more
-                        </span>
-                      ) : null}
-                    </span>
-                  )}
+                  <span className="wrap-break-word text-text">{venueCity}</span>
                 </dd>
               </>
             ) : null}
@@ -748,15 +758,18 @@ export function Step3SheetCard({
         </div>
       </div>
 
-      {/* Expand toggle — full-width quiet control, ≥44px tap target, no
-          hover-only affordance (PRODUCT.md). */}
+      {/* Details disclosure — a quiet, left-aligned TEXT toggle (not a boxed,
+          full-width dropdown-styled button). The label + chevron is the affordance
+          (discoverable without hover, PRODUCT.md); hover only adds an underline.
+          ≥44px tap target via min-h-tap-min; self-start so it sizes to its content
+          and sits at the card's left edge instead of stretching full width. */}
       <button
         type="button"
         data-testid={`wizard-step3-card-${dfid}-expand`}
         aria-expanded={expanded}
         aria-controls={panelId}
         onClick={toggleExpanded}
-        className="inline-flex min-h-tap-min items-center justify-between gap-2 rounded-sm border border-border bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
         <span>{expanded ? "Hide details" : "Show details"}</span>
         <ChevronDown
@@ -797,8 +810,22 @@ export function Step3SheetCard({
           <ScheduleBreakdown dfid={dfid} ros={ros} />
           <RoomsBreakdown dfid={dfid} rooms={rooms} />
           <HotelsBreakdown dfid={dfid} hotels={hotels} />
-          <WarningsBreakdown dfid={dfid} warnings={warnings} />
         </div>
+        {/* Warnings — pulled OUT of the multi-column data flow into a FULL-WIDTH
+            bordered callout BELOW the rest of the breakdown, so the non-blocking
+            data-quality notes stand apart from the show data instead of competing
+            with it in a column. Warm warning-bg + a full strong border (DESIGN.md
+            §1.2 — warning, not error; full border, never a side-stripe). Gated on
+            warnings so there is no empty box (WarningsBreakdown also returns null
+            when empty). */}
+        {warnings.length > 0 ? (
+          <div
+            data-testid={`wizard-step3-card-${dfid}-warnings-panel`}
+            className="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad"
+          >
+            <WarningsBreakdown dfid={dfid} warnings={warnings} />
+          </div>
+        ) : null}
       </div>
     </article>
   );

@@ -176,7 +176,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(summary(q).textContent).toContain("fallback-name.sheet");
   });
 
-  test("collapsed summary shows Venue (name + best-effort city), not the old Totals strip", () => {
+  test("collapsed summary shows Venue (name only) + a dedicated City row, not the old Totals strip", () => {
     const FIX = parseResult({
       show: show({
         venue: { name: "The Drake Hotel", address: "140 E Walton Pl, Chicago, IL 60611" },
@@ -184,20 +184,27 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const venue = q.getByTestId(`wizard-step3-card-${DFID}-venue`);
+    const city = q.getByTestId(`wizard-step3-card-${DFID}-city`);
     expect(venue.textContent).toContain("The Drake Hotel");
-    expect(venue.textContent).toContain("Chicago"); // city mined from the address
+    // The city moved OUT of the Venue row into its own dedicated City row.
+    expect(venue.textContent ?? "").not.toContain("Chicago");
+    expect(city.textContent).toContain("Chicago"); // city mined from the address
     // The Totals strip is gone: its testid no longer exists and the collapsed
     // summary no longer carries the "N crew · N rooms" run-on count string.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-totals`)).toBeNull();
     expect(summary(q).textContent ?? "").not.toMatch(/\d+ crew · \d+ rooms/);
   });
 
-  test("venue row falls back to a human 'Venue not detected' when none is parsed", () => {
+  test("venue falls back to 'Venue not detected'; the City row is OMITTED (no noise) when no city", () => {
     const FIX = parseResult({ show: show({ venue: null }) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain(
       "Venue not detected",
     );
+    // City is best-effort ("Venue Name + City IF POSSIBLE") — when it can't be
+    // derived the row drops entirely rather than showing "City not detected" on
+    // every card (the address is usually blank; the city lives in the venue name).
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
   });
 
   test("per-section counts move to the expanded breakdown headers (anti-tautology)", () => {
@@ -349,27 +356,94 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
 
-  test("collapsed card previews the first few crew names + roles with a '+K more' tail", () => {
-    const FIX = parseResult({ crewMembers: crew(12) }); // crew(n): "Crew Person i" · "Role i"
+  test("the City row is OMITTED for an ambiguous address (no wrong guess, no noise); the venue name still shows", () => {
+    // An ambiguous two-segment address that cityFromAddress deliberately can't
+    // resolve to a confident city (it returns null rather than guess wrong).
+    const FIX = parseResult({
+      show: show({ venue: { name: "Navy Pier", address: "Navy Pier, Chicago" } }),
+    });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const region = q.getByTestId(`wizard-step3-card-${DFID}-crew-summary`);
-    // First member's name AND role show (the cap is the first 3).
-    const first = FIX.crewMembers[0]!;
-    expect(region.textContent).toContain(first.name);
-    expect(region.textContent).toContain(first.role);
-    // A member beyond the cap is NOT named inline (it rolls into the tail).
-    expect(region.textContent).not.toContain(FIX.crewMembers[3]!.name);
-    // Overflow tail derives from the fixture (anti-tautology): total − cap(3).
-    const SUMMARY_CREW_CAP = 3;
-    expect(region.textContent).toContain(`+${FIX.crewMembers.length - SUMMARY_CREW_CAP} more`);
+    // The venue name still renders; the ambiguous address yields no city → the row drops.
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("Navy Pier");
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
   });
 
-  test("collapsed card crew line degrades when the roster is empty", () => {
-    const FIX = parseResult({ crewMembers: [] });
+  test("the City row IS shown when a structured address yields a confident city", () => {
+    const FIX = parseResult({
+      show: show({
+        venue: { name: "The Drake Hotel", address: "140 E Walton Pl, Chicago, IL 60611" },
+      }),
+    });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-crew-summary`).textContent).toContain(
-      "No crew parsed",
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-city`).textContent).toContain("Chicago");
+  });
+
+  test("the collapsed crew preview is gone — crew now lives ONLY in the expanded breakdown", () => {
+    const FIX = parseResult({ crewMembers: crew(12) });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    // The old collapsed crew-preview testid no longer exists, and no crew name
+    // appears in the always-visible summary block.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-crew-summary`)).toBeNull();
+    expect(summary(q).textContent ?? "").not.toContain(FIX.crewMembers[0]!.name);
+    // Crew appears only after expanding (the breakdown roster).
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain(
+      FIX.crewMembers[0]!.name,
     );
+  });
+});
+
+describe("Step3SheetCard — title deep link + wrapping", () => {
+  const SHEET_URL = (dfid: string) => `https://docs.google.com/spreadsheets/d/${dfid}/edit`;
+
+  test("the show title is a deep link to the SOURCE sheet, opening in a new tab", () => {
+    const FIX = parseResult();
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const link = q.getByTestId(`wizard-step3-card-${DFID}-title-link`) as HTMLAnchorElement;
+    expect(link.tagName).toBe("A");
+    // Derived from the fixture's driveFileId, not a hardcoded literal.
+    expect(link.getAttribute("href")).toBe(SHEET_URL(DFID));
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(link.textContent).toContain(FIX.show.title);
+    // Persistent (non-hover) link affordance: a trailing external-link icon. Removing
+    // it must fail this test (the link's only at-rest "opens elsewhere" cue).
+    expect(link.querySelector("svg")).not.toBeNull();
+  });
+
+  test("'Show details' is a quiet left-aligned disclosure, NOT a boxed full-width dropdown button", () => {
+    const q = render(<Step3SheetCard row={stagedRow(parseResult())} wizardSessionId={WSID} />);
+    const btn = q.getByTestId(`wizard-step3-card-${DFID}-expand`);
+    // Quiet text disclosure: sizes to its content at the card's left edge…
+    expect(btn.className).toMatch(/\bself-start\b/);
+    // …not the old boxed, full-width dropdown-styled button (no border, no spread).
+    expect(btn.className).not.toMatch(/\bborder\b/);
+    expect(btn.className).not.toMatch(/\bjustify-between\b/);
+    // Still a real disclosure with a persistent (non-hover) chevron affordance.
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    expect(btn.querySelector("svg")).not.toBeNull();
+  });
+
+  test("the title WRAPS (no `truncate`) so a long show name stays fully readable", () => {
+    const FIX = parseResult({
+      show: show({ title: "A Very Long Show Title That Would Otherwise Truncate Off The Card" }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const link = q.getByTestId(`wizard-step3-card-${DFID}-title-link`);
+    expect(link.className).not.toMatch(/\btruncate\b/);
+    expect(link.className).toMatch(/wrap-break-word/);
+  });
+
+  test("even a no-details (null parseResult) row links its title to the source sheet", () => {
+    const q = render(
+      <Step3SheetCard
+        row={stagedRow(null, { driveFileName: "broken.sheet" })}
+        wizardSessionId={WSID}
+      />,
+    );
+    const link = q.getByTestId(`wizard-step3-card-${DFID}-title-link`) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(SHEET_URL(DFID));
+    expect(link.textContent).toContain("broken.sheet");
   });
 });
 
@@ -691,5 +765,30 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(grid.className).toContain("break-inside-avoid");
     // It is NOT the old single-track flex column.
     expect(grid.className).not.toMatch(/\bflex-col\b/);
+  });
+
+  test("warnings render in a dedicated FULL-WIDTH bordered panel BELOW the data grid, not inside it", () => {
+    const FIX = parseResult({
+      warnings: [{ severity: "warn" as const, code: "SCHEDULE_TIME_UNPARSED", message: "x" }],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const breakdown = expand(q);
+    const grid = within(breakdown).getByTestId(`wizard-step3-card-${DFID}-breakdown-grid`);
+    const panel = within(breakdown).getByTestId(`wizard-step3-card-${DFID}-warnings-panel`);
+    const warnings = within(breakdown).getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    // The warnings section lives inside the dedicated panel, NOT inside the column grid.
+    expect(panel.contains(warnings)).toBe(true);
+    expect(grid.contains(warnings)).toBe(false);
+    // A full-border callout (DESIGN.md: full border, never a side-stripe accent).
+    expect(panel.className).toMatch(/\bborder\b/);
+    expect(panel.className).not.toMatch(/\bborder-[lrtb]\b/);
+  });
+
+  test("no warnings panel when there are no warnings (no empty bordered box)", () => {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
+    );
+    expand(q);
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-panel`)).toBeNull();
   });
 });

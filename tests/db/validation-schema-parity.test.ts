@@ -88,10 +88,19 @@ function localFreshnessDbUrl(): string {
   return process.env.SCHEMA_MANIFEST_DB_URL?.trim() || LOCAL_DB_URL;
 }
 
+// Hard timeouts so a slow/asleep/unreachable validation Supabase fails fast instead
+// of hanging the CI job for the GitHub-Actions default (6 hours). PGCONNECT_TIMEOUT
+// caps libpq's connection attempt; execFileSync `timeout` SIGTERMs a hung psql as a
+// catch-all. (The `timeout-minutes` in x-audits.yml is the outer backstop.)
+const PSQL_CONNECT_TIMEOUT_S = "10";
+const PSQL_PROCESS_TIMEOUT_MS = 30_000;
+
 function introspectManifest(dbUrl: string): SchemaManifest {
   const stdout = execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
     input: INTROSPECT_PUBLIC_COLUMNS_SQL,
     encoding: "utf8",
+    timeout: PSQL_PROCESS_TIMEOUT_MS,
+    env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
   });
   return manifestFromRows(parsePsqlRows(stdout));
 }
@@ -101,6 +110,8 @@ function canConnect(dbUrl: string): boolean {
     execFileSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-qAtc", "select 1"], {
       encoding: "utf8",
       stdio: ["ignore", "ignore", "ignore"],
+      timeout: PSQL_PROCESS_TIMEOUT_MS,
+      env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
     });
     return true;
   } catch {

@@ -36,10 +36,12 @@ function summary(i: number): string {
   <div class="flex items-start gap-3">
     <span aria-hidden="true" class="mt-0.5 size-5 shrink-0 rounded-sm border-2 border-border-strong bg-bg"></span>
     <div class="min-w-0 flex-1">
-      <p class="truncate text-base font-semibold text-text-strong">Show ${i}</p>
+      <a href="https://docs.google.com/spreadsheets/d/df-${i}/edit" class="wrap-break-word text-base font-semibold text-text-strong hover:underline">Show ${i}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-1 inline-block size-3.5 -translate-y-px align-middle text-text-subtle"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></a>
       <dl class="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1">
         <dt class="text-xs font-semibold uppercase text-text-subtle">Venue</dt>
-        <dd class="min-w-0 text-sm text-text-subtle"><span class="wrap-break-word text-text">The Drake Hotel</span><span class="block text-xs text-text-subtle">Chicago</span></dd>
+        <dd class="min-w-0 text-sm text-text-subtle"><span class="wrap-break-word text-text">The Drake Hotel</span></dd>
+        <dt class="text-xs font-semibold uppercase text-text-subtle">City</dt>
+        <dd class="min-w-0 text-sm text-text-subtle"><span class="wrap-break-word text-text">Chicago</span></dd>
       </dl>
     </div>
   </div>`;
@@ -57,6 +59,8 @@ function breakdown(i: number): string {
     ${sec("schedule", 3, ["May 13", "May 14", "May 15"])}
     ${sec("rooms", 4, ["General Session", "LASALLE A", "WALTON ROOM", "Additional"])}
     ${sec("hotels", 1, ["The Drake Hotel"])}
+  </div>
+  <div data-testid="card-${i}-warnings-panel" class="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad">
     ${sec("warnings", 1, ["Show-day time unreadable"])}
   </div>`;
 }
@@ -64,7 +68,7 @@ function breakdown(i: number): string {
 function cardHtml(i: number, expanded: boolean): string {
   return `<article data-testid="card-${i}" class="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile)">
     ${summary(i)}
-    <button class="inline-flex min-h-tap-min items-center justify-between gap-2 rounded-sm border border-border bg-bg px-3 text-sm">${expanded ? "Hide details" : "Show details"}</button>
+    <button class="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong hover:underline">${expanded ? "Hide details" : "Show details"}</button>
     ${expanded ? breakdown(i) : ""}
   </article>`;
 }
@@ -168,7 +172,7 @@ test("desktop (xl): the expanded card's breakdown uses a balanced multi-column f
   await page.setViewportSize({ width: 1280, height: 1200 });
   await page.goto(baseUrl);
 
-  const labels = ["crew", "schedule", "rooms", "hotels", "warnings"] as const;
+  const labels = ["crew", "schedule", "rooms", "hotels"] as const;
   const lefts = await Promise.all(
     labels.map((l) => rect(page, `card-${EXPANDED}-sec-${l}`).then((r) => Math.round(r.left))),
   );
@@ -177,4 +181,28 @@ test("desktop (xl): the expanded card's breakdown uses a balanced multi-column f
     distinctColumns,
     `breakdown spreads across >1 column (lefts: ${lefts.join(",")})`,
   ).toBeGreaterThan(1);
+});
+
+test("desktop (xl): the Warnings panel is a FULL-WIDTH callout below the multi-column data grid", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  await page.goto(baseUrl);
+
+  const grid = await rect(page, `card-${EXPANDED}-breakdown-grid`);
+  const panel = await rect(page, `card-${EXPANDED}-warnings-panel`);
+  const warnSec = await rect(page, `card-${EXPANDED}-sec-warnings`);
+
+  // The panel spans the full breakdown width (a sibling of the grid, not a column):
+  // its width matches the data grid's, and it sits BELOW the grid.
+  expect(
+    Math.abs(panel.width - grid.width),
+    `warnings panel is full content width (${panel.width} vs ${grid.width})`,
+  ).toBeLessThanOrEqual(TOL);
+  expect(panel.top, "warnings panel sits below the data grid").toBeGreaterThan(grid.top);
+  // The warnings section itself is full width inside the panel (NOT one narrow column):
+  // it is much wider than a single ~1/3 grid column.
+  expect(warnSec.width, "warnings section is not a single narrow column").toBeGreaterThan(
+    grid.width * 0.5,
+  );
 });
