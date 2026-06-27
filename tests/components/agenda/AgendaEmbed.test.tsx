@@ -6,15 +6,14 @@
  * itself is exercised via Playwright (`tests/e2e/agenda-embed.spec.ts`)
  * — jsdom can't render canvas-backed PDF.js views. Here we focus on:
  *
- *   - The "Open agenda" affordance renders only when at least one
- *     agenda_links entry carries a Drive fileId (the proxy route's
- *     binding key).
+ *   - A "View agenda" affordance renders per agenda_links entry that
+ *     carries a Drive fileId (the proxy route's binding key); multi-doc.
  *   - The proxy URL is built as `/api/asset/agenda/<show>/<fileId>`
  *     with no Drive host or query suffix.
  *   - When no agenda link carries a fileId, the component returns
  *     null (whole-component-missing reflow).
  *   - Initial collapsed state: react-pdf NOT mounted (sheet closed).
- *     Tap on "Open agenda" sets the sheet open — the Dialog wrapper
+ *     Tap on "View agenda" sets the sheet open — the Dialog wrapper
  *     element is now present.
  *   - Crew DOM never carries `drive.google.com` substrings from
  *     AgendaEmbed itself (the URL builder lives in this component
