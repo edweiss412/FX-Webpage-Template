@@ -117,7 +117,7 @@ export function attachSourceCellAnchors(
       w.code === "STAGE_WORD_AUTOCORRECTED"
     ) {
       cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
-    } else if (w.code === "FIELD_UNREADABLE") {
+    } else if (w.code === "FIELD_UNREADABLE" || w.code === "UNKNOWN_FIELD") {
       const kind = w.blockRef?.kind;
       cell = kind ? (sources.region[kind] ?? null) : null;
     }

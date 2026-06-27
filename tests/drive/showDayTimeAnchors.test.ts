@@ -187,6 +187,26 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
+  it("resolves UNKNOWN_FIELD by its venue region (like FIELD_UNREADABLE)", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "x", blockRef: { kind: "venue" } },
+    ];
+    attachSourceCellAnchors(ws, {
+      showDay: [],
+      crewRole: [],
+      region: { venue: { title: "INFO", gid: 0, a1: "A5" } },
+    });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A5" });
+  });
+
+  it("UNKNOWN_FIELD with no venue region → no link", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "x", blockRef: { kind: "venue" } },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: {} });
+    expect(ws[0]!.sourceCell).toBeUndefined();
+  });
+
   it("leaves a warning link-less when its date has no (or an ambiguous) anchor", () => {
     const warnings: ParseWarning[] = [
       {
@@ -200,11 +220,12 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning is TRUE for all five anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+  it("hasCellAnchoredWarning is TRUE for all six anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
     for (const code of [
       "SCHEDULE_TIME_UNPARSED",
       "UNKNOWN_ROLE_TOKEN",
       "UNKNOWN_DAY_RESTRICTION",
+      "UNKNOWN_FIELD",
       "STAGE_WORD_AUTOCORRECTED",
       "FIELD_UNREADABLE",
     ]) {
