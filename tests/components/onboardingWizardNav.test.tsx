@@ -170,10 +170,18 @@ describe("OnboardingWizard Step-3 width + card grid (Task 6)", () => {
   });
 
   test("the Step-3 card list uses the responsive grid (1 → 2 → 3 cols), items-start", () => {
-    // Render Step3Review directly with an informational row so the grid renders
-    // without depending on Step3SheetCard internals (owned by a parallel task).
+    // The grid holds the publishable (clean) cards; seed one staged row so it
+    // renders (skipped/ignored/deferred rows now live in their own set-aside
+    // sections below the grid, not inside it).
     const rows: Step3Row[] = [
-      { driveFileId: "df-skip", driveFileName: "Reference.pdf", status: "skipped_non_sheet" },
+      {
+        driveFileId: "df-clean",
+        driveFileName: "Clean.gsheet",
+        status: "staged",
+        parseResult: { show: { title: "Clean Show" } } as unknown as NonNullable<
+          Step3Row["parseResult"]
+        >,
+      },
     ];
     const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
     const grid = getByTestId("wizard-step3-card-grid");
@@ -188,8 +196,17 @@ describe("OnboardingWizard Step-3 width + card grid (Task 6)", () => {
   });
 
   test("the 'Needs your attention' group is a full-width sibling ABOVE the grid (never a grid cell)", () => {
+    // A clean row (so the publish grid renders) + a blocking row (so the
+    // needs-attention group renders).
     const rows: Step3Row[] = [
-      { driveFileId: "df-skip", driveFileName: "Reference.pdf", status: "skipped_non_sheet" },
+      {
+        driveFileId: "df-clean",
+        driveFileName: "Clean.gsheet",
+        status: "staged",
+        parseResult: { show: { title: "Clean Show" } } as unknown as NonNullable<
+          Step3Row["parseResult"]
+        >,
+      },
       {
         driveFileId: "df-hf",
         driveFileName: "Broken.gsheet",

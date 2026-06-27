@@ -19,7 +19,7 @@
  *   - No raw §12.4 codes leak (AGENTS.md §1.5).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import type { ParseResult } from "@/lib/parser/types";
 import {
@@ -408,12 +408,19 @@ describe("Step3Review — detail accordion (single open, full-width)", () => {
     status: "staged",
     parseResult: pr,
   };
-  // Opening a card collapses the whole grid to one column (so the open card is
-  // full-width with no sparse-packing hole). `lg:grid-cols-2` is present only in
-  // the closed/multi-column state.
+  // The grid STAYS multi-column at all times; opening a card spans ONLY that card's
+  // cell to full width (`lg:col-span-2 xl:col-span-3`) while dense auto-flow
+  // backfills the gap — so the other cards keep their grid positions instead of all
+  // going full-width (the reported regression).
   const MULTICOL = "lg:grid-cols-2";
+  const CELL_SPAN = "lg:col-span-2";
+  const cellOf = (expandBtn: HTMLElement): HTMLElement => {
+    const li = expandBtn.closest("li");
+    if (!li) throw new Error("expand button is not inside a grid <li> cell");
+    return li;
+  };
 
-  test("only one card's detail is open at a time; opening a card collapses the grid to full-width", () => {
+  test("only one card opens at a time; ONLY the open card's cell spans full width (grid stays multi-column)", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
     );
@@ -421,26 +428,102 @@ describe("Step3Review — detail accordion (single open, full-width)", () => {
     const expandA = getByTestId("wizard-step3-card-acc-A-expand");
     const expandB = getByTestId("wizard-step3-card-acc-B-expand");
 
-    // Both collapsed → responsive multi-column grid.
+    // The grid is always the responsive multi-column grid with dense backfill.
+    expect(grid.className).toContain(MULTICOL);
+    expect(grid.className).toContain("grid-flow-row-dense");
+
+    // Both collapsed → neither cell spans.
     expect(expandA.getAttribute("aria-expanded")).toBe("false");
     expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
+    expect(cellOf(expandA).className ?? "").not.toContain(CELL_SPAN);
+    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
 
-    // Open A → grid collapses to one column (A full-width); B stays collapsed.
+    // Open A → ONLY A's cell spans full width; B stays collapsed in the grid; the
+    // grid itself is STILL multi-column (the regression was collapsing all cards).
     fireEvent.click(expandA);
     expect(expandA.getAttribute("aria-expanded")).toBe("true");
     expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).not.toContain(MULTICOL);
+    expect(grid.className).toContain(MULTICOL);
+    expect(cellOf(expandA).className).toContain(CELL_SPAN);
+    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
 
-    // Open B → A closes (single-open accordion); grid still single-column.
+    // Open B → A closes (single-open accordion); only B's cell spans now.
     fireEvent.click(expandB);
     expect(expandB.getAttribute("aria-expanded")).toBe("true");
     expect(expandA.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).not.toContain(MULTICOL);
+    expect(grid.className).toContain(MULTICOL);
+    expect(cellOf(expandB).className).toContain(CELL_SPAN);
+    expect(cellOf(expandA).className ?? "").not.toContain(CELL_SPAN);
 
-    // Close B → grid returns to multi-column.
+    // Close B → no cell spans; grid stays multi-column throughout.
     fireEvent.click(expandB);
     expect(expandB.getAttribute("aria-expanded")).toBe("false");
     expect(grid.className).toContain(MULTICOL);
+    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
+  });
+});
+
+describe("Step3Review — set-aside sections (ignored / deferred / skipped, out of the grid)", () => {
+  const pr = { show: { title: "Show" } } as unknown as ParseResult;
+  const clean: Step3Row = {
+    driveFileId: "clean-1",
+    driveFileName: "Clean.gsheet",
+    status: "staged",
+    parseResult: pr,
+  };
+  const ignored: Step3Row = {
+    driveFileId: "ig-1",
+    driveFileName: "Ignored.gsheet",
+    status: "permanent_ignore",
+  };
+  const deferred: Step3Row = {
+    driveFileId: "df-1",
+    driveFileName: "Deferred.gsheet",
+    status: "defer_until_modified",
+  };
+  const skipped: Step3Row = {
+    driveFileId: "sk-1",
+    driveFileName: "Reference.pdf",
+    status: "skipped_non_sheet",
+  };
+
+  test("ignored / deferred / skipped rows render in their OWN sections, never inside the publish grid", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[clean, ignored, deferred, skipped]}
+      />,
+    );
+    const grid = getByTestId("wizard-step3-card-grid");
+    // Three distinct set-aside sections, each holding its row.
+    expect(
+      within(getByTestId("wizard-step3-ignored")).getByTestId(
+        `wizard-step3-row-${ignored.driveFileId}`,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(getByTestId("wizard-step3-deferred")).getByTestId(
+        `wizard-step3-row-${deferred.driveFileId}`,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(getByTestId("wizard-step3-skipped")).getByTestId(
+        `wizard-step3-row-${skipped.driveFileId}`,
+      ),
+    ).toBeTruthy();
+    // None of the set-aside rows is inside the publish grid; the clean row is.
+    expect(within(grid).queryByTestId(`wizard-step3-row-${ignored.driveFileId}`)).toBeNull();
+    expect(within(grid).queryByTestId(`wizard-step3-row-${deferred.driveFileId}`)).toBeNull();
+    expect(within(grid).queryByTestId(`wizard-step3-row-${skipped.driveFileId}`)).toBeNull();
+    expect(within(grid).getByTestId(`wizard-step3-row-${clean.driveFileId}`)).toBeTruthy();
+  });
+
+  test("each set-aside section is hidden when it has no rows", () => {
+    const { queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[clean, ignored]} />,
+    );
+    expect(queryByTestId("wizard-step3-ignored")).not.toBeNull();
+    expect(queryByTestId("wizard-step3-deferred")).toBeNull();
+    expect(queryByTestId("wizard-step3-skipped")).toBeNull();
   });
 });
