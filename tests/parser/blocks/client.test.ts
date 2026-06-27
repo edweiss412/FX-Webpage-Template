@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseClient } from "@/lib/parser/blocks/client";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
 
 // ── Fixture paths ────────────────────────────────────────────────────────────
 // 2026-03: v4. CLIENT block at lines 1–7:
@@ -211,4 +212,189 @@ describe("parseClient — corpus coverage (all 10 fixtures)", () => {
       expect(r.client_label.length).toBeGreaterThan(0);
     });
   }
+});
+
+// ── PR-D4: v2 fuzzy client field-label recovery ──────────────────────────────
+const FLA = (agg: ReturnType<typeof newAggregator>) =>
+  agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+function v2Client(rows: string[]): string {
+  return ["| CLIENT | Acme |", ...rows].join("\n") + "\n";
+}
+
+describe("parseClient — v2 fuzzy field-label recovery (PR-D4)", () => {
+  it("recovers a misspelled v2 label and warns once (kind=client)", () => {
+    const agg = newAggregator();
+    const r = parseClient(v2Client(["| Client Contct | Bob |"]), "v2", agg);
+    expect(r.client_contact?.name).toBe("Bob");
+    const warns = FLA(agg);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef?.kind).toBe("client");
+    expect(warns[0]!.rawSnippet).toBe("Client Contct");
+  });
+
+  it("exact-wins: an exact label beats a typo'd sibling, no warn", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v2Client(["| Client Contact | Alice |", "| Client Contct | Bob |"]),
+      "v2",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Alice");
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("empty exact does NOT claim: a real typo sibling recovers and warns", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v2Client(["| Client Contact |  |", "| Client Contct | Dave |"]),
+      "v2",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Dave");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("the CLIENT org label is NOT fuzzed (typo'd org → no client block, no warn)", () => {
+    const agg = newAggregator();
+    const r = parseClient("| Clent | Acme |\n", "v2", agg);
+    expect(r.client_label).toBe("");
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("v1 merged-cell slash variant is NOT recovered (deferred), no warn", () => {
+    const agg = newAggregator();
+    const r = parseClient(v2Client(["| Client Contct/Grace |"]), "v2", agg);
+    expect(r.client_contact).toBeNull();
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("two fuzzy siblings: a later sentinel typo does NOT erase an earlier real recovery (Codex R1 #2)", () => {
+    // Both are Damerau-1 typos of "client contact"; the first carries a real value, the second a
+    // sentinel. The in-order array apply keeps "Bob" (a dedup map would let "TBD" overwrite it).
+    const agg = newAggregator();
+    const r = parseClient(
+      v2Client(["| Client Contct | Bob |", "| Client Contac | TBD |"]),
+      "v2",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Bob");
+  });
+});
+
+// ── PR-D4: v4 fuzzy client field-label recovery (fuzzy-before-break) ──────────
+// v4 block: CLIENT marker, a MAIN/SECONDARY header row, then sub-label rows (col1=main, col2=sec).
+function v4Client(rows: string[]): string {
+  return ["| CLIENT | Acme |", "| | MAIN | SECONDARY |", ...rows].join("\n") + "\n";
+}
+
+describe("parseClient — v4 fuzzy field-label recovery (PR-D4)", () => {
+  it("block-stop preserved: a typo'd sub-label recovers AND the following rows are still parsed", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley | Lew |",
+        "| Contct Cell | 555-1 | 555-2 |",
+        "| Contact Email | a@x.co | b@x.co |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.phone).toBe("555-1");
+    expect(r.client_contact?.secondary?.phone).toBe("555-2");
+    expect(r.client_contact?.email).toBe("a@x.co"); // the row AFTER the typo is still parsed
+    expect(r.client_contact?.secondary?.email).toBe("b@x.co");
+    const warns = FLA(agg);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.blockRef?.kind).toBe("client");
+    expect(warns[0]!.rawSnippet).toBe("Contct Cell");
+  });
+
+  it("real-unknown still breaks the block (no spurious recovery)", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley |  |",
+        "| COORDINATOR | x |  |",
+        "| Contact Email | a@x.co |  |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Ashley");
+    expect(r.client_contact?.email ?? null).toBeNull(); // block terminated at COORDINATOR
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("per-column no-clobber: a fuzzy real-main does not drop an exact real-secondary", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley | Lew |",
+        "| Contact Cell |  | 555-2 |",
+        "| Contct Cell | 555-1 |  |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.phone).toBe("555-1");
+    expect(r.client_contact?.secondary?.phone).toBe("555-2"); // NOT lost
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("unrecognized block (no CLIENT marker) emits no warning", () => {
+    const agg = newAggregator();
+    const r = parseClient("| Clent | Acme |\n| Contct Cell | 555 |  |\n", "v4", agg);
+    expect(r.client_label).toBe("");
+    expect(r.client_contact).toBeNull();
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("exact-wins: a real exact value suppresses a fuzzy sibling, no warn", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley |  |",
+        "| Contact Cell | 555-EXACT |  |",
+        "| Contct Cell | 555-WRONG |  |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.phone).toBe("555-EXACT");
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("empty exact does NOT claim: a real fuzzy sibling recovers and warns", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley |  |",
+        "| Contact Cell |  |  |",
+        "| Contct Cell | 555-REAL |  |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.phone).toBe("555-REAL");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("two fuzzy siblings with disjoint columns: BOTH cells recovered (Codex R1 #1)", () => {
+    // Two distinct Damerau-1 typos of "contact cell": one carries main-only, one secondary-only.
+    // The in-order array apply must keep BOTH (a dedup map would discard the first wholesale).
+    const agg = newAggregator();
+    const r = parseClient(
+      v4Client([
+        "| Contact | Ashley | Lew |",
+        "| Contct Cell | 555-1 |  |",
+        "| Contact Cel |  | 555-2 |",
+      ]),
+      "v4",
+      agg,
+    );
+    expect(r.client_contact?.phone).toBe("555-1");
+    expect(r.client_contact?.secondary?.phone).toBe("555-2");
+    expect(FLA(agg)).toHaveLength(2);
+  });
 });

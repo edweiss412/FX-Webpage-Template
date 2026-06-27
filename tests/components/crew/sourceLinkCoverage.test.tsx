@@ -48,7 +48,9 @@ import {
   CARD_REGION_MAP,
   type CardId,
   OUT_OF_SCOPE_CARDS,
+  REGION_ANCHOR_SPEC,
   REGION_IDS,
+  type RegionId,
   type SourceAnchor,
 } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
@@ -210,13 +212,27 @@ afterEach(() => {
 });
 
 describe("source-link field-aware coverage walker (§8 / §12)", () => {
-  it("(c) every REGION_ID is referenced by ≥1 entry in CARD_REGION_MAP", () => {
-    const referenced = new Set(Object.values(CARD_REGION_MAP));
+  // `client` is the first WARNING-ANCHOR-ONLY region: it is consumed ONLY by the
+  // FIELD_LABEL_AUTOCORRECTED deep-link path (lib/drive/showDayTimeAnchors.ts:146), NOT a crew
+  // card — §30 forbids ever rendering client_contact to crew — so it has no CARD_REGION_MAP entry
+  // by design. It still must be a real anchorable region (asserted in (c2)).
+  const WARNING_ANCHOR_ONLY = new Set<string>(["client"]);
+
+  it("(c) every REGION_ID is referenced by ≥1 entry in CARD_REGION_MAP (warning-anchor-only regions exempt)", () => {
+    const referenced = new Set<string>(Object.values(CARD_REGION_MAP));
     for (const region of REGION_IDS) {
+      if (WARNING_ANCHOR_ONLY.has(region)) continue;
       expect(referenced.has(region), `region "${region}" has no card in CARD_REGION_MAP`).toBe(
         true,
       );
     }
+  });
+
+  it("(c2) warning-anchor-only regions are real anchorable regions (header-block)", () => {
+    for (const region of WARNING_ANCHOR_ONLY) {
+      expect(REGION_ANCHOR_SPEC[region as RegionId]).toBeDefined();
+    }
+    expect(REGION_ANCHOR_SPEC.client.strategy).toBe("header-block");
   });
 
   it("(a)+(b) every rendered data-card-id card is classified and links correctly", () => {

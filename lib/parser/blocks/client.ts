@@ -2,6 +2,43 @@ import type { ShowRow, ClientContact, ClientContactPerson } from "@/lib/parser/t
 import type { ParseAggregator } from "@/lib/parser/warnings";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { clean, presence, parseTableRows } from "./_helpers";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
+
+// Closed-vocab client field labels (lowercase) the fuzzy fallback recovers toward. Exported so
+// lib/parser/typoVocabRegistry.ts derives the registry entries from this single source (the gate
+// AND the registry use these exact consts — no drift).
+export const CLIENT_V2_LABELS = ["client contact", "client phone", "client email"] as const;
+export const CLIENT_V4_LABELS = [
+  "contact",
+  "contact cell",
+  "contact office",
+  "contact email",
+] as const;
+const CLIENT_GATE_OPTS = {
+  minLen: 5,
+  tieAbort: true,
+  exclude: [...KNOWN_SUB_LABELS].map((s) => s.toLowerCase()),
+} as const;
+
+// Merge a fuzzy cell into a parsed field: a real fuzzy value fills an empty/sentinel slot only,
+// never clobbering a real value. Returns the (possibly updated) value + whether it changed (drives
+// the warn). `normalize` is presence for text/phone, canonicalize for email.
+function mergeFuzzyCell(
+  cur: string | null,
+  raw: string,
+  normalize: (s: string) => string | null,
+): { val: string | null; changed: boolean } {
+  const v = normalize(raw);
+  if (v !== null && (cur === null || shouldHideGenericOptional(cur)))
+    return { val: v, changed: true };
+  return { val: cur, changed: false };
+}
+
+function fuzzyFieldLabel(f: "name" | "phone" | "email"): string {
+  return f === "name" ? "client contact" : f === "phone" ? "client phone" : "client email";
+}
 
 // ── v4 parser ─────────────────────────────────────────────────────────────────
 //
@@ -17,7 +54,10 @@ import { clean, presence, parseTableRows } from "./_helpers";
 //
 // Column indices: label=0, main=1, secondary=2 (when present).
 
-function parseClientV4(rows: string[][]): Pick<ShowRow, "client_label" | "client_contact"> {
+function parseClientV4(
+  rows: string[][],
+  agg?: ParseAggregator,
+): Pick<ShowRow, "client_label" | "client_contact"> {
   let clientLabel = "";
   let mainName: string | null = null;
   let mainPhone: string | null = null;
@@ -38,6 +78,12 @@ function parseClientV4(rows: string[][]): Pick<ShowRow, "client_label" | "client
     }
     return false;
   };
+
+  // PR-D4 deferred fuzzy candidates (IN ORDER — not deduped). Applied post-loop via per-column
+  // mergeFuzzyCell, which fills an empty/sentinel slot only — so applying candidates sequentially
+  // merges disjoint cells across repeated typo rows and never clobbers a real value (Codex R1 #1).
+  const fuzzyCandidates: Array<{ sublabel: string; rawLabel: string; main: string; sec: string }> =
+    [];
 
   // Find the CLIENT block: rows where first cell is "CLIENT"
   let inClientBlock = false;
@@ -71,6 +117,19 @@ function parseClientV4(rows: string[][]): Pick<ShowRow, "client_label" | "client
       // Allow blank-first-cell rows (they carry MAIN/SECONDARY data)
       // but stop if we see a real section header
       if (label.length > 0 && !isMainSecRow(row)) {
+        // Fuzzy-before-break (PR-D4 CRITICAL): a typo of a known sub-label must NOT terminate the
+        // block. On a near-miss, record a deferred candidate and continue; only a genuine unknown
+        // label breaks. The post-loop merge preserves both columns + exact-real values.
+        const fuzzy = gatedVocabCorrect(normalizedLabel, [...CLIENT_V4_LABELS], CLIENT_GATE_OPTS);
+        if (fuzzy?.corrected) {
+          fuzzyCandidates.push({
+            sublabel: fuzzy.match,
+            rawLabel: (row[0] ?? "").trim(),
+            main: row[1] ?? "",
+            sec: row[2] ?? "",
+          });
+          continue; // recovered — do NOT break, do NOT fall through to exact field-detection
+        }
         break;
       }
     }
@@ -102,6 +161,46 @@ function parseClientV4(rows: string[][]): Pick<ShowRow, "client_label" | "client
   }
 
   if (!clientLabel) return { client_label: "", client_contact: null };
+
+  // Apply deferred fuzzy candidates for a confirmed client block (after the guard above). Merge
+  // main + secondary INDEPENDENTLY: a real fuzzy cell fills an empty/sentinel slot only, so an
+  // exact real value always wins and no real value (in either column) is clobbered. Warn iff a
+  // cell actually changed (an exact-claimed field suppresses the warn).
+  for (const cand of fuzzyCandidates) {
+    const { sublabel } = cand;
+    let changed = false;
+    const apply = (
+      cur: string | null,
+      raw: string,
+      norm: (s: string) => string | null,
+    ): string | null => {
+      const r = mergeFuzzyCell(cur, raw, norm);
+      if (r.changed) changed = true;
+      return r.val;
+    };
+    if (sublabel === "contact") {
+      mainName = apply(mainName, cand.main, presence);
+      secName = apply(secName, cand.sec, presence);
+    } else if (sublabel === "contact cell") {
+      mainPhone = apply(mainPhone, cand.main, presence);
+      secPhone = apply(secPhone, cand.sec, presence);
+    } else if (sublabel === "contact office") {
+      mainOfficePhone = apply(mainOfficePhone, cand.main, presence);
+      secOfficePhone = apply(secOfficePhone, cand.sec, presence);
+    } else if (sublabel === "contact email") {
+      mainEmail = apply(mainEmail, cand.main, canonicalize);
+      secEmail = apply(secEmail, cand.sec, canonicalize);
+    }
+    if (changed) {
+      agg?.warnings.push({
+        severity: "warn",
+        code: "FIELD_LABEL_AUTOCORRECTED",
+        message: `Read likely-misspelled client label '${cand.rawLabel}' as '${sublabel}'`,
+        blockRef: { kind: "client" },
+        rawSnippet: cand.rawLabel,
+      });
+    }
+  }
 
   if (!mainName && mainPhone === null && mainEmail === null) {
     return { client_label: clientLabel, client_contact: null };
@@ -146,11 +245,27 @@ function parseClientV4(rows: string[][]): Pick<ShowRow, "client_label" | "client
 
 // v1 and v2 share an identical extraction path (v1 additionally handles merged-cell
 // patterns via regex). No version branching is needed — the private helper takes rows only.
-function parseClientV2orV1(rows: string[][]): Pick<ShowRow, "client_label" | "client_contact"> {
+function parseClientV2orV1(
+  rows: string[][],
+  agg?: ParseAggregator,
+): Pick<ShowRow, "client_label" | "client_contact"> {
   let clientLabel = "";
   let contactName: string | null = null;
   let contactPhone: string | null = null;
   let contactEmail: string | null = null;
+
+  // Deferred fuzzy candidates IN ORDER (not deduped) — applied post-loop via mergeFuzzyCell so a
+  // later sentinel/empty typo can't erase an earlier real recovery (Codex R1 #2).
+  const fuzzyCandidates: Array<{
+    field: "name" | "phone" | "email";
+    rawLabel: string;
+    value: string;
+  }> = [];
+  const V2_LABEL_TO_FIELD: Record<string, "name" | "phone" | "email"> = {
+    "client contact": "name",
+    "client phone": "phone",
+    "client email": "email",
+  };
 
   for (const row of rows) {
     const rawLabel = row[0] ?? "";
@@ -200,9 +315,39 @@ function parseClientV2orV1(rows: string[][]): Pick<ShowRow, "client_label" | "cl
       contactEmail = canonicalize(rawLabel.replace(/^client\s+email\s*\/\s*/i, ""));
       continue;
     }
+
+    // Fuzzy fallback (PR-D4): a near-miss of a v2 client label is recorded (deferred). The 'CLIENT'
+    // org marker and the v1 merged-cell slash variants above are intentionally NOT fuzzed.
+    const fuzzy = gatedVocabCorrect(labelLower, [...CLIENT_V2_LABELS], CLIENT_GATE_OPTS);
+    if (fuzzy?.corrected) {
+      const field = V2_LABEL_TO_FIELD[fuzzy.match];
+      if (field && presence(val) !== null)
+        fuzzyCandidates.push({ field, rawLabel: rawLabel.trim(), value: val });
+    }
   }
 
   if (!clientLabel) return { client_label: "", client_contact: null };
+
+  // Apply deferred fuzzy candidates ONLY for a confirmed client block (after the guard above), so
+  // an unrecognized block never emits a warning. Merge per field: a real fuzzy value fills an
+  // empty/sentinel slot only — an exact real value always wins, and no real value is clobbered.
+  for (const cand of fuzzyCandidates) {
+    const { field } = cand;
+    const norm = field === "email" ? canonicalize : presence;
+    const cur = field === "name" ? contactName : field === "phone" ? contactPhone : contactEmail;
+    const r = mergeFuzzyCell(cur, cand.value, norm);
+    if (!r.changed) continue; // exact-claimed (real) — suppress the warn
+    if (field === "name") contactName = r.val;
+    else if (field === "phone") contactPhone = r.val;
+    else contactEmail = r.val;
+    agg?.warnings.push({
+      severity: "warn",
+      code: "FIELD_LABEL_AUTOCORRECTED",
+      message: `Read likely-misspelled client label '${cand.rawLabel}' as '${fuzzyFieldLabel(field)}'`,
+      blockRef: { kind: "client" },
+      rawSnippet: cand.rawLabel,
+    });
+  }
 
   if (!contactName && contactPhone === null && contactEmail === null) {
     return { client_label: clientLabel, client_contact: null };
@@ -230,13 +375,13 @@ export function parseClient(
   markdown: string,
   version: "v1" | "v2" | "v4",
 
-  _agg?: ParseAggregator,
+  agg?: ParseAggregator,
 ): Pick<ShowRow, "client_label" | "client_contact"> {
   const rows = parseTableRows(markdown);
 
   if (version === "v4") {
-    return parseClientV4(rows);
+    return parseClientV4(rows, agg);
   }
   // v1 and v2 share the same extraction path; v1 additionally handles merged cells
-  return parseClientV2orV1(rows);
+  return parseClientV2orV1(rows, agg);
 }

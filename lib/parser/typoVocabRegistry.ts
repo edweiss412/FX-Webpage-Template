@@ -2,6 +2,7 @@ import { inScopeAliases } from "@/lib/parser/aliases";
 import { EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";
 import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 import { V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
+import { CLIENT_V4_LABELS, CLIENT_V2_LABELS } from "@/lib/parser/blocks/client";
 
 export type VocabEntry = {
   id: string;
@@ -63,6 +64,20 @@ export const TYPO_VOCABS: readonly VocabEntry[] = [
   // PR-D3: v4 room field-label fuzzy fallback (gatedVocabCorrect over V4_BARE_LABELS). Members
   // are the SAME derived vocab the gate fuzzes, so the tripwire guards exactly what ships.
   { id: "roomV4Label", klass: "fuzzable", minLen: 5, members: V4_BARE_LABEL_VOCAB },
+  // PR-D4: client field-label fuzzy fallback (gatedVocabCorrect over CLIENT_V4_LABELS /
+  // CLIENT_V2_LABELS). Members are the SAME derived vocabs the gate fuzzes (uppercased).
+  {
+    id: "clientV4Label",
+    klass: "fuzzable",
+    minLen: 5,
+    members: CLIENT_V4_LABELS.map((s) => s.toUpperCase()),
+  },
+  {
+    id: "clientV2Label",
+    klass: "fuzzable",
+    minLen: 5,
+    members: CLIENT_V2_LABELS.map((s) => s.toUpperCase()),
+  },
   // excluded / do-not-fuzz neighborhoods (spec §8) the meta-test guards against:
   {
     id: "shortRoleCodes",

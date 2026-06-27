@@ -53,6 +53,10 @@ const LEGACY_INFO_ROWS: unknown[][] = [
   ["COI", "Sent"],
   ["Proposal", "Sent - $17,500"],
   ["PO#", "4521"],
+  // --- CLIENT block (PR-D4 client RegionId, appended at the END so existing row indices
+  //     above are unchanged) ---
+  ["CLIENT", "Institutional Investor"],
+  ["Client Contact", "Maria Ferrer"],
 ];
 
 const LEGACY_AGENDA_ROWS: unknown[][] = [
@@ -192,6 +196,13 @@ describe("Legacy single-INFO fixture (East Coast-style)", () => {
 
   it("contacts → INFO tab", () => {
     expect(anchors.contacts?.title).toBe("INFO");
+  });
+
+  it("client → INFO tab (PR-D4: header-block resolves the CLIENT row in INFO, not the CLIENT tab)", () => {
+    // Real extraction (not a prebuilt anchor): the client RegionId's header-block /^CLIENT$/i
+    // resolves to the CLIENT block within the allowlisted INFO tab — NOT the non-allowlisted
+    // legacy CLIENT master-library tab (which produces no anchor).
+    expect(anchors.client?.title).toBe("INFO");
   });
 
   it("financials → INFO tab (multi-label union: COI + Proposal + PO)", () => {
