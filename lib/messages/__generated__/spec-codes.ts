@@ -218,6 +218,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → wait or finish setup; Eric if the session is stuck",
     "helpfulContext": "Abandoned finalize cleanup is guarded by a stale-session check and a finalize-recency check so it cannot interrupt an active setup publish.",
   },
+  "COLUMN_HEADER_AUTOCORRECTED": {
+    "crewFacing": null,
+    "dougFacing": "We read a likely-misspelled column header on _<sheet-name>_'s crew table (for example 'E-MAIL' as 'EMAIL') and used the corrected column. If it was intentional, update the sheet.",
+    "followUp": "Doug → optional fix",
+    "helpfulContext": "A column header on this crew table looked misspelled (e.g. 'E-MAIL'), so we read it as the closest real header ('EMAIL') and used that column. If it was intentional, update the sheet.",
+  },
   "CONCURRENT_FINALIZE_IN_FLIGHT": {
     "crewFacing": null,
     "dougFacing": "Setup publishing is already running in another tab.",
@@ -926,11 +932,23 @@ export const SPEC_CODES = {
     "followUp": "none (informational)",
     "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
   },
+  "ROLE_TOKEN_AUTOCORRECTED": {
+    "crewFacing": null,
+    "dougFacing": "We read a likely-misspelled role in _<crew-name>_'s cell (for example 'Content Cretion' as 'Content Creation') and used the corrected version. If it was intentional, update the sheet.",
+    "followUp": "Doug → optional fix",
+    "helpfulContext": "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
+  },
   "SCHEDULE_TIME_UNPARSED": {
     "crewFacing": null,
     "dougFacing": "We couldn't read a start time for one of _<sheet-name>_'s show days, so that day shows the standard schedule. Make sure the day's TIME cell starts with a time like '7:15am - Registration' or '7:30am - 5:50pm'.",
     "followUp": "Doug → check sheet",
     "helpfulContext": "One show day's TIME cell had text we couldn't read as a start time, so that day shows the standard schedule instead. Give it a clear start like '7:15am - Registration' and it'll update on the next sync.",
+  },
+  "SECTION_HEADER_AUTOCORRECTED": {
+    "crewFacing": null,
+    "dougFacing": "We read a likely-misspelled section header on _<sheet-name>_ (for example 'Transportaton' as 'Transportation') and parsed that section anyway. If it was intentional, update the sheet.",
+    "followUp": "Doug → optional fix",
+    "helpfulContext": "A section header on this sheet looked misspelled (e.g. 'Transportaton'), so we read it as the closest real section ('Transportation') and parsed that section anyway. If it was intentional, update the sheet.",
   },
   "SECTION_HEADER_NO_FIELDS": {
     "crewFacing": null,

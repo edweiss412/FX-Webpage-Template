@@ -123,7 +123,8 @@ export function attachSourceCellAnchors(
     } else if (
       w.code === "UNKNOWN_ROLE_TOKEN" ||
       w.code === "UNKNOWN_DAY_RESTRICTION" ||
-      w.code === "STAGE_WORD_AUTOCORRECTED"
+      w.code === "STAGE_WORD_AUTOCORRECTED" ||
+      w.code === "ROLE_TOKEN_AUTOCORRECTED"
     ) {
       cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
     } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
@@ -132,7 +133,14 @@ export function attachSourceCellAnchors(
       // the set with kind agenda/pull_sheet region-anchors by design (pinned by the
       // membership pin-test in tests/parser/operatorActionableWarnings.test.ts).
       cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
-    } else if (w.code === "FIELD_UNREADABLE" || w.code === "UNKNOWN_FIELD") {
+    } else if (
+      w.code === "FIELD_UNREADABLE" ||
+      w.code === "UNKNOWN_FIELD" ||
+      w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
+      w.code === "SECTION_HEADER_AUTOCORRECTED"
+    ) {
+      // Region-level anchor: blockRef.kind is a RegionId (crew column → "crew";
+      // section header → the corrected section's RegionId, e.g. "transportation"/"details").
       const kind = w.blockRef?.kind;
       cell = kind ? (sources.region[kind] ?? null) : null;
     }

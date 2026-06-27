@@ -1075,6 +1075,45 @@ export const MESSAGE_CATALOG = {
       "A stage word in a crew member's role cell looked misspelled, so we read it as the closest real stage word and used that — the role and schedule still parse correctly. If the spelling was intentional, update the sheet.",
     helpHref: "/help/errors#STAGE_WORD_AUTOCORRECTED",
   },
+  ROLE_TOKEN_AUTOCORRECTED: {
+    code: "ROLE_TOKEN_AUTOCORRECTED",
+    dougFacing:
+      "We read a likely-misspelled role in _<crew-name>_'s cell (for example 'Content Cretion' as 'Content Creation') and used the corrected version. If it was intentional, update the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix",
+    helpfulContext:
+      "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
+    title: "Auto-corrected a misspelled role",
+    longExplanation:
+      "A multi-word role in a crew member's cell looked misspelled, so we read it as the closest real role and used that — the role still parses. If the spelling was intentional, update the sheet.",
+    helpHref: "/help/errors#ROLE_TOKEN_AUTOCORRECTED",
+  },
+  COLUMN_HEADER_AUTOCORRECTED: {
+    code: "COLUMN_HEADER_AUTOCORRECTED",
+    dougFacing:
+      "We read a likely-misspelled column header on _<sheet-name>_'s crew table (for example 'E-MAIL' as 'EMAIL') and used the corrected column. If it was intentional, update the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix",
+    helpfulContext:
+      "A column header on this crew table looked misspelled (e.g. 'E-MAIL'), so we read it as the closest real header ('EMAIL') and used that column. If it was intentional, update the sheet.",
+    title: "Auto-corrected a column header",
+    longExplanation:
+      "A column header on a crew table looked misspelled, so we read it as the closest real header and used that column — the crew rows still parse into the right fields. If it was intentional, update the sheet.",
+    helpHref: "/help/errors#COLUMN_HEADER_AUTOCORRECTED",
+  },
+  SECTION_HEADER_AUTOCORRECTED: {
+    code: "SECTION_HEADER_AUTOCORRECTED",
+    dougFacing:
+      "We read a likely-misspelled section header on _<sheet-name>_ (for example 'Transportaton' as 'Transportation') and parsed that section anyway. If it was intentional, update the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix",
+    helpfulContext:
+      "A section header on this sheet looked misspelled (e.g. 'Transportaton'), so we read it as the closest real section ('Transportation') and parsed that section anyway. If it was intentional, update the sheet.",
+    title: "Auto-corrected a section header",
+    longExplanation:
+      "A section header on a sheet looked misspelled, so we read it as the closest real section and parsed that section anyway — otherwise the whole section would have been dropped. If it was intentional, update the sheet.",
+    helpHref: "/help/errors#SECTION_HEADER_AUTOCORRECTED",
+  },
   PULL_SHEET_PARSE_PARTIAL: {
     code: "PULL_SHEET_PARSE_PARTIAL",
     dougFacing:

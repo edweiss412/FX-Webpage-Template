@@ -10,6 +10,7 @@
 
 import type { DateRestriction, StageRestriction, RoleFlag, ParseWarning } from "./types";
 import { closedVocabMatch } from "@/lib/parser/fuzzyMatch";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 
 // ── Role normalization map ────────────────────────────────────────────────────
 // Maps cleaned token strings (trimmed uppercase) to canonical RoleFlag.
@@ -41,6 +42,11 @@ const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
 
 // Multi-word tokens that must be matched BEFORE splitting by / or -.
 const MULTI_WORD_TOKENS: string[] = ["CONTENT CREATION", "SHOW CALLER", "GREEN ROOM", "CAM OP"];
+// Real single-word role codes (A1/V1/LEAD/…) — excluded from the multi-word fuzz so a
+// short code is never over-corrected into a phrase (spec §8 do-not-fuzz).
+const SHORT_ROLE_CODES: readonly string[] = Object.keys(ROLE_NORMALIZATIONS).filter(
+  (k) => !k.includes(" "),
+);
 
 // ── Stage restriction patterns ────────────────────────────────────────────────
 const FULL_STAGE_PATTERN = /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out/i;
@@ -324,13 +330,31 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
     if (canonical) {
       pushFlag(canonical);
     } else {
-      unknownTokens.push(tok);
-      warnings.push({
-        severity: "warn",
-        code: "UNKNOWN_ROLE_TOKEN",
-        message: `Unknown role token: '${tok}' in role cell: '${roleCell}'`,
-        rawSnippet: roleCell,
-      });
+      // Conservative multi-word fuzzy correction: only fuzz a token that ALREADY
+      // contains a space (a multi-word phrase typo like 'CONTENT CRETION'); a
+      // space-deletion typo ('CAMOP') is NOT corrected — never over-corrects a short
+      // single-word code into a phrase. Exclude the real short role codes.
+      const fix = tok.includes(" ")
+        ? gatedVocabCorrect(tok, MULTI_WORD_TOKENS, { exclude: SHORT_ROLE_CODES })
+        : null;
+      const fixedFlag = fix?.corrected ? ROLE_NORMALIZATIONS[fix.match] : undefined;
+      if (fix?.corrected && fixedFlag) {
+        pushFlag(fixedFlag);
+        warnings.push({
+          severity: "warn",
+          code: "ROLE_TOKEN_AUTOCORRECTED",
+          message: `Read likely-misspelled role '${tok}' as '${fix.match}' in role cell: '${roleCell}'`,
+          rawSnippet: roleCell,
+        });
+      } else {
+        unknownTokens.push(tok);
+        warnings.push({
+          severity: "warn",
+          code: "UNKNOWN_ROLE_TOKEN",
+          message: `Unknown role token: '${tok}' in role cell: '${roleCell}'`,
+          rawSnippet: roleCell,
+        });
+      }
     }
   }
 

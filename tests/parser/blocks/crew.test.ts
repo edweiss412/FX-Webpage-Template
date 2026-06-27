@@ -722,3 +722,87 @@ describe("parseCrew — stage-word typo auto-correction (STAGE_WORD_AUTOCORRECTE
     expect(agg.warnings.find((w) => w.code === "STAGE_WORD_AUTOCORRECTED")).toBeUndefined();
   });
 });
+
+describe("parseCrew — multi-word role typo correction (ROLE_TOKEN_AUTOCORRECTED)", () => {
+  it("auto-corrects a misspelled multi-word role: 0 UNKNOWN_ROLE_TOKEN + 1 ROLE_TOKEN_AUTOCORRECTED", () => {
+    // 'Content Cretion' (deletion of the A) is Damerau 1 from 'CONTENT CREATION'. It does
+    // not match the exact MWT regex and survives tokenization (split only on /,-) as ONE
+    // space-containing token, so the rawTokens-loop fuzz fires.
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| --- | --- | --- | --- |",
+      "| Jane Roe - Content Cretion | 555 |  |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v1", agg);
+    expect(agg.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toHaveLength(0);
+    const notes = agg.warnings.filter((w) => w.code === "ROLE_TOKEN_AUTOCORRECTED");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.severity).toBe("warn");
+    expect(notes[0]!.blockRef).toMatchObject({ kind: "crew", name: "Jane Roe" }); // deep-link anchor
+  });
+
+  it("does NOT fuzz a short single-word role token into a multi-word role (conservative space gate)", () => {
+    // 'ZZ9' has no space → the `includes(" ")` gate skips the multi-word fuzz; it stays UNKNOWN.
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| --- | --- | --- | --- |",
+      "| Sam Poe - ZZ9 | 555 |  |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v1", agg);
+    expect(agg.warnings.find((w) => w.code === "ROLE_TOKEN_AUTOCORRECTED")).toBeUndefined();
+    expect(agg.warnings.find((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toBeTruthy();
+  });
+
+  it("a clean multi-word role is NOT flagged and parses to its flag", () => {
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| --- | --- | --- | --- |",
+      "| Amy Lane - Content Creation | 555 |  |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v1", agg);
+    expect(agg.warnings.find((w) => w.code === "ROLE_TOKEN_AUTOCORRECTED")).toBeUndefined();
+    expect(crew[0]!.role_flags).toContain("CONTENT_CREATION");
+  });
+});
+
+describe("parseCrew — column header typo correction (COLUMN_HEADER_AUTOCORRECTED)", () => {
+  it("auto-corrects 'E-MAIL'→'EMAIL': email column resolves (would otherwise drop every email) + 1 warning", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | E-MAIL |",
+      "| --- | --- | --- | --- | --- |",
+      "|  | Jane Doe | A1 | 555-1111 | jane@x.com |",
+    ].join("\n");
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v4", agg);
+    expect(crew[0]!.email).toBe("jane@x.com"); // the concrete failure mode: typo'd header drops emails
+    const notes = agg.warnings.filter((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.severity).toBe("warn");
+  });
+
+  it("a correctly-spelled EMAIL header is NOT flagged", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| --- | --- | --- | --- | --- |",
+      "|  | Jane Doe | A1 | 555 | jane@x.com |",
+    ].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.find((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED")).toBeUndefined();
+  });
+
+  it("a 2-edit-away word (ROOM) is NOT corrected to any column (radius stays 1)", () => {
+    const md = [
+      "| CREW | NAME | ROOM | PHONE | EMAIL |",
+      "| --- | --- | --- | --- | --- |",
+      "|  | Jane Doe | A1 | 555 | jane@x.com |",
+    ].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    // ROOM↔ROLE is Damerau 2 → not corrected; no spurious COLUMN_HEADER_AUTOCORRECTED.
+    expect(agg.warnings.find((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED")).toBeUndefined();
+  });
+});

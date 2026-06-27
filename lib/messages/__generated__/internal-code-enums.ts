@@ -35,6 +35,9 @@ export const INTERNAL_CODE_ENUMS = {
   ASSET_RECOVERY_REVISION_DRIFT: {
     source: "admin_alerts.code"
   },
+  COLUMN_HEADER_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   CONCURRENT_SYNC_SKIPPED: {
     source: "pending_ingestions.last_error_code"
   },
@@ -179,7 +182,13 @@ export const INTERNAL_CODE_ENUMS = {
   REPORT_PIPELINE_FAILED: {
     source: "admin_alerts.code"
   },
+  ROLE_TOKEN_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   SCHEDULE_TIME_UNPARSED: {
+    source: "parse_warnings.code"
+  },
+  SECTION_HEADER_AUTOCORRECTED: {
     source: "parse_warnings.code"
   },
   SECTION_HEADER_NO_FIELDS: {

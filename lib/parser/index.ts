@@ -17,6 +17,7 @@ import { parseClient } from "./blocks/client";
 import { parseVenue } from "./blocks/venue";
 import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
+import { normalizeSectionHeaders } from "./sectionHeaderNormalize";
 import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
@@ -363,6 +364,14 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
 
   // Step 2: Initialize aggregator for warnings + raw_unrecognized.
   const agg = newAggregator();
+
+  // Step 2.5: Auto-correct misspelled LONG section headers (TRANSPORTATION / EVENT
+  // DETAILS) ONCE, upstream of every block parser, so a typo'd header doesn't drop the
+  // whole section. Gated + corpus-no-op (see lib/parser/sectionHeaderNormalize.ts).
+  // Runs AFTER version detection (a section typo never affects v1/v2/v4 detection).
+  const secNorm = normalizeSectionHeaders(markdown);
+  markdown = secNorm.corrected;
+  agg.warnings.push(...secNorm.warnings);
 
   // Step 3: Call each block parser.
   const { client_label, client_contact } = parseClient(markdown, version, agg);
