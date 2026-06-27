@@ -60,6 +60,19 @@ const FRESH_SETTINGS: AppSettingsRow = {
 
 const WSID = "11111111-2222-4333-8444-555555555555";
 
+// A wizard whose Step-2 scan already ran: a session is reserved and the folder
+// is persisted on app_settings. This is the state the operator returns to when
+// they hit "Back" from Step 3.
+const SCANNED_SETTINGS: AppSettingsRow = {
+  ...FRESH_SETTINGS,
+  pending_folder_id: "abc123",
+  pending_folder_name: "Shows 2026",
+  pending_folder_set_by_email: "doug@example.com",
+  pending_folder_set_at: new Date().toISOString(),
+  pending_wizard_session_id: WSID,
+  pending_wizard_session_at: new Date().toISOString(),
+};
+
 let savedEnv: string | undefined;
 
 beforeEach(() => {
@@ -130,6 +143,89 @@ describe("OnboardingWizard navigation chrome (Task 5)", () => {
     const pill1 = getByTestId("wizard-step-indicator-1");
     expect(pill1.tagName).toBe("A");
     expect(pill1.getAttribute("aria-current")).toBe("step");
+  });
+
+  test("forward affordance: after a scan, pill 3 is a real <Link> even from Step 2 (Back leaves a way Forward)", async () => {
+    // The bug: Back from Step 3 → Step 2 turned pill 3 into a dead <span>, with
+    // no forward control at all. Once a scan has produced reviewable results,
+    // every step is reachable, so pill 3 must stay a navigable Link from Step 2.
+    const { getByTestId } = render(
+      await OnboardingWizard({
+        settings: SCANNED_SETTINGS,
+        searchParams: { step: "2" },
+        hasReviewableScan: true,
+      }),
+    );
+    const pill3 = getByTestId("wizard-step-indicator-3") as HTMLAnchorElement;
+    expect(pill3.tagName).toBe("A");
+    expect(pill3.getAttribute("href")).toBe("/admin?step=3");
+  });
+
+  test("Step 2 rehydrates the scanned folder: pre-filled input + resume Continue link", async () => {
+    const { getByTestId } = render(
+      await OnboardingWizard({
+        settings: SCANNED_SETTINGS,
+        searchParams: { step: "2" },
+        hasReviewableScan: true,
+      }),
+    );
+    // The folder the operator scanned persists into the input (no blank field).
+    expect((getByTestId("wizard-step2-folder-url-input") as HTMLInputElement).value).toBe(
+      "https://drive.google.com/drive/folders/abc123",
+    );
+    // …and a Continue-to-Step-3 link reopens the forward path without re-scanning.
+    expect(getByTestId("wizard-step2-resume-advance").getAttribute("href")).toBe("/admin?step=3");
+    expect(getByTestId("wizard-step2-resume").textContent ?? "").toContain("Shows 2026");
+  });
+
+  test("NEGATIVE: with no scan session, Step 2 keeps pill 3 a dead <span> and shows no resume panel", async () => {
+    // Mirror of the forward-affordance test: the reachability/rehydration must be
+    // gated on real server progress, not merely on being on Step 2.
+    const { getByTestId, queryByTestId } = render(
+      await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "2" } }),
+    );
+    const pill3 = getByTestId("wizard-step-indicator-3");
+    expect(pill3.tagName).not.toBe("A");
+    expect(pill3.getAttribute("href")).toBeNull();
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    expect((getByTestId("wizard-step2-folder-url-input") as HTMLInputElement).value).toBe("");
+  });
+
+  test("NEGATIVE: a reserved session with an EMPTY manifest (Start Over / failed scan) shows NO forward pill and NO resume", async () => {
+    // pending_wizard_session_id is non-null AND pending_folder_* is set, but the
+    // scan produced nothing reviewable (hasReviewableScan=false). The forward
+    // pill + the "You already scanned <stale folder>" resume panel must NOT
+    // appear — otherwise they advertise an empty Step 3 with a false claim.
+    const { getByTestId, queryByTestId } = render(
+      await OnboardingWizard({
+        settings: SCANNED_SETTINGS,
+        searchParams: { step: "2" },
+        hasReviewableScan: false,
+      }),
+    );
+    const pill3 = getByTestId("wizard-step-indicator-3");
+    expect(pill3.tagName).not.toBe("A");
+    expect(pill3.getAttribute("href")).toBeNull();
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    expect(queryByTestId("wizard-step2-resume-advance")).toBeNull();
+    // No false pre-fill either — the input stays blank.
+    expect((getByTestId("wizard-step2-folder-url-input") as HTMLInputElement).value).toBe("");
+  });
+
+  test("SAFETY: rendering the resumed ?step=2 body still fires NO scan POST on mount", async () => {
+    // The pre-filled input + resume panel must not auto-submit; Back/forward
+    // navigation stays read-only (no scan re-trigger, no session orphaning).
+    const fetchSpy = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+    render(
+      await OnboardingWizard({
+        settings: SCANNED_SETTINGS,
+        searchParams: { step: "2" },
+        hasReviewableScan: true,
+      }),
+    );
+    await Promise.resolve();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   test("SAFETY: rendering the ?step=2 body fires NO scan POST (Back cannot re-scan)", async () => {

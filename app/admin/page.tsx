@@ -47,6 +47,7 @@ import {
   isCheckpointStale,
   isInfraError,
 } from "@/app/admin/_finalizeCheckpoint";
+import { readScanManifestCount } from "@/app/admin/_scanManifestCount";
 import { nowDate } from "@/lib/time/now";
 
 export const dynamic = "force-dynamic";
@@ -181,20 +182,29 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       }
     }
     // No checkpoint yet → wizard pre-finalize (steps 1/2/3, possibly mid-Apply).
+    // The session id is non-null here but may carry an EMPTY manifest (Start Over
+    // rotated, or a failed/0-sheet scan), so resolve the honest "scan produced
+    // reviewable rows" signal that gates the wizard's forward/resume affordances.
+    // A degraded read falls back to false (never advertise a stale resume).
+    const manifestCount = await readScanManifestCount(settings.pending_wizard_session_id);
+    const hasReviewableScan = manifestCount.kind === "value" && manifestCount.count > 0;
     return (
       <OnboardingWizard
         settings={settings}
         searchParams={sp.step !== undefined ? { step: sp.step } : {}}
+        hasReviewableScan={hasReviewableScan}
       />
     );
   }
 
-  // Precedence 2: first-visit fresh — no session minted, no folder either.
+  // Precedence 2: first-visit fresh — no session minted, no folder either. With
+  // no session there is no manifest, so a scan can never be "reviewable" here.
   if (settings.watched_folder_id === null) {
     return (
       <OnboardingWizard
         settings={settings}
         searchParams={sp.step !== undefined ? { step: sp.step } : {}}
+        hasReviewableScan={false}
       />
     );
   }

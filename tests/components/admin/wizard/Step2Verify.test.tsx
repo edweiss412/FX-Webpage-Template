@@ -571,3 +571,64 @@ describe("Step2Verify transition audit", () => {
     expect(await findByTestId("wizard-step2-progress")).toBeTruthy();
   });
 });
+
+// Resume affordance (onboarding-wizard back/forward bug, 2026-06-26).
+//
+// Bug: hitting "Back" from Step 3 stranded the operator on a Step 2 whose
+// folder input was empty (client state reset on remount) and whose only forward
+// path was a full re-scan. The fix threads the server-persisted scan
+// (app_settings.pending_folder_* + pending_wizard_session_id) into Step2Verify
+// as a `priorScan` prop so the step rehydrates: the folder input is pre-filled
+// and a "Continue to Step 3" link reopens the forward path WITHOUT re-scanning.
+describe("Step2Verify — resume after Back (priorScan)", () => {
+  const PRIOR = {
+    folderName: "Shows 2026",
+    folderUrl: "https://drive.google.com/drive/folders/abc123",
+  };
+
+  test("pre-fills the folder input with the previously-scanned folder URL", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const input = getByTestId("wizard-step2-folder-url-input") as HTMLInputElement;
+    expect(input.value).toBe(PRIOR.folderUrl);
+    // …and submit is therefore enabled (re-scan is one click away).
+    expect((getByTestId("wizard-step2-submit") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("renders a resume panel naming the folder + a Continue-to-Step-3 link", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const resume = getByTestId("wizard-step2-resume");
+    expect(resume.textContent ?? "").toContain("Shows 2026");
+    const advance = getByTestId("wizard-step2-resume-advance") as HTMLAnchorElement;
+    expect(advance.tagName).toBe("A");
+    expect(advance.getAttribute("href")).toBe("/admin?step=3");
+  });
+
+  test("a null folder name still renders the resume panel + Continue link (generic copy)", () => {
+    const { getByTestId } = render(
+      <Step2Verify priorScan={{ folderName: null, folderUrl: PRIOR.folderUrl }} />,
+    );
+    expect(getByTestId("wizard-step2-resume")).toBeTruthy();
+    expect(getByTestId("wizard-step2-resume-advance").getAttribute("href")).toBe("/admin?step=3");
+  });
+
+  test("without priorScan: no resume panel and the input starts empty (negative regression)", () => {
+    const { getByTestId, queryByTestId } = render(<Step2Verify />);
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    expect((getByTestId("wizard-step2-folder-url-input") as HTMLInputElement).value).toBe("");
+  });
+
+  test("the resume panel is replaced by the live progress block once a re-scan starts", async () => {
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    const { getByTestId, queryByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    expect(getByTestId("wizard-step2-resume")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    // Submitting the pre-filled folder re-scans; resume panel yields to progress.
+    await waitFor(() => expect(queryByTestId("wizard-step2-progress")).toBeTruthy());
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    // The re-scan POSTed the pre-filled URL (round-trips through the route parser).
+    const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    expect(JSON.parse(init.body as string).folderUrl).toBe(PRIOR.folderUrl);
+  });
+});

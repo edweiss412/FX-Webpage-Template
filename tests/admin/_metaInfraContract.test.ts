@@ -192,6 +192,15 @@ const infraRegistry = [
     contract: "wizard_finalize_checkpoints await throws → infra_error",
   },
   {
+    // wizard Back/forward fix (2026-06-26): gates the Step-2 resume affordance +
+    // forward stepper pill on "manifest has rows" instead of session-id-non-null
+    // (which is true after Start Over / a failed scan with an EMPTY manifest).
+    helper: "readScanManifestCount",
+    path: "app/admin/_scanManifestCount.ts",
+    contract:
+      "onboarding_scan_manifest head-count (count: exact) by wizard_session_id; { count, error } destructure; client construction throw + query await throw → { kind: 'infra_error' }; the page.tsx caller treats infra_error as hasReviewableScan=false (never advertises a stale resume on a degraded read)",
+  },
+  {
     helper: "fetchPerShowAlerts",
     path: "components/admin/PerShowAlertSection.tsx",
     contract: "admin_alerts await throws → infra_error",
