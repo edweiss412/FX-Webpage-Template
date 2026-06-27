@@ -371,6 +371,63 @@ describe("sourceAnchors pipeline (Task 5)", () => {
     ).toBeDefined();
     expect(sourceAnchors?.venue?.gid, "venue.gid must equal 0 (INFO tab sheetId=0)").toBe(0);
   });
+
+  test("cron path attaches crew-role sourceCell to UNKNOWN_ROLE_TOKEN (parse-warning deep links)", async () => {
+    const DRIVE_FILE_ID = "file-crew-1";
+    const CREW_BYTES = makeXlsx([
+      {
+        name: "INFO",
+        rows: [
+          ["CREW", "NAME", "ROLE", "PHONE"],
+          ["", "Jane Doe", "- WIDGETMASTER", "555"],
+        ],
+      },
+    ]);
+    const deps: ProcessOneFileDeps = {
+      captureBinding: async () => BINDING,
+      fetchMarkdownAtRevision: async () => "",
+      fetchXlsxBytes: async () => CREW_BYTES,
+      parseSheet: () =>
+        emptyParsedSheet({
+          warnings: [
+            {
+              severity: "warn",
+              code: "UNKNOWN_ROLE_TOKEN",
+              message: "x",
+              blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+            },
+          ],
+        }),
+      driveClient: {
+        async getFile() {
+          return {
+            driveFileId: DRIVE_FILE_ID,
+            headRevisionId: "rev-1",
+            md5Checksum: "a".repeat(32),
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            modifiedTime: "2026-01-01T00:00:00.000Z",
+          };
+        },
+        async listFolder() {
+          return { folderId: "folder-1", files: [] };
+        },
+        listSpreadsheetSheets: async () => SHEETS_RESPONSE,
+      },
+    };
+
+    const prepared = await prepareProcessOneFile(
+      DRIVE_FILE_ID,
+      "cron",
+      makeFileMeta(DRIVE_FILE_ID),
+      deps,
+      async () => null,
+    );
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") return;
+    const roleWarning = prepared.parseResult.warnings.find((w) => w.code === "UNKNOWN_ROLE_TOKEN");
+    // ROLE col index 2 → C; data row grid index 1 → row 2 → C2.
+    expect(roleWarning?.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C2" });
+  });
 });
 
 // ── Task 6: real-DB persistence test ─────────────────────────────────────────
