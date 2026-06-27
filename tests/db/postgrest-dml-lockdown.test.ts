@@ -76,10 +76,21 @@ function resolveDatabaseUrl(): string {
 
 const databaseUrl = resolveDatabaseUrl();
 
+// Hard timeouts so a slow/asleep/unreachable validation Supabase fails this test in
+// seconds instead of hanging the CI job for the GitHub-Actions default (6 hours, a
+// real 30-min hang was observed on PR #149). PGCONNECT_TIMEOUT caps libpq's
+// connection attempt; execFileSync `timeout` SIGTERMs a hung psql (connection OR
+// query) as a catch-all. The job-level `timeout-minutes` in x-audits.yml is the
+// outer backstop.
+const PSQL_CONNECT_TIMEOUT_S = "10";
+const PSQL_PROCESS_TIMEOUT_MS = 30_000;
+
 function runPsql(sql: string): string {
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
     input: sql,
     encoding: "utf8",
+    timeout: PSQL_PROCESS_TIMEOUT_MS,
+    env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
   }).trim();
 }
 
@@ -524,6 +535,9 @@ async function postgrestRequest(
   const jwt = await signRoleJwt(role);
   const init: RequestInit = {
     method: verb,
+    // Fail fast instead of hanging on an unreachable/asleep validation REST gateway
+    // (the Layer-3 sibling of the psql timeouts above).
+    signal: AbortSignal.timeout(PSQL_PROCESS_TIMEOUT_MS),
     headers: {
       apikey: publishableKey,
       Authorization: `Bearer ${jwt}`,

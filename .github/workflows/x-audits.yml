@@ -24,6 +24,7 @@ jobs:
   traceability-audit:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -80,6 +81,7 @@ jobs:
   x1-catalog-parity:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -120,6 +122,7 @@ jobs:
   x2-no-raw-codes:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -160,6 +163,7 @@ jobs:
   x3-trust-domain:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -194,6 +198,7 @@ jobs:
   x4-no-global-cursor:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -234,6 +239,7 @@ jobs:
   x5-email-canonicalization:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -284,6 +290,7 @@ jobs:
     # scripts/generate-traceability.ts.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -328,6 +335,7 @@ jobs:
     # variable via `gh secret set` / `gh variable set` post-commit.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -372,6 +380,7 @@ jobs:
     # secret the postgrest-dml-lockdown job uses.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -407,6 +416,7 @@ jobs:
     # psql install and no Supabase env.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -435,6 +445,7 @@ jobs:
     # See DEFERRED.md §X6-D-1 for re-enable triggers (second admin joins, etc.).
     if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -465,6 +476,7 @@ jobs:
     # Reader is dormant until the privileged job re-enables; see DEFERRED.md §X6-D-1.
     if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - name: Assert recent successful verify-branch-protection run on main
