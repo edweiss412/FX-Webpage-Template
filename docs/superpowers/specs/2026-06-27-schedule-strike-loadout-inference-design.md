@@ -85,7 +85,7 @@ Fixtures (committed mirrors, may drift from live — verify in plan): `fixtures/
 |---|---|---|
 | RD1 | Bookends to add | **SET + Strike + Load-Out.** SET day rendered as a full schedule day (multi-entry capable). |
 | RD2 | Event taxonomy | **Two distinct kinds:** per-room `strike_time` → `"Strike"`; transport Pick Up Venue → `"Load Out"`. |
-| RD3 | Strike labeling | **Per-room, collapse identical** (one entry per (date,time) group): single room → `"Strike — <Room>"`; group = **every** striking room at the same date+time → `"Strike — all rooms"`; **partial** simultaneous group (some rooms; others strike at another time/day) → name them `"Strike — <A>, <B>"` (≤3) else `"Strike — N rooms"` — never the unsafe "all rooms" (teardown-safety, R3). |
+| RD3 | Strike labeling | **Per-room, collapse identical** (one entry per (date,time) group): single room → `"Strike — <Room>"`; group = **every strike-intent room** (all parseable, same date+time) → `"Strike — all rooms"`; **partial** group (some rooms; others strike at another time/day **or have a TBD/unknown strike**) → name them `"Strike — <A>, <B>"` (≤3) else `"Strike — N rooms"` — never the unsafe "all rooms" (teardown-safety, R3+R4). |
 | RD4 | Surfaces | **Admin Step-3 review AND crew Schedule/Today.** |
 | RD5 | Data quality | **Faithful + flag suspicious:** render strikes on the exact date the sheet lists (no typo auto-correction); skip entries with no parseable date / `TBD`. A strike whose date **is** one of the show's scheduled days (travel/set/show/travel-out) renders on **both** admin and crew; a strike on any **other** date is **admin-review-only** on crew and emits `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` (§8) so the operator relocates it. (FinTech's `5/5` is SHOW DAY 2 → renders on both surfaces, no warning.) |
 | RD6 | Architecture | **Derive in the parser merge step** (single source of truth → both surfaces); extend the JSONB decoder; existing shows re-stage on next sync (normal here, see `feedback_parser_rename_restages_via_mi7b`). |
@@ -112,11 +112,10 @@ export type AgendaEntry = {
 ```
 
 - **Storage:** rides in the existing `shows_internal.run_of_show` JSONB. No migration.
-- **Write path:** set by `parseScheduleTimes` (SET-day entries keep `kind` absent = agenda) and by `deriveScheduleBookends` (`"strike"` / `"loadout"`).
-- **Read path:** `decodeRunOfShow.ts` — add `"kind"` to `OPTIONAL_FIELDS` (`decodeRunOfShow.ts:7`). The decoder validates "every present optional field is a string" (`:40-50`); `kind` is a string so it passes. Renderers treat any value other than `"strike"`/`"loadout"` (incl. absent or an unknown string) as `"agenda"` (lenient — matches the decoder philosophy; an old blob with no `kind` is a normal agenda entry).
-- **Effect on output:** drives the §9.3 visual treatment + the §9.4 cap-exemption partition. (Flag lifecycle table, §12.)
-
-**Guard:** a corrupt non-enum `kind` string (e.g. `"banana"`) decodes through (string check passes) and renders as plain agenda — no crash, no special styling. The decoder does NOT reject it (consistent with `room`/`av` lenience).
+- **Write path:** set by `parseScheduleTimes` (SET-day entries keep `kind` absent = agenda) and by `deriveScheduleBookends` (`"strike"` / `"loadout"`). The producers only ever write the 3 enum values (or omit), so the runtime always matches the `AgendaEntryKind` type at the write boundary.
+- **Read path — `kind` is VALIDATED against the enum, not blindly string-copied (closes R4 medium).** `kind` is **NOT** added to the generic `OPTIONAL_FIELDS` list (`decodeRunOfShow.ts:7`), because that list does a blind "any string passes" copy (`:40-50`) which would let `"banana"` through and break the `kind?: AgendaEntryKind` type contract. Instead `decodeEntries` (`:13`) handles `kind` explicitly with an allow-list: `if (entry.kind === "strike" || entry.kind === "loadout") decoded.kind = entry.kind;` — any other value (absent, `"agenda"`, a non-string, or an unknown string like `"banana"`) yields **no `kind` field** on the decoded entry (≡ agenda). So the decoded runtime value is **always** a valid `AgendaEntryKind` or absent — the type is honest, no casts needed, and corrupt data coerces to agenda. A non-enum `kind` does **not** mark the blob corrupt (consistent with the lenient `room`/`av` field philosophy — drop the bad field, keep the entry).
+- **Renderers** therefore only ever see `kind ∈ {undefined, "strike", "loadout"}`; `undefined` ⇒ agenda styling/cap behavior. No renderer-side "unknown kind" branch is needed.
+- **Effect on output:** drives the §9.3 visual treatment + the §9.4 cap-exemption partition + the §9.6 load-out gate. (Flag lifecycle table, §12.)
 
 ### 5.2 No `ScheduleDay` shape change
 
@@ -171,27 +170,33 @@ warnings = []
 scheduleDateSet = new Set([dates.travelIn, dates.set, ...dates.showDays, dates.travelOut].filter(Boolean))
 
 // ── STRIKE (per-room) ──────────────────────────────────────────────
+// STRIKE-INTENT count = rooms whose strike_time is NON-EMPTY (presence != null),
+// i.e. the operator entered *something* — a parseable time OR a TBD/unparseable one.
+// "all rooms" is permitted ONLY when one (date,time) group contains EXACTLY this many
+// rooms — i.e. every strike-intent room is parseable AND coincides. A room with a TBD
+// or unparseable strike is counted here but produces NO group entry, so it BLOCKS
+// "all rooms" (we know it strikes but not when → must not imply it strikes now). This
+// closes R4 high (TBD room) on top of R3 high (partial-time group). (presence()/
+// isAbsentTime per §7.1 shared-helpers note.)
+strikeIntentCount = count(room in rooms where presence(room.strike_time) != null)
+
 groups = Map<`${iso}|${time}`, { iso, time, rooms: string[] }>
-allStrikingRoomNames = []          // every room that produced a parseable strike (any date/time)
 for room of rooms:
-  raw = room.strike_time
-  if isAbsentTime(raw): continue            // null/empty/TBD/N/A/TBA
-  {iso, time} = parseRoomTimeCell(raw, contextYear)   // §7.2
-  if iso == null: continue                  // no parseable date → skip (RD5)
+  {iso, time} = parseRoomTimeCell(room.strike_time, contextYear)   // §7.2: null/empty/bare-TBD → iso:null
+  if iso == null: continue                  // no parseable LEADING date → no entry (bare TBD/garbage; still counted in strikeIntentCount)
   name = presence(room.name) ?? roomKindFallback(room.kind)   // roomKindFallback: local map gs→"General Session", breakout→"Breakout", additional→"Room"
-  allStrikingRoomNames.push(name)
   key = `${iso}|${time ?? ""}`
-  groups[key] ||= {iso, time, rooms: []}
-  groups[key].rooms.push(name)
-totalStriking = distinctCount(allStrikingRoomNames)
+  groups[key] ||= {iso, time, rooms: [] }
+  if name not in groups[key].rooms: groups[key].rooms.push(name)   // dedupe by name within a group
 for g of groups (sorted by iso asc, then time asc, then rooms join):
-  // "all rooms" is SAFE only when this single (date,time) group accounts for EVERY
-  // striking room. A partial simultaneous strike (e.g. 2 breakouts at 5pm while GS
-  // strikes at 6pm) must NOT read "all rooms" — that risks premature teardown (R3 high).
-  if g.rooms.length == 1:                         title = `Strike — ${g.rooms[0]}`
-  elif g.rooms.length == totalStriking:           title = "Strike — all rooms"   // every striking room, same date+time
-  elif g.rooms.length <= STRIKE_ROOM_NAME_CAP:    title = `Strike — ${g.rooms.sorted().join(", ")}`   // partial: name them
-  else:                                           title = `Strike — ${g.rooms.length} rooms`           // partial, too many to list
+  // "all rooms" is SAFE only when this single (date,time) group == every strike-INTENT
+  // room (all parseable, all coincident). Any partial group — fewer rooms, OR a sibling
+  // room with TBD/unknown strike — names/counts instead. Prevents a premature-teardown
+  // read (R3 + R4 high).
+  if g.rooms.length == 1:                                 title = `Strike — ${g.rooms[0]}`
+  elif g.rooms.length == strikeIntentCount:               title = "Strike — all rooms"   // every strike-intent room, parseable, same date+time
+  elif g.rooms.length <= STRIKE_ROOM_NAME_CAP:            title = `Strike — ${g.rooms.sorted().join(", ")}`   // partial: name them
+  else:                                                   title = `Strike — ${g.rooms.length} rooms`           // partial, too many to list
   appendEntry(ros, g.iso, { start: g.time ?? "", title, kind: "strike" })   // ALWAYS appended (admin shows it)
   if !scheduleDateSet.has(g.iso):
     warnings.push(strikeDateOffSchedule(g.iso))     // §8 — fires ⟺ crew can't render this date
@@ -208,7 +213,7 @@ return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings }
 ```
 
 - `appendEntry(ros, iso, entry)`: if `ros[iso]` absent, create `{ entries: [entry], showStart: null, window: null }`; else **append** to `ros[iso].entries` (synthetic entries go **after** existing agenda entries — they are end-of-day events; no global re-sort, preserving sheet order for agenda). Strike entries are emitted before the load-out for the same day (group iteration runs before the load-out step), and multiple strikes sort by time ascending.
-- **`STRIKE_ROOM_NAME_CAP`** = 3 (a local constant in `scheduleBookends.ts`): a partial-strike group names its rooms when ≤ 3, else collapses to `"Strike — N rooms"`. `distinctCount` / `g.rooms` dedupe by room name (the reconcile pass already merges same-name rooms, `rooms.ts:37`, so duplicates are rare). **`"all rooms"` is emitted ONLY when `g.rooms.length === totalStriking`** — i.e. a single (date,time) group contains every room that strikes anywhere; a partial simultaneous strike never reads "all rooms" (R3 high; teardown-safety). When `totalStriking === 1`, the lone room hits the `length == 1` branch (named), never "all rooms".
+- **`STRIKE_ROOM_NAME_CAP`** = 3 (a local constant in `scheduleBookends.ts`): a partial-strike group names its rooms when ≤ 3, else collapses to `"Strike — N rooms"`. `g.rooms` dedupes by room name within the group (the reconcile pass already merges same-name rooms, `rooms.ts:37`, so duplicates are rare). **`"all rooms"` is emitted ONLY when `g.rooms.length === strikeIntentCount`** — i.e. a single (date,time) group contains every room that has a non-empty `strike_time` AND all of them parsed. If any strike-intent room is TBD/unparseable (counted in `strikeIntentCount` but absent from every group) or strikes at a different time/day, no group reaches `strikeIntentCount` → never "all rooms" (R3 + R4 high; teardown-safety). When `strikeIntentCount === 1`, the lone parseable room hits the `length == 1` branch (named), never "all rooms".
 - `contextYear` is the **parameter** passed by the caller (`= inferShowYear(markdown)`, `_helpers.ts:123`, in scope in `parseSheet`). The function does NOT recompute it. When `contextYear` is `null` and a strike cell is yearless, that strike is **skipped** (no parseable date — §7.2). Room strike dates are often yearless (`"10/9 @ 4:30pm"`), so the parameter is load-bearing; §14 includes a yearless-strike integration test proving entries are NOT dropped when `contextYear` is supplied.
 - **Shared helpers:** `presence` is exported from `lib/parser/blocks/_helpers.ts` (used corpus-wide). `isAbsentTime` is currently **module-private** in `resolveKeyTimes.ts:21` — the plan either (a) exports it for reuse, or (b) mirrors its exact regex `/\b(?:TBD|N\/A|TBA)\b/i` + empty/null check in `scheduleBookends.ts`. Pick one and pin it with a test so the two definitions can't drift.
 - The returned object is a **new** object; `rosIn` is never mutated (guard against the persisted-blob being aliased). When `rosIn` was `undefined` and no synthetic entries were added, return `rosIn` (preserve the "no run-of-show" sentinel so `index.ts:493` still omits the key).
@@ -217,11 +222,12 @@ return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings }
 
 Room `strike_time` / `set_time` / `show_time` are free-text with **two** separators observed in the corpus: `"M/D @ TIME"` (most), `"M/D - TIME"` (v1 East Coast `"5/15 - 1PM"`), and date-only / `M/D/YY`. `transport.ts:parseV2DateTime` (`:603`) handles only `"@"`, so a dedicated helper is needed:
 
-- Extract leading date: `/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/`. If no leading `M/D` → `{date:null, time:null}` (skip).
-- Resolve year: explicit in the cell → use it; else a 4-digit year elsewhere in the cell; else `contextYear`; else `null` (→ skip). Route through `normalizeDate` (rejects calendar-invalid dates, mirrors `dates.ts:280-292`).
+- If `presence(raw) == null` (null / empty / whitespace) → `{date:null, time:null}`.
+- Extract leading date: `/^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/`. If no leading `M/D` → `{date:null, time:null}`. This is what makes a **bare `"TBD"` / `"N/A"`** (no leading date) return `date:null` → the caller's `if iso == null: continue` skips it (no separate `isAbsentTime(raw)` pre-guard needed, and the room still counts toward `strikeIntentCount`).
+- Resolve year: explicit in the cell → use it; else a 4-digit year elsewhere in the cell; else `contextYear`; else `null` (→ `date:null`). Route through `normalizeDate` (rejects calendar-invalid dates, mirrors `dates.ts:280-292`).
 - Extract time: the substring after the date, stripped of a leading `@` / `-` / `–` separator and whitespace; sentinel-guarded via `isAbsentTime` (→ `time: null`). Preserve the operator's clock text verbatim (e.g. `"4:30pm"`, `"1PM"`) — we do not reformat crew-facing times.
 
-**Guard cases:** `"TBD"` → `isAbsentTime` true → skipped before parse. `"5/15 - 1PM"` → `{date:"<yr>-05-15", time:"1PM"}`. `"10/9 @ 4:30pm"` → `{date, time:"4:30pm"}`. `"3/25/26 @ 12:30pm"` → explicit year. A bare date `"5/14"` → `{date, time:null}` (date-only strike renders with empty start).
+**Guard cases:** bare `"TBD"`/`"N/A"`/`""` → `{date:null,time:null}` → skipped (no entry) but the room still counts in `strikeIntentCount` (so it blocks "all rooms"). `"5/15 - 1PM"` → `{date:"<yr>-05-15", time:"1PM"}`. `"10/9 @ 4:30pm"` → `{date, time:"4:30pm"}`. `"3/25/26 @ 12:30pm"` → explicit year. A bare date `"5/14"` **or** a date-with-TBD-time `"5/14 @ TBD"` → `{date, time:null}` (date-only strike entry, renders with empty start).
 
 ---
 
@@ -339,7 +345,8 @@ Both `ScheduleSection` and `TodaySection` compute `transportVisible = transportT
 - **D5 — Non-aggregate-date crew invisibility is a documented boundary** (§10), and for strikes it is **surfaced by the §8 warning** (warn ⟺ crew-invisible), not silent. The corpus never triggers it. Do not re-flag as a silent omission — see §8 faithful-render contract + §10.
 - **D6 — Re-staging existing shows is expected** (RD6). A parser-output change re-stages ingested shows once on next sync; this is the established mechanism, not a regression.
 - **D7 — Load-out crew visibility is gated by `transportTileVisible`, by design** (§9.6, closes R3 medium). The Pick Up Venue time is transport data; it is gated identically in Schedule and Travel. Strikes (room-sourced) are show-wide because room data is ungated (`ScheduleSection.tsx:96-100`). This is the ratified policy — not a leak and not an inconsistency; do not relitigate strike-show-wide vs load-out-gated (they have different data sources with different existing scopes).
-- **D8 — `"all rooms"` is emitted ONLY when a (date,time) group is every striking room** (§7.1, closes R3 high). Partial simultaneous strikes are named/counted, never "all rooms" (teardown-safety). This refines RD3's label wording for safety while preserving its collapse-identical intent.
+- **D8 — `"all rooms"` is emitted ONLY when a (date,time) group equals `strikeIntentCount`** (§7.1, closes R3+R4 high). Partial simultaneous strikes — fewer rooms, OR a sibling room with a TBD/unparseable strike — are named/counted, never "all rooms" (teardown-safety). A TBD-strike room counts toward `strikeIntentCount` but produces no group entry, so it blocks "all rooms". This refines RD3's label wording for safety while preserving its collapse-identical intent.
+- **D9 — `AgendaEntry.kind` stays the `AgendaEntryKind` enum; the decoder allow-list keeps it honest** (§5.1, closes R4 medium). Unknown `kind` values coerce to absent/agenda in `decodeEntries` (not blind-copied via `OPTIONAL_FIELDS`, not corrupt-flagged). Do not relitigate as `kind?: string`.
 
 ---
 
@@ -397,7 +404,7 @@ No `AnimatePresence` / framer-motion is added.
   - **Expected values derived from fixture dimensions**, never hardcoded (e.g. room count, strike strings read from the fixture rows).
 - `tests/parser/blocks/scheduleTimes.test.ts` (extend): SET row tokenized → SET-day `ScheduleDay` keyed by `dates.set` with the load-in entry; combined `TRAVEL / SET` row tokenizes both clocks; v1 2-col SET → no SET ScheduleDay.
 - `tests/parser/parseSheet*.test.ts`: a full fixture yields SET day + strike + load-out in `ParsedSheet.runOfShow`, and the warning (when applicable) reaches `ParsedSheet.warnings` (proving the `index.ts` merge wiring, not just the unit).
-- `tests/data/decodeRunOfShow.test.ts` (extend): an entry with `kind:"strike"` survives encode→decode; an unknown `kind` string decodes as a (lenient) string and renders agenda; a legacy entry without `kind` decodes unchanged (negative-regression on the `OPTIONAL_FIELDS` addition).
+- `tests/data/decodeRunOfShow.test.ts` (extend): an entry with `kind:"strike"` (and `"loadout"`) survives encode→decode with the kind intact; an **unknown** `kind` (`"banana"`, a number, etc.) decodes to an entry with **no `kind` field** (coerced to agenda — NOT passed through as a string), and does **not** mark the blob corrupt; a legacy entry without `kind` decodes unchanged. Negative-regression: feed `kind:"banana"` and assert `decoded.kind === undefined` (proves the allow-list, not a blind copy).
 
 **Render (DOM; anti-tautology — clone & strip siblings, assert against the data source):**
 - Crew `ScheduleSection` test: SET day card shows the load-in entry; strike entry shows on its day; load-out on the last day; SET-day "Setup" meta suppressed when entries exist (assert the `setupTime` string is NOT double-printed — clone the SET card, remove the `RunOfShowList`, assert the meta is gone). Derive the expected day count from the fixture's aggregate days.
@@ -418,7 +425,7 @@ No `AnimatePresence` / framer-motion is added.
 | `lib/parser/blocks/scheduleBookends.ts` | **new** — `deriveScheduleBookends` + `parseRoomTimeCell`. |
 | `lib/parser/blocks/agendaWarnings.ts` | `strikeDateOffSchedule` helper. |
 | `lib/parser/index.ts` | compute `inferShowYear(markdown)`; call `deriveScheduleBookends(mergedRunOfShow, dates, transportation, rooms, contextYear)` after merge; replace `mergedRunOfShow` with its result; push its warnings. |
-| `lib/data/decodeRunOfShow.ts` | add `"kind"` to `OPTIONAL_FIELDS`. |
+| `lib/data/decodeRunOfShow.ts` | validate `kind` via an enum allow-list in `decodeEntries` (accept `"strike"`/`"loadout"`, else drop → agenda); NOT added to the generic `OPTIONAL_FIELDS`. |
 | `lib/crew/agendaDisplay.ts` | **new** `scheduleEntriesForViewer` helper (load-out transport gate; §9.6). |
 | `components/crew/sections/ScheduleSection.tsx` | SET-day meta suppression; import `transportTileVisible`; route per-day entries through `scheduleEntriesForViewer`. |
 | `components/crew/sections/TodaySection.tsx` | route today entries through `scheduleEntriesForViewer` (reuses existing `transportVisible` `:281`). |
@@ -436,7 +443,7 @@ No `AnimatePresence` / framer-motion is added.
 
 - Caps: crew `RUN_OF_SHOW_DISPLAY_CAP = 20`; admin `SCHEDULE_ENTRIES_CAP = 6`, `SCHEDULE_DAYS_CAP = 14` — cited from source, single-sourced (not redefined here).
 - Shows surveyed: **7** (§3 table has 7 rows). Pick Up Venue present in **6/7**; GS strike in **7/7**; explicit DATES strike rows **0/7**.
-- `AgendaEntry` field count: 6 existing (`start, finish, trt, title, room, av`) → 7 with `kind`. `decodeRunOfShow` `OPTIONAL_FIELDS`: 4 → 5.
+- `AgendaEntry` field count: 6 existing (`start, finish, trt, title, room, av`) → 7 with `kind`. `decodeRunOfShow` `OPTIONAL_FIELDS` stays **4** (`finish, trt, room, av`) — `kind` is decoded by a dedicated enum allow-list in `decodeEntries`, NOT added to the generic string-copy list (§5.1).
 - Warning code: exactly one new (`SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`), fired when a strike date ∉ `scheduleDateSet` (= aggregateDays = travelIn/set/showDays/travelOut).
 - Kinds: exactly 3 (`agenda` default, `strike`, `loadout`).
 - `STRIKE_ROOM_NAME_CAP = 3` (partial-strike group names ≤3 rooms, else "N rooms"; "all rooms" only when group = every striking room).
