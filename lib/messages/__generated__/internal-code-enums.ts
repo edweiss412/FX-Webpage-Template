@@ -188,6 +188,9 @@ export const INTERNAL_CODE_ENUMS = {
   SCHEDULE_TIME_UNPARSED: {
     source: "parse_warnings.code"
   },
+  SECTION_HEADER_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   SECTION_HEADER_NO_FIELDS: {
     source: "parse_warnings.code"
   },
