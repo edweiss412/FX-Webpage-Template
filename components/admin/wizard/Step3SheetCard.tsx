@@ -47,6 +47,7 @@ import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
+import { venueDisplay } from "@/lib/venue/venueLocation";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -415,41 +416,59 @@ export function PublishCheckbox({
   driveFileId,
   wizardSessionId,
   initialChecked,
+  controlledChecked,
+  onToggle,
+  pending: pendingProp,
 }: {
   driveFileId: string;
   wizardSessionId: string;
   initialChecked: boolean;
+  // Optional CONTROLLED mode. When the parent (Step3Review) supplies `onToggle`,
+  // the publish-intent state is LIFTED: the parent owns `checked`/`pending` and
+  // performs the POST + router.refresh(), so "Select all" flips every box
+  // instantly through shared optimistic state instead of waiting on each box to
+  // re-seed from a refresh (the select-all-doesn't-stick bug — the per-box
+  // useState was decoupled from the header's optimistic state). Omitted → the box
+  // self-manages its own state and POST (standalone / single-card usage is
+  // unchanged, and the call site keeps `key={row.status}` to re-seed on refresh).
+  controlledChecked?: boolean | undefined;
+  onToggle?: ((next: boolean) => void) | undefined;
+  pending?: boolean | undefined;
 }) {
+  const controlled = onToggle !== undefined;
   const router = useRouter();
-  // `checked` seeds from the server-derived `initialChecked` and toggles
-  // optimistically during a write. The call site keys this component on the
-  // server status (`key={row.status}`), so when "Select all" approves every row
-  // server-side and router.refresh()es, THIS box remounts and re-seeds from the
-  // refreshed prop — fixing the bug where a long-lived `useState(initialChecked)`
-  // ignored the updated prop and left the individual boxes unchecked.
-  const [checked, setChecked] = useState(initialChecked);
-  const [pending, setPending] = useState(false);
+  // Uncontrolled state — used only when the parent does not control this box.
+  const [checkedInternal, setCheckedInternal] = useState(initialChecked);
+  const [pendingInternal, setPendingInternal] = useState(false);
+  const checked = controlled ? !!controlledChecked : checkedInternal;
+  const pending = controlled ? !!pendingProp : pendingInternal;
 
-  async function toggle(next: boolean) {
-    if (pending) return; // §4.6 guard — ignore re-entry while a write is in flight
+  async function toggleSelf(next: boolean) {
+    if (pendingInternal) return; // §4.6 guard — ignore re-entry while a write is in flight
     const action = next ? "approve" : "unapprove";
-    setPending(true);
-    setChecked(next); // optimistic
+    setPendingInternal(true);
+    setCheckedInternal(next); // optimistic
     try {
       const response = await fetch(
         `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
         { method: "POST" },
       );
       if (!response.ok) {
-        setChecked(!next); // revert optimistic state on a refused/failed write
+        setCheckedInternal(!next); // revert optimistic state on a refused/failed write
         return;
       }
       router.refresh();
     } catch {
-      setChecked(!next); // network failure → revert
+      setCheckedInternal(!next); // network failure → revert
     } finally {
-      setPending(false);
+      setPendingInternal(false);
     }
+  }
+
+  function handleChange(next: boolean) {
+    if (pending) return; // §4.6 guard (controlled or not)
+    if (controlled) onToggle?.(next);
+    else void toggleSelf(next);
   }
 
   // A 20px visible box (size-5) with a ≥44px hit area: p-3 (12px) + the size-5
@@ -470,7 +489,7 @@ export function PublishCheckbox({
         aria-label={
           checked ? "Publishing this show — uncheck to keep it unpublished" : "Publish this show"
         }
-        onChange={(e) => void toggle(e.currentTarget.checked)}
+        onChange={(e) => handleChange(e.currentTarget.checked)}
         className="peer sr-only"
       />
       <span
@@ -493,6 +512,9 @@ export function Step3SheetCard({
   wizardSessionId,
   expanded: expandedProp,
   onToggleExpanded,
+  checked: checkedProp,
+  onToggleChecked,
+  checkboxPending,
 }: {
   row: Step3Row;
   wizardSessionId: string;
@@ -502,6 +524,13 @@ export function Step3SheetCard({
   // (standalone / test usage stays unchanged).
   expanded?: boolean | undefined;
   onToggleExpanded?: (() => void) | undefined;
+  // Optional controlled publish-intent (lifted into Step3Review). When the parent
+  // supplies `onToggleChecked`, the checkbox is controlled by the shared optimistic
+  // state so "Select all" updates this box instantly. Omitted → the checkbox
+  // self-manages (standalone card usage unchanged).
+  checked?: boolean | undefined;
+  onToggleChecked?: ((next: boolean) => void) | undefined;
+  checkboxPending?: boolean | undefined;
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
@@ -540,7 +569,6 @@ export function Step3SheetCard({
   const rooms = arr(pr.rooms);
   const hotels = arr(pr.hotelReservations);
   const ros: RunOfShow = pr.runOfShow ?? {};
-  const scheduleDays = Object.keys(ros).length;
   const warnings = arr(pr.warnings);
   // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
   // per-class data-gap breakdown (single-sourced via summarizeDataGaps) so the
@@ -557,13 +585,11 @@ export function Step3SheetCard({
     pr.diagrams?.linkedFolder != null || arr(pr.diagrams?.embeddedImages).length > 0;
   const hasReel = pr.openingReel != null;
 
-  // Counts strip — dot-separated, tabular figures (§4.2). A 0 renders.
-  const counts = [
-    `${crewMembers.length} crew`,
-    `${rooms.length} rooms`,
-    `${hotels.length} hotels`,
-    `${scheduleDays} schedule days`,
-  ].join(" · ");
+  // Collapsed-summary Venue row (replaces the old Totals strip): venue name is the
+  // primary value, a best-effort city the muted secondary line. The per-section
+  // counts now live ONLY in the expanded breakdown section headers ("Crew (N)"),
+  // so they are no longer recomputed here.
+  const { name: venueName, city: venueCity } = venueDisplay(pr.show.venue);
 
   return (
     <article
@@ -578,13 +604,19 @@ export function Step3SheetCard({
         {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
             long title (min-w-0 flex-1 below) truncates instead of squeezing it. */}
         <PublishCheckbox
-          // Re-seed (remount) when the server status flips, so a "Select all"
-          // (which approves every row server-side, then router.refresh()es) checks
-          // THIS box too instead of leaving stale local state.
-          key={row.status}
+          // Controlled mode (in the Step3Review grid): the parent owns the
+          // optimistic checked state, so a stable key by dfid keeps the box mounted
+          // and the parent drives it. Uncontrolled mode (standalone): re-seed
+          // (remount) on a server-status flip so a refreshed status takes effect.
+          key={onToggleChecked !== undefined ? dfid : row.status}
           driveFileId={dfid}
           wizardSessionId={wizardSessionId}
           initialChecked={row.status === "applied"}
+          controlledChecked={
+            onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
+          }
+          onToggle={onToggleChecked}
+          pending={checkboxPending}
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-semibold text-text-strong" title={title}>
@@ -592,10 +624,10 @@ export function Step3SheetCard({
           </p>
           {client ? <p className="truncate text-sm text-text-subtle">{client}</p> : null}
 
-          {/* Dates and Totals are DISTINCT visual roles (plan Task 3): each row
-              carries a small uppercase eyebrow label so the two stop reading as
-              one run-on metadata block. Shared 2-track grid so both eyebrows
-              share a left edge and both values share a left edge. */}
+          {/* Dates and Venue are DISTINCT visual roles: each row carries a small
+              uppercase eyebrow label so the two stop reading as one run-on
+              metadata block. Shared 2-track grid so both eyebrows share a left
+              edge and both values share a left edge. */}
           {/* `minmax(0,1fr)` (not the default `1fr` = `minmax(auto,1fr)`) lets the
               value column shrink below its content so a long unbreakable token
               wraps instead of forcing horizontal overflow past the card width. */}
@@ -612,17 +644,32 @@ export function Step3SheetCard({
             >
               {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
             </dd>
+            {/* Venue row — replaces the old Totals strip (the counts now live in the
+                expanded breakdown section headers). Venue name is primary; a
+                best-effort city sits muted beneath it. Falls back to a human
+                "Venue not detected" sentence (invariant 5), never an empty cell. */}
             <dt
               className="text-xs font-semibold uppercase text-text-subtle"
               style={{ letterSpacing: "var(--tracking-eyebrow)" }}
             >
-              Totals
+              Venue
             </dt>
             <dd
-              data-testid={`wizard-step3-card-${dfid}-totals`}
-              className="text-sm tabular-nums text-text-subtle"
+              data-testid={`wizard-step3-card-${dfid}-venue`}
+              className="min-w-0 text-sm text-text-subtle"
             >
-              {counts}
+              {venueName ? (
+                <>
+                  <span className="wrap-break-word text-text">{venueName}</span>
+                  {venueCity && venueCity !== venueName ? (
+                    <span className="block text-xs text-text-subtle">{venueCity}</span>
+                  ) : null}
+                </>
+              ) : venueCity ? (
+                <span className="wrap-break-word text-text">{venueCity}</span>
+              ) : (
+                "Venue not detected"
+              )}
             </dd>
             {/* Crew preview — COLLAPSED card only: the first few name · role lines
                 so the operator sees WHO is on the show at a glance, without
@@ -732,10 +779,20 @@ export function Step3SheetCard({
         data-expanded={expanded ? "true" : "false"}
         inert={!expanded}
       >
-        {/* wrap-break-word bounds any unbreakable long token (a run-on role
-            label or sheet-derived name) so the breakdown never horizontally
-            overflows the fixed-width list column (§4.4). */}
-        <div className="flex flex-col gap-4 wrap-break-word pt-1">
+        {/* Balanced multi-column flow. The expanded card spans the full grid
+            width (the open accordion card is `lg:col-span-2 xl:col-span-3`), so on
+            desktop it has room for 2–3 columns; CSS multi-column balances the
+            variable-height sections into them and fills the horizontal dead space a
+            single column left behind. `break-inside-avoid` keeps each section whole
+            across a column boundary; `mb-6` carries the vertical rhythm `gap` can't
+            provide in column flow (last section drops it). Collapses to one column
+            on mobile/narrow. `wrap-break-word` still bounds any unbreakable token
+            (§4.4). Column count uses named breakpoints (DESIGN.md §6: sm/lg/xl — no
+            `md`), never an arbitrary value (token discipline §10). */}
+        <div
+          data-testid={`wizard-step3-card-${dfid}-breakdown-grid`}
+          className="columns-1 gap-x-8 wrap-break-word pt-1 sm:columns-2 xl:columns-3 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
+        >
           <CrewBreakdown dfid={dfid} members={crewMembers} />
           <ScheduleBreakdown dfid={dfid} ros={ros} />
           <RoomsBreakdown dfid={dfid} rooms={rooms} />
