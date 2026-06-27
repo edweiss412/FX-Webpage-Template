@@ -11,7 +11,6 @@
  * The §4.3.2 explicit-typo monotonic repair (with the AGENDA_MAX_SESSION_MIN end cap) is the
  * ONLY source of `drift`.
  */
-import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   AGENDA_CONFIDENCE,
   AGENDA_MAX_SESSION_MIN,
@@ -75,8 +74,63 @@ function fillAp(h: number, m: number, floor: number): Meridiem {
   return "PM";
 }
 
+// pdfjs's `legacy/build/pdf.mjs` references DOMMatrix/ImageData/Path2D when it is
+// evaluated. In a browser (or jsdom) those globals exist; in the Node serverless
+// runtime (Vercel) they do not. pdfjs's own fallback is to load `@napi-rs/canvas`,
+// but that native package is an OPTIONAL transitive dependency whose linux binary
+// is not installed on Vercel — so pdf.mjs threw `ReferenceError: DOMMatrix is not
+// defined` AT MODULE-EVALUATION TIME, which 500'd EVERY route whose server bundle
+// statically imported this file (e.g. `/admin`, via lib/sync/enrichAgenda).
+//
+// We only do text-layer extraction (no canvas rendering), so minimal class stubs
+// are sufficient — verified byte-identical extraction vs the native canvas across
+// all agenda fixtures. ensurePdfGlobals() installs the stubs (only when absent, so
+// a real DOMMatrix is never clobbered) and loadPdfjs() imports pdfjs DYNAMICALLY so
+// the heavy module is evaluated only when extraction actually runs — never at this
+// module's load time, keeping it out of unrelated route bundles entirely.
+function ensurePdfGlobals(): void {
+  const g = globalThis as Record<string, unknown>;
+  if (typeof g.DOMMatrix === "undefined") {
+    g.DOMMatrix = class DOMMatrix {
+      a = 1;
+      b = 0;
+      c = 0;
+      d = 1;
+      e = 0;
+      f = 0;
+      constructor(_init?: unknown) {}
+    };
+  }
+  if (typeof g.ImageData === "undefined") {
+    g.ImageData = class ImageData {
+      readonly width: number;
+      readonly height: number;
+      readonly data: Uint8ClampedArray;
+      constructor(width = 0, height = 0) {
+        this.width = width;
+        this.height = height;
+        this.data = new Uint8ClampedArray(Math.max(0, width) * Math.max(0, height) * 4);
+      }
+    };
+  }
+  if (typeof g.Path2D === "undefined") {
+    g.Path2D = class Path2D {
+      constructor(_init?: unknown) {}
+    };
+  }
+}
+
+type Pdfjs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+let pdfjsModulePromise: Promise<Pdfjs> | null = null;
+function loadPdfjs(): Promise<Pdfjs> {
+  ensurePdfGlobals();
+  pdfjsModulePromise ??= import("pdfjs-dist/legacy/build/pdf.mjs");
+  return pdfjsModulePromise;
+}
+
 export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<AgendaExtraction> {
   try {
+    const pdfjs = await loadPdfjs();
     const doc = await pdfjs.getDocument({
       data: pdfBytes,
       isEvalSupported: false,
