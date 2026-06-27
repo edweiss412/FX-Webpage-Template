@@ -114,3 +114,15 @@ export function normalizeDate(raw: string): string | null {
   const dd = String(day).padStart(2, "0");
   return `${year}-${mm}-${dd}`;
 }
+
+/**
+ * Infer a 4-digit show year from the first `M/D/YY(YY)` date anywhere in the sheet
+ * markdown, else null. Used to back-fill yearless dates (hotels, transport) instead
+ * of hard-coding an era. Shared so the hotel + transport parsers stay in lockstep.
+ */
+export function inferShowYear(markdown: string): string | null {
+  const m = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
+  if (!m) return null;
+  const iso = normalizeDate(m[0]);
+  return iso ? iso.slice(0, 4) : null;
+}

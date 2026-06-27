@@ -345,3 +345,36 @@ describe("parseTransportation — zero-width strip at the shared clean() boundar
     expect(/[\u200B-\u200D\uFEFF]/.test(t!.parking!)).toBe(false);
   });
 });
+
+describe("parseTransportation \u2014 yearless date inference (drop hard-coded /25)", () => {
+  const v2Block = (dateCell: string, datesLine?: string) =>
+    [
+      ...(datesLine ? [datesLine, ""] : []),
+      "| TRANSPORTATION | NAME | PHONE |",
+      "| :---: | :---: | :---: |",
+      `| Pick Up Venue | ${dateCell} |`,
+    ].join("\n");
+  const pickUp = (t: ReturnType<typeof parseTransportation>) =>
+    t!.schedule.find((s) => /pick up venue/i.test(s.stage));
+
+  it("yearless transport date infers the show year, not a hard-coded 2025", () => {
+    const SHOW_YEAR = "2026"; // single source of truth for this fixture
+    const yy = SHOW_YEAR.slice(2);
+    const t = parseTransportation(v2Block("10/6 @ 12:00 PM", `| DATES | 6/24/${yy} - 6/26/${yy} |`), "v2");
+    // The parsed date's year must be the show year, never 2025 (the old /25 bug).
+    expect(pickUp(t)?.date).toMatch(new RegExp(`^${SHOW_YEAR}-`));
+    expect(pickUp(t)?.date).not.toBe("2025-10-06");
+  });
+
+  it("yearless transport date with no inferable show year \u2192 exactly null (never a hard-coded era)", () => {
+    const t = parseTransportation(v2Block("10/6 @ 12:00 PM"), "v2");
+    // No DATES \u2192 no contextYear \u2192 the date is EXACTLY null, not a guessed 2025 nor any
+    // other wrong value (a bare not-2025 check would be too weak).
+    expect(pickUp(t)?.date).toBeNull();
+  });
+
+  it("transport date with an explicit year is preserved (context does not override)", () => {
+    const t = parseTransportation(v2Block("10/6/24 @ 12:00 PM", "| DATES | 6/24/26 - 6/26/26 |"), "v2");
+    expect(pickUp(t)?.date).toBe("2024-10-06"); // explicit /24 wins over the 2026 context
+  });
+});

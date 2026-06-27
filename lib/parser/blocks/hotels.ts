@@ -22,7 +22,7 @@
 
 import type { HotelReservationRow } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
-import { clean, presence, normalizeDate, parseTableRows } from "./_helpers";
+import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
 
 const MAX_HOTELS = 4; // cardinality cap §10
 
@@ -560,18 +560,6 @@ function splitInlineReservationGroups(raw: string): string[] {
   const tail = raw.slice(last).trim();
   if (tail) segments.push(tail);
   return segments.length > 0 ? segments : [raw];
-}
-
-/**
- * Infer the show's calendar year from the first parseable date in the markdown
- * (the DATES / travel block). Used to back-fill yearless inline hotel dates so
- * the era is taken from the show context, not hard-coded.
- */
-function inferShowYear(markdown: string): string | null {
-  const m = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
-  if (!m) return null;
-  const iso = normalizeDate(m[0]);
-  return iso ? iso.slice(0, 4) : null;
 }
 
 function buildInlineHotel(
