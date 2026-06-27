@@ -239,48 +239,77 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     ).toBe(false);
   });
 
-  test("driver match is case-SENSITIVE: 'cara' does NOT match driver 'Cara' [pinned exact-match contract]", () => {
-    // PINNED, not a bug. Both sides of the compare are parser-canonical:
-    //   - driver_name flows through presence(clean(...)) in all three
-    //     layout parsers (lib/parser/blocks/transport.ts:139,289,342) and
-    //     clean() trims (lib/parser/blocks/_helpers.ts:45-47);
-    //   - viewerName originates from the same parser pipeline's
-    //     crew_members.name.
-    // Exact `===` (lib/visibility/scopeTiles.ts:179) is therefore correct
-    // per the file's own comment (scopeTiles.ts:157-161). This test FAILS
-    // if someone "helpfully" adds toLowerCase() to the compare.
+  // ── BL-HOTEL-VIEWER-NAME-MATCH sibling: name-aware matching ─────────────────
+  // The prior contract pinned EXACT `===` / array-`.includes` matching, arguing
+  // both sides are parser-canonical. That is FALSE for driver_name — it is
+  // free-text (`presence(clean(...))`, transport.ts driver branches), NOT
+  // roster-validated — so a sheet "Driver: Doug" never matched roster
+  // "Doug Larson" and that crew member missed their own transport (the harm).
+  // Now both branches route through `namesRefer` (lib/data/nameMatch.ts): name-
+  // aware (case/trim-insensitive, first-name / nickname / `/`-merged tolerant).
+  // UX-not-security per the owner determination (over-match re-surfaces a card a
+  // viewer can already reach by re-picking).
+  const withDriver = (driver: string | null, assigned: string[] = []): TransportationRow => ({
+    ...baseTransport,
+    driver_name: driver,
+    schedule: [{ stage: "Travel In", date: "2026-06-01", time: "09:00", assigned_names: assigned }],
+  });
+
+  test("driver match is now case- + trim-insensitive ('cara', 'Cara ' match 'Cara')", () => {
+    expect(
+      transportTileVisible({ transportation: baseTransport, viewerName: "cara", isAdmin: false }),
+    ).toBe(true);
+    expect(
+      transportTileVisible({ transportation: baseTransport, viewerName: "Cara ", isAdmin: false }),
+    ).toBe(true);
+  });
+
+  test("assigned_names match is now case-insensitive ('alice' matches tagged 'Alice')", () => {
+    expect(
+      transportTileVisible({ transportation: baseTransport, viewerName: "alice", isAdmin: false }),
+    ).toBe(true);
+  });
+
+  test("free-text first-name driver matches the full-roster viewer (the fix)", () => {
+    // failure mode: exact `===` hid this — "Doug" ≠ "Doug Larson" → driver missed transport.
     expect(
       transportTileVisible({
-        transportation: baseTransport,
-        viewerName: "cara",
+        transportation: withDriver("Doug"),
+        viewerName: "Doug Larson",
+        isAdmin: false,
+      }),
+    ).toBe(true);
+    expect(
+      transportTileVisible({
+        transportation: withDriver("Douglas Larson"),
+        viewerName: "Doug Larson",
+        isAdmin: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("nickname/variant assigned_name matches the roster viewer", () => {
+    expect(
+      transportTileVisible({
+        transportation: withDriver(null, ["Douglas Larson"]),
+        viewerName: "Doug Larson",
+        isAdmin: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("over-match guard: a same-first-name DIFFERENT-surname driver/assignee is NOT visible", () => {
+    expect(
+      transportTileVisible({
+        transportation: withDriver("Eric Carroll"),
+        viewerName: "Eric Weiss",
         isAdmin: false,
       }),
     ).toBe(false);
-  });
-
-  test("driver match does NOT trim: 'Cara ' (trailing space) does NOT match driver 'Cara' [pinned]", () => {
-    // Whitespace can't survive the parser (clean() trims both the
-    // persisted driver_name and the crew name the viewer is matched by),
-    // so the predicate intentionally does no trimming of its own.
     expect(
       transportTileVisible({
-        transportation: baseTransport,
-        viewerName: "Cara ",
-        isAdmin: false,
-      }),
-    ).toBe(false);
-  });
-
-  test("assigned_names match is case-SENSITIVE too: 'alice' does NOT match tagged 'Alice' [pinned]", () => {
-    // assigned_names tokens are trimmed by splitNames
-    // (lib/parser/blocks/transport.ts:473-476) and accepted only as exact
-    // crew-roster matches (transport.ts:491) or Title-Case name-shaped
-    // tokens (transport.ts:493-496) — a lowercase variant can never be
-    // persisted, so `.includes(viewerName)` exact-match is correct.
-    expect(
-      transportTileVisible({
-        transportation: baseTransport,
-        viewerName: "alice",
+        transportation: withDriver(null, ["Eric Carroll"]),
+        viewerName: "Eric Weiss",
         isAdmin: false,
       }),
     ).toBe(false);

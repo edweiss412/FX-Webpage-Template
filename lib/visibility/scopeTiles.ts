@@ -45,6 +45,7 @@
  * Server-safe (pure functions; no environment reads, no side effects).
  */
 import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
+import { namesRefer } from "@/lib/data/nameMatch";
 
 /**
  * Canonical "all-flags" set for the bare admin viewer's tile-grid
@@ -141,9 +142,9 @@ export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean 
  * Transport tile visibility (§8.1, Task 4.7).
  *
  * Two OR'd branches per spec §8.1:
- *   1. `transportation.driver_name === viewerName` — the assigned driver
- *      sees their own ride card.
- *   2. The viewer's name appears in any per-day schedule entry's
+ *   1. `namesRefer(transportation.driver_name, viewerName)` — the assigned
+ *      driver sees their own ride card.
+ *   2. The viewer's name refers to a name in any per-day schedule entry's
  *      `assigned_names[]` — passengers + co-drivers tagged on a leg
  *      see the tile so they know which vehicle / driver / parking
  *      spot they're paired with.
@@ -154,11 +155,19 @@ export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean 
  * `getShowForViewer` returns the full transportation row to admins
  * regardless of name match.
  *
- * The viewer-name match is exact-equal (case-sensitive, trimmed by the
- * parser before persistence). String-includes / case-insensitive /
- * fuzzy match is INTENTIONALLY rejected here — fuzzy match is what the
- * `assigned_names` parser does upstream (Task 1.6's tagging logic);
- * this predicate trusts the parser's output.
+ * The viewer-name match is NAME-AWARE via `namesRefer`
+ * (BL-TRANSPORT-VIEWER-NAME-MATCH): diacritic-fold + suffix-strip +
+ * nickname/initial-prefix + surname-anchored, tolerant of the
+ * first-name-only / nickname / case / trim differences between a
+ * free-text sheet "Driver: Doug" and a roster "Doug Larson". Exact `===`
+ * hid the driver-crew-member's own transport — `driver_name` is FREE-TEXT
+ * (`presence(clean(...))` in transport.ts, NOT roster-validated), so it
+ * legitimately diverges from the roster name. `assigned_names` are mostly
+ * roster-canonical (splitNames' isNameLike upstream) but a legal-name /
+ * nickname variant still needs name-aware matching, not raw equality.
+ * The filter is UX-not-security per the owner determination (master spec
+ * §amendment 2026-05-23) — over-match is benign (the tile is re-reachable
+ * by re-picking), under-match (hiding a viewer's own ride) is the harm.
  *
  * Returns false when transportation is null (no row seeded for the
  * show) — there's literally nothing to render. Page is responsible for
@@ -175,12 +184,19 @@ export function transportTileVisible(opts: {
   // Branch 3 — admin sees the tile when transportation exists.
   if (isAdmin) return true;
   if (!viewerName) return false;
-  // Branch 1 — assigned driver.
-  if (transportation.driver_name === viewerName) return true;
-  // Branch 2 — viewer is tagged on at least one schedule leg's
-  // assigned_names. The end-to-end contract for `assigned_names` lives
-  // at lib/parser/types.ts:147-152 — preserved verbatim across
-  // parser → seed → persistence → projection (regression test #7 in
-  // tests/data/getShowForViewer.test.ts).
-  return transportation.schedule.some((s) => s.assigned_names.includes(viewerName));
+  // Branch 1 — assigned driver. `driver_name` is FREE-TEXT (not roster-validated),
+  // so match by NAME (namesRefer), tolerant of the first-name / nickname / case /
+  // trim differences between a sheet "Driver: Doug" and roster "Doug Larson" —
+  // exact `===` hid the driver-crew-member's own transport (BL-HOTEL-VIEWER-NAME-
+  // MATCH sibling). UX-not-security per the owner determination.
+  if (transportation.driver_name !== null && namesRefer(transportation.driver_name, viewerName))
+    return true;
+  // Branch 2 — viewer is tagged on at least one schedule leg's assigned_names.
+  // assigned_names are mostly roster-canonical (splitNames' isNameLike), but a
+  // nickname/legal-name variant ("Douglas Larson" vs "Doug Larson") still needs
+  // name-aware matching. The `assigned_names` shape contract lives at
+  // lib/parser/types.ts:147-152.
+  return transportation.schedule.some((s) =>
+    s.assigned_names.some((n) => namesRefer(n, viewerName)),
+  );
 }

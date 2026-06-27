@@ -165,8 +165,8 @@ export type RoomRow = {
 // through parser → ParseResult → seed → Phase 2 persistence (`transportation.schedule` JSONB)
 // → getShowForViewer → TransportTile visibility (§8.1). NEVER omitted at any layer; empty array
 // when no tagged passengers / co-drivers. The TransportTile predicate is:
-// driver_name === viewer.name
-// || transportation.schedule.some(s => s.assigned_names.includes(viewer.name))
+// namesRefer(driver_name, viewer.name)
+// || transportation.schedule.some(s => s.assigned_names.some(n => namesRefer(n, viewer.name)))
 export type TransportScheduleEntry = {
   stage: string;
   date: string | null;
