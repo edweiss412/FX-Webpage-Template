@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseEventDetails } from "@/lib/parser/blocks/event";
+import { parseEventDetails, EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { unambiguousTypos } from "../_typoGenerator";
 
 const ALL_FIXTURES = [
   "fixtures/shows/raw/2024-05-east-coast-family-office.md",
@@ -228,4 +231,158 @@ describe("parseEventDetails — corpus coverage", () => {
       }
     });
   }
+});
+
+// ── PR-D1: EVENT DETAILS fuzzy field-label recovery ──────────────────────────
+// Helper: build a minimal EVENT DETAILS block from label/value rows.
+function evBlock(rows: string[]): string {
+  return ["| EVENT DETAILS | |", ...rows].join("\n") + "\n| CREW | |\n";
+}
+
+describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
+  it("recovers a misspelled label and warns once (kind=details)", () => {
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Stage Sze | 20x16 |"]), "v4", agg);
+    expect(ed.stage_size).toBe("20x16");
+    const warns = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef).toEqual({ kind: "details" });
+    expect(warns[0]!.rawSnippet).toBe("Stage Sze");
+  });
+
+  it("exact-wins: an exact label beats a typo'd sibling for the same canonical, either order — typo value dropped, no warn", () => {
+    // dress family: "attire"/"dress code" both → dress_code. Exact must win regardless of
+    // order; the suppressed typo's value is DROPPED (not kept under a fallback key) and emits
+    // no warning (contract rules 1+3). "attir" must NOT appear as a phantom field.
+    const aggA = newAggregator();
+    const edA = parseEventDetails(
+      evBlock(["| Attir | WRONG |", "| Dress Code | Business Casual |"]),
+      "v4",
+      aggA,
+    );
+    expect(edA.dress_code).toBe("Business Casual");
+    expect(edA.attir).toBeUndefined();
+    expect(aggA.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+
+    const aggB = newAggregator();
+    const edB = parseEventDetails(
+      evBlock(["| Dress Code | Business Casual |", "| Attir | WRONG |"]),
+      "v4",
+      aggB,
+    );
+    expect(edB.dress_code).toBe("Business Casual");
+    expect(edB.attir).toBeUndefined();
+    expect(aggB.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("empty/sentinel exact does not claim: a real typo sibling still recovers and warns (no data loss)", () => {
+    // The exact "Dress Code" row is EMPTY, so it does not claim dress_code; the typo "Attir"
+    // carries a real value and recovers into dress_code (contract rule 1, empty-exact clause).
+    const aggEmpty = newAggregator();
+    const edEmpty = parseEventDetails(
+      evBlock(["| Dress Code | |", "| Attir | Casual |"]),
+      "v4",
+      aggEmpty,
+    );
+    expect(edEmpty.dress_code).toBe("Casual");
+    expect(aggEmpty.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(1);
+
+    // Sentinel exact ("TBD") likewise does not block a real fuzzy recovery; writeField lets the
+    // real value override the sentinel.
+    const aggSentinel = newAggregator();
+    const edSentinel = parseEventDetails(
+      evBlock(["| Dress Code | TBD |", "| Attir | Casual |"]),
+      "v4",
+      aggSentinel,
+    );
+    expect(edSentinel.dress_code).toBe("Casual");
+    expect(aggSentinel.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(
+      1,
+    );
+  });
+
+  it("multiple fuzzy siblings (no exact): last-write-wins, single warn naming the winning label", () => {
+    // "Stage Sze" and "Stge Size" both → stage_size, no exact row. Last value wins (matching
+    // event's known-label last-write-wins), and exactly one warning fires (contract rule 2).
+    const agg = newAggregator();
+    const ed = parseEventDetails(
+      evBlock(["| Stage Sze | 20x16 |", "| Stge Size | 30x20 |"]),
+      "v4",
+      agg,
+    );
+    expect(ed.stage_size).toBe("30x20");
+    const warns = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.rawSnippet).toBe("Stge Size");
+  });
+
+  it("round-trips a punctuated member: a typo of a slash/paren label maps back to its canonical", () => {
+    // Guards the CANONICAL_KEY_MAP[match.toLowerCase()] back-lookup for members excluded from
+    // the alphabetic-only property test (Step 5). "Backdrop / Scenicc" → "backdrop / scenic" → scenic.
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Backdrop / Scenicc | white cyc |"]), "v4", agg);
+    expect(ed.scenic).toBe("white cyc");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(1);
+  });
+
+  it("exact spellings still route unchanged, no fuzzy warning", () => {
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Diagrams | yes |", "| LED | 4 |"]), "v4", agg);
+    expect(ed.diagrams).toBe("yes");
+    expect(ed.led).toBe("4");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("genuinely-unknown label is preserved via the fallback key (no fuzzy, no warn)", () => {
+    // "Catering" is not near any event label → stays under its normalized fallback key.
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Catering | Lunch |"]), "v4", agg);
+    expect(ed.catering).toBe("Lunch");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("below-minLen: a short typo input (<5) is not corrected, falls through to fallback", () => {
+    // "Powr" (4 chars) would be distance-1 from POWER but minLen:5 blocks it.
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Powr | x |"]), "v4", agg);
+    expect(ed.power).toBeUndefined();
+    expect(ed.powr).toBe("x");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("tie-abort: a typo equidistant from two members is not corrected", () => {
+    // "goosnecks" is distance-1 from both "goosneck" and "goosenecks" → no correction.
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| goosnecks | brass |"]), "v4", agg);
+    expect(ed.gooseneck).toBeUndefined();
+    expect(ed.goosnecks).toBe("brass");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("VALUE-guard: a typo in the cell VALUE (not the label) is never fuzzed", () => {
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Catering | Stage Sze |"]), "v4", agg);
+    expect(ed.stage_size).toBeUndefined();
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+});
+
+// Property test over the gate directly (the "typos beyond the example sheets" core). Scope to
+// purely alphabetic+space members so generator neighbors (ALPHA = A–Z + space) are well-formed;
+// punctuated members (BACKDROP / SCENIC, FONTS (II ONLY), DRESS_CODE) are covered by the
+// explicit round-trip unit test above.
+describe("parseEventDetails — gate corrects unseen typos (PR-D1)", () => {
+  it("corrects unambiguous single-edit typos of every clean member back to that member", () => {
+    const opts = { minLen: 5, tieAbort: true } as const;
+    const clean = EVENT_LABEL_VOCAB.filter((m) => /^[A-Z ]+$/.test(m));
+    expect(clean.length).toBeGreaterThan(8);
+    for (const member of clean) {
+      for (const typo of unambiguousTypos(member, EVENT_LABEL_VOCAB, { minLen: 5 })) {
+        const fix = gatedVocabCorrect(typo, EVENT_LABEL_VOCAB, opts);
+        expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
+        expect(fix?.match, `${typo} → ${member}`).toBe(member);
+      }
+    }
+  });
 });
