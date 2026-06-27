@@ -206,9 +206,10 @@ export type ShowForViewer = {
    * Resolved viewer name for the active crew / admin_preview viewer, or
    * null when the viewer is `kind: 'admin'` (admin has no specific crew
    * row — they see every reservation, every transport entry, etc.).
-   * TransportTile (Task 4.7) uses this to evaluate the
-   * driver_name === viewerName branch and to scan
-   * transportation.schedule[*].assigned_names for the viewer's name.
+   * TransportTile (Task 4.7) uses this to evaluate the name-aware
+   * namesRefer(driver_name, viewerName) branch and to scan
+   * transportation.schedule[*].assigned_names for a name referring to
+   * the viewer (BL-TRANSPORT-VIEWER-NAME-MATCH).
    */
   viewerName: string | null;
 

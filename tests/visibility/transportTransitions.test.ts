@@ -203,14 +203,20 @@ describe("Compound transport transitions (review Important 4)", () => {
   /**
    * Compound 1 — schedule-tag flip mid `crew_members.name` change.
    *
-   * Setup: viewer is renamed from "Old Name" to "New Name" via sheet
-   * edit. The transportation.schedule[*].assigned_names array still
-   * contains "Old Name" (parser hasn't re-tagged yet). Verify:
+   * Setup: viewer is renamed from "Jamie Brooks" to "Taylor Quinn" via
+   * sheet edit. The transportation.schedule[*].assigned_names array still
+   * contains "Jamie Brooks" (parser hasn't re-tagged yet). Verify:
    *   - BEFORE rename: viewer matches by old name (FT branch true).
    *   - DURING (assigned_names not yet updated): viewer no longer
    *     matches (FF branch — tile would unmount until parser catches up).
-   *   - AFTER (assigned_names updated to "New Name"): viewer matches
+   *   - AFTER (assigned_names updated to "Taylor Quinn"): viewer matches
    *     again (FT branch true).
+   *
+   * The old/new names MUST have distinct surnames AND first letters — the
+   * `namesRefer` matcher is surname-aware (BL-TRANSPORT-VIEWER-NAME-MATCH),
+   * so two names sharing a surname token (e.g. the former "Old Name" /
+   * "New Name" placeholders, both surname "Name") would refer to the same
+   * person and Step B would not flip to FF.
    *
    * The matrix transition for the DURING → AFTER step is FF → FT, which
    * is `fade-in-mount` per the matrix. The test composes the predicate
@@ -230,27 +236,28 @@ describe("Compound transport transitions (review Important 4)", () => {
           stage: "Hotel → Venue",
           date: "2026-04-21",
           time: "08:00",
-          assigned_names: ["Old Name"],
+          assigned_names: ["Jamie Brooks"],
         },
       ],
       notes: null,
     };
 
-    // Step A — BEFORE rename: viewer.name = "Old Name", schedule tags
-    // include "Old Name". Driver branch false; schedule-tag branch true.
+    // Step A — BEFORE rename: viewer.name = "Jamie Brooks", schedule tags
+    // include "Jamie Brooks". Driver branch false; schedule-tag branch true.
     const beforeVisible = transportTileVisible({
       transportation: baseTransport,
-      viewerName: "Old Name",
+      viewerName: "Jamie Brooks",
       isAdmin: false,
     });
     expect(beforeVisible).toBe(true);
 
-    // Step B — DURING: viewer renamed to "New Name" but parser hasn't
-    // re-tagged. Driver branch false; schedule-tag branch false (no
-    // entry contains "New Name"). Tile MUST unmount → FT → FF.
+    // Step B — DURING: viewer renamed to "Taylor Quinn" but parser hasn't
+    // re-tagged. Driver branch false; schedule-tag branch false (no entry
+    // refers to "Taylor Quinn" — distinct surname from "Jamie Brooks").
+    // Tile MUST unmount → FT → FF.
     const duringVisible = transportTileVisible({
       transportation: baseTransport,
-      viewerName: "New Name",
+      viewerName: "Taylor Quinn",
       isAdmin: false,
     });
     expect(duringVisible).toBe(false);
@@ -259,11 +266,11 @@ describe("Compound transport transitions (review Important 4)", () => {
     // new name. Driver branch false; schedule-tag branch true.
     const reTaggedTransport: TransportationRow = {
       ...baseTransport,
-      schedule: [{ ...baseTransport.schedule[0]!, assigned_names: ["New Name"] }],
+      schedule: [{ ...baseTransport.schedule[0]!, assigned_names: ["Taylor Quinn"] }],
     };
     const afterVisible = transportTileVisible({
       transportation: reTaggedTransport,
-      viewerName: "New Name",
+      viewerName: "Taylor Quinn",
       isAdmin: false,
     });
     expect(afterVisible).toBe(true);

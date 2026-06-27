@@ -4,9 +4,10 @@
  *
  * TransportTile visibility is OR'd over two branches per spec §8.1:
  *
- *   1. `transportation.driver_name === viewer.name` — the assigned
- *      driver sees their own ride card.
- *   2. The viewer's name appears in any per-day schedule entry's
+ *   1. `namesRefer(transportation.driver_name, viewer.name)` — the
+ *      assigned driver sees their own ride card (name-aware match;
+ *      `driver_name` is free-text, BL-TRANSPORT-VIEWER-NAME-MATCH).
+ *   2. The viewer's name refers to a name in any per-day schedule entry's
  *      `assigned_names[]` — passengers and co-drivers tagged on a leg
  *      see the tile so they know which vehicle / driver / parking
  *      they're paired with.
