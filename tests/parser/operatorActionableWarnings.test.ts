@@ -5,10 +5,11 @@ import type { ParseWarning } from "@/lib/parser/types";
 const anchor = { title: "INFO", gid: 0, a1: "C2" };
 
 describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
-  it("contains exactly the four codes", () => {
+  it("contains exactly the five codes", () => {
     expect([...OPERATOR_ACTIONABLE_ANCHORED].sort()).toEqual([
       "FIELD_UNREADABLE",
       "SCHEDULE_TIME_UNPARSED",
+      "STAGE_WORD_AUTOCORRECTED",
       "UNKNOWN_DAY_RESTRICTION",
       "UNKNOWN_ROLE_TOKEN",
     ]);

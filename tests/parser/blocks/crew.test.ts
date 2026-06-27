@@ -705,7 +705,10 @@ describe("parseCrew — stage-word typo auto-correction (STAGE_WORD_AUTOCORRECTE
 
     expect(agg.warnings.find((w) => w.code === "STAGE_WORD_AUTOCORRECTED")).toBeTruthy();
     // stage_restriction now resolves (was silently { kind: "none" } before the fix).
-    expect(crew[0]!.stage_restriction).toEqual({ kind: "explicit", stages: ["Load Out", "Strike"] });
+    expect(crew[0]!.stage_restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load Out", "Strike"],
+    });
   });
 
   it("does NOT emit STAGE_WORD_AUTOCORRECTED for a clean stage list", () => {
