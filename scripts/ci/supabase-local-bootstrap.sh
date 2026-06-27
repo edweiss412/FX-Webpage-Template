@@ -79,9 +79,12 @@ attempt=1
 # diagram URLs + sync uploads). EXCLUDE (proven unused): imgproxy
 # (image_transformation disabled), mailpit (email is Resend over HTTPS, not SMTP),
 # studio + postgres-meta (dev UI only; schema introspection uses direct psql),
-# edge-runtime (no supabase/functions dir). Pinned by
-# tests/cross-cutting/supabase-boot-services.test.ts.
-until supabase start -x imgproxy,mailpit,studio,postgres-meta,edge-runtime; do
+# edge-runtime (no supabase/functions dir); vector + logflare (Logflare analytics
+# log pipeline — no consumer queries it; safe to drop ONLY because [analytics] is
+# disabled in supabase/config.toml, else the analytics health-dependency chain
+# hangs start per supabase/cli#2737). Pinned (incl. the analytics=false coupling)
+# by tests/cross-cutting/supabase-boot-services.test.ts.
+until supabase start -x imgproxy,mailpit,studio,postgres-meta,edge-runtime,vector,logflare; do
   if [ "$attempt" -ge "$SUPABASE_START_ATTEMPTS" ]; then
     echo "::error::supabase start failed after ${attempt} attempts (transient Docker pull / start)" >&2
     exit 1
