@@ -12,7 +12,11 @@
  * ONLY source of `drift`.
  */
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { AGENDA_CONFIDENCE, AGENDA_MAX_SESSION_MIN, EXTRACTOR_VERSION } from "@/lib/agenda/constants";
+import {
+  AGENDA_CONFIDENCE,
+  AGENDA_MAX_SESSION_MIN,
+  EXTRACTOR_VERSION,
+} from "@/lib/agenda/constants";
 import type { AgendaExtraction, AgendaDay, AgendaSession } from "@/lib/agenda/types";
 
 type Line = { p: number; y: number; text: string; font: string; size: number; len: number };
@@ -34,8 +38,10 @@ const isClock = (t: string) => (clockRange(t) || clockSingle(t)) && t.length < 2
 
 const DOWc = /^(mon|tues?|wednes?|thurs?|fri|satur?|sun)day,?[a-z]*\d/i;
 const isDayHeader = (l: Line) => DOWc.test(noSp(l.text)) && /20\d{2}/.test(noSp(l.text));
-const LABEL = /^(Moderator|Panelists?|Speakers?|Presented by|Presenter|Chairperson|Forum Chairperson|Discussion Leader|Interviewer|Featuring)\s*:/i;
-const ROOMKW = /\b(Ballroom|Salon|Salons|Room|Foyer|Hall|Suite|Lounge|Terrace|Adorn|Lakeview|LaSalle|La Salle|Delaware|Drawing|Pavilion|Atrium|Gallery)\b/i;
+const LABEL =
+  /^(Moderator|Panelists?|Speakers?|Presented by|Presenter|Chairperson|Forum Chairperson|Discussion Leader|Interviewer|Featuring)\s*:/i;
+const ROOMKW =
+  /\b(Ballroom|Salon|Salons|Room|Foyer|Hall|Suite|Lounge|Terrace|Adorn|Lakeview|LaSalle|La Salle|Delaware|Drawing|Pavilion|Atrium|Gallery)\b/i;
 const trackMarker = /^(Breakout\s+[IVX\d]+|[IVX]{1,3}\.\s|Track\s+\w+)/i;
 
 /** Absolute minute-of-day for hour:minute with meridiem (12 AM→0, 12 PM→720). */
@@ -49,7 +55,11 @@ const fmtClock = (h: number, m: number, ap: Meridiem) => `${h}:${String(m).padSt
 function parseClockPart(s: string): ClockPart | null {
   const m = s.match(/^(\d{1,2}):?(\d{2})?(AM|PM)?$/i);
   if (!m) return null;
-  return { h: parseInt(m[1]!, 10), m: m[2] != null ? parseInt(m[2], 10) : 0, ap: (m[3]?.toUpperCase() as Meridiem) ?? null };
+  return {
+    h: parseInt(m[1]!, 10),
+    m: m[2] != null ? parseInt(m[2], 10) : 0,
+    ap: (m[3]?.toUpperCase() as Meridiem) ?? null,
+  };
 }
 
 /** §4.3.1 first-of-day seed: 7–11 → AM; 12 & 1–6 → PM. */
@@ -77,7 +87,10 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     const L: Line[] = [];
     for (let p = 1; p <= doc.numPages; p++) {
       const tc = await (await doc.getPage(p)).getTextContent();
-      const rows = new Map<number, { items: { x: number; s: string }[]; sig: Map<string, number> }>();
+      const rows = new Map<
+        number,
+        { items: { x: number; s: string }[]; sig: Map<string, number> }
+      >();
       for (const it of tc.items as Array<{ str: string; transform: number[]; fontName: string }>) {
         if (!it.str || !it.str.trim()) continue;
         const y = Math.round(it.transform[5]!);
@@ -102,12 +115,14 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       }
     }
     const lines = L.filter(
-      (l) => !/^Page \d+/i.test(l.text) && !/^Institutional Investor/i.test(l.text) && l.text !== "th",
+      (l) =>
+        !/^Page \d+/i.test(l.text) && !/^Institutional Investor/i.test(l.text) && l.text !== "th",
     );
 
     // ── 2. Self-calibration. ──
     const timeSizes = new Map<number, number>();
-    for (const l of lines) if (isClock(l.text)) timeSizes.set(l.size, (timeSizes.get(l.size) ?? 0) + 1);
+    for (const l of lines)
+      if (isClock(l.text)) timeSizes.set(l.size, (timeSizes.get(l.size) ?? 0) + 1);
     const timeSize = [...timeSizes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 14;
     const isTime = (l: Line) => Math.abs(l.size - timeSize) < 1.5 && isClock(l.text);
     // Modal FONT among clock lines — the §4.4 parse-% denominator pairs font+size, not size
@@ -120,14 +135,17 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     const timeFont = [...clockFonts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
     const bodyTally = new Map<string, number>();
-    for (const l of lines) if (l.len > 55) bodyTally.set(`${l.font}|${l.size}`, (bodyTally.get(`${l.font}|${l.size}`) ?? 0) + 1);
+    for (const l of lines)
+      if (l.len > 55)
+        bodyTally.set(`${l.font}|${l.size}`, (bodyTally.get(`${l.font}|${l.size}`) ?? 0) + 1);
     const bodyKey = [...bodyTally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 
     const idxTimes = lines.map((l, i) => (isTime(l) ? i : -1)).filter((i) => i >= 0);
     const aboveTally = new Map<string, number>();
     for (const i of idxTimes) {
       const a = lines[i - 1];
-      if (a && !isTime(a)) aboveTally.set(`${a.font}|${a.size}`, (aboveTally.get(`${a.font}|${a.size}`) ?? 0) + 1);
+      if (a && !isTime(a))
+        aboveTally.set(`${a.font}|${a.size}`, (aboveTally.get(`${a.font}|${a.size}`) ?? 0) + 1);
     }
     const titleKeys = new Set([...aboveTally.entries()].filter(([, n]) => n >= 2).map(([k]) => k));
     const K = (l: Line) => `${l.font}|${l.size}`;
@@ -160,7 +178,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
 
     // ── 3. Day partition. ──
     function dayFor(i: number): string | null {
-      for (let j = i; j >= 0; j--) if (isDayHeader(lines[j]!)) return lines[j]!.text.replace(/\s+/g, " ").trim();
+      for (let j = i; j >= 0; j--)
+        if (isDayHeader(lines[j]!)) return lines[j]!.text.replace(/\s+/g, " ").trim();
       return null;
     }
 
@@ -227,7 +246,11 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
               }
               if (!tTitle && (isTitle(xl) || (!isBody(xl) && !shapeRoomish(xl)))) tTitle = xl.text;
             }
-            tracks.push({ label: l.text.match(trackMarker)![0].trim(), title: tTitle, room: tRoom });
+            tracks.push({
+              label: l.text.match(trackMarker)![0].trim(),
+              title: tTitle,
+              room: tRoom,
+            });
           }
         }
       }
@@ -236,7 +259,12 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
 
     // ── 5. Order-aware time resolution (§4.3.1) + explicit-typo repair (§4.3.2). ──
     type Resolved = Raw & { time: string; drift: string | null; startMin: number | null };
-    const resolved: Resolved[] = raw.map((r) => ({ ...r, time: r.rawTime, drift: null, startMin: null }));
+    const resolved: Resolved[] = raw.map((r) => ({
+      ...r,
+      time: r.rawTime,
+      drift: null,
+      startMin: null,
+    }));
 
     let corrections = 0;
     {
@@ -260,7 +288,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
 
           // start meridiem
           const startExplicit = sp.ap !== null;
-          let startAp: Meridiem = sp.ap ?? (prevStart == null ? seedAp(sp.h) : fillAp(sp.h, sp.m, prevStart));
+          let startAp: Meridiem =
+            sp.ap ?? (prevStart == null ? seedAp(sp.h) : fillAp(sp.h, sp.m, prevStart));
           let startMin = toMin(sp.h, sp.m, startAp);
 
           // end meridiem (resolved against the session's own start as floor)
@@ -278,8 +307,16 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
           if (startExplicit && prevStart != null && startMin < prevStart) {
             const fAp = flip(startAp);
             const fMin = toMin(sp.h, sp.m, fAp);
-            const nextSp = k + 1 < idxs.length ? parseClockPart(noSp(resolved[idxs[k + 1]!]!.rawTime).split(/[–—-]/)[0] ?? "") : null;
-            const upper = endMin != null ? endMin : nextSp ? toMin(nextSp.h, nextSp.m, nextSp.ap ?? seedAp(nextSp.h)) : Infinity;
+            const nextSp =
+              k + 1 < idxs.length
+                ? parseClockPart(noSp(resolved[idxs[k + 1]!]!.rawTime).split(/[–—-]/)[0] ?? "")
+                : null;
+            const upper =
+              endMin != null
+                ? endMin
+                : nextSp
+                  ? toMin(nextSp.h, nextSp.m, nextSp.ap ?? seedAp(nextSp.h))
+                  : Infinity;
             if (fMin >= prevStart && fMin <= upper) {
               drift = `start→${fmtClock(sp.h, sp.m, fAp)} (source: ${fmtClock(sp.h, sp.m, startAp)})`;
               startAp = fAp;
@@ -292,10 +329,21 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
           if (ep && endExplicit && endMin != null && endAp != null && endMin < startMin) {
             const fAp = flip(endAp);
             const fMin = toMin(ep.h, ep.m, fAp);
-            const nextSp = k + 1 < idxs.length ? parseClockPart(noSp(resolved[idxs[k + 1]!]!.rawTime).split(/[–—-]/)[0] ?? "") : null;
-            const nextStart = nextSp ? toMin(nextSp.h, nextSp.m, nextSp.ap ?? seedAp(nextSp.h)) : Infinity;
-            if (fMin >= startMin && fMin <= nextStart && fMin - startMin <= AGENDA_MAX_SESSION_MIN) {
-              drift = (drift ? drift + "; " : "") + `end→${fmtClock(ep.h, ep.m, fAp)} (source: ${fmtClock(ep.h, ep.m, endAp)})`;
+            const nextSp =
+              k + 1 < idxs.length
+                ? parseClockPart(noSp(resolved[idxs[k + 1]!]!.rawTime).split(/[–—-]/)[0] ?? "")
+                : null;
+            const nextStart = nextSp
+              ? toMin(nextSp.h, nextSp.m, nextSp.ap ?? seedAp(nextSp.h))
+              : Infinity;
+            if (
+              fMin >= startMin &&
+              fMin <= nextStart &&
+              fMin - startMin <= AGENDA_MAX_SESSION_MIN
+            ) {
+              drift =
+                (drift ? drift + "; " : "") +
+                `end→${fmtClock(ep.h, ep.m, fAp)} (source: ${fmtClock(ep.h, ep.m, endAp)})`;
               endAp = fAp;
               endMin = fMin;
               corrections++;
@@ -319,9 +367,14 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     // §4.4 time-anchor-LINE parse %: detected anchor lines = (timeFont,timeSize) lines that are
     // NOT day headers; numerator = those that are valid clocks.
     const anchorLines = lines.filter(
-      (l) => Math.abs(l.size - timeSize) < 1.5 && (timeFont == null || l.font === timeFont) && !isDayHeader(l),
+      (l) =>
+        Math.abs(l.size - timeSize) < 1.5 &&
+        (timeFont == null || l.font === timeFont) &&
+        !isDayHeader(l),
     );
-    const pTimeAnchor = anchorLines.length ? anchorLines.filter((l) => isClock(l.text)).length / anchorLines.length : 0;
+    const pTimeAnchor = anchorLines.length
+      ? anchorLines.filter((l) => isClock(l.text)).length / anchorLines.length
+      : 0;
 
     // start-monotonic within each day (non-decreasing starts ONLY; equal allowed; ends excluded).
     let monoOK = true;
@@ -370,7 +423,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       monoOK &&
       !ambiguousFirst;
 
-    if (!high) return { confidence: "low", corrections, days: [], extractorVersion: EXTRACTOR_VERSION };
+    if (!high)
+      return { confidence: "low", corrections, days: [], extractorVersion: EXTRACTOR_VERSION };
 
     // ── 7. Group into AgendaDay[] in document order. ──
     const days: AgendaDay[] = [];
