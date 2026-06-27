@@ -359,6 +359,18 @@ const infraRegistry = [
     contract:
       "feed Undo action (WM-F5): a THROWN createSupabaseServerClient / supabase.rpc fault, a returned {error}, AND a null/unexpected RPC shape ALL map to { ok:false, code:'SYNC_INFRA_ERROR' }; a typed data.ok===false code (e.g. UNDO_SUPERSEDED) passes through unclobbered and data.ok===true → { ok:true }; never an uncaught throw / untyped admin 500 (invariant 9). Enforced by tests/sync/holds/undoChange.infra.test.ts",
   },
+  {
+    helper: "downloadFileBytes",
+    path: "lib/drive/agendaDrive.ts",
+    contract:
+      "agenda PDF byte download (spec §4.5.3): Drive files.get({alt:'media'}) faults map to a discriminated union — 404/403 → { kind:'unavailable' }, 5xx/network → { kind:'infra_error' } — never collapsed into each other or into 'no bytes' (invariant 9). Behavioral coverage in tests/drive/agendaDrive.test.ts.",
+  },
+  {
+    helper: "getAgendaChips",
+    path: "lib/drive/agendaDrive.ts",
+    contract:
+      "INFO-tab smart-chip recovery (spec §4.5.3): a thrown Sheets spreadsheets.get fault → { kind:'infra_error' } (a real union member) so 'couldn't read the sheet' can never collapse into 'no agenda rows / count mismatch'; success → { kind:'rows' } in grid order (invariant 9). Behavioral coverage in tests/drive/agendaDrive.test.ts.",
+  },
 ] as const;
 
 function read(path: string): string {

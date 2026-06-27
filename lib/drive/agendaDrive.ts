@@ -15,10 +15,12 @@
  * downloader is deliberately bytes-only and does NOT re-check mime/trashed (Codex
  * plan-R3: do not duplicate the gate).
  */
-// not-subject-to-meta: googleapis Drive/Sheets helpers, not Supabase call sites.
-// The auth-domain _metaInfraContract.test.ts scans for Supabase client constructors;
-// these helpers carry the invariant-9 discipline structurally via their discriminated
-// union return types (covered behaviorally by tests/drive/agendaDrive.test.ts).
+// Invariant 9: these are googleapis Drive/Sheets call sites (NOT Supabase), so they
+// belong to the SYNC-domain infra-contract registry, not the auth one — both
+// helpers are registered in tests/sync/_metaInfraContract.test.ts and covered
+// behaviorally by tests/drive/agendaDrive.test.ts. The discipline lives structurally
+// in their discriminated-union return types (bytes/unavailable/infra_error;
+// rows/infra_error) so an infra fault can never collapse into "no data".
 import { google } from "googleapis";
 import { getDriveAuth } from "@/lib/drive/client";
 import { isAgendaLinkRow } from "@/lib/parser/agendaLinkRow";
