@@ -2,7 +2,7 @@ import * as XLSX from "xlsx";
 import { buildAbsGrid } from "@/lib/drive/sourceAnchors";
 import { clean, normalizeDate } from "@/lib/parser/blocks/_helpers";
 import type { ParseWarning } from "@/lib/parser/types";
-import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import type { SourceAnchor, RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
 
@@ -13,6 +13,15 @@ import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAn
  *  is typed `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile
  *  time (whole-diff R1 — there is no runtime mutation site for either export). */
 export const CELL_ANCHORED_CODES = OPERATOR_ACTIONABLE_ANCHORED;
+
+// blockRef.kind → RegionId for warnings whose `kind` is a tab-level concept that is
+// not itself a RegionId (AGENDA grid → schedule tab; PULL SHEET → gear_packlist tab).
+// Resolves a region/tab-level deep link (the parser knows the tab, not the exact
+// run-of-show cell) — the same precedent as the FIELD_UNREADABLE region link.
+const KIND_TO_REGION: Record<string, RegionId> = {
+  agenda: "schedule",
+  pull_sheet: "gear_packlist",
+};
 
 /**
  * extractShowDayTimeAnchors — locate the source cell behind each show-day's TIME
@@ -117,7 +126,13 @@ export function attachSourceCellAnchors(
       w.code === "STAGE_WORD_AUTOCORRECTED"
     ) {
       cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
-    } else if (w.code === "FIELD_UNREADABLE") {
+    } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
+      // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
+      // in-set codes (the CELL_ANCHORED_CODES gate above). Any future code added to
+      // the set with kind agenda/pull_sheet region-anchors by design (pinned by the
+      // membership pin-test in tests/parser/operatorActionableWarnings.test.ts).
+      cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
+    } else if (w.code === "FIELD_UNREADABLE" || w.code === "UNKNOWN_FIELD") {
       const kind = w.blockRef?.kind;
       cell = kind ? (sources.region[kind] ?? null) : null;
     }

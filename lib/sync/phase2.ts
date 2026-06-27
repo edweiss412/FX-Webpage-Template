@@ -371,6 +371,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       parseResult,
       snapshot,
       ...(port ? { holds: { port, baseModifiedTime: args.binding.modifiedTime } } : {}),
+      // Carry the prepare-stage region anchors so applyParseResult can re-anchor the
+      // apply-only AGENDA_DAY_EMPTIED warning it appends (deep link to the schedule tab).
+      ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
     }),
   );
 

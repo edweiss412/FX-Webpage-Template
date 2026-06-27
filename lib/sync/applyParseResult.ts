@@ -1,6 +1,7 @@
 import type { CrewMemberRow, ParseResult, ScheduleDay } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
+import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
 import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
 
@@ -170,6 +171,18 @@ export async function applyParseResult(
         args.parseResult.warnings.push(agendaDayEmptied(emittedIndex, iso));
         emittedIndex += 1;
       }
+    }
+    // AGENDA_DAY_EMPTIED is appended HERE, after the cron prepare stage already ran
+    // attachWarningAnchors. Re-run the PURE region-only anchoring on the carried
+    // sourceAnchors so the appended warning still deep-links to its schedule tab.
+    // No fetch, no DB, no lock; idempotent + non-destructive (only sets sourceCell
+    // when a region resolves, never clobbers an already-set anchor).
+    if (emittedIndex > 0) {
+      attachSourceCellAnchors(args.parseResult.warnings, {
+        showDay: [],
+        crewRole: [],
+        region: args.sourceAnchors ?? {},
+      });
     }
   }
 

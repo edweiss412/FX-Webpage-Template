@@ -41,9 +41,15 @@ export function splitRow(line: string): string[] {
   return parts.slice(1, parts.length - 1).map((s) => s.trim());
 }
 
-/** Normalize whitespace and strip markdown escape backslashes. */
+/** Normalize whitespace, strip zero-width chars, and strip markdown escape backslashes. */
 export function clean(s: string): string {
-  return s.replace(/\\(.)/g, "$1").trim();
+  // Strip zero-width junk (ZWSP \u200B - ZWJ \u200D, plus BOM \uFEFF) at the shared
+  // cell boundary so every stored field — not just hotel names — is paste-safe for
+  // maps/search. Matches the coverage of the former hotel-local strip.
+  return s
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\\(.)/g, "$1")
+    .trim();
 }
 
 /**
@@ -107,4 +113,16 @@ export function normalizeDate(raw: string): string | null {
   const mm = String(month).padStart(2, "0");
   const dd = String(day).padStart(2, "0");
   return `${year}-${mm}-${dd}`;
+}
+
+/**
+ * Infer a 4-digit show year from the first `M/D/YY(YY)` date anywhere in the sheet
+ * markdown, else null. Used to back-fill yearless dates (hotels, transport) instead
+ * of hard-coding an era. Shared so the hotel + transport parsers stay in lockstep.
+ */
+export function inferShowYear(markdown: string): string | null {
+  const m = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
+  if (!m) return null;
+  const iso = normalizeDate(m[0]);
+  return iso ? iso.slice(0, 4) : null;
 }

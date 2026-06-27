@@ -27,7 +27,7 @@
 
 import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
-import { clean, presence, normalizeDate, splitRow } from "./_helpers";
+import { clean, presence, normalizeDate, splitRow, inferShowYear } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 /**
@@ -298,6 +298,7 @@ function parseV2Transport(
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
 
+  const contextYear = inferShowYear(markdown);
   const section = markdown.slice(hm.index);
   const lines = section.split("\n");
   const tableLines: string[] = [];
@@ -343,7 +344,7 @@ function parseV2Transport(
 
     if (V2_SCHEDULE_LABELS.has(label)) {
       // v2 format: col1 = "date @ time" or just a date
-      const { date, time } = parseV2DateTime(col1);
+      const { date, time } = parseV2DateTime(col1, contextYear);
       schedule.push({
         stage: col0,
         date,
@@ -377,6 +378,7 @@ function parseV1Transport(
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
 
+  const contextYear = inferShowYear(markdown);
   const driverName = presence(clean(hm[1]!));
   const driverPhone = presence(clean(hm[2]!));
 
@@ -433,7 +435,7 @@ function parseV1Transport(
 
     if (col0 && col0 !== "Driver") {
       // Could be a schedule-like row
-      const { date, time } = parseV2DateTime(col1);
+      const { date, time } = parseV2DateTime(col1, contextYear);
       schedule.push({
         stage: col0,
         date,
@@ -560,19 +562,31 @@ function isNameLike(s: string, crewMembers?: CrewMemberRow[]): boolean {
  * Parse v2-style "date @ time" combined cell.
  * e.g. "10/6 @ TBD", "10/6 @ AM", "10/6/25 @ 12:00 PM", "TBD", "4/6"
  */
-function parseV2DateTime(raw: string): { date: string | null; time: string | null } {
+function parseV2DateTime(
+  raw: string,
+  contextYear: string | null,
+): { date: string | null; time: string | null } {
   if (!raw || /^TBD$/i.test(raw)) return { date: null, time: null };
+
+  // Resolve a date part: year-present → as-is; yearless → back-fill from a 4-digit
+  // year in the cell, else the show's context year, else null. Never hard-code an
+  // era (the old `+ "/25"` silently mis-dated 2026+ shows). Mirrors hotels.ts.
+  const resolveDate = (datePart: string): string | null => {
+    if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(datePart)) return normalizeDate(datePart);
+    const cellYear = /\b(20\d\d)\b/.exec(raw);
+    const year = cellYear ? cellYear[1] : contextYear;
+    if (!year) return null;
+    return normalizeDate(`${datePart}/${year}`);
+  };
 
   const atIdx = raw.indexOf("@");
   if (atIdx >= 0) {
     const datePart = raw.slice(0, atIdx).trim();
     const timePart = raw.slice(atIdx + 1).trim();
-    const date = normalizeDate(datePart + "/25"); // best-guess year
     const time = /^TBD$/i.test(timePart) ? null : presence(timePart);
-    return { date, time };
+    return { date: resolveDate(datePart), time };
   }
 
   // Date only (no time)
-  const date = normalizeDate(raw + "/25");
-  return { date, time: null };
+  return { date: resolveDate(raw.trim()), time: null };
 }
