@@ -20,6 +20,11 @@ const DATES_AOA: string[][] = [
   ["", "SHOW DAY 2", "", "5/12/2026", "GS: ... - 6:00 PM"], // unparseable → warned
 ];
 
+const CREW_AOA: string[][] = [
+  ["CREW", "NAME", "ROLE", "PHONE"],
+  ["", "Jane Doe", "- WIDGETMASTER", "555"],
+];
+
 const file: DriveListedFile = {
   driveFileId: "show-1",
   name: "show-1.xlsx",
@@ -76,9 +81,35 @@ describe("prepareOnboardingFiles — exact-cell source anchors", () => {
     });
   });
 
+  it("attaches sourceCell to an UNKNOWN_ROLE_TOKEN warning (crew ROLE cell) on the onboarding path", async () => {
+    const listSheetGids = vi.fn(async () => new Map([["Main", 4242]]));
+    const roleWarning: ParseWarning = {
+      severity: "warn",
+      code: "UNKNOWN_ROLE_TOKEN",
+      message: "x",
+      blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+    };
+    const prepared = await prepareOnboardingFiles(
+      "folder-1",
+      depsWith([roleWarning], {
+        listSheetGids,
+        fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
+          binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
+          markdown: "md",
+          bytes: xlsxBuffer(CREW_AOA, "Main"),
+        })),
+      }),
+    );
+    expect(listSheetGids).toHaveBeenCalledTimes(1);
+    const row = prepared[0]!;
+    if (row.kind !== "sheet") throw new Error("expected a sheet row");
+    // ROLE col index 2 → C; data row grid index 1 → row 2 → C2.
+    expect(row.parseResult.warnings[0]!.sourceCell).toEqual({ title: "Main", gid: 4242, a1: "C2" });
+  });
+
   it("does NOT fetch tab gids when no cell-anchored warning is present (no extra round-trip)", async () => {
     const listSheetGids = vi.fn(async () => new Map([["Main", 4242]]));
-    const other: ParseWarning = { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x" };
+    const other: ParseWarning = { severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" };
     const prepared = await prepareOnboardingFiles("folder-1", depsWith([other], { listSheetGids }));
 
     expect(listSheetGids).not.toHaveBeenCalled();

@@ -4,11 +4,7 @@ import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
 import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
-import {
-  attachSourceCellAnchors,
-  extractShowDayTimeAnchors,
-  hasCellAnchoredWarning,
-} from "@/lib/drive/showDayTimeAnchors";
+import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -943,20 +939,13 @@ export async function prepareOnboardingFiles(
     // Best-effort exact-cell deep links: ONLY when a cell-anchored warning is
     // present (rare) do we pay the extra tab-gid fetch. Any failure leaves the
     // warnings link-less — never breaks the scan.
-    if (bytes && parseResult.warnings && hasCellAnchoredWarning(parseResult.warnings)) {
-      try {
-        const gids = await listSheetGids(file.driveFileId);
-        // Task 4: new bundle signature (show-day only here; Task 6 swaps this whole
-        // block for the shared attachWarningAnchors helper which adds crew + region).
-        attachSourceCellAnchors(parseResult.warnings, {
-          showDay: extractShowDayTimeAnchors(bytes, gids),
-          crewRole: [],
-          region: {},
-        });
-      } catch {
-        // deep-link anchors are optional; ignore and continue the scan.
-      }
-    }
+    // Best-effort exact-cell/region deep links on BOTH ingestion paths via the
+    // shared helper (pure raw-workbook read; gated internally so a warning-free
+    // sheet pays no extra fetch). Onboarding passes a lazy gids fetch; the helper
+    // self-computes region anchors.
+    await attachWarningAnchors(parseResult.warnings, bytes, () =>
+      listSheetGids(file.driveFileId),
+    );
     return { file, kind: "sheet", binding, parseResult };
   };
 
