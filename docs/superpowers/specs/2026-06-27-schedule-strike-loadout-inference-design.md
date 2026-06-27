@@ -180,34 +180,39 @@ scheduleDateSet = new Set([dates.travelIn, dates.set, ...dates.showDays, dates.t
 // isAbsentTime per §7.1 shared-helpers note.)
 strikeIntentCount = count(room in rooms where presence(room.strike_time) != null)
 
+// A synthetic entry requires BOTH a parseable date AND a non-empty time. A
+// date-with-sentinel-time ("5/14 @ TBD") or a bare date ("5/14") yields time:null
+// → NO entry (unknown timing must never become an actionable milestone — R5 high).
+// Such a room is still counted in strikeIntentCount (above), so it BLOCKS "all rooms".
 groups = Map<`${iso}|${time}`, { iso, time, rooms: string[] }>
 for room of rooms:
-  {iso, time} = parseRoomTimeCell(room.strike_time, contextYear)   // §7.2: null/empty/bare-TBD → iso:null
-  if iso == null: continue                  // no parseable LEADING date → no entry (bare TBD/garbage; still counted in strikeIntentCount)
+  {iso, time} = parseRoomTimeCell(room.strike_time, contextYear)   // §7.2
+  if iso == null OR time == null: continue   // no parseable date OR no real time → no entry (still counted in strikeIntentCount)
   name = presence(room.name) ?? roomKindFallback(room.kind)   // roomKindFallback: local map gs→"General Session", breakout→"Breakout", additional→"Room"
-  key = `${iso}|${time ?? ""}`
+  key = `${iso}|${time}`                      // time is now guaranteed non-null
   groups[key] ||= {iso, time, rooms: [] }
   if name not in groups[key].rooms: groups[key].rooms.push(name)   // dedupe by name within a group
 for g of groups (sorted by iso asc, then time asc, then rooms join):
   // "all rooms" is SAFE only when this single (date,time) group == every strike-INTENT
-  // room (all parseable, all coincident). Any partial group — fewer rooms, OR a sibling
-  // room with TBD/unknown strike — names/counts instead. Prevents a premature-teardown
-  // read (R3 + R4 high).
+  // room (all parseable WITH a time, all coincident). Any partial group — fewer rooms, OR a
+  // sibling room with a TBD/unknown/timeless strike (counted in strikeIntentCount but not in
+  // any group) — names/counts instead. Prevents a premature-teardown read (R3+R4+R5 high).
   if g.rooms.length == 1:                                 title = `Strike — ${g.rooms[0]}`
-  elif g.rooms.length == strikeIntentCount:               title = "Strike — all rooms"   // every strike-intent room, parseable, same date+time
+  elif g.rooms.length == strikeIntentCount:               title = "Strike — all rooms"   // every strike-intent room, parseable+timed, same date+time
   elif g.rooms.length <= STRIKE_ROOM_NAME_CAP:            title = `Strike — ${g.rooms.sorted().join(", ")}`   // partial: name them
   else:                                                   title = `Strike — ${g.rooms.length} rooms`           // partial, too many to list
-  appendEntry(ros, g.iso, { start: g.time ?? "", title, kind: "strike" })   // ALWAYS appended (admin shows it)
+  appendEntry(ros, g.iso, { start: g.time, title, kind: "strike" })   // g.time non-null; ALWAYS appended (admin shows it)
   if !scheduleDateSet.has(g.iso):
     warnings.push(strikeDateOffSchedule(g.iso))     // §8 — fires ⟺ crew can't render this date
 
 // ── LOAD OUT (transport Pick Up Venue) ─────────────────────────────
-// The parser is viewer-agnostic: it ALWAYS emits the loadout entry (kind:"loadout").
-// Crew per-viewer transport gating happens at RENDER (§9.6), keyed on kind === "loadout".
+// The parser is viewer-agnostic: it emits the loadout entry whenever Pick Up Venue
+// has a date AND a real (non-sentinel) time. Crew per-viewer transport gating happens
+// at RENDER (§9.6), keyed on kind === "loadout". A timeless/TBD Pick Up Venue → no entry
+// (same require-a-time rule as strikes; the Travel section still shows the leg separately).
 puv = transportation?.schedule.find(s => /pick\s*up\s*venue/i.test(s.stage.trim()))
-if puv && puv.date != null:                 // transport parser already normalized date → ISO
-  time = isAbsentTime(puv.time) ? "" : puv.time.trim()
-  appendEntry(ros, puv.date, { start: time, title: "Load Out", kind: "loadout" })
+if puv && puv.date != null && !isAbsentTime(puv.time):    // transport parser already normalized date → ISO
+  appendEntry(ros, puv.date, { start: puv.time.trim(), title: "Load Out", kind: "loadout" })
 
 return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings }
 ```
@@ -227,7 +232,7 @@ Room `strike_time` / `set_time` / `show_time` are free-text with **two** separat
 - Resolve year: explicit in the cell → use it; else a 4-digit year elsewhere in the cell; else `contextYear`; else `null` (→ `date:null`). Route through `normalizeDate` (rejects calendar-invalid dates, mirrors `dates.ts:280-292`).
 - Extract time: the substring after the date, stripped of a leading `@` / `-` / `–` separator and whitespace; sentinel-guarded via `isAbsentTime` (→ `time: null`). Preserve the operator's clock text verbatim (e.g. `"4:30pm"`, `"1PM"`) — we do not reformat crew-facing times.
 
-**Guard cases:** bare `"TBD"`/`"N/A"`/`""` → `{date:null,time:null}` → skipped (no entry) but the room still counts in `strikeIntentCount` (so it blocks "all rooms"). `"5/15 - 1PM"` → `{date:"<yr>-05-15", time:"1PM"}`. `"10/9 @ 4:30pm"` → `{date, time:"4:30pm"}`. `"3/25/26 @ 12:30pm"` → explicit year. A bare date `"5/14"` **or** a date-with-TBD-time `"5/14 @ TBD"` → `{date, time:null}` (date-only strike entry, renders with empty start).
+**Guard cases:** bare `"TBD"`/`"N/A"`/`""` → `{date:null,time:null}`. `"5/15 - 1PM"` → `{date:"<yr>-05-15", time:"1PM"}`. `"10/9 @ 4:30pm"` → `{date, time:"4:30pm"}`. `"3/25/26 @ 12:30pm"` → explicit year. A bare date `"5/14"` **or** a date-with-sentinel-time `"5/14 @ TBD"` → `{date:"<yr>-05-14", time:null}`. **The derivation (§7.1) requires BOTH a date and a non-null time to emit an entry** — so every `time:null` result above produces **no** synthetic entry (and no empty-start row), while the room still counts toward `strikeIntentCount` (computed from `presence(strike_time)`, independent of this parse), blocking "all rooms". Net: no synthetic strike/load-out entry is ever timeless (closes R5 high).
 
 ---
 
@@ -368,7 +373,7 @@ No zombie: every column populated. No boolean toggle is introduced.
 This touches UI files (`components/crew/**`, `components/admin/wizard/Step3SheetCard.tsx`) → **invariant-8** impeccable critique + audit on the diff (HIGH/CRITICAL fixed or DEFERRED) before cross-model review.
 
 **Dimensional invariants (Tailwind v4 has no default `align-items: stretch`):**
-- Admin `ScheduleDayRow` grid is `grid-cols-[auto_1fr] items-baseline` (`Step3SheetCard.tsx:169-176`). A synthetic title ("Strike — all rooms", "Load Out") flows in the existing `1fr` title track; a synthetic entry with empty `start` leaves the `auto` time cell empty but the row still baseline-aligns. **Invariant:** the `STRIKE`/`LOAD OUT` badge (if used) must not break the two-track alignment — it sits inside the title cell (the `1fr` track), not as a third column. Real-browser (Playwright) assertion in the plan: every `…-sched-time` / `…-sched-title` cell in a day containing a synthetic entry shares the same left edge as the agenda rows (±0.5px).
+- Admin `ScheduleDayRow` grid is `grid-cols-[auto_1fr] items-baseline` (`Step3SheetCard.tsx:169-176`). A synthetic title ("Strike — all rooms", "Load Out") flows in the existing `1fr` title track; its `start` (a real clock — synthetic entries are never timeless, §7.1) sits in the `auto` time track like any agenda row. **Invariant:** the `STRIKE`/`LOAD OUT` badge (if used) must not break the two-track alignment — it sits inside the title cell (the `1fr` track), not as a third column. Real-browser (Playwright) assertion in the plan: every `…-sched-time` / `…-sched-title` cell in a day containing a synthetic entry shares the same left edge as the agenda rows (±0.5px).
 - Crew `RunOfShowEntry` is `flex flex-col` per row (`RunOfShowList.tsx:48`); the badge reuses the inline `av`-badge flex pattern — no fixed-dimension parent introduced.
 
 **Transition inventory:** all affected components are **synchronous Server Components** (`ScheduleSection.tsx:35`, `TodaySection.tsx:30` — no `'use client'`, no animation). Admin `ScheduleDayRow` has one client toggle (`showAll`, `useState`, `:191`) which expands the agenda group; synthetic entries are cap-exempt so they do not participate in the expand/collapse. State pairs:
@@ -396,7 +401,7 @@ No `AnimatePresence` / framer-motion is added.
   - **v1 no transport** (East Coast-shaped) → strike entries present, **no** load-out entry.
   - **Yearless strike + `contextYear` supplied** (Consultants-shaped: `"10/9 @ 4:30pm"`, `contextYear="2025"`) → entry present on `2025-10-09` (NOT dropped). Negative-regression: pass `contextYear=null` with the same yearless cell → entry skipped (proves the parameter is load-bearing, not decorative). Failure mode: the high-finding-1 case — yearless strikes silently dropped because the year context wasn't threaded.
   - **TBD / unparseable** strike_time → skipped (no entry, no crash).
-  - **Date-only** strike (no time) → entry with empty `start`.
+  - **Timeless strike → NO entry, blocks "all rooms" (R5 high pin):** a room with `strike_time` `"5/14 @ TBD"` (date + sentinel time) or bare `"5/14"` (date, no time) produces **no** synthetic entry, yet still counts in `strikeIntentCount`. Critical case: **every** strike-intent room has a date+TBD time → **zero** strike entries emitted (NOT a timeless `"Strike — all rooms"`). Negative-regression: make those same cells carry a real time → they now emit and (if coincident) read `"Strike — all rooms"` (proves timeless cells are withheld, not silently all-roomed). Failure mode: unknown timing rendered as an actionable teardown milestone.
   - **Off-schedule** strike date (synthetic fixture: strike date NOT in travelIn/set/showDays/travelOut, e.g. after travelOut) → `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` warning emitted **and** the entry still present in the returned `runOfShow` (faithful, admin-visible). Negative-regression: remove the `scheduleDateSet` check → assert the warning vanishes (pins it).
   - **Off-schedule ⇒ crew-invisible (the R2 coherence pin):** a *render* test — the off-schedule strike is in `ParsedSheet.runOfShow` (admin shows it) but the crew `ScheduleSection` renders **no** card/entry for that date (its date is not in `aggregateDays`). Pairs with the warning test to prove warn ⟺ crew-invisible.
   - **On-schedule typo** (FinTech 5/5, which IS SHOW DAY 2) → entry on 5/5, **no** warning, **rendered on crew** (5/5 ∈ aggregateDays). Pins RD5 + the FinTech §3 note.
