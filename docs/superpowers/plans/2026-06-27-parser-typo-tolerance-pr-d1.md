@@ -16,6 +16,14 @@
 - **Single source / no drift:** the fuzzable vocab is DERIVED from `CANONICAL_KEY_MAP` and exported once (`EVENT_LABEL_VOCAB`); the registry imports that exact const; a registration test re-derives and asserts equality (mirrors PR-B/C's derived-from-`inScopeAliases` guard).
 - **Corpus stability:** genuinely-unknown labels (no exact hit AND no fuzzy hit) MUST keep their current fallback behavior (`toCanonicalKey` normalize-and-keep). The fixtures are correctly spelled, so the whole-corpus event tests must be unchanged.
 
+### Fuzzy-vs-exact behavior contract (resolves plan-review findings 1–3)
+
+These rules are the crux of the design and are each pinned by a test:
+
+1. **Exact always wins; a suppressed typo sibling is DROPPED, not fallback-kept, and emits NO warning.** When an EXACT label claims a canonical key, any typo sibling that fuzzy-resolves to the same canonical is dropped entirely — its value is NOT written under a normalized fallback key, and no `FIELD_LABEL_AUTOCORRECTED` is emitted (the field is already correctly captured by the exact row, so the duplicate is noise). This IS a behavior change vs today (today a typo'd label like `Attir` lands under the garbage key `attir`); it only affects rows that fuzzy-match a known field, never genuinely-unknown labels, and never the (correctly-spelled) fixtures. Matches the shipped ops anti-shadow contract (PR-C).
+2. **Multiple fuzzy siblings (no exact for that canonical): last-write-wins, with the SAME sentinel-aware precedence as exact labels.** The fuzzy candidate map is updated per row using the identical rule as `writeField` (a sentinel value never displaces a real one already held), so the fuzzy path matches event's documented known-label semantics (last-write-wins except sentinel, event.ts:148-165). The emitted warning's `rawSnippet` reflects the WINNING label (the one whose value is kept).
+3. **A genuinely-unknown label (no exact, no fuzzy hit — including tie-aborted or below-minLen) keeps its fallback key, unchanged.**
+
 ## Meta-test inventory (mandatory declaration)
 
 - **EXTENDS** `tests/parser/typoVocabCollision.test.ts` — adds a derived `eventFieldAlias` fuzzable row to `TYPO_VOCABS`; the standing tripwire then auto-asserts no `eventFieldAlias` member sits within Damerau-1 of any OTHER registered vocab member (incl. `shortRoleCodes`/`knownSubLabels`/`sentinels`). Plus a new registration test pinning the derivation. **Creates no new meta-test.**
@@ -62,8 +70,10 @@ describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
     expect(warns[0]!.rawSnippet).toBe("Stage Sze");
   });
 
-  it("exact-wins: an exact label beats a typo'd sibling for the same canonical, either order, no warn", () => {
-    // dress family: "attire"/"dress code" both → dress_code. Exact must win regardless of order.
+  it("exact-wins: an exact label beats a typo'd sibling for the same canonical, either order — typo value dropped, no warn", () => {
+    // dress family: "attire"/"dress code" both → dress_code. Exact must win regardless of
+    // order; the suppressed typo's value is DROPPED (not kept under a fallback key) and emits
+    // no warning (contract rules 1+3). "attir" must NOT appear as a phantom field.
     const aggA = newAggregator();
     const edA = parseEventDetails(
       evBlock(["| Attir | WRONG |", "| Dress Code | Business Casual |"]),
@@ -71,6 +81,7 @@ describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
       aggA,
     );
     expect(edA.dress_code).toBe("Business Casual");
+    expect(edA.attir).toBeUndefined();
     expect(aggA.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
 
     const aggB = newAggregator();
@@ -80,7 +91,32 @@ describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
       aggB,
     );
     expect(edB.dress_code).toBe("Business Casual");
+    expect(edB.attir).toBeUndefined();
     expect(aggB.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("multiple fuzzy siblings (no exact): last-write-wins, single warn naming the winning label", () => {
+    // "Stage Sze" and "Stge Size" both → stage_size, no exact row. Last value wins (matching
+    // event's known-label last-write-wins), and exactly one warning fires (contract rule 2).
+    const agg = newAggregator();
+    const ed = parseEventDetails(
+      evBlock(["| Stage Sze | 20x16 |", "| Stge Size | 30x20 |"]),
+      "v4",
+      agg,
+    );
+    expect(ed.stage_size).toBe("30x20");
+    const warns = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.rawSnippet).toBe("Stge Size");
+  });
+
+  it("round-trips a punctuated member: a typo of a slash/paren label maps back to its canonical", () => {
+    // Guards the CANONICAL_KEY_MAP[match.toLowerCase()] back-lookup for members excluded from
+    // the alphabetic-only property test below. "Backdrop / Scenicc" → "backdrop / scenic" → scenic.
+    const agg = newAggregator();
+    const ed = parseEventDetails(evBlock(["| Backdrop / Scenicc | white cyc |"]), "v4", agg);
+    expect(ed.scenic).toBe("white cyc");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(1);
   });
 
   it("exact spellings still route unchanged, no fuzzy warning", () => {
@@ -211,15 +247,27 @@ function writeField(result: Record<string, string>, key: string, val: string): v
         }
       } else {
         // Not a known label: try a gated fuzzy recovery on the LABEL only (never the value).
+        // (`fix.corrected === false` — an EXACT gate hit — is unreachable here: an exact label
+        // would have matched `CANONICAL_KEY_MAP[col0Lower]` above, since EVENT_LABEL_VOCAB is
+        // derived solely from the map's keys. If it ever did occur it falls through to the
+        // fallback below, which is the safe default.)
         const fix = gatedVocabCorrect(col0.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS);
         if (fix?.corrected) {
           const canon = CANONICAL_KEY_MAP[fix.match.toLowerCase()];
-          // Defer: first candidate per canonical wins; apply post-loop unless an exact wins.
-          if (canon && val && !fuzzyCandidates.has(canon)) {
-            fuzzyCandidates.set(canon, { rawLabel: col0, value: val });
+          if (canon && val) {
+            // Defer; apply post-loop unless an exact label claims this canonical. Among fuzzy
+            // siblings: last-write-wins with the SAME sentinel-aware precedence as exact labels
+            // (a sentinel never displaces a real candidate), so `rawLabel` tracks the winning value.
+            const prev = fuzzyCandidates.get(canon);
+            const incomingIsSentinel = shouldHideGenericOptional(val);
+            const prevIsReal = prev !== undefined && !shouldHideGenericOptional(prev.value);
+            if (!(incomingIsSentinel && prevIsReal)) {
+              fuzzyCandidates.set(canon, { rawLabel: col0, value: val });
+            }
           }
         } else {
-          // Genuinely-unknown label: preserve the existing normalize-and-keep fallback.
+          // Genuinely-unknown label (no fuzzy hit, tie-aborted, or below-minLen): preserve the
+          // existing normalize-and-keep fallback.
           const key = toCanonicalKey(col0);
           if (key && val) writeField(result, key, val);
         }
@@ -327,14 +375,16 @@ git commit -m "test(parser): register eventFieldAlias fuzzable vocab + collision
 ## Self-Review (checklist)
 
 1. **Spec coverage:** §5.3 names the event block (`CANONICAL_KEY_MAP`) as a re-route surface; the synthesis ratified `gatedVocabCorrect`-over-local-vocab (not `resolveAliasScoped`) because `event.*` FIELD_ALIASES is incomplete (aliases.ts:114). Covered by Task 1.
-2. **Exact-wins:** the deferred-commit + `seenExact` guard is the crux (many-to-one families under last-write-wins). Pinned by the exact-wins test (both orders) + the inline-mutation proof.
+2. **Exact-wins + ordering contract:** the deferred-commit + `seenExact` guard is the crux (many-to-one families under last-write-wins). The "Fuzzy-vs-exact behavior contract" section states all three rules; pinned by the exact-wins test (both orders, asserting the typo value is dropped + no warn), the multiple-fuzzy-siblings last-write-wins test, and the inline-mutation proof. (Resolves plan-review R1 findings 1–3.)
 3. **No new code / no #155 lockstep:** verified `FIELD_LABEL_AUTOCORRECTED` exists in catalog (1117), dataGaps (131), dispatch (141), `_families` (61). Task 3 Step 3 guards against accidental catalog drift.
 4. **Drift:** vocab derived + exported once; registry imports it; registration test re-derives. No hand-listed member set.
 5. **Type consistency:** `EVENT_LABEL_VOCAB: readonly string[]`; `writeField(result, key, val)` used by both exact and fuzzy paths; `gatedVocabCorrect(...).match` is uppercase, mapped back via `CANONICAL_KEY_MAP[match.toLowerCase()]`.
 
 ## Adversarial review (cross-model)
 
-After self-review, send the whole diff to Codex (`codex exec`, read-only, high reasoning) as a REVIEWER-ONLY adversarial review. Iterate to APPROVE. Do-not-relitigate preempts: (a) event-only scope (transport/rooms/client are deferred PR-D2-D4); (b) `gatedVocabCorrect`-over-local-vocab is the correct pattern here, NOT `resolveAliasScoped` (aliases.ts:114 — `event.*` FIELD_ALIASES intentionally incomplete); (c) `FIELD_LABEL_AUTOCORRECTED` reuse is deliberate, no new code; (d) the `EVENT_GATE_EXCLUDE` is intentional belt-and-suspenders since minLen:5 already drops all <5-char do-not-fuzz tokens.
+**Plan review R1 (Codex): CHANGES_REQUESTED → all 5 findings resolved in this revision** — (1+3 HIGH/MED) the fuzzy-vs-exact behavior contract is now explicit (exact wins; suppressed typo dropped, not fallback-kept, no warn) + tested (`ed.attir` undefined assertion); (2 MED) fuzzy siblings now use last-write-wins-except-sentinel matching event's known-label semantics + a new test; (4 LOW) a punctuated-member round-trip test (`Backdrop / Scenicc` → scenic) covers the `CANONICAL_KEY_MAP[match.toLowerCase()]` lookup that the alphabetic-only property test excludes; (5 LOW) a code comment documents why `corrected:false` is unreachable in the fuzzy branch.
+
+After implementation, send the whole diff to Codex (`codex exec`, read-only, high reasoning) as a REVIEWER-ONLY adversarial review. Iterate to APPROVE. Do-not-relitigate preempts: (a) event-only scope (transport/rooms/client are deferred PR-D2-D4); (b) `gatedVocabCorrect`-over-local-vocab is the correct pattern here, NOT `resolveAliasScoped` (aliases.ts:114 — `event.*` FIELD_ALIASES intentionally incomplete); (c) `FIELD_LABEL_AUTOCORRECTED` reuse is deliberate, no new code; (d) the `EVENT_GATE_EXCLUDE` is intentional belt-and-suspenders since minLen:5 already drops all <5-char do-not-fuzz tokens; (e) the suppressed-typo-emits-no-warning + typo-value-dropped contract is ratified (R1 finding 1+3).
 
 ## Execution Handoff
 
