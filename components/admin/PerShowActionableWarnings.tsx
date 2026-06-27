@@ -2,31 +2,37 @@ import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
-import { operatorActionableWarnings } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
 /**
  * Operator-actionable parse warnings (SCHEDULE_TIME_UNPARSED, UNKNOWN_ROLE_TOKEN,
  * UNKNOWN_DAY_RESTRICTION, FIELD_UNREADABLE) with a source-sheet deep link when
  * the scan resolved the offending cell/region. Renders the catalog TITLE (else
- * the human .message) — never the bare code (invariant 5). Deduped +
- * stable-ordered via operatorActionableWarnings. Renders nothing when there are
- * no operator-actionable warnings. Shared by the per-show panel and StagedReviewCard.
+ * the human .message) — NEVER the bare code (invariant 5).
+ *
+ * Pure presentational: `items` are ALREADY filtered + deduped + stable-ordered by
+ * `operatorActionableWarnings` at the data boundary (the per-show page and the
+ * StagedRow derivation), so the filter runs exactly once per surface (whole-diff
+ * R1). Renders nothing when `items` is empty. Shared by the per-show panel and
+ * StagedReviewCard.
  */
 export function PerShowActionableWarnings({
-  warnings,
+  items,
   driveFileId,
 }: {
-  warnings: ParseWarning[];
+  items: ParseWarning[];
   driveFileId: string | null;
 }) {
-  const items = operatorActionableWarnings(warnings);
   if (items.length === 0) return null;
   return (
     <ul className="flex flex-col gap-2" data-testid="per-show-actionable-warnings">
       {items.map((w, i) => {
         const entry = isMessageCode(w.code) ? messageFor(w.code as MessageCode) : null;
-        const title = (entry?.title ?? null) || w.message;
+        // invariant 5 (whole-diff R1): catalog title when present, else the human
+        // .message — but NEVER the bare code, even if a producer's .message IS its
+        // code (defense beyond the four known human-message codes).
+        const humanMessage = w.message && w.message !== w.code ? w.message : null;
+        const title = (entry?.title ?? null) || humanMessage || "Data quality issue";
         const context = entry?.helpfulContext ?? null;
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
         return (

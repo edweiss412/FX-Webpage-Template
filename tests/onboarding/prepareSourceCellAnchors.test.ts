@@ -82,7 +82,9 @@ describe("prepareOnboardingFiles — exact-cell source anchors", () => {
   });
 
   it("attaches sourceCell to an UNKNOWN_ROLE_TOKEN warning (crew ROLE cell) on the onboarding path", async () => {
-    const listSheetGids = vi.fn(async () => new Map([["Main", 4242]]));
+    // Crew lives on the INFO tab (the scanner is INFO-only — crew is one block per
+    // show on INFO; whole-diff R1). Fixture sheet name = INFO accordingly.
+    const listSheetGids = vi.fn(async () => new Map([["INFO", 4242]]));
     const roleWarning: ParseWarning = {
       severity: "warn",
       code: "UNKNOWN_ROLE_TOKEN",
@@ -96,7 +98,7 @@ describe("prepareOnboardingFiles — exact-cell source anchors", () => {
         fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
           binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },
           markdown: "md",
-          bytes: xlsxBuffer(CREW_AOA, "Main"),
+          bytes: xlsxBuffer(CREW_AOA, "INFO"),
         })),
       }),
     );
@@ -104,7 +106,7 @@ describe("prepareOnboardingFiles — exact-cell source anchors", () => {
     const row = prepared[0]!;
     if (row.kind !== "sheet") throw new Error("expected a sheet row");
     // ROLE col index 2 → C; data row grid index 1 → row 2 → C2.
-    expect(row.parseResult.warnings[0]!.sourceCell).toEqual({ title: "Main", gid: 4242, a1: "C2" });
+    expect(row.parseResult.warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 4242, a1: "C2" });
   });
 
   it("does NOT fetch tab gids when no cell-anchored warning is present (no extra round-trip)", async () => {

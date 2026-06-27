@@ -129,35 +129,41 @@ export function extractCrewRoleAnchors(
   const workbook = XLSX.read(buffer, { type: "array", cellText: true, cellDates: false });
   const out: CrewRoleAnchor[] = [];
 
-  for (const sheetName of workbook.SheetNames) {
-    if (/\bOLD\b/i.test(sheetName)) continue; // skip archived tabs (mirror synthesis)
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet || !sheet["!ref"]) continue;
-    const gid = titleToGid.get(sheetName);
-    if (typeof gid !== "number") continue;
+  // Crew lives in exactly ONE block on the INFO tab for both geometries
+  // (REGION_ANCHOR_SPEC.crew is INFO-only; SOURCE_LINK_ALLOWLIST gates crew links
+  // to INFO). Scanning only INFO avoids a cross-tab same-name collision that would
+  // falsely trip resolveCrewRoleCell's exactly-one rule and drop a valid link
+  // (whole-diff R1 [high]).
+  const sheetName = workbook.SheetNames.find(
+    (n) => n.toUpperCase() === "INFO" && !/\bOLD\b/i.test(n),
+  );
+  if (!sheetName) return out;
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet || !sheet["!ref"]) return out;
+  const gid = titleToGid.get(sheetName);
+  if (typeof gid !== "number") return out;
 
-    const grid = buildAbsGrid(sheet);
-    for (let r = grid.minRow; r <= grid.maxRow; r++) {
-      let headerCol = -1;
-      let isTech = false;
-      for (let c = grid.minCol; c <= grid.maxCol; c++) {
-        const v = clean(grid.cell(r, c)).toUpperCase();
-        if (v === "CREW") {
-          headerCol = c;
-          isTech = false;
-          break;
-        }
-        if (v === "TECH") {
-          headerCol = c;
-          isTech = true;
-          break;
-        }
+  const grid = buildAbsGrid(sheet);
+  for (let r = grid.minRow; r <= grid.maxRow; r++) {
+    let headerCol = -1;
+    let isTech = false;
+    for (let c = grid.minCol; c <= grid.maxCol; c++) {
+      const v = clean(grid.cell(r, c)).toUpperCase();
+      if (v === "CREW") {
+        headerCol = c;
+        isTech = false;
+        break;
       }
-      if (headerCol === -1) continue;
-      if (isTech) collectTech(grid, r, headerCol, sheetName, gid, out);
-      else collectCrew(grid, r, headerCol, sheetName, gid, out);
-      break; // one crew block per sheet
+      if (v === "TECH") {
+        headerCol = c;
+        isTech = true;
+        break;
+      }
     }
+    if (headerCol === -1) continue;
+    if (isTech) collectTech(grid, r, headerCol, sheetName, gid, out);
+    else collectCrew(grid, r, headerCol, sheetName, gid, out);
+    break; // one crew block per sheet
   }
 
   return out;

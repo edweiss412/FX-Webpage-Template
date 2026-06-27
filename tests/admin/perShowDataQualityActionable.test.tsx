@@ -18,7 +18,7 @@ describe("PerShowActionableWarnings", () => {
         sourceCell: { title: "INFO", gid: 0, a1: "C3" },
       },
     ];
-    const { container } = render(<PerShowActionableWarnings warnings={ws} driveFileId={dfid} />);
+    const { container } = render(<PerShowActionableWarnings items={ws} driveFileId={dfid} />);
     expect(screen.getByText("Role we didn't recognize")).toBeTruthy();
     expect(container.textContent).not.toContain("UNKNOWN_ROLE_TOKEN");
   });
@@ -32,19 +32,19 @@ describe("PerShowActionableWarnings", () => {
         sourceCell: { title: "INFO", gid: 0, a1: "C3" },
       },
     ];
-    render(<PerShowActionableWarnings warnings={ws} driveFileId={dfid} />);
+    render(<PerShowActionableWarnings items={ws} driveFileId={dfid} />);
     const link = screen.getByRole("link", { name: /open in sheet/i });
     expect(link.getAttribute("href")).toContain("range=C3");
   });
 
   it("renders no link when sourceCell is absent", () => {
     const ws: ParseWarning[] = [{ severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x" }];
-    render(<PerShowActionableWarnings warnings={ws} driveFileId={dfid} />);
+    render(<PerShowActionableWarnings items={ws} driveFileId={dfid} />);
     expect(screen.queryByRole("link", { name: /open in sheet/i })).toBeNull();
   });
 
   it("renders nothing when there are no operator-actionable warnings", () => {
-    const { container } = render(<PerShowActionableWarnings warnings={[]} driveFileId={dfid} />);
+    const { container } = render(<PerShowActionableWarnings items={[]} driveFileId={dfid} />);
     expect(container.firstChild).toBeNull();
   });
 });

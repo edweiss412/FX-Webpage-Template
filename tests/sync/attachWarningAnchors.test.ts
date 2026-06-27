@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import * as XLSX from "xlsx";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
+import * as crewMod from "@/lib/drive/crewRoleAnchors";
 import type { ParseWarning } from "@/lib/parser/types";
 
 function xlsxBuffer(aoa: string[][]): ArrayBuffer {
@@ -69,6 +70,31 @@ describe("attachWarningAnchors", () => {
       attachWarningAnchors(warnings, CREW, () => Promise.reject(new Error("boom"))),
     ).resolves.toBeUndefined();
     expect(warnings[0]!.sourceCell).toBeUndefined();
+  });
+
+  it("degrades PER anchor family — a crew-scan throw still leaves valid schedule-time links", async () => {
+    // whole-diff R1 [high]: one extractor throwing must NOT drop the others. Force
+    // the crew-role extractor to throw and assert the SCHEDULE_TIME_UNPARSED anchor
+    // still attaches.
+    const spy = vi.spyOn(crewMod, "extractCrewRoleAnchors").mockImplementation(() => {
+      throw new Error("bad crew geometry");
+    });
+    const DATES = xlsxBuffer([
+      ["DATES", "", "", "", ""],
+      ["", "SHOW DAY 1", "", "5/12/2026", "GS: ..."],
+    ]);
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "SCHEDULE_TIME_UNPARSED",
+        message: "x",
+        blockRef: { kind: "dates", index: 0, iso: "2026-05-12" },
+      },
+    ];
+    await attachWarningAnchors(warnings, DATES, gids);
+    // SHOW DAY 1 = grid row index 1, TIME col index 4 → E2. Survives the crew throw.
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "E2" });
+    spy.mockRestore();
   });
 
   it("reuses a precomputed region map when supplied (no recompute)", async () => {

@@ -9,7 +9,9 @@ import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAn
 /** The codes that carry a source-cell/region anchor. SAME OBJECT the render
  *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render cannot
  *  drift. Name retained for continuity; FIELD_UNREADABLE resolves to a region.
- *  Exported so a structural test can pin the reference identity. */
+ *  Exported so a structural test can pin the reference identity. The shared object
+ *  is typed `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile
+ *  time (whole-diff R1 — there is no runtime mutation site for either export). */
 export const CELL_ANCHORED_CODES = OPERATOR_ACTIONABLE_ANCHORED;
 
 /**

@@ -125,8 +125,9 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     // because the panel also hosts the operator-actionable deep-link subsection.
     const page = src("app/admin/show/[slug]/page.tsx");
     expect(page).toMatch(/\{dataQuality\.failed \? \(/);
-    expect(page).toMatch(/: dataQuality\.messages\.length > 0 \|\|/);
-    expect(page).toMatch(/operatorActionableWarnings\(dataQuality\.actionable\)\.length > 0 \? \(/);
+    expect(page).toMatch(
+      /: dataQuality\.messages\.length > 0 \|\| actionableItems\.length > 0 \? \(/,
+    );
     expect(src("components/admin/PerShowAlertSection.tsx")).toMatch(/\{dataGapsDigest \? \(/);
   });
 

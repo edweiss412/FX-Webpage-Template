@@ -309,6 +309,11 @@ export default async function AdminShowPage({
   const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =
     await Promise.all([readFeed(), readCrew(), readToken(), readDataQuality(), nowDate()]);
 
+  // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
+  // JSX condition and again in the component — whole-diff R1). The per-show Data
+  // Quality panel renders these with source-sheet deep links below the data-gap digest.
+  const actionableItems = operatorActionableWarnings(dataQuality.actionable);
+
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
   // reads "Archived", never "Published".
@@ -760,8 +765,7 @@ export default async function AdminShowPage({
             again.
           </p>
         </section>
-      ) : dataQuality.messages.length > 0 ||
-        operatorActionableWarnings(dataQuality.actionable).length > 0 ? (
+      ) : dataQuality.messages.length > 0 || actionableItems.length > 0 ? (
         <section
           data-testid="per-show-data-quality"
           aria-labelledby="per-show-data-quality-heading"
@@ -803,10 +807,7 @@ export default async function AdminShowPage({
           {/* Operator-actionable parse warnings (role/day/schedule/field) with a
               source-sheet deep link to the offending cell when the scan resolved
               it. Renders nothing when there are none. */}
-          <PerShowActionableWarnings
-            warnings={dataQuality.actionable}
-            driveFileId={show.drive_file_id}
-          />
+          <PerShowActionableWarnings items={actionableItems} driveFileId={show.drive_file_id} />
         </section>
       ) : null}
 

@@ -43,7 +43,7 @@ describe("parse-warning deep-link render invariants", () => {
           sourceCell: { title: "INFO", gid: 0, a1: "A1" },
         },
       ];
-      const { container } = render(<PerShowActionableWarnings warnings={ws} driveFileId="df" />);
+      const { container } = render(<PerShowActionableWarnings items={ws} driveFileId="df" />);
       // No exemption: the literal code string must never appear, for every code.
       expect(container.textContent).not.toContain(code);
       cleanup();

@@ -575,10 +575,7 @@ export function StagedReviewCard({
         {/* Operator-actionable parse warnings with source-sheet deep links to the
             offending cell (role/day/schedule/field). Renders nothing when none. */}
         {row.operatorActionable && row.operatorActionable.length > 0 ? (
-          <PerShowActionableWarnings
-            warnings={row.operatorActionable}
-            driveFileId={row.driveFileId}
-          />
+          <PerShowActionableWarnings items={row.operatorActionable} driveFileId={row.driveFileId} />
         ) : null}
         {isWizardMode && lastFinalizeFailureCode ? (
           <p className="text-sm text-warning-text" data-testid="staged-wizard-failure-code">

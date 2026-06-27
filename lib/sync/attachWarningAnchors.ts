@@ -27,14 +27,25 @@ export async function attachWarningAnchors(
   regionAnchors?: Record<string, SourceAnchor>,
 ): Promise<void> {
   if (!bytes || !warnings || !hasCellAnchoredWarning(warnings)) return;
+  let gids: Map<string, number>;
   try {
-    const gids = await resolveGids();
-    attachSourceCellAnchors(warnings, {
-      showDay: extractShowDayTimeAnchors(bytes, gids),
-      crewRole: extractCrewRoleAnchors(bytes, gids),
-      region: regionAnchors ?? extractSourceAnchors(bytes, gids),
-    });
+    gids = await resolveGids();
   } catch {
-    // deep-link anchors are optional; never break the scan/sync.
+    return; // can't resolve gids → no anchors (link-less); never throws.
   }
+  // Degrade PER anchor family — one extractor throwing on a workbook edge case
+  // must NOT drop the OTHER families' valid anchors (whole-diff R1 [high]). A
+  // bad crew-role scan should never remove a valid schedule-time or region link.
+  const safe = <T>(fn: () => T, fallback: T): T => {
+    try {
+      return fn();
+    } catch {
+      return fallback;
+    }
+  };
+  attachSourceCellAnchors(warnings, {
+    showDay: safe(() => extractShowDayTimeAnchors(bytes, gids), []),
+    crewRole: safe(() => extractCrewRoleAnchors(bytes, gids), []),
+    region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
+  });
 }

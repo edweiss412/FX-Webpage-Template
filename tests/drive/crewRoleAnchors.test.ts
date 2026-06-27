@@ -101,6 +101,27 @@ describe("extractCrewRoleAnchors", () => {
     expect(extractCrewRoleAnchors(xlsxBuffer(NEW_TPL), new Map())).toEqual([]);
   });
 
+  it("scans ONLY the INFO tab — a crew block on another tab is ignored (no cross-tab name collision)", () => {
+    // Defends whole-diff R1 [high]: scanning all tabs could find the same name on a
+    // second tab and falsely trip resolveCrewRoleCell's exactly-one rule. Crew lives
+    // on INFO only, so a crew-shaped block on another tab must NOT be anchored.
+    const tpl = {
+      "PULL SHEET": [
+        ["CREW", "NAME", "ROLE", "PHONE"],
+        ["", "Jane Doe", "- A1", "1"],
+      ],
+      INFO: [["VENUE", "x"]], // INFO has no crew block here
+    };
+    const anchors = extractCrewRoleAnchors(
+      xlsxBuffer(tpl),
+      new Map([
+        ["PULL SHEET", 3],
+        ["INFO", 0],
+      ]),
+    );
+    expect(anchors).toEqual([]);
+  });
+
   it("normalizeCrewNameKey strips parens, collapses whitespace, lowercases", () => {
     expect(normalizeCrewNameKey("  Doug   Larson (X ONLY) ")).toBe("doug larson");
   });
