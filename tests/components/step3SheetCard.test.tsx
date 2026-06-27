@@ -195,15 +195,16 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(summary(q).textContent ?? "").not.toMatch(/\d+ crew · \d+ rooms/);
   });
 
-  test("venue + city rows fall back to human 'not detected' sentences when none is parsed", () => {
+  test("venue falls back to 'Venue not detected'; the City row is OMITTED (no noise) when no city", () => {
     const FIX = parseResult({ show: show({ venue: null }) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain(
       "Venue not detected",
     );
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-city`).textContent).toContain(
-      "City not detected",
-    );
+    // City is best-effort ("Venue Name + City IF POSSIBLE") — when it can't be
+    // derived the row drops entirely rather than showing "City not detected" on
+    // every card (the address is usually blank; the city lives in the venue name).
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
   });
 
   test("per-section counts move to the expanded breakdown headers (anti-tautology)", () => {
@@ -355,18 +356,26 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
 
-  test("City row shows the mined city; falls back to 'City not detected' for an ambiguous address", () => {
+  test("the City row is OMITTED for an ambiguous address (no wrong guess, no noise); the venue name still shows", () => {
     // An ambiguous two-segment address that cityFromAddress deliberately can't
     // resolve to a confident city (it returns null rather than guess wrong).
     const FIX = parseResult({
       show: show({ venue: { name: "Navy Pier", address: "Navy Pier, Chicago" } }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    // The venue name still renders; the ambiguous address yields no city → fallback.
+    // The venue name still renders; the ambiguous address yields no city → the row drops.
     expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("Navy Pier");
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-city`).textContent).toContain(
-      "City not detected",
-    );
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
+  });
+
+  test("the City row IS shown when a structured address yields a confident city", () => {
+    const FIX = parseResult({
+      show: show({
+        venue: { name: "The Drake Hotel", address: "140 E Walton Pl, Chicago, IL 60611" },
+      }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-city`).textContent).toContain("Chicago");
   });
 
   test("the collapsed crew preview is gone — crew now lives ONLY in the expanded breakdown", () => {
