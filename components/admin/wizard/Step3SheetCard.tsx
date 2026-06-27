@@ -698,25 +698,28 @@ export function Step3SheetCard({
             </dd>
             {/* City row — a dedicated best-effort city mined from the venue address
                 (conservative: null rather than a wrong guess). Replaces the old
-                collapsed crew preview. Shows in BOTH collapsed and expanded states.
-                Falls back to "City not detected" so the field stays discoverable even
-                when the address yields no confident city (invariant 5). */}
-            <dt
-              className="text-xs font-semibold uppercase text-text-subtle"
-              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-            >
-              City
-            </dt>
-            <dd
-              data-testid={`wizard-step3-card-${dfid}-city`}
-              className="min-w-0 text-sm text-text-subtle"
-            >
-              {venueCity ? (
-                <span className="wrap-break-word text-text">{venueCity}</span>
-              ) : (
-                "City not detected"
-              )}
-            </dd>
+                collapsed crew preview. Rendered ONLY when a city is confidently
+                detected: most FXAV sheets put the location in the venue NAME (e.g.
+                "Four Seasons Hotel Chicago") and leave the address blank, so a
+                "City not detected" fallback would be noise on nearly every card.
+                Per the agreed "Venue Name + City IF POSSIBLE", the row simply
+                drops when the city isn't derivable. */}
+            {venueCity ? (
+              <>
+                <dt
+                  className="text-xs font-semibold uppercase text-text-subtle"
+                  style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+                >
+                  City
+                </dt>
+                <dd
+                  data-testid={`wizard-step3-card-${dfid}-city`}
+                  className="min-w-0 text-sm text-text-subtle"
+                >
+                  <span className="wrap-break-word text-text">{venueCity}</span>
+                </dd>
+              </>
+            ) : null}
           </dl>
 
           {(hasDiagrams || hasReel) && (
