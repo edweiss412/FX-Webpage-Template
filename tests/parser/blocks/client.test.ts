@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseClient } from "@/lib/parser/blocks/client";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
 
 // ── Fixture paths ────────────────────────────────────────────────────────────
 // 2026-03: v4. CLIENT block at lines 1–7:
@@ -211,4 +212,60 @@ describe("parseClient — corpus coverage (all 10 fixtures)", () => {
       expect(r.client_label.length).toBeGreaterThan(0);
     });
   }
+});
+
+// ── PR-D4: v2 fuzzy client field-label recovery ──────────────────────────────
+const FLA = (agg: ReturnType<typeof newAggregator>) =>
+  agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+function v2Client(rows: string[]): string {
+  return ["| CLIENT | Acme |", ...rows].join("\n") + "\n";
+}
+
+describe("parseClient — v2 fuzzy field-label recovery (PR-D4)", () => {
+  it("recovers a misspelled v2 label and warns once (kind=client)", () => {
+    const agg = newAggregator();
+    const r = parseClient(v2Client(["| Client Contct | Bob |"]), "v2", agg);
+    expect(r.client_contact?.name).toBe("Bob");
+    const warns = FLA(agg);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef?.kind).toBe("client");
+    expect(warns[0]!.rawSnippet).toBe("Client Contct");
+  });
+
+  it("exact-wins: an exact label beats a typo'd sibling, no warn", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v2Client(["| Client Contact | Alice |", "| Client Contct | Bob |"]),
+      "v2",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Alice");
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("empty exact does NOT claim: a real typo sibling recovers and warns", () => {
+    const agg = newAggregator();
+    const r = parseClient(
+      v2Client(["| Client Contact |  |", "| Client Contct | Dave |"]),
+      "v2",
+      agg,
+    );
+    expect(r.client_contact?.name).toBe("Dave");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("the CLIENT org label is NOT fuzzed (typo'd org → no client block, no warn)", () => {
+    const agg = newAggregator();
+    const r = parseClient("| Clent | Acme |\n", "v2", agg);
+    expect(r.client_label).toBe("");
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("v1 merged-cell slash variant is NOT recovered (deferred), no warn", () => {
+    const agg = newAggregator();
+    const r = parseClient(v2Client(["| Client Contct/Grace |"]), "v2", agg);
+    expect(r.client_contact).toBeNull();
+    expect(FLA(agg)).toHaveLength(0);
+  });
 });
