@@ -85,7 +85,7 @@ Fixtures (committed mirrors, may drift from live — verify in plan): `fixtures/
 |---|---|---|
 | RD1 | Bookends to add | **SET + Strike + Load-Out.** SET day rendered as a full schedule day (multi-entry capable). |
 | RD2 | Event taxonomy | **Two distinct kinds:** per-room `strike_time` → `"Strike"`; transport Pick Up Venue → `"Load Out"`. |
-| RD3 | Strike labeling | **Per-room, collapse identical:** single room → `"Strike — <Room>"`; ≥2 rooms at the same date+time → `"Strike — all rooms"`. |
+| RD3 | Strike labeling | **Per-room, collapse identical** (one entry per (date,time) group): single room → `"Strike — <Room>"`; group = **every** striking room at the same date+time → `"Strike — all rooms"`; **partial** simultaneous group (some rooms; others strike at another time/day) → name them `"Strike — <A>, <B>"` (≤3) else `"Strike — N rooms"` — never the unsafe "all rooms" (teardown-safety, R3). |
 | RD4 | Surfaces | **Admin Step-3 review AND crew Schedule/Today.** |
 | RD5 | Data quality | **Faithful + flag suspicious:** render strikes on the exact date the sheet lists (no typo auto-correction); skip entries with no parseable date / `TBD`. A strike whose date **is** one of the show's scheduled days (travel/set/show/travel-out) renders on **both** admin and crew; a strike on any **other** date is **admin-review-only** on crew and emits `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` (§8) so the operator relocates it. (FinTech's `5/5` is SHOW DAY 2 → renders on both surfaces, no warning.) |
 | RD6 | Architecture | **Derive in the parser merge step** (single source of truth → both surfaces); extend the JSONB decoder; existing shows re-stage on next sync (normal here, see `feedback_parser_rename_restages_via_mi7b`). |
@@ -172,21 +172,33 @@ scheduleDateSet = new Set([dates.travelIn, dates.set, ...dates.showDays, dates.t
 
 // ── STRIKE (per-room) ──────────────────────────────────────────────
 groups = Map<`${iso}|${time}`, { iso, time, rooms: string[] }>
+allStrikingRoomNames = []          // every room that produced a parseable strike (any date/time)
 for room of rooms:
   raw = room.strike_time
   if isAbsentTime(raw): continue            // null/empty/TBD/N/A/TBA
   {iso, time} = parseRoomTimeCell(raw, contextYear)   // §7.2
   if iso == null: continue                  // no parseable date → skip (RD5)
+  name = presence(room.name) ?? roomKindFallback(room.kind)   // roomKindFallback: local map gs→"General Session", breakout→"Breakout", additional→"Room"
+  allStrikingRoomNames.push(name)
   key = `${iso}|${time ?? ""}`
   groups[key] ||= {iso, time, rooms: []}
-  groups[key].rooms.push(presence(room.name) ?? roomKindFallback(room.kind))   // roomKindFallback: local map gs→"General Session", breakout→"Breakout", additional→"Room"
+  groups[key].rooms.push(name)
+totalStriking = distinctCount(allStrikingRoomNames)
 for g of groups (sorted by iso asc, then time asc, then rooms join):
-  title = g.rooms.length >= 2 ? "Strike — all rooms" : `Strike — ${g.rooms[0]}`
+  // "all rooms" is SAFE only when this single (date,time) group accounts for EVERY
+  // striking room. A partial simultaneous strike (e.g. 2 breakouts at 5pm while GS
+  // strikes at 6pm) must NOT read "all rooms" — that risks premature teardown (R3 high).
+  if g.rooms.length == 1:                         title = `Strike — ${g.rooms[0]}`
+  elif g.rooms.length == totalStriking:           title = "Strike — all rooms"   // every striking room, same date+time
+  elif g.rooms.length <= STRIKE_ROOM_NAME_CAP:    title = `Strike — ${g.rooms.sorted().join(", ")}`   // partial: name them
+  else:                                           title = `Strike — ${g.rooms.length} rooms`           // partial, too many to list
   appendEntry(ros, g.iso, { start: g.time ?? "", title, kind: "strike" })   // ALWAYS appended (admin shows it)
   if !scheduleDateSet.has(g.iso):
     warnings.push(strikeDateOffSchedule(g.iso))     // §8 — fires ⟺ crew can't render this date
 
 // ── LOAD OUT (transport Pick Up Venue) ─────────────────────────────
+// The parser is viewer-agnostic: it ALWAYS emits the loadout entry (kind:"loadout").
+// Crew per-viewer transport gating happens at RENDER (§9.6), keyed on kind === "loadout".
 puv = transportation?.schedule.find(s => /pick\s*up\s*venue/i.test(s.stage.trim()))
 if puv && puv.date != null:                 // transport parser already normalized date → ISO
   time = isAbsentTime(puv.time) ? "" : puv.time.trim()
@@ -196,6 +208,7 @@ return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings }
 ```
 
 - `appendEntry(ros, iso, entry)`: if `ros[iso]` absent, create `{ entries: [entry], showStart: null, window: null }`; else **append** to `ros[iso].entries` (synthetic entries go **after** existing agenda entries — they are end-of-day events; no global re-sort, preserving sheet order for agenda). Strike entries are emitted before the load-out for the same day (group iteration runs before the load-out step), and multiple strikes sort by time ascending.
+- **`STRIKE_ROOM_NAME_CAP`** = 3 (a local constant in `scheduleBookends.ts`): a partial-strike group names its rooms when ≤ 3, else collapses to `"Strike — N rooms"`. `distinctCount` / `g.rooms` dedupe by room name (the reconcile pass already merges same-name rooms, `rooms.ts:37`, so duplicates are rare). **`"all rooms"` is emitted ONLY when `g.rooms.length === totalStriking`** — i.e. a single (date,time) group contains every room that strikes anywhere; a partial simultaneous strike never reads "all rooms" (R3 high; teardown-safety). When `totalStriking === 1`, the lone room hits the `length == 1` branch (named), never "all rooms".
 - `contextYear` is the **parameter** passed by the caller (`= inferShowYear(markdown)`, `_helpers.ts:123`, in scope in `parseSheet`). The function does NOT recompute it. When `contextYear` is `null` and a strike cell is yearless, that strike is **skipped** (no parseable date — §7.2). Room strike dates are often yearless (`"10/9 @ 4:30pm"`), so the parameter is load-bearing; §14 includes a yearless-strike integration test proving entries are NOT dropped when `contextYear` is supplied.
 - **Shared helpers:** `presence` is exported from `lib/parser/blocks/_helpers.ts` (used corpus-wide). `isAbsentTime` is currently **module-private** in `resolveKeyTimes.ts:21` — the plan either (a) exports it for reuse, or (b) mirrors its exact regex `/\b(?:TBD|N\/A|TBA)\b/i` + empty/null check in `scheduleBookends.ts`. Pick one and pin it with a test so the two definitions can't drift.
 - The returned object is a **new** object; `rosIn` is never mutated (guard against the persisted-blob being aliased). When `rosIn` was `undefined` and no synthetic entries were added, return `rosIn` (preserve the "no run-of-show" sentinel so `index.ts:493` still omits the key).
@@ -249,13 +262,14 @@ export function strikeDateOffSchedule(iso: string): ParseWarning {
 
 ### 9.1 Crew Schedule (`ScheduleSection.tsx`)
 
-No structural change to day iteration. Synthetic entries on `aggregateDays` dates light up automatically via the existing `displayableEntries(sd?.entries).length > 0 → <RunOfShowList>` gate (`:286-287`). Two edits:
+No structural change to day iteration. Synthetic entries on `aggregateDays` dates light up via the existing per-day gate (`:286-287`), now routed through `scheduleEntriesForViewer` (§9.6). Three edits:
 - SET-day meta suppression when entries exist (§6).
-- (No edit to the privacy/`dateRestriction` logic — entries inherit their day's visibility; a viewer restricted away from a day never sees its strike/load-out.)
+- Compute `transportVisible` (§9.6) and replace the per-day `displayableEntries(sd?.entries)` calls (mode gate `:286` + the `RunOfShowList entries=` `:287`) with `scheduleEntriesForViewer(sd?.entries, { transportVisible })` so a gated-out load-out neither opens a container nor renders.
+- No change to the `dateRestriction` privacy logic — strike/agenda entries inherit their day's visibility (a viewer restricted away from a day never sees its entries); load-out additionally honors the transport gate (§9.6).
 
 ### 9.2 Crew Today (`TodaySection.tsx`) & admin Step-3 (`Step3SheetCard.tsx`)
 
-- **Today:** unchanged logic; synthetic entries on today's card render via the same `RunOfShowList` (gated `isShowDay`, `:197`).
+- **Today:** synthetic entries on today's card render via the same `RunOfShowList` (gated `isShowDay`, `:197`), routed through `scheduleEntriesForViewer(todays, { transportVisible })` — `transportVisible` is **already computed** at `TodaySection.tsx:281`, so the load-out gate (§9.6) reuses it (no new gate plumbing on Today).
 - **Admin Step-3 `ScheduleBreakdown`:** unchanged iteration (`Object.keys(ros)`); the SET day key + synthetic entries appear automatically. The SET day shows under its `humanizeDate` header (e.g. "May 3"). `SCHEDULE_DAYS_CAP = 14` already accommodates SET + show days (max surveyed = 6 days).
 
 ### 9.3 Visual treatment of `kind`
@@ -278,6 +292,27 @@ Rationale: admin caps agenda at 6, and FinTech SHOW DAY 2 has 11 agenda entries 
 
 The crew "Daily call times" `KeyTimesStrip` continues to show a single GS `strike` and `set` summary (`resolveKeyTimes.ts:106-117`). After this change the same Set/strike times also appear as per-day entries. This is an intentional summary-vs-detail relationship (like a header glance + the full run of show), not a bug. Admin Step-3 has no KeyTimesStrip, so no admin overlap. (§11 D2.)
 
+### 9.6 Load-Out crew visibility gate (transport trust boundary — closes R3 medium)
+
+`Load Out` is derived from `transportation.schedule` (Pick Up Venue), and the crew **Travel** section gates the *entire* transportation schedule behind `transportTileVisible({ transportation, viewerName, isAdmin })` (`lib/visibility/scopeTiles.ts:177`; used in `TravelSection.tsx:155`, `TodaySection.tsx:281`) so unassigned crew never see ground-transport detail. Putting load-out into the **date-gated** Schedule would otherwise expose that transport datum to any viewer who can see the day — a trust-boundary regression. **Decision (Codex option a — keep the existing gate):**
+
+- **Strike** entries derive from `rooms[]`, which is **show-wide / ungated** (`ScheduleSection.tsx:96-100`: "data.rooms … scope shown to all → effectively ungated"). Strikes are NOT transport-gated — they render for every viewer who can see the day (same scope as the room data they come from).
+- **Load-Out** entries (`kind === "loadout"`) are gated **exactly like the Travel section's Pick Up Venue leg**: crew renders the load-out entry **only when** `transportTileVisible(...)` is true (admin → always; assigned driver / schedule-tagged crew → yes; unassigned crew → **no**). The same Pick Up Venue time is thus gated identically in Travel and Schedule — no new exposure.
+
+**Mechanism (single source, no Today/Schedule drift):** a shared helper in `lib/crew/agendaDisplay.ts`:
+
+```ts
+// drops loadout entries when the viewer may not see transport; agenda + strike always pass.
+export function scheduleEntriesForViewer(
+  entries: AgendaEntry[] | undefined,
+  opts: { transportVisible: boolean },
+): AgendaEntry[] {
+  return displayableEntries(entries).filter((e) => e.kind !== "loadout" || opts.transportVisible);
+}
+```
+
+Both `ScheduleSection` and `TodaySection` compute `transportVisible = transportTileVisible({ transportation: data.transportation, viewerName: data.viewerName, isAdmin })` (TodaySection already does, `:281`; ScheduleSection adds the import) and use `scheduleEntriesForViewer(sd?.entries, { transportVisible })` for **both** the per-day mode gate (`…length > 0`) **and** the `RunOfShowList entries={…}` it renders — so a day whose only synthetic entry is a gated-out load-out shows no run-of-show container for that viewer. **Admin** (`Step3SheetCard`) is unconditionally `isAdmin` → `transportVisible` true → renders all kinds (no change to admin). The crew cap-exemption (§9.4) operates on the **post-gate** entry set.
+
 ---
 
 ## 10. Mode boundaries (explicit)
@@ -291,6 +326,8 @@ The crew "Daily call times" `KeyTimesStrip` continues to show a single GS `strik
 
 **This boundary is NOT silent for strikes — it is the warning (§8).** The off-schedule condition (`!scheduleDateSet.has(iso)`) is identical to the crew-invisibility condition, so a strike that hits this boundary **always** emits `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`, telling the operator the entry is admin-only until the date is corrected. The corpus never triggers it (all strikes on show days). **Load-out** on an off-schedule date is admin-only **silently** (no warning — transport dates are authoritative; RD5/D4 scoped the warning to strikes); this is the one intentionally-silent case and is called out here so the reviewer doesn't read it as an oversight.
 
+**Second crew-visibility axis for load-out only (§9.6):** independent of the date axis above, a `kind:"loadout"` entry is also gated per-viewer by `transportTileVisible`. So even on an aggregate date, an **unassigned crew** viewer does not see the load-out entry (admin + assigned crew do). Strikes (room-sourced, ungated) and the SET day are unaffected by this axis.
+
 ---
 
 ## 11. Disagreement-loop preempts (for the reviewer)
@@ -300,7 +337,9 @@ The crew "Daily call times" `KeyTimesStrip` continues to show a single GS `strik
 - **D3 — Faithful render of the FinTech 5/5 typo is the chosen behavior** (RD5). In-window → no warning, renders on 5/5. Do not add typo-correction heuristics.
 - **D4 — Off-schedule strike warning is strike-only; load-out off-schedule is intentionally silent** (§8, §10). RD5 scoped the warning to strike dates; a load-out on an off-schedule date is admin-only silently (transport dates authoritative). This asymmetry is deliberate, not an oversight. The warning has no source-cell deep link (strike cells have no existing anchor resolver; out of scope, DEFERRED if raised).
 - **D5 — Non-aggregate-date crew invisibility is a documented boundary** (§10), and for strikes it is **surfaced by the §8 warning** (warn ⟺ crew-invisible), not silent. The corpus never triggers it. Do not re-flag as a silent omission — see §8 faithful-render contract + §10.
-- **D6 — Re-staging existing shows is expected** (RD6). A parser-output change re-stages ingested shows once on next sync (`feedback_parser_rename_restages_via_mi7b`); this is the established mechanism, not a regression.
+- **D6 — Re-staging existing shows is expected** (RD6). A parser-output change re-stages ingested shows once on next sync; this is the established mechanism, not a regression.
+- **D7 — Load-out crew visibility is gated by `transportTileVisible`, by design** (§9.6, closes R3 medium). The Pick Up Venue time is transport data; it is gated identically in Schedule and Travel. Strikes (room-sourced) are show-wide because room data is ungated (`ScheduleSection.tsx:96-100`). This is the ratified policy — not a leak and not an inconsistency; do not relitigate strike-show-wide vs load-out-gated (they have different data sources with different existing scopes).
+- **D8 — `"all rooms"` is emitted ONLY when a (date,time) group is every striking room** (§7.1, closes R3 high). Partial simultaneous strikes are named/counted, never "all rooms" (teardown-safety). This refines RD3's label wording for safety while preserving its collapse-identical intent.
 
 ---
 
@@ -345,6 +384,7 @@ No `AnimatePresence` / framer-motion is added.
   - **Distinct days** (Consultants-shaped: GS 10/9 4:30pm + lunch room 10/8 2:15pm) → two strike entries on **different** day keys. Failure mode: dumping all strikes on the last day.
   - **Non-final-day strike** (RPAS-shaped: breakouts 3/24, GS 3/25) → strike entries on both 3/24 and 3/25. Failure mode: collapsing to last day only.
   - **Single room** → `"Strike — <Room>"` (room name from `RoomRow.name`).
+  - **Partial simultaneous strike (R3 high pin)** (fixture: 4 rooms — 2 breakouts strike same date+time, GS + 1 other strike later) → the 2-breakout group reads `"Strike — <A>, <B>"` (named), **NOT** `"Strike — all rooms"`. Negative-regression: collapse the GS/other strike into the same group so all 4 coincide → label flips to `"Strike — all rooms"` (proves "all rooms" requires the full set). Also: a >3-room partial group → `"Strike — N rooms"`. Failure mode: mislabeling a partial group as all-rooms (premature-teardown risk).
   - **Load-Out** (FinTech-shaped: Pick Up Venue 5/6 6:00 PM) → one `"Load Out"` entry, `kind:"loadout"`, start `"6:00 PM"`, on 5/6.
   - **v1 no transport** (East Coast-shaped) → strike entries present, **no** load-out entry.
   - **Yearless strike + `contextYear` supplied** (Consultants-shaped: `"10/9 @ 4:30pm"`, `contextYear="2025"`) → entry present on `2025-10-09` (NOT dropped). Negative-regression: pass `contextYear=null` with the same yearless cell → entry skipped (proves the parameter is load-bearing, not decorative). Failure mode: the high-finding-1 case — yearless strikes silently dropped because the year context wasn't threaded.
@@ -362,6 +402,7 @@ No `AnimatePresence` / framer-motion is added.
 **Render (DOM; anti-tautology — clone & strip siblings, assert against the data source):**
 - Crew `ScheduleSection` test: SET day card shows the load-in entry; strike entry shows on its day; load-out on the last day; SET-day "Setup" meta suppressed when entries exist (assert the `setupTime` string is NOT double-printed — clone the SET card, remove the `RunOfShowList`, assert the meta is gone). Derive the expected day count from the fixture's aggregate days.
 - Cap-exemption test (admin): a day with > `SCHEDULE_ENTRIES_CAP` (6) agenda entries + a load-out → the load-out is visible **without** clicking "Show all". Failure mode: synthetic entry hidden behind the cap.
+- **Load-out transport gate (R3 medium pin):** `scheduleEntriesForViewer` drops a `kind:"loadout"` entry when `transportVisible=false` and keeps it when `true`; agenda + strike entries always pass. Render-level: an **unassigned** crew viewer (not driver, not schedule-tagged → `transportTileVisible` false) sees the strike entry but **NOT** the load-out entry on the crew Schedule; an **assigned** viewer and **admin** both see it. Negative-regression: force `transportVisible=true` for the unassigned viewer → the load-out reappears (proves the gate, not an unrelated omission). Assert on **both** `ScheduleSection` and `TodaySection` (Today/Schedule drift guard, mirrors the `agendaDisplay` single-source rule).
 - Layout-dimensions test (real browser / Playwright, per AGENTS.md): in a day with a synthetic entry, `…-sched-time` / `…-sched-title` cells share the agenda rows' left edges (±0.5px). jsdom is insufficient.
 
 **Meta-test inventory (§14b):** see plan. Candidate: none of the existing registries (`_metaInfraContract`, advisory-lock topology, sentinel-hiding, admin-alert catalog, no-inline-email) is directly extended — this feature adds no Supabase call boundary, no advisory lock, no admin alert, no email path. The relevant structural guard is the **`x1-catalog-parity`** gate (existing) which the new warning code must satisfy. Declared explicitly: "no new meta-test; extends the §12.4 catalog under the existing x1 gate."
@@ -378,9 +419,11 @@ No `AnimatePresence` / framer-motion is added.
 | `lib/parser/blocks/agendaWarnings.ts` | `strikeDateOffSchedule` helper. |
 | `lib/parser/index.ts` | compute `inferShowYear(markdown)`; call `deriveScheduleBookends(mergedRunOfShow, dates, transportation, rooms, contextYear)` after merge; replace `mergedRunOfShow` with its result; push its warnings. |
 | `lib/data/decodeRunOfShow.ts` | add `"kind"` to `OPTIONAL_FIELDS`. |
-| `components/crew/sections/ScheduleSection.tsx` | SET-day meta suppression. |
+| `lib/crew/agendaDisplay.ts` | **new** `scheduleEntriesForViewer` helper (load-out transport gate; §9.6). |
+| `components/crew/sections/ScheduleSection.tsx` | SET-day meta suppression; import `transportTileVisible`; route per-day entries through `scheduleEntriesForViewer`. |
+| `components/crew/sections/TodaySection.tsx` | route today entries through `scheduleEntriesForViewer` (reuses existing `transportVisible` `:281`). |
 | `components/crew/primitives/RunOfShowList.tsx` | `kind` badge + cap-exemption partition. |
-| `components/admin/wizard/Step3SheetCard.tsx` | `kind` badge + cap-exemption in `ScheduleDayRow`. |
+| `components/admin/wizard/Step3SheetCard.tsx` | `kind` badge + cap-exemption in `ScheduleDayRow` (admin = `isAdmin` → all kinds visible). |
 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` | §12.4 catalog row (new warning). |
 | `lib/messages/catalog.ts` + `lib/messages/__generated__/spec-codes.ts` + `__generated__/internal-code-enums.ts` | regen lockstep. |
 | `tests/**` | per §14. |
@@ -396,3 +439,5 @@ No `AnimatePresence` / framer-motion is added.
 - `AgendaEntry` field count: 6 existing (`start, finish, trt, title, room, av`) → 7 with `kind`. `decodeRunOfShow` `OPTIONAL_FIELDS`: 4 → 5.
 - Warning code: exactly one new (`SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`), fired when a strike date ∉ `scheduleDateSet` (= aggregateDays = travelIn/set/showDays/travelOut).
 - Kinds: exactly 3 (`agenda` default, `strike`, `loadout`).
+- `STRIKE_ROOM_NAME_CAP = 3` (partial-strike group names ≤3 rooms, else "N rooms"; "all rooms" only when group = every striking room).
+- Load-out crew gate: `transportTileVisible` (`scopeTiles.ts:177`), applied via the new `scheduleEntriesForViewer` helper on both crew sections; admin (`isAdmin`) is unconditionally visible.
