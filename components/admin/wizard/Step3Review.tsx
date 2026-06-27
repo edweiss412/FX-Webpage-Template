@@ -600,6 +600,16 @@ function isBlocking(status: Step3ManifestStatus): boolean {
   return BLOCKING_STATUSES.has(status);
 }
 
+// Mirrors Step3SheetCard's §4.6 no-details guard: a clean row whose parseResult is
+// null/corrupt renders the "couldn't read this sheet" card with NO checkbox. Such a
+// row stays VISIBLE in the grid but must not participate in the publish count or
+// Select-all (it exposes no control to undo a silent publish). Reviewable iff it has
+// a usable parse preview with a `.show`.
+function hasReviewablePreview(row: Step3Row): boolean {
+  const pr = row.parseResult;
+  return pr != null && typeof pr === "object" && !!(pr as ParseResult).show;
+}
+
 export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
@@ -611,6 +621,11 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   //   - ignored / deferred / skipped → their own de-emphasized set-aside sections
   //     BELOW the grid, so these resolved, non-publishable rows never sit inside it.
   const publishRows = rows.filter((r) => isCleanRow(r.status));
+  // The publish-participating subset: clean rows that actually have a reviewable
+  // preview (and therefore a checkbox). A corrupt/no-details clean row stays in
+  // `publishRows` (so it still renders in the grid) but is excluded here, so it is
+  // not counted in "N of M" nor (un)published by Select all.
+  const selectableRows = publishRows.filter(hasReviewablePreview);
   const blockingRows = rows.filter((r) => isBlocking(r.status));
   const blockingCount = blockingRows.length;
   const ignoredRows = rows.filter((r) => r.status === "permanent_ignore");
@@ -661,8 +676,8 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const isChecked = (row: Step3Row): boolean =>
     row.driveFileId in overlay ? !!overlay[row.driveFileId] : row.status === "applied";
 
-  const appliedCount = publishRows.filter(isChecked).length;
-  const cleanCount = publishRows.length;
+  const appliedCount = selectableRows.filter(isChecked).length;
+  const cleanCount = selectableRows.length;
   const allChecked = cleanCount > 0 && appliedCount === cleanCount;
 
   async function postApproval(driveFileId: string, next: boolean): Promise<boolean> {
@@ -705,12 +720,13 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   async function toggleSelectAll(): Promise<void> {
     if (selectAllPending || cleanCount === 0) return; // §4.6 guard
     const next = !allChecked;
-    // Only rows whose current state differs from the target are written.
-    const targets = publishRows.filter((r) => isChecked(r) !== next);
+    // Only SELECTABLE rows participate (a no-details clean row has no checkbox), and
+    // only those whose current state differs from the target are written.
+    const targets = selectableRows.filter((r) => isChecked(r) !== next);
     setSelectAllPending(true);
     setOverlay((o) => {
       const n = { ...o };
-      for (const r of publishRows) n[r.driveFileId] = next; // instant flip for ALL boxes
+      for (const r of selectableRows) n[r.driveFileId] = next; // instant flip for every selectable box
       return n;
     });
     await Promise.all(

@@ -382,4 +382,33 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     rerender(<Step3Review wizardSessionId={WSID} rows={[stagedRow("s1", "S1")]} />);
     expect(box().checked).toBe(false);
   });
+
+  it("a clean row with no usable preview (null parseResult) stays visible but is NOT counted or toggled by Select all", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [
+      stagedRow("ok1", "OK1"), // reviewable (parseResult has .show)
+      // A clean (staged) row whose jsonb came back null/corrupt: the card renders the
+      // "couldn't read this sheet" state with NO checkbox, so it must not be counted
+      // in "N of M" or (un)published by Select all (it exposes no control to undo it).
+      { driveFileId: "bad1", driveFileName: "Corrupt.gsheet", status: "staged", parseResult: null },
+    ];
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WSID} rows={rows} />,
+    );
+    // Both rows render — the corrupt one stays VISIBLE so the operator sees it.
+    expect(queryByTestId("wizard-step3-row-ok1")).not.toBeNull();
+    expect(queryByTestId("wizard-step3-row-bad1")).not.toBeNull();
+    // The corrupt row exposes no checkbox; the reviewable one does.
+    expect(queryByTestId("wizard-step3-checkbox-bad1")).toBeNull();
+    expect(queryByTestId("wizard-step3-checkbox-ok1")).not.toBeNull();
+    // It is excluded from the M count: 1 reviewable, not 2.
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/0 of 1/);
+
+    // Select all approves ONLY the reviewable row; the corrupt one is never POSTed.
+    fireEvent.click(getByTestId("wizard-step3-select-all"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(APPROVE_URL("ok1"));
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/1 of 1/);
+  });
 });
