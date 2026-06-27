@@ -664,4 +664,85 @@ describe("Step2Verify — resume after Back (priorScan)", () => {
     const { getByTestId } = render(<Step2Verify />);
     expect(getByTestId("wizard-step2-submit").className).toContain("bg-accent");
   });
+
+  test("the scanned-folder confirmation renders BELOW the folder input (not above the form)", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const input = getByTestId("wizard-step2-folder-url-input");
+    const note = getByTestId("wizard-step2-resume");
+    // note follows the input in document order
+    expect(input.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // and the input points at it for assistive tech
+    expect(input.getAttribute("aria-describedby")).toBe(note.id);
+  });
+
+  test("the prose blurb and divider are gone (confirmation is now the only resume copy)", () => {
+    const { container } = render(<Step2Verify priorScan={PRIOR} />);
+    expect(container.textContent ?? "").not.toContain("Pick up where you left off");
+    expect(container.querySelector("hr")).toBeNull();
+  });
+
+  test("default (prefilled, matching) resume state: submit reads 'Re-scan' and shares a row with Continue", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const submit = getByTestId("wizard-step2-submit");
+    const advance = getByTestId("wizard-step2-resume-advance");
+    expect(submit.textContent ?? "").toMatch(/^Re-scan$/);
+    // Continue and Re-scan live in the SAME row (shared parent).
+    expect(submit.parentElement).toBe(advance.parentElement);
+  });
+
+  test("CLEARING the link hides the confirmation but keeps Continue to Step 3 (and disables submit)", () => {
+    const { getByTestId, queryByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    expect(getByTestId("wizard-step2-resume")).toBeTruthy();
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), { target: { value: "" } });
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    // Continue stays — the already-scanned review exists regardless of the field.
+    expect(getByTestId("wizard-step2-resume-advance").getAttribute("href")).toBe("/admin?step=3");
+    expect((getByTestId("wizard-step2-submit") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("CHANGING the link hides the confirmation and the button reverts to 'Verify and scan'", () => {
+    const { getByTestId, queryByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/different999" },
+    });
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(/^Verify and scan$/);
+    // Continue still present (independent of the typed link).
+    expect(getByTestId("wizard-step2-resume-advance")).toBeTruthy();
+  });
+
+  test("REFILLING the exact same link brings the confirmation back and the button reads 'Re-scan'", () => {
+    const { getByTestId, queryByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const input = getByTestId("wizard-step2-folder-url-input");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    fireEvent.change(input, { target: { value: PRIOR.folderUrl } });
+    expect(getByTestId("wizard-step2-resume").textContent ?? "").toContain("Shows 2026");
+    expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(/^Re-scan$/);
+  });
+
+  test("the accent follows intent: typing a NEW folder promotes 'Verify and scan' and demotes Continue", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    // Matching (default): Continue carries the accent, Re-scan is secondary.
+    expect(getByTestId("wizard-step2-resume-advance").className).toContain("bg-accent");
+    expect(getByTestId("wizard-step2-submit").className).not.toContain("bg-accent");
+    // Type a new folder → the scan button takes the accent; Continue steps down.
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/different999" },
+    });
+    expect(getByTestId("wizard-step2-submit").className).toContain("bg-accent");
+    expect(getByTestId("wizard-step2-resume-advance").className).not.toContain("bg-accent");
+  });
+
+  test("a cleared field keeps Continue as the accent (the only enabled action)", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), { target: { value: "" } });
+    expect(getByTestId("wizard-step2-resume-advance").className).toContain("bg-accent");
+    expect(getByTestId("wizard-step2-submit").className).not.toContain("bg-accent");
+  });
+
+  test("the confirmation text is neutral, not the dashboard-scoped status hue (DESIGN.md §1.3)", () => {
+    const { getByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    expect(getByTestId("wizard-step2-resume").className).not.toContain("status-positive");
+  });
 });
