@@ -16,6 +16,14 @@ const VENUE_FIELD_ALIASES = inScopeAliases("venue.")
   .filter((a) => a.length >= 5)
   .map((a) => a.toUpperCase());
 
+// Ops/financials field-alias fuzzable set (PR-C), DERIVED identically to the venue set so
+// it always mirrors what resolveAliasScoped("…","ops.") actually fuzzes. The minLen-5 filter
+// keeps COI/PO# exact-only (their aliases are < 5 chars); only Invoice/Proposal/Invoice Notes
+// participate.
+const OPS_FIELD_ALIASES = inScopeAliases("ops.")
+  .filter((a) => a.length >= 5)
+  .map((a) => a.toUpperCase());
+
 /**
  * Central registry of closed vocabs for typo-tolerance. `fuzzable` entries name the
  * PR-A surfaces that get a gated fuzzy pass; `excluded` entries name the cross-vocab /
@@ -40,6 +48,8 @@ export const TYPO_VOCABS: readonly VocabEntry[] = [
   },
   // PR-B: venue field-alias fuzzy fallback (resolveAliasScoped), derived above.
   { id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: VENUE_FIELD_ALIASES },
+  // PR-C: ops/financials field-alias fuzzy fallback (resolveAliasScoped), derived above.
+  { id: "opsFieldAlias", klass: "fuzzable", minLen: 5, members: OPS_FIELD_ALIASES },
   // excluded / do-not-fuzz neighborhoods (spec §8) the meta-test guards against:
   {
     id: "shortRoleCodes",
