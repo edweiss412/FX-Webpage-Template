@@ -25,6 +25,7 @@ import type {
   ParseWarning,
 } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
+import { enrichAgenda } from "@/lib/sync/enrichAgenda";
 
 export const MAX_TOTAL_DIAGRAM_ITEMS = 60;
 
@@ -295,7 +296,7 @@ export async function enrichWithDrivePins(
     }));
   }
 
-  return {
+  const result: ParseResult = {
     show: parsed.show,
     crewMembers: parsed.crewMembers,
     hotelReservations: parsed.hotelReservations,
@@ -314,4 +315,11 @@ export async function enrichWithDrivePins(
     hardErrors: parsed.hardErrors,
     ...(parsed.runOfShow !== undefined ? { runOfShow: parsed.runOfShow } : {}),
   };
+
+  // Agenda-PDF surfacing (spec §4.5.4): best-effort, runs inside the shared enrich
+  // step so all four sync paths inherit it. Mutates result.show.agenda_links +
+  // result.warnings; never throws out of the scan.
+  await enrichAgenda(result, driveClient, ctx.driveFileId);
+
+  return result;
 }
