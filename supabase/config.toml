@@ -381,7 +381,15 @@ deno_version = 2
 # secret_key = "env(SECRET_VALUE)"
 
 [analytics]
-enabled = true
+# Disabled (PR G): no consumer queries Logflare analytics, and disabling it removes
+# the vector + logflare services from `supabase start` entirely — cutting ~2 more
+# images off the CI boot. It MUST be false while the CI bootstrap excludes
+# vector,logflare via `-x`: per supabase/cli#2737 the analytics health-dependency
+# chain hangs/fails start if those are excluded while analytics is enabled. The
+# coupling is pinned by tests/cross-cutting/supabase-boot-services.test.ts.
+# (Local dev loses the Studio "Logs"/analytics tab; the DB/auth/realtime/storage
+# all still run — re-enable locally if you need logs.)
+enabled = false
 port = 54327
 # Configure one of the supported backends: `postgres`, `bigquery`.
 backend = "postgres"
