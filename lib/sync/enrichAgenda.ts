@@ -46,9 +46,17 @@ export async function enrichAgenda(
   driveClient: DriveClient,
   spreadsheetId: string,
 ): Promise<void> {
-  // Required-ness is enforced at runtime (the methods are optional on the
-  // interface so existing impls compile). Mirrors the listSpreadsheetSheets guard.
-  if (!driveClient.getAgendaChips || !driveClient.downloadFileBytes) return;
+  // Methods are optional on the interface so existing impls compile; required-
+  // ness is enforced at runtime (mirrors the listSpreadsheetSheets guard) and by
+  // the Task-11 DriveClient-impl meta-test. Capture locals so the narrowing
+  // survives the awaits below. `downloadFileBytes` is REQUIRED — without bytes
+  // there is nothing to extract. `getAgendaChips` is needed ONLY to recover a
+  // missing chip fileId, so it gates just the chip-recovery branch: a client
+  // that can download but not read chips still enriches url-parsed fileId links
+  // (Codex whole-diff R1 #3).
+  const downloadFileBytes = driveClient.downloadFileBytes;
+  if (!downloadFileBytes) return;
+  const getAgendaChips = driveClient.getAgendaChips;
 
   const warnings = result.warnings;
   const links = result.show.agenda_links;
@@ -56,8 +64,8 @@ export async function enrichAgenda(
   try {
     // ── 1. fileId recovery via ordinal chip correlation ───────────────────────
     const needsChips = links.some((link) => !link.fileId);
-    if (needsChips) {
-      const chips = await driveClient.getAgendaChips(spreadsheetId);
+    if (needsChips && getAgendaChips) {
+      const chips = await getAgendaChips(spreadsheetId);
       if (chips.kind === "infra_error") {
         // Couldn't read the sheet — leave links unenriched and retry next sync.
         // NOT a count-mismatch, NOT AGENDA_PDF_UNREADABLE (invariant 9).
@@ -99,12 +107,20 @@ export async function enrichAgenda(
         continue;
       }
 
+      // Cache key is the PDF's headRevisionId + the extractor version. A missing/
+      // empty revision is NOT cacheable (Codex whole-diff R1 #1): otherwise an
+      // undefined revision would match a stored-undefined sourceRevision and a
+      // changed PDF would never re-extract. Missing revision → re-extract (the
+      // extractor is deterministic, so this is correct, just not skipped).
+      const rev = fileMeta.headRevisionId;
       const cached =
-        link.extracted?.sourceRevision === fileMeta.headRevisionId &&
+        typeof rev === "string" &&
+        rev.length > 0 &&
+        link.extracted?.sourceRevision === rev &&
         link.extracted?.extractorVersion === EXTRACTOR_VERSION;
       if (cached) continue;
 
-      const download = await driveClient.downloadFileBytes(link.fileId);
+      const download = await downloadFileBytes(link.fileId);
       if (download.kind === "infra_error") {
         // Transient — keep any prior extracted, no note, retry next sync.
         continue;

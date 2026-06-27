@@ -81,6 +81,45 @@ describe("enrichAgenda — optional-method guard", () => {
   });
 });
 
+describe("enrichAgenda — Codex whole-diff regressions", () => {
+  test("an empty/missing headRevisionId is NOT cacheable → re-extracts (R1 #1)", async () => {
+    // Prior extracted with an empty sourceRevision + getFile returning an empty
+    // headRevisionId. The OLD cache (`'' === ''`) would skip re-extraction forever;
+    // the fix treats a non-string/empty revision as non-cacheable.
+    const result = makeResult([
+      {
+        label: "AGENDA LINK - RFI",
+        fileId: "F1",
+        extracted: highExtraction({ sourceRevision: "" }),
+      },
+    ]);
+    const client = makeClient({ getFile: async (id) => meta(id, { headRevisionId: "" }) });
+    await enrichAgenda(result, client, "s");
+    expect(extractMock).toHaveBeenCalledTimes(1); // re-extracted, not permanently cached
+  });
+
+  test("a real matching revision DOES cache-skip (control)", async () => {
+    const result = makeResult([
+      {
+        label: "AGENDA LINK - RFI",
+        fileId: "F1",
+        extracted: highExtraction({ sourceRevision: "rev-F1" }),
+      },
+    ]);
+    await enrichAgenda(result, makeClient(), "s");
+    expect(extractMock).not.toHaveBeenCalled(); // cached: rev-F1 matches + version matches
+  });
+
+  test("a client WITHOUT getAgendaChips still enriches url-parsed fileId links (R1 #3)", async () => {
+    // Url-form link already has a parser-supplied fileId (no chip recovery needed).
+    const result = makeResult([{ label: "AGENDA LINK", fileId: "F1" }]);
+    const client = makeClient({ getAgendaChips: undefined });
+    await enrichAgenda(result, client, "s");
+    expect(result.show.agenda_links[0]!.extracted).toBeDefined();
+    expect(result.show.agenda_links[0]!.extracted!.confidence).toBe("high");
+  });
+});
+
 describe("enrichAgenda — ordinal chip correlation", () => {
   test("binds i-th chipFileId to i-th fileId-less entry in grid order", async () => {
     const result = makeResult([{ label: "AGENDA LINK - RFI" }, { label: "AGENDA LINK - PCF" }]);
@@ -155,7 +194,10 @@ describe("enrichAgenda — divergence backstop", () => {
 describe("enrichAgenda — getAgendaChips infra_error", () => {
   test("leaves links unenriched, no warning, no download, no throw", async () => {
     const result = makeResult([{ label: "AGENDA LINK - RFI" }]);
-    const downloadFileBytes = vi.fn(async () => ({ kind: "bytes" as const, bytes: new Uint8Array([1]) }));
+    const downloadFileBytes = vi.fn(async () => ({
+      kind: "bytes" as const,
+      bytes: new Uint8Array([1]),
+    }));
     const client = makeClient({
       getAgendaChips: async () => ({ kind: "infra_error" }),
       downloadFileBytes,
@@ -181,7 +223,10 @@ describe("enrichAgenda — getAgendaChips gating", () => {
 describe("enrichAgenda — metadata gate + cache", () => {
   test("non-PDF mime → AGENDA_PDF_UNREADABLE, no download", async () => {
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F1" }]);
-    const downloadFileBytes = vi.fn(async () => ({ kind: "bytes" as const, bytes: new Uint8Array([1]) }));
+    const downloadFileBytes = vi.fn(async () => ({
+      kind: "bytes" as const,
+      bytes: new Uint8Array([1]),
+    }));
     const client = makeClient({
       getFile: async (id) => meta(id, { mimeType: "image/png" }),
       downloadFileBytes,
@@ -194,7 +239,10 @@ describe("enrichAgenda — metadata gate + cache", () => {
   test("cache hit (same revision + extractorVersion) → no download, no extract, extracted untouched", async () => {
     const prior = highExtraction({ sourceRevision: "rev-F1" });
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F1", extracted: prior }]);
-    const downloadFileBytes = vi.fn(async () => ({ kind: "bytes" as const, bytes: new Uint8Array([1]) }));
+    const downloadFileBytes = vi.fn(async () => ({
+      kind: "bytes" as const,
+      bytes: new Uint8Array([1]),
+    }));
     const client = makeClient({ downloadFileBytes });
     await enrichAgenda(result, client, "sheet-1");
     expect(downloadFileBytes).not.toHaveBeenCalled();
@@ -203,9 +251,15 @@ describe("enrichAgenda — metadata gate + cache", () => {
   });
 
   test("extractorVersion bump invalidates cache even at the same revision → re-extract", async () => {
-    const stale = highExtraction({ sourceRevision: "rev-F1", extractorVersion: EXTRACTOR_VERSION - 1 });
+    const stale = highExtraction({
+      sourceRevision: "rev-F1",
+      extractorVersion: EXTRACTOR_VERSION - 1,
+    });
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F1", extracted: stale }]);
-    const downloadFileBytes = vi.fn(async () => ({ kind: "bytes" as const, bytes: new Uint8Array([1]) }));
+    const downloadFileBytes = vi.fn(async () => ({
+      kind: "bytes" as const,
+      bytes: new Uint8Array([1]),
+    }));
     const client = makeClient({ downloadFileBytes });
     await enrichAgenda(result, client, "sheet-1");
     expect(downloadFileBytes).toHaveBeenCalledTimes(1);
