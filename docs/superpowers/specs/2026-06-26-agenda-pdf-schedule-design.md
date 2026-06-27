@@ -84,8 +84,8 @@ Pure function: `extractAgendaSchedule(pdfBytes: Uint8Array): AgendaExtraction`. 
    - rooms: a candidate line is a **real room** iff it matches a room-keyword regex (`Ballroom|Salon|Foyer|Room|Hall|Suite|Lakeview|LaSalle|Adorn|Delaware|Drawing|…`) **or** recurs ≥2× as a post-time candidate (rooms repeat; subtitles are unique).
 3. **Day partition**: lines matching `^(Mon|Tue|Wed…)day…<year>` are day headers; each session inherits the most-recent day header.
 4. **Session assembly** anchored on each time line: title = title-font/non-body lines immediately above (stop at a real room, a `LABEL:` byline, or another time) + title-font lines immediately below before the room (wrap/subtitle); room = first real-room line after; **breakout tracks** = `^(Breakout [IVX\d]+|[IVX]+\.|Track …)` markers within the span, each → `{label, title?, room?}`.
-5. **Time normalize**: strip intra-token spaces; AM/PM inference: hour 7–11→AM, 12 & 1–6→PM.
-6. **Deterministic monotonic repair** (§4.3).
+5. **Time normalize**: strip intra-token spaces; an explicit `AM`/`PM` in the source is always honored. For a **bare** clock (no meridiem), meridiem is inferred **order-aware**, not by a fixed hour bucket (§4.3.1) — this is what prevents a 7–11 PM evening session from becoming AM (Codex R1).
+6. **Deterministic time repair** for *explicit*-meridiem typos (§4.3.2).
 7. **Confidence gate** (§4.4) → returns `confidence: 'high' | 'low'`.
 
 **LABEL bylines MUST require a trailing colon** (`/^(Moderator|Panelists?|Chairperson|…)\s*:/`) — without the colon they swallow titles like "Chairperson's Welcome & Benchmarking Session".
@@ -106,7 +106,8 @@ type AgendaExtraction = {
   confidence: 'high' | 'low';
   corrections: number;          // count of drift auto-corrections applied
   days: AgendaDay[];            // [] when confidence==='low'
-  sourceRevision?: string;      // Drive headRevisionId/md5 the extraction was computed from (cache key)
+  sourceRevision?: string;      // Drive headRevisionId of the PDF the extraction was computed from
+  extractorVersion: number;     // EXTRACTOR_VERSION at extraction time — part of the cache key (Codex R5)
 };
 type AgendaDay = { dayLabel: string; date: string | null; sessions: AgendaSession[] };
 type AgendaSession = {
@@ -119,9 +120,33 @@ type AgendaSession = {
 ```
 `agenda_links` is a **jsonb column** (`getShowForViewer.ts:358` decodes via `decodeJsonbColumn`), so adding optional fields to the stored value is **migration-free**. Render-time decode tolerates missing `extracted` (old rows) → treated as no structured schedule.
 
-### 4.3 Deterministic AM/PM auto-correction + drift
+### 4.3 Time resolution: order-aware inference (4.3.1) + explicit-typo repair (4.3.2)
 
-Per day, walk sessions in order tracking `prevStart`. If a session's start < `prevStart` (a backwards jump) **and** flipping that time's meridiem makes it ≥ `prevStart` **and** ≤ its own end → apply the flip, set `session.drift`, increment `corrections`. Same for `end < start` within a session. **Only forced flips** (uniquely restore monotonicity AND fit between neighbors) are applied; anything ambiguous is left as-is (and will likely keep the show below the monotonicity bar → embed-only). We never invent or guess a value; we only repair a mechanically-certain meridiem error, and the `drift` string records exactly what changed vs. the source.
+Two distinct steps. **4.3.1 resolves bare clocks** so they are monotonic *by construction* (no drift flag). **4.3.2 repairs only EXPLICIT meridiem typos** (e.g. `12:25 AM` for a lunch) and is the *only* thing that produces a `drift`. Both run per-day, in document order. We never invent a value; we only choose among the two meridiems the source allows.
+
+Define `min(h, ap)` = absolute minute-of-day for hour:minute with meridiem `ap` (`12 AM`→0, `12 PM`→720, etc.). Track `prevStart` = the previous session's resolved start (null for the first).
+
+#### 4.3.1 Order-aware bare-clock inference (Codex R1)
+For a clock with **no explicit meridiem**, compute both candidates `am = min(h,'AM')` and `pm = min(h,'PM')` (note `pm ≥ am` always) and choose:
+- **First time of the day** (`prevStart == null`): conference-plausibility seed — hour 7–11 → AM; hour 12 → PM; hour 1–6 → PM. (Mornings start 7–11; an afternoon-only day 1, e.g. FIT, starts 1–6 PM.)
+- **Otherwise**: the **smallest candidate that is ≥ `prevStart`** (forward-monotonic fill). If `am ≥ prevStart` → AM; else if `pm ≥ prevStart` → PM; else (both < prevStart — only possible when the day is genuinely non-linear) → PM as best-effort (the day will then likely fail §4.4 monotonicity → embed-only).
+
+This resolves `7:00` after a `5:00 PM` session to **7:00 PM** (not AM), with **no drift flag** — fixing the fixed-bucket bug. An explicit `AM`/`PM` is never overridden here.
+
+#### 4.3.2 Explicit-meridiem repair (the only source of `drift`)
+A session's **start** is a *repair candidate* iff its meridiem was **explicit in the source** AND `start < prevStart` (a backwards jump). Apply a meridiem flip iff **all** hold (a *forced* flip):
+1. flipped start ≥ `prevStart`;
+2. the session has an **end** and flipped start ≤ end; **or** it has no end and (next session's start exists ⇒ flipped start ≤ next start; else no upper bound);
+3. the flip is **unique** — exactly one meridiem satisfies (1)+(2).
+
+On apply: set `session.drift = "start→<new> (source: <old>)"`, increment `corrections`, update `prevStart`. Analogously for an explicit **end < its own start**: flip the end only if flipped end ≥ start AND (next start ⇒ ≤ next start). 
+
+**Edge-case policy (Codex R3):**
+- **First session** (`prevStart == null`): never a start-repair candidate (nothing to violate).
+- **Equal boundaries** (`start == prevStart`, or `start == end`): allowed, not a violation (concurrent/zero-length sessions are legal).
+- **Missing end**: use the next session's start as the upper bound; if neither exists, only precondition (1) applies.
+- **Overnight / genuinely backward**: a flip that does not satisfy (1)+(2) is **not** applied — a legitimate cross-midnight or out-of-order session is left intact and merely contributes to a non-monotonic day (→ §4.4 gates to embed). Repair can therefore never corrupt a non-linear agenda.
+- **Bare clocks are never repair candidates** — 4.3.1 already made them monotonic.
 
 ### 4.4 Confidence gate (single source of truth for thresholds)
 
@@ -134,15 +159,28 @@ Per day, walk sessions in order tracking `prevStart`. If a session's start < `pr
 
 Otherwise `'low'`. These five numbers are defined **here only**; the implementation imports them from a single `AGENDA_CONFIDENCE` constant — no restating literals elsewhere. `confidence==='low'` ⇒ `days: []` ⇒ **embed-only** at render.
 
+**Monotonicity = the linearity check (Codex R2).** The structured render is defined **only for strictly time-ordered (linear) agendas**. A PDF that lists concurrent sessions as separate top-level rows (rather than as breakout children of one slot), or that sorts by track/room instead of time, is legitimately non-monotonic → `confidence:'low'` → **embed-only**. This is **by design** — the embed is the correct surface for a non-linear agenda — not an extraction failure. Combined with §4.3.2's forced-flip-only rule, a non-linear agenda **cannot be corrupted**: at worst it gates to the embed. (Future work could detect concurrent-session grouping and lift this restriction; v1 deliberately scopes structured render to linear agendas.)
+
 ### 4.5 `enrichAgenda` (sync step — `lib/sync/enrichAgenda.ts`, NEW)
 
-Best-effort, fully wrapped in try/catch (a failure leaves links unenriched, **never breaks the scan** — mirrors PR #134's anchor attach). For each `agenda_links` entry:
-1. **fileId recovery**: if no `fileId` and the entry came from a chip, read the cell's `chipRuns` via Sheets API `spreadsheets.get` (bounded `ranges` to the INFO tab, `fields: sheets(data(rowData(values(formattedValue,chipRuns(chip(richLinkProperties(uri)))))))`), match the chip whose `formattedValue` equals the entry's stored filename (`url`), extract `/d/<id>`. URL-form entries already have `fileId`.
-2. **bytes**: download the PDF via the Drive client (`getFile` for `headRevisionId`/`md5` + media download). **Cache**: skip re-extraction if `extracted.sourceRevision` already equals the current revision (avoids re-downloading + re-parsing every sync).
-3. **extract**: `extractAgendaSchedule(bytes)` → attach `extracted`.
-4. The Sheets `spreadsheets.get` call is **gated** — only fired when at least one entry lacks a `fileId` (i.e. there is a chip to resolve), so URL-only shows pay no extra round-trip.
+Runs **inside the shared enrich step** so all sync paths inherit it (§4.5.4). Best-effort, fully wrapped in try/catch (a failure leaves links unenriched, **never breaks the scan** — mirrors PR #134's anchor attach). For each `agenda_links` entry:
 
-**Supabase call-boundary discipline (invariant 9):** every Drive/Sheets call destructures/handles `{ data, error }` (or typed throw), distinguishes infra faults from "no chip found", and surfaces infra faults as a discriminable result — never a silent `continue`. New helpers are registered in the relevant structural meta-test or carry an inline `// not-subject-to-meta:` reason.
+1. **fileId recovery — coordinate+label based, NOT filename-match (Codex R4).** If the entry has no `fileId` (a degraded chip), recover it from `getAgendaChips(spreadsheetId)` (§4.5.3), which returns `{ label, fileId }[]` keyed off the **INFO-tab cell coordinates** of each `AGENDA LINK` row (the chip lives in the value cell adjacent to the label cell — located by scanning the grid for cells starting with `AGENDA LINK`/`AGENDA`, analogous to `lib/drive/showDayTimeAnchors.ts`). Correlate to the parsed entry by its **`label`** (e.g. `AGENDA LINK - RFI`), which the parser preserves verbatim — never by filename equality. **Ambiguity guard:** if two `AGENDA LINK` rows share an identical label, bind **neither** by guess → emit `AGENDA_PDF_UNREADABLE` for those entries. Filename equality (`formattedValue`) is used only as a last-resort tiebreak when labels collide but filenames differ. **URL-form entries already carry `fileId`** (parser) → no recovery.
+2. **bytes + cache key (Codex R5).** `getFile(fileId)` → `headRevisionId`; **skip re-extraction iff** `extracted.sourceRevision === headRevisionId` **AND** `extracted.extractorVersion === EXTRACTOR_VERSION` (a single exported constant bumped on any extractor logic/threshold change — so old payloads invalidate when the algorithm changes, not just when the PDF changes). On a cache miss, `downloadFileBytes(fileId)` (§4.5.3).
+3. **extract**: `extractAgendaSchedule(bytes)` → attach `extracted` (with `sourceRevision` + `extractorVersion`). On download/parse failure or 0 sessions → emit `AGENDA_PDF_UNREADABLE`; on `confidence:'low'` → `AGENDA_SCHEDULE_LOW_CONFIDENCE`; on `corrections > 0` → `AGENDA_SCHEDULE_TIME_ADJUSTED`.
+4. The `getAgendaChips` (Sheets `spreadsheets.get`) call is **gated** — fired only when ≥1 entry lacks a `fileId`, so URL-only shows pay no extra round-trip.
+
+#### 4.5.3 DriveClient interface extension (Codex R6)
+The `DriveClient` interface (`lib/sync/enrichWithDrivePins.ts`) has **no byte-download and no chip method today**, so the spec extends it with two methods, implemented by **every** `DriveClient` impl:
+- `downloadFileBytes(fileId: string): Promise<Uint8Array | null>` — Drive `files.get({alt:'media', supportsAllDrives:true})`; returns `null` (not throw) on a discriminable infra fault per invariant 9.
+- `getAgendaChips(spreadsheetId: string): Promise<{ label: string; fileId: string }[]>` — Sheets `spreadsheets.get` with grid data + `chipRuns(chip(richLinkProperties(uri)))` + `formattedValue`, scanning the INFO tab for `AGENDA LINK` rows; extracts `/d/<id>` from each chip's `uri`.
+
+Real impl in `lib/drive/*` (uses the verified SA). The **dev `mockDriveClient`** (`lib/sync/mocks/mockDriveClient.ts`) implements both with deterministic fixtures so the dev-preview path and tests have coverage. A **structural meta-test** asserts every `DriveClient` impl (real + mock) provides both methods, so a new caller can't silently skip them.
+
+#### 4.5.4 All sync paths inherit it (companion-surface discipline)
+`enrichAgenda` is invoked from the **shared enrich step** that all four callers already use (`runOnboardingScan`, `runScheduledCronSync`, dev `app/admin/dev/actions.ts`, retry `app/api/admin/pending-ingestions/[id]/retry/route.ts`). A test asserts the enriched `agenda_links` (with `fileId`/`extracted`) reaches `applyParseResult` on both the onboarding and cron paths.
+
+**Supabase/Drive call-boundary discipline (invariant 9):** every Drive/Sheets call distinguishes infra fault from "no chip found"; infra faults surface as a discriminable result (`null` / typed), never a silent `continue`. Registered in the structural infra-contract meta-test or carrying an inline `// not-subject-to-meta: <reason>`.
 
 ### 4.6 `AgendaEmbed` — multi-doc + relocate (UI)
 
@@ -169,7 +207,7 @@ New admin/Doug-facing parse-warning codes (NOT crew-facing), following the 3-par
 - `AGENDA_SCHEDULE_LOW_CONFIDENCE` — extraction ran but was gated to embed-only (admin signal that the structured schedule is suppressed).
 - `AGENDA_SCHEDULE_TIME_ADJUSTED` — ≥1 session time was auto-corrected (drift); tells Doug to fix the source typo.
 
-All copy is Doug-voice, no raw codes in UI (invariant 5; read via `lib/messages/lookup.ts`).
+**Persistence path (Codex R7):** `enrichAgenda` pushes these onto the existing `parseResult.warnings: ParseWarning[]` array (`severity:'warn'`) — the same array `enrichWithDrivePins` already appends to. That array is persisted by the sync layer to `shows_internal.parse_warnings` (jsonb; `runScheduledCronSync.ts:577` reads/writes `parse_warnings`) and surfaced to admin through the existing parse-warning flow — **no new persistence channel**. They are admin-facing only (never crew). All copy is Doug-voice, no raw codes in UI (invariant 5; read via `lib/messages/lookup.ts`).
 
 ---
 
@@ -188,6 +226,9 @@ All copy is Doug-voice, no raw codes in UI (invariant 5; read via `lib/messages/
 | `session.drift` | `null` | No drift indicator. |
 | PDF bytes | download fails / non-PDF / no text layer | extractor returns `{confidence:'low', days:[]}`; `AGENDA_PDF_UNREADABLE`; embed still shown if `fileId` present. |
 | pdfjs throws | — | caught in `enrichAgenda`; link left unenriched; scan continues. |
+| `extracted` (malformed jsonb) | `confidence:'high'` w/ missing/empty `days`; non-array `tracks`; non-string `time`/`drift`; corrupt session | render-boundary validator (below) → treated as **embed-only**. |
+
+**Render-boundary normalization contract (Codex R8):** a pure validator `normalizeAgendaExtraction(raw: unknown): AgendaExtraction | null` narrows the decoded jsonb at the read boundary (mirrors the defensive posture of `decodeJsonbColumn`): it returns `null` (⇒ embed-only) unless `raw` is exactly `{ confidence: 'high'|'low', days: AgendaDay[] }` with well-typed sessions (`time: string`, `title/room/drift: string|null`, `tracks: Array`). A `confidence:'high'` payload with missing/empty/malformed `days` is coerced to embed-only, never rendered. `AgendaScheduleBlock` consumes only the validator's output — never the raw jsonb.
 
 ---
 
@@ -219,8 +260,10 @@ No zombie flags: every field written is read and has an output effect.
 
 - **Extractor unit tests** (`tests/agenda/extractAgendaSchedule.test.ts`): run against committed fixture byte-PDFs derived from the three real agendas (RFI/PCF/FIT). Assert per-field accuracy against **hand-transcribed ground truth** (the data source, not the rendered output — anti-tautology). Concrete failure modes each test catches: wrapped-title truncation; AM/PM on an afternoon-start day (FIT day 1 must be PM); the `12:25 AM` source typo must be auto-corrected to PM **and** carry a `drift`; an unknown/garbage PDF must yield `confidence:'low'`; the breakout markers must produce ≥2 tracks for RFI. Derive expectations from fixture dimensions where possible; never hardcode a value a 2-session fixture can't reach.
 - **Confidence-gate tests**: a doctored fixture that fails each threshold (≥5, times, titles, rooms, monotonic) individually → `'low'`.
-- **AM/PM repair tests**: forced flip applied + flagged; an *ambiguous* backwards jump is NOT flipped (left, drives `'low'`).
-- **enrichAgenda tests** (mocked Drive/Sheets): chip recovery by filename match; url-form passthrough; cache-skip when `sourceRevision` unchanged; best-effort — a thrown Drive error leaves links unenriched and does not throw out of the scan; infra-fault vs no-chip distinguished (invariant 9 meta-test row).
+- **Order-aware inference tests (§4.3.1)**: a `7:00` bare clock after a `5:00 PM` session resolves to **7:00 PM with NO drift flag** (the fixed-bucket-bug regression); afternoon-start day-1 (FIT) first session → PM; morning first session → AM.
+- **Explicit-repair tests (§4.3.2)**: the `12:25 AM` forced flip applied + flagged; an *ambiguous* / non-fitting backwards jump is NOT flipped (left → drives `'low'`); overnight `11 PM–1 AM` end is NOT flipped (legitimate); first-session never repaired; equal/zero-length boundaries allowed.
+- **enrichAgenda tests** (mocked Drive/Sheets): **coordinate+label** chip recovery (correct fileId by label, NOT filename); **ambiguity guard** (two identical labels → neither bound → `AGENDA_PDF_UNREADABLE`); url-form passthrough; cache-skip when `sourceRevision` **and** `extractorVersion` both unchanged; **re-extract when `extractorVersion` bumps** even if revision unchanged; best-effort — a thrown Drive error leaves links unenriched and does not throw out of the scan; infra-fault vs no-chip distinguished (invariant 9); the three data-quality codes land on `parseResult.warnings`.
+- **normalizeAgendaExtraction tests**: `confidence:'high'` with missing/empty/malformed `days` → `null` (embed-only); valid payload passes through; corrupt session shapes rejected.
 - **Component tests**: AgendaEmbed renders N affordances for N fileId links (multi-doc), 0 → nothing; removed from Diagrams; AgendaScheduleBlock renders sessions only when `confidence:'high'`, renders drift indicator when `drift!=null`, renders nothing when `'low'`. When scanning DOM for a session label, clone+strip sibling controls first (anti-self-satisfying).
 - **Layout (real browser)**: Playwright overflow assertion at 320/390/720px.
 - **Catalog parity** (`x1`): the three new §12.4 codes present in spec prose + generated + `catalog.ts`.
@@ -232,6 +275,7 @@ No zombie flags: every field written is read and has an output effect.
 - **Supabase call-boundary** (`tests/auth/_metaInfraContract.test.ts` or the analogous registry): `enrichAgenda`'s Drive/Sheets helpers either register a row or carry `// not-subject-to-meta: <reason>`.
 - **No new advisory-lock surface** (no `pg_advisory*` touched) — declared N/A.
 - **§12.4 catalog completeness** (`tests/messages/codes.test.ts` / `x1`): the three new codes.
+- **DriveClient-impl completeness** (NEW structural test): asserts every `DriveClient` implementation (real + `mockDriveClient`) provides `downloadFileBytes` + `getAgendaChips`, so a new caller cannot silently skip the agenda surface (Codex R6).
 - No new sentinel-hiding or admin_alerts.upsert surfaces.
 
 ---
