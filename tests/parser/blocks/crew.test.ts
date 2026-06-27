@@ -759,3 +759,34 @@ describe("parseCrew — multi-word role typo correction (ROLE_TOKEN_AUTOCORRECTE
     expect(crew[0]!.role_flags).toContain("CONTENT_CREATION");
   });
 });
+
+describe("parseCrew — column header typo correction (COLUMN_HEADER_AUTOCORRECTED)", () => {
+  it("auto-corrects 'E-MAIL'→'EMAIL': email column resolves (would otherwise drop every email) + 1 warning", () => {
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | E-MAIL |",
+      "| --- | --- | --- | --- | --- |",
+      "|  | Jane Doe | A1 | 555-1111 | jane@x.com |",
+    ].join("\n");
+    const agg = newAggregator();
+    const crew = parseCrew(md, "v4", agg);
+    expect(crew[0]!.email).toBe("jane@x.com"); // the concrete failure mode: typo'd header drops emails
+    const notes = agg.warnings.filter((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.severity).toBe("warn");
+  });
+
+  it("a correctly-spelled EMAIL header is NOT flagged", () => {
+    const md = ["| CREW | NAME | ROLE | PHONE | EMAIL |", "| --- | --- | --- | --- | --- |", "|  | Jane Doe | A1 | 555 | jane@x.com |"].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.find((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED")).toBeUndefined();
+  });
+
+  it("a 2-edit-away word (ROOM) is NOT corrected to any column (radius stays 1)", () => {
+    const md = ["| CREW | NAME | ROOM | PHONE | EMAIL |", "| --- | --- | --- | --- | --- |", "|  | Jane Doe | A1 | 555 | jane@x.com |"].join("\n");
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    // ROOM↔ROLE is Damerau 2 → not corrected; no spurious COLUMN_HEADER_AUTOCORRECTED.
+    expect(agg.warnings.find((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED")).toBeUndefined();
+  });
+});

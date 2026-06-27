@@ -35,6 +35,9 @@ export const INTERNAL_CODE_ENUMS = {
   ASSET_RECOVERY_REVISION_DRIFT: {
     source: "admin_alerts.code"
   },
+  COLUMN_HEADER_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
   CONCURRENT_SYNC_SKIPPED: {
     source: "pending_ingestions.last_error_code"
   },

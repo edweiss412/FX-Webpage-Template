@@ -14,6 +14,7 @@
 import type { CrewMemberRow, ParseWarning } from "../types";
 import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence } from "./_helpers";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { emitFieldUnreadable } from "@/lib/parser/warnings";
 import { digitsOnly } from "@/lib/format/phone";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -67,7 +68,10 @@ export function parseCrew(
 
 type ColMap = { name: number; role: number; phone: number; email: number; flight: number };
 
-function detectColumns(headerLine: string): ColMap {
+const CREW_COLUMN_VOCAB = ["NAME", "ROLE", "PHONE", "EMAIL"] as const;
+type ColCorrection = { raw: string; corrected: string };
+
+function detectColumns(headerLine: string): { colMap: ColMap; corrections: ColCorrection[] } {
   const parts = headerLine.split("|");
   const segments = parts.slice(1, parts.length - 1).map((s) => s.trim().toUpperCase());
   let name = 1;
@@ -75,15 +79,30 @@ function detectColumns(headerLine: string): ColMap {
   let phone = 3;
   let email = -1;
   let flight = -1;
+  const corrections: ColCorrection[] = [];
+  const assign = (col: string, i: number) => {
+    if (col === "NAME") name = i;
+    else if (col === "ROLE") role = i;
+    else if (col === "PHONE") phone = i;
+    else if (col === "EMAIL") email = i;
+  };
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i] ?? "";
-    if (seg === "NAME") name = i;
-    else if (seg === "ROLE") role = i;
-    else if (seg === "PHONE") phone = i;
-    else if (seg === "EMAIL") email = i;
-    else if (seg.includes("FLIGHT")) flight = i;
+    if (seg === "NAME" || seg === "ROLE" || seg === "PHONE" || seg === "EMAIL") {
+      assign(seg, i);
+    } else if (seg.includes("FLIGHT")) {
+      flight = i; // substring test — NOT fuzzed (spec §4.2)
+    } else if (seg.length > 0) {
+      // Fuzzy-correct a misspelled column header (e.g. 'E-MAIL'→'EMAIL'); exclude the
+      // KNOWN_SUB_LABELS so a label like ROOM/DATE is never fuzzed into a column.
+      const fix = gatedVocabCorrect(seg, CREW_COLUMN_VOCAB, { exclude: ["DATE", "DAY", "ROOM"] });
+      if (fix?.corrected) {
+        assign(fix.match, i);
+        corrections.push({ raw: seg, corrected: fix.match });
+      }
+    }
   }
-  return { name, role, phone, email, flight };
+  return { colMap: { name, role, phone, email, flight }, corrections };
 }
 
 function isSeparatorRow(line: string): boolean {
@@ -101,7 +120,16 @@ function parseCrewBlock(
   const members: CrewMemberRow[] = [];
   const localWarnings: ParseWarning[] = [];
   const headerLine = lines[0] ?? "";
-  const colMap = detectColumns(headerLine);
+  const { colMap, corrections } = detectColumns(headerLine);
+  for (const c of corrections) {
+    agg?.warnings.push({
+      severity: "warn",
+      code: "COLUMN_HEADER_AUTOCORRECTED",
+      message: `Read likely-misspelled column header '${c.raw}' as '${c.corrected}'`,
+      rawSnippet: headerLine,
+      blockRef: { kind: "crew", index: 0 },
+    });
+  }
   let inCrewSection = false;
 
   for (let i = 1; i < lines.length; i++) {
