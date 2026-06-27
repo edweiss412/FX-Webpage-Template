@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseTransportation } from "@/lib/parser/blocks/transport";
+import { parseTransportation, TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { unambiguousTypos } from "../_typoGenerator";
 
 const ALL_FIXTURES = [
   "fixtures/shows/raw/2024-05-east-coast-family-office.md",
@@ -383,4 +386,91 @@ describe("parseTransportation \u2014 yearless date inference (drop hard-coded /2
     );
     expect(pickUp(t)?.date).toBe("2024-10-06"); // explicit /24 wins over the 2026 context
   });
+});
+
+// ── PR-D2: fuzzy schedule-label recovery (v2) ────────────────────────────────
+// Minimal v2 TRANSPORTATION block (header | TRANSPORTATION | NAME | PHONE |) from rows.
+function v2Block(rows: string[]): string {
+  return (
+    [
+      "| TRANSPORTATION | NAME | PHONE |",
+      "| Driver | Carlos Pineda | 610-618-0111 |",
+      ...rows,
+    ].join("\n") + "\n"
+  );
+}
+const FLA = (agg: ReturnType<typeof newAggregator>) =>
+  agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+
+describe("parseTransportation — v2 fuzzy schedule-label recovery (PR-D2)", () => {
+  it("recovers a misspelled schedule label and warns once (kind=transportation, raw stage kept)", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(
+      v2Block(["| Pick Up Warehous | 10/6 @ TBD |"]),
+      "v2",
+      undefined,
+      agg,
+    );
+    const entry = t!.schedule.find((s) => s.stage === "Pick Up Warehous");
+    expect(entry).toBeDefined(); // recovered with the operator's RAW label
+    const warns = FLA(agg);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef).toEqual({ kind: "transportation" });
+    expect(warns[0]!.rawSnippet).toBe("Pick Up Warehous");
+  });
+
+  it("exact schedule label still routes unchanged, no warning", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(
+      v2Block(["| Pick Up Warehouse | 10/6 @ TBD |"]),
+      "v2",
+      undefined,
+      agg,
+    );
+    expect(t!.schedule.some((s) => /pick up warehouse/i.test(s.stage))).toBe(true);
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("a genuinely-unrelated label is NOT recognized as a schedule row, no warning", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(
+      v2Block(["| Catering Notes | Lunch at noon |"]),
+      "v2",
+      undefined,
+      agg,
+    );
+    expect(t!.schedule).toHaveLength(0);
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("a metadata-label typo (Vehicl) is NOT pulled into the schedule, no warning", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(v2Block(["| Vehicl | 16' Box Truck |"]), "v2", undefined, agg);
+    expect(t!.schedule).toHaveLength(0);
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("a too-short token is not fuzz-recognized", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(v2Block(["| Pick | x |"]), "v2", undefined, agg);
+    expect(t!.schedule).toHaveLength(0);
+    expect(FLA(agg)).toHaveLength(0);
+  });
+});
+
+// Property test over the gate (the "typos beyond the example sheets" core). The schedule vocab
+// is all alphabetic+space, so generator neighbors (ALPHA = A–Z + space) are well-formed.
+describe("parseTransportation — schedule-label gate corrects unseen typos (PR-D2)", () => {
+  it("corrects unambiguous single-edit typos of every schedule label back to that label", () => {
+    const opts = { minLen: 5, tieAbort: true } as const;
+    expect(TRANSPORT_SCHEDULE_VOCAB.length).toBe(9);
+    for (const member of TRANSPORT_SCHEDULE_VOCAB) {
+      for (const typo of unambiguousTypos(member, TRANSPORT_SCHEDULE_VOCAB, { minLen: 5 })) {
+        const fix = gatedVocabCorrect(typo, TRANSPORT_SCHEDULE_VOCAB, opts);
+        expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
+        expect(fix?.match, `${typo} → ${member}`).toBe(member);
+      }
+    }
+  }, 30000); // generous timeout — comprehensive generator sweep (PR-D1 CI-shard-timeout lesson)
 });

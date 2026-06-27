@@ -29,6 +29,7 @@ import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from ".
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow, inferShowYear } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 
 /**
  * Non-transport block labels that signal the transport schedule has ended.
@@ -102,6 +103,15 @@ const V2_SCHEDULE_LABELS = new Set([
   "rental return",
 ]);
 
+// Uppercase schedule labels the v2 fuzzy fallback recognizes toward — DERIVED from
+// V2_SCHEDULE_LABELS (single source of truth; lib/parser/typoVocabRegistry.ts imports this
+// exact const so the registry can't drift). All members are long (>=13 chars), so minLen:5
+// never trips; it is passed for convention + robustness.
+export const TRANSPORT_SCHEDULE_VOCAB: readonly string[] = [...V2_SCHEDULE_LABELS].map((s) =>
+  s.toUpperCase(),
+);
+const TRANSPORT_SCHEDULE_GATE_OPTS = { minLen: 5, tieAbort: true } as const;
+
 export function parseTransportation(
   markdown: string,
   _version: "v1" | "v2" | "v4",
@@ -114,7 +124,7 @@ export function parseTransportation(
   // run only if the earlier header didn't match.
   const row =
     parseV4Transport(markdown, crewMembers) ??
-    parseV2Transport(markdown, crewMembers) ??
+    parseV2Transport(markdown, crewMembers, agg) ??
     parseV1Transport(markdown, crewMembers);
 
   // D1: a non-null-but-all-empty row means the header was recognized yet no field
@@ -289,6 +299,7 @@ function parseV4Transport(
 function parseV2Transport(
   markdown: string,
   crewMembers?: CrewMemberRow[],
+  agg?: ParseAggregator,
 ): TransportationRow | null {
   // Match: | TRANSPORTATION | NAME | PHONE | (older) OR
   //        | TRANSPORTATION | TRANSPORTATION | PHONE | (exporter column-dup, ria).
@@ -351,6 +362,33 @@ function parseV2Transport(
         time,
         assigned_names: extractAssignedNames(cells, -1, crewMembers),
       });
+    } else if (col0) {
+      // Fuzzy recovery: a near-miss of a schedule label (Damerau<=1, tie-abort) is recognized
+      // as a schedule row so the leg isn't dropped. Keep the operator's RAW label as `stage`
+      // (we recover the entry, we don't rewrite crew-facing text) and warn. Metadata typos
+      // (driver/vehicle/parking/notes) were already consumed above, and unrelated labels are
+      // far from these long phrases, so this stays tight.
+      const fix = gatedVocabCorrect(
+        col0.toUpperCase(),
+        TRANSPORT_SCHEDULE_VOCAB,
+        TRANSPORT_SCHEDULE_GATE_OPTS,
+      );
+      if (fix?.corrected) {
+        const { date, time } = parseV2DateTime(col1, contextYear);
+        schedule.push({
+          stage: col0,
+          date,
+          time,
+          assigned_names: extractAssignedNames(cells, -1, crewMembers),
+        });
+        agg?.warnings.push({
+          severity: "warn",
+          code: "FIELD_LABEL_AUTOCORRECTED",
+          message: `Read likely-misspelled transport schedule label '${col0}' as '${fix.match}'`,
+          blockRef: { kind: "transportation" },
+          rawSnippet: col0,
+        });
+      }
     }
   }
 
