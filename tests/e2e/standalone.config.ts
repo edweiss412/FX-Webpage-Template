@@ -8,10 +8,13 @@ import { defineConfig, devices } from "@playwright/test";
  * do not need, so they run here instead:
  *
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts
+ *
+ * Members: step3-card-dimensions (Task D2), agendaScheduleLayout (agenda-PDF
+ * Task 16 — §6 agenda area layout dimensions).
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: /(step3-card-dimensions|step3-grid-layout)\.spec\.ts/,
+  testMatch: /(step3-card-dimensions|step3-grid-layout|agendaScheduleLayout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

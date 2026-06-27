@@ -4,10 +4,12 @@
  * AC-7.4 / AC-7.7).
  *
  * Pure presentational crew block that surfaces a show's diagrams (embedded
- * images on the DIAGRAMS tab + linked-folder items) AND its agenda PDF, behind
- * one frame. The actual swipeable lightbox lives in
- * `components/diagrams/Gallery.tsx`; the inline PDF.js viewer lives in
- * `components/agenda/AgendaEmbed.tsx`.
+ * images on the DIAGRAMS tab + linked-folder items) behind one frame. The
+ * actual swipeable lightbox lives in `components/diagrams/Gallery.tsx`.
+ *
+ * The agenda PDF relocated to the Schedule section (§4.6) — it is no longer
+ * part of this block, and `agenda_links` no longer factors into the
+ * whole-block-missing gate (Diagrams hides on diagram content alone).
  *
  * The export name is kept as `DiagramsTile` so VenueSection's direct-invocation
  * call site (`DiagramsTile({ ... })` inside a WrappedSection render seam)
@@ -31,14 +33,13 @@
  * compares against.
  *
  * Whole-block-missing per §8.3: returns `null` when there are no available
- * diagram entries AND no agenda link carries a fileId.
+ * diagram entries.
  *
  * Server Component (no `'use client'`).
  */
 import { Section } from "@/components/atoms/Section";
 import { MapIcon } from "@/components/crew/icons/sectionIcons";
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
-import { AgendaEmbed, type AgendaLink } from "@/components/agenda/AgendaEmbed";
 import { isAllowedDiagramMime } from "@/lib/data/diagrams";
 import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
 import type {
@@ -50,7 +51,6 @@ import type {
 type DiagramsTileProps = {
   showId: string;
   diagrams: PersistedDiagrams | null;
-  agendaLinks: AgendaLink[];
 };
 
 function keyFromPath(snapshotPath: string | null, fallback: string): string {
@@ -87,7 +87,7 @@ function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryI
   };
 }
 
-export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProps) {
+export function DiagramsTile({ showId, diagrams }: DiagramsTileProps) {
   const embedded = diagrams?.embeddedImages ?? [];
   const linked = diagrams?.linkedFolderItems ?? [];
   const items: GalleryItem[] = [
@@ -95,18 +95,14 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
     ...linked.map((entry, i) => linkedItem(entry, embedded.length + i + 1)),
   ];
 
-  // Whole-block-missing per §8.3 — both media domains empty. Predicate
-  // (M9 C6 / M7-D5) lives in lib/visibility/emptyState.ts so the
-  // "is there anything to show" decision routes through the same
-  // visibility module as the sentinel-hiding helpers.
-  if (shouldHideDiagrams(diagrams, agendaLinks)) return null;
-  const hasAgendaPdf = agendaLinks.some((link) => Boolean(link.fileId));
-  const hasItems = items.length > 0;
+  // Whole-block-missing per §8.3 — no diagram content. The agenda PDF moved
+  // to the Schedule section (§4.6), so this block now hides on diagram
+  // content ALONE. The predicate (M9 C6 / M7-D5) lives in
+  // lib/visibility/emptyState.ts so the "is there anything to show" decision
+  // routes through the same visibility module as the sentinel-hiding helpers.
+  if (shouldHideDiagrams(diagrams)) return null;
 
-  // Heading mirrors content state: diagrams + agenda together get the
-  // combined label; either alone gets the single-domain label so the
-  // block name doesn't lie about its contents.
-  const heading = hasItems && hasAgendaPdf ? "Diagrams & agenda" : hasItems ? "Diagrams" : "Agenda";
+  const heading = "Diagrams";
 
   return (
     <Section
@@ -129,15 +125,8 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
         </span>
       }
     >
-      {hasItems && diagrams ? (
+      {diagrams ? (
         <Gallery showId={showId} snapshotRevisionId={diagrams.snapshot_revision_id} items={items} />
-      ) : null}
-      {hasItems && hasAgendaPdf ? (
-        <div className="mt-3 border-t border-border pt-3">
-          <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
-        </div>
-      ) : hasAgendaPdf ? (
-        <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
       ) : null}
     </Section>
   );

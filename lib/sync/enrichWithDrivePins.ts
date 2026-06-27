@@ -25,6 +25,7 @@ import type {
   ParseWarning,
 } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
+import { enrichAgenda } from "@/lib/sync/enrichAgenda";
 
 export const MAX_TOTAL_DIAGRAM_ITEMS = 60;
 
@@ -88,6 +89,33 @@ export interface DriveClient {
    * least one embedded image-like object is resolved.
    */
   getSpreadsheetRevisionId?: (spreadsheetId: string) => Promise<string | null>;
+  /**
+   * Drive `files.get({ alt: 'media', supportsAllDrives: true })` byte download
+   * for an agenda PDF (spec §4.5.3). Bytes-only — the mime/revision gate lives in
+   * `enrichAgenda` via `getFile`. The outcome is a discriminated union (invariant
+   * 9): `unavailable` = trashed/non-PDF/404/permission (→ AGENDA_PDF_UNREADABLE);
+   * `infra_error` = transient/5xx/network (NOT cached, NOT a data-quality note —
+   * retried next sync); `bytes` = success. Optional so existing mocks/impls compile;
+   * the Task 11 meta-test asserts every concrete impl provides it.
+   */
+  downloadFileBytes?: (
+    fileId: string,
+  ) => Promise<
+    { kind: "bytes"; bytes: Uint8Array } | { kind: "unavailable" } | { kind: "infra_error" }
+  >;
+  /**
+   * Sheets `spreadsheets.get` INFO-tab grid read recovering smart-chip agenda
+   * fileIds (spec §4.5.3). Returns every `AGENDA LINK` row in grid row order as
+   * `{ label, chipFileId }` (`chipFileId` = `/d/<id>` from the value cell's chip
+   * uri, or `null` for a plain-URL/text value). A Sheets-API fault surfaces as a
+   * real union member `{ kind: 'infra_error' }` (invariant 9) so "couldn't read
+   * the sheet" can never collapse into "no agenda rows / count mismatch".
+   */
+  getAgendaChips?: (
+    spreadsheetId: string,
+  ) => Promise<
+    { kind: "rows"; rows: { label: string; chipFileId: string | null }[] } | { kind: "infra_error" }
+  >;
 }
 
 export type EnrichContext = {
@@ -267,7 +295,7 @@ export async function enrichWithDrivePins(
     }));
   }
 
-  return {
+  const result: ParseResult = {
     show: parsed.show,
     crewMembers: parsed.crewMembers,
     hotelReservations: parsed.hotelReservations,
@@ -286,4 +314,11 @@ export async function enrichWithDrivePins(
     hardErrors: parsed.hardErrors,
     ...(parsed.runOfShow !== undefined ? { runOfShow: parsed.runOfShow } : {}),
   };
+
+  // Agenda-PDF surfacing (spec §4.5.4): best-effort, runs inside the shared enrich
+  // step so all four sync paths inherit it. Mutates result.show.agenda_links +
+  // result.warnings; never throws out of the scan.
+  await enrichAgenda(result, driveClient, ctx.driveFileId);
+
+  return result;
 }

@@ -21,10 +21,11 @@
  *     as an http(s) URL (`isParseableUrl`, ported from VenueTile) so a sentinel
  *     like "TBD" never becomes a dead `href="TBD"` navigation control (§9 test
  *     33).
- *   - Diagrams + agenda — the ported DiagramsTile, which owns embedded-first
- *     ordering, the MIME allowlist + null-snapshotPath gating, and the
- *     `agenda_links` PDF embed. Whole-block omission when there's nothing to
- *     show is DiagramsTile's own `null` return.
+ *   - Diagrams — the ported DiagramsTile, which owns embedded-first ordering
+ *     and the MIME allowlist + null-snapshotPath gating. The agenda PDF
+ *     relocated to the Schedule section (§4.6) and is no longer here.
+ *     Whole-block omission when there's nothing to show is DiagramsTile's own
+ *     `null` return.
  *
  * When ALL blocks are hidden, a section-level `<EmptyState data-testid=
  * "section-empty">` renders so the surface is never blank.
@@ -179,10 +180,13 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   const hasStatus = coi !== null || venueNotes !== null;
 
   // diagrams renders null only when shouldHideDiagrams is true — recompute the
-  // same predicate inputs to decide whether the block contributes content.
+  // same predicate input to decide whether the block contributes content. The
+  // agenda PDF relocated to the Schedule section (§4.6), so agenda presence no
+  // longer forces this block to render (an agenda-only show shows NO empty
+  // Diagrams block here).
   const hasDiagrams =
     (data.diagrams?.embeddedImages?.length ?? 0) + (data.diagrams?.linkedFolderItems?.length ?? 0) >
-      0 || data.show.agenda_links.some((link) => Boolean(link.fileId));
+    0;
 
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The parking
   // block reads transportation.parking, gated by transportTileVisible (the same
@@ -315,15 +319,14 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
         sheetName={data.show.title}
         render={() =>
           // DiagramsTile owns the embedded-first ordering + MIME allowlist +
-          // null-snapshotPath gating + agenda_links PDF embed — the throwable
-          // transform. DIRECT-INVOKED as a function call (not `<DiagramsTile/>`
-          // JSX) so its synchronous body runs INSIDE WrappedSection's
-          // try/catch (the H2 direct-invocation contract); a build throw is
-          // contained (fallback + TILE_SERVER_RENDER_FAILED upsert).
+          // null-snapshotPath gating — the throwable transform. DIRECT-INVOKED
+          // as a function call (not `<DiagramsTile/>` JSX) so its synchronous
+          // body runs INSIDE WrappedSection's try/catch (the H2
+          // direct-invocation contract); a build throw is contained (fallback +
+          // TILE_SERVER_RENDER_FAILED upsert).
           DiagramsTile({
             showId,
             diagrams: data.diagrams,
-            agendaLinks: data.show.agenda_links,
           })
         }
       />

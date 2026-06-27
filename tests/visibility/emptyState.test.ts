@@ -84,36 +84,22 @@ describe("shouldHideGenericOptional", () => {
 });
 
 describe("shouldHideDiagrams (M9 C6 / M7-D5)", () => {
-  test("both domains empty → hide (whole-tile-missing)", () => {
-    expect(shouldHideDiagrams(null, [])).toBe(true);
-    expect(shouldHideDiagrams({ embeddedImages: [], linkedFolderItems: [] }, [])).toBe(true);
+  // Agenda relocated to the Schedule section (§4.6) — Diagrams now hides on
+  // diagram content ALONE; `agenda_links` no longer factors in (single-arg).
+  test("no diagram content → hide (whole-tile-missing)", () => {
+    expect(shouldHideDiagrams(null)).toBe(true);
+    expect(shouldHideDiagrams({ embeddedImages: [], linkedFolderItems: [] })).toBe(true);
   });
 
   test("diagrams.embeddedImages non-empty → render (don't hide)", () => {
-    expect(shouldHideDiagrams({ embeddedImages: [{}], linkedFolderItems: [] }, [])).toBe(false);
+    expect(shouldHideDiagrams({ embeddedImages: [{}], linkedFolderItems: [] })).toBe(false);
   });
 
   test("diagrams.linkedFolderItems non-empty → render (don't hide)", () => {
-    expect(shouldHideDiagrams({ embeddedImages: [], linkedFolderItems: [{}] }, [])).toBe(false);
-  });
-
-  test("agendaLinks with a fileId → render (don't hide)", () => {
-    expect(shouldHideDiagrams(null, [{ fileId: "abc123" }])).toBe(false);
-  });
-
-  test("agendaLinks without any fileId → ignored as agenda source", () => {
-    // A link entry with only a URL (no fileId) is not a PDF-renderable
-    // agenda and should not flip the tile from hide → render on its own.
-    expect(shouldHideDiagrams(null, [{ url: "https://example.com/agenda" }])).toBe(true);
-  });
-
-  test("both domains populated → render (don't hide)", () => {
-    expect(
-      shouldHideDiagrams({ embeddedImages: [{}], linkedFolderItems: [] }, [{ fileId: "xyz" }]),
-    ).toBe(false);
+    expect(shouldHideDiagrams({ embeddedImages: [], linkedFolderItems: [{}] })).toBe(false);
   });
 
   test("undefined diagrams fields tolerated", () => {
-    expect(shouldHideDiagrams({}, [])).toBe(true);
+    expect(shouldHideDiagrams({})).toBe(true);
   });
 });

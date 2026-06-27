@@ -4,8 +4,8 @@
  * tests/components/tiles/DiagramsTile.test.tsx) (M7 Task 7.9 / AC-7.2 /
  * AC-7.2b / AC-7.4 / AC-7.7).
  *
- * DiagramsTile composes the Gallery + AgendaEmbed into the standard tile
- * frame and is responsible for:
+ * DiagramsTile composes the Gallery into the standard tile frame and is
+ * responsible for (the agenda PDF relocated to the Schedule section, §4.6):
  *
  *   - AC-7.2b ordering: embedded entries come BEFORE linked-folder
  *     entries in the gallery.
@@ -17,7 +17,7 @@
  *     emitted URLs literal-equality match what the diagram-route's
  *     `findAsset()` compares against.
  *   - Whole-tile-missing reflow: returns `null` when there are no
- *     available diagrams AND no agenda PDF.
+ *     available diagrams.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -43,18 +43,6 @@ vi.mock("@/components/diagrams/Gallery", () => ({
   ),
 }));
 
-vi.mock("@/components/agenda/AgendaEmbed", () => ({
-  AgendaEmbed: ({
-    showId,
-    agendaLinks,
-  }: {
-    showId: string;
-    agendaLinks: { label?: string; fileId?: string; url?: string }[];
-  }) => (
-    <div data-testid="agenda-stub" data-show={showId} data-links={JSON.stringify(agendaLinks)} />
-  ),
-}));
-
 import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 
@@ -75,22 +63,14 @@ function diagrams(overrides: Partial<PersistedDiagrams> = {}): PersistedDiagrams
 afterEach(() => cleanup());
 
 describe("DiagramsTile", () => {
-  test("returns null when no diagrams + no agenda PDFs (whole-tile-missing)", () => {
-    const { container } = render(
-      <DiagramsTile showId={SHOW_ID} diagrams={null} agendaLinks={[]} />,
-    );
+  test("returns null when no diagrams (whole-tile-missing)", () => {
+    const { container } = render(<DiagramsTile showId={SHOW_ID} diagrams={null} />);
     expect(container.firstChild).toBeNull();
   });
 
-  test("returns null with empty diagrams payload + no agenda PDFs", () => {
-    const { container } = render(
-      <DiagramsTile
-        showId={SHOW_ID}
-        diagrams={diagrams()}
-        agendaLinks={[{ label: "Url only", url: "https://example.com/x" }]}
-      />,
-    );
-    // No fileId-bearing agenda link AND no diagrams → null.
+  test("returns null with empty diagrams payload", () => {
+    const { container } = render(<DiagramsTile showId={SHOW_ID} diagrams={diagrams()} />);
+    // No diagram content → null (the agenda moved to Schedule, §4.6).
     expect(container.firstChild).toBeNull();
   });
 
@@ -130,7 +110,6 @@ describe("DiagramsTile", () => {
             },
           ],
         })}
-        agendaLinks={[]}
       />,
     );
     const stub = screen.getByTestId("gallery-stub");
@@ -173,7 +152,6 @@ describe("DiagramsTile", () => {
             },
           ],
         })}
-        agendaLinks={[]}
       />,
     );
     const items = JSON.parse(
@@ -202,7 +180,6 @@ describe("DiagramsTile", () => {
             },
           ],
         })}
-        agendaLinks={[]}
       />,
     );
     const diaTile = screen.getByTestId("diagrams-tile");
@@ -213,19 +190,11 @@ describe("DiagramsTile", () => {
     expect(diaTile.querySelector("header svg")).not.toBeNull();
   });
 
-  test("renders agenda when at least one agenda_links has fileId, even with no diagrams", () => {
-    render(
-      <DiagramsTile
-        showId={SHOW_ID}
-        diagrams={null}
-        agendaLinks={[{ label: "Run of show", fileId: "1abc-AGENDA-fileId" }]}
-      />,
-    );
-    const tile = screen.getByTestId("diagrams-tile");
-    expect(tile).toBeTruthy();
-    expect(screen.getByTestId("agenda-stub").getAttribute("data-show")).toBe(SHOW_ID);
-    // No diagrams → Gallery stub NOT rendered.
-    expect(screen.queryByTestId("gallery-stub")).toBeNull();
+  test("no diagrams → null (agenda relocated to Schedule, §4.6 — no empty block)", () => {
+    // A diagram-less show no longer renders a Diagrams block just because it
+    // has an agenda PDF — the agenda lives in the Schedule section now.
+    const { container } = render(<DiagramsTile showId={SHOW_ID} diagrams={null} />);
+    expect(container.firstChild).toBeNull();
   });
 
   test("Codex R13 P1: persisted SVG entry maps to available:false (no <img>, placeholder instead)", () => {
@@ -254,7 +223,6 @@ describe("DiagramsTile", () => {
             },
           ],
         })}
-        agendaLinks={[]}
       />,
     );
     const items = JSON.parse(
@@ -284,7 +252,6 @@ describe("DiagramsTile", () => {
             },
           ],
         })}
-        agendaLinks={[{ label: "Run of show", fileId: "1abc-AGENDA-fileId" }]}
       />,
     );
     expect(container.innerHTML).not.toContain("drive.google.com");

@@ -27,6 +27,10 @@ import {
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
+import {
+  downloadFileBytes as downloadAgendaFileBytes,
+  getAgendaChips,
+} from "@/lib/drive/agendaDrive";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type {
@@ -1654,6 +1658,11 @@ export function defaultDriveClient(): DriveClient {
       const revisions = response.data.revisions ?? [];
       return revisions.at(-1)?.id ?? null;
     },
+    // Agenda PDF surfacing (spec §4.5.3): bytes-only PDF download + smart-chip
+    // fileId recovery. Both return discriminated unions (invariant 9); the impls
+    // live in lib/drive/agendaDrive.ts so the real + mock clients share the shape.
+    downloadFileBytes: downloadAgendaFileBytes,
+    getAgendaChips: getAgendaChips,
   };
 }
 
