@@ -124,10 +124,10 @@ export function ScheduleSection({
         Agenda
       </h2>
       <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
-      {agendaLinks.map((link, i) =>
+      {agendaLinks.map((link) =>
         link.fileId && link.extracted ? (
           <AgendaScheduleBlock
-            key={i}
+            key={link.fileId}
             extraction={link.extracted}
             label={agendaPdfCount > 1 ? agendaDisplayLabel(link.label) : null}
           />
