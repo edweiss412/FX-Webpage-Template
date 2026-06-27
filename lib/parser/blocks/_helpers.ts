@@ -41,9 +41,15 @@ export function splitRow(line: string): string[] {
   return parts.slice(1, parts.length - 1).map((s) => s.trim());
 }
 
-/** Normalize whitespace and strip markdown escape backslashes. */
+/** Normalize whitespace, strip zero-width chars, and strip markdown escape backslashes. */
 export function clean(s: string): string {
-  return s.replace(/\\(.)/g, "$1").trim();
+  // Strip zero-width junk (ZWSP \u200B - ZWJ \u200D, plus BOM \uFEFF) at the shared
+  // cell boundary so every stored field — not just hotel names — is paste-safe for
+  // maps/search. Matches the coverage of the former hotel-local strip.
+  return s
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\\(.)/g, "$1")
+    .trim();
 }
 
 /**

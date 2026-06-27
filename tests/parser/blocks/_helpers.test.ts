@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
-import { splitRow } from "@/lib/parser/blocks/_helpers";
+import { splitRow, clean } from "@/lib/parser/blocks/_helpers";
 
 describe("splitRow — well-formed rows", () => {
   it("splits '| A | B |' into ['A', 'B'] (trimmed, outer empties dropped)", () => {
@@ -60,4 +60,17 @@ describe("splitRow truncation path is unreachable on the real corpus (standing a
       expect(unbalanced).toEqual([]);
     });
   }
+});
+
+describe("clean() — zero-width strip", () => {
+  it("removes ZWSP / ZWNJ / ZWJ / BOM", () => {
+    expect(clean("a\u200Bb\u200Cc\u200Dd\uFEFFe")).toBe("abcde");
+  });
+  it("a value that is entirely zero-width becomes empty", () => {
+    expect(clean("\u200B\uFEFF")).toBe("");
+  });
+  it("still unescapes backslashes and does NOT touch smart-quotes", () => {
+    expect(clean("\\-Load")).toBe("-Load");
+    expect(clean("the \u201Cgreen\u201D room")).toBe("the \u201Cgreen\u201D room"); // quotes preserved
+  });
 });

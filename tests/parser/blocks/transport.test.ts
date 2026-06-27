@@ -333,3 +333,15 @@ describe("parseTransportation — corpus coverage", () => {
     });
   }
 });
+
+describe("parseTransportation — zero-width strip at the shared clean() boundary", () => {
+  it("parking field carries no zero-width characters", () => {
+    // exporter-xlsx fintech's Parking cell is the Holiday Inn address peppered with
+    // ZWNJ (verified at fixtures/shows/exporter-xlsx/fintech.md:67). After the shared
+    // clean() strip, the stored value must be invisible-char-free.
+    const md = readFileSync("fixtures/shows/exporter-xlsx/fintech.md", "utf8");
+    const t = parseTransportation(md, "v4");
+    expect(t?.parking).toBeTruthy(); // the cell does parse to a value
+    expect(/[\u200B-\u200D\uFEFF]/.test(t!.parking!)).toBe(false);
+  });
+});
