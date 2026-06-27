@@ -137,7 +137,8 @@ export function attachSourceCellAnchors(
       w.code === "FIELD_UNREADABLE" ||
       w.code === "UNKNOWN_FIELD" ||
       w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
-      w.code === "SECTION_HEADER_AUTOCORRECTED"
+      w.code === "SECTION_HEADER_AUTOCORRECTED" ||
+      w.code === "FIELD_LABEL_AUTOCORRECTED"
     ) {
       // Region-level anchor: blockRef.kind is a RegionId (crew column → "crew";
       // section header → the corrected section's RegionId, e.g. "transportation"/"details").

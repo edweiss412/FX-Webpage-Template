@@ -12,6 +12,10 @@
  *   - Spec §6.4 fieldAliases block (parser-config.json)
  *   - Corpus grep across fixtures/shows/raw/*.md for per-version label spellings
  */
+
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
+
 export const FIELD_ALIASES: Record<string, string[]> = {
   // ── Version-detection markers ─────────────────────────────────────────────
   // v4: "Contact Office" row in CLIENT block (2026-03+ sheets)
@@ -175,4 +179,42 @@ export function resolveAliasFull(label: string): { canonical: string; isTypo: bo
   const canonical = REVERSE_MAP.get(lower);
   if (canonical === undefined) return null;
   return { canonical, isTypo: TYPO_ALIASES.has(lower) };
+}
+
+/** All REVERSE_MAP alias keys (lowercase) whose canonical is under scopePrefix. The
+ *  single source of the fuzzable in-scope alias set (resolveAliasScoped + the collision
+ *  registry both derive from this — they cannot drift as FIELD_ALIASES changes). */
+export function inScopeAliases(scopePrefix: string): string[] {
+  return [...REVERSE_MAP.entries()]
+    .filter(([, canon]) => canon.startsWith(scopePrefix))
+    .map(([alias]) => alias);
+}
+
+/**
+ * Resolve a label to a canonical UNDER scopePrefix only, scoped on BOTH paths (spec
+ * §5.1 of docs/superpowers/specs/2026-06-27-parser-typo-tolerance-design.md): an
+ * out-of-scope exact alias returns null (never borrows another block's canonical);
+ * a near-miss of an in-scope alias is fuzzy-corrected via the gate (minLen 5, tie-abort,
+ * sub-label exclusion). The global `resolveAlias`/`resolveAliasFull` stay exact + untouched.
+ */
+export function resolveAliasScoped(
+  label: string,
+  scopePrefix: string,
+): { canonical: string; corrected: boolean } | null {
+  const lower = label.trim().toLowerCase();
+  // (1) exact: any exact alias is handled here — in-scope returns it, out-of-scope returns null.
+  const exact = REVERSE_MAP.get(lower);
+  if (exact !== undefined) {
+    return exact.startsWith(scopePrefix) ? { canonical: exact, corrected: false } : null;
+  }
+  // (2) fuzzy over ONLY the in-scope aliases. (Reached only when `label` is not an exact
+  // alias of any block, so the exclude just guards the sub-labels.)
+  const fix = gatedVocabCorrect(lower, inScopeAliases(scopePrefix), {
+    minLen: 5,
+    tieAbort: true,
+    exclude: [...KNOWN_SUB_LABELS].map((s) => s.toLowerCase()),
+  });
+  if (!fix?.corrected) return null;
+  const canonical = REVERSE_MAP.get(fix.match);
+  return canonical ? { canonical, corrected: true } : null;
 }

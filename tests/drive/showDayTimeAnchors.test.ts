@@ -221,6 +221,23 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 9, a1: "A40" });
   });
 
+  it("resolves FIELD_LABEL_AUTOCORRECTED by its venue region (blockRef.kind='venue')", () => {
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_LABEL_AUTOCORRECTED",
+        message: "x",
+        blockRef: { kind: "venue", index: 0 },
+      },
+    ];
+    attachSourceCellAnchors(ws, {
+      showDay: [],
+      crewRole: [],
+      region: { venue: { title: "INFO", gid: 0, a1: "A5" } },
+    });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A5" });
+  });
+
   it("FIELD_UNREADABLE with no region for its kind → null (no wrong-region link)", () => {
     const ws: ParseWarning[] = [
       {
@@ -301,7 +318,7 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning is TRUE for all seventeen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+  it("hasCellAnchoredWarning is TRUE for all eighteen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
     for (const code of [
       "SCHEDULE_TIME_UNPARSED",
       "UNKNOWN_ROLE_TOKEN",
@@ -311,6 +328,7 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
       "ROLE_TOKEN_AUTOCORRECTED",
       "COLUMN_HEADER_AUTOCORRECTED",
       "SECTION_HEADER_AUTOCORRECTED",
+      "FIELD_LABEL_AUTOCORRECTED",
       "AGENDA_GRID_MALFORMED",
       "AGENDA_BLOCK_UNRESOLVED",
       "AGENDA_DAY_AMBIGUOUS",

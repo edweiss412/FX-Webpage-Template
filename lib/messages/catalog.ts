@@ -1114,6 +1114,19 @@ export const MESSAGE_CATALOG = {
       "A section header on a sheet looked misspelled, so we read it as the closest real section and parsed that section anyway — otherwise the whole section would have been dropped. If it was intentional, update the sheet.",
     helpHref: "/help/errors#SECTION_HEADER_AUTOCORRECTED",
   },
+  FIELD_LABEL_AUTOCORRECTED: {
+    code: "FIELD_LABEL_AUTOCORRECTED",
+    dougFacing:
+      "We read a likely-misspelled field label on _<sheet-name>_ (for example 'Venue Adress' as 'Venue Address') and used the corrected field. If it was intentional, update the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix",
+    helpfulContext:
+      "A field label on this sheet looked misspelled (e.g. 'Venue Adress'), so we read it as the closest real field ('Venue Address') and used that. If it was intentional, update the sheet.",
+    title: "Auto-corrected a field label",
+    longExplanation:
+      "A field label on a sheet looked misspelled, so we read it as the closest real field and used that — the value is recovered into the right field instead of being dropped. If it was intentional, update the sheet.",
+    helpHref: "/help/errors#FIELD_LABEL_AUTOCORRECTED",
+  },
   PULL_SHEET_PARSE_PARTIAL: {
     code: "PULL_SHEET_PARSE_PARTIAL",
     dougFacing:

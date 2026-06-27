@@ -1,9 +1,20 @@
+import { inScopeAliases } from "@/lib/parser/aliases";
+
 export type VocabEntry = {
   id: string;
   klass: "fuzzable" | "excluded";
   members: readonly string[];
   minLen?: number;
 };
+
+// Venue field-alias fuzzable set, DERIVED (not hand-listed) so it always mirrors what
+// resolveAliasScoped("…","venue.") actually fuzzes — it cannot drift as FIELD_ALIASES
+// changes (PR-B Codex R1 HIGH). Uppercased to compare against the (uppercase) excluded
+// vocabs in the collision meta-test; gatedVocabCorrect fuzzes the lowercase originals —
+// same Damerau distances, so the meta-test faithfully guards it.
+const VENUE_FIELD_ALIASES = inScopeAliases("venue.")
+  .filter((a) => a.length >= 5)
+  .map((a) => a.toUpperCase());
 
 /**
  * Central registry of closed vocabs for typo-tolerance. `fuzzable` entries name the
@@ -27,6 +38,8 @@ export const TYPO_VOCABS: readonly VocabEntry[] = [
     klass: "fuzzable",
     members: ["TRANSPORTATION", "EVENT DETAILS", "GS DETAILS"],
   },
+  // PR-B: venue field-alias fuzzy fallback (resolveAliasScoped), derived above.
+  { id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: VENUE_FIELD_ALIASES },
   // excluded / do-not-fuzz neighborhoods (spec §8) the meta-test guards against:
   {
     id: "shortRoleCodes",

@@ -332,6 +332,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → refresh admin",
     "helpfulContext": "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
   },
+  "FIELD_LABEL_AUTOCORRECTED": {
+    "crewFacing": null,
+    "dougFacing": "We read a likely-misspelled field label on _<sheet-name>_ (for example 'Venue Adress' as 'Venue Address') and used the corrected field. If it was intentional, update the sheet.",
+    "followUp": "Doug → optional fix",
+    "helpfulContext": "A field label on this sheet looked misspelled (e.g. 'Venue Adress'), so we read it as the closest real field ('Venue Address') and used that. If it was intentional, update the sheet.",
+  },
   "FIELD_UNREADABLE": {
     "crewFacing": null,
     "dougFacing": null,
