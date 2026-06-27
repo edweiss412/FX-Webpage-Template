@@ -1153,6 +1153,45 @@ export const MESSAGE_CATALOG = {
       "A show day's TIME cell had content we couldn't read as a start time, so that day shows the standard schedule. Give the cell a clear start time and it'll update on the next sync.",
     helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
   },
+  AGENDA_PDF_UNREADABLE: {
+    code: "AGENDA_PDF_UNREADABLE",
+    dougFacing:
+      "We couldn't read the agenda PDF linked on _<sheet-name>_, so crew see the embedded agenda document but not a structured day-by-day schedule. Check that the agenda link still opens, or let us know if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → check agenda link",
+    helpfulContext:
+      "A linked agenda PDF couldn't be downloaded or read, so crew see the embedded agenda document but not a structured day-by-day schedule. This is usually a temporary download hiccup or an agenda whose layout we couldn't parse. Open the agenda link to confirm it still works; if it does and this keeps appearing, let us know and we'll take a look.",
+    title: "Agenda PDF unreadable",
+    longExplanation:
+      "A linked agenda PDF couldn't be downloaded or read, so crew see the embedded agenda document but not a structured schedule. Confirm the agenda link still opens; if it does and this persists, let us know and we'll take a look.",
+    helpHref: "/help/errors#AGENDA_PDF_UNREADABLE",
+  },
+  AGENDA_SCHEDULE_LOW_CONFIDENCE: {
+    code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+    dougFacing:
+      "We read _<sheet-name>_'s agenda PDF but weren't confident enough about the times to show a structured schedule, so crew see the agenda document only. No action is needed unless the agenda layout changed recently.",
+    crewFacing: null,
+    followUp: "Doug → optional check",
+    helpfulContext:
+      "The agenda PDF was read, but we weren't confident enough about the session times to publish a structured schedule, so crew see the agenda document on its own. This is a safe fallback — nothing is broken. It usually means the agenda's layout is unusual; no action is needed unless the agenda format changed recently and you expected the structured times to appear.",
+    title: "Agenda schedule shown as PDF only",
+    longExplanation:
+      "The agenda PDF was read but the session times weren't confident enough to publish a structured schedule, so crew see the agenda document only. This is a safe fallback and usually needs no action.",
+    helpHref: "/help/errors#AGENDA_SCHEDULE_LOW_CONFIDENCE",
+  },
+  AGENDA_SCHEDULE_TIME_ADJUSTED: {
+    code: "AGENDA_SCHEDULE_TIME_ADJUSTED",
+    dougFacing:
+      "We adjusted at least one session time while reading _<sheet-name>_'s agenda PDF (it looked like a typo, such as a morning time written as evening). Crew see the corrected schedule — double-check the agenda and fix the source if needed.",
+    crewFacing: null,
+    followUp: "Doug → check agenda",
+    helpfulContext:
+      "While reading the agenda PDF we corrected at least one session time that looked like a typo — for example a morning session written with an evening marker. Crew see the corrected schedule alongside the original agenda document. Open the agenda to confirm the corrected time is right, and fix the source cell if the original was wrong.",
+    title: "Agenda time adjusted",
+    longExplanation:
+      "At least one agenda session time was auto-corrected because it looked like a typo. Crew see the corrected schedule; confirm it against the agenda and fix the source cell if the original was wrong.",
+    helpHref: "/help/errors#AGENDA_SCHEDULE_TIME_ADJUSTED",
+  },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
     dougFacing:

@@ -116,6 +116,24 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional Report",
     "helpfulContext": "We couldn't find the run-of-show grid in the AGENDA tab — usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
   },
+  "AGENDA_PDF_UNREADABLE": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't read the agenda PDF linked on _<sheet-name>_, so crew see the embedded agenda document but not a structured day-by-day schedule. Check that the agenda link still opens, or let us know if it keeps happening.",
+    "followUp": "Doug → check agenda link",
+    "helpfulContext": "A linked agenda PDF couldn't be downloaded or read, so crew see the embedded agenda document but not a structured day-by-day schedule. This is usually a temporary download hiccup or an agenda whose layout we couldn't parse. Open the agenda link to confirm it still works; if it does and this keeps appearing, let us know and we'll take a look.",
+  },
+  "AGENDA_SCHEDULE_LOW_CONFIDENCE": {
+    "crewFacing": null,
+    "dougFacing": "We read _<sheet-name>_'s agenda PDF but weren't confident enough about the times to show a structured schedule, so crew see the agenda document only. No action is needed unless the agenda layout changed recently.",
+    "followUp": "Doug → optional check",
+    "helpfulContext": "The agenda PDF was read, but we weren't confident enough about the session times to publish a structured schedule, so crew see the agenda document on its own. This is a safe fallback — nothing is broken. It usually means the agenda's layout is unusual; no action is needed unless the agenda format changed recently and you expected the structured times to appear.",
+  },
+  "AGENDA_SCHEDULE_TIME_ADJUSTED": {
+    "crewFacing": null,
+    "dougFacing": "We adjusted at least one session time while reading _<sheet-name>_'s agenda PDF (it looked like a typo, such as a morning time written as evening). Crew see the corrected schedule — double-check the agenda and fix the source if needed.",
+    "followUp": "Doug → check agenda",
+    "helpfulContext": "While reading the agenda PDF we corrected at least one session time that looked like a typo — for example a morning session written with an evening marker. Crew see the corrected schedule alongside the original agenda document. Open the agenda to confirm the corrected time is right, and fix the source cell if the original was wrong.",
+  },
   "AGENDA_UNAUTHENTICATED": {
     "crewFacing": "This link has expired. Text Doug for the current agenda link.",
     "dougFacing": null,
