@@ -2,6 +2,7 @@ import { randomUUID as defaultRandomUUID } from "node:crypto";
 import postgres from "postgres";
 import { NextResponse } from "next/server";
 import { getDriveClient } from "@/lib/drive/client";
+import { parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
 import {
   runOnboardingScan as defaultRunOnboardingScan,
   type OnboardingScanResult,
@@ -89,22 +90,6 @@ async function defaultWithTx<R>(fn: (tx: OnboardingScanRouteTx) => Promise<R>): 
 async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   const { requireAdminIdentity } = await import("@/lib/auth/requireAdmin");
   return await requireAdminIdentity();
-}
-
-function parseDriveFolderId(folderUrl: unknown): string | null {
-  if (typeof folderUrl !== "string" || folderUrl.trim().length === 0) return null;
-  let url: URL;
-  try {
-    url = new URL(folderUrl);
-  } catch {
-    return null;
-  }
-  if (!/^(drive|docs)\.google\.com$/.test(url.hostname)) return null;
-
-  const folderPathMatch = /^\/drive\/(?:u\/\d+\/)?folders\/([^/?#]+)/.exec(url.pathname);
-  const id = folderPathMatch?.[1] ?? url.searchParams.get("id");
-  if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
-  return id;
 }
 
 function driveStatus(error: unknown): number | null {
