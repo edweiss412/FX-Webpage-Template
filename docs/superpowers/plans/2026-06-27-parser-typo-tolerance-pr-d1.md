@@ -20,7 +20,8 @@
 
 These rules are the crux of the design and are each pinned by a test:
 
-1. **Exact always wins; a suppressed typo sibling is DROPPED, not fallback-kept, and emits NO warning.** When an EXACT label claims a canonical key, any typo sibling that fuzzy-resolves to the same canonical is dropped entirely — its value is NOT written under a normalized fallback key, and no `FIELD_LABEL_AUTOCORRECTED` is emitted (the field is already correctly captured by the exact row, so the duplicate is noise). This IS a behavior change vs today (today a typo'd label like `Attir` lands under the garbage key `attir`); it only affects rows that fuzzy-match a known field, never genuinely-unknown labels, and never the (correctly-spelled) fixtures. Matches the shipped ops anti-shadow contract (PR-C).
+1. **A REAL exact value wins; a suppressed typo sibling is DROPPED, not fallback-kept, and emits NO warning.** "Claims a canonical" means an EXACT label wrote a **real** (non-empty, non-sentinel) value for it. When that holds, any typo sibling that fuzzy-resolves to the same canonical is dropped entirely — its value is NOT written under a normalized fallback key, and no `FIELD_LABEL_AUTOCORRECTED` is emitted (the field is already correctly captured by the exact row, so the duplicate is noise). This IS a behavior change vs today (today a typo'd label like `Attir` lands under the garbage key `attir`); it only affects rows that fuzzy-match a known field, never genuinely-unknown labels, and never the (correctly-spelled) fixtures. Matches the shipped ops anti-shadow contract (PR-C).
+   - **Empty / sentinel exact does NOT claim (no data loss).** If the only exact row for a canonical had an empty or sentinel value (`""`/`TBD`/`N/A`/`TBA`), a typo sibling carrying a **real** value still recovers into that canonical and warns — recovering real data is strictly better than today (today the typo's value lands under a garbage key and the canonical stays empty). The recovery write goes through `writeField`, so a sentinel fuzzy value never displaces a real exact value, and a real fuzzy value correctly overrides a sentinel exact value (consistent with event's sentinel-aware precedence, event.ts:148-165). This is tracked with an `exactReal` set (canonicals an exact row gave a real value), NOT a bare "seen" set.
 2. **Multiple fuzzy siblings (no exact for that canonical): last-write-wins, with the SAME sentinel-aware precedence as exact labels.** The fuzzy candidate map is updated per row using the identical rule as `writeField` (a sentinel value never displaces a real one already held), so the fuzzy path matches event's documented known-label semantics (last-write-wins except sentinel, event.ts:148-165). The emitted warning's `rawSnippet` reflects the WINNING label (the one whose value is kept).
 3. **A genuinely-unknown label (no exact, no fuzzy hit — including tie-aborted or below-minLen) keeps its fallback key, unchanged.**
 
@@ -49,7 +50,7 @@ These rules are the crux of the design and are each pinned by a test:
 - Consumes: `gatedVocabCorrect` (`lib/parser/typoGate.ts:16`), `ParseAggregator` + `newAggregator` (`lib/parser/warnings.ts`), `shouldHideGenericOptional` (already imported, `lib/visibility/emptyState`), `presence`/`clean`/`splitRow` (`./_helpers`).
 - Produces (for Task 2): `export const CANONICAL_KEY_MAP` and `export const EVENT_LABEL_VOCAB: readonly string[]` from `lib/parser/blocks/event.ts`.
 
-- [ ] **Step 1: Write the failing tests** — append to `tests/parser/blocks/event.test.ts`. Add `import { newAggregator } from "@/lib/parser/warnings";` and `import { gatedVocabCorrect } from "@/lib/parser/typoGate";` and `import { EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";` and `import { unambiguousTypos } from "../_typoGenerator";` at the top, then:
+- [ ] **Step 1: Write the failing BEHAVIOR tests** — append to `tests/parser/blocks/event.test.ts`. The file currently imports only `describe/it/expect`, `readFileSync`, `parseEventDetails`, `detectVersion` (verified — no name collisions). Add ONLY `import { newAggregator } from "@/lib/parser/warnings";` for now (the gate/vocab/generator imports come in Step 5 with the property test, so this step's red is a clean assertion failure, not a missing-export compile error). Then append:
 
 ```ts
 // ── PR-D1: EVENT DETAILS fuzzy field-label recovery ──────────────────────────
@@ -93,6 +94,32 @@ describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
     expect(edB.dress_code).toBe("Business Casual");
     expect(edB.attir).toBeUndefined();
     expect(aggB.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
+  });
+
+  it("empty/sentinel exact does not claim: a real typo sibling still recovers and warns (no data loss)", () => {
+    // The exact "Dress Code" row is EMPTY, so it does not claim dress_code; the typo "Attir"
+    // carries a real value and recovers into dress_code (contract rule 1, empty-exact clause).
+    const aggEmpty = newAggregator();
+    const edEmpty = parseEventDetails(
+      evBlock(["| Dress Code | |", "| Attir | Casual |"]),
+      "v4",
+      aggEmpty,
+    );
+    expect(edEmpty.dress_code).toBe("Casual");
+    expect(aggEmpty.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(1);
+
+    // Sentinel exact ("TBD") likewise does not block a real fuzzy recovery; writeField lets the
+    // real value override the sentinel.
+    const aggSentinel = newAggregator();
+    const edSentinel = parseEventDetails(
+      evBlock(["| Dress Code | TBD |", "| Attir | Casual |"]),
+      "v4",
+      aggSentinel,
+    );
+    expect(edSentinel.dress_code).toBe("Casual");
+    expect(
+      aggSentinel.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED"),
+    ).toHaveLength(1);
   });
 
   it("multiple fuzzy siblings (no exact): last-write-wins, single warn naming the winning label", () => {
@@ -160,28 +187,12 @@ describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
     expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
   });
 
-  // "Typos beyond the example sheets" — property test over the gate directly. Scope to
-  // purely alphabetic+space members so generator neighbors (ALPHA = A–Z + space) are
-  // well-formed; punctuated members (BACKDROP / SCENIC, FONTS (II ONLY), DRESS_CODE) are
-  // covered by the explicit unit tests above.
-  it("corrects unambiguous single-edit typos of every clean member back to that member", () => {
-    const opts = { minLen: 5, tieAbort: true } as const;
-    const clean = EVENT_LABEL_VOCAB.filter((m) => /^[A-Z ]+$/.test(m));
-    expect(clean.length).toBeGreaterThan(8);
-    for (const member of clean) {
-      for (const typo of unambiguousTypos(member, EVENT_LABEL_VOCAB, { minLen: 5 })) {
-        const fix = gatedVocabCorrect(typo, EVENT_LABEL_VOCAB, opts);
-        expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
-        expect(fix?.match, `${typo} → ${member}`).toBe(member);
-      }
-    }
-  });
 });
 ```
 
-  **Concrete failure modes these catch:** value-into-wrong-field on a typo (recover test); a typo'd duplicate clobbering an exact field under last-write-wins (exact-wins, both orders); regression of the keep-unknown-fields fallback (genuinely-unknown); over-eager correction of short/ambiguous tokens (below-minLen, tie-abort); fuzzing the value instead of the label (VALUE-guard); and correction failures on typos absent from the fixtures (generator property test).
+  **Concrete failure modes these catch:** value-into-wrong-field on a typo (recover test); a typo'd duplicate clobbering an exact field under last-write-wins (exact-wins, both orders); silent data loss when the exact row is empty/sentinel (empty-exact recovery); first-vs-last among fuzzy siblings (multiple-siblings); the punctuated back-lookup (round-trip); regression of the keep-unknown-fields fallback (genuinely-unknown); over-eager correction of short/ambiguous tokens (below-minLen, tie-abort); fuzzing the value instead of the label (VALUE-guard). The "typos beyond the example sheets" property test lands in Step 5 (after the export exists).
 
-- [ ] **Step 2: Run to verify fail** — run the WHOLE new block so all assertions execute (a `-t` filter would skip the ones that already pass under current behavior, leaving their claim unverified): `pnpm vitest run tests/parser/blocks/event.test.ts`. The import of `EVENT_LABEL_VOCAB` will fail to resolve (not yet exported) so the file errors — that is the red signal for the new export. (After Step 3 adds the export, the recover/exact-wins/tie-abort/property tests assert the new behavior; the genuinely-unknown, below-minLen, and VALUE-guard tests encode current behavior and must stay green.)
+- [ ] **Step 2: Run to verify fail** — `pnpm vitest run tests/parser/blocks/event.test.ts`. Expected (a clean assertion red, NOT a compile error): the **recover**, **exact-wins** (`ed.attir` undefined), **empty/sentinel-exact recovery**, **multiple-fuzzy-siblings**, and **punctuated round-trip** tests FAIL on their assertions (current behavior drops the typo under a fallback key and emits no warning); the **exact-spellings**, **genuinely-unknown**, **below-minLen**, **tie-abort**, and **VALUE-guard** tests already PASS (they encode current behavior) — confirm those 5 show green in this same run.
 
 - [ ] **Step 3: Implement the fuzzy fallback in `lib/parser/blocks/event.ts`.**
 
@@ -227,9 +238,10 @@ function writeField(result: Record<string, string>, key: string, val: string): v
 
   3d. Add the deferred-candidate state at the top of `parseEventDetails`, right after `const result: Record<string, string> = {};` (event.ts:106):
 ```ts
-  // PR-D1 deferred-commit state: exact-claimed canonical keys (exact always wins) and the
-  // first fuzzy candidate per canonical (applied post-loop only if no exact row claimed it).
-  const seenExact = new Set<string>();
+  // PR-D1 deferred-commit state: canonicals an EXACT label gave a REAL value (a real exact
+  // value wins over any fuzzy sibling — empty/sentinel exact does NOT claim, so a real fuzzy
+  // can still recover), and the surviving fuzzy candidate per canonical (last-write-wins).
+  const exactReal = new Set<string>();
   const fuzzyCandidates = new Map<string, { rawLabel: string; value: string }>();
 ```
 
@@ -240,10 +252,11 @@ function writeField(result: Record<string, string>, key: string, val: string): v
       const val = presence(col1);
       const exactCanon = CANONICAL_KEY_MAP[col0Lower];
       if (exactCanon !== undefined) {
-        // Known label — unchanged behavior + record the exact claim so fuzzy can't shadow it.
+        // Known label — unchanged write; a REAL value claims the canonical so fuzzy can't
+        // shadow it (an empty/sentinel exact value does NOT claim — see contract rule 1).
         if (val) {
           writeField(result, exactCanon, val);
-          seenExact.add(exactCanon);
+          if (!shouldHideGenericOptional(val)) exactReal.add(exactCanon);
         }
       } else {
         // Not a known label: try a gated fuzzy recovery on the LABEL only (never the value).
@@ -279,9 +292,11 @@ function writeField(result: Record<string, string>, key: string, val: string): v
 
   3f. Apply deferred fuzzy candidates AFTER the loop, BEFORE the empty-section check (insert just before event.ts:173 `if (Object.keys(result).length === 0)`):
 ```ts
-  // Apply fuzzy candidates only for canonical keys no EXACT label claimed (exact wins).
+  // Apply fuzzy candidates, skipping any canonical an EXACT label claimed with a real value
+  // (exact-real wins). writeField still applies, so a fuzzy value correctly overrides an
+  // empty/sentinel exact value but a sentinel fuzzy never clobbers a real value.
   for (const [canon, cand] of fuzzyCandidates) {
-    if (seenExact.has(canon)) continue;
+    if (exactReal.has(canon)) continue;
     writeField(result, canon, cand.value);
     agg?.warnings.push({
       severity: "warn",
@@ -293,14 +308,37 @@ function writeField(result: Record<string, string>, key: string, val: string): v
   }
 ```
 
-- [ ] **Step 4: Run to verify pass** — `pnpm vitest run tests/parser/blocks/event.test.ts` → all green (new + pre-existing event tests). Then `pnpm vitest run tests/parser` → the whole-corpus event coverage is unchanged (fixtures are correctly spelled, so no fuzzy fires and no new warnings appear).
+- [ ] **Step 4: Run behavior tests to verify pass** — `pnpm vitest run tests/parser/blocks/event.test.ts` → all green (new behavior tests + pre-existing event tests). Then `pnpm vitest run tests/parser` → the whole-corpus event coverage is unchanged (fixtures are correctly spelled, so no fuzzy fires and no new warnings appear).
 
-- [ ] **Step 5: Anti-tautology mutation proofs (run, confirm RED, revert — do NOT commit the mutation).**
-  - **Exact-wins guard is load-bearing:** temporarily make the fuzzy hit commit INLINE (in the `else`/fuzzy branch, replace the deferral with `if (canon && val) { writeField(result, canon, val); }` and delete the post-loop application loop). Run the file → the "exact-wins" test goes RED (the `Attir`→dress_code typo clobbers `Business Casual` in the typo-after-exact order). Revert.
+- [ ] **Step 5: Add the "typos beyond the example sheets" property test (now that the export exists).** Add the imports at the top of `tests/parser/blocks/event.test.ts`: `import { gatedVocabCorrect } from "@/lib/parser/typoGate";`, `import { EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";`, `import { unambiguousTypos } from "../_typoGenerator";`. Then append a new describe block:
+```ts
+// Property test over the gate directly (the "typos beyond the example sheets" core). Scope to
+// purely alphabetic+space members so generator neighbors (ALPHA = A–Z + space) are well-formed;
+// punctuated members (BACKDROP / SCENIC, FONTS (II ONLY), DRESS_CODE) are covered by the
+// explicit round-trip unit test above.
+describe("parseEventDetails — gate corrects unseen typos (PR-D1)", () => {
+  it("corrects unambiguous single-edit typos of every clean member back to that member", () => {
+    const opts = { minLen: 5, tieAbort: true } as const;
+    const clean = EVENT_LABEL_VOCAB.filter((m) => /^[A-Z ]+$/.test(m));
+    expect(clean.length).toBeGreaterThan(8);
+    for (const member of clean) {
+      for (const typo of unambiguousTypos(member, EVENT_LABEL_VOCAB, { minLen: 5 })) {
+        const fix = gatedVocabCorrect(typo, EVENT_LABEL_VOCAB, opts);
+        expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
+        expect(fix?.match, `${typo} → ${member}`).toBe(member);
+      }
+    }
+  });
+});
+```
+  Run `pnpm vitest run tests/parser/blocks/event.test.ts` → green. (This is test-after for the gate, which is already implemented + unit-tested in PR-A; the new code under test — the parser wiring — was TDD'd in Steps 1–4. The property test guards the derived vocab against typos absent from the fixtures.)
+
+- [ ] **Step 6: Anti-tautology mutation proofs (run, confirm RED, revert — do NOT commit the mutation).**
+  - **Exact-real guard is load-bearing:** temporarily make the fuzzy hit commit INLINE (in the `else`/fuzzy branch, replace the deferral with `if (canon && val) { writeField(result, canon, val); }` and delete the post-loop application loop). Run the file → the "exact-wins" test goes RED (the `Attir`→dress_code typo clobbers `Business Casual` in the typo-after-exact order). Revert.
   - **Gate minLen is load-bearing:** temporarily drop `minLen: 5` from `EVENT_GATE_OPTS`. Run → the "below-minLen" test goes RED (`Powr`→`POWER` now corrects). Revert.
   Confirm `git diff lib/parser/blocks/event.ts` is empty after reverting both.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 ```bash
 git add lib/parser/blocks/event.ts tests/parser/blocks/event.test.ts
 git commit -m "feat(parser): fuzzy field-label recovery in EVENT DETAILS block"
@@ -375,14 +413,16 @@ git commit -m "test(parser): register eventFieldAlias fuzzable vocab + collision
 ## Self-Review (checklist)
 
 1. **Spec coverage:** §5.3 names the event block (`CANONICAL_KEY_MAP`) as a re-route surface; the synthesis ratified `gatedVocabCorrect`-over-local-vocab (not `resolveAliasScoped`) because `event.*` FIELD_ALIASES is incomplete (aliases.ts:114). Covered by Task 1.
-2. **Exact-wins + ordering contract:** the deferred-commit + `seenExact` guard is the crux (many-to-one families under last-write-wins). The "Fuzzy-vs-exact behavior contract" section states all three rules; pinned by the exact-wins test (both orders, asserting the typo value is dropped + no warn), the multiple-fuzzy-siblings last-write-wins test, and the inline-mutation proof. (Resolves plan-review R1 findings 1–3.)
+2. **Exact-wins + ordering contract:** the deferred-commit + `exactReal` guard is the crux (many-to-one families under last-write-wins; only a real exact value claims). The "Fuzzy-vs-exact behavior contract" section states all three rules; pinned by the exact-wins test (both orders, asserting the typo value is dropped + no warn), the empty/sentinel-exact recovery test, the multiple-fuzzy-siblings last-write-wins test, and the inline-mutation proof. (Resolves plan-review R1 findings 1–3 + R2 finding 2.)
 3. **No new code / no #155 lockstep:** verified `FIELD_LABEL_AUTOCORRECTED` exists in catalog (1117), dataGaps (131), dispatch (141), `_families` (61). Task 3 Step 3 guards against accidental catalog drift.
 4. **Drift:** vocab derived + exported once; registry imports it; registration test re-derives. No hand-listed member set.
 5. **Type consistency:** `EVENT_LABEL_VOCAB: readonly string[]`; `writeField(result, key, val)` used by both exact and fuzzy paths; `gatedVocabCorrect(...).match` is uppercase, mapped back via `CANONICAL_KEY_MAP[match.toLowerCase()]`.
 
 ## Adversarial review (cross-model)
 
-**Plan review R1 (Codex): CHANGES_REQUESTED → all 5 findings resolved in this revision** — (1+3 HIGH/MED) the fuzzy-vs-exact behavior contract is now explicit (exact wins; suppressed typo dropped, not fallback-kept, no warn) + tested (`ed.attir` undefined assertion); (2 MED) fuzzy siblings now use last-write-wins-except-sentinel matching event's known-label semantics + a new test; (4 LOW) a punctuated-member round-trip test (`Backdrop / Scenicc` → scenic) covers the `CANONICAL_KEY_MAP[match.toLowerCase()]` lookup that the alphabetic-only property test excludes; (5 LOW) a code comment documents why `corrected:false` is unreachable in the fuzzy branch.
+**Plan review R1 (Codex): CHANGES_REQUESTED → all 5 findings resolved** — (1+3 HIGH/MED) the fuzzy-vs-exact behavior contract is now explicit (exact wins; suppressed typo dropped, not fallback-kept, no warn) + tested (`ed.attir` undefined assertion); (2 MED) fuzzy siblings now use last-write-wins-except-sentinel matching event's known-label semantics + a new test; (4 LOW) a punctuated-member round-trip test (`Backdrop / Scenicc` → scenic) covers the `CANONICAL_KEY_MAP[match.toLowerCase()]` lookup that the alphabetic-only property test excludes; (5 LOW) a code comment documents why `corrected:false` is unreachable in the fuzzy branch.
+
+**Plan review R2 (Codex): CHANGES_REQUESTED → both findings resolved** — (1 HIGH) the TDD sequence is restructured so the red phase is a clean assertion failure: Step 1 adds only behavior tests (just the `newAggregator` import; verified no name collisions in the file), and the generator property test (which needs the new exports) moves to Step 5 after implementation; (2 MED) the "exact claims a canonical" rule is refined to `exactReal` — only a REAL (non-empty, non-sentinel) exact value claims, so an empty/sentinel exact row never blocks a real fuzzy recovery (no data loss) and a real fuzzy correctly overrides a sentinel exact via `writeField`; pinned by the new empty/sentinel-exact recovery test.
 
 After implementation, send the whole diff to Codex (`codex exec`, read-only, high reasoning) as a REVIEWER-ONLY adversarial review. Iterate to APPROVE. Do-not-relitigate preempts: (a) event-only scope (transport/rooms/client are deferred PR-D2-D4); (b) `gatedVocabCorrect`-over-local-vocab is the correct pattern here, NOT `resolveAliasScoped` (aliases.ts:114 — `event.*` FIELD_ALIASES intentionally incomplete); (c) `FIELD_LABEL_AUTOCORRECTED` reuse is deliberate, no new code; (d) the `EVENT_GATE_EXCLUDE` is intentional belt-and-suspenders since minLen:5 already drops all <5-char do-not-fuzz tokens; (e) the suppressed-typo-emits-no-warning + typo-value-dropped contract is ratified (R1 finding 1+3).
 
