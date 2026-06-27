@@ -126,9 +126,13 @@ describe("agenda removed from Venue/Diagrams (Task 15)", () => {
   });
 
   test("DiagramsTile with no diagrams + agenda-only data → null (no empty block)", () => {
-    // @ts-expect-error — agendaLinks is removed from DiagramsTileProps in Task 15.
     const { container } = render(
-      <DiagramsTile showId={SHOW_ID} diagrams={null} agendaLinks={AGENDA_LINKS} />,
+      <DiagramsTile
+        showId={SHOW_ID}
+        diagrams={null}
+        // @ts-expect-error agendaLinks was removed from DiagramsTileProps in Task 15
+        agendaLinks={AGENDA_LINKS}
+      />,
     );
     expect(container.firstChild).toBeNull();
   });
