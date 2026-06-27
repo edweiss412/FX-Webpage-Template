@@ -25,7 +25,12 @@ describe("PerShowActionableWarnings", () => {
 
   it("renders an Open-in-Sheet link to the resolved cell when sourceCell present", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x", sourceCell: { title: "INFO", gid: 0, a1: "C3" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "x",
+        sourceCell: { title: "INFO", gid: 0, a1: "C3" },
+      },
     ];
     render(<PerShowActionableWarnings warnings={ws} driveFileId={dfid} />);
     const link = screen.getByRole("link", { name: /open in sheet/i });

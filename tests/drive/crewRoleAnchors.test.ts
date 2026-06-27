@@ -11,7 +11,9 @@ function xlsxBuffer(sheets: Record<string, string[][]>): ArrayBuffer {
   for (const [name, aoa] of Object.entries(sheets)) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name);
   }
-  const u8 = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayLike<number>);
+  const u8 = new Uint8Array(
+    XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayLike<number>,
+  );
   return u8.buffer as ArrayBuffer;
 }
 
@@ -40,7 +42,11 @@ describe("extractCrewRoleAnchors", () => {
   it("new template → anchors the ROLE-column cell, keyed by normalized NAME", () => {
     const anchors = extractCrewRoleAnchors(xlsxBuffer(NEW_TPL), GID);
     // Doug Larson row = grid row index 2; ROLE column = index 2 → C3.
-    expect(resolveCrewRoleCell(anchors, "Doug Larson")).toEqual({ title: "INFO", gid: 0, a1: "C3" });
+    expect(resolveCrewRoleCell(anchors, "Doug Larson")).toEqual({
+      title: "INFO",
+      gid: 0,
+      a1: "C3",
+    });
   });
 
   it("strips the day-restriction parenthetical from the NAME key (matches blockRef.name)", () => {

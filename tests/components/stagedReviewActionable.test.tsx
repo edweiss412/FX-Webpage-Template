@@ -24,13 +24,18 @@ function baseRow(over: Partial<StagedRow> = {}): StagedRow {
 describe("StagedReviewCard operator-actionable warnings", () => {
   it("renders the title + Open-in-Sheet link for an anchored UNKNOWN_ROLE_TOKEN", () => {
     const actionable: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x", sourceCell: { title: "INFO", gid: 0, a1: "C3" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "x",
+        sourceCell: { title: "INFO", gid: 0, a1: "C3" },
+      },
     ];
     render(<StagedReviewCard row={baseRow({ operatorActionable: actionable })} />);
     expect(screen.getByText("Role we didn't recognize")).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: /open in sheet/i }).getAttribute("href"),
-    ).toContain("range=C3");
+    expect(screen.getByRole("link", { name: /open in sheet/i }).getAttribute("href")).toContain(
+      "range=C3",
+    );
   });
 
   it("renders nothing extra when operatorActionable is empty/absent", () => {

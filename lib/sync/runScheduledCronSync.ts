@@ -2447,12 +2447,7 @@ export async function prepareProcessOneFile(
   // (parse-warning deep links). Pure raw-workbook read inside the existing prepare
   // stage — no new lock (invariant 2). Reuse the already-computed titleToGid +
   // sourceAnchors (no extra fetch / recompute).
-  await attachWarningAnchors(
-    enriched.warnings,
-    xlsxBytes,
-    async () => titleToGid,
-    sourceAnchors,
-  );
+  await attachWarningAnchors(enriched.warnings, xlsxBytes, async () => titleToGid, sourceAnchors);
 
   let currentBinding: Phase1Binding;
   try {

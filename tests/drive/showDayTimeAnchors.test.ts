@@ -119,11 +119,30 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
 
   it("dispatches by code: ISO→schedule, name→crew, kind→region", () => {
     const warnings: ParseWarning[] = [
-      { severity: "warn", code: "SCHEDULE_TIME_UNPARSED", message: "t", blockRef: { kind: "dates", index: 0, iso: "2026-05-12" } },
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "r", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
-      { severity: "warn", code: "FIELD_UNREADABLE", message: "f", blockRef: { kind: "crew", index: 1 } },
+      {
+        severity: "warn",
+        code: "SCHEDULE_TIME_UNPARSED",
+        message: "t",
+        blockRef: { kind: "dates", index: 0, iso: "2026-05-12" },
+      },
+      {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "r",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "f",
+        blockRef: { kind: "crew", index: 1 },
+      },
     ];
-    attachSourceCellAnchors(warnings, { showDay: anchors, crewRole: crewAnchors, region: regionAnchors });
+    attachSourceCellAnchors(warnings, {
+      showDay: anchors,
+      crewRole: crewAnchors,
+      region: regionAnchors,
+    });
     expect(warnings[0]!.sourceCell).toEqual(anchors[1]!.anchor); // ISO match
     expect(warnings[1]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" }); // crew name match (INVERTED)
     expect(warnings[2]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2:D5" }); // crew region
@@ -131,7 +150,12 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
 
   it("UNKNOWN_DAY_RESTRICTION resolves by crew name too", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_DAY_RESTRICTION", message: "d", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_DAY_RESTRICTION",
+        message: "d",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
     ];
     attachSourceCellAnchors(ws, { showDay: [], crewRole: crewAnchors, region: {} });
     expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
@@ -139,7 +163,12 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
 
   it("FIELD_UNREADABLE with no region for its kind → null (no wrong-region link)", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "FIELD_UNREADABLE", message: "f", blockRef: { kind: "venue", index: 0 } },
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "f",
+        blockRef: { kind: "venue", index: 0 },
+      },
     ];
     attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: {} });
     expect(ws[0]!.sourceCell).toBeUndefined();

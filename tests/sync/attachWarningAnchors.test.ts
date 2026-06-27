@@ -6,7 +6,9 @@ import type { ParseWarning } from "@/lib/parser/types";
 function xlsxBuffer(aoa: string[][]): ArrayBuffer {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), "INFO");
-  const u8 = new Uint8Array(XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayLike<number>);
+  const u8 = new Uint8Array(
+    XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayLike<number>,
+  );
   return u8.buffer as ArrayBuffer;
 }
 
@@ -19,7 +21,12 @@ const gids = () => Promise.resolve(new Map([["INFO", 0]]));
 describe("attachWarningAnchors", () => {
   it("attaches crew-role sourceCell (UNKNOWN_ROLE_TOKEN) via the lazy gids thunk", async () => {
     const warnings: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "x",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
     ];
     await attachWarningAnchors(warnings, CREW, gids);
     // ROLE col index 2 → C; data row grid index 1 → row 2 → C2.
@@ -38,7 +45,12 @@ describe("attachWarningAnchors", () => {
 
   it("returns early when bytes are undefined (link-less, no throw)", async () => {
     const warnings: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "x",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
     ];
     await attachWarningAnchors(warnings, undefined, gids);
     expect(warnings[0]!.sourceCell).toBeUndefined();
@@ -46,7 +58,12 @@ describe("attachWarningAnchors", () => {
 
   it("swallows a thrown error (scan never breaks)", async () => {
     const warnings: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_ROLE_TOKEN", message: "x", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_ROLE_TOKEN",
+        message: "x",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
     ];
     await expect(
       attachWarningAnchors(warnings, CREW, () => Promise.reject(new Error("boom"))),
@@ -56,7 +73,12 @@ describe("attachWarningAnchors", () => {
 
   it("reuses a precomputed region map when supplied (no recompute)", async () => {
     const warnings: ParseWarning[] = [
-      { severity: "warn", code: "FIELD_UNREADABLE", message: "f", blockRef: { kind: "crew", index: 0 } },
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "f",
+        blockRef: { kind: "crew", index: 0 },
+      },
     ];
     const region = { crew: { title: "INFO", gid: 0, a1: "A1:D2" } };
     await attachWarningAnchors(warnings, CREW, gids, region);

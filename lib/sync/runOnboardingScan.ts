@@ -943,9 +943,7 @@ export async function prepareOnboardingFiles(
     // shared helper (pure raw-workbook read; gated internally so a warning-free
     // sheet pays no extra fetch). Onboarding passes a lazy gids fetch; the helper
     // self-computes region anchors.
-    await attachWarningAnchors(parseResult.warnings, bytes, () =>
-      listSheetGids(file.driveFileId),
-    );
+    await attachWarningAnchors(parseResult.warnings, bytes, () => listSheetGids(file.driveFileId));
     return { file, kind: "sheet", binding, parseResult };
   };
 

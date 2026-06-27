@@ -36,7 +36,12 @@ describe("parse-warning deep-link render invariants", () => {
   it("never renders the raw §12.4 code for ANY of the four codes (invariant 5)", () => {
     for (const code of OPERATOR_ACTIONABLE_ANCHORED) {
       const ws: ParseWarning[] = [
-        { severity: "warn", code, message: HUMAN_MESSAGE[code]!, sourceCell: { title: "INFO", gid: 0, a1: "A1" } },
+        {
+          severity: "warn",
+          code,
+          message: HUMAN_MESSAGE[code]!,
+          sourceCell: { title: "INFO", gid: 0, a1: "A1" },
+        },
       ];
       const { container } = render(<PerShowActionableWarnings warnings={ws} driveFileId="df" />);
       // No exemption: the literal code string must never appear, for every code.
