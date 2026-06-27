@@ -105,4 +105,35 @@ describe("applyParseResult — ScheduleDay persist predicate (§7)", () => {
     expect(emptied).toHaveLength(1); // only 2025-06-26 (25 retained a showStart → NOT emptied)
     expect(emptied[0]!.message).toContain("2025-06-26");
   });
+
+  it("the apply-appended AGENDA_DAY_EMPTIED gets a schedule-region sourceCell (deep link)", async () => {
+    const { tx } = makeTx();
+    const args = baseArgs(
+      { "2025-06-26": fullyEmpty },
+      { "2025-06-26": titled("9:00am") }, // was stored before → now empty → AGENDA_DAY_EMPTIED
+    );
+    // The cron prepare stage anchored warnings BEFORE this apply ran; the apply
+    // appends AGENDA_DAY_EMPTIED after that, so applyParseResult must re-anchor it
+    // from the carried sourceAnchors region map.
+    (args as ApplyParseResultArgs).sourceAnchors = {
+      schedule: { title: "AGENDA", gid: 2, a1: "A1" },
+    };
+    await applyParseResult(tx, args);
+    const emptied = (
+      args as { parseResult: { warnings: { code: string; sourceCell?: unknown }[] } }
+    ).parseResult.warnings.filter((w) => w.code === "AGENDA_DAY_EMPTIED");
+    expect(emptied).toHaveLength(1);
+    expect(emptied[0]!.sourceCell).toEqual({ title: "AGENDA", gid: 2, a1: "A1" });
+  });
+
+  it("no sourceAnchors → AGENDA_DAY_EMPTIED still emits, just without a link (no throw)", async () => {
+    const { tx } = makeTx();
+    const args = baseArgs({ "2025-06-26": fullyEmpty }, { "2025-06-26": titled("9:00am") });
+    await applyParseResult(tx, args); // baseArgs sets no sourceAnchors
+    const emptied = (
+      args as { parseResult: { warnings: { code: string; sourceCell?: unknown }[] } }
+    ).parseResult.warnings.filter((w) => w.code === "AGENDA_DAY_EMPTIED");
+    expect(emptied).toHaveLength(1);
+    expect(emptied[0]!.sourceCell).toBeUndefined();
+  });
 });

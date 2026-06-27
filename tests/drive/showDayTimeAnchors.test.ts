@@ -207,6 +207,33 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
+  it.each([
+    ["AGENDA_GRID_MALFORMED", "agenda", "schedule"],
+    ["AGENDA_BLOCK_UNRESOLVED", "agenda", "schedule"],
+    ["AGENDA_DAY_AMBIGUOUS", "agenda", "schedule"],
+    ["AGENDA_DAY_TRUNCATED", "agenda", "schedule"],
+    ["AGENDA_DAY_EMPTIED", "agenda", "schedule"],
+    ["PULL_SHEET_PARSE_PARTIAL", "pull_sheet", "gear_packlist"],
+    ["PULL_SHEET_AMBIGUOUS_FORMAT", "pull_sheet", "gear_packlist"],
+    ["PULL_SHEET_UNKNOWN_VARIANT", "pull_sheet", "gear_packlist"],
+  ] as const)("resolves %s by its tab region (kind %s → region %s)", (code, kind, regionId) => {
+    const ws: ParseWarning[] = [{ severity: "warn", code, message: "x", blockRef: { kind, index: 0 } }];
+    attachSourceCellAnchors(ws, {
+      showDay: [],
+      crewRole: [],
+      region: { [regionId]: { title: "T", gid: 1, a1: "A1" } },
+    });
+    expect(ws[0]!.sourceCell).toEqual({ title: "T", gid: 1, a1: "A1" });
+  });
+
+  it("AGENDA/PULL warning with no tab region → no link", () => {
+    const ws: ParseWarning[] = [
+      { severity: "warn", code: "AGENDA_DAY_AMBIGUOUS", message: "x", blockRef: { kind: "agenda", index: 0 } },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: {} });
+    expect(ws[0]!.sourceCell).toBeUndefined();
+  });
+
   it("leaves a warning link-less when its date has no (or an ambiguous) anchor", () => {
     const warnings: ParseWarning[] = [
       {
@@ -220,13 +247,21 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning is TRUE for all six anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+  it("hasCellAnchoredWarning is TRUE for all fourteen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
     for (const code of [
       "SCHEDULE_TIME_UNPARSED",
       "UNKNOWN_ROLE_TOKEN",
       "UNKNOWN_DAY_RESTRICTION",
       "UNKNOWN_FIELD",
       "STAGE_WORD_AUTOCORRECTED",
+      "AGENDA_GRID_MALFORMED",
+      "AGENDA_BLOCK_UNRESOLVED",
+      "AGENDA_DAY_AMBIGUOUS",
+      "AGENDA_DAY_TRUNCATED",
+      "AGENDA_DAY_EMPTIED",
+      "PULL_SHEET_PARSE_PARTIAL",
+      "PULL_SHEET_AMBIGUOUS_FORMAT",
+      "PULL_SHEET_UNKNOWN_VARIANT",
       "FIELD_UNREADABLE",
     ]) {
       expect(hasCellAnchoredWarning([{ severity: "warn", code, message: "x" }])).toBe(true);
