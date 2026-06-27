@@ -176,16 +176,49 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(summary(q).textContent).toContain("fallback-name.sheet");
   });
 
-  test("counts derive from fixture array lengths (anti-tautology)", () => {
+  test("collapsed summary shows Venue (name + best-effort city), not the old Totals strip", () => {
+    const FIX = parseResult({
+      show: show({
+        venue: { name: "The Drake Hotel", address: "140 E Walton Pl, Chicago, IL 60611" },
+      }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const venue = q.getByTestId(`wizard-step3-card-${DFID}-venue`);
+    expect(venue.textContent).toContain("The Drake Hotel");
+    expect(venue.textContent).toContain("Chicago"); // city mined from the address
+    // The Totals strip is gone: its testid no longer exists and the collapsed
+    // summary no longer carries the "N crew · N rooms" run-on count string.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-totals`)).toBeNull();
+    expect(summary(q).textContent ?? "").not.toMatch(/\d+ crew · \d+ rooms/);
+  });
+
+  test("venue row falls back to a human 'Venue not detected' when none is parsed", () => {
+    const FIX = parseResult({ show: show({ venue: null }) });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain(
+      "Venue not detected",
+    );
+  });
+
+  test("per-section counts move to the expanded breakdown headers (anti-tautology)", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const s = summary(q).textContent ?? "";
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
     const days = Object.keys(FIX.runOfShow ?? {}).length;
-    expect(s).toContain(`${FIX.crewMembers.length} crew`);
-    expect(s).toContain(`${FIX.rooms.length} rooms`);
-    expect(s).toContain(`${FIX.hotelReservations.length} hotels`);
-    expect(s).toContain(`${days} schedule days`);
-    // sanity: the fixture actually has non-trivial dimensions
+    // Each breakdown section header renders "<Label> (<count>)"; every count
+    // derives from the fixture array length, never a hardcoded numeral.
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain(
+      `(${FIX.crewMembers.length})`,
+    );
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`).textContent).toContain(
+      `(${FIX.rooms.length})`,
+    );
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`).textContent).toContain(
+      `(${FIX.hotelReservations.length})`,
+    );
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
+      `(${days})`,
+    );
     expect(FIX.crewMembers.length).toBeGreaterThan(0);
     expect(days).toBe(3);
   });
@@ -204,10 +237,13 @@ describe("Step3SheetCard — summary (§4.2)", () => {
       }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
     const days = Object.keys(FIX.runOfShow ?? {}).length;
     expect(days).toBe(5);
     expect(FIX.show.dates.showDays.length).toBe(2);
-    expect(summary(q).textContent).toContain(`${days} schedule days`);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
+      `(${days})`,
+    );
   });
 
   test("dates render role-labeled, humanized, present segments only", () => {
@@ -413,7 +449,7 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     expect(card(q).textContent).toContain(DFID);
   });
 
-  test("undefined count arrays coerce to 0 ('0 crew')", () => {
+  test("undefined count arrays coerce to 0 ('(0)' in every breakdown header)", () => {
     // Simulate untyped jsonb that lost its arrays (parse_result is cast from
     // untyped jsonb on the wire, OnboardingWizard.tsx:199). Build via a loose
     // record so the deletions mimic missing keys without per-line ts-ignores.
@@ -425,11 +461,16 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />,
     );
-    const s = summary(q).textContent ?? "";
-    expect(s).toContain("0 crew");
-    expect(s).toContain("0 rooms");
-    expect(s).toContain("0 hotels");
-    expect(s).toContain("0 schedule days");
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    // A 0 is a signal, not hidden: every breakdown header reads "(0)".
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain("(0)");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`).textContent).toContain("(0)");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`).textContent).toContain(
+      "(0)",
+    );
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
+      "(0)",
+    );
   });
 
   test("undefined warnings → no chip", () => {
@@ -444,11 +485,13 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
   test("zero-count clean sheet still renders the counts (a 0 is a signal)", () => {
     const FIX = parseResult({ crewMembers: [], rooms: [], hotelReservations: [], runOfShow: {} });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const s = summary(q).textContent ?? "";
-    expect(s).toContain("0 crew");
-    expect(s).toContain("0 schedule days");
     // a clean (non-null parseResult) sheet still has an expand toggle
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-expand`)).not.toBeNull();
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain("(0)");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
+      "(0)",
+    );
   });
 });
 
@@ -609,5 +652,22 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     const FIX = parseResult({ crewMembers: [], rooms: [], hotelReservations: [], runOfShow: {} });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     expect(() => expand(q)).not.toThrow();
+  });
+
+  // Layout intent (real geometry verified in the e2e harness): the breakdown lays
+  // its sections out as a responsive multi-column flow so the full-width expanded
+  // card uses the horizontal space, not a single narrow column. jsdom can't
+  // compute columns, so this pins the class contract; the browser assertion in
+  // tests/e2e/step3-grid-layout.spec.ts proves >1 column at desktop width.
+  test("breakdown uses a balanced multi-column flow (not a single column) on wider cards", () => {
+    const FIX = parseResult();
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const grid = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-grid`);
+    expect(grid.className).toMatch(/\bsm:columns-2\b/);
+    expect(grid.className).toMatch(/\bxl:columns-3\b/);
+    // Sections stay intact across a column break.
+    expect(grid.className).toContain("break-inside-avoid");
+    // It is NOT the old single-track flex column.
+    expect(grid.className).not.toMatch(/\bflex-col\b/);
   });
 });

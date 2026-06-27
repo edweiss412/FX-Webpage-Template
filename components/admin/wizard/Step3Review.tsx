@@ -316,11 +316,26 @@ function RowItem({
   wizardSessionId,
   expanded,
   onToggleExpanded,
+  checked,
+  onToggleChecked,
+  checkboxPending,
+  quiet = false,
 }: {
   row: Step3Row;
   wizardSessionId: string;
   expanded?: boolean;
   onToggleExpanded?: () => void;
+  // Lifted publish-intent (clean rows only) — forwarded to the card's checkbox so
+  // Select-all updates every box through Step3Review's shared optimistic state.
+  checked?: boolean;
+  onToggleChecked?: (next: boolean) => void;
+  checkboxPending?: boolean;
+  // Quiet, de-emphasized rendering for the set-aside sections (ignored / deferred /
+  // skipped): the section heading already names the status, so the per-row status
+  // badge is dropped and the card recedes (sunken surface, lighter title). Keeps the
+  // resolved, no-action rows from competing with the actionable publish cards and
+  // from wearing the solid-accent badge (DESIGN.md ≤10% accent coverage).
+  quiet?: boolean;
 }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
@@ -346,6 +361,9 @@ function RowItem({
           wizardSessionId={wizardSessionId}
           expanded={expanded}
           onToggleExpanded={onToggleExpanded}
+          checked={checked}
+          onToggleChecked={onToggleChecked}
+          checkboxPending={checkboxPending}
         />
       </div>
     );
@@ -371,22 +389,35 @@ function RowItem({
     <article
       data-testid={`wizard-step3-row-${row.driveFileId}`}
       data-status={row.status}
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      className={`flex flex-col gap-3 rounded-md border border-border p-tile-pad ${
+        quiet ? "bg-surface-sunken" : "bg-surface"
+      }`}
     >
       <header className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div className="flex flex-col gap-1">
-          <p className="text-base font-semibold text-text-strong">
+          <p
+            className={
+              quiet
+                ? "text-sm font-medium text-text-subtle"
+                : "text-base font-semibold text-text-strong"
+            }
+          >
             {row.driveFileName ?? row.driveFileId}
           </p>
           {row.stagedShowTitle ? (
             <p className="text-sm text-text-subtle">{row.stagedShowTitle}</p>
           ) : null}
         </div>
-        <span
-          className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
-        >
-          {badge.label}
-        </span>
+        {/* The set-aside section heading already names the status, so the per-row
+            badge is redundant there (and the solid-accent "ok" badge would overweight
+            a resolved row). Render it only outside quiet mode (e.g. Needs attention). */}
+        {quiet ? null : (
+          <span
+            className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
+          >
+            {badge.label}
+          </span>
+        )}
       </header>
 
       {row.status === "hard_failed" && row.pendingIngestionId ? (
@@ -448,74 +479,28 @@ function isCleanRow(status: Step3ManifestStatus): boolean {
 }
 
 /**
- * Header publish controls (§4.1): a **Select all** checkbox + a live
- * "N of M selected to publish" count. N = clean rows currently `applied`
- * (checked); M = all clean rows. Select-all is checked iff every clean row is
- * already applied; toggling it approves every unchecked clean row (POST approve)
- * or un-approves every applied row (POST unapprove), then refreshes. Disabled
- * while its batch is in flight (the same double-toggle guard as the per-card box,
- * §4.6). The count is tabular-nums so a digit change never shifts layout.
+ * Header publish controls (§4.1, presentational): a **Select all** checkbox + a
+ * live "N of M selected to publish" count. N = clean rows currently checked; M =
+ * all clean rows. ALL state is LIFTED into Step3Review — the header, every per-card
+ * checkbox, and this count read from one shared optimistic publish-intent overlay,
+ * so Select all flips every card instantly (§4.5) without waiting on each box to
+ * re-seed from a router.refresh() (the select-all-doesn't-stick bug). Disabled
+ * while its batch is in flight (§4.6). The count is tabular-nums so a digit change
+ * never shifts layout.
  */
 function Step3PublishHeader({
-  wizardSessionId,
-  rows,
+  allChecked,
+  appliedCount,
+  cleanCount,
+  pending,
+  onToggleSelectAll,
 }: {
-  wizardSessionId: string;
-  rows: Step3Row[];
+  allChecked: boolean;
+  appliedCount: number;
+  cleanCount: number;
+  pending: boolean;
+  onToggleSelectAll: () => void;
 }) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  // Optimistic select-all + count overlay. `null` → reflect the derived props
-  // (the post-refresh source of truth); a boolean → the in-flight optimistic
-  // intent (instant per §4.5, reconciled by router.refresh()).
-  const [optimisticAll, setOptimisticAll] = useState<boolean | null>(null);
-
-  const cleanRows = rows.filter((r) => isCleanRow(r.status));
-  const derivedAppliedCount = cleanRows.filter((r) => r.status === "applied").length;
-  const cleanCount = cleanRows.length;
-  const derivedAllChecked = cleanCount > 0 && derivedAppliedCount === cleanCount;
-  const allChecked = optimisticAll ?? derivedAllChecked;
-  // Count reflects the optimistic intent instantly: select-all → all N; clear → 0.
-  const appliedCount =
-    optimisticAll === null ? derivedAppliedCount : optimisticAll ? cleanCount : 0;
-
-  async function postFor(driveFileId: string, action: "approve" | "unapprove"): Promise<void> {
-    try {
-      await fetch(`/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`, {
-        method: "POST",
-      });
-    } catch {
-      // A single failed write is reconciled by the post-batch refresh below; no
-      // partial-state surfacing here (the server is the source of truth).
-    }
-  }
-
-  async function onToggleSelectAll(): Promise<void> {
-    if (pending || cleanCount === 0) return; // §4.6 guard
-    setPending(true);
-    setOptimisticAll(!allChecked); // instant header flip (§4.5), reconciled on refresh
-    try {
-      if (allChecked) {
-        // Uncheck everything currently applied.
-        await Promise.all(
-          cleanRows
-            .filter((r) => r.status === "applied")
-            .map((r) => postFor(r.driveFileId, "unapprove")),
-        );
-      } else {
-        // Check every clean row that is not already applied.
-        await Promise.all(
-          cleanRows
-            .filter((r) => r.status !== "applied")
-            .map((r) => postFor(r.driveFileId, "approve")),
-        );
-      }
-      router.refresh();
-    } finally {
-      setPending(false);
-    }
-  }
-
   if (cleanCount === 0) {
     // No publishable rows → no select-all; still emit the count (0 of 0) so the
     // line is stable and the testid always resolves.
@@ -536,7 +521,7 @@ function Step3PublishHeader({
           checked={allChecked}
           disabled={pending}
           aria-label="Select all sheets to publish"
-          onChange={() => void onToggleSelectAll()}
+          onChange={() => onToggleSelectAll()}
           className="peer sr-only"
         />
         <span
@@ -560,6 +545,46 @@ function Step3PublishHeader({
   );
 }
 
+/**
+ * A de-emphasized group for rows that are NOT publishable and need no action —
+ * permanently ignored, deferred, or skipped (not a Google Sheet). Each status gets
+ * its OWN section (hidden when empty), rendered BELOW the publish grid so these
+ * resolved rows never sit inside it. Quiet treatment: a small subtle heading + the
+ * same RowItem cards (titled card + status badge / informational copy).
+ */
+function SetAsideSection({
+  testId,
+  heading,
+  description,
+  rows,
+  wizardSessionId,
+}: {
+  testId: string;
+  heading: string;
+  description?: string;
+  rows: Step3Row[];
+  wizardSessionId: string;
+}) {
+  if (rows.length === 0) return null; // hidden when empty
+  return (
+    <section data-testid={testId} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-sm font-semibold text-text-subtle">
+          {heading} <span className="tabular-nums text-text-faint">({rows.length})</span>
+        </h3>
+        {description ? <p className="text-xs text-text-subtle">{description}</p> : null}
+      </div>
+      <ul className="flex flex-col gap-2">
+        {rows.map((row) => (
+          <li key={row.driveFileId}>
+            <RowItem row={row} wizardSessionId={wizardSessionId} quiet />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // §7.3 canonical blocking set — the statuses that need an acknowledged in-wizard
 // exit (Retry / Ignore / dashboard-resolve) before finish. Identical to the
 // `finishable` predicate's set (OnboardingWizard.tsx) and the server gate. These
@@ -575,22 +600,144 @@ function isBlocking(status: Step3ManifestStatus): boolean {
   return BLOCKING_STATUSES.has(status);
 }
 
+// Mirrors Step3SheetCard's §4.6 no-details guard: a clean row whose parseResult is
+// null/corrupt renders the "couldn't read this sheet" card with NO checkbox. Such a
+// row stays VISIBLE in the grid but must not participate in the publish count or
+// Select-all (it exposes no control to undo a silent publish). Reviewable iff it has
+// a usable parse preview with a `.show`.
+function hasReviewablePreview(row: Step3Row): boolean {
+  const pr = row.parseResult;
+  return pr != null && typeof pr === "object" && !!(pr as ParseResult).show;
+}
+
 export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
+  const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
 
-  // §4.1: clean + informational rows (publish cards, skipped, resolved) render
-  // in the main list; blocking rows are pulled into the "Needs your attention"
-  // group below it. Order within each list is preserved.
-  const mainRows = rows.filter((r) => !isBlocking(r.status));
+  // Row partitions (§4.1). Order within each list is preserved.
+  //   - publishRows  → clean (staged/applied) → the publish GRID.
+  //   - blockingRows → hard-fail / live-conflict / discard → "Needs your attention".
+  //   - ignored / deferred / skipped → their own de-emphasized set-aside sections
+  //     BELOW the grid, so these resolved, non-publishable rows never sit inside it.
+  const publishRows = rows.filter((r) => isCleanRow(r.status));
+  // The publish-participating subset: clean rows that actually have a reviewable
+  // preview (and therefore a checkbox). A corrupt/no-details clean row stays in
+  // `publishRows` (so it still renders in the grid) but is excluded here, so it is
+  // not counted in "N of M" nor (un)published by Select all.
+  const selectableRows = publishRows.filter(hasReviewablePreview);
   const blockingRows = rows.filter((r) => isBlocking(r.status));
   const blockingCount = blockingRows.length;
+  const ignoredRows = rows.filter((r) => r.status === "permanent_ignore");
+  const deferredRows = rows.filter((r) => r.status === "defer_until_modified");
+  const skippedRows = rows.filter((r) => r.status === "skipped_non_sheet");
+  const hasSetAside = ignoredRows.length + deferredRows.length + skippedRows.length > 0;
 
-  // Accordion: at most ONE card's detail open at a time across the whole grid.
-  // The open card spans the full grid width (lg:col-span-2 xl:col-span-3), which
-  // reflows the rest of the grid out of its way — so the detail reads at full
-  // width instead of squeezed into one narrow column. null = all collapsed.
+  // Accordion: at most ONE card's detail open at a time. The open card's CELL spans
+  // the full grid width (lg:col-span-2 xl:col-span-3) while the grid STAYS
+  // multi-column; `grid-flow-row-dense` backfills the gap the wide cell would
+  // otherwise leave, so only the open card goes full-width and the rest keep their
+  // grid positions (previously the whole grid collapsed to one column). null = all
+  // collapsed.
   const [expandedDfid, setExpandedDfid] = useState<string | null>(null);
+
+  // Lifted publish-intent: ONE optimistic overlay shared by the header's Select-all,
+  // the live count, and every per-card checkbox. `overlay[dfid]` (when present) is
+  // the in-flight intent; otherwise the box reflects the server status. Select-all
+  // writes the overlay for every clean row at once, so all boxes flip instantly —
+  // independent of when router.refresh() lands. (The select-all-doesn't-stick bug:
+  // the per-box state used to update only when a refresh re-keyed each box, which
+  // raced/failed in the real app and left the cards unchecked until a manual click.)
+  const [overlay, setOverlay] = useState<Record<string, boolean>>({});
+  const [pendingDfids, setPendingDfids] = useState<ReadonlySet<string>>(new Set());
+  const [selectAllPending, setSelectAllPending] = useState(false);
+
+  // Reconcile during render (React's "adjust state when a prop changes" pattern —
+  // not an effect): when a refresh delivers a NEW `rows` reference, drop overlay
+  // entries that now match the server status (the server is the source of truth, so
+  // a stale overlay can't mask a later server-side change). Entries that still
+  // differ (refresh not yet landed / write in flight) persist. A same-reference
+  // re-render (Step3Review's own setState) leaves the overlay untouched, which is
+  // what makes the optimistic Select-all stick without depending on a refresh.
+  const [reconciledRows, setReconciledRows] = useState(rows);
+  if (reconciledRows !== rows) {
+    setReconciledRows(rows);
+    setOverlay((prev) => {
+      if (Object.keys(prev).length === 0) return prev;
+      const next: Record<string, boolean> = {};
+      for (const row of rows) {
+        const o = prev[row.driveFileId];
+        if (o !== undefined && o !== (row.status === "applied")) next[row.driveFileId] = o;
+      }
+      return next;
+    });
+  }
+
+  const isChecked = (row: Step3Row): boolean =>
+    row.driveFileId in overlay ? !!overlay[row.driveFileId] : row.status === "applied";
+
+  const appliedCount = selectableRows.filter(isChecked).length;
+  const cleanCount = selectableRows.length;
+  const allChecked = cleanCount > 0 && appliedCount === cleanCount;
+
+  async function postApproval(driveFileId: string, next: boolean): Promise<boolean> {
+    const action = next ? "approve" : "unapprove";
+    try {
+      const res = await fetch(
+        `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
+        { method: "POST" },
+      );
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function setPending(driveFileId: string, on: boolean) {
+    setPendingDfids((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(driveFileId);
+      else next.delete(driveFileId);
+      return next;
+    });
+  }
+
+  async function toggleOne(driveFileId: string, next: boolean): Promise<void> {
+    // §4.6 guard: ignore re-entry while THIS row is in flight, AND while a
+    // Select-all batch is running — otherwise an individual click races the batch's
+    // POST for the same row (the per-show advisory lock serializes them in
+    // indeterminate order), which can leave the row's optimistic overlay
+    // permanently out of sync with the server (a published show shown as unchecked).
+    if (pendingDfids.has(driveFileId) || selectAllPending) return;
+    setOverlay((o) => ({ ...o, [driveFileId]: next })); // optimistic
+    setPending(driveFileId, true);
+    const ok = await postApproval(driveFileId, next);
+    if (!ok) setOverlay((o) => ({ ...o, [driveFileId]: !next })); // revert on failure
+    setPending(driveFileId, false);
+    router.refresh();
+  }
+
+  async function toggleSelectAll(): Promise<void> {
+    if (selectAllPending || cleanCount === 0) return; // §4.6 guard
+    const next = !allChecked;
+    // Only SELECTABLE rows participate (a no-details clean row has no checkbox), and
+    // only those whose current state differs from the target are written.
+    const targets = selectableRows.filter((r) => isChecked(r) !== next);
+    setSelectAllPending(true);
+    setOverlay((o) => {
+      const n = { ...o };
+      for (const r of selectableRows) n[r.driveFileId] = next; // instant flip for every selectable box
+      return n;
+    });
+    await Promise.all(
+      targets.map(async (r) => {
+        const ok = await postApproval(r.driveFileId, next);
+        if (!ok) setOverlay((o) => ({ ...o, [r.driveFileId]: !next })); // revert just this one
+      }),
+    );
+    setSelectAllPending(false);
+    router.refresh();
+  }
 
   return (
     <section
@@ -636,7 +783,13 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
           rest stay under Unpublished, where you can publish them whenever you are ready.
         </p>
         {rows.length > 0 ? (
-          <Step3PublishHeader wizardSessionId={wizardSessionId} rows={rows} />
+          <Step3PublishHeader
+            allChecked={allChecked}
+            appliedCount={appliedCount}
+            cleanCount={cleanCount}
+            pending={selectAllPending}
+            onToggleSelectAll={() => void toggleSelectAll()}
+          />
         ) : null}
         {/* F1 (§8.1): finishable-aware status. Finish is allowed unless a
             blocking row (hard-fail / live-row conflict) remains. No publish
@@ -707,29 +860,27 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
             </section>
           ) : null}
 
-          {/* Task 6: the clean + informational review cards lay out in a
-              responsive grid — 1 col on mobile, 2 at lg, 3 at xl. items-start so
-              each card sizes to its own content height: CSS grid defaults to
-              align-items:stretch, which we explicitly override so a short card
-              never stretches to match the tallest in its row (this repo's
-              Tailwind v4 requires every such dimensional relationship to be
-              stated explicitly). Each card stays width-fluid so it fills its
-              grid cell. */}
-          {mainRows.length > 0 ? (
+          {/* The publishable (clean) review cards lay out in a responsive grid — 1
+              col on mobile, 2 at lg, 3 at xl. `items-start` so each card sizes to
+              its own content height (CSS grid defaults to align-items:stretch, which
+              we override so a short card never stretches to match the tallest in its
+              row — this repo's Tailwind v4 requires every such dimensional
+              relationship to be stated explicitly). When a card is open, ONLY its
+              cell spans the full width (`lg:col-span-2 xl:col-span-3`); the grid
+              stays multi-column and `grid-flow-row-dense` backfills the gap, so the
+              other cards keep their grid positions instead of all going full-width. */}
+          {publishRows.length > 0 ? (
             <ul
               data-testid="wizard-step3-card-grid"
-              // Accordion: while a card is open the grid collapses to ONE column so
-              // the open card reads at full width and the rest stack below it. A
-              // multi-column grid can't give a single cell full width without
-              // leaving a hole where it sat (CSS sparse packing bumps the wide cell
-              // to a fresh row), so the focused view switches the whole grid to one
-              // column. Closed → the normal responsive grid.
-              className={`grid items-start gap-4 ${
-                expandedDfid !== null ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
-              }`}
+              className="grid grid-flow-row-dense grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
             >
-              {mainRows.map((row) => (
-                <li key={row.driveFileId}>
+              {publishRows.map((row) => (
+                <li
+                  key={row.driveFileId}
+                  className={
+                    expandedDfid === row.driveFileId ? "lg:col-span-2 xl:col-span-3" : undefined
+                  }
+                >
                   <RowItem
                     row={row}
                     wizardSessionId={wizardSessionId}
@@ -737,10 +888,44 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
                     onToggleExpanded={() =>
                       setExpandedDfid((cur) => (cur === row.driveFileId ? null : row.driveFileId))
                     }
+                    checked={isChecked(row)}
+                    onToggleChecked={(next) => void toggleOne(row.driveFileId, next)}
+                    checkboxPending={pendingDfids.has(row.driveFileId) || selectAllPending}
                   />
                 </li>
               ))}
             </ul>
+          ) : null}
+
+          {/* Set-aside groups: rows that are NOT publishable and need no action,
+              each in its OWN section (hidden when empty), BELOW the publish grid so
+              they never sit inside it. Quiet, de-emphasized treatment. */}
+          {hasSetAside ? (
+            <div className="flex flex-col gap-6">
+              <SetAsideSection
+                testId="wizard-step3-ignored"
+                heading="Permanently ignored"
+                description="These stay out of setup. No action needed."
+                rows={ignoredRows}
+                wizardSessionId={wizardSessionId}
+              />
+              <SetAsideSection
+                testId="wizard-step3-deferred"
+                heading="Deferred until modified"
+                description="These come back for review the next time the sheet changes in Drive."
+                rows={deferredRows}
+                wizardSessionId={wizardSessionId}
+              />
+              {/* No section description here: each skipped row's own card already
+                  carries the "we skipped this because it is not a Google Sheet"
+                  sentence, so a section description would state the same fact twice. */}
+              <SetAsideSection
+                testId="wizard-step3-skipped"
+                heading="Skipped"
+                rows={skippedRows}
+                wizardSessionId={wizardSessionId}
+              />
+            </div>
           ) : null}
         </>
       )}

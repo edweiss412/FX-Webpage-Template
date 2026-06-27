@@ -31,6 +31,7 @@ const requireAdminIdentityMock = vi.fn();
 const readFinalizeCheckpointMock = vi.fn();
 const onboardingWizardSpy = vi.fn();
 const readAppSettingsRowMock = vi.fn();
+const readScanManifestCountMock = vi.fn();
 
 vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
   const actual = await vi.importActual<typeof import("@/lib/onboarding/sessionLifecycle")>(
@@ -72,7 +73,11 @@ vi.mock("@/app/admin/_finalizeCheckpoint", () => ({
 }));
 
 vi.mock("@/components/admin/OnboardingWizard", () => ({
-  OnboardingWizard: (props: { settings: AppSettingsRow; searchParams: { step?: string } }) => {
+  OnboardingWizard: (props: {
+    settings: AppSettingsRow;
+    searchParams: { step?: string };
+    hasReviewableScan?: boolean;
+  }) => {
     onboardingWizardSpy(props);
     return (
       <div
@@ -80,9 +85,19 @@ vi.mock("@/components/admin/OnboardingWizard", () => ({
         data-pending-session={props.settings.pending_wizard_session_id ?? "null"}
         data-watched-folder={props.settings.watched_folder_id ?? "null"}
         data-step={props.searchParams.step ?? "default"}
+        data-has-reviewable-scan={String(props.hasReviewableScan ?? false)}
       />
     );
   },
+}));
+
+// wizard Back/forward fix: the dispatcher resolves "scan produced reviewable
+// rows" via readScanManifestCount and threads it into <OnboardingWizard>.
+// Default the mock to 0 rows so existing wizard-branch routing tests stay
+// unaffected (they only assert WHICH surface renders); per-test overrides drive
+// the new hasReviewableScan assertions.
+vi.mock("@/app/admin/_scanManifestCount", () => ({
+  readScanManifestCount: (...args: unknown[]) => readScanManifestCountMock(...args),
 }));
 
 vi.mock("@/components/admin/FinalizeInProgress", () => ({
@@ -172,10 +187,14 @@ beforeEach(() => {
   readFinalizeCheckpointMock.mockReset();
   onboardingWizardSpy.mockReset();
   readAppSettingsRowMock.mockReset();
+  readScanManifestCountMock.mockReset();
   requireAdminIdentityMock.mockResolvedValue({ email: "edweiss412@gmail.com" });
   readFinalizeCheckpointMock.mockResolvedValue(null);
   // Default: cheap read degrades → gate falls back to purgeAndRotateIfStale (today's behavior).
   readAppSettingsRowMock.mockResolvedValue({ kind: "infra_error" });
+  // Default: an empty manifest (no reviewable scan rows) so routing tests are
+  // unaffected; the wizard-resume tests override this per-case.
+  readScanManifestCountMock.mockResolvedValue({ kind: "value", count: 0 });
 });
 
 afterEach(() => cleanup());
@@ -222,6 +241,40 @@ describe("AdminPage Phase 2 routing", () => {
       "11111111-1111-1111-1111-111111111111",
     );
     expect(readFinalizeCheckpointMock).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
+  });
+
+  test("wizard branch threads hasReviewableScan from the scan-manifest count (rows>0 → true)", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
+    readScanManifestCountMock.mockResolvedValue({ kind: "value", count: 4 });
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    expect(readScanManifestCountMock).toHaveBeenCalledWith("11111111-1111-1111-1111-111111111111");
+    expect(getByTestId("onboarding-wizard-spy").dataset.hasReviewableScan).toBe("true");
+  });
+
+  test("wizard branch passes hasReviewableScan=false on an empty manifest (Start Over / failed scan)", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
+    readScanManifestCountMock.mockResolvedValue({ kind: "value", count: 0 });
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    expect(getByTestId("onboarding-wizard-spy").dataset.hasReviewableScan).toBe("false");
+  });
+
+  test("wizard branch fails safe: a manifest-count infra_error → hasReviewableScan=false", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
+    readScanManifestCountMock.mockResolvedValue({ kind: "infra_error", message: "boom" });
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    expect(getByTestId("onboarding-wizard-spy").dataset.hasReviewableScan).toBe("false");
   });
 
   test("wizard mid-flight + checkpoint status='in_progress' → FinalizeInProgress", async () => {

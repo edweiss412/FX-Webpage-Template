@@ -14,7 +14,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: /(step3-card-dimensions|agendaScheduleLayout)\.spec\.ts/,
+  testMatch: /(step3-card-dimensions|step3-grid-layout|agendaScheduleLayout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

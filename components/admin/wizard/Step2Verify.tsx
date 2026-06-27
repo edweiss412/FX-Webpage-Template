@@ -63,6 +63,14 @@ const GENERIC_VERIFY_ERROR =
 
 type ScanCompleted = OnboardingScanCompletedBody;
 
+// Server-persisted result of a scan the operator already ran this session
+// (app_settings.pending_folder_* + a reserved pending_wizard_session_id). When
+// present, Step 2 rehydrates after a "Back" from Step 3: the folder input is
+// pre-filled and a "Continue to Step 3" link reopens the forward path without
+// forcing a re-scan. `folderUrl` is the canonical Drive folder URL rebuilt from
+// pending_folder_id (round-trips through the route's parseDriveFolderId).
+export type Step2PriorScan = { folderName: string | null; folderUrl: string | null };
+
 type ScanProgress =
   | { phase: "connecting" }
   | { phase: "reading"; done: number; total: number; lastName: string | null }
@@ -89,9 +97,9 @@ function copyForCode(code: string | null): string {
   return GENERIC_VERIFY_ERROR;
 }
 
-export function Step2Verify() {
+export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) {
   const router = useRouter();
-  const [folderUrl, setFolderUrl] = useState("");
+  const [folderUrl, setFolderUrl] = useState(priorScan?.folderUrl ?? "");
   const [state, setState] = useState<FormState>({ kind: "idle" });
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const startedAtRef = useRef(0);
@@ -247,6 +255,9 @@ export function Step2Verify() {
   }
 
   const submitDisabled = isSubmitting || folderUrl.trim().length === 0;
+  // Resume affordance: only while idle (the moment the operator lands back on
+  // Step 2). Once a re-scan starts, the progress/success/error blocks take over.
+  const showResume = state.kind === "idle" && priorScan != null;
   const progress = state.kind === "submitting" ? state.progress : null;
   const heading =
     progress?.phase === "finishing" ? "Finishing up…" : "Looking through your folder…";
@@ -294,6 +305,32 @@ export function Step2Verify() {
           for review.
         </p>
       </header>
+
+      {showResume && priorScan ? (
+        <div
+          data-testid="wizard-step2-resume"
+          role="group"
+          aria-labelledby="wizard-step2-resume-heading"
+          className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+        >
+          <p id="wizard-step2-resume-heading" className="text-base font-semibold text-text-strong">
+            {priorScan.folderName
+              ? `You already scanned ${priorScan.folderName}.`
+              : "You already scanned this folder."}
+          </p>
+          <p className="max-w-prose text-sm text-text-subtle">
+            Pick up where you left off and review what we brought in, or scan a different folder
+            below.
+          </p>
+          <Link
+            href="/admin?step=3"
+            data-testid="wizard-step2-resume-advance"
+            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          >
+            Continue to Step 3
+          </Link>
+        </div>
+      ) : null}
 
       <form
         onSubmit={handleSubmit}
