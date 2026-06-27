@@ -70,11 +70,17 @@ describe("resolveAliasScoped", () => {
 
 - [ ] **Step 2: Run to verify fail** — `pnpm vitest run tests/parser/aliasesScoped.test.ts` → FAIL (export not found).
 
-- [ ] **Step 3: Implement** (append to `aliases.ts`, after `resolveAliasFull`):
+- [ ] **Step 3: Implement.** Add the imports to the **existing top-of-file import block** (NOT mid-file — late imports fail eslint, LOW finding): `import { gatedVocabCorrect } from "@/lib/parser/typoGate";` and `import { KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";`. Then add the exported helper `inScopeAliases` (the SINGLE source of the fuzzable in-scope set — used by both `resolveAliasScoped` AND the registry in Task 4, so they cannot drift — HIGH finding) and `resolveAliasScoped`:
 
 ```ts
-import { gatedVocabCorrect } from "@/lib/parser/typoGate";
-import { KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
+/** All REVERSE_MAP alias keys (lowercase) whose canonical is under scopePrefix. The
+ *  single source of the fuzzable in-scope alias set (resolveAliasScoped + the collision
+ *  registry both derive from this — they cannot drift as FIELD_ALIASES changes). */
+export function inScopeAliases(scopePrefix: string): string[] {
+  return [...REVERSE_MAP.entries()]
+    .filter(([, canon]) => canon.startsWith(scopePrefix))
+    .map(([alias]) => alias);
+}
 
 /**
  * Resolve a label to a canonical UNDER scopePrefix only, scoped on BOTH paths
@@ -94,10 +100,7 @@ export function resolveAliasScoped(
   }
   // (2) fuzzy over ONLY the in-scope aliases. (Reached only when `label` is not an exact
   // alias of any block, so the exclude just guards the sub-labels.)
-  const inScopeAliases = [...REVERSE_MAP.entries()]
-    .filter(([, canon]) => canon.startsWith(scopePrefix))
-    .map(([alias]) => alias);
-  const fix = gatedVocabCorrect(lower, inScopeAliases, {
+  const fix = gatedVocabCorrect(lower, inScopeAliases(scopePrefix), {
     minLen: 5,
     tieAbort: true,
     exclude: [...KNOWN_SUB_LABELS].map((s) => s.toLowerCase()),
@@ -150,7 +153,9 @@ FIELD_LABEL_AUTOCORRECTED: "A field label on this sheet looked misspelled (e.g. 
 - [ ] **Step 4:** Add `"FIELD_LABEL_AUTOCORRECTED"` to `OPERATOR_ACTIONABLE_ANCHORED` (`dataGaps.ts`, 17→18).
 - [ ] **Step 5:** Map the `FIELD` prefix in `app/help/errors/_families.ts` — add `"FIELD"` to the `syncing-sheets` family prefixes.
 - [ ] **Step 5b:** Dispatch wiring in `lib/drive/showDayTimeAnchors.ts` — add `FIELD_LABEL_AUTOCORRECTED` to the region branch condition (alongside `FIELD_UNREADABLE`/`UNKNOWN_FIELD`/`COLUMN_HEADER_AUTOCORRECTED`/`SECTION_HEADER_AUTOCORRECTED`); it carries `blockRef:{kind:"venue"}` → `region["venue"]`. Add a dispatch test mirroring the others.
-- [ ] **Step 6:** Regen + bump pin tests (17→18): `pnpm gen:spec-codes && pnpm gen:internal-code-enums`; add `FIELD_LABEL_AUTOCORRECTED` to `tests/parser/operatorActionableWarnings.test.ts` (sorted: after `FIELD_UNREADABLE`? — note alpha: `FIELD_LABEL_AUTOCORRECTED` < `FIELD_UNREADABLE`, so it goes BEFORE) and `tests/drive/showDayTimeAnchors.test.ts`. Run `pnpm vitest run tests/cross-cutting/codes.test.ts tests/cross-cutting/extract-spec-codes.test.ts tests/cross-cutting/no-raw-codes.test.ts tests/help/errors-grouping.test.tsx tests/parser/operatorActionableWarnings.test.ts tests/drive/showDayTimeAnchors.test.ts` → PASS.
+**Ordering, made explicit (MEDIUM finding):** two different orderings apply. (a) §12.4 master-spec table + YAML + `catalog.ts` are **insertion-ordered** — append the new row right after `SECTION_HEADER_AUTOCORRECTED` (the gen scripts preserve source order). (b) The pin-test `expect([...SET].sort()).toEqual([...])` array is **alphabetically sorted** — `FIELD_LABEL_AUTOCORRECTED` sorts BEFORE `FIELD_UNREADABLE` (`L` < `U`), so it goes between `COLUMN_HEADER_AUTOCORRECTED` and `FIELD_UNREADABLE`. The `showDayTimeAnchors.test.ts` "all N anchored codes" iteration array is order-insensitive (append anywhere). `FIELD` prefix in `_families.ts` is ALREADY mapped (for `FIELD_UNREADABLE`) — do NOT double-add; confirm `"FIELD"` is present and skip Step 5 if so.
+
+- [ ] **Step 6:** Regen + bump pin tests (17→18): `pnpm gen:spec-codes && pnpm gen:internal-code-enums`; add `FIELD_LABEL_AUTOCORRECTED` to the sorted array in `tests/parser/operatorActionableWarnings.test.ts` (between `COLUMN_HEADER_AUTOCORRECTED` and `FIELD_UNREADABLE`) and to `tests/drive/showDayTimeAnchors.test.ts`. Run `pnpm vitest run tests/cross-cutting/codes.test.ts tests/cross-cutting/extract-spec-codes.test.ts tests/cross-cutting/no-raw-codes.test.ts tests/help/errors-grouping.test.tsx tests/parser/operatorActionableWarnings.test.ts tests/drive/showDayTimeAnchors.test.ts` → PASS.
 - [ ] **Step 7: Commit** — `feat(messages): add FIELD_LABEL_AUTOCORRECTED code + deep-link dispatch (§12.4 lockstep)`
 
 ---
@@ -186,14 +191,14 @@ Replace downstream uses of `col0Canon` with `col0CanonResolved` (so the recovere
       agg.warnings.push({
         severity: "warn",
         code: "FIELD_LABEL_AUTOCORRECTED",
-        message: `Read likely-misspelled field label '${col0.trim()}' as '${fieldLabelCorrectedTo}'`,
+        message: `Read likely-misspelled field label '${col0.trim()}' as field '${fieldLabelCorrectedTo}'`,
         blockRef: { kind: "venue" },
         rawSnippet: col0.trim(),
       });
     }
 ```
 
-(Keep the existing `col0Canon` name if cleaner by reassigning it to a `let`; the load-bearing change is the fuzzy fallback before the `UNKNOWN_FIELD === null` check.)
+**On the message text (MEDIUM finding):** `message` is the **internal admin diagnostic** — it is NEVER user-rendered (invariant 5: the UI shows the catalog `title`/`dougFacing`, e.g. "Auto-corrected a field label" / "…'Venue Adress' as 'Venue Address'"). The canonical key (`venue.address`) is the precise internal identifier and is correct here; the human-readable form lives in the catalog copy the operator actually sees. Wording it `as field '<canonical>'` makes the diagnostic unambiguous. (Keep the existing `col0Canon` name if cleaner by reassigning it to a `let`; the load-bearing change is the fuzzy fallback before the `col0Canon === null` `UNKNOWN_FIELD` check.)
 
 - [ ] **Step 4: Run to verify pass** + full `pnpm vitest run tests/parser` (corpus venue parses unchanged — fixtures are correctly spelled, so no fuzzy fires on them). **Negative-regression:** the valCanon value-guard (`:217,226`) still uses the exact `resolveAlias` (unchanged) — confirm a venue VALUE that looks like a label is not mis-recovered.
 - [ ] **Step 5: Commit** — `feat(parser): recover misspelled venue field labels via resolveAliasScoped (FIELD_LABEL_AUTOCORRECTED)`
@@ -204,16 +209,21 @@ Replace downstream uses of `col0Canon` with `col0CanonResolved` (so the recovere
 
 **Files:** Modify `lib/parser/typoVocabRegistry.ts`; `tests/parser/typoVocabCollision.test.ts` (unchanged logic — just runs over the new entry).
 
-- [ ] **Step 1:** Add the venue field-alias vocab as a `fuzzable` registry entry (the in-scope venue aliases that are ≥5 chars — the fuzzable set), `minLen: 5`:
+- [ ] **Step 1:** Add the venue field-alias vocab as a `fuzzable` registry entry **DERIVED from the same source `resolveAliasScoped` fuzzes** (`inScopeAliases`, Task 1) so it cannot drift (HIGH fix). `lib/parser/typoVocabRegistry.ts` imports `inScopeAliases` and builds the members at module load:
 
 ```ts
-  { id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: [
-    "VENUE NAME", "VENUE ADDRESS", "LOADING DOCK", "GOOGLE LINK", "VENUE NOTES",
-    "IN HOUSE AV", "HOTEL RESERVATIONS", "VENUE CONTACT INFO",
-  ] },
+import { inScopeAliases } from "@/lib/parser/aliases";
+
+// Venue field-alias fuzzable set, DERIVED (not hand-listed) so it always mirrors what
+// resolveAliasScoped("…","venue.") actually fuzzes. Uppercased to compare against the
+// (uppercase) excluded vocabs in the collision meta-test; gatedVocabCorrect fuzzes the
+// lowercase originals — same Damerau distances, so the meta-test faithfully guards it.
+const VENUE_FIELD_ALIASES = inScopeAliases("venue.")
+  .filter((a) => a.length >= 5)
+  .map((a) => a.toUpperCase());
 ```
 
-(Use the actual venue.* alias strings from `FIELD_ALIASES` — uppercase, ≥5 chars. The collision meta-test then asserts none sits within Damerau-1 of any other registered vocab member.)
+then add to `TYPO_VOCABS`: `{ id: "venueFieldAlias", klass: "fuzzable", minLen: 5, members: VENUE_FIELD_ALIASES },`. The collision meta-test then asserts none sits within Damerau-1 of any other registered vocab member. **Verify no import cycle** (`aliases.ts` does not import `typoVocabRegistry.ts` — confirmed; aliases→typoGate/knownSections only).
 
 - [ ] **Step 2: Run + mutation proof.** `pnpm vitest run tests/parser/typoVocabCollision.test.ts` → PASS. If a real distance-1 collision surfaces (e.g. two venue aliases one edit apart, or a venue alias near a sub-label), the meta-test fails — FIX the registry/exclusion or drop the colliding member from the fuzzable set (never weaken the test). Then temporarily add a colliding member → confirm FAIL → revert (the load-bearing proof).
 - [ ] **Step 3: Commit** — `test(parser): register venue field-alias vocab in the collision tripwire`
