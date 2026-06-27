@@ -284,7 +284,9 @@ Required-ness is enforced at runtime: the **Task 11 meta-test** asserts every co
 
 **Interfaces — Consumes:** Drive `files.get({alt:'media'})`, Sheets `spreadsheets.get` gridData; `isAgendaLinkRow` (Task 3).
 
-- [ ] **Step 1: Failing test** (mock googleapis): `getAgendaChips` returns `{kind:'rows'}` in grid order with `chipFileId` from `chipRuns[].chip.richLinkProperties.uri`; rows filtered by `isAgendaLinkRow(labelCell, valueCell)`; a thrown Sheets error → `{kind:'infra_error'}`. `downloadFileBytes` → `{kind:'bytes'}` on 200; trashed/non-PDF/404/403 → `{kind:'unavailable'}`; 5xx/network → `{kind:'infra_error'}`.
+- [ ] **Step 1: Failing test** (mock googleapis):
+  - `getAgendaChips` returns `{kind:'rows'}` in grid order with `chipFileId` from `chipRuns[].chip.richLinkProperties.uri`; rows filtered by `isAgendaLinkRow(labelCell, valueCell)`; **a row with malformed/partial/absent `chipRuns` → `chipFileId:null` (NOT `infra_error`** — ordinary spreadsheet shape variance, Codex plan-R2 LOW); only a thrown Sheets **API** error → `{kind:'infra_error'}`.
+  - `downloadFileBytes` is **bytes-only** (the mime/revision gate lives in `enrichAgenda` via `getFile`, Task 10): `{kind:'bytes'}` on 200; a 404/403 during the byte fetch → `{kind:'unavailable'}`; 5xx/network → `{kind:'infra_error'}`.
 - [ ] **Step 2:** run → FAIL.
 - [ ] **Step 3: Implement** `lib/drive/agendaDrive.ts`:
   - `getAgendaChips`: `sheets.spreadsheets.get({ spreadsheetId, ranges: ['INFO'], includeGridData: true, fields: 'sheets(data(rowData(values(formattedValue,chipRuns(chip(richLinkProperties(uri)))))))' })`; for each row pair the label cell (col with `AGENDA LINK`) and the value cell; keep rows where `isAgendaLinkRow(label, value)`; `chipFileId` = `/\/d\/([\w-]+)/` from the value cell's chip uri (or null). Catch → `{kind:'infra_error'}`.
@@ -300,51 +302,16 @@ Required-ness is enforced at runtime: the **Task 11 meta-test** asserts every co
 - [ ] **Step 2-4:** implement both on the mock with a fixture map; run → PASS; tsc clean (mock now conforms).
 - [ ] **Step 5: Commit** `test(sync): mockDriveClient implements agenda Drive methods`
 
-### Task 10: `enrichAgenda` + wire into `enrichWithDrivePins`
+### Task 9.5: Three data-quality codes (§12.4 3-part lockstep) — RUN BEFORE Task 10
 
-**Files:** Create `lib/sync/enrichAgenda.ts`; Modify `lib/sync/enrichWithDrivePins.ts` (call it before `return`); Test `tests/sync/enrichAgenda.test.ts` + `tests/onboarding/enrichAgendaIntegration.test.ts`.
-
-**Interfaces — Produces:** `enrichAgenda(result: ParseResult, driveClient: DriveClient, spreadsheetId: string): Promise<void>` (mutates `result.show.agenda_links` + pushes to `result.warnings`). **Consumes:** Tasks 3,4,7,8,9. Guards optional Drive methods: `if (!driveClient.getAgendaChips || !driveClient.downloadFileBytes) return;`.
-
-> **Execution order (Codex plan-review #4):** run **Task 12 (catalog codes) BEFORE this task** so the three codes have copy. This is a *cleanliness* ordering, not a hard dependency: `enrichAgenda` pushes **opaque `ParseWarning` objects** `{ severity:'warn', code:'AGENDA_PDF_UNREADABLE', message }` onto `result.warnings`; no catalog lookup or parity validation runs during sync (lookup is render-time only, `lib/messages/lookup.ts`, which falls back gracefully for an unknown code). So even out of order, Task 10 stores valid data and no gate fails — but land Task 12 first regardless.
-
-- [ ] **Step 1: Failing tests** (mocked Drive) — assert spec §4.5:
-  - **Ordinal correlation:** 2 chip rows in grid order → i-th `chipFileId` binds to i-th fileId-less entry; robust to duplicate labels and interleaved url-form entries (they hold their slot).
-  - **Count-mismatch:** chip rows ≠ agenda_links count → no bind → `AGENDA_PDF_UNREADABLE` on the fileId-less entries only; url-form entries keep their fileId.
-  - **`getAgendaChips` infra_error:** leaves links unenriched, NO `AGENDA_PDF_UNREADABLE`, NO throw out of scan.
-  - **Cache:** skip download+extract when `extracted.sourceRevision === headRevisionId && extracted.extractorVersion === EXTRACTOR_VERSION`; re-extract when `extractorVersion` differs even if revision same.
-  - **Codes:** `confidence:'low'` → `AGENDA_SCHEDULE_LOW_CONFIDENCE`; `corrections>0` → `AGENDA_SCHEDULE_TIME_ADJUSTED`; `downloadFileBytes` `unavailable` or 0-session → `AGENDA_PDF_UNREADABLE`; `infra_error` (download) → none + keep prior `extracted`.
-  - **Stale-good preserve:** a transient failure leaves a pre-existing high-confidence `extracted` intact.
-  - **Gated:** `getAgendaChips` is called only when ≥1 entry lacks a `fileId`.
-- [ ] **Step 2:** run → FAIL.
-- [ ] **Step 3: Implement** `lib/sync/enrichAgenda.ts` per §4.5.1–§4.5.4 (best-effort try/catch wrapping; the union handling; ordinal 1:1; cache key; warnings push). Then in `enrichWithDrivePins`, just before `return { ... }`, `await enrichAgenda(result, driveClient, ctx.driveFileId);` (so all 4 callers inherit it; the dev path uses the mock).
-- [ ] **Step 4:** run unit + add `tests/onboarding/enrichAgendaIntegration.test.ts` asserting enriched `agenda_links` (fileId + extracted) flows through `runOnboardingScan` `prepareOne` → `parseResult`, AND a persistence assertion that `parseResult.show.agenda_links` (with `extracted`) is what the apply path serializes — `runScheduledCronSync` already writes `agenda_links` as `$9::jsonb` from `parseResult.show`, so the `extracted` field rides the existing jsonb passthrough (no new column, no new encoder; verified `lib/sync/runScheduledCronSync.ts`). run → PASS.
-- [ ] **Step 5: Commit** `feat(sync): enrichAgenda — recover fileId, extract schedule, attach (best-effort)`
-
-### Task 11: Structural meta-tests (DriveClient-impl + shared-predicate + infra registration)
-
-**Files:** Create `tests/sync/driveClientImplCompleteness.test.ts`, `tests/parser/sharedAgendaPredicate.test.ts`; Modify `tests/auth/_metaInfraContract.test.ts` (register `enrichAgenda` Drive helpers) — or add `// not-subject-to-meta:` if the registry shape doesn't fit.
-
-- [ ] **Step 1: Failing tests** — (a) every `DriveClient` impl (real + mock) exposes `downloadFileBytes` + `getAgendaChips` (enumerate the impls; assert `typeof impl.method === 'function'`). (b) **Behavioral shared-predicate alignment (primary, Codex plan-review #6):** construct an INFO grid with `[valid chip row, blank-value AGENDA LINK row, valid chip row]` and the equivalent markdown; assert `parseAgendaLinks(markdown)` and `getAgendaChips(...)` (via the mock fed the same grid) BOTH exclude the blank-value row and both return exactly 2 aligned entries (so the blank row can't desync the ordinal mapping). **Supplement:** a structural grep/import assertion that `lib/parser/index.ts` and `lib/drive/agendaDrive.ts` both import `isAgendaLinkRow` (catches a future refactor that bypasses the shared predicate). (c) infra-contract meta-test row for the new Drive helpers.
-- [ ] **Step 2-4:** implement; run → PASS.
-- [ ] **Step 5: Commit** `test(sync): structural meta-tests for agenda Drive surface + shared predicate`
-
----
-
-## Phase C — Catalog (§12.4 3-part lockstep)
-
-### Task 12: Three data-quality codes
-
-**Files:** Modify master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 (prose) + `lib/messages/catalog.ts` + run `pnpm gen:spec-codes`. Test: the `x1` gate (`pnpm test:audit:x1-catalog-parity`).
-
-> **EXECUTE THIS TASK BEFORE Task 10 (enrichAgenda)** — see Task 10's execution-order note.
+**Files:** Modify master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 (prose) + `lib/messages/catalog.ts` + run `pnpm gen:spec-codes`; Test `tests/messages/agendaCodes.test.ts`. (Placed before Task 10 so the codes `enrichAgenda` emits already have catalog copy — Codex plan-review #4.)
 
 **Codes** (Doug-facing, `crewFacing:null`, model on `SCHEDULE_TIME_UNPARSED` at `lib/messages/catalog.ts:1143`):
 - `AGENDA_PDF_UNREADABLE` — title "Agenda PDF unreadable".
 - `AGENDA_SCHEDULE_LOW_CONFIDENCE` — title "Agenda schedule shown as PDF only".
 - `AGENDA_SCHEDULE_TIME_ADJUSTED` — title "Agenda time adjusted".
 
-- [ ] **Step 1: Failing test FIRST** (Codex plan-review #3) — add to `tests/messages/agendaCodes.test.ts`:
+- [ ] **Step 1: Failing test FIRST** (Codex plan-review #3) — add `tests/messages/agendaCodes.test.ts`:
 ```ts
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 test.each(["AGENDA_PDF_UNREADABLE","AGENDA_SCHEDULE_LOW_CONFIDENCE","AGENDA_SCHEDULE_TIME_ADJUSTED"])(
@@ -355,12 +322,43 @@ test.each(["AGENDA_PDF_UNREADABLE","AGENDA_SCHEDULE_LOW_CONFIDENCE","AGENDA_SCHE
     expect(e.crewFacing).toBeNull();
   });
 ```
-- [ ] **Step 2:** `vitest run tests/messages/agendaCodes.test.ts` → **FAIL** (codes absent). This is the pre-change failure shape.
-- [ ] **Step 3:** add the three rows to **master spec §12.4** (prose table) — Doug-voice copy; do NOT prettier the master spec (memory: it mangles §12.4 cells).
+- [ ] **Step 2:** `vitest run tests/messages/agendaCodes.test.ts` → **FAIL** (codes absent) — the pre-change failure shape.
+- [ ] **Step 3:** add the three rows to **master spec §12.4** (prose table) — Doug-voice copy; do NOT prettier the master spec (it mangles §12.4 cells).
 - [ ] **Step 4:** `pnpm gen:spec-codes` → regenerates `lib/messages/__generated__/spec-codes.ts`.
-- [ ] **Step 5:** add the matching three entries to `lib/messages/catalog.ts` (same `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` strings as §12.4; `helpHref: "/help/errors#<CODE>"`). **Generic** `helpfulContext`/`longExplanation` (no `_<placeholder>_` — only `dougFacing` is interpolated; placeholders elsewhere trip `_metaEmphasisRenderContract`).
-- [ ] **Step 6:** `vitest run tests/messages/agendaCodes.test.ts` → PASS; `pnpm test:audit:x1-catalog-parity` → PASS (spec ↔ generated ↔ catalog parity, all three layers staged together).
-- [ ] **Step 7: Commit** `feat(messages): agenda data-quality codes (§12.4 lockstep)` — the test + spec + generated + catalog in ONE commit.
+- [ ] **Step 5:** add the three entries to `lib/messages/catalog.ts` (same `dougFacing`/`crewFacing`/`followUp`/`helpfulContext` strings as §12.4; `helpHref: "/help/errors#<CODE>"`). **Generic** `helpfulContext`/`longExplanation` (no `_<placeholder>_` — only `dougFacing` is interpolated; placeholders elsewhere trip `_metaEmphasisRenderContract`).
+- [ ] **Step 6:** `vitest run tests/messages/agendaCodes.test.ts` → PASS; `pnpm test:audit:x1-catalog-parity` → PASS (all three layers).
+- [ ] **Step 7: Commit** `feat(messages): agenda data-quality codes (§12.4 lockstep)` — test + spec + generated + catalog in ONE commit.
+
+---
+
+### Task 10: `enrichAgenda` + wire into `enrichWithDrivePins`
+
+**Files:** Create `lib/sync/enrichAgenda.ts`; Modify `lib/sync/enrichWithDrivePins.ts` (call it before `return`); Test `tests/sync/enrichAgenda.test.ts` + `tests/onboarding/enrichAgendaIntegration.test.ts`.
+
+**Interfaces — Produces:** `enrichAgenda(result: ParseResult, driveClient: DriveClient, spreadsheetId: string): Promise<void>` (mutates `result.show.agenda_links` + pushes to `result.warnings`). **Consumes:** Tasks 3,4,7,8,9. Guards optional Drive methods: `if (!driveClient.getAgendaChips || !driveClient.downloadFileBytes) return;`.
+
+> **Note (Codex plan-review #4):** Task 9.5 (catalog codes) sits immediately above this task, so the three codes already have copy. Even so, this task is robust to order: `enrichAgenda` pushes **opaque `ParseWarning` objects** `{ severity:'warn', code:'AGENDA_PDF_UNREADABLE', message }` onto `result.warnings`; no catalog lookup or parity validation runs during sync (lookup is render-time only, `lib/messages/lookup.ts`, which falls back gracefully for an unknown code).
+
+- [ ] **Step 1: Failing tests** (mocked Drive) — assert spec §4.5:
+  - **Ordinal correlation:** 2 chip rows in grid order → i-th `chipFileId` binds to i-th fileId-less entry; robust to duplicate labels and interleaved url-form entries (they hold their slot).
+  - **Count-mismatch:** chip rows ≠ agenda_links count → no bind → `AGENDA_PDF_UNREADABLE` on the fileId-less entries only; url-form entries keep their fileId.
+  - **`getAgendaChips` infra_error:** leaves links unenriched, NO `AGENDA_PDF_UNREADABLE`, NO throw out of scan.
+  - **Cache:** skip download+extract when `extracted.sourceRevision === headRevisionId && extracted.extractorVersion === EXTRACTOR_VERSION`; re-extract when `extractorVersion` differs even if revision same.
+  - **Codes:** `confidence:'low'` → `AGENDA_SCHEDULE_LOW_CONFIDENCE`; `corrections>0` → `AGENDA_SCHEDULE_TIME_ADJUSTED`; `downloadFileBytes` `unavailable` or 0-session → `AGENDA_PDF_UNREADABLE`; `infra_error` (download) → none + keep prior `extracted`.
+  - **Stale-good preserve:** a transient failure leaves a pre-existing high-confidence `extracted` intact.
+  - **Gated:** `getAgendaChips` is called only when ≥1 entry lacks a `fileId`.
+- [ ] **Step 2:** run → FAIL.
+- [ ] **Step 3: Implement** `lib/sync/enrichAgenda.ts` per §4.5.1–§4.5.4. **Per-PDF metadata + cache flow (Codex plan-R2 HIGH — the `headRevisionId`/mime producer):** for each entry with a `fileId`, call the EXISTING `driveClient.getFile(fileId)` → `{ mimeType, headRevisionId }` (this, not `downloadFileBytes`, is the source of the revision and the PDF-type gate). If `mimeType !== 'application/vnd.google-apps...'`→ actually `!== 'application/pdf'` or trashed → `AGENDA_PDF_UNREADABLE`, skip. **Cache:** if `entry.extracted?.sourceRevision === headRevisionId && entry.extracted?.extractorVersion === EXTRACTOR_VERSION` → skip (keep existing). On miss → `driveClient.downloadFileBytes(fileId)`: `infra_error` → leave as-is (preserve prior `extracted`), no note, retry next sync; `unavailable` → `AGENDA_PDF_UNREADABLE`; `bytes` → `extractAgendaSchedule(bytes)` → set `extracted` with `sourceRevision: headRevisionId, extractorVersion: EXTRACTOR_VERSION`; then emit `AGENDA_SCHEDULE_LOW_CONFIDENCE` / `AGENDA_SCHEDULE_TIME_ADJUSTED` / `AGENDA_PDF_UNREADABLE` (0 sessions) per §4.5.3. The whole body is best-effort try/catch (a `getFile`/extract throw leaves the link as-is). Then in `enrichWithDrivePins`, just before `return { ... }`, `await enrichAgenda(result, driveClient, ctx.driveFileId);` (all 4 callers inherit it; the dev path uses the mock). `getFile` + `downloadFileBytes` are distinct calls so a test can pin: same `headRevisionId` from `getFile` → no `downloadFileBytes` call (cache hit); changed revision OR bumped `EXTRACTOR_VERSION` → `downloadFileBytes` called.
+- [ ] **Step 4:** run unit + add `tests/onboarding/enrichAgendaIntegration.test.ts` asserting enriched `agenda_links` (fileId + extracted) flows through `runOnboardingScan` `prepareOne` → `parseResult`, AND a persistence assertion that `parseResult.show.agenda_links` (with `extracted`) is what the apply path serializes — `runScheduledCronSync` already writes `agenda_links` as `$9::jsonb` from `parseResult.show`, so the `extracted` field rides the existing jsonb passthrough (no new column, no new encoder; verified `lib/sync/runScheduledCronSync.ts`). run → PASS.
+- [ ] **Step 5: Commit** `feat(sync): enrichAgenda — recover fileId, extract schedule, attach (best-effort)`
+
+### Task 11: Structural meta-tests (DriveClient-impl + shared-predicate + infra registration)
+
+**Files:** Create `tests/sync/driveClientImplCompleteness.test.ts`, `tests/parser/sharedAgendaPredicate.test.ts`; Modify `tests/auth/_metaInfraContract.test.ts` (register `enrichAgenda` Drive helpers) — or add `// not-subject-to-meta:` if the registry shape doesn't fit.
+
+- [ ] **Step 1: Failing tests** — (a) every `DriveClient` impl (real + mock) exposes `downloadFileBytes` + `getAgendaChips` (enumerate the impls; assert `typeof impl.method === 'function'`). (b) **Behavioral shared-predicate alignment (primary, Codex plan-review #6):** construct an INFO grid with `[valid chip row, blank-value AGENDA LINK row, valid chip row]` and the equivalent markdown; assert `parseAgendaLinks(markdown)` and `getAgendaChips(...)` (via the mock fed the same grid) BOTH exclude the blank-value row and both return exactly 2 aligned entries (so the blank row can't desync the ordinal mapping). **Supplement:** a structural grep/import assertion that `lib/parser/index.ts` and `lib/drive/agendaDrive.ts` both import `isAgendaLinkRow` (catches a future refactor that bypasses the shared predicate). (c) infra-contract meta-test row for the new Drive helpers.
+- [ ] **Step 2-4:** implement; run → PASS.
+- [ ] **Step 5: Commit** `test(sync): structural meta-tests for agenda Drive surface + shared predicate`
 
 ---
 
