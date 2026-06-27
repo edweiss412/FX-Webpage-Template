@@ -235,10 +235,11 @@ export type StagedRow = {
   dataGaps?: DataGapsSummary;
   /**
    * parse-warning deep links — operator-actionable warnings (role/day/schedule/
-   * field) derived by the page from `parse_result.warnings`. The card renders
-   * each with the catalog title + a source-sheet "Open in Sheet" link when the
-   * scan resolved the cell. Filtered + deduped via `operatorActionableWarnings`
-   * at the page; the component re-filters defensively. undefined/[] → nothing.
+   * field) the card renders with the catalog title + a source-sheet "Open in
+   * Sheet" link when the scan resolved the cell. MUST be pre-filtered + deduped
+   * via `operatorActionableWarnings` at the StagedRow derivation site (the
+   * `PerShowActionableWarnings` renderer is pure-presentational and does NOT
+   * re-filter — pass already-actionable items only). undefined/[] → nothing.
    */
   operatorActionable?: ParseWarning[];
 };
