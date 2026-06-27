@@ -176,7 +176,12 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
 
   it("resolves ROLE_TOKEN_AUTOCORRECTED by blockRef.name (crew cell)", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "ROLE_TOKEN_AUTOCORRECTED", message: "x", blockRef: { kind: "crew", index: 0, name: "Jane Doe" } },
+      {
+        severity: "warn",
+        code: "ROLE_TOKEN_AUTOCORRECTED",
+        message: "x",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
     ];
     attachSourceCellAnchors(ws, { showDay: [], crewRole: crewAnchors, region: {} });
     expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
@@ -184,15 +189,29 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
 
   it("resolves COLUMN_HEADER_AUTOCORRECTED by its crew region (blockRef.kind='crew')", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "COLUMN_HEADER_AUTOCORRECTED", message: "x", blockRef: { kind: "crew", index: 0 } },
+      {
+        severity: "warn",
+        code: "COLUMN_HEADER_AUTOCORRECTED",
+        message: "x",
+        blockRef: { kind: "crew", index: 0 },
+      },
     ];
-    attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: { crew: { title: "INFO", gid: 0, a1: "A2:D5" } } });
+    attachSourceCellAnchors(ws, {
+      showDay: [],
+      crewRole: [],
+      region: { crew: { title: "INFO", gid: 0, a1: "A2:D5" } },
+    });
     expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2:D5" });
   });
 
   it("resolves SECTION_HEADER_AUTOCORRECTED by its section region (blockRef.kind=RegionId)", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "SECTION_HEADER_AUTOCORRECTED", message: "x", blockRef: { kind: "transportation", index: 0 } },
+      {
+        severity: "warn",
+        code: "SECTION_HEADER_AUTOCORRECTED",
+        message: "x",
+        blockRef: { kind: "transportation", index: 0 },
+      },
     ];
     attachSourceCellAnchors(ws, {
       showDay: [],

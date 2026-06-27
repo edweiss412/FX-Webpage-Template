@@ -2,7 +2,11 @@ import type { ParseWarning } from "@/lib/parser/types";
 import type { RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { splitRow } from "@/lib/parser/blocks/_helpers";
-import { KNOWN_SECTION_HEADERS, KNOWN_SUB_LABELS, countFieldHeaderWords } from "@/lib/parser/knownSections";
+import {
+  KNOWN_SECTION_HEADERS,
+  KNOWN_SUB_LABELS,
+  countFieldHeaderWords,
+} from "@/lib/parser/knownSections";
 
 /**
  * Long, distinctive section headers that are safe to fuzz at fieldBand 0 (no near-miss
@@ -20,7 +24,9 @@ const CANON_TO_REGION: Record<string, RegionId> = {
 // Cross-vocab exclusion: any other section header + the sub-labels (DATE/DAY/ROOM).
 // A near-miss that is exactly one of these is NEVER fuzzed into a long section.
 const EXCLUDE: readonly string[] = [
-  ...[...KNOWN_SECTION_HEADERS].filter((h) => !(LONG_SECTION_VOCAB as readonly string[]).includes(h)),
+  ...[...KNOWN_SECTION_HEADERS].filter(
+    (h) => !(LONG_SECTION_VOCAB as readonly string[]).includes(h),
+  ),
   ...KNOWN_SUB_LABELS,
 ];
 
@@ -35,7 +41,10 @@ const isSeparatorRow = (cells: readonly string[]): boolean =>
  * spelling of the canonical exists elsewhere in the doc. Returns the corrected markdown +
  * SECTION_HEADER_AUTOCORRECTED warnings. A no-op on correctly-spelled sheets (corpus guard).
  */
-export function normalizeSectionHeaders(markdown: string): { corrected: string; warnings: ParseWarning[] } {
+export function normalizeSectionHeaders(markdown: string): {
+  corrected: string;
+  warnings: ParseWarning[];
+} {
   const warnings: ParseWarning[] = [];
   const lines = markdown.split("\n");
 

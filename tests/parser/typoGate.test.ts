@@ -5,10 +5,16 @@ const V = ["TRANSPORTATION", "EVENT DETAILS"] as const;
 
 describe("gatedVocabCorrect", () => {
   it("exact hit → corrected:false (no warning needed)", () => {
-    expect(gatedVocabCorrect("TRANSPORTATION", V, {})).toEqual({ match: "TRANSPORTATION", corrected: false });
+    expect(gatedVocabCorrect("TRANSPORTATION", V, {})).toEqual({
+      match: "TRANSPORTATION",
+      corrected: false,
+    });
   });
   it("distance-1 near miss → corrected:true", () => {
-    expect(gatedVocabCorrect("TRANSPORTATON", V, {})).toEqual({ match: "TRANSPORTATION", corrected: true });
+    expect(gatedVocabCorrect("TRANSPORTATON", V, {})).toEqual({
+      match: "TRANSPORTATION",
+      corrected: true,
+    });
   });
   it("beyond distance 1 → null", () => {
     expect(gatedVocabCorrect("XYZ", V, {})).toBeNull();

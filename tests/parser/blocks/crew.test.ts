@@ -744,7 +744,11 @@ describe("parseCrew — multi-word role typo correction (ROLE_TOKEN_AUTOCORRECTE
 
   it("does NOT fuzz a short single-word role token into a multi-word role (conservative space gate)", () => {
     // 'ZZ9' has no space → the `includes(" ")` gate skips the multi-word fuzz; it stays UNKNOWN.
-    const md = ["| TECH | PHONE | ARRIVAL | DEPARTURE |", "| --- | --- | --- | --- |", "| Sam Poe - ZZ9 | 555 |  |  |"].join("\n");
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| --- | --- | --- | --- |",
+      "| Sam Poe - ZZ9 | 555 |  |  |",
+    ].join("\n");
     const agg = newAggregator();
     parseCrew(md, "v1", agg);
     expect(agg.warnings.find((w) => w.code === "ROLE_TOKEN_AUTOCORRECTED")).toBeUndefined();
@@ -752,7 +756,11 @@ describe("parseCrew — multi-word role typo correction (ROLE_TOKEN_AUTOCORRECTE
   });
 
   it("a clean multi-word role is NOT flagged and parses to its flag", () => {
-    const md = ["| TECH | PHONE | ARRIVAL | DEPARTURE |", "| --- | --- | --- | --- |", "| Amy Lane - Content Creation | 555 |  |  |"].join("\n");
+    const md = [
+      "| TECH | PHONE | ARRIVAL | DEPARTURE |",
+      "| --- | --- | --- | --- |",
+      "| Amy Lane - Content Creation | 555 |  |  |",
+    ].join("\n");
     const agg = newAggregator();
     const crew = parseCrew(md, "v1", agg);
     expect(agg.warnings.find((w) => w.code === "ROLE_TOKEN_AUTOCORRECTED")).toBeUndefined();
@@ -776,14 +784,22 @@ describe("parseCrew — column header typo correction (COLUMN_HEADER_AUTOCORRECT
   });
 
   it("a correctly-spelled EMAIL header is NOT flagged", () => {
-    const md = ["| CREW | NAME | ROLE | PHONE | EMAIL |", "| --- | --- | --- | --- | --- |", "|  | Jane Doe | A1 | 555 | jane@x.com |"].join("\n");
+    const md = [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| --- | --- | --- | --- | --- |",
+      "|  | Jane Doe | A1 | 555 | jane@x.com |",
+    ].join("\n");
     const agg = newAggregator();
     parseCrew(md, "v4", agg);
     expect(agg.warnings.find((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED")).toBeUndefined();
   });
 
   it("a 2-edit-away word (ROOM) is NOT corrected to any column (radius stays 1)", () => {
-    const md = ["| CREW | NAME | ROOM | PHONE | EMAIL |", "| --- | --- | --- | --- | --- |", "|  | Jane Doe | A1 | 555 | jane@x.com |"].join("\n");
+    const md = [
+      "| CREW | NAME | ROOM | PHONE | EMAIL |",
+      "| --- | --- | --- | --- | --- |",
+      "|  | Jane Doe | A1 | 555 | jane@x.com |",
+    ].join("\n");
     const agg = newAggregator();
     parseCrew(md, "v4", agg);
     // ROOM↔ROLE is Damerau 2 → not corrected; no spurious COLUMN_HEADER_AUTOCORRECTED.

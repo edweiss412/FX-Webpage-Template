@@ -7,7 +7,9 @@ import { unambiguousTypos } from "@/tests/parser/_typoGenerator";
 
 describe("normalizeSectionHeaders — gated long-section-header typo correction", () => {
   it("corrects a typo'd TRANSPORTATION header (field-band row) and the section then parses", () => {
-    const md = ["| Transportaton | NAME | PHONE |", "| Pick Up Venue | 10/6/26 @ 12pm |"].join("\n");
+    const md = ["| Transportaton | NAME | PHONE |", "| Pick Up Venue | 10/6/26 @ 12pm |"].join(
+      "\n",
+    );
     const r = normalizeSectionHeaders(md);
     expect(r.corrected).toContain("TRANSPORTATION");
     expect(r.warnings.filter((w) => w.code === "SECTION_HEADER_AUTOCORRECTED")).toHaveLength(1);

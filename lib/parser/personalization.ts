@@ -44,7 +44,9 @@ const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
 const MULTI_WORD_TOKENS: string[] = ["CONTENT CREATION", "SHOW CALLER", "GREEN ROOM", "CAM OP"];
 // Real single-word role codes (A1/V1/LEAD/…) — excluded from the multi-word fuzz so a
 // short code is never over-corrected into a phrase (spec §8 do-not-fuzz).
-const SHORT_ROLE_CODES: readonly string[] = Object.keys(ROLE_NORMALIZATIONS).filter((k) => !k.includes(" "));
+const SHORT_ROLE_CODES: readonly string[] = Object.keys(ROLE_NORMALIZATIONS).filter(
+  (k) => !k.includes(" "),
+);
 
 // ── Stage restriction patterns ────────────────────────────────────────────────
 const FULL_STAGE_PATTERN = /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out/i;
