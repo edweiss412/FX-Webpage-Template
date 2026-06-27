@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseRooms } from "@/lib/parser/blocks/rooms";
+import { parseRooms, V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
+import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { unambiguousTypos } from "../_typoGenerator";
 
 const ALL_FIXTURES = [
   "fixtures/shows/raw/2024-05-east-coast-family-office.md",
@@ -186,4 +189,171 @@ describe("parseRooms — corpus coverage", () => {
       }
     });
   }
+});
+
+// ── PR-D3: v4 fuzzy field-label recovery ─────────────────────────────────────
+const FLA = (agg: ReturnType<typeof newAggregator>) =>
+  agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+// A v4 GS block. First row MUST be an exact bare label so hasBareV4DataRow detects v4.
+function v4Gs(name: string, rows: string[]): string {
+  return [`| GENERAL SESSION ${name} | |`, ...rows].join("\n") + "\n";
+}
+function v4Breakout(name: string, rows: string[]): string {
+  return [`| BREAKOUT 1 ${name} | |`, ...rows].join("\n") + "\n";
+}
+
+describe("parseRooms — v4 fuzzy field-label recovery (PR-D3)", () => {
+  it("recovers a misspelled label into the right field and warns once (kind=rooms)", () => {
+    // "Setup" exact = detector + claims setup; "Lightng" typo recovers into lighting.
+    const agg = newAggregator();
+    const rooms = parseRooms(
+      v4Gs("BALLROOM", ["| Setup | 100 chairs |", "| Lightng | 4 movers |"]),
+      "v4",
+      agg,
+    );
+    const gs = rooms.find((r) => r.kind === "gs")!;
+    expect(gs.setup).toBe("100 chairs");
+    expect(gs.lighting).toBe("4 movers");
+    const warns = FLA(agg);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef?.kind).toBe("rooms");
+    expect(warns[0]!.rawSnippet).toBe("Lightng");
+  });
+
+  it("exact-wins: a real exact label suppresses a real fuzzy sibling for the same field, either order, no warn", () => {
+    // Leading "Setup" detects the v4 block. "Lightng" (>=5 chars) IS a fuzzy candidate for
+    // lighting, so a real exact "Lighting | REAL" must suppress it (exactReal guard) either
+    // order — this genuinely exercises the post-loop exactReal skip.
+    const a = newAggregator();
+    const ra = parseRooms(
+      v4Gs("A", ["| Setup | det |", "| Lighting | REAL |", "| Lightng | WRONG |"]),
+      "v4",
+      a,
+    ).find((r) => r.kind === "gs")!;
+    expect(ra.lighting).toBe("REAL");
+    expect(FLA(a)).toHaveLength(0);
+    const b = newAggregator();
+    const rb = parseRooms(
+      v4Gs("B", ["| Setup | det |", "| Lightng | WRONG |", "| Lighting | REAL |"]),
+      "v4",
+      b,
+    ).find((r) => r.kind === "gs")!;
+    expect(rb.lighting).toBe("REAL");
+    expect(FLA(b)).toHaveLength(0);
+  });
+
+  it("empty exact does NOT claim: a real typo sibling recovers and warns", () => {
+    // "Setup" exact (detector) is real; "Lighting" exact is EMPTY so does not claim lighting;
+    // "Lightng" (>=5 chars) typo recovers into lighting.
+    const agg = newAggregator();
+    const gs = parseRooms(
+      v4Gs("C", ["| Setup | x |", "| Lighting | |", "| Lightng | 4 movers |"]),
+      "v4",
+      agg,
+    ).find((r) => r.kind === "gs")!;
+    expect(gs.lighting).toBe("4 movers");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("SENTINEL exact does NOT claim: a sentinel exact value never blocks a real fuzzy recovery", () => {
+    // "Lighting | TBD" is a sentinel → does not claim lighting; "Lightng | Real" recovers.
+    const agg = newAggregator();
+    const gs = parseRooms(
+      v4Gs("D", ["| Setup | x |", "| Lighting | TBD |", "| Lightng | Real |"]),
+      "v4",
+      agg,
+    ).find((r) => r.kind === "gs")!;
+    expect(gs.lighting).toBe("Real");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("two fuzzy siblings: last-write-wins, single warn", () => {
+    const agg = newAggregator();
+    const gs = parseRooms(
+      v4Gs("E", ["| Setup | x |", "| Lightng | A |", "| Lightng | B |"]),
+      "v4",
+      agg,
+    ).find((r) => r.kind === "gs")!;
+    expect(gs.lighting).toBe("B");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("PHANTOM guard: fuzzy-only content does NOT resurrect a placeholder breakout (room dropped, no warn)", () => {
+    // Placeholder name + all exact rows empty + one typo with a value → room must be DROPPED.
+    const agg = newAggregator();
+    const rooms = parseRooms(
+      v4Breakout("BREAKOUT ROOM", ["| Setup | |", "| Scnic | white cyc |"]),
+      "v4",
+      agg,
+    );
+    expect(rooms.some((r) => r.kind === "breakout")).toBe(false);
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("REAL-ROOM fuzzy: a non-placeholder breakout recovers a typo'd field and warns", () => {
+    const agg = newAggregator();
+    const rooms = parseRooms(
+      v4Breakout("SALON D", ["| Setup | |", "| Scnic | white cyc |"]),
+      "v4",
+      agg,
+    );
+    const bo = rooms.find((r) => r.kind === "breakout");
+    expect(bo?.scenic).toBe("white cyc");
+    expect(FLA(agg)).toHaveLength(1);
+  });
+
+  it("exact alias 'backdrop / scenic' routes to scenic with NO fuzzy warning", () => {
+    const agg = newAggregator();
+    const gs = parseRooms(
+      v4Gs("F", ["| Setup | x |", "| backdrop / scenic | blue |"]),
+      "v4",
+      agg,
+    ).find((r) => r.kind === "gs")!;
+    expect(gs.scenic).toBe("blue");
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("multi-block isolation: the same typo in two blocks emits two independent warnings", () => {
+    const agg = newAggregator();
+    const md =
+      v4Gs("G", ["| Setup | x |", "| Lightng | A |"]) +
+      v4Breakout("SALON E", ["| Setup | y |", "| Lightng | B |"]);
+    parseRooms(md, "v4", agg);
+    expect(FLA(agg)).toHaveLength(2);
+  });
+
+  it("below-minLen / tie-abort: short or ambiguous labels are not fuzz-recognized (field stays null)", () => {
+    const agg = newAggregator();
+    const gs = parseRooms(v4Gs("H", ["| Setup | x |", "| Pwr | y |"]), "v4", agg).find(
+      (r) => r.kind === "gs",
+    )!;
+    expect(gs.power).toBeNull(); // "Pwr" (3 chars) < minLen 5 → not corrected
+    expect(FLA(agg)).toHaveLength(0);
+  });
+
+  it("multiword-alias typo stays P4 (dropped, not recovered): 'Backdrop Scnic' is not fuzzed", () => {
+    const agg = newAggregator();
+    const gs = parseRooms(
+      v4Gs("I", ["| Setup | x |", "| Backdrop Scnic | blue |"]),
+      "v4",
+      agg,
+    ).find((r) => r.kind === "gs")!;
+    expect(gs.scenic).toBeNull(); // distance > 1 from the 12 bare labels → null
+    expect(FLA(agg)).toHaveLength(0);
+  });
+});
+
+describe("parseRooms — v4 label gate corrects unseen typos (PR-D3)", () => {
+  it("corrects unambiguous single-edit typos of every bare label back to that label", () => {
+    const opts = { minLen: 5, tieAbort: true } as const;
+    expect(V4_BARE_LABEL_VOCAB.length).toBe(12);
+    for (const member of V4_BARE_LABEL_VOCAB) {
+      for (const typo of unambiguousTypos(member, V4_BARE_LABEL_VOCAB, { minLen: 5 })) {
+        const fix = gatedVocabCorrect(typo, V4_BARE_LABEL_VOCAB, opts);
+        expect(fix?.corrected, `${typo} → ${member}`).toBe(true);
+        expect(fix?.match, `${typo} → ${member}`).toBe(member);
+      }
+    }
+  }, 30000); // generous timeout (PR-D1 CI-shard lesson; small vocab here, but be safe)
 });
