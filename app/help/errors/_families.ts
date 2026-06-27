@@ -58,6 +58,7 @@ export const FAMILIES: Family[] = [
       "DUPLICATE",
       "EXTRA",
       "SECTION",
+      "FIELD",
     ],
   },
   {
