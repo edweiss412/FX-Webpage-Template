@@ -37,11 +37,20 @@ import {
 } from "@/components/admin/wizard/Step3Review";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import type { ParseResult } from "@/lib/parser/types";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
   searchParams: { step?: string };
+  // True iff the active wizard session has reviewable scan results (the
+  // onboarding_scan_manifest has rows). Computed server-side by the /admin
+  // dispatcher via readScanManifestCount. This is the honest "a scan produced
+  // something to review" signal — NOT `pending_wizard_session_id !== null`,
+  // which is also true after Start Over / a failed scan with an empty manifest.
+  // Defaults to false so a caller (or test) that omits it never advertises a
+  // forward/resume affordance that would land on an empty Step 3.
+  hasReviewableScan?: boolean;
 };
 
 type ServiceAccountResult = { ok: true; email: string } | { ok: false };
@@ -85,7 +94,7 @@ function StartOverForm() {
   );
 }
 
-function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
+function StepIndicator({ step, maxReachedStep }: { step: 1 | 2 | 3; maxReachedStep: 1 | 2 | 3 }) {
   // Pill shape shared by all three states; focus ring shared by the two link
   // states (a plain span is not focusable, so it does not carry the ring).
   const base =
@@ -100,11 +109,16 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;
-        // Visited = step ≤ current. Every already-reached pill is a real <Link>
-        // back to that step (keyboard-accessible, focus-visible ring per DESIGN
-        // tokens). A not-yet-reached pill (n > current) stays plain,
-        // non-interactive text — no href, so it cannot be tabbed to or clicked.
-        const isVisited = n <= step;
+        // Reachable = step ≤ the furthest step the operator has actually reached.
+        // `maxReachedStep` is derived from server progress (a reserved scan
+        // session makes Step 3 reachable), NOT merely the current URL step — so
+        // hitting "Back" to Step 2 leaves Step 3's pill a real, navigable <Link>
+        // (the forward path). Pills beyond the reached frontier stay plain,
+        // non-interactive text — no href, so they cannot be tabbed to or clicked.
+        const isVisited = n <= maxReachedStep;
+        // Direction-aware label: a reachable pill ahead of the current step is
+        // "Go to" (forward), behind it is "Go back to".
+        const navLabel = n < step ? `Go back to step ${n}` : `Go to step ${n}`;
         if (isVisited) {
           return (
             <Link
@@ -112,7 +126,7 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
               href={`/admin?step=${n}`}
               data-testid={`wizard-step-indicator-${n}`}
               aria-current={isActive ? "step" : undefined}
-              aria-label={isActive ? `Step ${n}, current step` : `Go back to step ${n}`}
+              aria-label={isActive ? `Step ${n}, current step` : navLabel}
               className={[
                 base,
                 focusRing,
@@ -382,7 +396,11 @@ function OperatorErrorBlock() {
   );
 }
 
-export async function OnboardingWizard({ settings, searchParams }: OnboardingWizardProps) {
+export async function OnboardingWizard({
+  settings,
+  searchParams,
+  hasReviewableScan = false,
+}: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
 
@@ -400,6 +418,30 @@ export async function OnboardingWizard({ settings, searchParams }: OnboardingWiz
   // folder is connected yet.
   const showStartOver = settings.watched_folder_id === null;
 
+  // Back/forward fix (2026-06-26): once a scan has produced reviewable results
+  // the operator has reached Step 3, so every step is navigable even after
+  // hitting "Back" to Step 2. Reachability is derived from server progress
+  // (`hasReviewableScan` = the scan manifest has rows) rather than the current
+  // URL step — otherwise Back collapses the forward pills into dead text and
+  // strands the operator with no way to return to the review surface. We gate on
+  // reviewable rows, NOT `pending_wizard_session_id !== null`: that session id is
+  // also non-null after Start Over (rotated) and after a failed/0-sheet scan,
+  // states with an EMPTY manifest where a forward pill + a "you already scanned"
+  // resume panel would be a lie pointing at an empty Step 3.
+  const scanReached = hasReviewableScan;
+  const maxReachedStep: 1 | 2 | 3 = scanReached ? 3 : step;
+
+  // Rehydrate Step 2 after a Back: surface the folder the operator already
+  // scanned (input pre-fill + a "Continue to Step 3" link) so they need not
+  // re-scan to go forward. The canonical folder URL is rebuilt from the
+  // persisted Drive folder id and round-trips through the scan route's parser.
+  const priorScan = scanReached
+    ? {
+        folderName: settings.pending_folder_name,
+        folderUrl: driveFolderUrl(settings.pending_folder_id),
+      }
+    : undefined;
+
   // Task 6: Steps 1-2 stay narrow (max-w-2xl); Step 3 widens on desktop so its
   // review cards can lay out in a multi-column grid (the grid itself lives in
   // <Step3Review>). The chrome (stepper, Back, Start over) is left-aligned, so
@@ -412,14 +454,14 @@ export async function OnboardingWizard({ settings, searchParams }: OnboardingWiz
       className={`mx-auto flex ${containerMaxWidth} flex-col gap-section-gap`}
     >
       <div className="flex items-center justify-between gap-3">
-        <StepIndicator step={step} />
+        <StepIndicator step={step} maxReachedStep={maxReachedStep} />
         {step !== 1 ? <BackLink step={step} /> : null}
       </div>
 
       {service.ok ? (
         <>
           {step === 1 ? <Step1Share serviceAccountEmail={service.email} /> : null}
-          {step === 2 ? <Step2Verify /> : null}
+          {step === 2 ? <Step2Verify {...(priorScan ? { priorScan } : {})} /> : null}
           {step === 3 && settings.pending_wizard_session_id !== null ? (
             <Step3Container wizardSessionId={settings.pending_wizard_session_id} />
           ) : null}
