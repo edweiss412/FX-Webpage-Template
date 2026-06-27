@@ -22,6 +22,7 @@ import {
   extractStageRestriction,
   extractRoleFlags,
   hasTripleAsterisk,
+  normalizeStageWords,
 } from "../personalization";
 
 const CREW_HEADER_RE = /^\|\s*CREW\s*\|/m;
@@ -263,8 +264,26 @@ function buildCrewMember(params: {
   const displayName = dayResult.cleanedNameCell.trim();
   const cleanedRole = dayResult.cleanedRoleCell.trim();
 
-  const stageRestriction = extractStageRestriction(cleanedRole);
-  const roleFlagResult = extractRoleFlags(cleanedRole);
+  // Auto-correct misspelled stage words ONCE, upstream of both extractors, so the
+  // UNKNOWN_ROLE_TOKEN cascade AND the silent stage_restriction mis-parse are fixed.
+  const stageNorm = normalizeStageWords(cleanedRole);
+  const roleCellForParse = stageNorm.corrected;
+  if (stageNorm.corrections.length > 0) {
+    const stageNote: ParseWarning = {
+      severity: "warn",
+      code: "STAGE_WORD_AUTOCORRECTED",
+      message: `Read likely-misspelled stage word(s) ${stageNorm.corrections
+        .map((c) => `'${c.detected}' as '${c.corrected}'`)
+        .join(", ")} in role cell: '${cleanedRole}'`,
+      rawSnippet: cleanedRole,
+      blockRef: crewBlockRef,
+    };
+    warnings.push(stageNote);
+    if (agg) agg.warnings.push(stageNote);
+  }
+
+  const stageRestriction = extractStageRestriction(roleCellForParse);
+  const roleFlagResult = extractRoleFlags(roleCellForParse);
   // Stamp UNKNOWN_ROLE_TOKEN warnings with the crew-row blockRef so they can
   // deep-link to the offending role cell. extractRoleFlags stays a pure function.
   const stampedRoleWarnings = roleFlagResult.warnings.map((w) =>
