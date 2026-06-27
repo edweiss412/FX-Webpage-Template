@@ -229,4 +229,48 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     const hasLabelEl = within(card).queryAllByText(/publish/i).length > 0;
     expect(hasAriaLabel || hasLabelEl).toBe(true);
   });
+
+  // The reported bug: hitting "Select all" did not check the individual cards
+  // until you manually toggled one. Root cause: the per-card checkbox held its own
+  // useState seeded from the row status and only re-checked when router.refresh()
+  // delivered new props that re-keyed it — which raced/failed in the real app. The
+  // fix lifts the publish-intent into Step3Review as one shared optimistic overlay,
+  // so Select all flips every box immediately, with NO dependence on a refresh.
+  // `refresh` is a no-op here (props never change), reproducing the failure mode.
+  it("Select all checks EVERY per-card box immediately, without a refresh delivering new props", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2"), stagedRow("s3", "S3")];
+    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
+    expect(box("s1").checked).toBe(false);
+    expect(box("s2").checked).toBe(false);
+    expect(box("s3").checked).toBe(false);
+
+    fireEvent.click(getByTestId("wizard-step3-select-all"));
+
+    // Every card box reflects the optimistic select-all instantly — no rerender,
+    // no refresh-delivered prop change. `refresh` stays a no-op the whole time.
+    await waitFor(() => {
+      expect(box("s1").checked).toBe(true);
+      expect(box("s2").checked).toBe(true);
+      expect(box("s3").checked).toBe(true);
+    });
+    expect((getByTestId("wizard-step3-select-all") as HTMLInputElement).checked).toBe(true);
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/3 of 3/);
+  });
+
+  it("toggling one card box checks only that box immediately (lifted optimistic state, no refresh needed)", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2")];
+    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
+
+    fireEvent.click(box("s1"));
+
+    await waitFor(() => expect(box("s1").checked).toBe(true));
+    expect(box("s2").checked).toBe(false); // unaffected
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/1 of 2/);
+  });
 });
