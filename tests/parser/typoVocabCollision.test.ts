@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { TYPO_VOCABS } from "@/lib/parser/typoVocabRegistry";
 import { inScopeAliases } from "@/lib/parser/aliases";
 import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
+import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
 
 /**
@@ -68,5 +69,20 @@ describe("event field-label vocab registration (PR-D1)", () => {
     expect([...ev!.members].sort()).toEqual(expected);
     expect(expected).toContain("STAGE SIZE");
     expect(expected).not.toContain("LED"); // 3 chars — filtered out, stays exact-only
+  });
+});
+
+/**
+ * PR-D2: the v2 transport schedule-label fuzzy fallback (gatedVocabCorrect over
+ * V2_SCHEDULE_LABELS) must have a matching registry entry so the collision tripwire guards it.
+ * The entry is DERIVED from the exported vocab (not hand-listed) so it cannot drift.
+ */
+describe("transport schedule-label vocab registration (PR-D2)", () => {
+  it("registers a transportScheduleLabel fuzzable vocab matching TRANSPORT_SCHEDULE_VOCAB", () => {
+    const tr = TYPO_VOCABS.find((v) => v.id === "transportScheduleLabel");
+    expect(tr).toBeDefined();
+    expect(tr!.klass).toBe("fuzzable");
+    expect([...tr!.members].sort()).toEqual([...TRANSPORT_SCHEDULE_VOCAB].sort());
+    expect(tr!.members).toContain("RENTAL PICKUP");
   });
 });
