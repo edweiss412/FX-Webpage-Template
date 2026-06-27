@@ -2,8 +2,8 @@
 /**
  * components/agenda/AgendaEmbed.tsx — M7 Task 7.9 / AC-7.1.
  *
- * Crew-facing agenda PDF embed. Renders an "Open agenda" affordance in
- * the DiagramsTile body whenever the show has at least one
+ * Crew-facing agenda PDF embed. Renders a "View agenda" affordance in
+ * the Schedule section (§4.6 — relocated from DiagramsTile) for each
  * `agenda_links` entry carrying a Drive `fileId`. Tapping opens an
  * in-page sheet that loads the PDF inline via PDF.js (react-pdf),
  * sourced from the M7 proxy route `/api/asset/agenda/<show>/<fileId>`.

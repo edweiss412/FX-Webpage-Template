@@ -37,6 +37,8 @@
  */
 import type { JSX } from "react";
 
+import { AgendaEmbed } from "@/components/agenda/AgendaEmbed";
+import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
@@ -96,6 +98,28 @@ export function ScheduleSection({
   // projection alert is the sole producer).
   const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && isAdmin;
 
+  // §4.6/§4.8 — the agenda area is the authoritative schedule overview and
+  // sits at the TOP of the Schedule section, above the day-cards grid. One
+  // "View agenda" affordance per fileId-bearing link (AgendaEmbed, multi-doc)
+  // plus the structured per-day schedule for any link whose extraction is
+  // high-confidence (AgendaScheduleBlock renders nothing for low/malformed).
+  // Rendered ONLY when ≥1 link carries a Drive fileId (else the embed is null
+  // and the block has nothing to show — no empty area). Deliberately NOT
+  // rendered in the unknown_asterisk privacy branch above (that branch leaks
+  // ZERO dates and returns before this point).
+  const agendaLinks = data.show.agenda_links;
+  const hasAgenda = agendaLinks.some((link) => Boolean(link.fileId));
+  const agendaArea = hasAgenda ? (
+    <div data-testid="agenda-area" className="flex min-w-0 flex-col gap-3">
+      <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
+      {agendaLinks.map((link, i) =>
+        link.fileId && link.extracted ? (
+          <AgendaScheduleBlock key={i} extraction={link.extracted} />
+        ) : null,
+      )}
+    </div>
+  ) : null;
+
   // Privacy trust boundary — unknown_asterisk leaks ZERO dates. Render ONLY the
   // placeholder and STOP before building the day list (testid does NOT start
   // with "schedule-day", so the prefix-counting selector reads 0 cards).
@@ -114,6 +138,7 @@ export function ScheduleSection({
 
   return (
     <div data-testid="section-schedule" className="flex flex-col gap-4">
+      {agendaArea}
       <WrappedSection
         tileId="crew:schedule:days"
         showId={showId}
