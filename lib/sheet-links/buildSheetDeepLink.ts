@@ -19,6 +19,7 @@ export function buildSheetDeepLink(
 }
 
 export const REGION_IDS = [
+  "client",
   "crew",
   "contacts",
   "hotels",
@@ -49,6 +50,17 @@ export type RegionAnchorSpec =
   | { tabs: AllowedTabTitle[]; strategy: "alias-of"; region: RegionId };
 
 export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
+  // `client` is a WARNING-ANCHOR-ONLY region: it is the deep-link target for
+  // FIELD_LABEL_AUTOCORRECTED warnings (kind:"client") on the CLIENT block, but no crew card
+  // renders client data (§30), so it has no CARD_REGION_MAP entry (sourceLinkCoverage exempts it).
+  // header-block (not row-label-union) so the v4 "Contact*" sub-rows don't overlap the `contacts`
+  // region; BLOCK_TERMINATORS lacks "CLIENT" so the block spans to the next section header.
+  client: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^CLIENT$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
   crew: {
     tabs: ["INFO"],
     strategy: "header-block",
