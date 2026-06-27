@@ -95,7 +95,7 @@ it("a below-minLen near-miss of COI/PO is NOT fuzzed", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail** — `pnpm vitest run tests/parser/blocks/ops.test.ts -t "FIELD_LABEL_AUTOCORRECTED|anti-shadow|VALUE-guard"`. Expected: the recover + anti-shadow tests FAIL (label dropped today); the exact/value-guard/below-minLen tests PASS (current behavior already drops).
+- [ ] **Step 2: Run to verify fail** — run the WHOLE new block so ALL 5 tests execute (the `-t` filter would skip the exact/below-minLen ones and leave their red-time-PASS claim unverified): `pnpm vitest run tests/parser/blocks/ops.test.ts`. Expected at red time: the **recover** + **anti-shadow** tests FAIL (the label is dropped today); the **exact-spellings**, **VALUE-guard**, and **below-minLen** tests already PASS (current behavior drops the typo and never emits the new code) — confirm those 3 show green in this same run.
 
 - [ ] **Step 3: Implement.** In `ops.ts`: (a) `import { resolveAliasScoped } from "@/lib/parser/aliases";`; (b) rename the param `_agg`→`agg` (`ops.ts:46` — it IS passed at `index.ts:391`); (c) add the canonical→field map + a `fuzzyCandidates` accumulator BEFORE the loop:
 
@@ -153,7 +153,7 @@ The candidate carries the canonical (so the message is exact). The accumulator t
   }
 ```
 
-(f) **blockRef.kind = "financials"** — the `financials` region anchor (`buildSheetDeepLink.ts:92-96`) is a `row-label-union` on exactly `/^COI$/`,`/^PO\s*#?$/`,`/^Proposal$/`,`/^Invoice/` → lands the operator on the misspelled ops row. The FIELD_LABEL_AUTOCORRECTED dispatch resolves `region[kind]` (`showDayTimeAnchors.ts:~141-146`); `"financials"` is a valid `RegionId`. **Confirm during impl** that `extractSourceAnchors` populates `region["financials"]` (it iterates `REGION_IDS` incl. financials); if absent, the warning still renders link-less (graceful degrade — the #154 pattern) but the test below asserts the dispatch resolves it given a populated region.
+(f) **blockRef.kind = "financials"** — a **region-level** anchor (consistent with the other `*_AUTOCORRECTED` codes, which all resolve `region[kind]`, NOT an exact cell). The `financials` region anchor (`buildSheetDeepLink.ts:92-96`) is a `row-label-union` on the CORRECTLY-spelled ops labels (`/^COI$/`,`/^PO\s*#?$/`,`/^Proposal$/`,`/^Invoice/`); a typo'd row (`Invoce`) is NOT in that union, so the deep link lands the operator on the financials **region** (the correct ops rows present), NOT precisely on the misspelled row — and if no correctly-spelled ops row exists, `region["financials"]` may be absent and the warning renders link-less (graceful degrade, the #154 pattern). `"financials"` is a valid `RegionId`; the dispatch resolves `region[kind]` (`showDayTimeAnchors.ts:~141-146`). The Task-1 test asserts the WARNING fires with `blockRef.kind:"financials"` (region-level), not row-precision; a separate dispatch unit (Task 1, optional) can assert `region:{financials:<anchor>}` resolves.
 
 - [ ] **Step 4: Run to verify pass** + `pnpm vitest run tests/parser` (corpus ops parses unchanged — fixtures are correctly spelled, so no fuzzy fires). **Anti-tautology mutation:** temporarily commit the fuzzy candidate INLINE (add to `seen` on the fuzzy hit instead of deferring) and confirm the "EXACT beats FUZZY" test goes RED → revert (proves the deferred-commit guard is load-bearing).
 - [ ] **Step 5: Commit** — `feat(parser): fuzzy-recover misspelled ops financial field labels (FIELD_LABEL_AUTOCORRECTED)`
@@ -162,9 +162,32 @@ The candidate carries the canonical (so the message is exact). The accumulator t
 
 ## Task 2: Register `opsFieldAlias` in the collision tripwire
 
-**Files:** Modify `lib/parser/typoVocabRegistry.ts`.
+**Files:** Modify `lib/parser/typoVocabRegistry.ts`, `tests/parser/typoVocabCollision.test.ts`.
 
-- [ ] **Step 1:** Add the DERIVED ops fuzzable entry (mirror `VENUE_FIELD_ALIASES` at `typoVocabRegistry.ts:15`, so it can't drift):
+**TDD note:** the collision guard passes by design with or without `opsFieldAlias`, so adding the entry alone is not a red-green (HIGH finding). Step 1 adds a **registration assertion** that FAILS before the registry edit (the entry is absent + the ops fuzz is unguarded), driving Step 2.
+
+- [ ] **Step 1: Write the failing registration test** in `tests/parser/typoVocabCollision.test.ts` (it imports `TYPO_VOCABS`; also import `inScopeAliases`):
+
+```ts
+import { inScopeAliases } from "@/lib/parser/aliases";
+
+it("registers the ops field-alias fuzzable vocab (derived, so the collision guard covers ops)", () => {
+  const ops = TYPO_VOCABS.find((v) => v.id === "opsFieldAlias");
+  expect(ops, "opsFieldAlias must be registered as a fuzzable vocab").toBeDefined();
+  expect(ops!.klass).toBe("fuzzable");
+  // members must be DERIVED from inScopeAliases("ops.") ≥5 chars (no hand-list drift)
+  const expected = inScopeAliases("ops.")
+    .filter((a) => a.length >= 5)
+    .map((a) => a.toUpperCase())
+    .sort();
+  expect([...ops!.members].sort()).toEqual(expected);
+  expect(expected).toContain("INVOICE"); // sanity: ops.invoice alias is in the fuzzable set
+});
+```
+
+- [ ] **Step 2: Run to verify fail** — `pnpm vitest run tests/parser/typoVocabCollision.test.ts` → the registration test FAILS (`opsFieldAlias` undefined); the existing collision test still passes.
+
+- [ ] **Step 3: Implement.** Add the DERIVED ops fuzzable entry (mirror `VENUE_FIELD_ALIASES` at `typoVocabRegistry.ts:15`, so it can't drift):
 
 ```ts
 const OPS_FIELD_ALIASES = inScopeAliases("ops.")
@@ -174,8 +197,8 @@ const OPS_FIELD_ALIASES = inScopeAliases("ops.")
 
 then add to `TYPO_VOCABS`: `{ id: "opsFieldAlias", klass: "fuzzable", minLen: 5, members: OPS_FIELD_ALIASES },`.
 
-- [ ] **Step 2: Run + mutation proof.** `pnpm vitest run tests/parser/typoVocabCollision.test.ts` → PASS (no ops alias within Damerau-1 of any other registered vocab). Then temporarily add a colliding member (e.g. `"INVOICE"` minus an edit) to an `excluded` entry → confirm the guard FAILS → revert. If a REAL collision surfaces (an ops alias near a sub-label/role code), fix the registry — never weaken the test.
-- [ ] **Step 3: Commit** — `test(parser): register ops field-alias vocab (derived) in the collision tripwire`
+- [ ] **Step 4: Run + mutation proof.** `pnpm vitest run tests/parser/typoVocabCollision.test.ts` → both tests PASS (registration green; no ops alias within Damerau-1 of any other registered vocab). Then temporarily add a colliding member (e.g. an `INVOICE`-minus-one-edit string) to an `excluded` entry → confirm the collision guard FAILS → revert. If a REAL collision surfaces (an ops alias near a sub-label/role code), fix the registry — never weaken the test.
+- [ ] **Step 5: Commit** — `test(parser): register ops field-alias vocab (derived) in the collision tripwire`
 
 ---
 
