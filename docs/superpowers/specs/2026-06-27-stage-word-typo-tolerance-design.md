@@ -64,19 +64,22 @@ export function normalizeStageWords(roleCell: string): StageNormalization;
 ```
 
 ### 4.1 Algorithm
-1. **Tokenize a working copy** of `roleCell` the same way `extractRoleFlags` does — split on `/` and `-`, trim, uppercase (mirror `personalization.ts:234-237`), preserving each token's original substring span so corrections can be written back into `roleCell`.
-2. For each token, `closedVocabMatch(token, STAGE_VOCAB, 1)`:
-   - **exact** stage word → it's a confirmed stage token (anchor).
-   - **near-miss** (distance 1, not exact) → a *candidate* correction.
-   - no match → a non-stage token (a real role, `ONLY`, etc.) — left alone.
-3. **Confidence gate (corrected from the class-sweep — the `≥2 EXACT` gate fails 2-word ONLY cells):** apply corrections **only if** the cell has **≥ 2 stage-ish tokens (exact OR near-miss) AND ≥ 1 EXACT stage anchor.** Otherwise return unchanged (no corrections).
-4. If the gate passes, rewrite each near-miss token's span in `roleCell` to its canonical stage word; collect `{ detected, corrected }` per correction.
+1. **Split keeping separators.** Split `roleCell` on `/` and `-` with a capturing group so the separators survive for a faithful rewrite (`"Load Out / Strke ONLY"` → `["Load Out ", "/", " Strke ONLY"]`).
+2. **Per-segment comparison form.** For each content segment, derive the comparison token: trim, uppercase, then **peel a trailing restriction marker** — `\s*\bONLY\b\s*\*{0,3}\s*$` (and a bare `\*{3}`) — so a stage word followed by `ONLY`/`***` (e.g. `"STRKE ONLY"`) is compared as `"STRKE"`. This mirrors how the `…ONLY` regexes treat `ONLY` as a separate trailing marker, so the normalizer's token model **matches the grammar it feeds** (closes the HIGH-class divergence: without the peel, `"STRKE ONLY"` is distance > 1 from `STRIKE` and the gate silently fails on the 2-word ONLY cells).
+3. **Classify each segment, in precedence order:**
+   - (a) comparison token is an **exact member of `ROLE_NORMALIZATIONS`** → it is a ROLE; **never** a stage correction (role-exclusion guard — a recognized role, including any future one, is never rewritten to a stage word).
+   - (b) exact member of `STAGE_VOCAB` → **exact stage anchor**.
+   - (c) `closedVocabMatch(token, STAGE_VOCAB, 1)` near-miss **and not (a)** → **correction candidate**.
+   - (d) otherwise → non-stage token (`ONLY` alone, a genuine unknown role) — left alone.
+4. **Confidence gate (corrected from the class-sweep — `≥2 EXACT` fails the 2-word ONLY cells):** apply corrections **only if** the cell has **≥ 2 stage-ish segments (exact OR near) AND ≥ 1 EXACT stage anchor.** Otherwise return unchanged.
+5. **Rewrite:** for each correction candidate, replace the **stage-word portion of its ORIGINAL segment** (the part before the peeled `ONLY`/`***`) with the canonical stage word, preserving the segment's surrounding case/whitespace and its trailing marker; rejoin with the preserved separators. Collect `{ detected, corrected }` per correction. Because the rewrite is in-place and separator-preserving, the corrected cell still satisfies the spacing-sensitive `…ONLY` regexes (`"Load Out / Strike ONLY"` matches `LOAD_OUT_STRIKE_ONLY_PATTERN`).
 
 ### 4.2 Worked examples (the gate must satisfy ALL of these)
 | Role cell | stage-ish (exact / near) | exact anchor? | Gate | Result |
 |---|---|---|---|---|
 | `Load In/Set/Strke/Load Out - A1` (East Coast, full) | 4 (3 exact / 1 near) | yes (3) | **fires** | `Strke`→`Strike`; 0 `UNKNOWN_ROLE_TOKEN`; `A1` parses; 1 drift note |
-| `Load Out / Strke ONLY` (2-word ONLY) | 2 (1 exact `LOAD OUT` / 1 near `STRKE`) | yes (1) | **fires** | `Strke`→`Strike`; `stage_restriction = [Load Out, Strike]`; 1 drift note |
+| `Load Out / Strke ONLY` (2-word ONLY, typo right) | 2 (1 exact `LOAD OUT` / 1 near `STRKE`, after peeling `ONLY`) | yes (1) | **fires** | `Strke`→`Strike`; cell → `Load Out / Strike ONLY` → `stage_restriction = [Load Out, Strike]`; 1 drift note |
+| `Laod In / Set ONLY` (2-word ONLY, typo left) | 2 (1 exact `SET` after peel / 1 near `LAOD IN`, transposition) | yes (1) | **fires** | `Laod`→`Load`; cell → `Load In / Set ONLY` → `stage_restriction = [Load In, Set]`; 1 drift note |
 | `Lod In/Set/Strke/Lod Ot - V1` (3 typos) | 4 (1 exact `SET` / 3 near) | yes (1) | **fires** | all 3 corrected; `V1` parses; 1 drift note |
 | `Strke - A1` (lone near-miss, no other stage word) | 1 (0 exact / 1 near `STRKE`~`STRIKE`) | **no** | **does not fire** | `STRKE` stays `UNKNOWN_ROLE_TOKEN` (deep-linked) — without an exact stage anchor we are not confident it's a typo, so a possibly-intentional token wins |
 | `XYZ - A1` (genuine unknown role) | 0 | no | **does not fire** | `XYZ` stays `UNKNOWN_ROLE_TOKEN` — correct |
@@ -129,7 +132,7 @@ A new operator-actionable, crew-cell-anchored, deep-linked code:
 - **Renders for free** on Step-3, StagedReviewCard, and the per-show panel via the unchanged `PerShowActionableWarnings` (PR #154) — **no `components/` file changes** (so invariant-8 impeccable is N/A; confirmed in the plan).
 
 ### 6.1 §12.4 catalog (3-part lockstep — lands in one commit)
-New code → master spec §12.4 prose (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) + `pnpm gen:spec-codes` (regenerates `lib/messages/__generated__/spec-codes.ts`) + `lib/messages/catalog.ts`. The `x1-catalog-parity` gate (`tests/cross-cutting/codes.test.ts`) compares the three; all must move together.
+New code → master spec §12.4 prose (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) + `pnpm gen:spec-codes` (regenerates `lib/messages/__generated__/spec-codes.ts`) + `lib/messages/catalog.ts`. The `x1-catalog-parity` gate (`tests/cross-cutting/codes.test.ts` + `tests/cross-cutting/extract-spec-codes.test.ts`, run by `pnpm test:audit:x1-catalog-parity`) compares the three; all must move together.
 
 **Copy** — full operator-facing copy *styled* like `UNKNOWN_ROLE_TOKEN` (it's title-rendered, not `.message`-rendered, since it's warn+anchored), with drift *wording* modeled on `TYPO_NORMALIZED` (`venue.ts:119`, "we read X as Y"):
 - `title`: "Auto-corrected a misspelled stage word"
@@ -158,7 +161,7 @@ role cell (cleanedRole) ──► normalizeStageWords ──► { corrected, cor
 ## 8. Guard conditions / edge cases (spec-review discipline)
 - **Empty / no stage words:** `normalizeStageWords` returns the cell unchanged, no corrections, no note (gate needs ≥ 2 stage-ish + ≥ 1 exact).
 - **No typo (clean stage list):** gate may pass (≥ 2 exact) but there are zero *near-miss* corrections → `corrections` is empty → no note, cell unchanged. The happy path (`FULL_STAGE_PATTERN` exact strip) is untouched.
-- **Token that is both a near-miss AND a real role:** impossible by construction — `STAGE_VOCAB` (stage phrases) and `ROLE_NORMALIZATIONS` (short codes) are disjoint and edit-distance ≥ 2 apart.
+- **Token near a stage word that is actually a role:** a **recognized** role (`ROLE_NORMALIZATIONS` member) is never reinterpreted as a stage typo — the role-exclusion guard (§4.1 step 3a) classifies it as a role first. Today every role (`A1`/`A2`/`V1`/`L1`/`LEAD`/…) is already edit-distance ≥ 2 from every stage phrase, so the guard has no current trigger; it future-proofs a new role added near a stage word. An **unknown** token that is a near-miss in confident stage context IS corrected — but the drift note surfaces the change (deep-linked), so an intentional unknown token is recoverable by the operator via the sheet, never *silently* lost. (We do not claim the collision is impossible; we bound it: known roles are excluded, unknown near-misses are corrected-but-surfaced.)
 - **Correction changes a token that `extractRoleFlags` would have flagged:** intended — that's the cascade fix.
 - **`ONLY` present:** `ONLY` is not a stage word and not corrected; it still drives `extractStageRestriction`'s `…ONLY` patterns (now on the corrected cell) and `extractRoleFlags`'s `hasOnlyMarker`.
 - **Span rewrite correctness:** corrections rewrite the matched token's original substring in `roleCell` (case/spacing preserved around it) so the corrected cell remains a valid role cell for both extractors.
@@ -178,7 +181,9 @@ role cell (cleanedRole) ──► normalizeStageWords ──► { corrected, cor
 
 ## 10. Testing strategy (TDD per task)
 - `damerauLevenshtein`: exact-0; single insert/delete/substitute = 1; adjacent transposition = 1 (the differentiator vs plain Levenshtein); unrelated = high. `closedVocabMatch`: exact hit (`exact:true`); near-miss within `maxDistance`; no match beyond it; tie-break.
-- `normalizeStageWords`: every row of the §4.2 worked-example table (assert `corrected` + `corrections` exactly). Gate fires for full + 2-word ONLY cells; does NOT fire for isolated near-miss / genuine unknown / clean cell.
+- `normalizeStageWords`: every row of the §4.2 worked-example table (assert `corrected` + `corrections` exactly). Gate fires for full + **both** 2-word ONLY cells (typo on the right `Load Out / Strke ONLY` AND on the left `Laod In / Set ONLY` — proves the `ONLY`-peel works on either side); does NOT fire for isolated near-miss / genuine unknown / clean cell.
+- **`ONLY`/`***`-peel:** a stage word with a trailing `ONLY` or `***` (`STRKE ONLY`, `Strke***`) is matched on the peeled token (`STRKE`), and the rewrite preserves the trailing marker (`Strike ONLY`) so the `…ONLY` regex still matches downstream.
+- **Over-match guards (negative-regression):** (i) a `ROLE_NORMALIZATIONS` member passed in a cell WITH stage context is never rewritten (role-exclusion); (ii) a genuine unknown role (`RIGGER`/`XYZ`) with stage context is NOT corrected (not a near-miss) and still emits `UNKNOWN_ROLE_TOKEN`; (iii) a lone near-miss with no exact anchor (`Strke - A1`) is NOT corrected. Verify by mutating the gate (drop the exact-anchor requirement) and confirming the lone-near-miss test then fails — proving the test pins the guard.
 - `extractRoleFlags`/`parseCrew` end-to-end (mirror `tests/parser/blocks/crew.test.ts`, `tests/parser/warnings.test.ts` — `newAggregator()` → `parseCrew(md, version, agg)`): the exact East Coast string → **0** `UNKNOWN_ROLE_TOKEN` + **1** `STAGE_WORD_AUTOCORRECTED` (with `blockRef.name`) + `A1` flag; `Load Out / Strke ONLY` → correct `stage_restriction` + 1 note.
 - **Negative-regression / over-match:** a genuine unknown role (`RIGGER`/`XYZ`) STILL emits `UNKNOWN_ROLE_TOKEN` (the fix doesn't eat real unknowns); a real role near a stage word isn't corrected. Verify by mutating the gate to prove the test catches a too-greedy fix.
 - Deep-link wiring: `STAGE_WORD_AUTOCORRECTED` resolves a `sourceCell` via the crew-name anchor (extend `tests/drive/showDayTimeAnchors.test.ts` / `tests/parser/crewRoleWarningBlockRef.test.ts`); it's in `OPERATOR_ACTIONABLE_ANCHORED`.
@@ -191,6 +196,8 @@ role cell (cleanedRole) ──► normalizeStageWords ──► { corrected, cor
 - **Roles/emails stay EXACT — by design** (`ROLE_NORMALIZATIONS` A1↔A2/V1↔L1 are edit-distance 1; class-sweep `leave-exact`). Do not propose fuzzy-matching roles.
 - **The four stage patterns are fixed as a UNIT via one upstream normalization** — not `FULL_STAGE_PATTERN` alone (class-sweep: half-fix leaves `LOAD OUT STRKE ONLY` broken). The happy-path exact strip is intentionally left in place (handles clean sheets; the normalization is a no-op on them).
 - **The confidence gate is `≥ 2 stage-ish (exact OR near) AND ≥ 1 exact anchor`** — NOT `≥ 2 exact` (which fails the 2-word ONLY cells; class-sweep correction). The worked-example table (§4.2) is the contract.
+- **The segment-comparison form MUST peel a trailing `ONLY`/`***` per segment** (§4.1 step 2) — without it, `"STRKE ONLY"` is distance > 1 from `STRIKE` and the gate silently fails on BOTH 2-word ONLY cells (spec-review R1 [high]). The normalizer's token model must match the `…ONLY` regex grammar it feeds.
+- **Role-exclusion guard (§4.1 step 3a):** a `ROLE_NORMALIZATIONS` member is classified as a role first and is NEVER rewritten to a stage word. No current role triggers it (all are distance ≥ 2 from stage phrases); it future-proofs new roles. The §8 collision claim is bounded, not "impossible" (spec-review R1 [medium]).
 - **`STAGE_WORD_AUTOCORRECTED` is `warn`, not `info`** — required for the PR #154 deep link (the selector gates on `warn`); `TYPO_NORMALIZED` is `info` and intentionally not deep-linked. Modeled on `TYPO_NORMALIZED` for *wording*, on `UNKNOWN_ROLE_TOKEN` for *contract* (warn + anchored + full copy).
 - **Damerau (not the existing plain `levenshtein` in `invariants.ts`)** — transpositions are common stage typos; the existing internal helper is left untouched (MI-13/14 pairing is out of scope).
 - **The deferred follow-ups are deferred, with triggers (§9)** — especially the section-header family. This PR's blast radius is the stage vocabulary only.
