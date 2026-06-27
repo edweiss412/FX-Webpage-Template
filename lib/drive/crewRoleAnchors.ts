@@ -37,11 +37,13 @@ const TERMINATORS = new Set([
  *  lowercase. Applied IDENTICALLY to the grid name and the warning's
  *  blockRef.name so the two sides compare for equality. */
 export function normalizeCrewNameKey(s: string): string {
-  return clean(s)
+  // The crew NAME match key for deep-link anchoring is a person's name from the
+  // CREW grid — NOT an email; it never enters the auth/email boundary (AGENTS.md
+  // invariant 3 N/A), so the trim/lowercase below are canonicalize-exempt.
+  const collapsed = clean(s)
     .replace(/\([^)]*\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .replace(/\s+/g, " ");
+  return collapsed.trim().toLowerCase(); // canonicalize-exempt: crew name key, not an email
 }
 
 function firstNonBlankText(grid: AbsGrid, row: number): string {
