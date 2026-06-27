@@ -10,6 +10,7 @@
  */
 
 import { detectVersion } from "./schema";
+import { isAgendaLinkRow } from "./agendaLinkRow";
 import { newAggregator, emitUnknownSection } from "./warnings";
 import { isKnownSectionHeader, isKnownSubLabel, countFieldHeaderWords } from "./knownSections";
 import { parseClient } from "./blocks/client";
@@ -240,9 +241,9 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
     // `\s*\|`, so "AGENDA DAY"/"AGENDA TAB"-style cells do NOT match.
     const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?|AGENDA)\s*\|\s*([^|]+?)\s*\|/i);
     if (!m) continue;
-    const label = m[1]?.trim();
-    const value = m[2]?.trim();
-    if (!label || !value) continue;
+    const label = m[1]?.trim() ?? "";
+    const value = m[2]?.trim() ?? "";
+    if (!isAgendaLinkRow(label, value)) continue;
     const driveFileMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (driveFileMatch?.[1]) {
       links.push({ label, fileId: driveFileMatch[1] });
