@@ -23,6 +23,35 @@ import type {
  *  per AGENTS.md "anti-tautology rule for tests"). */
 export const MOCK_MARKER = "mock-drive-client-v1";
 
+// ── Agenda Drive method fixtures (spec §4.5.3) ────────────────────────────────
+// Sentinel IDs that steer the mock's two agenda methods down their non-default
+// (infra_error / unavailable) branches so enrichAgenda's unit tests and the dev
+// preview path can exercise every union member deterministically.
+export const MOCK_AGENDA_SPREADSHEET_INFRA = "mock-agenda-sheet-infra";
+export const MOCK_AGENDA_FILE_UNAVAILABLE = "mock-agenda-file-unavailable";
+export const MOCK_AGENDA_FILE_INFRA = "mock-agenda-file-infra";
+
+type AgendaChipsResult = Awaited<ReturnType<NonNullable<DriveClient["getAgendaChips"]>>>;
+type DownloadFileBytesResult = Awaited<ReturnType<NonNullable<DriveClient["downloadFileBytes"]>>>;
+
+/** Per-spreadsheet chip-recovery fixtures; any unlisted id gets the default. */
+const AGENDA_CHIP_FIXTURES: Record<string, AgendaChipsResult> = {
+  [MOCK_AGENDA_SPREADSHEET_INFRA]: { kind: "infra_error" },
+};
+const DEFAULT_AGENDA_CHIPS: AgendaChipsResult = {
+  kind: "rows",
+  rows: [{ label: "AGENDA LINK - RFI", chipFileId: "mock-agenda-rfi-file" }],
+};
+
+/** Per-fileId byte-download fixtures; any unlisted id gets the default bytes. */
+const DOWNLOAD_FIXTURES: Record<string, DownloadFileBytesResult> = {
+  [MOCK_AGENDA_FILE_UNAVAILABLE]: { kind: "unavailable" },
+  [MOCK_AGENDA_FILE_INFRA]: { kind: "infra_error" },
+};
+/** A tiny deterministic "%PDF" stub — extractAgendaSchedule degrades it to a
+ *  low-confidence empty extraction, which is the honest dev-preview outcome. */
+const DEFAULT_AGENDA_PDF_BYTES = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
+
 /**
  * Generate deterministic metadata for any Drive file ID. Used as a fallback
  * when a fixture references a Drive ID that the mock doesn't have a hand-coded
@@ -67,5 +96,11 @@ export const mockDriveClient: DriveClient = {
     // M7 implements real Sheets-API byte capture; M3 returns null which
     // forces restage-only recovery per the EmbeddedImageStub contract.
     return null;
+  },
+  async getAgendaChips(spreadsheetId: string): Promise<AgendaChipsResult> {
+    return AGENDA_CHIP_FIXTURES[spreadsheetId] ?? DEFAULT_AGENDA_CHIPS;
+  },
+  async downloadFileBytes(fileId: string): Promise<DownloadFileBytesResult> {
+    return DOWNLOAD_FIXTURES[fileId] ?? { kind: "bytes", bytes: DEFAULT_AGENDA_PDF_BYTES };
   },
 };
