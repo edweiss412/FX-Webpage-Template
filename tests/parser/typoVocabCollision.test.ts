@@ -4,6 +4,7 @@ import { inScopeAliases } from "@/lib/parser/aliases";
 import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
 import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
 import { V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
+import { CLIENT_V4_LABELS, CLIENT_V2_LABELS } from "@/lib/parser/blocks/client";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
 
 /**
@@ -100,5 +101,32 @@ describe("room v4-label vocab registration (PR-D3)", () => {
     expect([...rm!.members].sort()).toEqual([...V4_BARE_LABEL_VOCAB].sort());
     expect(rm!.members).toContain("DIGITAL SIGNAGE");
     expect(rm!.members.every((m) => m.length >= 5)).toBe(true);
+  });
+});
+
+/**
+ * PR-D4: the client fuzzy fallback (gatedVocabCorrect over CLIENT_V4_LABELS / CLIENT_V2_LABELS)
+ * must have matching registry entries so the collision tripwire guards them. DERIVED from the
+ * exported vocabs (single source — gate + registry can't drift).
+ */
+describe("client field-label vocab registration (PR-D4)", () => {
+  it("registers a clientV4Label fuzzable vocab matching CLIENT_V4_LABELS", () => {
+    const v = TYPO_VOCABS.find((e) => e.id === "clientV4Label");
+    expect(v).toBeDefined();
+    expect(v!.klass).toBe("fuzzable");
+    expect([...v!.members].sort()).toEqual(
+      [...CLIENT_V4_LABELS].map((s) => s.toUpperCase()).sort(),
+    );
+    expect(v!.members.every((m) => m.length >= 5)).toBe(true);
+  });
+
+  it("registers a clientV2Label fuzzable vocab matching CLIENT_V2_LABELS", () => {
+    const v = TYPO_VOCABS.find((e) => e.id === "clientV2Label");
+    expect(v).toBeDefined();
+    expect(v!.klass).toBe("fuzzable");
+    expect([...v!.members].sort()).toEqual(
+      [...CLIENT_V2_LABELS].map((s) => s.toUpperCase()).sort(),
+    );
+    expect(v!.members.every((m) => m.length >= 5)).toBe(true);
   });
 });
