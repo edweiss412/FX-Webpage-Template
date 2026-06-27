@@ -41,14 +41,14 @@ const AGENDA_FILE_ID = "1AgendaFileId_abc-123";
 afterEach(() => cleanup());
 
 describe("AgendaEmbed", () => {
-  test("renders 'Open agenda' affordance when at least one agenda_links entry carries fileId", () => {
+  test("renders 'View agenda' affordance when at least one agenda_links entry carries fileId", () => {
     render(
       <AgendaEmbed
         showId={SHOW_ID}
         agendaLinks={[{ label: "Run-of-show", fileId: AGENDA_FILE_ID }]}
       />,
     );
-    const btn = screen.getByRole("button", { name: /open agenda/i });
+    const btn = screen.getByRole("button", { name: /view agenda/i });
     expect(btn).toBeTruthy();
   });
 
@@ -67,7 +67,7 @@ describe("AgendaEmbed", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  test("clicking 'Open agenda' opens the sheet (data-testid present)", () => {
+  test("clicking 'View agenda' opens the sheet (data-testid present)", () => {
     render(
       <AgendaEmbed
         showId={SHOW_ID}
@@ -75,7 +75,7 @@ describe("AgendaEmbed", () => {
       />,
     );
     expect(screen.queryByTestId("agenda-sheet")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /open agenda/i }));
+    fireEvent.click(screen.getByRole("button", { name: /view agenda/i }));
     expect(screen.getByTestId("agenda-sheet")).toBeTruthy();
   });
 
@@ -96,7 +96,7 @@ describe("AgendaEmbed", () => {
         agendaLinks={[{ label: "Run-of-show", fileId: AGENDA_FILE_ID }]}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /open agenda/i }));
+    fireEvent.click(screen.getByRole("button", { name: /view agenda/i }));
     // We assert the proxy URL is composed in the markup somewhere
     // inside the sheet — react-pdf's <Document file={...}> doesn't
     // render the URL into innerHTML directly, so we check the rendered
@@ -105,5 +105,70 @@ describe("AgendaEmbed", () => {
     expect(sheet.getAttribute("data-pdf-src")).toBe(
       `/api/asset/agenda/${SHOW_ID}/${AGENDA_FILE_ID}`,
     );
+  });
+});
+
+describe("AgendaEmbed multi-doc (Task 13)", () => {
+  test("renders one 'View agenda' affordance per agenda_links entry with a fileId", () => {
+    render(
+      <AgendaEmbed
+        showId={SHOW_ID}
+        agendaLinks={[
+          { label: "AGENDA LINK - RFI", fileId: "fileRFI" },
+          { label: "AGENDA LINK - PCF", fileId: "filePCF" },
+        ]}
+      />,
+    );
+    const btns = screen.getAllByRole("button", { name: /view agenda/i });
+    expect(btns.length).toBe(2);
+    // Label badge via agendaDisplayLabel: "· RFI" / "· PCF".
+    expect(btns[0]!.textContent).toContain("RFI");
+    expect(btns[1]!.textContent).toContain("PCF");
+  });
+
+  test("a bare AGENDA label (no suffix) → 'View agenda' with no badge", () => {
+    render(<AgendaEmbed showId={SHOW_ID} agendaLinks={[{ label: "AGENDA", fileId: "f1" }]} />);
+    const btn = screen.getByRole("button", { name: /view agenda/i });
+    // No "·" badge separator for an unlabeled agenda (agendaDisplayLabel → null).
+    expect(btn.textContent).not.toContain("·");
+  });
+
+  test("url-only entries are skipped; only fileId entries get an affordance", () => {
+    render(
+      <AgendaEmbed
+        showId={SHOW_ID}
+        agendaLinks={[
+          { label: "AGENDA LINK - RFI", fileId: "fileRFI" },
+          { label: "AGENDA LINK - X", url: "https://example.com/x" },
+        ]}
+      />,
+    );
+    expect(screen.getAllByRole("button", { name: /view agenda/i }).length).toBe(1);
+  });
+
+  test("each affordance opens ITS OWN sheet (correct per-doc proxy src)", () => {
+    render(
+      <AgendaEmbed
+        showId={SHOW_ID}
+        agendaLinks={[
+          { label: "AGENDA LINK - RFI", fileId: "fileRFI" },
+          { label: "AGENDA LINK - PCF", fileId: "filePCF" },
+        ]}
+      />,
+    );
+    const btns = screen.getAllByRole("button", { name: /view agenda/i });
+    fireEvent.click(btns[1]!); // open the PCF doc
+    const sheet = screen.getByTestId("agenda-sheet");
+    expect(sheet.getAttribute("data-pdf-src")).toBe(`/api/asset/agenda/${SHOW_ID}/filePCF`);
+  });
+
+  test("0 fileId links → renders null", () => {
+    const { container } = render(
+      <AgendaEmbed
+        showId={SHOW_ID}
+        agendaLinks={[{ label: "AGENDA LINK - X", url: "https://x" }]}
+      />,
+    );
+    expect(container.firstChild).toBeNull();
   });
 });
