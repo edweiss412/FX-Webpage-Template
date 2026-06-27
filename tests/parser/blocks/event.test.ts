@@ -373,6 +373,9 @@ describe("parseEventDetails — fuzzy field-label recovery (PR-D1)", () => {
 // punctuated members (BACKDROP / SCENIC, FONTS (II ONLY), DRESS_CODE) are covered by the
 // explicit round-trip unit test above.
 describe("parseEventDetails — gate corrects unseen typos (PR-D1)", () => {
+  // Generous explicit timeout: this is a comprehensive sweep over the FULL event vocab (the
+  // largest fuzzable vocab in the milestone — ~31 members incl. long multi-word labels), so it
+  // is heavier than the small PR-A/B vocab sweeps and exceeds the default 5s under CI shard load.
   it("corrects unambiguous single-edit typos of every clean member back to that member", () => {
     const opts = { minLen: 5, tieAbort: true } as const;
     const clean = EVENT_LABEL_VOCAB.filter((m) => /^[A-Z ]+$/.test(m));
@@ -384,5 +387,5 @@ describe("parseEventDetails — gate corrects unseen typos (PR-D1)", () => {
         expect(fix?.match, `${typo} → ${member}`).toBe(member);
       }
     }
-  });
+  }, 30000);
 });
