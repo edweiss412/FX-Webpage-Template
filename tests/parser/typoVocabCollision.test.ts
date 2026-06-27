@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { TYPO_VOCABS } from "@/lib/parser/typoVocabRegistry";
+import { inScopeAliases } from "@/lib/parser/aliases";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
 
 /**
@@ -27,5 +28,24 @@ describe("typo vocab collision tripwire (spec §3)", () => {
       }
     }
     expect(collisions).toEqual([]);
+  });
+});
+
+/**
+ * PR-C: the ops field-alias fuzzy fallback (resolveAliasScoped("…","ops.")) must have a
+ * matching registry entry so the collision tripwire above guards it. The entry is DERIVED
+ * from inScopeAliases("ops.") (not hand-listed) so it cannot drift as FIELD_ALIASES changes.
+ */
+describe("ops field-alias vocab registration (PR-C)", () => {
+  it("registers an opsFieldAlias fuzzable vocab derived from inScopeAliases('ops.')", () => {
+    const ops = TYPO_VOCABS.find((v) => v.id === "opsFieldAlias");
+    expect(ops).toBeDefined();
+    expect(ops!.klass).toBe("fuzzable");
+    const expected = inScopeAliases("ops.")
+      .filter((a) => a.length >= 5)
+      .map((a) => a.toUpperCase())
+      .sort();
+    expect([...ops!.members].sort()).toEqual(expected);
+    expect(expected).toContain("INVOICE");
   });
 });
