@@ -52,7 +52,11 @@ import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import type { ParseWarning } from "@/lib/parser/types";
-import { isDataQualityWarning, operatorActionableWarnings } from "@/lib/parser/dataGaps";
+import {
+  isDataQualityWarning,
+  operatorActionableWarnings,
+  OPERATOR_ACTIONABLE_ANCHORED,
+} from "@/lib/parser/dataGaps";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 
 export const dynamic = "force-dynamic";
@@ -278,8 +282,14 @@ export default async function AdminShowPage({
       // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
       // can BE the raw code (asset reelWarning() → message: code), which would print a
       // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
+      // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
+      // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED) from the flat .message
+      // digest — they render once, below, as a titled card WITH a source-sheet
+      // deep link (strictly better). The digest keeps the non-actionable data gaps
+      // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
+      // impeccable critique flagged.
       const messages = warnings
-        .filter(isDataQualityWarning)
+        .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
         .map((w) => w.message)
         .filter((m): m is string => typeof m === "string" && m.length > 0);
       // Carry the full warnings through so the panel can render the operator-
