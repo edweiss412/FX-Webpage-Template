@@ -113,7 +113,12 @@ describe("enrichAgenda — Codex whole-diff regressions", () => {
   test("a client WITHOUT getAgendaChips still enriches url-parsed fileId links (R1 #3)", async () => {
     // Url-form link already has a parser-supplied fileId (no chip recovery needed).
     const result = makeResult([{ label: "AGENDA LINK", fileId: "F1" }]);
-    const client = makeClient({ getAgendaChips: undefined });
+    // A client that can download but OMITS getAgendaChips (optional method absent).
+    const client: DriveClient = {
+      getFile: async (id) => meta(id),
+      listFolder: async () => ({ folderId: "f", files: [] }),
+      downloadFileBytes: async () => ({ kind: "bytes", bytes: new Uint8Array([0x25, 0x50]) }),
+    };
     await enrichAgenda(result, client, "s");
     expect(result.show.agenda_links[0]!.extracted).toBeDefined();
     expect(result.show.agenda_links[0]!.extracted!.confidence).toBe("high");
