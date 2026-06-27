@@ -330,7 +330,11 @@ SECTION_HEADER_AUTOCORRECTED: "A section header on this sheet looked misspelled 
 
 - [ ] **Step 5: Map the 3 new prefixes in `app/help/errors/_families.ts`** — add `"ROLE"` and `"COLUMN"` to the `crew-schedule` family `prefixes`, and `"SECTION"` to the `syncing-sheets` family `prefixes`.
 
-- [ ] **Step 6: Regen + bump the pin tests + run x1/x2/help**
+- [ ] **Step 5b: Wire the 3 codes into the `attachSourceCellAnchors` dispatch** (`lib/drive/showDayTimeAnchors.ts`) so they resolve a deep-link anchor (otherwise they're in the anchored set but render link-less). Paths verified against the live dispatch (crew-name branch at `:122-129`, region branches after):
+  - `ROLE_TOKEN_AUTOCORRECTED` → add to the crew-name branch (`resolveCrewRoleCell(sources.crewRole, w.blockRef?.name)`, alongside `UNKNOWN_ROLE_TOKEN`/`STAGE_WORD_AUTOCORRECTED`) — it carries `blockRef:{kind:"crew", name}`.
+  - `COLUMN_HEADER_AUTOCORRECTED` (`blockRef:{kind:"crew"}`) and `SECTION_HEADER_AUTOCORRECTED` (`blockRef:{kind:<RegionId>}`) → add to the `FIELD_UNREADABLE || UNKNOWN_FIELD` region branch condition (it resolves `sources.region[blockRef.kind]`; `"crew"`, `"transportation"`, `"details"` are all valid `RegionId`s). Add a dispatch test in `tests/drive/showDayTimeAnchors.test.ts` for each (mirroring the existing UNKNOWN_FIELD/STAGE_WORD tests).
+
+- [ ] **Step 6: Regen + bump the pin tests + run x1/x2/help** (the x1/x2 tests live at `tests/cross-cutting/codes.test.ts` + `tests/cross-cutting/{extract-spec-codes,no-raw-codes}.test.ts` — confirmed present; the AGENTS.md `tests/messages/codes.test.ts` citation is stale)
 
 ```bash
 pnpm gen:spec-codes && pnpm gen:internal-code-enums
@@ -458,7 +462,7 @@ Add `const SHORT_ROLE_CODES = Object.keys(ROLE_NORMALIZATIONS).filter((k) => !k.
 
 - [ ] **Step 2: Run to verify fail** (the typo cases fail; the corpus zero-change passes trivially until the impl exists, so assert it AFTER the impl too).
 
-- [ ] **Step 3: Implement** `normalizeSectionHeaders` in `lib/parser/sectionHeaderNormalize.ts` with the 3 gates above; on a passing match, rewrite the col0 segment and push `{ severity:"warn", code:"SECTION_HEADER_AUTOCORRECTED", message:\`Read likely-misspelled section header '${raw}' as '${canonical}'\`, rawSnippet: raw, blockRef: { kind:"<section>", index:0 } }`. Wire into `parseSheet` (`index.ts:~366`, immediately after `const agg = newAggregator();` and BEFORE `parseClient`): `const secNorm = normalizeSectionHeaders(markdown); markdown = secNorm.corrected; agg.warnings.push(...secNorm.warnings);`.
+- [ ] **Step 3: Implement** `normalizeSectionHeaders` in `lib/parser/sectionHeaderNormalize.ts` with the 3 gates above. Map the corrected canonical to its `RegionId` for the anchor via `const CANON_TO_REGION: Record<string, RegionId> = { TRANSPORTATION: "transportation", "EVENT DETAILS": "details", "GS DETAILS": "details" };` (all three are valid `RegionId`s in `buildSheetDeepLink.ts`). On a passing match, rewrite the col0 segment and push `{ severity:"warn", code:"SECTION_HEADER_AUTOCORRECTED", message:\`Read likely-misspelled section header '${raw}' as '${canonical}'\`, rawSnippet: raw, blockRef: { kind: CANON_TO_REGION[canonical], index:0 } }`. Wire into `parseSheet` (`index.ts:~366`, immediately after `const agg = newAggregator();` and BEFORE `parseClient`): `const secNorm = normalizeSectionHeaders(markdown); markdown = secNorm.corrected; agg.warnings.push(...secNorm.warnings);`. **Residual-risk note (state in the test):** the header-shape gate is a strong current-corpus guard, not a universal proof — a future value row whose col0 is one edit from a long section AND another cell equals a field-header word would still pass; the CORPUS ZERO-CHANGE assertion is the standing backstop and would catch any such fixture today.
 
 - [ ] **Step 4: Run to verify pass** + **full `pnpm vitest run tests/parser`** (the corpus-parse regressions must stay green — i.e. every fixture still parses identically, proving the pre-pass changed nothing on real data).
 - [ ] **Step 5: Commit** — `feat(parser): fuzzy-correct long section headers via a gated pre-pass (SECTION_HEADER_AUTOCORRECTED)`
