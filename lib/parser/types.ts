@@ -1,4 +1,5 @@
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import type { AgendaExtraction } from "@/lib/agenda/types";
 
 export type ParseWarning = {
   severity: "info" | "warn";
@@ -119,7 +120,7 @@ export type ShowRow = {
   // represent compound days like Show+Strike on the final show day.
   schedule_phases: Record<string, WorkPhase[]>; // keyed by ISO date; e.g., { '2026-04-15': ['Show','Strike'] }
   event_details: Record<string, string>;
-  agenda_links: { label: string; fileId?: string; url?: string }[];
+  agenda_links: { label: string; fileId?: string; url?: string; extracted?: AgendaExtraction }[];
   coi_status: string | null;
   po: string | null;
   proposal: string | null;
