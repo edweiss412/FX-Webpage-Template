@@ -290,7 +290,7 @@ Required-ness is enforced at runtime: the **Task 11 meta-test** asserts every co
 - [ ] **Step 2:** run → FAIL.
 - [ ] **Step 3: Implement** `lib/drive/agendaDrive.ts`:
   - `getAgendaChips`: `sheets.spreadsheets.get({ spreadsheetId, ranges: ['INFO'], includeGridData: true, fields: 'sheets(data(rowData(values(formattedValue,chipRuns(chip(richLinkProperties(uri)))))))' })`; for each row pair the label cell (col with `AGENDA LINK`) and the value cell; keep rows where `isAgendaLinkRow(label, value)`; `chipFileId` = `/\/d\/([\w-]+)/` from the value cell's chip uri (or null). Catch → `{kind:'infra_error'}`.
-  - `downloadFileBytes`: `getFile` mime/trashed check → `unavailable` if non-PDF/trashed; else `files.get({fileId, alt:'media', supportsAllDrives:true}, {responseType:'arraybuffer'})` → `{kind:'bytes', bytes:new Uint8Array(data)}`; map 404/403→`unavailable`, 5xx/network→`infra_error`.
+  - `downloadFileBytes`: **bytes-only — NO `getFile`/mime/trashed check here** (the mime/revision gate is owned by `enrichAgenda` via `getFile`, Task 10; do not duplicate it, Codex plan-R3 HIGH). Just `files.get({fileId, alt:'media', supportsAllDrives:true}, {responseType:'arraybuffer'})` → `{kind:'bytes', bytes:new Uint8Array(data)}`; map a 404/403 during the byte fetch → `{kind:'unavailable'}`, 5xx/network → `{kind:'infra_error'}`.
 - [ ] **Step 4:** run → PASS; `pnpm tsc --noEmit` real-client errors cleared.
 - [ ] **Step 5: Commit** `feat(drive): real downloadFileBytes + getAgendaChips (chipRuns)`
 
