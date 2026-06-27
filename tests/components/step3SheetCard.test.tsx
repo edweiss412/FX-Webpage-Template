@@ -658,7 +658,7 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
   // its sections out as a responsive multi-column flow so the full-width expanded
   // card uses the horizontal space, not a single narrow column. jsdom can't
   // compute columns, so this pins the class contract; the browser assertion in
-  // tests/e2e/step3-card-dimensions.spec.ts proves >1 column at desktop width.
+  // tests/e2e/step3-grid-layout.spec.ts proves >1 column at desktop width.
   test("breakdown uses a balanced multi-column flow (not a single column) on wider cards", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);

@@ -13,10 +13,14 @@
  *   - "Chicago, IL 60601"                         → "Chicago"  (CITY, state/zip)
  *   - "123 Main St, Chicago"                      → "Chicago"  (street, CITY)
  *   - "140 E Walton Pl, IL 60611"                 → null       (no city segment)
+ *   - "Navy Pier, Chicago"                        → null       (ambiguous Name/City vs City/suffix)
+ *   - "Hyatt Regency, 151 E Wacker Dr"            → null       (Name, Street — no city)
  *   - "The Drake" / "123 Main St"                 → null       (no comma → no city signal)
  *
- * The common US formats (with a trailing "ST ZIP" or a street-number lead) resolve
- * correctly; genuinely ambiguous inputs degrade to null rather than guess wrong.
+ * A city is emitted ONLY when a trailing "ST ZIP" anchors it or a numbered-street
+ * lead disambiguates it. Two-segment inputs with neither are genuinely ambiguous
+ * (Name/City vs City/suffix indistinguishable), so they degrade to null rather than
+ * guess wrong — never surface a venue name or neighborhood as the city.
  */
 
 /** "IL", "IL 60601", "IL 60601-1234", "60601", "60601-1234". */
@@ -42,8 +46,13 @@ export function cityFromAddress(address: string | null | undefined): string | nu
     // "STREET, CITY" — a street-number lead means the next segment is the city.
     candidate = parts[1] ?? "";
   } else {
-    // "CITY, …" — no trailing state/zip and no street lead.
-    candidate = parts[0] ?? "";
+    // Two+ segments with NO trailing state/zip and NO numbered-street lead is
+    // genuinely ambiguous: "City, Suffix", "VenueName, City", and "VenueName,
+    // Street" are indistinguishable, so guessing parts[0] would surface a venue
+    // name or a neighborhood as the city. Per this module's contract, degrade to
+    // null rather than guess wrong — a city is emitted only when a trailing
+    // state/zip anchors it or a numbered street lead disambiguates it.
+    return null;
   }
 
   candidate = candidate.trim();

@@ -319,6 +319,7 @@ function RowItem({
   checked,
   onToggleChecked,
   checkboxPending,
+  quiet = false,
 }: {
   row: Step3Row;
   wizardSessionId: string;
@@ -329,6 +330,12 @@ function RowItem({
   checked?: boolean;
   onToggleChecked?: (next: boolean) => void;
   checkboxPending?: boolean;
+  // Quiet, de-emphasized rendering for the set-aside sections (ignored / deferred /
+  // skipped): the section heading already names the status, so the per-row status
+  // badge is dropped and the card recedes (sunken surface, lighter title). Keeps the
+  // resolved, no-action rows from competing with the actionable publish cards and
+  // from wearing the solid-accent badge (DESIGN.md ≤10% accent coverage).
+  quiet?: boolean;
 }) {
   const badge = badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
@@ -382,22 +389,35 @@ function RowItem({
     <article
       data-testid={`wizard-step3-row-${row.driveFileId}`}
       data-status={row.status}
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      className={`flex flex-col gap-3 rounded-md border border-border p-tile-pad ${
+        quiet ? "bg-surface-sunken" : "bg-surface"
+      }`}
     >
       <header className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
         <div className="flex flex-col gap-1">
-          <p className="text-base font-semibold text-text-strong">
+          <p
+            className={
+              quiet
+                ? "text-sm font-medium text-text-subtle"
+                : "text-base font-semibold text-text-strong"
+            }
+          >
             {row.driveFileName ?? row.driveFileId}
           </p>
           {row.stagedShowTitle ? (
             <p className="text-sm text-text-subtle">{row.stagedShowTitle}</p>
           ) : null}
         </div>
-        <span
-          className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
-        >
-          {badge.label}
-        </span>
+        {/* The set-aside section heading already names the status, so the per-row
+            badge is redundant there (and the solid-accent "ok" badge would overweight
+            a resolved row). Render it only outside quiet mode (e.g. Needs attention). */}
+        {quiet ? null : (
+          <span
+            className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
+          >
+            {badge.label}
+          </span>
+        )}
       </header>
 
       {row.status === "hard_failed" && row.pendingIngestionId ? (
@@ -557,7 +577,7 @@ function SetAsideSection({
       <ul className="flex flex-col gap-2">
         {rows.map((row) => (
           <li key={row.driveFileId}>
-            <RowItem row={row} wizardSessionId={wizardSessionId} />
+            <RowItem row={row} wizardSessionId={wizardSessionId} quiet />
           </li>
         ))}
       </ul>
@@ -668,7 +688,12 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   }
 
   async function toggleOne(driveFileId: string, next: boolean): Promise<void> {
-    if (pendingDfids.has(driveFileId)) return; // §4.6 guard
+    // §4.6 guard: ignore re-entry while THIS row is in flight, AND while a
+    // Select-all batch is running — otherwise an individual click races the batch's
+    // POST for the same row (the per-show advisory lock serializes them in
+    // indeterminate order), which can leave the row's optimistic overlay
+    // permanently out of sync with the server (a published show shown as unchecked).
+    if (pendingDfids.has(driveFileId) || selectAllPending) return;
     setOverlay((o) => ({ ...o, [driveFileId]: next })); // optimistic
     setPending(driveFileId, true);
     const ok = await postApproval(driveFileId, next);
@@ -849,7 +874,7 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
                     }
                     checked={isChecked(row)}
                     onToggleChecked={(next) => void toggleOne(row.driveFileId, next)}
-                    checkboxPending={pendingDfids.has(row.driveFileId)}
+                    checkboxPending={pendingDfids.has(row.driveFileId) || selectAllPending}
                   />
                 </li>
               ))}
@@ -875,10 +900,12 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
                 rows={deferredRows}
                 wizardSessionId={wizardSessionId}
               />
+              {/* No section description here: each skipped row's own card already
+                  carries the "we skipped this because it is not a Google Sheet"
+                  sentence, so a section description would state the same fact twice. */}
               <SetAsideSection
                 testId="wizard-step3-skipped"
                 heading="Skipped"
-                description="Not a Google Sheet, so there is nothing to publish. No action needed."
                 rows={skippedRows}
                 wizardSessionId={wizardSessionId}
               />

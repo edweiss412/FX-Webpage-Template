@@ -273,4 +273,113 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     expect(box("s2").checked).toBe(false); // unaffected
     expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/1 of 2/);
   });
+
+  it("Select all CLEAR unchecks every box optimistically (no refresh needed) and shows 0 of N", async () => {
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [appliedRow("a1", "A1"), appliedRow("a2", "A2")];
+    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
+    expect(box("a1").checked).toBe(true);
+    expect(box("a2").checked).toBe(true);
+
+    fireEvent.click(getByTestId("wizard-step3-select-all"));
+
+    // Mirror of the check-all optimism: every box flips UNchecked instantly with
+    // refresh stubbed to a no-op (the clear path runs the same shared overlay flip).
+    await waitFor(() => {
+      expect(box("a1").checked).toBe(false);
+      expect(box("a2").checked).toBe(false);
+    });
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/0 of 2/);
+  });
+
+  it("a failed approve reverts the optimistic check (toggleOne revert path)", async () => {
+    const fetchMock = vi.fn(async (_url: string) => new Response("nope", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [stagedRow("s1", "S1")];
+    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const box = () => getByTestId("wizard-step3-checkbox-s1") as HTMLInputElement;
+
+    fireEvent.click(box());
+
+    // Optimistically checks, then reverts to unchecked when the POST returns !ok.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(box().checked).toBe(false));
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/0 of 1/);
+  });
+
+  it("Select all reverts ONLY the row whose approve failed (partial-failure revert)", async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      String(url).includes("/s2/")
+        ? new Response("nope", { status: 500 })
+        : new Response(JSON.stringify({ status: "approved" }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2"), stagedRow("s3", "S3")];
+    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
+
+    fireEvent.click(getByTestId("wizard-step3-select-all"));
+
+    await waitFor(() => {
+      expect(box("s1").checked).toBe(true);
+      expect(box("s3").checked).toBe(true);
+      expect(box("s2").checked).toBe(false); // its approve failed → only it reverts
+    });
+    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/2 of 3/);
+  });
+
+  it("during a Select-all batch the per-card boxes are disabled, so an individual click can't race the batch", async () => {
+    // Keep the batch in flight (fetch never resolves) so selectAllPending stays true.
+    let resolveAll: (r: Response) => void = () => {};
+    const pendingResp = new Promise<Response>((res) => {
+      resolveAll = res;
+    });
+    const fetchMock = vi.fn(() => pendingResp);
+    vi.stubGlobal("fetch", fetchMock);
+    const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2")];
+    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
+
+    fireEvent.click(getByTestId("wizard-step3-select-all"));
+
+    // While the batch is in flight every per-card box is disabled...
+    await waitFor(() => expect(box("s1").disabled).toBe(true));
+    expect(box("s2").disabled).toBe(true);
+    const callsDuringBatch = fetchMock.mock.calls.length; // the 2 approve POSTs (still pending)
+
+    // ...so an individual click during the batch fires NO competing POST (the exact
+    // race that could otherwise leave a published show stuck displayed as unchecked).
+    fireEvent.click(box("s1"));
+    expect(fetchMock.mock.calls.length).toBe(callsDuringBatch);
+
+    resolveAll(new Response(JSON.stringify({ status: "approved" }), { status: 200 }));
+  });
+
+  it("reconciles the optimistic overlay against refreshed props (a stale overlay can't mask a later server change)", async () => {
+    // This pins the subtlest part of the fix: the render-time reconcile that DROPS
+    // overlay entries once the server status matches. If reconcile regressed to a
+    // no-op, the optimistic value would stick forever and the final assertion fails.
+    const fetchMock = okFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    const { getByTestId, rerender } = render(
+      <Step3Review wizardSessionId={WSID} rows={[stagedRow("s1", "S1")]} />,
+    );
+    const box = () => getByTestId("wizard-step3-checkbox-s1") as HTMLInputElement;
+
+    // Toggle on → optimistic overlay s1=true.
+    fireEvent.click(box());
+    await waitFor(() => expect(box().checked).toBe(true));
+
+    // Refresh delivers s1 now 'applied' (server caught up; overlay matches → dropped).
+    rerender(<Step3Review wizardSessionId={WSID} rows={[appliedRow("s1", "S1")]} />);
+    expect(box().checked).toBe(true);
+
+    // A LATER refresh reverts s1 to 'staged' server-side. Because the stale overlay
+    // was dropped at reconcile, the box now FOLLOWS the server and unchecks — it does
+    // not stay stuck checked.
+    rerender(<Step3Review wizardSessionId={WSID} rows={[stagedRow("s1", "S1")]} />);
+    expect(box().checked).toBe(false);
+  });
 });

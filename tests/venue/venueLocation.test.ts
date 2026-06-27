@@ -32,6 +32,14 @@ describe("cityFromAddress", () => {
     expect(cityFromAddress("140 E Walton Pl, IL 60611")).toBeNull();
   });
 
+  it("returns null for ambiguous two-segment inputs (no state/zip, no numbered street): never guess a name as a city", () => {
+    // "Name, City" vs "City, suffix" vs "Name, Street" are indistinguishable; the
+    // contract is to degrade to null rather than surface a venue name / neighborhood.
+    expect(cityFromAddress("Navy Pier, Chicago")).toBeNull();
+    expect(cityFromAddress("Hyatt Regency, 151 E Wacker Dr")).toBeNull();
+    expect(cityFromAddress("Brooklyn, New York")).toBeNull();
+  });
+
   it("returns null for a single segment (no comma → no city signal)", () => {
     expect(cityFromAddress("The Drake")).toBeNull();
     expect(cityFromAddress("123 Main St")).toBeNull();
