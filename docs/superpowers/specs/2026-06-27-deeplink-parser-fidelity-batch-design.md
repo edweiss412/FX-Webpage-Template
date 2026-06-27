@@ -45,12 +45,12 @@ All factual claims below were grep-verified against the merged tree (`origin/mai
 **Scope decision.** Move ONLY the **zero-width strip** (the unambiguous invisible-junk class) to the shared boundary so every stored field benefits. Leave hotels' smart-quote→space and `\s+`→` ` collapse local to the hotel address parser — those are address-formatting opinions, not universal-junk removal, and changing them broadly is out of scope (a venue/role name legitimately may contain a quote).
 
 **Change.**
-1. `lib/parser/blocks/_helpers.ts`: add a zero-width strip to `clean()` (the canonical cell-text cleaner that every block value flows through). Implementation: `.replace(/[​‌‍﻿]/g, "")` applied inside `clean()`. (Codepoints written explicitly, not literal invisible chars, so the regex is greppable/reviewable — and so this spec/source stays free of invisible chars.)
+1. `lib/parser/blocks/_helpers.ts`: add a zero-width strip to `clean()` (the canonical cell-text cleaner that every block value flows through). Implementation: `.replace(/[\u200B-\u200D\uFEFF]/g, "")` applied inside `clean()` — the **escaped-codepoint** form (ZWSP `\u200B` through ZWJ `\u200D`, plus BOM `\uFEFF`), matching the coverage of the existing literal-char range at `hotels.ts:227`. Escaped (not literal) so the regex is greppable/reviewable and the source stays free of invisible chars.
 2. `lib/parser/blocks/hotels.ts:227`: drop the now-redundant zero-width portion of the local strip (keep the quote→space + whitespace-collapse). Hotels still passes through `clean()` upstream, so its output is unchanged.
 
 **Guard conditions.** Empty/whitespace input → unchanged behavior (strip is a no-op, then existing trim/null logic). A value that is ENTIRELY zero-width chars → becomes empty → existing `presence()`/null handling applies (renders no field), which is correct (it was visually empty anyway).
 
-**Tests.** Unit: `clean("a​b")` → `"ab"`. Re-parse the fintech fixture → `transportation.parking` contains no codepoint in the zero-width set; `hotel_address` still clean (no regression). Negative-regression: a value with a smart-quote is NOT mangled by `clean()` (quote handling stays hotel-local).
+**Tests.** Unit: `clean("a\u200Bb")` → `"ab"`. Re-parse the fintech fixture → `transportation.parking` contains no codepoint in the zero-width set; `hotel_address` still clean (no regression). Negative-regression: a value with a smart-quote is NOT mangled by `clean()` (quote handling stays hotel-local).
 
 ---
 
