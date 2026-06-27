@@ -159,7 +159,7 @@ Every new test task states the concrete failure mode it catches (e.g. "`E-MAIL` 
 ## 9. Phasing & PR boundaries
 
 - **PR-A (P0 + P1):** `typoGate.ts` + `typoVocabRegistry.ts` + collision meta-test + generator harness; multi-word roles, crew/passenger columns, TRANSPORTATION/EVENT DETAILS routers; 3 new codes (`ROLE_TOKEN_`, `COLUMN_HEADER_`, `SECTION_HEADER_AUTOCORRECTED`). Pure parser; no DB/lock/UI.
-- **PR-B (P2):** `resolveAliasFuzzy` wired into venue, then the local-parallel re-routing; 1 new code (`FIELD_LABEL_AUTOCORRECTED`). Pure parser.
+- **PR-B (P2):** `resolveAliasScoped` wired into venue, then the local-parallel re-routing; 1 new code (`FIELD_LABEL_AUTOCORRECTED`). Pure parser.
 - **Deferred (later, not this spec):** P3 short routers (CREW/TECH/HOTEL/VENUE behind `fieldBand: 2`) + long single-word role codes + `ONLY` markers (`DAY_RESTRICTION_MARKER_AUTOCORRECTED`) + **agenda weekday day-names** (need a day-banner-position context gate, §4.3); P4 `DATES` router, rooms suffix headers, pull-sheet header, terminator consolidation. Format/date/`***`-count robustness is a separate non-fuzzy effort.
 
 ---
@@ -168,4 +168,4 @@ Every new test task states the concrete failure mode it catches (e.g. "`E-MAIL` 
 
 - **Meta-test inventory:** CREATES `tests/parser/typoVocabCollision.test.ts` (the registry collision tripwire). EXTENDS the `OPERATOR_ACTIONABLE_ANCHORED` membership pin-tests (`tests/parser/operatorActionableWarnings.test.ts` + `tests/drive/showDayTimeAnchors.test.ts`) by +3 (PR-A) then +1 (PR-B). No Supabase boundary, no advisory lock (`tests/auth/advisoryLockRpcDeadlock.test.ts` untouched), no UI component (invariant 8 N/A — `app/help/errors/_families.ts` prefix-map edits author no visual surface, per #155).
 - **§12.4 lockstep** per new code (the 3-part: master-spec prose + `gen:spec-codes` + `catalog.ts`); NEVER prettier the master spec.
-- **Watchpoints / do-not-relitigate:** the do-not-fuzz list (§8) is deliberate — short role codes, version detection, guard sites, sentinels, and all format surfaces are intentionally exact; `resolveAlias` stays exact (fuzz is a separate opt-in `resolveAliasFuzzy`); `TYPO_NORMALIZED` stays info for the known-typo allowlist; field-alias path uses tie-abort (unlike the stage-word path). The generator tests + collision meta-test are the structural guarantee that the exclusions hold.
+- **Watchpoints / do-not-relitigate:** the do-not-fuzz list (§8) is deliberate — short role codes, version detection, guard sites, sentinels, and all format surfaces are intentionally exact; `resolveAlias` stays exact (fuzz is a separate opt-in `resolveAliasScoped`); `TYPO_NORMALIZED` stays info for the known-typo allowlist; field-alias path uses tie-abort (unlike the stage-word path). The generator tests + collision meta-test are the structural guarantee that the exclusions hold.
