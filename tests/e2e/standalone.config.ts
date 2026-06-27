@@ -11,7 +11,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: /step3-card-dimensions\.spec\.ts/,
+  testMatch: /(step3-card-dimensions|step3-grid-layout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,
