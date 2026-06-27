@@ -57,10 +57,11 @@ import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasisOr } from "@/components/messages/renderEmphasis";
-import type { TriggeredReviewItem } from "@/lib/parser/types";
+import type { TriggeredReviewItem, ParseWarning } from "@/lib/parser/types";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { AccentButton } from "@/components/shared/AccentButton";
 import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 
 function safeDougFacing(code: string): string | null {
   if (!(code in MESSAGE_CATALOG)) return null;
@@ -232,6 +233,15 @@ export type StagedRow = {
    * in the component.
    */
   dataGaps?: DataGapsSummary;
+  /**
+   * parse-warning deep links — operator-actionable warnings (role/day/schedule/
+   * field) the card renders with the catalog title + a source-sheet "Open in
+   * Sheet" link when the scan resolved the cell. MUST be pre-filtered + deduped
+   * via `operatorActionableWarnings` at the StagedRow derivation site (the
+   * `PerShowActionableWarnings` renderer is pure-presentational and does NOT
+   * re-filter — pass already-actionable items only). undefined/[] → nothing.
+   */
+  operatorActionable?: ParseWarning[];
 };
 
 export type StagedReviewCardProps = {
@@ -562,6 +572,11 @@ export function StagedReviewCard({
               </li>
             ))}
           </ul>
+        ) : null}
+        {/* Operator-actionable parse warnings with source-sheet deep links to the
+            offending cell (role/day/schedule/field). Renders nothing when none. */}
+        {row.operatorActionable && row.operatorActionable.length > 0 ? (
+          <PerShowActionableWarnings items={row.operatorActionable} driveFileId={row.driveFileId} />
         ) : null}
         {isWizardMode && lastFinalizeFailureCode ? (
           <p className="text-sm text-warning-text" data-testid="staged-wizard-failure-code">

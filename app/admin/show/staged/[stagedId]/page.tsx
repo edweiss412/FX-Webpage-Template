@@ -29,7 +29,11 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
-import { summarizeDataGaps, isDataQualityWarning } from "@/lib/parser/dataGaps";
+import {
+  summarizeDataGaps,
+  isDataQualityWarning,
+  operatorActionableWarnings,
+} from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
 export const dynamic = "force-dynamic";
@@ -184,6 +188,7 @@ export function stagedRowFromLiveFirstSeen(row: LiveFirstSeenRow): StagedRow {
     baseModifiedTime: row.base_modified_time,
     warningSummary: warningSummaryFor(row),
     dataGaps: summarizeDataGaps(warnings as ParseWarning[]),
+    operatorActionable: operatorActionableWarnings(warnings as ParseWarning[]),
     triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
     reviewItemsCorrupt: !parsedReviewItems.ok,
     ...(summaryLine !== undefined ? { parseSummaryLine: summaryLine } : {}),

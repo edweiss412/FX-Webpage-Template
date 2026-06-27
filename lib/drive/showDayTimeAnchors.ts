@@ -3,10 +3,16 @@ import { buildAbsGrid } from "@/lib/drive/sourceAnchors";
 import { clean, normalizeDate } from "@/lib/parser/blocks/_helpers";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
+import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
 
-/** The parse-warning codes that carry a per-show-day source cell (v1: schedule
- *  time only; extend here as other located warnings gain anchors). */
-const CELL_ANCHORED_CODES = new Set(["SCHEDULE_TIME_UNPARSED"]);
+/** The codes that carry a source-cell/region anchor. SAME OBJECT the render
+ *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render cannot
+ *  drift. Name retained for continuity; FIELD_UNREADABLE resolves to a region.
+ *  Exported so a structural test can pin the reference identity. The shared object
+ *  is typed `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile
+ *  time (whole-diff R1 — there is no runtime mutation site for either export). */
+export const CELL_ANCHORED_CODES = OPERATOR_ACTIONABLE_ANCHORED;
 
 /**
  * extractShowDayTimeAnchors — locate the source cell behind each show-day's TIME
@@ -80,18 +86,37 @@ export function resolveSourceCell(
   return matches.length === 1 ? matches[0]!.anchor : null;
 }
 
+export type WarningAnchorSources = {
+  showDay: ShowDayTimeAnchor[];
+  crewRole: CrewRoleAnchor[];
+  region: Record<string, SourceAnchor>;
+};
+
 /**
- * Mutate `warnings` in place, setting `sourceCell` on each cell-anchored warning
- * (currently SCHEDULE_TIME_UNPARSED) whose show-day date matches exactly one
- * anchor. Best-effort: a warning with no/ambiguous match is left link-less.
+ * Mutate `warnings` in place, setting `sourceCell` on each anchored warning.
+ * Dispatch by code:
+ *   - SCHEDULE_TIME_UNPARSED → resolve by blockRef.iso (show-day TIME cell).
+ *   - UNKNOWN_ROLE_TOKEN / UNKNOWN_DAY_RESTRICTION → resolve by blockRef.name
+ *     against the crew-role cell anchors (exactly-one match else null).
+ *   - FIELD_UNREADABLE → the REGION anchor for blockRef.kind (kind-keyed 1:1;
+ *     missing kind → null, never a wrong-region link).
+ * Best-effort: a warning with no/ambiguous match is left link-less.
  */
 export function attachSourceCellAnchors(
   warnings: ParseWarning[],
-  anchors: ShowDayTimeAnchor[],
+  sources: WarningAnchorSources,
 ): void {
   for (const w of warnings) {
     if (!CELL_ANCHORED_CODES.has(w.code)) continue;
-    const cell = resolveSourceCell(anchors, w.blockRef?.iso);
+    let cell: SourceAnchor | null = null;
+    if (w.code === "SCHEDULE_TIME_UNPARSED") {
+      cell = resolveSourceCell(sources.showDay, w.blockRef?.iso);
+    } else if (w.code === "UNKNOWN_ROLE_TOKEN" || w.code === "UNKNOWN_DAY_RESTRICTION") {
+      cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
+    } else if (w.code === "FIELD_UNREADABLE") {
+      const kind = w.blockRef?.kind;
+      cell = kind ? (sources.region[kind] ?? null) : null;
+    }
     if (cell) w.sourceCell = cell;
   }
 }

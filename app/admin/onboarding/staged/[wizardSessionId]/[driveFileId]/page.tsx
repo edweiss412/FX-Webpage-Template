@@ -28,6 +28,8 @@
  */
 import { cache } from "react";
 import Link from "next/link";
+import type { ParseWarning } from "@/lib/parser/types";
+import { operatorActionableWarnings } from "@/lib/parser/dataGaps";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
@@ -52,7 +54,7 @@ type WizardStagedRow = {
   drive_file_id: string;
   staged_modified_time: string;
   base_modified_time: string | null;
-  parse_result: { show?: { title?: string | null } } | null;
+  parse_result: { show?: { title?: string | null }; warnings?: ParseWarning[] } | null;
   triggered_review_items: unknown;
   last_finalize_failure_code: string | null;
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
@@ -229,6 +231,9 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
     stagedModifiedTime: row.staged_modified_time,
     baseModifiedTime: row.base_modified_time,
     warningSummary: "",
+    operatorActionable: operatorActionableWarnings(
+      Array.isArray(row.parse_result?.warnings) ? row.parse_result!.warnings : [],
+    ),
     triggeredReviewItems: reviewItems ?? [],
     reviewItemsCorrupt: reviewItems === null,
     ...(summaryFromParseResult(row.parse_result) !== undefined

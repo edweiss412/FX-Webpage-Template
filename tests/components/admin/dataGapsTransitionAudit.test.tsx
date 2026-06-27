@@ -119,10 +119,15 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     // present iff there's a data gap, gone otherwise — instant, no AnimatePresence/
     // motion wrapper.
     expect(step3).toMatch(/\{dataGapDetails\.length > 0 \? \(/);
-    // Per-show panel: failed → calm notice; else messages>0 → section; else null.
+    // Per-show panel: failed → calm notice; else (data-gap messages OR operator-
+    // actionable warnings) → section; else null. Still a plain ternary-to-null
+    // (instant present/absent, no AnimatePresence) — the condition is now compound
+    // because the panel also hosts the operator-actionable deep-link subsection.
     const page = src("app/admin/show/[slug]/page.tsx");
     expect(page).toMatch(/\{dataQuality\.failed \? \(/);
-    expect(page).toMatch(/: dataQuality\.messages\.length > 0 \? \(/);
+    expect(page).toMatch(
+      /: dataQuality\.messages\.length > 0 \|\| actionableItems\.length > 0 \? \(/,
+    );
     expect(src("components/admin/PerShowAlertSection.tsx")).toMatch(/\{dataGapsDigest \? \(/);
   });
 

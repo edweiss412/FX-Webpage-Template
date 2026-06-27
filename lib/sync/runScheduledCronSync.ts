@@ -25,6 +25,7 @@ import {
   withDriveRetry,
 } from "@/lib/drive/fetch";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import {
@@ -2441,6 +2442,12 @@ export async function prepareProcessOneFile(
   );
   const sourceAnchors: Record<string, SourceAnchor> =
     xlsxBytes !== undefined ? extractSourceAnchors(xlsxBytes, titleToGid) : {};
+
+  // Populate per-warning source-cell/region deep-link anchors on the cron path
+  // (parse-warning deep links). Pure raw-workbook read inside the existing prepare
+  // stage — no new lock (invariant 2). Reuse the already-computed titleToGid +
+  // sourceAnchors (no extra fetch / recompute).
+  await attachWarningAnchors(enriched.warnings, xlsxBytes, async () => titleToGid, sourceAnchors);
 
   let currentBinding: Phase1Binding;
   try {

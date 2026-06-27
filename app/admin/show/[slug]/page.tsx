@@ -52,7 +52,12 @@ import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import type { ParseWarning } from "@/lib/parser/types";
-import { isDataQualityWarning } from "@/lib/parser/dataGaps";
+import {
+  isDataQualityWarning,
+  operatorActionableWarnings,
+  OPERATOR_ACTIONABLE_ANCHORED,
+} from "@/lib/parser/dataGaps";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 
 export const dynamic = "force-dynamic";
 
@@ -257,7 +262,11 @@ export default async function AdminShowPage({
   // silent-drop this feature kills. null/absent row (genuinely no warnings) is
   // kept DISTINCT from a failure: messages=[], failed=false → panel simply
   // absent. Resolves to a typed local result and never rejects (Promise.all-safe).
-  const readDataQuality = async (): Promise<{ messages: string[]; failed: boolean }> => {
+  const readDataQuality = async (): Promise<{
+    messages: string[];
+    actionable: ParseWarning[];
+    failed: boolean;
+  }> => {
     try {
       const { data, error } = await supabase
         .from("shows_internal")
@@ -266,29 +275,44 @@ export default async function AdminShowPage({
         .maybeSingle<{ parse_warnings: ParseWarning[] | null }>();
       if (error) {
         console.error("[/admin/show/[slug]] shows_internal read failed:", error.message);
-        return { messages: [], failed: true };
+        return { messages: [], actionable: [], failed: true };
       }
       const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
       // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
       // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
       // can BE the raw code (asset reelWarning() → message: code), which would print a
       // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
+      // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
+      // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED) from the flat .message
+      // digest — they render once, below, as a titled card WITH a source-sheet
+      // deep link (strictly better). The digest keeps the non-actionable data gaps
+      // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
+      // impeccable critique flagged.
       const messages = warnings
-        .filter(isDataQualityWarning)
+        .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
         .map((w) => w.message)
         .filter((m): m is string => typeof m === "string" && m.length > 0);
-      return { messages, failed: false };
+      // Carry the full warnings through so the panel can render the operator-
+      // actionable subset WITH their source-sheet deep links (the component filters
+      // + dedups via operatorActionableWarnings); the messages list stays the
+      // data-gap-only `.message` digest.
+      return { messages, actionable: warnings, failed: false };
     } catch (err) {
       console.error(
         "[/admin/show/[slug]] shows_internal read threw:",
         err instanceof Error ? err.message : String(err),
       );
-      return { messages: [], failed: true };
+      return { messages: [], actionable: [], failed: true };
     }
   };
 
   const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =
     await Promise.all([readFeed(), readCrew(), readToken(), readDataQuality(), nowDate()]);
+
+  // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
+  // JSX condition and again in the component — whole-diff R1). The per-show Data
+  // Quality panel renders these with source-sheet deep links below the data-gap digest.
+  const actionableItems = operatorActionableWarnings(dataQuality.actionable);
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
@@ -741,7 +765,7 @@ export default async function AdminShowPage({
             again.
           </p>
         </section>
-      ) : dataQuality.messages.length > 0 ? (
+      ) : dataQuality.messages.length > 0 || actionableItems.length > 0 ? (
         <section
           data-testid="per-show-data-quality"
           aria-labelledby="per-show-data-quality-heading"
@@ -767,17 +791,23 @@ export default async function AdminShowPage({
               </p>
             </HoverHelp>
           </div>
-          <ul className="flex flex-col gap-2">
-            {dataQuality.messages.map((message, i) => (
-              <li
-                key={i}
-                data-testid="per-show-data-quality-item"
-                className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
-              >
-                {message}
-              </li>
-            ))}
-          </ul>
+          {dataQuality.messages.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {dataQuality.messages.map((message, i) => (
+                <li
+                  key={i}
+                  data-testid="per-show-data-quality-item"
+                  className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
+                >
+                  {message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {/* Operator-actionable parse warnings (role/day/schedule/field) with a
+              source-sheet deep link to the offending cell when the scan resolved
+              it. Renders nothing when there are none. */}
+          <PerShowActionableWarnings items={actionableItems} driveFileId={show.drive_file_id} />
         </section>
       ) : null}
 
