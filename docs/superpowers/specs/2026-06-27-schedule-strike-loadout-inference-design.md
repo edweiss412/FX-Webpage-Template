@@ -65,7 +65,7 @@ All 7 distinct live shows in `fxav-test-shows` were surveyed via the gsheets MCP
 | RPAS '26 (v4) | `3/25/26 @ 3:30 PM` | `3/25 @ 12:30pm` | 3/25 | Breakout strikes `3/24` (earlier day). |
 | Redefining FI '25 | `5/14 @ 6:00 PM` | `5/14 @ 5:00 PM` | 5/14 | All 3 rooms strike `5/14 @ 5:00 PM` (identical → collapse). |
 | Fixed Income '25 | `10/21/25 @ 7:00 PM` | `10/21 @ 4:15 PM` | 10/21 | — |
-| FinTech '26 (v4) | `5/6/26 @ 6:00 PM` | `5/5 @ 2:50 PM` ⚠️ | 5/6 | GS strike date is a **typo** (5/5; in-window). Renders on 5/6 SHOW DAY 3. |
+| FinTech '26 (v4) | `5/6/26 @ 6:00 PM` | `5/5 @ 2:50 PM` ⚠️ | 5/6 | GS strike date is a likely **typo** (the 2:50 PM time matches the 5/6 conclude). Per RD5 it renders **faithfully on 5/5** (SHOW DAY 2); 5/5 is in-window so **no warning**. Load-Out renders on 5/6. |
 | RIA Central '25 (v4) | `6/26 @ 2:00 PM` | `6/26 @ 12:15pm` | 6/26 | Travel-out value `"TRAVEL SAME DAY AS STRIKE"`. |
 
 **Derived facts that drive the design:**
@@ -144,12 +144,24 @@ Extend `readShowDayTimeCells` (`scheduleTimes.ts:87`) to additionally emit the *
 
 ## 7. Derivation — Strike + Load-Out (`deriveScheduleBookends`)
 
-New pure function `deriveScheduleBookends(runOfShow, dates, transportation, rooms)` in `lib/parser/blocks/scheduleBookends.ts`, returning `{ runOfShow, warnings }`. Called in `index.ts` **after** the existing merge (after `:447`, before `:480`), taking `mergedRunOfShow` (or `{}` when undefined), `dates`, `transportation`, `rooms`; its warnings are pushed to `agg.warnings` exactly as `scheduleTimesResult.warnings` is (`index.ts:383`).
+New pure function in `lib/parser/blocks/scheduleBookends.ts` with the **explicit** signature:
+
+```ts
+function deriveScheduleBookends(
+  runOfShow: Record<string, ScheduleDay> | undefined,
+  dates: ShowRow["dates"],
+  transportation: TransportationRow | null,
+  rooms: RoomRow[],
+  contextYear: string | null,   // = inferShowYear(markdown), resolved by the caller
+): { runOfShow: Record<string, ScheduleDay> | undefined; warnings: ParseWarning[] }
+```
+
+`contextYear` is a **required parameter** (not derived inside the function) — the year context that yearless room strike dates (e.g. `"10/9 @ 4:30pm"`) need to resolve. Called in `index.ts` **after** the existing merge (after `:447`, before `:480`): the caller computes `const bookendYear = inferShowYear(markdown)` (`markdown` is in scope in `parseSheet`, `index.ts:321`) and passes `mergedRunOfShow` (or `undefined`), `dates`, `transportation`, `rooms`, `bookendYear`. Its warnings are pushed to `agg.warnings` exactly as `scheduleTimesResult.warnings` is (`index.ts:383`). The returned `runOfShow` replaces `mergedRunOfShow` before the `index.ts:493` return.
 
 ### 7.1 Algorithm
 
 ```
-input: rosIn (Record<iso, ScheduleDay> | undefined), dates, transportation, rooms
+input: rosIn (Record<iso, ScheduleDay> | undefined), dates, transportation, rooms, contextYear (string|null)
 ros = deepClone(rosIn ?? {})   // new object; per-day entries arrays also copied — never mutate the caller's object
 warnings = []
 
@@ -183,7 +195,7 @@ return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings }
 ```
 
 - `appendEntry(ros, iso, entry)`: if `ros[iso]` absent, create `{ entries: [entry], showStart: null, window: null }`; else **append** to `ros[iso].entries` (synthetic entries go **after** existing agenda entries — they are end-of-day events; no global re-sort, preserving sheet order for agenda). Strike entries are emitted before the load-out for the same day (group iteration runs before the load-out step), and multiple strikes sort by time ascending.
-- `contextYear` = `inferShowYear(markdown)` (imported from `./_helpers`, see `transport.ts:30`) — passed into the derivation (or derived from `dates`). Room strike dates are often yearless (`"10/9 @ 4:30pm"`).
+- `contextYear` is the **parameter** passed by the caller (`= inferShowYear(markdown)`, `_helpers.ts:123`, in scope in `parseSheet`). The function does NOT recompute it. When `contextYear` is `null` and a strike cell is yearless, that strike is **skipped** (no parseable date — §7.2). Room strike dates are often yearless (`"10/9 @ 4:30pm"`), so the parameter is load-bearing; §14 includes a yearless-strike integration test proving entries are NOT dropped when `contextYear` is supplied.
 - **Shared helpers:** `presence` is exported from `lib/parser/blocks/_helpers.ts` (used corpus-wide). `isAbsentTime` is currently **module-private** in `resolveKeyTimes.ts:21` — the plan either (a) exports it for reuse, or (b) mirrors its exact regex `/\b(?:TBD|N\/A|TBA)\b/i` + empty/null check in `scheduleBookends.ts`. Pick one and pin it with a test so the two definitions can't drift.
 - The returned object is a **new** object; `rosIn` is never mutated (guard against the persisted-blob being aliased). When `rosIn` was `undefined` and no synthetic entries were added, return `rosIn` (preserve the "no run-of-show" sentinel so `index.ts:493` still omits the key).
 
@@ -326,6 +338,7 @@ No `AnimatePresence` / framer-motion is added.
   - **Single room** → `"Strike — <Room>"` (room name from `RoomRow.name`).
   - **Load-Out** (FinTech-shaped: Pick Up Venue 5/6 6:00 PM) → one `"Load Out"` entry, `kind:"loadout"`, start `"6:00 PM"`, on 5/6.
   - **v1 no transport** (East Coast-shaped) → strike entries present, **no** load-out entry.
+  - **Yearless strike + `contextYear` supplied** (Consultants-shaped: `"10/9 @ 4:30pm"`, `contextYear="2025"`) → entry present on `2025-10-09` (NOT dropped). Negative-regression: pass `contextYear=null` with the same yearless cell → entry skipped (proves the parameter is load-bearing, not decorative). Failure mode: the high-finding-1 case — yearless strikes silently dropped because the year context wasn't threaded.
   - **TBD / unparseable** strike_time → skipped (no entry, no crash).
   - **Date-only** strike (no time) → entry with empty `start`.
   - **Out-of-window** strike date (synthetic fixture: strike date after travelOut) → `SCHEDULE_STRIKE_DATE_OUT_OF_WINDOW` warning emitted **and** entry still present (faithful). Negative-regression: remove the window check → assert the warning vanishes (proving the test pins it).
@@ -353,7 +366,7 @@ No `AnimatePresence` / framer-motion is added.
 | `lib/parser/blocks/scheduleTimes.ts` | SET-row capture + tokenization in `readShowDayTimeCells`. |
 | `lib/parser/blocks/scheduleBookends.ts` | **new** — `deriveScheduleBookends` + `parseRoomTimeCell`. |
 | `lib/parser/blocks/agendaWarnings.ts` | `strikeDateOutOfWindow` helper. |
-| `lib/parser/index.ts` | call `deriveScheduleBookends` after merge; push its warnings. |
+| `lib/parser/index.ts` | compute `inferShowYear(markdown)`; call `deriveScheduleBookends(mergedRunOfShow, dates, transportation, rooms, contextYear)` after merge; replace `mergedRunOfShow` with its result; push its warnings. |
 | `lib/data/decodeRunOfShow.ts` | add `"kind"` to `OPTIONAL_FIELDS`. |
 | `components/crew/sections/ScheduleSection.tsx` | SET-day meta suppression. |
 | `components/crew/primitives/RunOfShowList.tsx` | `kind` badge + cap-exemption partition. |
