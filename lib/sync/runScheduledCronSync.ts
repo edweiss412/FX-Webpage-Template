@@ -18,7 +18,12 @@ import { runInvariants } from "@/lib/parser/invariants";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
-import { fetchDriveFileMetadata, fetchSheetMarkdownAndBytesAtRevision } from "@/lib/drive/fetch";
+import {
+  DRIVE_FILES_GET_TIMEOUT_MS,
+  fetchDriveFileMetadata,
+  fetchSheetMarkdownAndBytesAtRevision,
+  withDriveRetry,
+} from "@/lib/drive/fetch";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
@@ -1614,10 +1619,15 @@ export function defaultDriveClient(): DriveClient {
       // linked-folder fallback). Feasible diagram sourcing is tracked in
       // BACKLOG.md (BL-DIAGRAMS-EMBEDDED-SOURCE).
       const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
-      const response = await sheetsClient.spreadsheets.get({
-        spreadsheetId,
-        fields: "sheets(properties(sheetId,title))",
-      });
+      // DXT-3: bound the previously-untimed Sheets metadata read with a per-call
+      // gaxios timeout (gaxios-7 "TimeoutError" → driveErrorStatus 504) under
+      // withDriveRetry; retry:false keeps withDriveRetry the single retry layer.
+      const response = await withDriveRetry(() =>
+        sheetsClient.spreadsheets.get(
+          { spreadsheetId, fields: "sheets(properties(sheetId,title))" },
+          { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+        ),
+      );
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
         const record = sheet as { properties?: { title?: string | null; sheetId?: number | null } };
         return {
@@ -1633,10 +1643,14 @@ export function defaultDriveClient(): DriveClient {
     },
     async getSpreadsheetRevisionId(spreadsheetId) {
       const drive = google.drive({ version: "v3", auth: getDriveAuth() });
-      const response = await drive.revisions.list({
-        fileId: spreadsheetId,
-        fields: "revisions(id,modifiedTime)",
-      });
+      // DXT-3: bound the previously-untimed revisions.list with a per-call gaxios
+      // timeout under withDriveRetry (retry:false keeps it the single retry layer).
+      const response = await withDriveRetry(() =>
+        drive.revisions.list(
+          { fileId: spreadsheetId, fields: "revisions(id,modifiedTime)" },
+          { timeout: DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+        ),
+      );
       const revisions = response.data.revisions ?? [];
       return revisions.at(-1)?.id ?? null;
     },

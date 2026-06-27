@@ -43,8 +43,8 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "asset metadata lookup during onboarding enrichment, not sheet admission by drive_file_id",
   ],
   [
-    "lib/sync/verifyReelOnApply.ts::getFileMetadata",
-    "opening-reel metadata re-verification during apply; this does not admit a sheet by drive_file_id",
+    "lib/sync/verifyReelOnApply.ts::getFileMetadataCall",
+    "opening-reel metadata re-verification during apply (DXT-3: the .files.get is now a named transient-retry/timeout thunk inside getFileMetadata); this does not admit a sheet by drive_file_id",
   ],
   [
     "app/api/asset/reel/[show]/route.ts::GET",

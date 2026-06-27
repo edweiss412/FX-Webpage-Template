@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { drive_v3 } from "googleapis";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
-import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import {
+  DRIVE_FILES_GET_TIMEOUT_MS,
+  fetchDriveFileMetadata,
+  fetchSheetAsMarkdownAtRevision,
+  withDriveRetry,
+  type DriveRetryOptions,
+} from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
@@ -912,12 +919,27 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
   };
 }
 
-async function defaultRetryEmbeddedRevisionAvailability(spreadsheetId: string): Promise<boolean> {
-  const drive = getDriveClient();
-  const response = await drive.revisions.list({
-    fileId: spreadsheetId,
-    fields: "revisions(id)",
-  });
+// Exported + injectable so the default revision-availability probe is directly
+// unit-testable (DXT-3). Bounds the previously-untimed (and un-retried)
+// revisions.list with a per-call gaxios timeout under withDriveRetry
+// (gaxios-7 "TimeoutError" → driveErrorStatus 504; retry:false keeps
+// withDriveRetry the single retry layer).
+export async function defaultRetryEmbeddedRevisionAvailability(
+  spreadsheetId: string,
+  deps: { drive?: drive_v3.Drive; retry?: DriveRetryOptions; timeoutMs?: number } = {},
+): Promise<boolean> {
+  const drive = deps.drive ?? getDriveClient();
+  // Apply path holds the per-show advisory xact lock; bound the retry budget
+  // tighter than the default (1 retry ≈ 16s worst vs default 3 ≈ 34s). This read
+  // was previously single-attempt + UNBOUNDED — now single-retry + 8s timeout.
+  const response = await withDriveRetry(
+    () =>
+      drive.revisions.list(
+        { fileId: spreadsheetId, fields: "revisions(id)" },
+        { timeout: deps.timeoutMs ?? DRIVE_FILES_GET_TIMEOUT_MS, retry: false },
+      ),
+    deps.retry ?? { maxRetries: 1 },
+  );
   return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
     Boolean(revision.id),
   );
