@@ -38,7 +38,7 @@ function warn(code: string, message: string): ParseWarning {
 /** Tolerant per-position label sanity check (trim + case-insensitive) — catches a
  *  genuine reorder/extra/missing row without false-flagging whitespace/case noise. */
 function labelsAlign(a: string, b: string): boolean {
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
+  return a.trim().toLowerCase() === b.trim().toLowerCase(); // canonicalize-exempt: AGENDA LINK label match, not an email (invariant 3 N/A)
 }
 
 export async function enrichAgenda(

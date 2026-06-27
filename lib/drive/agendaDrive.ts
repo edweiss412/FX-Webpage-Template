@@ -104,7 +104,7 @@ export async function getAgendaChips(spreadsheetId: string): Promise<AgendaChips
                 break;
               }
             }
-            rows.push({ label: label.trim(), chipFileId });
+            rows.push({ label: label.trim(), chipFileId }); // canonicalize-exempt: AGENDA LINK label text, not an email (invariant 3 N/A)
             break; // one agenda-link row per grid row
           }
         }
