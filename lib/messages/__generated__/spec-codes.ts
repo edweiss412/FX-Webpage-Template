@@ -1094,6 +1094,12 @@ export const SPEC_CODES = {
     "followUp": null,
     "helpfulContext": null,
   },
+  "STAGE_WORD_AUTOCORRECTED": {
+    "crewFacing": null,
+    "dougFacing": "We read a likely-misspelled stage word in _<crew-name>_'s role (for example 'Strke' as 'Strike') and used the corrected version, so their schedule still reads correctly. If it was intentional, update the sheet.",
+    "followUp": "Doug → optional fix",
+    "helpfulContext": "A stage word in this crew member's role looked misspelled (e.g. 'Strke'), so we read it as the closest real stage word ('Strike') and used that — nothing else is affected. If the spelling was intentional, update the sheet.",
+  },
   "STAGED_PARSE_FAILED": {
     "crewFacing": null,
     "dougFacing": "That sheet could not be parsed during retry.",
