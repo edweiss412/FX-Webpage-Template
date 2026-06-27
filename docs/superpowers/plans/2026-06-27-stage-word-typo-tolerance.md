@@ -93,8 +93,15 @@ describe("closedVocabMatch", () => {
     expect(closedVocabMatch("XYZ", VOCAB, 1)).toBeNull();
     expect(closedVocabMatch("A1", VOCAB, 1)).toBeNull();
   });
-  it("prefers exact over a near-miss, then smallest distance", () => {
+  it("prefers an exact hit over a near-miss", () => {
     expect(closedVocabMatch("SET", VOCAB, 1)).toEqual({ match: "SET", exact: true });
+  });
+  it("among near-misses picks smallest distance, then vocab order", () => {
+    const V = ["AB", "AC", "XY"] as const;
+    // "AD" is distance 1 from BOTH AB and AC → tie → vocab order wins → AB
+    expect(closedVocabMatch("AD", V, 1)).toEqual({ match: "AB", exact: false });
+    // "AAB" is distance 1 from AB but distance 2 from AC → smaller distance wins → AB
+    expect(closedVocabMatch("AAB", V, 2)).toEqual({ match: "AB", exact: false });
   });
 });
 ```
@@ -221,10 +228,20 @@ describe("normalizeStageWords — confidence-gated stage-word typo correction", 
     expect(r.corrections).toEqual([{ detected: "Laod In", corrected: "Load In" }]);
   });
 
-  it("multiple typos in one cell → all corrected, one result", () => {
-    const r = normalizeStageWords("Lod In/Set/Strke/Lod Ot - V1");
+  it("multiple typos in one cell → all corrected, one result (each typo Damerau ≤ 1)", () => {
+    // Lod In (+A), Strke (-I), Load Ot (+U) are EACH distance 1. (A two-typo word
+    // like "Lod Ot" would be distance 2 → beyond maxDistance=1 → not corrected.)
+    const r = normalizeStageWords("Lod In/Set/Strke/Load Ot - V1");
     expect(r.corrected).toBe("Load In/Set/Strike/Load Out - V1");
     expect(r.corrections.map((c) => c.corrected).sort()).toEqual(["Load In", "Load Out", "Strike"]);
+  });
+
+  it("a stage word with TWO typos (Damerau 2) is NOT corrected", () => {
+    // "Lod Ot" → "Load Out" is distance 2; with Set+Strike as anchors the gate could
+    // fire, but Lod Ot is not a near-miss so it is left as an unknown role token.
+    const r = normalizeStageWords("Load In/Set/Strike/Lod Ot - V1");
+    expect(r.corrections).toEqual([]); // Lod Ot not within maxDistance=1; nothing corrected
+    expect(r.corrected).toBe("Load In/Set/Strike/Lod Ot - V1");
   });
 
   it("lone near-miss with NO exact anchor → NOT corrected (intentional token wins)", () => {
@@ -298,8 +315,10 @@ const STAGE_CANONICAL: Record<string, string> = {
   "LOAD OUT": "Load Out",
 };
 /** Trailing restriction marker peeled from a segment's comparison token: a
- *  `ONLY` (optionally `***`-suffixed) or a bare `***`. */
-const STAGE_TRAILING_MARKER_RE = /(\s*\bONLY\b\s*\*{0,3}\s*|\s*\*{3}\s*)$/i;
+ *  `ONLY` (optionally `ONLY***`) or a bare `***` (exactly three). Deliberately
+ *  NOT 1–2 stars — `***`-count tolerance is deferred; `ONLY*`/`ONLY**` are left
+ *  unpeeled (fall through to existing behavior). */
+const STAGE_TRAILING_MARKER_RE = /(\s*\bONLY\b(?:\s*\*{3})?\s*|\s*\*{3}\s*)$/i;
 
 export type StageWordCorrection = { detected: string; corrected: string };
 export type StageNormalization = { corrected: string; corrections: StageWordCorrection[] };
@@ -472,10 +491,13 @@ it("auto-corrects a misspelled stage word: 0 UNKNOWN_ROLE_TOKEN + 1 STAGE_WORD_A
   const crew = parseCrew(md, "v1", agg);
 
   expect(agg.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toHaveLength(0);
-  const note = agg.warnings.find((w) => w.code === "STAGE_WORD_AUTOCORRECTED");
-  expect(note).toBeTruthy();
-  expect(note!.severity).toBe("warn");
-  expect(note!.blockRef).toMatchObject({ kind: "crew", name: "Eric Weiss" }); // deep-link anchor
+  // EXACTLY ONE drift note per cell (count, not find — guards against double-push
+  // into the aggregator).
+  const notes = agg.warnings.filter((w) => w.code === "STAGE_WORD_AUTOCORRECTED");
+  expect(notes).toHaveLength(1);
+  const note = notes[0]!;
+  expect(note.severity).toBe("warn");
+  expect(note.blockRef).toMatchObject({ kind: "crew", name: "Eric Weiss" }); // deep-link anchor
   expect(crew[0]!.role_flags).toContain("A1"); // real role still parses
 });
 
