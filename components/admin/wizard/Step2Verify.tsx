@@ -28,6 +28,7 @@
  */
 import Link from "next/link";
 import { Check } from "lucide-react";
+import { parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { messageFor } from "@/lib/messages/lookup";
@@ -69,8 +70,14 @@ type ScanCompleted = OnboardingScanCompletedBody;
 // present, Step 2 rehydrates after a "Back" from Step 3: the folder input is
 // pre-filled and a "Continue to Step 3" link reopens the forward path without
 // forcing a re-scan. `folderUrl` is the canonical Drive folder URL rebuilt from
-// pending_folder_id (round-trips through the route's parseDriveFolderId).
-export type Step2PriorScan = { folderName: string | null; folderUrl: string | null };
+// pending_folder_id; `folderId` is that id, used to decide whether the typed
+// link still refers to the scanned folder by IDENTITY (not URL string), so a
+// re-pasted share link with `?usp=…` or a `/u/<n>/` prefix still matches.
+export type Step2PriorScan = {
+  folderName: string | null;
+  folderUrl: string | null;
+  folderId: string | null;
+};
 
 type ScanProgress =
   | { phase: "connecting" }
@@ -271,12 +278,18 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   // (one accent CTA per card, per DESIGN.md's ≤10% accent cap).
   const showResume = state.kind === "idle" && priorScan != null;
   // The "you already scanned X" confirmation + the "Re-scan" label apply only
-  // while the field STILL holds the folder that was scanned. Clear or change the
-  // link and both fall away (it becomes a fresh "Verify and scan"); retype the
-  // exact same link and they return. Continue-to-Step-3 is independent — the
-  // already-scanned review exists regardless of what is typed.
+  // while the field STILL refers to the folder that was scanned. Clear or change
+  // the link and both fall away (it becomes a fresh "Verify and scan"); enter any
+  // link to the same folder and they return. Match by folder IDENTITY (the parsed
+  // id), NOT URL string — the prefill is the canonical `/folders/<id>` form, but
+  // the operator may re-paste their original share link (`?usp=sharing`, a
+  // `/u/<n>/` prefix, …) which is the same folder in a different string.
+  // Continue-to-Step-3 is independent — the already-scanned review exists
+  // regardless of what is typed.
   const matchesScanned =
-    showResume && priorScan?.folderUrl != null && folderUrl.trim() === priorScan.folderUrl.trim();
+    showResume &&
+    priorScan?.folderId != null &&
+    parseDriveFolderId(folderUrl) === priorScan.folderId;
   const submitLabel = isSubmitting ? "Verifying…" : matchesScanned ? "Re-scan" : "Verify and scan";
   // The single accent (DESIGN.md ≤10% cap) follows intent. Default: Continue to
   // Step 3 (forward) is primary and the re-scan button is secondary. But once

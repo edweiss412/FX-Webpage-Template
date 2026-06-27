@@ -584,6 +584,7 @@ describe("Step2Verify — resume after Back (priorScan)", () => {
   const PRIOR = {
     folderName: "Shows 2026",
     folderUrl: "https://drive.google.com/drive/folders/abc123",
+    folderId: "abc123",
   };
 
   test("pre-fills the folder input with the previously-scanned folder URL", () => {
@@ -605,7 +606,9 @@ describe("Step2Verify — resume after Back (priorScan)", () => {
 
   test("a null folder name still renders the resume panel + Continue link (generic copy)", () => {
     const { getByTestId } = render(
-      <Step2Verify priorScan={{ folderName: null, folderUrl: PRIOR.folderUrl }} />,
+      <Step2Verify
+        priorScan={{ folderName: null, folderUrl: PRIOR.folderUrl, folderId: "abc123" }}
+      />,
     );
     expect(getByTestId("wizard-step2-resume")).toBeTruthy();
     expect(getByTestId("wizard-step2-resume-advance").getAttribute("href")).toBe("/admin?step=3");
@@ -719,6 +722,33 @@ describe("Step2Verify — resume after Back (priorScan)", () => {
     fireEvent.change(input, { target: { value: PRIOR.folderUrl } });
     expect(getByTestId("wizard-step2-resume").textContent ?? "").toContain("Shows 2026");
     expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(/^Re-scan$/);
+  });
+
+  test("matches the scanned folder by IDENTITY: a re-pasted share link (?usp=…) to the SAME folder still confirms", () => {
+    // The reported bug: the prefill is the canonical `/folders/<id>` URL, but the
+    // operator clears it and re-pastes their original SHARE link, which names the
+    // same folder with a `?usp=sharing` query (and possibly a `/u/<n>/` prefix).
+    // String-equality missed it; identity match catches it.
+    const { getByTestId, queryByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    const input = getByTestId("wizard-step2-folder-url-input");
+    fireEvent.change(input, { target: { value: "" } });
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    fireEvent.change(input, {
+      target: { value: "https://drive.google.com/drive/u/1/folders/abc123?usp=sharing" },
+    });
+    // Same folder → confirmation returns and the action is "Re-scan", even though
+    // the string differs from the canonical prefill.
+    expect(getByTestId("wizard-step2-resume").textContent ?? "").toContain("Shows 2026");
+    expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(/^Re-scan$/);
+  });
+
+  test("a link to a DIFFERENT folder does NOT confirm and reads 'Verify and scan'", () => {
+    const { getByTestId, queryByTestId } = render(<Step2Verify priorScan={PRIOR} />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/zzz999?usp=sharing" },
+    });
+    expect(queryByTestId("wizard-step2-resume")).toBeNull();
+    expect(getByTestId("wizard-step2-submit").textContent ?? "").toMatch(/^Verify and scan$/);
   });
 
   test("the accent follows intent: typing a NEW folder promotes 'Verify and scan' and demotes Continue", () => {
