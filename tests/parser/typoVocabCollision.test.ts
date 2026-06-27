@@ -3,6 +3,7 @@ import { TYPO_VOCABS } from "@/lib/parser/typoVocabRegistry";
 import { inScopeAliases } from "@/lib/parser/aliases";
 import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
 import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
+import { V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
 
 /**
@@ -84,5 +85,20 @@ describe("transport schedule-label vocab registration (PR-D2)", () => {
     expect(tr!.klass).toBe("fuzzable");
     expect([...tr!.members].sort()).toEqual([...TRANSPORT_SCHEDULE_VOCAB].sort());
     expect(tr!.members).toContain("RENTAL PICKUP");
+  });
+});
+
+/**
+ * PR-D3: the v4 room-label fuzzy fallback (gatedVocabCorrect over V4_BARE_LABELS) must have a
+ * matching registry entry so the collision tripwire guards it. DERIVED from the exported vocab.
+ */
+describe("room v4-label vocab registration (PR-D3)", () => {
+  it("registers a roomV4Label fuzzable vocab matching V4_BARE_LABEL_VOCAB", () => {
+    const rm = TYPO_VOCABS.find((v) => v.id === "roomV4Label");
+    expect(rm).toBeDefined();
+    expect(rm!.klass).toBe("fuzzable");
+    expect([...rm!.members].sort()).toEqual([...V4_BARE_LABEL_VOCAB].sort());
+    expect(rm!.members).toContain("DIGITAL SIGNAGE");
+    expect(rm!.members.every((m) => m.length >= 5)).toBe(true);
   });
 });
