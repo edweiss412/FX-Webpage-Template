@@ -182,16 +182,14 @@ export function clean(s: string): string {
 }
 ```
 
-In `lib/parser/blocks/hotels.ts:227`, drop the now-redundant zero-width `.replace(...)` line (the hotel parser's input already flows through `clean()` upstream; keep the quote→space and `\s+`→` ` lines):
+In `lib/parser/blocks/hotels.ts:227`, drop ONLY the now-redundant zero-width `.replace(/[​-‍﻿]/g, "")` line (the hotel parser's input already flows through `clean()` upstream). **Leave the existing quote→space and `\s+`→` ` lines exactly as they are** — do not rewrite or reformat them (they already use literal smart-quote chars in the live file; changing that is out of scope and risks a no-op diff churn). Result:
 
 ```ts
   const cleaned = combined
-    .replace(/["“”]/g, " ") // straight + smart double-quotes → space
+    .replace(/["“”]/g, " ") // straight + smart double-quotes → space (UNCHANGED from current)
     .replace(/\s+/g, " ")
     .trim();
 ```
-
-(Write the quote regex with escaped codepoints `“”` rather than literal smart-quote chars, to keep the source greppable — matches the Fix-2 convention.)
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -365,30 +363,33 @@ In `tests/parser/blocks/transport.test.ts`, add (derive the expected year from t
 
 ```ts
 it("yearless transport date infers the show year, not a hard-coded 2025", () => {
-  // A v2/v4 show whose DATES are in 2026, with a yearless transport date cell.
+  const SHOW_YEAR = "2026"; // single source of truth for this fixture
+  // A show whose DATES are in SHOW_YEAR, with a yearless transport date cell.
   const md = [
-    "| DATES | 6/24/26 - 6/26/26 |",
+    `| DATES | 6/24/${SHOW_YEAR.slice(2)} - 6/26/${SHOW_YEAR.slice(2)} |`,
     "",
     "| TRANSPORTATION | | |",
     "| Equipment Transporter | Pickup | 10/6 @ 12:00 PM |",
   ].join("\n");
   const t = parseTransportation(md, "v2");
-  // Whatever the parser stores for the pickup date, its year must be 2026 (the show year),
-  // never 2025. Assert the year component, derived from the fixture's DATES.
-  const stored = JSON.stringify(t);
-  expect(stored).not.toContain("2025");
-  expect(stored).toContain("2026");
+  // The stored pickup date's year must be the SHOW year, never 2025 (the old /25 bug).
+  // Assert on the CONCRETE date field (parseV2DateTime.date flows into it — locate it from
+  // the TransportationRow shape, e.g. t.pickupDate / t.transport[i].date), not on JSON.
+  expect(<storedPickupDateField>).toMatch(new RegExp(`^${SHOW_YEAR}-`)); // ISO YYYY-MM-DD
+  expect(<storedPickupDateField>).not.toContain("2025");
 });
 
 it("yearless transport date with no inferable show year → null (never a hard-coded era)", () => {
   const md = ["| TRANSPORTATION | | |", "| Equipment Transporter | Pickup | 10/6 @ 12:00 PM |"].join("\n");
   const t = parseTransportation(md, "v2");
-  // No DATES → no contextYear → the date is null rather than a guessed 2025.
-  expect(JSON.stringify(t)).not.toContain("2025");
+  // No DATES → no contextYear → the date field is EXACTLY null (not a guessed 2025, and not
+  // some other wrong value). Assert `=== null` on the concrete date field — a bare
+  // `not.toContain("2025")` is too weak (it passes on any non-2025 garbage too).
+  expect(<storedPickupDateField>).toBeNull();
 });
 ```
 
-(Match the test file's actual `parseTransportation` import + the column shape its other tests use — the above is illustrative of the assertion; adapt the markdown to a header the transport sub-parser recognizes, per existing tests in the file. The load-bearing assertions are: year == show year, and no `2025` literal.)
+(Match the test file's actual `parseTransportation` import + the column shape its other tests use. `<storedPickupDateField>` is a placeholder: locate the field on `TransportationRow` that `parseV2DateTime(...).date` flows into — read `transport.ts:346/436` and the row construction to find it (e.g. a pickup/dropoff date field), and assert on THAT field directly, not on `JSON.stringify`. Load-bearing assertions: the parsed date's year equals the show-DATES year `2026` AND is never `2025`; the un-inferable case is exactly `null`.)
 
 - [ ] **Step 2: Run to verify they fail**
 
