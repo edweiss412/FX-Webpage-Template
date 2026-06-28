@@ -26,6 +26,7 @@ import type {
 } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 import { enrichAgenda } from "@/lib/sync/enrichAgenda";
+import { enrichVenueGeocode } from "@/lib/sync/enrichVenueGeocode";
 
 export const MAX_TOTAL_DIAGRAM_ITEMS = 60;
 
@@ -319,6 +320,11 @@ export async function enrichWithDrivePins(
   // step so all four sync paths inherit it. Mutates result.show.agenda_links +
   // result.warnings; never throws out of the scan.
   await enrichAgenda(result, driveClient, ctx.driveFileId);
+
+  // Geocoding-at-ingest (best-effort): resolve result.show.venue.city via the Google
+  // Geocoding API (cached), so the city works for venues anywhere — not just the
+  // curated name-split fallback. Mutates result.show.venue.city; never throws.
+  await enrichVenueGeocode(result);
 
   return result;
 }

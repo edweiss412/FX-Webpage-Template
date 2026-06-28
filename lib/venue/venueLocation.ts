@@ -275,15 +275,27 @@ function stripTrailingCity(name: string, city: string): string {
  * address never masquerades as a venue name.
  */
 export function venueDisplay(
-  venue: { name?: string | null; address?: string | null } | null | undefined,
+  venue: { name?: string | null; address?: string | null; city?: string | null } | null | undefined,
 ): VenueDisplay {
   if (!venue) return { name: null, city: null };
   const rawName = venue.name?.trim() ? venue.name.trim() : null;
+  // (1) Geocoded city (set by the ingest-time enrichment, lib/sync/enrichVenueGeocode.ts)
+  // is authoritative — it's resolved from the real address via the Google Geocoding
+  // API and works for venues anywhere in the country. Strip a redundant trailing city
+  // from the name so it isn't shown twice.
+  const geocodedCity = venue.city?.trim() ? venue.city.trim() : null;
+  if (geocodedCity) {
+    // stripTrailingCity only shortens the name when the city is redundantly baked into
+    // its tail ("Four Seasons Hotel Chicago"); when the geocoded city isn't a trailing
+    // token ("Kimpton Gray" + city "Chicago") it returns the name unchanged — correct.
+    return { name: rawName ? stripTrailingCity(rawName, geocodedCity) : null, city: geocodedCity };
+  }
+  // (2) Offline fallback: a city mined from a structured address.
   const addressCity = cityFromAddress(venue.address);
   if (addressCity) {
-    // Address is authoritative; strip a redundant trailing city from the name.
     return { name: rawName ? stripTrailingCity(rawName, addressCity) : null, city: addressCity };
   }
+  // (3) Offline fallback: a trailing known city split off the venue name.
   if (rawName) {
     const { base, city } = splitTrailingKnownCity(rawName);
     return { name: base, city };

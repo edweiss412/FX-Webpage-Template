@@ -396,6 +396,19 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?id=eq.default-no-such-row",
   },
+  {
+    // Geocoding-at-ingest cache: written ONLY by the locked service-role sync
+    // enrichment (lib/sync/enrichVenueGeocode.ts via lib/geocoding/cache.ts), never
+    // PostgREST-exposed. REVOKE ALL from anon/authenticated (SELECT too).
+    table: "geocode_cache",
+    closed_at: "supabase/migrations/20260627000001_geocode_cache.sql:45",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      query_hash: "postgrest-dml-lockdown-test",
+    },
+    rowFilter: "?query_hash=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
 ] as const;
 
 // =============================================================================

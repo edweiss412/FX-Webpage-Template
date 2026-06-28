@@ -112,6 +112,14 @@
     "status",
     "triggered_codes"
   ],
+  "geocode_cache": [
+    "city",
+    "expires_at",
+    "geocoded_at",
+    "query_hash",
+    "venue_address",
+    "venue_name"
+  ],
   "hotel_reservations": [
     "check_in",
     "check_out",

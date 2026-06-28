@@ -104,6 +104,11 @@ export type ShowRow = {
     loadingDock?: string | null;
     googleLink?: string | null;
     notes?: string | null;
+    // Best-effort city. NOT set by the parser (which is pure) — the ingest-time
+    // enrichment (lib/sync/enrichVenueGeocode.ts) geocodes name+address via the
+    // Google Geocoding API and writes the city here. venueDisplay prefers it over
+    // the address/name fallbacks. Absent on un-enriched / pre-feature rows.
+    city?: string | null;
   } | null;
   dates: {
     travelIn: string | null;
