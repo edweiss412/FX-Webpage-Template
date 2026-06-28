@@ -99,10 +99,35 @@ next sync (existing behavior).
 
 Add an `AgendaBreakdown` to `Step3SheetCard` (`components/admin/wizard/Step3SheetCard.tsx`),
 rendered inside the existing expandable breakdown area alongside Crew / Schedule /
-Rooms / Hotels. Data source: `pr.show.agenda_links` (the staged `ParseResult`'s
-`show.agenda_links`; `pr` is already in scope — `:607` reads `pr.runOfShow`).
+Rooms / Hotels.
 
-Render rules:
+**All agenda display logic is computed SERVER-SIDE into an explicit preview shape**
+(Codex round-8 F2 + round-9 F2) — the `"use client"` card is pure presentation. The
+Step-3 row gains `adminAgendaPreview?: AdminAgendaItem[]`, built at row assembly from
+`parse_result.show.agenda_links` and serialized INSTEAD of the heavy raw extractions
+(the server also strips `agenda_links[].extracted` from the client-bound
+`parse_result`, so the full extraction never crosses to the browser):
+
+```ts
+type AdminAgendaItem = {
+  label: string;            // agendaDisplayLabel(link.label) ?? link.label, coerced
+  badge: string | null;     // per-doc badge when >1 link, else null
+  href: string | null;      // agendaPdfHref(link) — validated (see below)
+  block: {                  // present iff renderable; else null → note-only item
+    extraction: AgendaExtraction;  // already capped (sessions+tracks)
+    droppedSessions: number; droppedDays: number; droppedTracks: number;
+  } | null;
+};
+```
+
+The card renders purely from `row.adminAgendaPreview`: a `block` item →
+`<AgendaScheduleBlock extraction={block.extraction} label={badge} />` + overflow note
+driven by the explicit `dropped*` counts (which survive serialization because they
+are siblings of `extraction`, NOT inside it — `AgendaScheduleBlock`/`normalizeAgendaExtraction`
+would strip extra fields placed inside the `AgendaExtraction`, round-9 F2); a
+`block: null` item → the muted note + "Open PDF" anchor (when `href` non-null).
+
+Server-side build rules (the logic that produces each `AdminAgendaItem`):
 
 - **Defensive coercion (Codex round-3 Finding 3):** the staged `parse_result` is
   untyped-on-the-wire JSONB; an old/corrupt row may have `agenda_links`
@@ -119,30 +144,24 @@ Render rules:
   else `link.url` ONLY when `typeof url === "string" && /^https?:\/\//i.test(url)`;
   else `null`. The "Open PDF" anchor renders only when the href is non-null, with
   `target="_blank" rel="noopener noreferrer"`; a null href → note text only.
-- Else render a `BreakdownSection label="Agenda" count={links.length}` containing,
-  per link **in array order**. **The block-vs-note choice is made by an EXPLICIT
-  renderability predicate, NOT `link.extracted` truthiness** (Codex round-2
-  Finding 2): a React component returning `null` does NOT fall through to a sibling
-  branch, so `link.extracted ? <Block/> : <Note/>` would render an empty section
-  for a low-confidence/malformed/zero-day payload (which IS truthy). The card
-  computes the SAME gate `AgendaScheduleBlock` uses, up front:
+- **`block` vs note is decided by an EXPLICIT renderability predicate, NOT
+  `link.extracted` truthiness** (Codex round-2 Finding 2 — a low-confidence/malformed/
+  zero-day payload is truthy, so `extracted ? block : note` would yield an empty
+  block). The server computes the SAME gate `AgendaScheduleBlock` uses:
   ```ts
   const norm = normalizeAgendaExtraction(link.extracted); // lib/agenda/normalizeAgendaExtraction
   const renderable = !!norm && norm.confidence === "high" && norm.days.length > 0;
   ```
-  - if `renderable` → render the block with a **capped** extraction (see "Render-size
-    cap" below) `<AgendaScheduleBlock extraction={capped} label={links.length > 1 ?
-    agendaDisplayLabel(link.label) : null} />` + an overflow note when truncated.
-  - else (missing / low-confidence / malformed / zero-day `extracted`, **including a
-    cap/budget-skipped link** which simply has no `extracted`) → a one-line muted
-    note: `"{agendaDisplayLabel(link.label) ?? link.label} · agenda schedule not shown
-    here"`, **followed by an "Open PDF" anchor iff `agendaPdfHref(link)` is non-null**
-    (the validated href above). No valid target → note text only. (Copy is accurate
-    for both "couldn't auto-read" and "skipped — open the PDF".)
-- The `label` badge (per-document, e.g. "RFI"/"PCF") is shown only when
-  `links.length > 1`, mirroring the crew rule
-  (`ScheduleSection.tsx:131-132`, `agendaDisplayLabel` from
-  `lib/agenda/agendaLabel.ts`, imported at `ScheduleSection.tsx:42`).
+  - `renderable` → `block = { extraction: capExtractionForAdmin(norm, …), droppedSessions, droppedDays, droppedTracks }` (cap per "Render-size cap").
+  - else (missing / low-confidence / malformed / zero-day, **including a cap/budget-
+    skipped link** which simply has no `extracted`) → `block = null`; the card shows
+    the muted note `"{label} · agenda schedule not shown here"` + "Open PDF" iff
+    `href` non-null (copy accurate for both "couldn't auto-read" and "skipped").
+- `badge` (per-doc, e.g. "RFI"/"PCF") is set only when the renderable-or-noted link
+  count `> 1`, mirroring the crew rule (`ScheduleSection.tsx:131-132`,
+  `agendaDisplayLabel` from `lib/agenda/agendaLabel.ts`).
+- The `BreakdownSection label="Agenda" count={adminAgendaPreview.length}` is omitted
+  when the preview is empty.
 
 **Render-size cap (Codex round-5 Finding 1).** `AgendaScheduleBlock` maps **all**
 days/sessions/tracks — fine on the crew page (authoritative full view) but, on the
@@ -161,37 +180,35 @@ the crew component and crew page are untouched):
   would otherwise bloat the card despite the session cap, since `AgendaScheduleBlock`
   renders every track of every kept session). Returns
   `{ capped, droppedSessions, droppedDays, droppedTracks }`.
-- When `droppedSessions > 0` **or `droppedTracks > 0`**, render an overflow note
-  under the block: `"+{droppedSessions} more sessions — open the PDF"` (and, when
-  only tracks were dropped, `"Some breakout tracks hidden — open the PDF"`) with the
-  `agendaPdfHref(link)` anchor. Mirrors `ScheduleBreakdown`'s in-place overflow stub.
-- **Links** are bounded by the per-sheet extraction cap, but the breakdown also caps
-  the number of links it RENDERS at `AGENDA_MAX_PDFS_PER_SHEET` (note-only links
-  included), with a trailing `"+N more agenda PDFs"` note when exceeded — so even a
-  pathological `agenda_links` array can't produce unbounded rows.
+- The `dropped*` counts ride on the preview `block` (siblings of `extraction`). The
+  card renders an overflow note under the block when `droppedSessions > 0` **or
+  `droppedTracks > 0`**: `"+{droppedSessions} more sessions — open the PDF"` (or, when
+  only tracks dropped, `"Some breakout tracks hidden — open the PDF"`) with the item
+  `href` anchor. Mirrors `ScheduleBreakdown`'s in-place overflow stub. (The counts are
+  an explicit side-channel precisely because `AgendaScheduleBlock`/`normalizeAgendaExtraction`
+  would discard any field placed INSIDE the `AgendaExtraction` — round-9 F2.)
+- **Links** are bounded by the per-sheet extraction cap, but the server also caps the
+  preview at `AGENDA_MAX_PDFS_PER_SHEET` items (note items included), appending a
+  synthetic trailing note item `"+N more agenda PDFs"` when exceeded — so even a
+  pathological `agenda_links` array can't produce unbounded rows OR payload.
 - Constants `AGENDA_ADMIN_SESSIONS_CAP = 8`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP = 6`
   (compact review view; full agenda is one "Open PDF" click away). Real corpus (RFI
   18 / PCF 19 sessions; ≤2 tracks/session) → 8 shown + overflow note, tracks
   unaffected (under the track cap) — exactly the bounded-review behavior intended.
 
-**Cap the CLIENT payload, not just the DOM (Codex round-8 Finding 2).** `Step3Review`
-and `Step3SheetCard` are `"use client"` (`Step3SheetCard.tsx:2`, `Step3Review.tsx:7`),
-so the full staged `parse_result` — including each stored `agenda_links[].extracted`
-(up to an 80-page agenda × up to `AGENDA_MAX_PDFS_PER_SCAN` links) — is serialized to
-the browser as props. Slicing inside the card caps DOM rows but NOT the serialized
-JSON. So `capExtractionForAdmin` is applied **server-side, where the Step-3 rows are
-assembled** (the server boundary that builds `result.rows` for
-`OnboardingWizard`/`Step3Review` — exact file pinned in the plan's pre-draft pass;
-candidates are the scan-result row assembly and the staged-review server component
-`app/admin/onboarding/staged/.../page.tsx`): each row's
-`agenda_links[].extracted` is replaced with its capped form (≤ `AGENDA_ADMIN_SESSIONS_CAP`
-sessions, ≤ `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks/session) plus the drop
-counts, BEFORE the row crosses into the client component. The card then renders the
-already-capped data (no second cap needed, but the predicate/note logic is unchanged).
-A test asserts the **client props** (not just the rendered DOM) carry ≤ cap
-sessions/tracks for an over-cap extraction. (The broader "full `parse_result` →
-client" shape is pre-existing for every breakdown; this feature caps the one item —
-extracted agenda — that can be large, rather than refactoring the whole wizard fetch.)
+**Where the server build runs.** `adminAgendaPreview` is computed at the Step-3 row
+assembly — the server boundary that builds `result.rows` for
+`OnboardingWizard`/`Step3Review` AND the staged-review server component
+`app/admin/onboarding/staged/.../page.tsx` (exact files pinned in the plan's
+pre-draft pass). The same boundary strips `agenda_links[].extracted` from the
+client-bound `parse_result`. So the browser receives only the bounded preview
+(≤ `AGENDA_MAX_PDFS_PER_SHEET` items, each block ≤ `AGENDA_ADMIN_SESSIONS_CAP`
+sessions × `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks) — never the full extraction.
+A test asserts the **serialized row props** (not just rendered DOM) carry ≤ cap
+sessions/tracks AND the correct `dropped*`/overflow note for an over-cap extraction.
+(The broader "full `parse_result` → client" shape is pre-existing for every
+breakdown; this feature caps the one large item — extracted agenda — rather than
+refactoring the whole wizard fetch.)
 
 **Reuse, not fork:** import the existing `AgendaScheduleBlock`
 (`components/crew/AgendaScheduleBlock.tsx`) — it is a pure presentational Server
@@ -345,17 +362,23 @@ decrement is synchronous (no `await` between read and write), so it is safe unde
 (single show — the per-sheet cap already bounds it; `undefined` budget = no scan
 limit).
 
-**Budget gates `getAgendaChips` too (Codex round-7 Finding 1).** `enrichAgenda` does
-fileId recovery via `getAgendaChips(spreadsheetId)` ONCE per sheet (before the link
-loop) whenever any link lacks a `fileId` — and this feature's target shows ARE
-chip-based (fileId-less until recovery), so without gating, a large folder issues one
-Sheets read per sheet regardless of budget. Fix: (a) `enrichAgenda` **entry-gate** —
-`if (agendaBudget && agendaBudget.remaining <= 0) return;` BEFORE the chip-recovery
-block, so an exhausted budget skips the sheet's chips AND links; (b) `getAgendaChips`
-is called only when `remaining > 0` **and** ≥1 link still needs a fileId. Because any
-sheet that passes the entry-gate then consumes ≥1 budget in its loop, the number of
-sheets reaching `getAgendaChips` is ≤ `AGENDA_MAX_PDFS_PER_SCAN` + concurrency (≤12
-in-flight before decrements land) — bounded by the budget, NOT folder size.
+**Budget CONSUMES for `getAgendaChips`, not just gates it (Codex round-7 F1 +
+round-9 F1).** `enrichAgenda` does fileId recovery via `getAgendaChips(spreadsheetId)`
+ONCE per sheet whenever any link lacks a `fileId` — and this feature's target shows
+ARE chip-based. An entry-gate alone is insufficient: if chip recovery then returns
+`infra_error` / a count-mismatch / no-chip rows, the per-link loop hits
+`if (!link.fileId) continue` and **never decrements**, so a folder of chip-failing
+sheets keeps `remaining` unchanged and issues one Sheets read per sheet — the bypass
+round-9 F1 caught. Fix: the **chip recovery itself reserves budget**. Before calling
+`getAgendaChips`, `enrichAgenda`: if `agendaBudget && remaining <= 0` → skip chip
+recovery entirely (links stay fileId-less → note items); else **decrement 1**
+(reserving the Sheets call) and call `getAgendaChips`. The decrement happens
+**regardless of the chip call's outcome** (rows / mismatch / `infra_error`), so every
+`getAgendaChips` consumes budget. The per-link loop then decrements per processed
+fileId-bearing link as before. Net: `getAgendaChips` calls ≤ `AGENDA_MAX_PDFS_PER_SCAN`
++ concurrency, and total Sheets+Drive calls (chips + getFile + downloads) are all
+budget-bounded, independent of folder size or chip-failure rate. (The per-sheet cap
+`AGENDA_MAX_PDFS_PER_SHEET` likewise counts the chip reservation + per-link attempts.)
 
 Net: total onboarding agenda work — `getAgendaChips` reads, `getFile` metadata, and
 `downloadFileBytes` — is ≤ `AGENDA_MAX_PDFS_PER_SCAN` (+concurrency) attempts, each
@@ -433,11 +456,15 @@ unaffected; they are pure pathological-input backstops.
    extraction with one kept session carrying `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP + N`
    tracks → only the cap is rendered + the track-overflow note (assert via the
    `agenda-schedule` block's track rows, count derived from the constant); (n)
-   **client-payload cap (round-8 F2):** the SERVER row-assembly applied to an over-cap
-   extraction yields client `rows` whose `agenda_links[].extracted` carries
-   ≤ `AGENDA_ADMIN_SESSIONS_CAP` sessions / ≤ `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`
-   tracks — assert against the **serialized row props**, not the rendered DOM (prove
-   the surplus never reaches the browser). **Derive expected counts from the
+   **client-payload cap + overflow side-channel (round-8 F2 + round-9 F2):** the
+   SERVER row-assembly applied to an over-cap extraction yields client `rows` whose
+   `adminAgendaPreview[i].block.extraction` carries ≤ `AGENDA_ADMIN_SESSIONS_CAP`
+   sessions / ≤ `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks AND non-zero
+   `droppedSessions`/`droppedTracks`; the raw `agenda_links[].extracted` is **stripped**
+   from the client `parse_result`. Assert against the **serialized row props** (surplus
+   never reaches the browser) AND that the card, rendering from those props, shows the
+   "+N more sessions" overflow note (proves the drop-count side-channel survives
+   serialization — not swallowed by `normalizeAgendaExtraction`). **Derive expected counts from the
    extraction + the cap constants, not hardcoded** (anti-tautology — a fixture with
    fewer than cap sessions/tracks can never prove truncation); when scanning DOM for a
    label, clone-and-strip sibling breakdowns first. *Failure modes caught:* the
@@ -459,15 +486,18 @@ unaffected; they are pure pathological-input backstops.
      extracted; the surplus links have **no `extracted` and emit NO warning** (assert
      the warnings list gains no `AGENDA_PDF_UNREADABLE` for the skipped links — they
      surface via the card note, tested in Task 3).
-   - `enrichAgenda` scan budget gates **`getFile` AND `getAgendaChips`** (round-6 F1
-     + round-7 F1): drive several `enrichAgenda` calls (distinct "sheets", each with
-     ≥1 **fileId-less** link → would need chip recovery) sharing one
-     `agendaBudget = { remaining: 2 }` → assert the spied `getAgendaChips` is invoked
-     **at most ~2 times total** (budget-bounded), NOT once per sheet, and `getFile`
-     likewise ≤ budget; later sheets return early at the entry-gate (no Sheets/Drive
-     call). Assert a `ctx` with **no** `agendaBudget` (cron) imposes no scan limit.
-     *Failure mode caught:* a chip-based folder issuing one `getAgendaChips` Sheets
-     read per sheet before the budget is consulted, exceeding the 300s request.
+   - `enrichAgenda` scan budget **consumes for `getAgendaChips`** (round-6 F1 +
+     round-7 F1 + **round-9 F1**): drive several `enrichAgenda` calls (distinct
+     "sheets", each with ≥1 **fileId-less** link) sharing one
+     `agendaBudget = { remaining: 2 }`, where `getAgendaChips` returns the **failure
+     outcomes** — `infra_error` on one sheet, a label/count **mismatch** on another,
+     **no-chip rows** on a third (so the per-link loop would NOT decrement) → assert
+     the spied `getAgendaChips` is invoked **≤ ~2 times total** (the chip call itself
+     consumed budget despite failing), NOT once per sheet, and `getFile` likewise ≤
+     budget; later sheets return early (no Sheets/Drive call). Assert a `ctx` with
+     **no** `agendaBudget` (cron) imposes no scan limit. *Failure mode caught:* a
+     folder of chip-FAILING sheets issuing unbounded `getAgendaChips` reads because
+     the loop-only decrement never fires.
    - **Call-timeout / stall (round-8 F1):** `downloadFileBytes` over a stream that
      stalls (no bytes past the idle window, via a tiny `createStallGuard` timeout
      seam) → `{ kind: "infra_error" }` (aborted, not a hang); `getAgendaChips` whose
@@ -503,8 +533,9 @@ unaffected; they are pure pathological-input backstops.
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed; **+ `createStallGuard` idle-abort on the stream → `infra_error` on stall**; `getAgendaChips` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry** (per `sheetGids.ts`) → `infra_error` on timeout |
-| Step-3 server row-assembly (exact file pinned in plan — `OnboardingWizard` `result.rows` source + `app/admin/onboarding/staged/.../page.tsx`) | apply `capExtractionForAdmin` to each row's `agenda_links[].extracted` **server-side** before it crosses to the client component (caps the serialized payload, not just DOM) |
-| `lib/sync/enrichAgenda.ts` | entry-gate (`remaining<=0`→return) before `getAgendaChips`; per-link attempt gating before `getFile`: per-sheet count cap + scan `agendaBudget` decrement/skip; **no warning** on cap/budget skip (new `agendaBudget` param) |
+| Step-3 server row-assembly (exact files pinned in plan — `OnboardingWizard` `result.rows` source + `app/admin/onboarding/staged/.../page.tsx`) | build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge) **server-side**; strip `agenda_links[].extracted` from the client-bound `parse_result` |
+| Step-3 row type (`AdminAgendaItem` + `adminAgendaPreview` field) | new shared type (next to `Step3Row`) carrying the server-computed preview |
+| `lib/sync/enrichAgenda.ts` | budget **consumes 1 for `getAgendaChips`** (before the call, regardless of outcome) + per-link attempt decrement before `getFile`; per-sheet + scan caps; **no warning** on cap/budget skip (new `agendaBudget` param) |
 | `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion + `capExtractionForAdmin` render-size cap); render from `pr.show?.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
 | `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
@@ -558,6 +589,11 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   + retry on `getAgendaChips`** (reuse the existing onboarding-scan Drive-timeout
   guards; stall/timeout → `infra_error`) so no Drive/Sheets hang can stall the scan
   (Codex round-8 F1).
-- Client payload: **`capExtractionForAdmin` applied server-side at Step-3 row
-  assembly** so the capped agenda (not the full extraction) is serialized to the
-  client (Codex round-8 F2).
+- Client payload + display logic: **server-computed `adminAgendaPreview` shape**
+  (predicate + cap + `dropped*` side-channel + validated href + badge); client card
+  is pure presentation; raw `extracted` stripped from the client `parse_result`
+  (Codex round-8 F2 + round-9 F2 — drop counts ride as explicit siblings so they
+  survive `normalizeAgendaExtraction`).
+- Chip budget: **`getAgendaChips` consumes 1 budget before the call regardless of
+  outcome** (not just an entry-gate) so chip-failing sheets can't bypass the
+  scan-level bound (Codex round-9 F1).
