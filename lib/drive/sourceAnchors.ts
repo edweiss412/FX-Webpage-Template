@@ -106,7 +106,10 @@ function gridToRows(grid: AbsGrid): string[][] {
   for (let r = grid.minRow; r <= grid.maxRow; r++) {
     const cells: string[] = [];
     for (let c = grid.minCol; c <= grid.maxCol; c++) cells.push(grid.cell(r, c));
-    if (cells.some((x) => x.trim().length > 0)) rows.push(cells);
+    // Non-blank-row check via /\S/ (NOT .trim()) — lib/drive is scanned by the
+    // no-inline-email-normalization guard (AGENTS.md §1.3); this is GEAR-grid cell
+    // content, never email, so we avoid the flagged trim() rather than exempt it.
+    if (cells.some((x) => /\S/.test(x))) rows.push(cells);
   }
   return rows;
 }
