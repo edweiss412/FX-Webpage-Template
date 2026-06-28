@@ -54,7 +54,7 @@
   - `isGroupingOnly(text: string): boolean` — true iff the row is a recognized **bucket-setter AND** its trimmed text ends in `PACKAGE` (i.e. a structural grouping header — SOUND SYSTEM / STAGE LIGHTING / (LED) UPLIGHTING PACKAGE — that is NOT emitted as an item). Real `* PACKAGE` equipment that is NOT a bucket-setter (`ZOOM LAPTOP PACKAGE`, `PTZ CAMERA PACKAGE`) is NOT grouping-only and IS emitted (R5-HIGH — a blanket `/PACKAGE$/` rule would silently drop them).
   - `classifyGearItem(text: string, activeBucket: "audio"|"lighting"|null): GearDiscipline` — allow-list-first, bucket fallback, else `other`.
   - `SENSITIVE_KEY_TOKENS: ReadonlySet<string>` = `{budget, po, purchase, proposal, invoice, cost, price, quote, estimate, internal}`.
-  - `isSensitiveCanonicalKey(key: string): boolean` — true iff any `_`-token of `key` ∈ `SENSITIVE_KEY_TOKENS`.
+  - `isSensitiveCanonicalKey(key: string): boolean` — true iff, after merging consecutive single-char tokens (so `p_o`→`po`), any token ∈ `SENSITIVE_KEY_TOKENS` OR matches the PO-word regex `/^po(num(ber)?|s)?$/`. Closes po / p_o / po_number / ponumber / p_o_number (PO#, P.O. Number, P/O #, P O Number, PONumber, P.O.Number) without over-matching podium/polling/power/position/report/deposit (R6/R7).
 
 - [ ] **Step 1: Write the failing classification test** — `tests/parser/gearClassification.test.ts`
 
@@ -117,10 +117,10 @@ describe("gearBucketFor / isGroupingOnly", () => {
 });
 
 describe("isSensitiveCanonicalKey (permission boundary)", () => {
-  it.each(["budget", "po", "po_number", "po_", "p_o_number", "purchase_order", "invoice", "invoice_notes", "proposal", "cost", "price", "quote", "estimate", "internal", "internal_notes"])(
-    "%s is sensitive", (k) => expect(isSensitiveCanonicalKey(k)).toBe(true)); // p_o_number = the space-separated 'P O Number' bypass (R6)
-  it.each(["keynote_requirements", "opening_reel", "power", "internet", "additional_notes", "backdrop", "podium_type", "deposit", "component", "report", "polling"])(
-    "%s is NOT sensitive (no anchored-po over-match)", (k) => expect(isSensitiveCanonicalKey(k)).toBe(false));
+  it.each(["budget", "po", "po_number", "ponumber", "ponum", "p_o", "p_o_number", "purchase_order", "invoice", "invoice_notes", "proposal", "cost", "price", "quote", "estimate", "internal", "internal_notes"])(
+    "%s is sensitive", (k) => expect(isSensitiveCanonicalKey(k)).toBe(true)); // ponumber=PONumber/P.O.Number (R7); p_o_number=P O Number (R6)
+  it.each(["keynote_requirements", "opening_reel", "power", "internet", "additional_notes", "backdrop", "podium_type", "deposit", "component", "report", "polling", "position", "power_requirements"])(
+    "%s is NOT sensitive (no po-prefix over-match)", (k) => expect(isSensitiveCanonicalKey(k)).toBe(false));
 });
 ```
 
@@ -155,14 +155,21 @@ export function classifyGearItem(text: string, activeBucket: "audio"|"lighting"|
   return activeBucket ?? "other";
 }
 export const SENSITIVE_KEY_TOKENS: ReadonlySet<string> = new Set(["budget","po","purchase","proposal","invoice","cost","price","quote","estimate","internal"]);
+// Robust permission-boundary guard (R6/R7). toCanonicalKey strips punctuation and
+// collapses spaces to "_", so PO appears as po / p_o / po_number / ponumber /
+// p_o_number across "PO#", "P.O. Number", "P/O #", "P O Number", "PONumber",
+// "P.O.Number". To close ALL of these in ONE place: (1) MERGE consecutive
+// single-char tokens (p,o -> po) so separated variants collapse; (2) match each
+// token against the multi-char roots OR a PO-word regex that requires a real word
+// boundary (so podium/polling/power/position/report do NOT over-match).
 export function isSensitiveCanonicalKey(key: string): boolean {
-  const k = key.toLowerCase();
-  if (k.split("_").some((t) => SENSITIVE_KEY_TOKENS.has(t))) return true;
-  // PO punctuation/spacing variants (R6): toCanonicalKey strips dots/slashes so
-  // "P.O. Number"->"po_number" and "P/O #"->"po_" are already caught by the `po`
-  // token; this anchored regex ALSO closes the space-separated "P O Number"->
-  // "p_o_number" case. Anchored on token boundaries so "deposit"/"component" don't match.
-  return /(^|_)p_?o(_|$)/.test(k);
+  const merged: string[] = [];
+  for (const t of key.toLowerCase().split("_")) {
+    const prev = merged[merged.length - 1];
+    if (t.length === 1 && prev !== undefined && prev.length <= 1) merged[merged.length - 1] = prev + t;
+    else merged.push(t);
+  }
+  return merged.some((t) => SENSITIVE_KEY_TOKENS.has(t) || /^po(num(ber)?|s)?$/.test(t));
 }
 // Exposed for the collision tripwire:
 export const __ALLOW_LISTS__ = { audio: AUDIO, video: VIDEO, lighting: LIGHTING, scenic: SCENIC } as const;
@@ -498,17 +505,21 @@ describe("crew-visible event_details never carries a financial/internal key (spe
     const leaked = Object.keys(ed).filter(isSensitiveCanonicalKey);
     expect(leaked, `leaked: ${leaked.join(",")}`).toEqual([]);
   });
-  it("synthetic injection: each forbidden label (incl. PO punctuation/spacing variants) is dropped", () => {
+  it("synthetic injection: financial labels (incl. PO punctuation/spacing/no-sep variants) are dropped while the harvest runs", () => {
     const synthetic = [
       "| EVENT DETAILS | EVENT DETAILS |","| :---: | :---: |",
-      "| Keynote Requirements | TBD |","| Power Requirements | wifi |","| Internet Requirements | y |",
-      "| Budget | 50000 |","| PO# | 12345 |","| P.O. Number | 1 |","| P/O # | 2 |","| P O Number | 3 |",
-      "| Proposal | x |","| Invoice | y |","| Invoice Notes | z |","| Internal | q |","| Additional Notes | hi |",
+      // 3 KNOWN-vocab labels guarantee the >=3-known anchor fires (R7-M2):
+      "| Keynote Requirements | KEYNOTE-FROM-FORM |","| Virtual Speaker | yes |","| Stage Size | 20x30 |",
+      // financial labels in every PO spelling + the other roots:
+      "| Budget | 50000 |","| PO# | 12345 |","| P.O. Number | 1 |","| P/O # | 2 |","| P O Number | 3 |","| PONumber | 4 |","| P.O.Number | 5 |",
+      "| Proposal | x |","| Invoice | y |","| Invoice Notes | z |","| Internal | q |",
+      "| Additional Notes | hi |",
     ].join("\n");
     const ed = parseSheet(synthetic,"s.md").show.event_details;
-    // (a) via the helper, AND (b) by EXACT key shape (non-tautological — independent of the helper, R6):
+    expect(ed["keynote_requirements"]).toBe("KEYNOTE-FROM-FORM"); // PROVES the form harvest actually ran (R7-M2)
+    // (a) via the helper AND (b) by EXACT key shape — independent of the helper (R6/R7):
     expect(Object.keys(ed).filter(isSensitiveCanonicalKey)).toEqual([]);
-    for (const k of Object.keys(ed)) expect(k).not.toMatch(/(^|_)p_?o(_|$)|budget|invoice|proposal|cost|price|quote|estimate|internal|purchase/);
+    for (const k of Object.keys(ed)) expect(k.replace(/_/g, "")).not.toMatch(/^po(num(ber)?|s)?$|budget|invoice|proposal|cost|price|quote|estimate|internal|purchase/);
     expect(ed["additional_notes"]).toBe("hi"); // recovered despite following financials
   });
 });
