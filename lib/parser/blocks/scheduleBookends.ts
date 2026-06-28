@@ -1,6 +1,8 @@
-import { presence, normalizeDate } from "./_helpers";
+import { presence, normalizeDate, clean, decodeEntities } from "./_helpers";
 import { extractFirstClock } from "./scheduleTimes";
+import { extractClockTimeTokens } from "./dates";
 import { strikeDateOffSchedule } from "./agendaWarnings";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import type {
   RoomKind,
   ScheduleDay,
@@ -44,6 +46,39 @@ const STRIKE_ROOM_NAME_CAP = 3;
 function appendEntry(ros: Record<string, ScheduleDay>, iso: string, entry: AgendaEntry): void {
   const day = ros[iso] ?? { entries: [], showStart: null, window: null };
   ros[iso] = { ...day, entries: [...day.entries, entry] };
+}
+
+/** Text immediately before a clock → its label. Mirrors titleAfter (scheduleTimes.ts:88) but
+ *  strips separators on BOTH ends ("Load In:"→"Load In", " / Room Access:"→"Room Access"). D-SET1. */
+function labelBefore(cell: string, from: number, to: number): string {
+  const slice = cell
+    .slice(from, to)
+    .replace(/^\s*[-–:/,;]?\s*/, "")
+    .replace(/\s*[-–:/,;]?\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return shouldHideGenericOptional(slice) ? "" : slice;
+}
+
+/**
+ * Label-before-clock tokenizer for the SET TIME cell. Returns one {label,clock} per
+ * colon-required clock when the cell is label-before-shaped (a colon-terminated label
+ * precedes the first clock); otherwise `[]` (time-first / no-colon / no-clock → caller
+ * falls through to the loadIn/setupTime synthesis). Clock values come from the same
+ * decodeEntities(clean(...)) as extractClockTimes, so they equal dates.loadIn/setupTime. §4.3
+ */
+export function tokenizeSetSchedule(raw: string | null): { label: string | null; clock: string }[] {
+  const c = decodeEntities(clean(raw ?? ""));
+  if (!c) return [];
+  const toks = extractClockTimeTokens(c);
+  if (toks.length === 0) return [];
+  const lead = c.slice(0, toks[0]!.start);
+  if (!/:\s*$/.test(lead)) return []; // not label-before → caller falls through
+  return toks.map((t, i) => {
+    const prevEnd = i === 0 ? 0 : toks[i - 1]!.end;
+    const label = labelBefore(c, prevEnd, t.start);
+    return { label: label || null, clock: t.clock };
+  });
 }
 
 export function deriveScheduleBookends(

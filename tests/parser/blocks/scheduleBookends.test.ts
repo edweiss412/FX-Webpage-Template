@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseRoomTimeCell, deriveScheduleBookends } from "@/lib/parser/blocks/scheduleBookends";
+import {
+  parseRoomTimeCell,
+  deriveScheduleBookends,
+  tokenizeSetSchedule,
+} from "@/lib/parser/blocks/scheduleBookends";
 import type {
   RoomRow,
   RoomKind,
@@ -211,5 +215,58 @@ describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
     };
     const { runOfShow } = deriveScheduleBookends(input, d, null, [], "2025");
     expect(runOfShow!["2025-05-12"]!.entries.map((e) => e.title)).toEqual(["Session", "Load In"]);
+  });
+});
+
+describe("tokenizeSetSchedule (D-SET1)", () => {
+  it("label-before 2-time → derived labels", () => {
+    expect(tokenizeSetSchedule("Load In: 7:00 PM Room Access: 8:30 PM")).toEqual([
+      { label: "Load In", clock: "7:00 PM" },
+      { label: "Room Access", clock: "8:30 PM" },
+    ]);
+  });
+  it("label-before N=3", () => {
+    expect(tokenizeSetSchedule("Load In: 8:00 AM Rehearsal: 1:00 PM Doors: 5:00 PM")).toEqual([
+      { label: "Load In", clock: "8:00 AM" },
+      { label: "Rehearsal", clock: "1:00 PM" },
+      { label: "Doors", clock: "5:00 PM" },
+    ]);
+  });
+  it("mode: trailing labels (time-first) → [] (R9-R14 pin)", () => {
+    expect(tokenizeSetSchedule("9:00PM - LOAD IN 10:00PM - SETUP")).toEqual([]);
+    expect(tokenizeSetSchedule("8:00 AM LOAD IN As per Alyssa email 4/29")).toEqual([]);
+    expect(tokenizeSetSchedule("11:00 AM LOAD IN")).toEqual([]);
+  });
+  it("mode: leading provenance (non-colon lead) → [] (R1 P1b pin)", () => {
+    expect(tokenizeSetSchedule("As per Alyssa email 4/29 8:00 AM LOAD IN")).toEqual([]);
+  });
+  it("separator strip (R1 P2a): '/' before a label", () => {
+    expect(tokenizeSetSchedule("Load In: 7:00 PM / Room Access: 8:30 PM")).toEqual([
+      { label: "Load In", clock: "7:00 PM" },
+      { label: "Room Access", clock: "8:30 PM" },
+    ]);
+  });
+  it("entity inside a clock (R2 P1d)", () => {
+    expect(tokenizeSetSchedule("Load In: 7:00&#9;PM Room Access: 8:30 PM")).toEqual([
+      { label: "Load In", clock: "7:00 PM" },
+      { label: "Room Access", clock: "8:30 PM" },
+    ]);
+  });
+  it("entity in a label (§9.B): 'Room Access:&#10;8:30 PM' → label 'Room Access'", () => {
+    expect(tokenizeSetSchedule("Load In: 7:00 PM Room Access:&#10;8:30 PM")).toEqual([
+      { label: "Load In", clock: "7:00 PM" },
+      { label: "Room Access", clock: "8:30 PM" },
+    ]);
+  });
+  it("degradation: empty / no-clock / null → []", () => {
+    expect(tokenizeSetSchedule("")).toEqual([]);
+    expect(tokenizeSetSchedule("AFTER 8PM")).toEqual([]);
+    expect(tokenizeSetSchedule(null)).toEqual([]);
+  });
+  it("unlabeled tail in label-before mode → position default null", () => {
+    expect(tokenizeSetSchedule("Setup: 7:00 PM 8:30 PM")).toEqual([
+      { label: "Setup", clock: "7:00 PM" },
+      { label: null, clock: "8:30 PM" },
+    ]);
   });
 });
