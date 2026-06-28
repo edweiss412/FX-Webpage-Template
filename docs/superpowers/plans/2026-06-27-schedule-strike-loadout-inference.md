@@ -579,14 +579,14 @@ git commit --no-verify -m "feat(parser): deriveScheduleBookends load-out + SET s
 
 - [ ] **Step 1: Add the §12.4 catalog row (spec prose)**
 
-In `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 table, add a row for `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` modeled on the `SCHEDULE_TIME_UNPARSED` row: when-it-fires + operator-facing `helpfulContext` ("A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day."), and the `/help/errors#…` anchor.
+In `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 table, add a row for `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` modeled **exactly** on the `SCHEDULE_TIME_UNPARSED` row (same columns the table uses): when-it-fires, operator-facing copy, follow-up, help anchor. Operator copy: "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day."
 
-- [ ] **Step 2: Regenerate + add catalog row**
+- [ ] **Step 2: Regenerate + add catalog row matching the real `MessageEntry` schema**
 
 ```bash
 pnpm gen:spec-codes && pnpm gen:internal-code-enums
 ```
-Then add the matching row to `lib/messages/catalog.ts` (code, title, helpfulContext, `helpHref: "/help/errors#schedule-strike-date-off-schedule"`).
+Then add the matching row to `lib/messages/catalog.ts` using the **same field set as the `SCHEDULE_TIME_UNPARSED` entry** (`catalog.ts:1208-1220`): `code`, `dougFacing`, `crewFacing` (null), `followUp` ("Doug → check sheet"), `helpfulContext`, and `helpHref: "/help/errors#SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"` — **CODE-shape anchor** (catalog `helpHref` is always `/help/errors#<CODE>`, e.g. `#SCHEDULE_TIME_UNPARSED` at `catalog.ts:1219`; the `RefAnchor` `VALID_ID` regex is SCREAMING_SNAKE, so kebab would not resolve). Copy the exact field names from the sibling row; do not invent `title`.
 
 - [ ] **Step 3: Run the x1 catalog-parity gate to verify it fails before the catalog row, passes after**
 
