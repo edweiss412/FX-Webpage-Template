@@ -43,8 +43,11 @@
 
 - [ ] **Step 1: Write the failing tests** (append to `dates.test.ts`)
 
+**Import:** `dates.test.ts:3` already has `import { parseDates, extractClockTimes } from "@/lib/parser/blocks/dates";` — **extend that existing line** to add `extractClockTimeTokens` (do NOT add a second import of `extractClockTimes`, which would be a duplicate binding / compile error).
+
 ```ts
-import { extractClockTimes, extractClockTimeTokens } from "@/lib/parser/blocks/dates";
+// dates.test.ts:3 becomes:
+import { parseDates, extractClockTimes, extractClockTimeTokens } from "@/lib/parser/blocks/dates";
 
 describe("extractClockTimeTokens — position core (D-SET1)", () => {
   it("returns clock + offsets indexing the given (decoded+cleaned) string", () => {
@@ -78,11 +81,13 @@ export function extractClockTimeTokens(text: string): { clock: string; start: nu
   const re = /\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g;
   const out: { clock: string; start: number; end: number }[] = [];
   for (const m of text.matchAll(re)) {
-    const clock = m[0]
+    const raw = m[0]!; // `!`: a regex match always has [0] (noUncheckedIndexedAccess widens it to string|undefined)
+    const idx = m.index!; // `!`: matchAll always sets .index (typed number|undefined)
+    const clock = raw
       .replace(/\s+/g, " ")
       .replace(/([AaPp][Mm])$/, (s) => s.toUpperCase())
       .trim();
-    out.push({ clock, start: m.index, end: m.index + m[0].length });
+    out.push({ clock, start: idx, end: idx + raw.length });
   }
   return out;
 }
@@ -129,23 +134,34 @@ Capture and strip land **together** so `show.dates` is never polluted at a task 
 
 - [ ] **Step 1: Write the failing tests**
 
-In `dates.test.ts`:
+In `dates.test.ts` — **add these `it(...)` blocks INSIDE the existing `describe("parseDates — loadIn capture (§9 test 4)", …)` block (`:305`) so they reuse its local `datesTable(rows: Array<[label, day, date, time]>)` helper (`:306-312`, which renders `| | ${label} | ${day} | ${date} | ${time} |` under a 5-col DATES header).** Do NOT define a new helper.
 ```ts
-describe("parseDates — setAgendaRaw capture (D-SET1)", () => {
-  const datesTable = (rows: string[][]) =>
-    ["| DATES |", "|---|", ...rows.map((r) => `| ${r.join(" | ")} |`)].join("\n");
-  it("captures the RAW SET TIME cell (undecoded, not normalized)", () => {
-    const md = datesTable([["", "SET", "Tue", "3/23/26", "Load In: 7:00 PM Room Access: 8:30 PM"]]);
+  it("captures the RAW SET TIME cell on setAgendaRaw (undecoded; field capture unchanged)", () => {
+    const md = datesTable([["SET", "Tue", "3/23/26", "Load In: 7:00 PM Room Access: 8:30 PM"]]);
     const d = parseDates(md, "v4");
     expect(d.setAgendaRaw).toBe("Load In: 7:00 PM Room Access: 8:30 PM");
-    expect(d.loadIn).toBe("7:00 PM");      // field capture unchanged
+    expect(d.loadIn).toBe("7:00 PM");
     expect(d.setupTime).toBe("8:30 PM");
   });
   it("empty SET TIME cell → setAgendaRaw null", () => {
-    const md = datesTable([["", "SET", "Tue", "3/23/26", ""]]);
+    const md = datesTable([["SET", "Tue", "3/23/26", ""]]);
     expect(parseDates(md, "v4").setAgendaRaw).toBeNull();
   });
-});
+  it("setAgendaRaw precedence: travel_set fills if unset, explicit SET overrides (§9.D)", () => {
+    // mirror of the loadIn precedence test :353-360
+    const md = datesTable([
+      ["TRAVEL / SET", "Mon", "3/22/26", "Load In: 8:00 AM"],
+      ["SET", "Tue", "3/23/26", "Load In: 10:30 AM Room Access: 11:00 AM"],
+    ]);
+    expect(parseDates(md, "v4").setAgendaRaw).toBe("Load In: 10:30 AM Room Access: 11:00 AM");
+  });
+  it("setAgendaRaw from a lone TRAVEL / SET row when no explicit SET row", () => {
+    const md = datesTable([
+      ["TRAVEL / SET", "Mon", "3/22/26", "Load In: 8:00 AM"],
+      ["SHOW DAY 1", "Tue", "3/23/26", ""],
+    ]);
+    expect(parseDates(md, "v4").setAgendaRaw).toBe("Load In: 8:00 AM");
+  });
 ```
 
 In `scheduleBookendsIntegration.test.ts` (the strip guard — §9.F):
@@ -252,6 +268,12 @@ describe("tokenizeSetSchedule (D-SET1)", () => {
   });
   it("entity inside a clock (R2 P1d)", () => {
     expect(tokenizeSetSchedule("Load In: 7:00&#9;PM Room Access: 8:30 PM")).toEqual([
+      { label: "Load In", clock: "7:00 PM" },
+      { label: "Room Access", clock: "8:30 PM" },
+    ]);
+  });
+  it("entity in a label (§9.B): 'Room Access:&#10;8:30 PM' → label 'Room Access'", () => {
+    expect(tokenizeSetSchedule("Load In: 7:00 PM Room Access:&#10;8:30 PM")).toEqual([
       { label: "Load In", clock: "7:00 PM" },
       { label: "Room Access", clock: "8:30 PM" },
     ]);
@@ -419,16 +441,19 @@ git commit --no-verify -m "feat(parser): SET run-of-show uses cell-derived label
 
 ---
 
-### Task 5: Resolve `DEFERRED.md` D-SET1
+### Task 5: Resolve `DEFERRED.md` D-SET1 (docs — NOT a TDD task)
+
+**TDD-exempt:** this is a documentation edit with no behavioral surface, so invariant 1's red→green cycle does not apply (it governs *code* tasks). Verification is the grep in Step 2 + the Task 6 gate.
 
 **Files:**
 - Modify: `DEFERRED.md` (D-SET1 entry, ~`:167-171`)
 
-- [ ] **Step 1: Edit** — mark D-SET1 resolved/shipped, referencing this plan + spec and the merged PR. Convert the entry to a "✅ SHIPPED" note (or remove per repo convention — check how prior resolved entries are handled; prefer marking shipped with a one-line pointer).
+- [ ] **Step 1: Edit** — check how prior resolved entries are handled in `DEFERRED.md` (grep for `✅`/`SHIPPED`/`RESOLVED`); follow that convention. Mark D-SET1 as shipped with a one-line pointer to this plan + spec (and the PR once opened). Do not delete the heading if the repo keeps a resolved-log; otherwise follow the established pattern.
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Verify + commit**
 
 ```bash
+grep -n "D-SET1" DEFERRED.md   # confirm it now reads as resolved, not open
 git add DEFERRED.md
 git commit --no-verify -m "docs: resolve DEFERRED D-SET1 (SET cell-derived run-of-show labels shipped)"
 ```
