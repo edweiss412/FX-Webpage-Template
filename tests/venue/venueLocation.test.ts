@@ -7,7 +7,7 @@
  * never falls back to the raw address.
  */
 import { describe, expect, it } from "vitest";
-import { cityFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
+import { cityFromAddress, splitTrailingKnownCity, venueDisplay } from "@/lib/venue/venueLocation";
 
 describe("cityFromAddress", () => {
   it("extracts the city from 'STREET, CITY, ST ZIP'", () => {
@@ -77,5 +77,66 @@ describe("venueDisplay", () => {
   it("null venue → both null (card renders the 'not detected' fallback)", () => {
     expect(venueDisplay(null)).toEqual({ name: null, city: null });
     expect(venueDisplay(undefined)).toEqual({ name: null, city: null });
+  });
+
+  // The real FXAV pattern: the city is in the venue NAME and the address is blank.
+  it("splits the city off the venue NAME when the address is blank ('<Brand> <City>')", () => {
+    expect(venueDisplay({ name: "Four Seasons Hotel Chicago", address: null })).toEqual({
+      name: "Four Seasons Hotel",
+      city: "Chicago",
+    });
+    expect(venueDisplay({ name: "Park Hyatt Chicago", address: "" })).toEqual({
+      name: "Park Hyatt",
+      city: "Chicago",
+    });
+  });
+
+  it("splits a MULTI-WORD trailing city off the name", () => {
+    expect(venueDisplay({ name: "Four Seasons Fort Lauderdale", address: null })).toEqual({
+      name: "Four Seasons",
+      city: "Fort Lauderdale",
+    });
+  });
+
+  it("does NOT split when the trailing word is not a known city (no wrong guess)", () => {
+    // "Kimpton Gray" is a Chicago hotel, but "Gray" is the hotel name, not a city.
+    expect(venueDisplay({ name: "Kimpton Gray", address: null })).toEqual({
+      name: "Kimpton Gray",
+      city: null,
+    });
+  });
+
+  it("a structured address wins over the name and strips the redundant trailing city", () => {
+    expect(
+      venueDisplay({
+        name: "Four Seasons Hotel Chicago",
+        address: "120 E Delaware Pl, Chicago, IL 60611",
+      }),
+    ).toEqual({ name: "Four Seasons Hotel", city: "Chicago" });
+  });
+});
+
+describe("splitTrailingKnownCity", () => {
+  it("returns the base name + the trailing known city", () => {
+    expect(splitTrailingKnownCity("Four Seasons Hotel Chicago")).toEqual({
+      base: "Four Seasons Hotel",
+      city: "Chicago",
+    });
+    expect(splitTrailingKnownCity("Four Seasons Fort Lauderdale")).toEqual({
+      base: "Four Seasons",
+      city: "Fort Lauderdale",
+    });
+  });
+
+  it("no trailing known city → the whole name as base, null city", () => {
+    expect(splitTrailingKnownCity("Kimpton Gray")).toEqual({ base: "Kimpton Gray", city: null });
+    expect(splitTrailingKnownCity("Marriott Marquis")).toEqual({
+      base: "Marriott Marquis",
+      city: null,
+    });
+  });
+
+  it("a name that is ONLY a city stays the name (base must be non-empty)", () => {
+    expect(splitTrailingKnownCity("Chicago")).toEqual({ base: "Chicago", city: null });
   });
 });
