@@ -195,6 +195,19 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(summary(q).textContent ?? "").not.toMatch(/\d+ crew · \d+ rooms/);
   });
 
+  test("splits the city out of the venue NAME (the real FXAV pattern: '<Brand> <City>', blank address)", () => {
+    const FIX = parseResult({
+      show: show({ venue: { name: "Four Seasons Hotel Chicago", address: "" } }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    const venue = q.getByTestId(`wizard-step3-card-${DFID}-venue`);
+    const city = q.getByTestId(`wizard-step3-card-${DFID}-city`);
+    // The trailing city is split into the City row; the Venue keeps the rest.
+    expect(venue.textContent).toContain("Four Seasons Hotel");
+    expect(venue.textContent ?? "").not.toContain("Chicago");
+    expect(city.textContent).toContain("Chicago");
+  });
+
   test("venue falls back to 'Venue not detected'; the City row is OMITTED (no noise) when no city", () => {
     const FIX = parseResult({ show: show({ venue: null }) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
