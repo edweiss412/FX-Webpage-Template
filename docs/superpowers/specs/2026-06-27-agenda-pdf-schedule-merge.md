@@ -214,16 +214,18 @@ shared folder, a sheet with many agenda links, or a single huge PDF could push t
 scan into route-timeout / memory / quota failure. (This unbounded shape already
 exists on cron; bounding it here improves both paths.)
 
-**Three** explicit, testable caps are added (constants in `lib/agenda/constants.ts`),
-each with deterministic **skip + warning** behavior — never a silent drop. The three
-bound the three independent cost dimensions: bytes (memory), pages (parse CPU/time),
-and per-sheet PDF count:
+**Four** explicit, testable caps are added (constants in `lib/agenda/constants.ts`),
+each with deterministic **skip + warning** behavior — never a silent drop. Together
+they bound **every** cost dimension — per-PDF memory (bytes), per-PDF parse time
+(pages), per-sheet count, AND per-scan total — so total inline work in the 300s
+onboarding request is hard-bounded regardless of folder size:
 
 | Cap | Constant (proposed) | Where enforced | On exceed |
 |---|---|---|---|
 | Per-PDF download size (memory) | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` (`agendaDrive.ts`) | streamed bounded read aborts → `{ kind: "unavailable" }` → `enrichAgenda` emits existing `AGENDA_PDF_UNREADABLE` (download-failed message) |
 | Per-PDF page count (parse time) | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` (early, right after `getDocument`) | `if (doc.numPages > AGENDA_MAX_PAGES) return LOW()` → 0-day low-confidence → admin note / crew embed-only |
-| Agenda PDFs extracted per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap are skipped with one `AGENDA_PDF_UNREADABLE` warning ("too many agenda PDFs on this sheet to read automatically — open the PDF") |
+| Agenda PDFs extracted per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap are skipped with one `AGENDA_PDF_UNREADABLE` warning ("too many agenda PDFs on this sheet …") |
+| **Agenda PDFs extracted per scan (folder-wide)** | `AGENDA_MAX_PDFS_PER_SCAN = 40` | `enrichAgenda` via a shared `agendaBudget` on `EnrichContext` | once the scan's shared budget reaches 0, **all** further links across **all** sheets skip extraction with one `AGENDA_PDF_UNREADABLE` warning ("agenda extraction budget for this scan reached — open the PDF") |
 
 **Byte cap mechanism:** `downloadFileBytes` switches its Drive `files.get({ alt:
 "media" })` from `responseType: "arraybuffer"` to `responseType: "stream"` and
@@ -246,14 +248,25 @@ and all `extractorVersion === 1` test assertions update to `2`
 (`tests/agenda/extractAgendaSchedule.test.ts`, `tests/agenda/constants.test.ts`,
 `tests/onboarding/enrichAgendaIntegration.test.ts`).
 
-**Total-scan scaling (preempt):** no folder-wide total cap is added — `enrichAgenda`
-is per-sheet and has no scan-level state. Total agenda work scales with folder size,
-exactly like the scan's existing per-sheet XLSX export work; each unit is now bounded
-(bytes × pages), the per-sheet PDF count is capped, and the whole step is best-effort
-under the existing concurrency cap. A folder-wide budget would require threading
-scan-level counters through `enrichWithDrivePins` and is out of scope.
+**Scan-level budget mechanism (Codex round-4 Finding 1):** per-PDF + per-sheet caps
+bound each unit but total work still scales with folder size (sheets × ≤6 × ≤80 pp),
+which could keep the streamed 300s request open or saturate CPU on a large shared
+folder. So a **folder-wide** cap is added: `EnrichContext` gains an optional
+`agendaBudget?: { remaining: number }` (`lib/sync/enrichWithDrivePins.ts`).
+`runOnboardingScan` creates **one** budget `{ remaining: AGENDA_MAX_PDFS_PER_SCAN }`
+**before** the `mapWithConcurrency(prepareOne)` loop and passes the SAME object into
+every per-sheet `EnrichContext` (`runOnboardingScan.ts:934`). `enrichAgenda`, before
+each extraction, checks `agendaBudget?.remaining`: `> 0` → decrement and extract;
+`<= 0` → skip with the budget warning. The decrement is synchronous (no `await`
+between read and write), so it is safe under the 12-way async interleaving (JS single
+thread). The cron path passes **no** `agendaBudget` (single show — the per-sheet cap
+already bounds it; `undefined` budget = no scan limit). This makes total onboarding
+agenda work ≤ `AGENDA_MAX_PDFS_PER_SCAN` extractions, each ≤ bytes × pages — a hard
+ceiling independent of folder size. (`AGENDA_MAX_PDFS_PER_SCAN = 40` covers the real
+folder — ~19 sheets, ≤2 PDFs each — with headroom; surplus on a pathological folder
+is skipped + warned, and the scan still completes.)
 
-**No new §12.4 catalog code:** all three reuse the existing `AGENDA_PDF_UNREADABLE`
+**No new §12.4 catalog code:** all four reuse the existing `AGENDA_PDF_UNREADABLE`
 code with new free-text `message` strings; the catalog pins code→`helpfulContext`,
 not per-instance messages, so no catalog/`gen:spec-codes` change is required.
 
@@ -318,8 +331,13 @@ unaffected; they are pure pathological-input backstops.
    - `enrichAgenda` per-sheet count cap: a `ParseResult` with
      `AGENDA_MAX_PDFS_PER_SHEET + 1` fileId-bearing links → only the first N are
      extracted; the surplus links get an `AGENDA_PDF_UNREADABLE` warning and no
-     `extracted`. *Failure mode caught:* unbounded inline extraction (bytes, parse
-     time, or count) inside the 300s onboarding request on a pathological input.
+     `extracted`.
+   - `enrichAgenda` scan-level budget: drive several `enrichAgenda` calls sharing
+     one `agendaBudget = { remaining: 2 }` (small test value via injected ctx) →
+     extraction stops after 2 total PDFs across calls; later links across later
+     "sheets" skip with the budget warning. Also assert a `ctx` with **no**
+     `agendaBudget` (cron) imposes no scan limit. *Failure mode caught:* total inline
+     extraction unbounded by folder size — scan exceeding the 300s request.
 5. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
    renders exactly one `AgendaScheduleBlock` per high-confidence link and that
    nothing in this change touches `runOfShow` (guard against accidental
@@ -344,11 +362,12 @@ unaffected; they are pure pathological-input backstops.
 
 | File | Change |
 |---|---|
-| `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips` (import from `agendaDrive.ts`); **export** `defaultDriveClient` for the meta-test |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
+| `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips`; **export** `defaultDriveClient` for the meta-test; create one `agendaBudget` per scan and pass it into every per-sheet `EnrichContext` |
+| `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number }` to `EnrichContext`; pass `ctx.agendaBudget` into `enrichAgenda` |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed |
-| `lib/sync/enrichAgenda.ts` | per-sheet extraction count cap + skip-warning |
+| `lib/sync/enrichAgenda.ts` | per-sheet count cap + scan-level `agendaBudget` decrement/skip + skip-warnings (new param) |
 | `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion); render from `pr.show?.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
 | `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
@@ -360,8 +379,9 @@ unaffected; they are pure pathological-input backstops.
 | `BACKLOG.md` | file `BL-AGENDA-EXTRACTION-HYDRATION` |
 
 **Not touched (dropped from rev 1):** `lib/parser/types.ts`,
-`lib/data/decodeRunOfShow.ts`, `lib/sync/enrichWithDrivePins.ts`,
-`components/crew/**`, any `runOfShow` write path, no new `lib/sync/mergeAgendaIntoRunOfShow.ts`.
+`lib/data/decodeRunOfShow.ts`, `components/crew/**`, any `runOfShow` write path, no
+new `lib/sync/mergeAgendaIntoRunOfShow.ts`. (`enrichWithDrivePins.ts` IS touched as
+of rev5 — the `EnrichContext.agendaBudget` field.)
 
 ## 10. Resolved decisions
 
@@ -377,10 +397,10 @@ unaffected; they are pure pathological-input backstops.
 - Render gate: **explicit `normalizeAgendaExtraction` predicate** decides
   block-vs-note (never `link.extracted` truthiness); note carries an "Open PDF"
   link; tests cover low/malformed/zero-day (Codex round-2 F2).
-- Budget: **per-PDF byte cap + per-PDF page cap + per-sheet PDF count cap**,
-  deterministic skip+warning, shared (bounds cron too), sized above the real corpus
-  (Codex round-2 F1 + round-3 F1). Page cap bumps `EXTRACTOR_VERSION`→2. No
-  folder-wide total cap (per-sheet + per-unit bounds suffice; out of scope).
+- Budget: **per-PDF byte + per-PDF page + per-sheet count + per-scan total** caps,
+  deterministic skip+warning, sized above the real corpus (Codex round-2/3/4 F1).
+  Page cap bumps `EXTRACTOR_VERSION`→2. Scan-level cap via a shared `agendaBudget` on
+  `EnrichContext` (onboarding only; cron passes none). Every cost dimension bounded.
 - Href safety: **`agendaPdfHref` validator** — Drive URL from `fileId`, or `url`
   only when `^https?://`, else no anchor (Codex round-3 F2).
 - Robustness: **`arr(pr.show?.agenda_links)` + per-field string coercion** against
