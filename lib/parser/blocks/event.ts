@@ -34,6 +34,7 @@ import { clean, presence, splitRow } from "./_helpers";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
 
 // The EVENT DETAILS block header labels (all variants found in corpus)
 const EVENT_DETAILS_HEADER_RE =
@@ -62,6 +63,7 @@ export const CANONICAL_KEY_MAP: Record<string, string> = {
   "virtaul audience": "virtual_audience", // typo variant
   "virtual speaker": "virtual_speaker",
   "opening reel": "opening_reel",
+  "opening sizzle reel": "opening_reel", // form-layout label (consultants/ria/fixed-income/redefining)
   "keynote requirements": "keynote_requirements",
   "backdrop / scenic": "scenic",
   "backdrop/scenic": "scenic",
@@ -197,9 +199,10 @@ export function parseEventDetails(
           }
         } else {
           // Genuinely-unknown label (no fuzzy hit, tie-aborted, or below-minLen): preserve the
-          // existing normalize-and-keep fallback.
+          // existing normalize-and-keep fallback. Defense-in-depth (§3.4): never let an
+          // unknown label normalize into a financial/internal key (PO#/Budget/Invoice/…).
           const key = toCanonicalKey(col0);
-          if (key && val) writeField(result, key, val);
+          if (key && val && !isSensitiveCanonicalKey(key)) writeField(result, key, val);
         }
       }
     }
@@ -221,11 +224,88 @@ export function parseEventDetails(
     });
   }
 
+  // Closed-vocabulary form-layout harvest (§3.4). Runs UNCONDITIONALLY after the classic
+  // pass, over the full markdown, to recover the value-bearing intake-form blocks the
+  // classic header-slice never reaches (consultants) and to upgrade classic sentinels from
+  // a later form block (fixed-income Opening Sizzle Reel). Closed-vocab by construction:
+  // only labels resolving to a KNOWN canonical key are harvested — unknown labels (Your
+  // Name / Email / Phone / Budget / PO# / room headers …) are skipped, so no PII/financial/
+  // metadata can ever enter crew-visible event_details. fillIfAbsentOrSentinel = first-real-wins.
+  harvestFormLayout(markdown, result);
+
   // D1: the no-header case already returned above, so reaching here with an empty
   // result means a recognized EVENT DETAILS header parsed zero fields (label-only
   // / exporter-collapsed block) — fail loud instead of dropping it silently.
   if (Object.keys(result).length === 0) emitEmptySection(agg, "event_details");
   return result;
+}
+
+/**
+ * Resolve a form label to its KNOWN canonical key (CANONICAL_KEY_MAP exact, or a gated
+ * fuzzy correction into EVENT_LABEL_VOCAB) — or `null` if the label is not a known event
+ * field. The closed-vocabulary gate for the form harvest: `null` means "skip this row".
+ */
+function resolveKnownCanon(label: string): string | null {
+  const exact = CANONICAL_KEY_MAP[label.toLowerCase().trim()];
+  if (exact !== undefined) return exact;
+  const fix = gatedVocabCorrect(label.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS);
+  if (fix?.corrected) {
+    const canon = CANONICAL_KEY_MAP[fix.match.toLowerCase()];
+    if (canon) return canon;
+  }
+  return null;
+}
+
+/**
+ * Fill-if-absent-or-sentinel write: set `result[key]` only when it is currently absent OR a
+ * hideable sentinel — never overwrite an existing REAL value. Because the classic pass runs
+ * first, this yields deterministic first-real-wins across classic + form sources.
+ */
+function fillIfAbsentOrSentinel(result: Record<string, string>, key: string, val: string): void {
+  const existing = result[key];
+  if (existing === undefined || shouldHideGenericOptional(existing)) result[key] = val;
+}
+
+/**
+ * Closed-vocabulary form-layout harvest (spec §3.4). Scans the markdown for contiguous runs
+ * of 2-cell `| label | value |` rows; a run ANCHORS when ≥3 of its labels resolve to a known
+ * canonical key. For an anchored run, harvest ONLY the rows whose label is known (unknown
+ * labels skipped — the closed-vocab principle that structurally excludes PII/financial), and
+ * write via `fillIfAbsentOrSentinel`. Separator/blank/non-2-cell rows end a run.
+ */
+function harvestFormLayout(markdown: string, result: Record<string, string>): void {
+  let run: { canon: string | null; value: string | null }[] = [];
+  const flush = (): void => {
+    if (run.filter((r) => r.canon !== null).length >= 3) {
+      for (const r of run) {
+        if (r.canon === null) continue; // closed-vocab: skip unknown labels entirely
+        if (isSensitiveCanonicalKey(r.canon)) continue; // defense-in-depth (map has none)
+        if (!r.value) continue; // never clobber/fill with an empty form value
+        if (/^(TRUE|FALSE)$/i.test(r.value)) continue; // INTERNAL checklist booleans, not field values
+        fillIfAbsentOrSentinel(result, r.canon, r.value);
+      }
+    }
+    run = [];
+  };
+  for (const line of markdown.split("\n")) {
+    const t = line.trim();
+    if (!t.startsWith("|")) {
+      flush();
+      continue;
+    }
+    const cells = splitRow(t);
+    if (cells.length !== 2 || cells.every((c) => /^[\s:|*-]*$/.test(c))) {
+      flush();
+      continue;
+    }
+    const col0 = clean(cells[0] ?? "");
+    if (!col0) {
+      flush();
+      continue;
+    }
+    run.push({ canon: resolveKnownCanon(col0), value: presence(cells[1] ?? "") });
+  }
+  flush();
 }
 
 /**
