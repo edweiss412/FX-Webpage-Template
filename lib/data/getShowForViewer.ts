@@ -50,6 +50,7 @@ import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
 import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
+import { aggregateDays } from "@/lib/crew/agendaDisplay";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import { projectOpeningReelHasVideo } from "@/lib/data/openingReel";
 import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
@@ -667,7 +668,10 @@ async function readShowDataForViewer(
   // admin_preview with no per-day restriction → treated as `none` (all current
   // show days), matching the Schedule day-set behavior.
   if (runOfShow !== null) {
-    const showDaySet = new Set(show.dates.showDays ?? []);
+    // D12: widen the allowed-key domain from show days to the full aggregate-day
+    // domain (Travel In / Set / Show days / Travel Out) so synthesized SET and
+    // travel-day bookend entries (Load In / Setup, strikes, load-out) reach crew.
+    const aggregateSet = new Set(aggregateDays(show.dates).map((d) => d.date));
     const activeRestriction: DateRestriction = needsCrewLookup
       ? (crewMembers.find((m) => m.id === (viewer as { crewMemberId: string }).crewMemberId)
           ?.dateRestriction ?? { kind: "none" })
@@ -678,11 +682,11 @@ async function readShowDataForViewer(
       // Cannot infer show days for this viewer → drop everything.
       allowed = new Set<string>();
     } else if (activeRestriction.kind === "explicit") {
-      // restriction.days are already ISO (normalizeDateRestriction) ∩ showDays.
-      allowed = new Set(activeRestriction.days.filter((d) => showDaySet.has(d)));
+      // restriction.days are already ISO (normalizeDateRestriction) ∩ aggregate.
+      allowed = new Set(activeRestriction.days.filter((d) => aggregateSet.has(d)));
     } else {
-      // `none` (or admin) → all current show days.
-      allowed = showDaySet;
+      // `none` (or admin) → all current aggregate days.
+      allowed = aggregateSet;
     }
 
     const gated: Record<string, ScheduleDay> = {};
