@@ -68,13 +68,22 @@ function isDoubledItemHeader(cells: string[]): boolean {
   return cells.slice(2).some((c) => DATE_TOKEN_RE.test(clean(c)));
 }
 
-/** The SOLE date-grid signature predicate (spec §3.1). */
-export function hasGearDateGrid(markdown: string): boolean {
-  const rows = tableRows(markdown);
+/**
+ * The shared date-grid signature check over already-split cell rows: a Rental Dates
+ * banner row immediately followed (separator/blank rows excluded) by a DOUBLED
+ * `| Item | Item | <date> … |` header. Used by both `hasGearDateGrid` (markdown) and
+ * the source-anchor gate (XLSX grid) so the predicate lives in one place (Task 8).
+ */
+export function rowsHaveGearDateGrid(rows: string[][]): boolean {
   for (let i = 0; i < rows.length - 1; i++) {
     if (isRentalDatesRow(rows[i]!) && isDoubledItemHeader(rows[i + 1]!)) return true;
   }
   return false;
+}
+
+/** The SOLE date-grid signature predicate over markdown (spec §3.1). */
+export function hasGearDateGrid(markdown: string): boolean {
+  return rowsHaveGearDateGrid(tableRows(markdown));
 }
 
 const ROOM_PREFIX_RE =

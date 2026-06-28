@@ -6,6 +6,7 @@ import {
   REGION_IDS,
   REGION_ANCHOR_SPEC,
 } from "@/lib/sheet-links/buildSheetDeepLink";
+import { rowsHaveGearDateGrid } from "@/lib/parser/blocks/gear";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,6 +98,17 @@ function rowIsBlank(grid: AbsGrid, row: number): boolean {
     if (!isBlank(grid.cell(row, c))) return false;
   }
   return true;
+}
+
+/** Project an AbsGrid into non-blank cell rows for the shared gear date-grid predicate. */
+function gridToRows(grid: AbsGrid): string[][] {
+  const rows: string[][] = [];
+  for (let r = grid.minRow; r <= grid.maxRow; r++) {
+    const cells: string[] = [];
+    for (let c = grid.minCol; c <= grid.maxCol; c++) cells.push(grid.cell(r, c));
+    if (cells.some((x) => x.trim().length > 0)) rows.push(cells);
+  }
+  return rows;
 }
 
 // ── strategy implementations ─────────────────────────────────────────────────
@@ -212,6 +224,11 @@ export function extractSourceAnchors(
 
     if (!rect) continue;
     if (rect.maxRow < rect.minRow) continue;
+
+    // gear_scope is the whole-GEAR-tab anchor but is emitted ONLY when the chosen GEAR
+    // tab actually carries the date-grid signature (shared predicate — Task 8). A GEAR
+    // tab without the doubled `| Item | Item | <date> |` header produces no anchor.
+    if (regionId === "gear_scope" && !rowsHaveGearDateGrid(gridToRows(grid))) continue;
 
     const a1 = XLSX.utils.encode_range({
       s: { r: rect.minRow, c: rect.minCol },
