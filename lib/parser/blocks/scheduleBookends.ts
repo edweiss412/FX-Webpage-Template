@@ -25,7 +25,7 @@ export function parseRoomTimeCell(
   raw: string | null,
   contextYear: string | null,
 ): { date: string | null; time: string | null } {
-  if (presence(raw) === null) return { date: null, time: null };
+  if (presence(raw ?? "") === null) return { date: null, time: null };
   const cell = raw!.trim();
   const m = /^\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/.exec(cell);
   if (!m) return { date: null, time: null };
@@ -62,7 +62,7 @@ export function deriveScheduleBookends(
   );
 
   // ── STRIKE ──
-  const strikeIntentCount = rooms.filter((r) => presence(r.strike_time) !== null).length;
+  const strikeIntentCount = rooms.filter((r) => presence(r.strike_time ?? "") !== null).length;
   const groups = new Map<string, { iso: string; time: string; rooms: string[] }>();
   for (const r of rooms) {
     const { date, time } = parseRoomTimeCell(r.strike_time, contextYear);
@@ -86,7 +86,18 @@ export function deriveScheduleBookends(
     if (!scheduleDateSet.has(g.iso)) warnings.push(strikeDateOffSchedule(g.iso));
   }
 
-  // (Load-Out + SET added in Task 5.)
+  // ── LOAD OUT (transport Pick Up Venue) ──
+  const puv = transportation?.schedule.find((s) => /pick\s*up\s*venue/i.test(s.stage.trim()));
+  const puvClock = puv ? extractFirstClock(puv.time ?? "") : null;
+  if (puv && puv.date != null && puvClock != null) {
+    appendEntry(ros, puv.date, { start: puvClock, title: "Load Out", kind: "loadout" });
+  }
+
+  // ── SET load-in / setup (synthesized from dates; appended; kind absent = agenda) ──
+  if (dates.set) {
+    if (presence(dates.loadIn ?? "")) appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
+    if (presence(dates.setupTime ?? "")) appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
+  }
 
   return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings };
 }

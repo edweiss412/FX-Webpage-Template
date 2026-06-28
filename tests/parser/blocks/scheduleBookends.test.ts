@@ -81,4 +81,57 @@ describe("deriveScheduleBookends — strike derivation", () => {
     deriveScheduleBookends(input, d, null, [room("GS", "gs", "5/14 @ 5:00 PM")], "2025");
     expect(Object.keys(input)).toHaveLength(0);
   });
+
+  it("rooms with a null strike_time are ignored, not crashed (most rooms have none)", () => {
+    const d = dates({ showDays: ["2025-05-14"] });
+    const rooms = [room("GS", "gs", null), room("Lasalle", "breakout", "5/14 @ 5:00 PM")];
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
+    const e = runOfShow!["2025-05-14"].entries.filter((x) => x.kind === "strike");
+    expect(e).toHaveLength(1);
+    expect(e[0].title).toBe("Strike — Lasalle"); // null-strike room not an intent → group-of-1
+  });
+});
+
+describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
+  const transport = (schedule: any[]) =>
+    ({ driver_name: null, driver_phone: null, driver_email: null, vehicle: null, license_plate: null,
+       color: null, parking: null, schedule, notes: null });
+
+  it("synthesizes Load Out from Pick Up Venue (clock required)", () => {
+    const d = dates({ showDays: ["2026-05-06"] });
+    const t = transport([{ stage: "Pick Up Venue", date: "2026-05-06", time: "6:00 PM", assigned_names: [] }]);
+    const { runOfShow } = deriveScheduleBookends(undefined, d, t, [], "2026");
+    const e = runOfShow!["2026-05-06"].entries.find((x) => x.kind === "loadout")!;
+    expect(e).toMatchObject({ start: "6:00 PM", title: "Load Out", kind: "loadout" });
+  });
+
+  it("no Load Out when Pick Up Venue time is non-clock", () => {
+    const d = dates({ showDays: ["2026-05-06"] });
+    const t = transport([{ stage: "Pick Up Venue", date: "2026-05-06", time: "TBD", assigned_names: [] }]);
+    const { runOfShow } = deriveScheduleBookends(undefined, d, t, [], "2026");
+    expect(runOfShow?.["2026-05-06"]?.entries.some((x) => x.kind === "loadout") ?? false).toBe(false);
+  });
+
+  it("synthesizes SET Load In/Setup from dates (label-before-clock fixture)", () => {
+    const d = dates({ set: "2025-05-12", showDays: ["2025-05-13"], loadIn: "7:00 PM", setupTime: "8:30 PM" });
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
+    const e = runOfShow!["2025-05-12"].entries;
+    expect(e).toEqual([
+      { start: "7:00 PM", title: "Load In" },
+      { start: "8:30 PM", title: "Setup" },
+    ]);
+  });
+
+  it("no SET entry when loadIn null (no-colon/AFTER 8PM)", () => {
+    const d = dates({ set: "2024-05-13", showDays: ["2024-05-14"], loadIn: null });
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2024");
+    expect(runOfShow?.["2024-05-13"]).toBeUndefined();
+  });
+
+  it("SET appends, does not overwrite a pre-existing day", () => {
+    const d = dates({ set: "2025-05-12", showDays: ["2025-05-13"], loadIn: "7:00 PM" });
+    const input = { "2025-05-12": { entries: [{ start: "2 PM", title: "Session" }], showStart: null, window: null } };
+    const { runOfShow } = deriveScheduleBookends(input, d, null, [], "2025");
+    expect(runOfShow!["2025-05-12"].entries.map((e) => e.title)).toEqual(["Session", "Load In"]);
+  });
 });
