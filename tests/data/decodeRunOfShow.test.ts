@@ -119,3 +119,42 @@ describe("decodeRunOfShow — ScheduleDay reshape (§3.2)", () => {
     expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, window: null } });
   });
 });
+
+describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
+  it("preserves kind 'strike' and 'loadout' on decode", () => {
+    const raw = {
+      "2026-05-06": {
+        entries: [
+          { start: "4:30 PM", title: "Strike — General Session", kind: "strike" },
+          { start: "6:00 PM", title: "Load Out", kind: "loadout" },
+        ],
+        showStart: null,
+        window: null,
+      },
+    };
+    const { value, corrupt } = decodeRunOfShow(raw);
+    expect(corrupt).toBe(false);
+    expect(value!["2026-05-06"]!.entries.map((e) => e.kind)).toEqual(["strike", "loadout"]);
+  });
+
+  it("coerces an unknown kind to absent (agenda), not corrupt", () => {
+    const raw = {
+      "2026-05-06": {
+        entries: [{ start: "1 PM", title: "X", kind: "banana" }],
+        showStart: null,
+        window: null,
+      },
+    };
+    const { value, corrupt } = decodeRunOfShow(raw);
+    expect(corrupt).toBe(false); // unknown kind is dropped like a bad optional field, not corrupting
+    expect(value!["2026-05-06"]!.entries[0]!.kind).toBeUndefined();
+  });
+
+  it("decodes a legacy entry without kind unchanged", () => {
+    const raw = {
+      "2026-05-06": { entries: [{ start: "1 PM", title: "X" }], showStart: null, window: null },
+    };
+    const { value } = decodeRunOfShow(raw);
+    expect(value!["2026-05-06"]!.entries[0]!.kind).toBeUndefined();
+  });
+});

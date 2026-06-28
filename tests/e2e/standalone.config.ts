@@ -10,11 +10,14 @@ import { defineConfig, devices } from "@playwright/test";
  *   node_modules/.bin/playwright test --config tests/e2e/standalone.config.ts
  *
  * Members: step3-card-dimensions (Task D2), agendaScheduleLayout (agenda-PDF
- * Task 16 — §6 agenda area layout dimensions).
+ * Task 16 — §6 agenda area layout dimensions), step3-schedule-bookend-layout
+ * (schedule strike/load-out Task 15 — §13 2-track grid stays aligned with a
+ * synthetic badge).
  */
 export default defineConfig({
   testDir: ".",
-  testMatch: /(step3-card-dimensions|step3-grid-layout|agendaScheduleLayout)\.spec\.ts/,
+  testMatch:
+    /(step3-card-dimensions|step3-grid-layout|step3-schedule-bookend-layout|agendaScheduleLayout)\.spec\.ts/,
   timeout: 120_000,
   fullyParallel: false,
   workers: 1,

@@ -5,7 +5,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 const anchor = { title: "INFO", gid: 0, a1: "C2" };
 
 describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
-  it("contains exactly the eighteen codes", () => {
+  it("contains exactly the nineteen codes", () => {
     expect([...OPERATOR_ACTIONABLE_ANCHORED].sort()).toEqual([
       "AGENDA_BLOCK_UNRESOLVED",
       "AGENDA_DAY_AMBIGUOUS",
@@ -19,6 +19,7 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
       "PULL_SHEET_PARSE_PARTIAL",
       "PULL_SHEET_UNKNOWN_VARIANT",
       "ROLE_TOKEN_AUTOCORRECTED",
+      "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
       "SCHEDULE_TIME_UNPARSED",
       "SECTION_HEADER_AUTOCORRECTED",
       "STAGE_WORD_AUTOCORRECTED",

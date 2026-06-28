@@ -204,7 +204,7 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(r.runOfShow!["2025-06-25"]!.entries[0]!.start).toBe("7:30 AM");
   });
 
-  it("a VERSION-VALID sheet whose AGENDA tab has NO token-header → runOfShow undefined + AGENDA_GRID_MALFORMED (parseAgenda runs)", () => {
+  it("a VERSION-VALID sheet whose AGENDA tab has NO token-header → AGENDA_GRID_MALFORMED + no grid entries (bookend synthesis may still populate runOfShow)", () => {
     // R22: must use a VERSION-DETECTABLE input — a bare `| FOO |` table fails detectVersion
     // (schema.ts:102) → parseSheet returns EARLY at index.ts:320-356 (MI-1_VERSION_DETECTION_FAILED)
     // BEFORE any block parser → parseAgenda never runs → AGENDA_GRID_MALFORMED can NEVER fire.
@@ -217,7 +217,12 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
       .join("\n");
     const r = parseSheet(noGrid, "east-coast-no-agenda.md");
     expect(r.hardErrors).toEqual([]); // version STILL detected — not the MI-1 early-return path
-    expect(r.runOfShow).toBeUndefined(); // grid unlocatable → omitted optional property
+    // Grid unlocatable → no GRID-derived agenda entry appears (the known first
+    // grid entry is "Family Office Only Breakfast"). Bookend synthesis (strike /
+    // load-out / SET, D12) is derived from rooms+dates+transport independently of
+    // the grid, so runOfShow may still be populated with synthetic entries only.
+    const allEntries = Object.values(r.runOfShow ?? {}).flatMap((d) => d.entries);
+    expect(allEntries.some((e) => e.title === "Family Office Only Breakfast")).toBe(false);
     expect(r.warnings.map((w) => w.code)).toContain("AGENDA_GRID_MALFORMED");
   });
 
@@ -249,7 +254,11 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     const windowDays = Object.values(r.runOfShow!).filter((d) => d.window !== null);
     expect(windowDays.length).toBeGreaterThanOrEqual(1);
     const w = windowDays[0]!;
-    expect(w.entries).toEqual([]); // bare window → no titled entries fabricated
+    // bare window → no titled GRID entries fabricated. Synthetic bookend entries
+    // (strike / load-out, D12) may still attach to the day from rooms/transport;
+    // filter them out so this asserts the grid-merge invariant specifically.
+    const gridEntries = w.entries.filter((e) => e.kind !== "strike" && e.kind !== "loadout");
+    expect(gridEntries).toEqual([]);
     expect(w.window!.start).toMatch(/\d/); // a real clock, derived from the cell
     expect(w.window!.end).toMatch(/\d/);
   });

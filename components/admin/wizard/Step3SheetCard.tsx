@@ -189,8 +189,17 @@ function ScheduleDayRow({
   entries: AgendaEntry[];
 }) {
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? entries : entries.slice(0, SCHEDULE_ENTRIES_CAP);
-  const hidden = entries.length - SCHEDULE_ENTRIES_CAP;
+  // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
+  // SCHEDULE_ENTRIES_CAP; ALWAYS render the synthetic group (strike/load-out)
+  // after it. The "Show all M times" toggle + overflow count are agenda-only —
+  // a same-day load-out is never hidden behind the cap.
+  const agenda = entries.filter((e) => e.kind !== "strike" && e.kind !== "loadout");
+  const synthetic = entries.filter((e) => e.kind === "strike" || e.kind === "loadout");
+  const visibleAgenda = showAll ? agenda : agenda.slice(0, SCHEDULE_ENTRIES_CAP);
+  const hidden = agenda.length - SCHEDULE_ENTRIES_CAP;
+  // Synthetic rows always follow the (capped) agenda rows in the SAME 2-track
+  // grid, so their time/title cells share the agenda rows' column edges.
+  const rows = [...visibleAgenda, ...synthetic];
 
   return (
     <li className="flex flex-col gap-1">
@@ -198,22 +207,32 @@ function ScheduleDayRow({
         {humanizeDate(iso) ?? iso}
       </span>
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
-        {visible.map((e, i) => (
-          <Fragment key={`${iso}-${i}`}>
-            <span
-              data-testid={`wizard-step3-card-${dfid}-sched-time`}
-              className="whitespace-nowrap text-sm tabular-nums text-text-subtle"
-            >
-              {e.start}
-            </span>
-            <span
-              data-testid={`wizard-step3-card-${dfid}-sched-title`}
-              className="text-sm text-text"
-            >
-              {e.title || ""}
-            </span>
-          </Fragment>
-        ))}
+        {rows.map((e, i) => {
+          const isSynthetic = e.kind === "strike" || e.kind === "loadout";
+          return (
+            <Fragment key={`${iso}-${i}`}>
+              <span
+                data-testid={`wizard-step3-card-${dfid}-sched-time`}
+                className="whitespace-nowrap text-sm tabular-nums text-text-subtle"
+              >
+                {e.start}
+              </span>
+              {/* Title cell = the 1fr track. A synthetic entry (strike/load-out)
+                  carries a MUTED tone + a leading hairline rule INSIDE this cell
+                  (§9.3 "muted-title" option — no kind-word badge that would repeat
+                  the title's own leading word), so the two-track alignment holds. */}
+              <span
+                data-testid={`wizard-step3-card-${dfid}-sched-title`}
+                data-entry-kind={isSynthetic ? e.kind : undefined}
+                className={`text-sm ${
+                  isSynthetic ? "border-l border-border pl-2 text-text-subtle" : "text-text"
+                }`}
+              >
+                {e.title || ""}
+              </span>
+            </Fragment>
+          );
+        })}
       </div>
       {hidden > 0 && !showAll ? (
         <button
@@ -222,7 +241,7 @@ function ScheduleDayRow({
           onClick={() => setShowAll(true)}
           className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          {`Show all ${entries.length} times`}
+          {`Show all ${agenda.length} times`}
         </button>
       ) : null}
     </li>
@@ -231,11 +250,18 @@ function ScheduleDayRow({
 
 function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
   const dayKeys = Object.keys(ros);
-  const shownDays = dayKeys.slice(0, SCHEDULE_DAYS_CAP);
-  const daysNote = (() => {
-    const extra = dayKeys.length - SCHEDULE_DAYS_CAP;
-    return extra > 0 ? `…and ${extra} more days` : null;
-  })();
+  // Day cap-exemption (spec §9.2): a day whose entries contain a strike/load-out
+  // is ALWAYS rendered (a malformed/long sheet could push the exact admin-only
+  // synthetic day past the cap). shownDays = (first SCHEDULE_DAYS_CAP days) ∪
+  // (every synthetic-bearing day); the "…and N more days" note counts only the
+  // dropped NON-synthetic days.
+  const isSyntheticDay = (iso: string): boolean =>
+    arr(ros[iso]?.entries).some((e) => e.kind === "strike" || e.kind === "loadout");
+  const shownDays = dayKeys.filter((iso, idx) => idx < SCHEDULE_DAYS_CAP || isSyntheticDay(iso));
+  const droppedNonSynthetic = dayKeys.filter(
+    (iso, idx) => idx >= SCHEDULE_DAYS_CAP && !isSyntheticDay(iso),
+  ).length;
+  const daysNote = droppedNonSynthetic > 0 ? `…and ${droppedNonSynthetic} more days` : null;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-schedule`}

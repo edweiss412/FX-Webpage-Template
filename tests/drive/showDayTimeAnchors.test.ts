@@ -251,6 +251,36 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
+  it("resolves SCHEDULE_STRIKE_DATE_OFF_SCHEDULE by its rooms region (blockRef.kind='rooms')", () => {
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+        message: "x",
+        blockRef: { kind: "rooms", iso: "2025-05-20" },
+      },
+    ];
+    attachSourceCellAnchors(ws, {
+      showDay: [],
+      crewRole: [],
+      region: { rooms: { title: "INFO", gid: 0, a1: "A30" } },
+    });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A30" });
+  });
+
+  it("SCHEDULE_STRIKE_DATE_OFF_SCHEDULE with no rooms region → no link", () => {
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+        message: "x",
+        blockRef: { kind: "rooms", iso: "2025-05-20" },
+      },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: [], region: {} });
+    expect(ws[0]!.sourceCell).toBeUndefined();
+  });
+
   it("resolves UNKNOWN_FIELD by its venue region (like FIELD_UNREADABLE)", () => {
     const ws: ParseWarning[] = [
       { severity: "warn", code: "UNKNOWN_FIELD", message: "x", blockRef: { kind: "venue" } },
@@ -318,9 +348,10 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[0]!.sourceCell).toBeUndefined();
   });
 
-  it("hasCellAnchoredWarning is TRUE for all eighteen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
+  it("hasCellAnchoredWarning is TRUE for all nineteen anchored codes (INVERTED for UNKNOWN_ROLE_TOKEN)", () => {
     for (const code of [
       "SCHEDULE_TIME_UNPARSED",
+      "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
       "UNKNOWN_ROLE_TOKEN",
       "UNKNOWN_DAY_RESTRICTION",
       "UNKNOWN_FIELD",

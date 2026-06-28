@@ -57,6 +57,11 @@ function decodeEntries(rawArr: unknown[], corruptRef: [boolean]): AgendaEntry[] 
         decoded[field] = v;
       }
     }
+    const k = entry["kind"];
+    if (k === "strike" || k === "loadout") {
+      decoded.kind = k;
+    }
+    // any other value (absent, "agenda", non-string, "banana") ⇒ no kind field; not corrupt.
     validEntries.push(decoded);
   }
   return validEntries;

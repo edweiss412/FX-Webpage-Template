@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseScheduleTimes } from "@/lib/parser/blocks/scheduleTimes";
+import { parseScheduleTimes, extractFirstClock } from "@/lib/parser/blocks/scheduleTimes";
 import { parseDates } from "@/lib/parser/blocks/dates";
 
 function datesTable(rows: Array<[string, string, string, string]>): string {
@@ -94,5 +94,20 @@ describe("parseScheduleTimes — tokenizer", () => {
     const iso = dates.showDays[0]!;
     expect(scheduleDays[iso]!.entries.map((e) => e.start)).toEqual(["4PM", "5:30PM"]);
     expect(scheduleDays[iso]!.showStart).toBe("4PM");
+  });
+});
+
+describe("extractFirstClock", () => {
+  it.each([
+    ["4:30pm", "4:30pm"],
+    ["1PM", "1PM"],
+    ["6:00 PM", "6:00 PM"],
+    ["8 PM", "8 PM"],
+    ["@ 5:00 PM (tentative)", "5:00 PM"],
+  ])("extracts a clock from %s", (input, out) => {
+    expect(extractFirstClock(input)).toBe(out);
+  });
+  it.each(["AM", "morning", "TBD", "8", "", "Room 5"])("rejects non-clock %s", (input) => {
+    expect(extractFirstClock(input)).toBeNull();
   });
 });

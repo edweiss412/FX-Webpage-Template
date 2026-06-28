@@ -37,6 +37,14 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   const trt = resolveOptionalField(entry.trt);
   const room = resolveOptionalField(entry.room);
   const av = resolveOptionalField(entry.av);
+  // Synthetic-entry treatment (spec §9.3): strike/load-out read as production
+  // milestones via the §9.3 "muted-title" option — the title itself renders in a
+  // muted tone (text-text-subtle vs the agenda row's text-text-strong) with a
+  // leading hairline rule, NOT a kind-word badge. A badge would duplicate the
+  // title's own leading word ("STRIKE" badge + "Strike — …" title = a redundant
+  // double-read). Agenda entries (kind absent/"agenda") render unchanged.
+  const isSynthetic = entry.kind === "strike" || entry.kind === "loadout";
+  const titleTone = isSynthetic ? "text-text-subtle" : "text-text-strong";
   // Time group (spec §4.3 row shape): START–FINISH with the TRT duration as a
   // middot-joined suffix when present (e.g. "7:15 AM–7:30 AM · 0:15"). Each part
   // is sentinel-guarded via resolveOptionalField, so a TBD/blank trt/finish drops
@@ -45,7 +53,11 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   const timeLabel = trt ? (range ? `${range} · ${trt}` : trt) : range;
 
   return (
-    <li data-testid="agenda-entry" className="flex flex-col gap-0.5 py-1">
+    <li
+      data-testid="agenda-entry"
+      data-entry-kind={isSynthetic ? entry.kind : undefined}
+      className="flex flex-col gap-0.5 py-1"
+    >
       <div className="flex items-baseline gap-2">
         {timeLabel ? (
           <span
@@ -55,16 +67,29 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
             {timeLabel}
           </span>
         ) : null}
-        {isLong ? (
-          <details data-testid="agenda-title-truncated" className="min-w-0">
-            <summary className="cursor-pointer list-none text-sm font-medium text-text-strong [&::-webkit-details-marker]:hidden">
-              {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
-            </summary>
-            <span className="text-sm text-text-strong">{title}</span>
-          </details>
-        ) : (
-          <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
-        )}
+        {/* Title cell (the flexible track): on a synthetic entry the title itself
+            carries the muted tone + a leading hairline rule (§9.3 "muted-title"
+            option — no kind-word badge), so it reads as a milestone without
+            repeating its own leading word. The rule lives inside the title cell,
+            never as its own column — so it can't break the time/title two-track read. */}
+        <div
+          className={`flex min-w-0 items-baseline gap-2${
+            isSynthetic ? " border-l border-border pl-2" : ""
+          }`}
+        >
+          {isLong ? (
+            <details data-testid="agenda-title-truncated" className="min-w-0">
+              <summary
+                className={`cursor-pointer list-none text-sm font-medium ${titleTone} [&::-webkit-details-marker]:hidden`}
+              >
+                {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
+              </summary>
+              <span className={`text-sm ${titleTone}`}>{title}</span>
+            </details>
+          ) : (
+            <span className={`min-w-0 text-sm font-medium ${titleTone}`}>{title}</span>
+          )}
+        </div>
       </div>
       {room || av ? (
         <div className="flex items-center gap-2 text-xs text-text-subtle">
@@ -101,14 +126,23 @@ export function RunOfShowList({
   entries: AgendaEntry[];
   isoDate: string;
 }): JSX.Element {
+  // Partition (spec §9.4): synthetic entries (kind strike/loadout) are FEW and
+  // load-bearing — they must never hide behind the cap. Cap ONLY the agenda group
+  // (kind absent/"agenda"); ALWAYS render the synthetic group after it. The
+  // overflow stub counts the AGENDA group only.
   const display = displayableEntries(entries);
-  const shown = display.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
-  const overflow = display.length - RUN_OF_SHOW_DISPLAY_CAP; // derived from the displayable count
+  const agenda = display.filter((e) => e.kind !== "strike" && e.kind !== "loadout");
+  const synthetic = display.filter((e) => e.kind === "strike" || e.kind === "loadout");
+  const shownAgenda = agenda.slice(0, RUN_OF_SHOW_DISPLAY_CAP);
+  const overflow = agenda.length - RUN_OF_SHOW_DISPLAY_CAP; // agenda-only count
   return (
     <div data-testid={`run-of-show-${isoDate}`} className="mt-2 flex flex-col">
       <ul className="flex flex-col divide-y divide-border">
-        {shown.map((entry, i) => (
-          <RunOfShowEntry key={i} entry={entry} />
+        {shownAgenda.map((entry, i) => (
+          <RunOfShowEntry key={`a${i}`} entry={entry} />
+        ))}
+        {synthetic.map((entry, i) => (
+          <RunOfShowEntry key={`s${i}`} entry={entry} />
         ))}
       </ul>
       {overflow > 0 ? (

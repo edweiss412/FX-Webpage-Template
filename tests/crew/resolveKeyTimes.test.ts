@@ -272,3 +272,36 @@ describe("resolveKeyTimes — ShowAnchor.time is sentinel-guarded at the source"
     expect(a.shows?.some((s) => s.date === "2026-10-10")).toBe(false); // all sentinel → omitted
   });
 });
+
+describe("resolveKeyTimes — synthetic strike/loadout entries are not show anchors (D12)", () => {
+  it("does not use a synthetic loadout entry as a show anchor", () => {
+    const runOfShow: RunOfShow = {
+      "2025-05-14": {
+        entries: [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }],
+        showStart: null,
+        window: null,
+      },
+    };
+    // No room show_time, no showStart/window, only a synthetic entry → no anchor
+    // is fabricated from the load-out time (row 3 must skip strike/loadout).
+    const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
+    expect(a.shows?.some((s) => s.time === "6:00 PM")).toBeFalsy();
+    expect(a.shows).toBeUndefined();
+  });
+
+  it("derives the anchor from the first NON-synthetic entry when a strike precedes it", () => {
+    const runOfShow: RunOfShow = {
+      "2025-05-14": {
+        entries: [
+          { start: "4:30 PM", title: "Strike — GS", kind: "strike" },
+          { start: "9:00 AM", title: "Keynote" },
+        ],
+        showStart: null,
+        window: null,
+      },
+    };
+    const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
+    // skips the strike at index 0, picks the real session entry's start.
+    expect(a.shows?.[0]?.time).toBe("9:00 AM");
+  });
+});

@@ -53,7 +53,7 @@ import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import {
   aggregateDays,
-  displayableEntries,
+  scheduleEntriesForViewer,
   formatScheduleWindow,
   resolveOptionalField,
   visibleShowDays,
@@ -63,6 +63,7 @@ import {
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
+import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 // Preserve the public export surface after the run-of-show predicates/renderer
 // were extracted to @/lib/crew/agendaDisplay + @/components/crew/primitives/
@@ -89,6 +90,17 @@ export function ScheduleSection({
   // throws MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
   // route-level infra arm catches it, not the per-block fallback).
   const { dateRestriction, isAdmin } = resolveViewerContext(viewer, data);
+
+  // §9.6 load-out trust boundary: the Pick Up Venue–derived load-out entry is
+  // gated EXACTLY like the Travel section's transport tile (admin → always;
+  // assigned driver / schedule-tagged crew → yes; unassigned crew → no). Strike
+  // entries are room-sourced (ungated) and the SET entries are plain agenda, so
+  // scheduleEntriesForViewer only ever drops kind:"loadout" when this is false.
+  const transportVisible = transportTileVisible({
+    transportation: data.transportation,
+    viewerName: data.viewerName,
+    isAdmin,
+  });
 
   const anchors = resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction);
 
@@ -249,13 +261,23 @@ export function ScheduleSection({
                       // setupTime (plan-review R5 finding).
                       const guardMeta = (v: string | null | undefined): string | undefined =>
                         resolveOptionalField(v ?? undefined) ?? undefined;
+                      // Per-viewer schedule entries (§9.6): displayable minus a
+                      // gated-out load-out. Drives BOTH the SET-meta suppression
+                      // and the per-day run-of-show gate/render below, so a day
+                      // whose only synthetic entry is a hidden load-out neither
+                      // opens a container nor suppresses the meta for that viewer.
+                      const dayEntries = scheduleEntriesForViewer(sd?.entries, {
+                        transportVisible,
+                      });
                       let meta: string | undefined;
                       if (isSetDay) {
-                        // Guard the RAW setupTime FIRST, THEN prefix (plan-review R6):
-                        // resolveOptionalField hides only EXACT sentinels after trim, so
-                        // "Setup N/A" would NOT hide — guard the bare value ("N/A" → null)
-                        // and prefix "Setup " only to a surviving real clock.
-                        const t = guardMeta(data.show.dates.setupTime);
+                        // §6/§9.1: when the SET day carries displayable run-of-show
+                        // entries (the synthesized Load In/Setup), the RunOfShowList
+                        // renders them below — suppress the standalone "Setup <time>"
+                        // meta to avoid double-printing setupTime. Guard the RAW
+                        // setupTime FIRST, THEN prefix (plan-review R6).
+                        const t =
+                          dayEntries.length > 0 ? null : guardMeta(data.show.dates.setupTime);
                         meta = t != null ? `Setup ${t}` : undefined;
                       } else if (sd?.window != null) {
                         meta = guardMeta(formatScheduleWindow(sd.window));
@@ -279,12 +301,13 @@ export function ScheduleSection({
                           {...(isToday ? { "data-today": "true" } : {})}
                         >
                           <DayCard day={day.date} phase={day.phase} today={isToday} meta={meta} />
-                          {/* Gate on the DISPLAYABLE count, not the raw stored
-                              count: a day whose entries are all URL-only (stripped
-                              title → "") has zero displayable entries → no
-                              run-of-show container → the Phase-1 anchor floor shows. */}
-                          {displayableEntries(sd?.entries).length > 0 ? (
-                            <RunOfShowList entries={sd!.entries} isoDate={day.date} />
+                          {/* Gate on the per-viewer (load-out-gated) DISPLAYABLE
+                              count, not the raw stored count: a day whose entries
+                              are all URL-only (stripped title → "") OR only a
+                              gated-out load-out has zero entries → no run-of-show
+                              container → the Phase-1 anchor floor shows. */}
+                          {dayEntries.length > 0 ? (
+                            <RunOfShowList entries={dayEntries} isoDate={day.date} />
                           ) : null}
                         </div>
                       );
