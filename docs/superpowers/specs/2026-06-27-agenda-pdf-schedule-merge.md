@@ -1,319 +1,259 @@
-# Spec: Surface agenda-PDF sessions in the run-of-show schedule
+# Spec: Surface agenda-PDF schedule in the admin Step-3 review card
 
 **Date:** 2026-06-27
-**Slug:** `agenda-pdf-schedule-merge`
-**Status:** Draft (autonomous-ship pipeline)
+**Slug:** `agenda-pdf-schedule-merge` (retained; the deliverable narrowed during
+adversarial review — see §1.1)
+**Status:** Draft (autonomous-ship pipeline) — rev 2 (post Codex round 1)
 
 ## 1. Problem
 
-On the admin Step-3 review card (and the crew page), the SCHEDULE section shows
-only bare dates with no session detail for shows whose structured schedule
-sources are empty. Concretely, for the "Redefining Fixed Income / Private Credit"
-show (sheet `1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg`):
+The admin Step-3 onboarding review card shows a SCHEDULE breakdown with only bare
+dates and no session detail for shows whose structured schedule sources are empty.
+For the "Redefining Fixed Income / Private Credit" show (sheet
+`1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg`):
 
-- The DATES TIME column (`lib/parser/blocks/scheduleTimes.ts`) yields only a
-  start-only day (`"GS: 8:00 AM - "`) and one unparseable placeholder
-  (`"GS: ... - 6:00 PM"` → `SCHEDULE_TIME_UNPARSED`, **correct**, out of scope).
-- The AGENDA tab is a title-less START/FINISH skeleton → no titled entries
-  (`lib/parser/blocks/agenda.ts` merge in `lib/parser/index.ts:441-452` only
-  lifts grid days with `gridEntries.length > 0`).
+- DATES TIME column (`lib/parser/blocks/scheduleTimes.ts`) → one start-only day
+  (`"GS: 8:00 AM - "`) and one unparseable placeholder (`"GS: ... - 6:00 PM"` →
+  `SCHEDULE_TIME_UNPARSED`, **correct**, out of scope).
+- AGENDA tab → title-less START/FINISH skeleton → no titled entries.
 
-The only detailed agenda source is the two agenda PDFs, linked as Drive file
-smart-chips on the INFO tab (`AGENDA LINK - RFI`, `AGENDA LINK - PCF`). The
-agenda extractor (`lib/agenda/extractAgendaSchedule.ts`) already parses both at
-**high confidence** (verified: `tests/agenda/extractAgendaSchedule.test.ts`
-passes — rfi.pdf → 18 sessions w/ breakout tracks; pcf.pdf → 19 sessions). But:
+The only detailed agenda source is the two agenda PDFs (linked as Drive file
+smart-chips: `AGENDA LINK - RFI`, `AGENDA LINK - PCF`). The extractor
+(`lib/agenda/extractAgendaSchedule.ts`) parses both at **high confidence**
+(verified — `tests/agenda/extractAgendaSchedule.test.ts` passes: rfi.pdf → 18
+sessions incl. a 2-track breakout; pcf.pdf → 19 sessions, 1 time auto-correction).
 
-1. **The extraction never runs during onboarding.** The onboarding
+Two facts make the card empty:
+
+1. **Extraction never runs during onboarding.** The onboarding
    `defaultDriveClient` (`lib/sync/runOnboardingScan.ts:218-229`) implements only
-   `getFile` + `listFolder`, so `enrichAgenda` short-circuits at its
-   `if (!downloadFileBytes) return;` guard (`lib/sync/enrichAgenda.ts:57-58`).
-2. **Even when extraction runs (cron), the extracted sessions feed only the crew
-   PDF-embed viewer** (`agenda_links[].extracted`) — they are NOT merged into
-   `runOfShow`, so the SCHEDULE section stays empty on both surfaces.
+   `getFile` + `listFolder`, so `enrichAgenda` short-circuits at
+   `if (!downloadFileBytes) return;` (`lib/sync/enrichAgenda.ts:57-58`). The
+   staged `parse_result` therefore carries `agenda_links` with **no** `extracted`.
+2. **The card has no agenda surface.** `Step3SheetCard` breakdowns are Crew /
+   Schedule / Rooms / Hotels / Warnings (`components/admin/wizard/Step3SheetCard.tsx`);
+   it never reads `agenda_links` / `extracted`.
+
+### 1.1 Scope narrowing (Codex round-1 Finding 1)
+
+The original draft proposed merging extracted PDF sessions into `runOfShow` on
+**both** surfaces. Adversarial review surfaced that the **crew Schedule section
+already renders the structured PDF agenda** via `AgendaScheduleBlock`
+(`components/crew/sections/ScheduleSection.tsx:118-138` → renders
+`AgendaScheduleBlock` per `link.extracted`, "the authoritative schedule overview
+… above the day-cards grid"). Merging the same sessions into `runOfShow` would
+render them **twice** on crew (in `AgendaScheduleBlock` AND inside each day card).
+
+**Resolution (user-confirmed):** the crew page is already correct (post-extraction)
+and is left **unchanged**. The deliverable is to give the **admin Step-3 card** the
+same structured-agenda render the crew page already has, by (a) running extraction
+during onboarding and (b) rendering `AgendaScheduleBlock` in a new card breakdown.
+The `runOfShow` merge, the `ScheduleDay.source` tag, the `decodeRunOfShow` change,
+and the day→ISO mapping / session-flattening logic are **all dropped** — they are
+unnecessary once we reuse the existing extraction render.
 
 ## 2. Goal
 
-Fill empty show-days in `runOfShow` with sessions extracted from the agenda PDFs,
-so the SCHEDULE section (admin Step-3 card AND crew page) shows the agenda when
-the sheet's structured sources carry no titled entries. Run the extraction during
-onboarding so the review card is populated on first view; the cron path already
-runs it.
+The admin Step-3 review card shows the structured per-day agenda schedule extracted
+from each high-confidence agenda PDF, populated on first review (extraction runs
+during the onboarding scan). No change to crew rendering.
 
 ## 3. Non-goals / out of scope
 
-- The `SCHEDULE_TIME_UNPARSED` warning ("Show-day time unreadable") stays — it is
-  a correct flag for a genuinely-unfilled start time (`"GS: ... - 6:00 PM"`);
-  fixing the sheet is the operator's call.
-- No change to the agenda PDF **embed viewer** (`components/agenda/*`,
-  `AgendaPdfViewer`, `AgendaEmbed`).
-- No change to the extractor itself (`extractAgendaSchedule`) — it already works.
-- No new DB columns / DDL: `source` rides inside the existing `run_of_show`
-  JSONB and the staged `parse_result`. No migration, no advisory-lock change.
+- The `SCHEDULE_TIME_UNPARSED` warning stays (correct flag; sheet edit is the
+  operator's call).
+- No change to crew (`ScheduleSection`, `AgendaScheduleBlock`, `AgendaEmbed`,
+  `RunOfShowList`), to `runOfShow` / `decodeRunOfShow`, or to `ScheduleDay`.
+- No change to the extractor.
+- No new DB columns / DDL, no migration, no advisory-lock change.
+- **Prior-extraction hydration across parses is out of scope** (see §4.4) — it is a
+  pre-existing efficiency gap affecting cron today and is filed to BACKLOG, not
+  introduced or fixed here.
 
 ## 4. Design
 
 ### 4.1 Run extraction during onboarding
 
-Extend the onboarding `defaultDriveClient` (`lib/sync/runOnboardingScan.ts:218`)
-to implement `downloadFileBytes` + `getAgendaChips` by importing the **existing**
-production impls from `lib/drive/agendaDrive.ts` (the cron path already wires
-them at `lib/sync/runScheduledCronSync.ts:1665-1666`). This makes `enrichAgenda`
-run during the scan. Extraction caches on `agenda_links[].extracted` keyed by
-`headRevisionId` + `EXTRACTOR_VERSION` (`lib/sync/enrichAgenda.ts:115-121`), so a
-later cron sync reuses it — the PDF download/parse cost is paid once.
+Extend the onboarding `defaultDriveClient` (`lib/sync/runOnboardingScan.ts:218`) to
+implement `downloadFileBytes` + `getAgendaChips` by importing the **existing**
+production impls from `lib/drive/agendaDrive.ts` (the cron path already wires them
+at `lib/sync/runScheduledCronSync.ts:1665-1666`). The onboarding prepare loop
+already calls `enrichWithDrivePins(parsed, driveClient, …)` per sheet
+(`runOnboardingScan.ts:933-934`) with `driveClient = deps.driveClient ??
+defaultDriveClient()` (`:918`), and `enrichWithDrivePins` already calls
+`enrichAgenda` (`enrichWithDrivePins.ts:322`). So once the default client exposes
+the two methods, extraction runs during the scan and `agenda_links[].extracted` is
+populated in the staged `parse_result` (`runOnboardingScan.ts:933-947, 584-589`).
 
-**Cost / fan-out:** the onboarding scan deliberately bounds Drive fan-out
-(`runOnboardingScan.ts:44-55`, ~6 Drive calls/sheet). Adding agenda extraction
-adds, per sheet with N agenda links: 1 `getAgendaChips` (only when ≥1 link lacks
-a parsed fileId), then per link 1 `getFile` + (cache-miss) 1 `downloadFileBytes`
-+ CPU parse. This is **accepted** (user decision: "Inline during scan, cached").
 `enrichAgenda` is best-effort and never throws out of the scan
-(`enrichAgenda.ts:172-175`).
+(`enrichAgenda.ts:172-175`); an `infra_error` leaves a link unenriched and retries
+next sync (existing behavior).
 
-**Guard conditions:** if a sheet has zero agenda links, `enrichAgenda` iterates an
-empty list — no Drive calls beyond the existing ones. If `getAgendaChips`/
-`downloadFileBytes` return `infra_error`, the link is left unenriched and retried
-next sync (existing behavior, unchanged).
+### 4.2 Render the agenda in the Step-3 card
 
-### 4.2 New sync-layer merge step
+Add an `AgendaBreakdown` to `Step3SheetCard` (`components/admin/wizard/Step3SheetCard.tsx`),
+rendered inside the existing expandable breakdown area alongside Crew / Schedule /
+Rooms / Hotels. Data source: `pr.show.agenda_links` (the staged `ParseResult`'s
+`show.agenda_links`; `pr` is already in scope — `:607` reads `pr.runOfShow`).
 
-Add `lib/sync/mergeAgendaIntoRunOfShow.ts` exporting
-`mergeAgendaIntoRunOfShow(result: ParseResult): void`, called from
-`enrichWithDrivePins` immediately after the `enrichAgenda` call
-(`lib/sync/enrichWithDrivePins.ts:322`). Because both `runOnboardingScan` and
-`runScheduledCronSync` go through `enrichWithDrivePins`, both paths inherit it,
-and the merged `runOfShow` flows into BOTH persistence sinks:
+Render rules:
 
-- crew: `shows_internal.run_of_show` (written in `runScheduledCronSync.ts`'s
-  `insert into public.shows_internal (..., run_of_show)`), read by
-  `getShowForViewer` (`lib/data/getShowForViewer.ts:577-590`) → decoded by
-  `decodeRunOfShow` (`lib/data/decodeRunOfShow.ts`).
-- admin: the staged `parse_result` the Step-3 card reads (no decoder).
+- `links = pr.show.agenda_links`. If `links.length === 0` → **omit** the Agenda
+  breakdown entirely (mirrors the existing breakdowns' empty handling).
+- Else render a `BreakdownSection label="Agenda" count={links.length}` containing,
+  per link **in array order**:
+  - if `link.extracted` is a high-confidence extraction with ≥1 day → render
+    `<AgendaScheduleBlock extraction={link.extracted} label={links.length > 1 ?
+    agendaDisplayLabel(link.label) : null} />`. `AgendaScheduleBlock` self-gates
+    (returns `null` for low/malformed/0-day — `AgendaScheduleBlock.tsx:62-64`), so
+    a low-confidence link falls through to the note below.
+  - else → a one-line muted note: `"{agendaDisplayLabel(link.label)} · agenda PDF
+    not auto-readable — open the PDF to view"` (so the operator sees that a PDF is
+    linked but produced no structured schedule).
+- The `label` badge (per-document, e.g. "RFI"/"PCF") is shown only when
+  `links.length > 1`, mirroring the crew rule
+  (`ScheduleSection.tsx:131-132`, `agendaDisplayLabel` from
+  `lib/agenda/agendaLabel.ts`, imported at `ScheduleSection.tsx:42`).
 
-**It mutates `result.runOfShow` in place.** If `result.runOfShow` is `undefined`
-(no DATES/AGENDA-tab days at all) BUT a PDF maps to a canonical show-day, the
-step initializes `result.runOfShow = {}` and adds the PDF day(s). Show-day ISO
-candidates come from `result.show.dates` (showDays / set / travel — the same set
-`deriveSchedulePhases` uses) PLUS any existing `runOfShow` keys.
+**Reuse, not fork:** import the existing `AgendaScheduleBlock`
+(`components/crew/AgendaScheduleBlock.tsx`) — it is a pure presentational Server
+Component consuming the raw `extracted` jsonb via `normalizeAgendaExtraction`, with
+no crew-specific dependency. It is NOT relocated (avoids churn to crew imports).
 
-**Per-day precedence** (for each candidate show-day ISO):
+### 4.3 UI specifics (Opus + impeccable invariant 8)
 
-1. Existing day with `entries.length > 0` (titled structured run-of-show) → **keep
-   untouched**.
-2. Else if a PDF AgendaDay maps to this ISO (§4.3) and yields ≥1 displayable
-   entry (§4.4) → set `{ entries: <pdf entries>, showStart: <first entry start>,
-   window: null, source: "pdf" }`.
-3. Else → leave the existing day as-is (empty / showStart-only / window) — never
-   downgrade a structured day.
+`AgendaBreakdown` is a UI surface under `components/` → Opus-only + invariant 8
+(impeccable critique + audit, HIGH/CRITICAL fixed or `DEFERRED.md`).
 
-**Confidence gate:** only `extraction.confidence === "high"` days are eligible
-(low confidence already yields `days: []`, so this is belt-and-suspenders).
+- **Guard conditions:** `agenda_links` absent/empty → no breakdown. A link with
+  `extracted: undefined` (extraction didn't run / infra error) → note line. A
+  link whose `extracted` is low-confidence → note line. A high-confidence link →
+  `AgendaScheduleBlock`. `pr` null/corrupt → the card's existing §4.6 no-details
+  guard already returns before breakdowns render (unchanged).
+- **Dimensional invariants:** `AgendaScheduleBlock` already declares its own
+  (`AgendaScheduleBlock.tsx:30-37`: `min-w-0`, `grid-cols-[auto_minmax(0,1fr)]`,
+  `wrap-break-word`). The breakdown wrapper adds only flow content; it introduces
+  no fixed-dimension parent → no new parent→child invariant. (Tailwind v4 no-
+  default-`items-stretch` rule: N/A — no stretch dependency.)
+- **Transition inventory:** the breakdown participates in the existing
+  expand/collapse toggle of the card (the only state transition). The Agenda
+  content itself is server-rendered and static within an expanded card — **instant,
+  no animation.** Two content states (block vs note) per link are mutually
+  exclusive at render time (no client toggle) — instant.
+- **Copy:** the note text is descriptive UI copy, not a raw error code, so it does
+  NOT route through `lib/messages/lookup.ts` (invariant 5 is about raw error codes;
+  N/A).
+- **Day-label fidelity:** `AgendaScheduleBlock` shows `day.dayLabel` verbatim
+  (`AgendaScheduleBlock.tsx`). For these PDFs that is `"Tuesday May 13,2024"`
+  (source year typo) and `"Wednes day, May 14 , 202 5"` (PDF text-extraction
+  spacing). This is acceptable on a **review** surface — it reflects the PDF's own
+  header and lets the operator spot source typos. No normalization is added.
 
-### 4.3 PDF day → ISO mapping (year-typo tolerant)
+### 4.4 Cost & caching reality (Codex round-1 Finding 2)
 
-`AgendaDay.date` is **always `null`** (`extractAgendaSchedule.ts:497` is the sole
-push site). Mapping therefore parses month+day from `AgendaDay.dayLabel`, which is
-free-form and may be corrupted by PDF text extraction:
+The original draft claimed the PDF parse cost is "paid once" via the
+`agenda_links[].extracted` revision cache. **That claim was wrong and is removed.**
+The revision/`extractorVersion` cache check (`enrichAgenda.ts:115-121`) only hits
+when a link already carries prior `extracted`; but every parse path
+(`parseAgendaLinks` in `lib/parser/index.ts:236-259`, called by both
+`runOnboardingScan` and `runScheduledCronSync`) builds **fresh** `agenda_links`
+with only `label`/`fileId`/`url` and no `extracted` — the prior stored
+`agenda_links` are not hydrated back in before `enrichAgenda`. So extraction
+re-downloads + re-parses on each relevant sync. This is **pre-existing cron
+behavior**, unchanged by this feature.
 
-- RFI: `dayLabel = "Tuesday May 13,2024"` (wrong **year** — 2024 vs the 2025 show)
-- PCF: `dayLabel = "Wednes day, May 14 , 202 5"` (mangled spacing in day + year)
+What this feature adds: the onboarding scan now also downloads + parses agenda PDFs
+inline, per sheet, for every agenda link. Cost is bounded by the scan's existing
+fan-out cap (`runOnboardingScan.ts:44-55`) and is best-effort (never blocks the
+scan). For the fxav-test-shows folder (≤19 sheets, ≤2 PDFs each) this is ≤~38 PDF
+downloads per full scan; re-scans repeat it (operator-triggered, infrequent). This
+cost is **accepted** (user decision: inline during scan).
 
-Algorithm `mapAgendaDayToIso(dayLabel, showDayIsos): string | null`:
+**Prior-extraction hydration** (matching fresh links to prior `extracted` by
+`fileId` + revision so the cache actually hits across parses) would remove the
+repeated cost for BOTH onboarding re-scans and cron, but it touches the cron read
+path and is a pre-existing inefficiency independent of this feature → filed to
+`BACKLOG.md` as `BL-AGENDA-EXTRACTION-HYDRATION`, out of scope here.
 
-1. Parse `(month, day)` from `dayLabel` with a tolerant regex: an English month
-   name (full or 3-letter prefix, case-insensitive) followed by a 1–2 digit day,
-   allowing arbitrary inter-word whitespace
-   (e.g. `/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})\b/i`).
-   **Year is deliberately ignored** (it is the corrupted field).
-2. Build `(month, day)` for each candidate show-day ISO (from its `YYYY-MM-DD`).
-3. If exactly one show-day shares the parsed `(month, day)` → return that ISO.
-   If zero or more-than-one match → return `null` (skip — degrade safely, never
-   bind to the wrong day; mirrors the `resolveSourceCell` exactly-one-or-null
-   precedent at `lib/drive/showDayTimeAnchors.ts:89-96`).
-4. Unparseable `dayLabel` → `null` (no positional fallback — a wrong-day binding
-   is worse than no binding).
-
-**Multiple PDFs → same ISO** (general case; does NOT occur for this show — RFI=13,
-PCF=14): concatenate all mapped days' entries for that ISO, sort by start
-minute-of-day, and drop adjacent exact-duplicate `(start,title)` entries. (For
-this show each PDF maps to a distinct day, so no concat/sort is exercised, but the
-rule is specified and tested with a synthetic fixture.)
-
-### 4.4 Session → AgendaEntry flattening
-
-`AgendaSession` → zero-or-more `AgendaEntry` (`lib/parser/types.ts:340-347`,
-`{ start, finish?, trt?, title, room?, av? }`; `title` is **required, non-null**):
-
-- **Time:** `session.time` is either a range (`"8:00 AM – 8:45 AM"`) or a single
-  clock (`"5:00 PM"`). Split on the first dash class `[–—-]` (en/em/hyphen):
-  `start` = left part trimmed; `finish` = right part trimmed when present and
-  non-empty; single clock → `start` only, no `finish`. `trt`/`av` are not produced
-  (the extractor has no source for them).
-- **Tracks:** if `session.tracks.length >= 1`, emit one `AgendaEntry` per track:
-  `title = track.title ?? session.title`, `room = track.room ?? session.room ?? undefined`,
-  same `start`/`finish`. Else emit one entry: `title = session.title`,
-  `room = session.room ?? undefined`.
-- **Drop rule:** an emitted entry whose resolved `title` is `null`/empty or fails
-  `shouldHideGenericOptional` is dropped (e.g. PCF's 2 null-title break rows). This
-  matches the crew render gate `isDisplayableEntry`
-  (`lib/crew/agendaDisplay.ts:43-45`), so dropped-here ≡ would-not-render-anyway.
-  `room`/`finish` are only set when non-empty strings (so `decodeRunOfShow`'s
-  "every present optional must be a string" rule holds, `decodeRunOfShow.ts:42-50`).
-
-A PDF day that yields zero displayable entries after this is treated as "no PDF
-day for this ISO" (precedence step 2 fails → step 3).
-
-### 4.5 The `source` provenance tag
-
-Add an optional field to `ScheduleDay` (`lib/parser/types.ts:349-353`):
-
-```ts
-export type ScheduleDay = {
-  entries: AgendaEntry[];
-  showStart: string | null;
-  window: { start: string; end: string } | null;
-  source?: "pdf"; // present only on days filled from an agenda PDF (§4.2 step 2)
-};
-```
-
-**Flag lifecycle table:**
-
-| Aspect | Detail |
-|---|---|
-| **Storage** | inside `shows_internal.run_of_show` JSONB (crew) + staged `parse_result` (admin). No DDL. |
-| **Write path** | `mergeAgendaIntoRunOfShow` sets `source: "pdf"` on PDF-filled days (§4.2 step 2). Structured days never get it. |
-| **Read path (crew)** | `decodeRunOfShow` must validate + preserve it: `source === "pdf"` → keep; any other value → drop the field (NOT corrupt). Add to the rebuilt `result[key]` object. |
-| **Read path (admin)** | Step-3 card reads staged `parse_result.runOfShow` directly (no decoder) — tag survives natively. |
-| **Effect on output** | both surfaces render a subtle "from agenda PDF" provenance marker on tagged days (§4.6). No effect on entry rendering. |
-
-Because `decodeRunOfShow` rebuilds each day as `{ entries, showStart, window }`
-(`decodeRunOfShow.ts:181`), it currently strips `source`. The decoder MUST be
-extended (validated, with a negative-regression test) or the crew tag never
-appears.
-
-### 4.6 UI (Opus + impeccable invariant 8)
-
-Both surfaces already render `runOfShow` entries automatically once days carry
-entries — no change needed to make sessions appear. The only UI addition is the
-provenance marker on `source === "pdf"` days:
-
-- **Crew** (`components/crew/primitives/RunOfShowList.tsx`): the `RunOfShowList`
-  signature gains an optional `source?: "pdf"` prop; when `"pdf"`, render a small
-  muted label (e.g. eyebrow text "From agenda PDF") above/below the list. Callers
-  (`TodaySection`, the Schedule section) pass `runOfShow[iso]?.source`.
-- **Admin** (`components/admin/wizard/Step3SheetCard.tsx`): `ScheduleDayRow`
-  (line 182) gains the same optional source; render an inline muted tag on tagged
-  days.
-
-**Dimensional invariants:** the marker is inline/flow text, not inside a
-fixed-dimension flex parent, so no parent→child height/width invariant is
-introduced. (No Tailwind-v4 `items-stretch` concern.)
-
-**Transition inventory:** the marker has two states per day — present (`source ===
-"pdf"`) vs absent. The transition is **instant — no animation needed** (server-
-rendered; day source does not toggle client-side within a mounted card).
-
-**Copy:** the marker is descriptive UI text, not an error code, so it does not go
-through `lib/messages/lookup.ts` (invariant 5 is about raw error codes; N/A here).
-
-## 5. Guard conditions (every input)
-
-- `result.runOfShow` `undefined` → init `{}` only if a PDF maps; else leave
-  `undefined`.
-- `agenda_links` empty / all `extracted` undefined → no-op merge.
-- `extraction.confidence === "low"` or `days: []` → no eligible days.
-- `dayLabel` empty/unparseable → that day maps to `null` (skipped).
-- `(month, day)` matches 0 or ≥2 show-days → skipped.
-- Day yields 0 displayable entries → treated as no PDF day for that ISO.
-- Existing structured day with `entries.length > 0` → never overwritten.
-- `result.show.dates` all null (no show-days) → no candidate ISOs from dates; only
-  existing `runOfShow` keys are candidates.
+## 5. Guard conditions (every input) — see §4.3.
 
 ## 6. Numeric sweep
 
-- Agenda links for this show: **2** (RFI, PCF).
-- Show-days for this show: **2** (2025-05-13, 2025-05-14); `runOfShow` shows 3
-  keys incl. 2025-05-15 (travel-out, AGENDA-tab empty day) — only 13 & 14 get PDF
-  fill.
-- RFI sessions: **18** extracted; ~17 displayable after the breakout expands to 2
-  track-entries and 0 are null-title. PCF: **19** extracted, **2** null-title rows
-  dropped → 17 displayable.
-- `RUN_OF_SHOW_DISPLAY_CAP = 20` (`lib/crew/agendaDisplay.ts:16`) — both days
-  under cap; overflow stub path unaffected.
-- `EXTRACTOR_VERSION` cache key — unchanged (no extractor change).
+- Agenda links for this show: **2** (RFI, PCF); both high-confidence → 2
+  `AgendaScheduleBlock`s, each with the per-doc `label` (since `length > 1`).
+- RFI: 1 day ("Tuesday May 13,2024"), 18 sessions (1 with 2 breakout tracks).
+  PCF: 1 day ("Wednes day, May 14 , 202 5"), 19 sessions (2 null-title break rows
+  render per `AgendaScheduleBlock`'s own rules; 1 drift note on the 12:25 lunch).
+- `AgendaScheduleBlock` render gate: high-confidence + ≥1 day
+  (`AgendaScheduleBlock.tsx:62-64`).
+- No counts in `runOfShow` / `decodeRunOfShow` change (those are untouched).
 
 ## 7. Test plan (TDD per task)
 
-1. `mapAgendaDayToIso` unit: RFI "Tuesday May 13,2024" → 2025-05-13; PCF
-   "Wednes day, May 14 , 202 5" → 2025-05-14; ambiguous (two show-days same
-   month/day) → null; unparseable → null; year-only-wrong still matches.
-   *Failure mode caught:* naive exact-ISO or year-sensitive matching (would bind
-   nothing for the 2024 typo).
-2. `flattenSession` unit: range → start+finish; single clock → start only;
-   tracks=2 → 2 entries; null title → dropped; room preserved; finish/room only
-   set when non-empty.
-   *Failure mode:* dropping room/finish, or emitting a null-title entry that
-   crashes `decodeRunOfShow`/render.
-3. `mergeAgendaIntoRunOfShow` unit (synthetic ParseResult + extracted): structured
-   day kept; empty day filled + `source:"pdf"` + showStart=first start; no-PDF day
-   untouched; two-PDF-same-ISO concat+sort+dedupe; `runOfShow` undefined → init.
-   *Failure mode:* overwriting a structured day; wrong showStart; missing source
-   tag.
-4. **End-to-end via real fixtures** (`fixtures/agenda/rfi.pdf` + `pcf.pdf`,
-   already committed, byte-identical to live): feed both extractions through the
-   merge against a 2025-05-13/14 show; assert 05-13 entries include
-   "Registration & Breakfast" and the wrapped "Adapting…Unpredictability?" title,
-   05-14 includes "Lunch", both days `source:"pdf"`. **Derive expectations from
-   the extraction output, not hardcoded counts** (anti-tautology: assert against
-   the extraction, not the merged container).
-5. `decodeRunOfShow` negative-regression: a stored day with `source:"pdf"`
-   round-trips (preserved); `source:"bogus"` → field dropped, NOT corrupt; absent
-   source → absent. *Failure mode:* decoder silently strips the tag (crew marker
-   never shows) — verify by mutating the decoder to drop it and seeing the test
-   fail.
-6. Onboarding wiring: `runOnboardingScan` `defaultDriveClient` now exposes
-   `downloadFileBytes` + `getAgendaChips`; a scan over a show with agenda chips
-   populates `runOfShow` from the PDF. Assert via the existing scan test harness
-   with a mock Drive client returning the fixtures.
-7. **UI (real-browser/RTL):** `RunOfShowList` + `ScheduleDayRow` render the
-   "from agenda PDF" marker iff `source==="pdf"`; absent otherwise. Clone-and-
-   strip sibling controls before scanning DOM for the label (anti-tautology).
-8. Impeccable dual-gate (critique + audit) on the admin + crew diff (invariant 8).
+1. **Onboarding default client exposes the methods (structural — Finding 3).**
+   Export the onboarding `defaultDriveClient` from `runOnboardingScan.ts` and add
+   it to the `IMPLS` table in `tests/sync/driveClientImplCompleteness.test.ts`
+   (currently only the cron default + mock). Assert it exposes `downloadFileBytes`
+   + `getAgendaChips`. *Failure mode caught:* the production onboarding path stays
+   method-less while a mock-injected scan test passes (card empty in prod).
+2. **Onboarding extraction populates `extracted` via the real default path.** In
+   the onboarding-scan test harness, run the prepare/scan path WITHOUT injecting a
+   `driveClient` (or inject one whose agenda methods are spied) over a sheet with
+   agenda chips (reuse `tests/onboarding/enrichAgendaIntegration.test.ts` patterns
+   + `fixtures/agenda/*.pdf`); assert the staged `parse_result.show.agenda_links[i].extracted`
+   is a high-confidence extraction. *Failure mode:* enrichAgenda silently
+   short-circuits.
+3. **`AgendaBreakdown` render (UI/RTL).** Given a `ParseResult` with two
+   high-confidence `extracted` links → two `agenda-schedule` blocks with RFI/PCF
+   labels and representative titles ("Registration & Breakfast", "Lunch"). Given a
+   link with no `extracted` → the muted note line, no block. Given zero agenda
+   links → no Agenda breakdown rendered. **Derive expected titles from the
+   extraction of `fixtures/agenda/*.pdf`, not hardcoded** (anti-tautology); when
+   scanning DOM for a label, clone-and-strip the sibling Schedule/Rooms breakdowns
+   first so the assertion can't be satisfied by another section.
+4. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
+   renders exactly one `AgendaScheduleBlock` per high-confidence link and that
+   nothing in this change touches `runOfShow` (guard against accidental
+   duplication / re-introduction of the merge). Verify by confirming no new
+   `runOfShow` write path exists.
+5. **Impeccable dual-gate** (critique + audit) on the admin card diff (invariant 8).
 
 ## 8. Meta-test inventory
 
-- **Supabase call-boundary contract** (`tests/sync/_metaInfraContract.test.ts`):
-  `downloadFileBytes` + `getAgendaChips` are already registered (cron). The
-  onboarding client reuses the same functions (no new boundary) — confirm no new
-  registry row is required; add an inline `// not-subject-to-meta` note only if a
-  new call site is introduced. **No new meta-test created.**
-- **Advisory-lock topology:** no `pg_advisory*` touched (the merge is pure
-  in-memory mutation of the parse result before the existing locked write). No
-  change to `tests/auth/advisoryLockRpcDeadlock.test.ts`.
+- **EXTEND** `tests/sync/driveClientImplCompleteness.test.ts` — add the onboarding
+  `defaultDriveClient` to the completeness `IMPLS` (Task 1). This is the structural
+  defense for Finding 3.
+- **Supabase call-boundary** (`tests/sync/_metaInfraContract.test.ts`):
+  `downloadFileBytes` + `getAgendaChips` (in `agendaDrive.ts`) are already
+  registered; the onboarding client reuses the same functions — **no new boundary,
+  no new row.**
+- **Advisory-lock topology:** no `pg_advisory*` touched. No change to
+  `tests/auth/advisoryLockRpcDeadlock.test.ts`.
 - No new RPC-gated table → no PostgREST DML lockdown change.
 
 ## 9. Files touched
 
 | File | Change |
 |---|---|
-| `lib/parser/types.ts` | add `source?: "pdf"` to `ScheduleDay` |
-| `lib/sync/mergeAgendaIntoRunOfShow.ts` | **new** — merge + `mapAgendaDayToIso` + `flattenSession` |
-| `lib/sync/enrichWithDrivePins.ts` | call merge after `enrichAgenda` (line ~322) |
-| `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` with the two methods |
-| `lib/data/decodeRunOfShow.ts` | validate + preserve `source` on day rebuild |
-| `components/crew/primitives/RunOfShowList.tsx` | `source` prop + marker |
-| `components/crew/sections/TodaySection.tsx` (`:593`) + `components/crew/sections/ScheduleSection.tsx` | pass `runOfShow[iso]?.source` to `RunOfShowList` |
-| `components/admin/wizard/Step3SheetCard.tsx` | `ScheduleDayRow` source + marker |
-| tests (per §7) | new + extended |
+| `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips` (import from `agendaDrive.ts`); **export** `defaultDriveClient` for the meta-test |
+| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock`); render it from `pr.show.agenda_links` |
+| `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
+| `tests/onboarding/...` | extraction-populates-`extracted` test (Task 2) |
+| `tests/components/admin/...` | `AgendaBreakdown` render test (Task 3) |
+| `BACKLOG.md` | file `BL-AGENDA-EXTRACTION-HYDRATION` |
+
+**Not touched (dropped from rev 1):** `lib/parser/types.ts`,
+`lib/data/decodeRunOfShow.ts`, `lib/sync/enrichWithDrivePins.ts`,
+`components/crew/**`, any `runOfShow` write path, no new `lib/sync/mergeAgendaIntoRunOfShow.ts`.
 
 ## 10. Resolved decisions
 
-- Display: **merge into the SCHEDULE section** (not a separate breakdown).
-- Surfaces: **both** admin card and crew schedule (sync-layer merge into
-  `runOfShow`).
-- Timing: **inline during scan, cached** (cron reuses).
-- Precedence: **structured titled entries win; PDF fills empties; never
-  downgrade**.
-- Mapping: **month+day from `dayLabel`, year ignored, exactly-one-or-skip**.
-- Tag: **`source:"pdf"` on `ScheduleDay`**, decoder-preserved, subtle UI marker.
+- Surface: **admin Step-3 card only**; crew already renders the agenda and is
+  unchanged (Codex F1 + user confirmation).
+- Render: **reuse `AgendaScheduleBlock`** in a new card breakdown (not a runOfShow
+  merge).
+- Timing: **extraction inline during the onboarding scan** (cron already runs it).
+- Caching: **no cross-parse cache claim**; extraction re-runs per parse
+  (pre-existing); hydration → BACKLOG (Codex F2).
+- Structural pin: **onboarding `defaultDriveClient` added to the DriveClient
+  completeness meta-test** (Codex F3).
