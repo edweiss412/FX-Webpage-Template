@@ -182,17 +182,23 @@ Expected: FAIL ("extractFirstClock is not a function").
 In `lib/parser/blocks/scheduleTimes.ts`, export a helper that walks `CLOCK_RE` and returns the first match that has minutes (group 2) or an AM/PM suffix (group 3), normalized with the existing `normClock`:
 
 ```ts
-/** First real clock token in `text` (has :MM or AM/PM), display-normalized; else null. */
+/**
+ * First real clock token in `text` (has :MM or AM/PM), returned VERBATIM (the
+ * operator's exact text — we don't reformat crew-facing clock display, spec §7.2);
+ * null if none. (Distinct from the show-day tokenizer's normClock display path.)
+ */
 export function extractFirstClock(text: string): string | null {
   CLOCK_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = CLOCK_RE.exec(text)) !== null) {
     if (!m[2] && !m[3]) continue; // bare integer, not a clock
-    return normClock(m[1]!, m[2], m[3], m[0]);
+    return m[0].trim(); // verbatim — e.g. "4:30pm", "1PM", "6:00 PM", "8 PM"
   }
   return null;
 }
 ```
+
+> Verbatim (not `normClock`) is deliberate: the tests below and spec §7.2 require the operator's exact clock text. Do NOT route this through `normClock` (which uppercases AM/PM and strips the leading-zero hour) — that's the show-day *display* path, not this extractor.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -572,7 +578,8 @@ git commit --no-verify -m "feat(parser): deriveScheduleBookends load-out + SET s
 - Modify: `lib/messages/catalog.ts` (add the matching row)
 - Modify: `lib/parser/dataGaps.ts` (`OPERATOR_ACTIONABLE_ANCHORED` += the code)
 - Modify: `lib/drive/showDayTimeAnchors.ts` (`attachSourceCellAnchors` region dispatch)
-- Test: `tests/messages/codes.test.ts` (x1 gate, existing), `tests/parser/dataGaps.test.ts` or new
+- Modify: `tests/parser/operatorActionableWarnings.test.ts` (exact-membership pin array — add the code)
+- Test: `tests/messages/codes.test.ts` (x1 gate, existing), `tests/parser/dataGaps.test.ts`, `tests/parser/operatorActionableWarnings.test.ts`, `tests/parser/parseWarningDeepLinkRender.test.tsx`
 
 **Interfaces:**
 - Consumes: `strikeDateOffSchedule` (Task 4). Produces: the code surfaced via `operatorActionableWarnings` with a `rooms`-region `sourceCell`.
@@ -608,15 +615,16 @@ it("SCHEDULE_STRIKE_DATE_OFF_SCHEDULE is operator-actionable", () => {
 });
 ```
 
-- [ ] **Step 5: Add the code to the set + region-anchor dispatch**
+- [ ] **Step 5: Add the code to the set + region-anchor dispatch + update the exact-membership pin**
 
 In `lib/parser/dataGaps.ts`, add `"SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"` to `OPERATOR_ACTIONABLE_ANCHORED`.
 In `lib/drive/showDayTimeAnchors.ts` `attachSourceCellAnchors`, add a branch resolving this code to `sources.region[w.blockRef!.kind]` (= `region["rooms"]`, a valid `RegionId`) — mirroring the `FIELD_UNREADABLE` region branch.
+**MANDATORY:** `tests/parser/operatorActionableWarnings.test.ts` asserts the **exact membership** of `OPERATOR_ACTIONABLE_ANCHORED` (`expect([...OPERATOR_ACTIONABLE_ANCHORED].sort()).toEqual([ … ])`, and `showDayTimeAnchors.ts` documents this pin). Add `"SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"` to that expected array (keep sorted) — otherwise the full suite fails. Also check `tests/parser/parseWarningDeepLinkRender.test.tsx` (it iterates the set and resolves each code's anchor) — the new code must resolve to a non-null `rooms` region anchor there, which Step 5's dispatch provides.
 
 - [ ] **Step 6: Run the relevant suites**
 
-Run: `pnpm vitest run tests/parser/dataGaps.test.ts tests/messages/codes.test.ts tests/help/errors-grouping.test.tsx tests/drive/showDayTimeAnchors.test.ts`
-Expected: PASS (the `SCHEDULE` prefix is pre-mapped in `_families.ts`; errors-grouping stays green).
+Run: `pnpm vitest run tests/parser/dataGaps.test.ts tests/parser/operatorActionableWarnings.test.ts tests/parser/parseWarningDeepLinkRender.test.tsx tests/messages/codes.test.ts tests/help/errors-grouping.test.tsx tests/drive/showDayTimeAnchors.test.ts`
+Expected: PASS (the `SCHEDULE` prefix is pre-mapped in `_families.ts`; errors-grouping + the membership pin stay green).
 
 - [ ] **Step 7: Commit (all lockstep layers together)**
 
