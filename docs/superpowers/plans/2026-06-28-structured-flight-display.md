@@ -14,7 +14,7 @@
 - **Commit per task**, conventional-commits `<type>(crew-page): <summary>`. (Invariant 6.)
 - **No DB / migration / parser / projection change.** `lib/parser/blocks/travelFlights.ts`, `crew.ts`, `lib/data/getShowForViewer.ts` are **untouched**.
 - **Helper is total** — never throws; every part yields a `FlightSegment` (structured or raw-fallback). No new warnings.
-- **`flight_info` is always `" | "`-leg-delimited** → `1 cleaned pipe-part = 1 segment` (carries all the leg's tokens).
+- **`flight_info` is always `" | "`-leg-delimited** → `1 cleaned part = 1 segment` (carries all the leg's tokens). The pre-clean split is `/\s*\|\s*|\n/` — pipe **or** newline — exactly mirroring the shipped card's pre-clean (`TravelSection.tsx:265`, where the `\n` arm is a documented harmless forward-compat allowance; real `flight_info` contains no `\n`, so in practice it is pipe-only).
 - **Format detection by route-vs-date position:** route token *before* the date ⇒ TECH (airline name + trailing per-segment `conf`); route *after* the date (or no route) ⇒ TRAVEL (flightNo + leading itinerary `confirmation`).
 - **UI surface** (`components/crew/sections/TravelSection.tsx`) → **invariant 8** impeccable `critique`+`audit` dual-gate before close.
 - **Meta-test inventory:** creates/extends **none**; the flight legs keep routing through `shouldHideGenericOptional` (pre-clean), so the sentinel-hiding contract is preserved, not relocated (spec §7.1).
@@ -355,28 +355,40 @@ git commit -m "feat(crew-page): pure flight-display helper (both-format classifi
 Replace the existing TECH-string assertions and add cases in `tests/components/crew/sections/TravelSection.flight.test.tsx` (keep the `renderTravel`/`baseData` harness; `TODAY = new Date("2024-05-13T12:00:00Z")`):
 
 ```ts
-it("TECH leg renders structured: date, route EWR→FLL, airline, times, conf", () => {
+it("TECH leg renders EVERY structured field: date label, route EWR→FLL, airline, times, conf", () => {
   const flight = "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
-  const { getByTestId } = renderTravel(baseData({ viewerFlightInfo: flight }));
+  // baseData's show must yield showYear 2024 to match TODAY; override its dates.
+  const { getByTestId } = renderTravel(
+    baseData({ viewerFlightInfo: flight, show: { dates: { travelIn: "2024-05-13" } } as never }),
+  );
   const segs = within(getByTestId("travel-flight")).getAllByTestId("travel-flight-seg");
   expect(segs).toHaveLength(2);
-  // assert against the parsed source (anti-tautology), not a literal:
-  const parsed = parseFlightItinerary(flight, 2024).segments;
-  expect(segs[0]).toHaveTextContent(parsed[0]!.origin!); // EWR
-  expect(segs[0]).toHaveTextContent(parsed[0]!.dest!); // FLL
-  expect(segs[0]).toHaveTextContent(parsed[0]!.airline!); // UNITED
-  expect(segs[0]).toHaveTextContent(parsed[0]!.conf!); // HQQ79F
+  // Literal visible-field assertions derived from the fixture (catches omitted JSX, Findings 1+2):
+  expect(segs[0]).toHaveTextContent("May 13"); // formatFlightDate("2024-05-13")
+  expect(segs[0]).toHaveTextContent("EWR → FLL"); // route glyph
+  expect(segs[0]).toHaveTextContent("UNITED");
+  expect(segs[0]).toHaveTextContent("11:29am");
+  expect(segs[0]).toHaveTextContent("2:34pm");
+  expect(segs[0]).toHaveTextContent("HQQ79F");
+  expect(segs[1]).toHaveTextContent("JET BLUE");
 });
 
-it("TRAVEL leg renders flightNo + leading confirmation once", () => {
+it("TRAVEL leg renders EVERY structured field: date label, flightNo, route, times; conf once", () => {
   const flight = "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am";
   const { getByTestId, getAllByText } = renderTravel(
     baseData({ viewerFlightInfo: flight, show: { dates: { travelIn: "2026-03-22" } } as never }),
   );
-  const segs = within(getByTestId("travel-flight")).getAllByTestId("travel-flight-seg");
-  expect(segs[0]).toHaveTextContent("AA3002");
-  expect(getAllByText(/GEUZAB/).length).toBe(1); // conf shown once
+  const seg0 = within(getByTestId("travel-flight")).getAllByTestId("travel-flight-seg")[0]!;
+  expect(seg0).toHaveTextContent("Mar 22"); // formatFlightDate("2026-03-22")
+  expect(seg0).toHaveTextContent("AA3002");
+  expect(seg0).toHaveTextContent("LGA → ORD");
+  expect(seg0).toHaveTextContent("7:23am");
+  expect(seg0).toHaveTextContent("9:15am");
+  expect(getAllByText(/GEUZAB/).length).toBe(1); // itinerary confirmation shown once
 });
+```
+
+(Note: the `"EWR → ORD".replace(...)` above is just to avoid a literal-arrow lint quirk in this doc; in the test write `expect(segs[0]).toHaveTextContent("EWR → FLL");` directly.)
 
 it("emphasizes the today/next segment", () => {
   // TODAY = 2024-05-13 → first TECH leg is 'today'
