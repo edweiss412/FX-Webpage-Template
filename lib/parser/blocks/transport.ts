@@ -132,7 +132,7 @@ export function parseTransportation(
   // first non-null result is the recognized section. `??` is lazy — later parsers
   // run only if the earlier header didn't match.
   const row =
-    parseV4Transport(markdown, crewMembers) ??
+    parseV4Transport(markdown, crewMembers, agg) ??
     parseV2Transport(markdown, crewMembers, agg) ??
     parseV1Transport(markdown, crewMembers);
 
@@ -162,6 +162,7 @@ function isEmptyTransport(row: TransportationRow): boolean {
 function parseV4Transport(
   markdown: string,
   crewMembers?: CrewMemberRow[],
+  agg?: ParseAggregator,
 ): TransportationRow | null {
   // Accept BOTH the slash header (raw: `TRANSPORTATION/<name> | PHONE/<phone> |
   // EMAIL/<email>`) AND the exporter's plain column-duplicated header
@@ -208,7 +209,7 @@ function parseV4Transport(
   // Header: | TRANSPORTATION/... | TRANSPORTATION/Name | PHONE/xxx | EMAIL/xxx | LICENSE |
   const dateColIdx = detectDateColIdx(tableLines);
   const timeColIdx = dateColIdx + 1;
-  const passengersColIdx = detectPassengersColIdx(tableLines);
+  const passengersColIdx = detectPassengersColIdx(tableLines, agg);
 
   // Now parse rows
   let vehicle: string | null = null;
@@ -520,12 +521,44 @@ function detectDateColIdx(tableLines: string[]): number {
   return 1;
 }
 
-/** Detect which column index holds passenger names (if any). */
-function detectPassengersColIdx(tableLines: string[]): number {
+/** Detect which column index holds passenger names (if any). Exact-first across all rows;
+ *  a misspelled header is recovered by a gated fuzzy pass (and warned) only if no exact
+ *  spelling exists anywhere — so a later-row exact match always beats an earlier-row typo. */
+function detectPassengersColIdx(tableLines: string[], agg?: ParseAggregator): number {
+  // Pass 1 — exact (unchanged): covers singular AND plural, no warn. Must complete across
+  // ALL rows before Pass 2 so exact-always-wins.
   for (const line of tableLines) {
     const cells = splitRow(line);
     for (let i = 0; i < cells.length; i++) {
       if (/^passengers?$/i.test(clean(cells[i] ?? ""))) return i;
+    }
+  }
+  // Pass 2 — gated fuzzy, only reached when no exact spelling exists anywhere. Restricted to
+  // HEADER rows: row 0 (main header) + the DATE/TIME subheader (located the same way
+  // detectDateColIdx finds DATE) — where the Passengers column header sits. Data rows are NOT
+  // scanned, so a data value Damerau-1 of PASSENGERS can't be mistaken for the header. minLen:5
+  // subsumes DATE/DAY/ROOM so no exclude is needed. First near-miss → warn once.
+  const isHeaderRow = (line: string): boolean =>
+    splitRow(line).some((c) => {
+      const v = clean(c ?? "");
+      return /^DATE$/i.test(v) || /^TIME$/i.test(v);
+    });
+  for (let r = 0; r < tableLines.length; r++) {
+    if (r !== 0 && !isHeaderRow(tableLines[r] ?? "")) continue;
+    const cells = splitRow(tableLines[r] ?? "");
+    for (let i = 0; i < cells.length; i++) {
+      const raw = clean(cells[i] ?? "");
+      const fix = gatedVocabCorrect(raw.toUpperCase(), PASSENGERS_VOCAB, PASSENGERS_GATE_OPTS);
+      if (fix?.corrected) {
+        agg?.warnings.push({
+          severity: "warn",
+          code: "COLUMN_HEADER_AUTOCORRECTED",
+          message: `Read likely-misspelled transport passenger column header '${raw}' as '${fix.match}'`,
+          blockRef: { kind: "transportation" },
+          rawSnippet: raw,
+        });
+        return i;
+      }
     }
   }
   return -1;
