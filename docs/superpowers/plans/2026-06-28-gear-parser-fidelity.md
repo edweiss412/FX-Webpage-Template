@@ -200,11 +200,11 @@ git commit -m "feat(parser): closed-vocab gear classification registry + collisi
 **Interfaces:**
 - Consumes: `classifyGearItem`, `gearBucketFor`, `isGroupingOnly` (Task 1).
 - Produces:
-  - `type GearRoom = { kind: "general" | "breakout" | "additional"; name: string; audio: string | null; video: string | null; lighting: string | null; scenic: string | null; other: string | null }`
+  - `type GearRoom = { kind: RoomKind; name: string; audio: string | null; video: string | null; lighting: string | null; scenic: string | null; other: string | null }` where `RoomKind = "gs" | "breakout" | "additional"` (import from `lib/parser/types.ts:154` — NOT a new `"general"` literal). A `GENERAL SESSION …` header maps to `kind: "gs"` (matching `parseGsRoom`'s `buildEmptyRoom("gs", …)`), `BREAKOUT …`→`"breakout"`, everything else (FOYER/LUNCH/ADDITIONAL)→`"additional"`.
   - `hasGearDateGrid(markdown: string): boolean` — the SOLE date-grid signature predicate (spec §3.1).
   - `parseGearTab(markdown: string): GearRoom[]`
 
-**Detection / segmentation (spec §3.1):** `hasGearDateGrid` = a row whose cells are all/majority `Rental Dates`, followed (skipping `:---:`/blank rows) by an `| Item | Item | <date> … |` header (≥1 `\d{1,2}-[A-Z][a-z]{2}` token). Within the grid (between the Item header and `BACK TO INFO`): a **2-cell** non-`:---:` row is a room sub-header (kind from the leading word: GENERAL→general, BREAKOUT→breakout, else additional; name = prefix-stripped via `/^(GENERAL SESSION|BREAKOUT( SESSION)?\s*\d*|LUNCH( ROOM| SESSION)?|ADDITIONAL( ROOM)?)\s*-?\s*/i` + strip trailing `Dimensions|Floor`); a full-width row is a package/equipment row. For each equipment row: col0 = item (skip if col1==col0 duplicate handled by taking col0; skip `isGroupingOnly`/bucket-setter-PACKAGE rows as items but apply `gearBucketFor` to update `activeBucket`); classify via `classifyGearItem(item, activeBucket)`; qty = leading `(N)` in the name else max numeric date-cell; append `(qty) item` to that discipline's running string for the active room.
+**Detection / segmentation (spec §3.1):** `hasGearDateGrid` = a row whose cells are all/majority `Rental Dates`, followed (skipping `:---:`/blank rows) by an `| Item | Item | <date> … |` header (≥1 `\d{1,2}-[A-Z][a-z]{2}` token). Within the grid (between the Item header and `BACK TO INFO`): a **2-cell** non-`:---:` row is a room sub-header (kind from the leading word: `GENERAL`→`"gs"`, `BREAKOUT`→`"breakout"`, else `"additional"`; name = prefix-stripped via `/^(GENERAL SESSION|BREAKOUT( SESSION)?\s*\d*|LUNCH( ROOM| SESSION)?|ADDITIONAL( ROOM)?)\s*-?\s*/i` + strip trailing `Dimensions|Floor`); a full-width row is a package/equipment row. For each equipment row: col0 = item (skip if col1==col0 duplicate handled by taking col0; skip `isGroupingOnly`/bucket-setter-PACKAGE rows as items but apply `gearBucketFor` to update `activeBucket`); classify via `classifyGearItem(item, activeBucket)`; qty = leading `(N)` in the name else max numeric date-cell; append `(qty) item` to that discipline's running string for the active room.
 
 - [ ] **Step 1: Write failing tests** — `tests/parser/gear.test.ts` (read fixtures, assert real output; derive expectations from the fixture, anti-tautology):
 
@@ -267,11 +267,18 @@ describe("parseGearTab — consultants variants (R1/R2/R8)", () => {
   });
 });
 
-describe("parseGearTab — raw family is out of scope (anti-corruption)", () => {
-  it("mangled raw GEAR grid yields no populated scope", () => {
+describe("parseGearTab — raw family is out of scope (anti-corruption, R1-M2)", () => {
+  it("mangled raw GEAR grid populates NONE of the five gear columns", () => {
     const rooms = parseGearTab(md("raw/2026-03-rpas-central-four-seasons.md"));
-    // raw uses NO_HEADER + stripped names → no usable A/V/L (graceful)
-    expect(rooms.every((r) => !r.audio && !r.video && !r.lighting)).toBe(true);
+    // raw uses NO_HEADER + stripped names → no usable scope in ANY column
+    expect(rooms.every((r) => !r.audio && !r.video && !r.lighting && !r.scenic && !r.other)).toBe(true);
+  });
+});
+
+describe("parseGearTab — general-session kind (R1-M3)", () => {
+  it("the GS gear room carries kind 'gs', not 'general'", () => {
+    const gs = room(parseGearTab(md("exporter-xlsx/rpas.md")), /GRAND BALLROOM/i)!;
+    expect(gs.kind).toBe("gs");
   });
 });
 ```
@@ -296,7 +303,7 @@ git commit -m "feat(parser): parse GEAR date-grid into per-room A/V/L/scenic/oth
 
 **Interfaces:**
 - Consumes: `parseGearTab`, `GearRoom` (Task 2); `RoomRow` (`lib/parser/types.ts:155`).
-- Produces: `mergeGearIntoRooms(parsed: RoomRow[], gear: GearRoom[]): RoomRow[]`.
+- Produces: `mergeGearIntoRooms(parsed: RoomRow[], gear: GearRoom[]): RoomRow[]` — **exported** from `lib/parser/index.ts` (the R1-HIGH differentiating unit test imports it directly).
 
 **Rules (spec §3.1/§3.3/§5):** match each GearRoom to a parsed room by **normalized name token** (strip room-type prefix + Dimensions/Floor, uppercase) — NOT breakout index. On match: for each of audio/video/lighting/scenic/other, set the room column **only if currently null** (fill-don't-clobber). On no exact match: append a new RoomRow with ONLY the gear columns set, all time/setup/dimensions/floor `null` (inert in schedule — `deriveScheduleBookends` keys Strike on `strike_time`). No warning code.
 
@@ -315,15 +322,43 @@ describe("mergeGearIntoRooms via parseSheet — rpas end-to-end", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 });
-describe("mergeGearIntoRooms — consultants scrambled breakout numbering", () => {
-  const p = parseSheet(md("exporter-xlsx/consultants.md"), "consultants.md");
-  it("LASALLE gear lands on the LASALLE room regardless of breakout index", () => {
-    const lasalle = p.show.rooms.find((r) => /LASALLE/i.test(r.name))!;
-    expect(lasalle.video ?? lasalle.audio ?? "").not.toBe("");
+// R1-HIGH: differentiating unit test — index-matching would attach LASALLE gear to
+// DELAWARE. The real consultants LASALLE/DELAWARE GEAR blocks are IDENTICAL, so a
+// fixture-only assertion is tautological; use DISTINCT per-room gear with swapped
+// index-vs-name ordering. Requires `mergeGearIntoRooms` exported from lib/parser/index.ts.
+import { mergeGearIntoRooms } from "@/lib/parser/index";
+import type { RoomRow } from "@/lib/parser/types";
+const emptyRoom = (kind: RoomRow["kind"], name: string): RoomRow => ({
+  kind, name, dimensions: null, floor: null, setup: null, set_time: null, show_time: null,
+  strike_time: null, audio: null, video: null, lighting: null, scenic: null, power: null,
+  digital_signage: null, other: null, notes: null,
+});
+
+describe("mergeGearIntoRooms — name-token match, NOT breakout index (R1-HIGH)", () => {
+  it("LASALLE gear lands on LASALLE even when INFO/GEAR breakout indices are swapped", () => {
+    const info = [emptyRoom("breakout", "DELAWARE"), emptyRoom("breakout", "LASALLE")]; // INFO 1=DELAWARE, 2=LASALLE
+    const gear = [
+      { kind: "breakout" as const, name: "LASALLE", audio: null, video: "LASALLE-ONLY-PROJECTOR", lighting: null, scenic: null, other: null },   // GEAR 1=LASALLE
+      { kind: "breakout" as const, name: "DELAWARE", audio: null, video: "DELAWARE-ONLY-SCREEN", lighting: null, scenic: null, other: null },       // GEAR 2=DELAWARE
+    ];
+    const merged = mergeGearIntoRooms(info, gear);
+    expect(merged.find((r) => /LASALLE/i.test(r.name))!.video).toBe("LASALLE-ONLY-PROJECTOR");
+    expect(merged.find((r) => /DELAWARE/i.test(r.name))!.video).toBe("DELAWARE-ONLY-SCREEN");
+    // index-matching would have swapped these → both asserts catch the corruption.
   });
-  it("appended FOYER room has gear but null times → no schedule bookend", () => {
-    const foyer = p.show.rooms.find((r) => /^FOYER/i.test(r.name));
-    if (foyer) { expect(foyer.strike_time).toBeNull(); expect(foyer.set_time).toBeNull(); }
+  it("fill-don't-clobber: a non-null INFO column is preserved over GEAR", () => {
+    const info = [{ ...emptyRoom("gs", "GRAND BALLROOM"), audio: "INFO-AUDIO" }];
+    const gear = [{ kind: "gs" as const, name: "GRAND BALLROOM", audio: "GEAR-AUDIO", video: "GEAR-VIDEO", lighting: null, scenic: null, other: null }];
+    const merged = mergeGearIntoRooms(info, gear);
+    expect(merged[0]!.audio).toBe("INFO-AUDIO"); // not clobbered
+    expect(merged[0]!.video).toBe("GEAR-VIDEO"); // filled (was null)
+  });
+  it("appended FOYER room (no INFO peer) has gear but null times → no schedule bookend", () => {
+    const merged = mergeGearIntoRooms([], [{ kind: "additional" as const, name: "FOYER", audio: null, video: null, lighting: null, scenic: null, other: "(2) Stanchions" }]);
+    const foyer = merged.find((r) => /^FOYER/i.test(r.name))!;
+    expect(foyer.other).toMatch(/Stanchions/);
+    expect(foyer.strike_time).toBeNull();
+    expect(foyer.set_time).toBeNull();
   });
 });
 ```
