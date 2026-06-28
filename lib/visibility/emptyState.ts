@@ -48,8 +48,12 @@ import { stripOpeningReelText } from "./openingReelText";
 /** opening_reel hide set (case-insensitive after trim, post-strip). */
 const OPENING_REEL_HIDE = new Set<string>(["", "TBD"]);
 
-/** Generic optional-field hide set (case-insensitive after trim). */
-const GENERIC_OPTIONAL_HIDE = new Set<string>(["", "TBD", "N/A", "TBA"]);
+/**
+ * Generic optional-field hide set (case-insensitive after trim). `-` and `—`
+ * (em-dash) are bare-dash placeholders the exporter emits for "nothing here"
+ * and must be hidden like the other sentinels (gear-parser-fidelity Task 7).
+ */
+const GENERIC_OPTIONAL_HIDE = new Set<string>(["", "TBD", "N/A", "TBA", "-", "—"]);
 
 /**
  * §10-aware predicate for `event_details.opening_reel`.
