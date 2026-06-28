@@ -204,7 +204,7 @@ git commit -m "feat(parser): closed-vocab gear classification registry + collisi
   - `hasGearDateGrid(markdown: string): boolean` — the SOLE date-grid signature predicate (spec §3.1).
   - `parseGearTab(markdown: string): GearRoom[]`
 
-**Detection / segmentation (spec §3.1):** `hasGearDateGrid` = a row whose cells are all/majority `Rental Dates`, followed (skipping `:---:`/blank rows) by an `| Item | Item | <date> … |` header (≥1 `\d{1,2}-[A-Z][a-z]{2}` token). Within the grid (between the Item header and `BACK TO INFO`): a **2-cell** non-`:---:` row is a room sub-header (kind from the leading word: `GENERAL`→`"gs"`, `BREAKOUT`→`"breakout"`, else `"additional"`; name = prefix-stripped via `/^(GENERAL SESSION|BREAKOUT( SESSION)?\s*\d*|LUNCH( ROOM| SESSION)?|ADDITIONAL( ROOM)?)\s*-?\s*/i` + strip trailing `Dimensions|Floor`); a full-width row is a package/equipment row. For each equipment row: col0 = item (skip if col1==col0 duplicate handled by taking col0; skip `isGroupingOnly`/bucket-setter-PACKAGE rows as items but apply `gearBucketFor` to update `activeBucket`); classify via `classifyGearItem(item, activeBucket)`; qty = leading `(N)` in the name else max numeric date-cell; append `(qty) item` to that discipline's running string for the active room.
+**Detection / segmentation (spec §3.1):** `hasGearDateGrid` = a row whose cells are all/majority `Rental Dates`, followed (skipping `:---:`/blank rows) by an `| Item | Item | <date> … |` header (≥1 `\d{1,2}-[A-Z][a-z]{2}` token). Within the grid (between the Item header and `BACK TO INFO`): a **2-cell** non-`:---:` row is a room sub-header (kind from the leading word: `GENERAL`→`"gs"`, `BREAKOUT`→`"breakout"`, else `"additional"`; name = prefix-stripped via `/^(GENERAL SESSION|BREAKOUT( SESSION)?\s*\d*|LUNCH( ROOM| SESSION)?|ADDITIONAL( ROOM)?)\s*-?\s*/i` + strip trailing `Dimensions|Floor`); a full-width row is a package/equipment row. For each equipment row: col0 = item (skip if col1==col0 duplicate handled by taking col0; skip `isGroupingOnly`/bucket-setter-PACKAGE rows as items but apply `gearBucketFor` to update `activeBucket`); classify via `classifyGearItem(item, activeBucket)`; **qty + no-duplication (R3-M1):** parse a leading `(N)` from the item text to get `qty`, then **strip that leading `(N)` from the display text** before re-prepending — `displayItem = item.replace(/^\s*\(\d+\)\s*/, "")`; `qty = leadingN ?? maxNumericDateCell`; emit `qty != null ? \`(${qty}) ${displayItem}\` : displayItem`. So `(2) KLA SPEAKERS` → `(2) KLA SPEAKERS` (NOT `(2) (2) KLA SPEAKERS`), and `WIRELESS TABLETOP MICROPHONE` with date-col `17` → `(17) WIRELESS TABLETOP MICROPHONE`. Append to that discipline's running string for the active room.
 
 - [ ] **Step 1: Write failing tests** — `tests/parser/gear.test.ts` (read fixtures, assert real output; derive expectations from the fixture, anti-tautology):
 
@@ -237,6 +237,12 @@ describe("parseGearTab — rpas (prod path)", () => {
   });
   it("tabletop mic qty extracted from the date column → (17)", () => {
     expect(room(rooms, /GRAND BALLROOM/i)!.audio).toMatch(/\(17\)[^|]*TABLETOP/i);
+  });
+  it("no duplicated leading quantity (R3-M1): (2) KLA SPEAKERS not (2) (2) KLA SPEAKERS", () => {
+    const gs = room(rooms, /GRAND BALLROOM/i)!;
+    for (const v of [gs.audio, gs.video, gs.lighting, gs.scenic, gs.other])
+      expect(v ?? "").not.toMatch(/(\(\d+\)\s*){2}/); // no two consecutive (N) prefixes
+    expect(gs.audio).toMatch(/\(2\)\s*KLA/i); // single qty prefix preserved
   });
   it("breakout rooms get projector/screen/laptop into video", () => {
     const bo = room(rooms, /STATE A/i)!;
@@ -412,10 +418,15 @@ describe("EVENT form-layout harvest (spec §3.4)", () => {
     const ed = parseSheet(md("exporter-xlsx/fixed-income.md"),"fi.md").show.event_details;
     expect(ed["opening_reel"]).toBe("No");
   });
-  it("negative-regression: east-coast 13 keys / rpas 17 keys unchanged", () => {
-    expect(Object.keys(parseSheet(md("raw/2024-05-east-coast-family-office.md"),"e.md").show.event_details).length).toBe(13);
-    expect(Object.keys(parseSheet(md("raw/2026-03-rpas-central-four-seasons.md"),"r.md").show.event_details).length).toBe(17);
-    expect(parseSheet(md("raw/2024-05-east-coast-family-office.md"),"e.md").show.event_details["keynote_requirements"]).toBe("NONE");
+  // R3-M2: FULL deep-equality (key set AND values), not just counts. Baselines captured
+  // from the pre-change parser (current main) — a renamed/dropped/clobbered key fails.
+  const EAST_ED = {"led":"NO","scenic":"(1) Section Printed Spandex (4) Sections Grey Spandex","stage":"8' x 24' x 2'","opening_reel":"YES - LOOP VIDEO","keynote_requirements":"NONE","truss_podium":"YES","record":"NO","live_streaming":"NO","polling":"YES","internet":"The conference wifi has 20mb download speed.","power":"Only 2 circuits in Mabel Room - this setup needs additional power","storage":"Back of house near kitchen area","test_pattern":"16 x 9 Test Pattern"};
+  const RPAS_ED = {"diagrams":"LINK","led":"N/A","scenic":"(1) II Blue Logo Spandex (2) Sections Grey Spandex","stage_size":"8' x 24' x 2'","opening_reel":"MAYBE","keynote_requirements":"TBD","virtual_speaker":"N/A","virtual_audience":"N/A","podium_type":"Truss Podium","record":"N/A","polling":"YES","internet":"Wifi from Encore","power":"(2) Power Drops from Engineering","equipment_storage":"Behind Spandex Set","staff_office_room":"TBD","fonts":"Aptos Font Folder","test_pattern":"16 x 9 Test Pattern"};
+  it("negative-regression: east-coast event_details is BYTE-IDENTICAL after the unconditional harvest", () => {
+    expect(parseSheet(md("raw/2024-05-east-coast-family-office.md"),"e.md").show.event_details).toEqual(EAST_ED);
+  });
+  it("negative-regression: rpas event_details is BYTE-IDENTICAL after the unconditional harvest", () => {
+    expect(parseSheet(md("raw/2026-03-rpas-central-four-seasons.md"),"r.md").show.event_details).toEqual(RPAS_ED);
   });
 });
 
