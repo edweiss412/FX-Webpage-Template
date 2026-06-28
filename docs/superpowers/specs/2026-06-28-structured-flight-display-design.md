@@ -23,9 +23,9 @@
 - **TRAVEL-tab** (`travelFlights.ts:31`, normalized): a leading confirmation code, then legs — e.g.
   `GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am`
   (fixture `2026-03-rpas-central-four-seasons.md:659`). FinTech variant has **no conf** (`5/2 AA1080 LGA - ORD 12:00pm - 1:00pm | 5/7 ...`, `2026-05-fintech-forum-cto-summit.md:719`).
-- **TECH-block** (`crew.ts:224-225`): `"<arrival raw> | <departure raw>"` — raw cell text, **less structured**.
+- **TECH-block** (`crew.ts:224-225`): `"<arrival leg> | <departure leg>"`, each leg `ROUTE AIRLINE M/D - DEP - ARR CONF` — e.g. `EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ` (East Coast `2024-05-east-coast-family-office.md:64-66`).
 
-The helper must parse the TRAVEL shape into fields **and** degrade gracefully on any part it can't structure (TECH raw, garbage, sentinels) — never throw, never drop a leg.
+The helper **fully classifies BOTH formats** into structured fields (§3.1 step 4), detecting the layout per-segment by route-vs-date position. It degrades gracefully **only** on a part with no usable `M/D` date (`structured: false` raw fallback) — it never throws and never drops a leg.
 
 ## 3. The helper — `lib/crew/flightDisplay.ts` (new, pure)
 
@@ -53,13 +53,13 @@ export function pickUpcomingIndex(segments: FlightSegment[], todayIso: string): 
 
 ### 3.1 `parseFlightItinerary`
 
-**Input contract.** The helper consumes the **normalized** `flight_info` string as it reaches `viewerFlightInfo`, *not* the raw sheet cell. The TRAVEL parser's `normalizeTravelCell` (`travelFlights.ts:19-32`) already splits legs at `M/D` date tokens and joins them with `" | "`, so the real RPAS string is `GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am` (the raw fixture cell at `2026-03-rpas:659` shows the *pre*-normalized form without the pipe). **The helper does not depend on the pipe being present** — it re-detects legs at `M/D` date tokens (step 4), exactly as the parser does, so it is correct for piped TRAVEL data, the no-pipe raw form, and any future variant.
+**Input contract.** The helper consumes the **normalized** `flight_info` string as it reaches `viewerFlightInfo`, *not* the raw sheet cell. **`flight_info` is always `" | "`-leg-delimited** for both real sources: the TRAVEL parser's `normalizeTravelCell` (`travelFlights.ts:19-32`) splits legs at `M/D` date tokens and joins with `" | "` (so the real RPAS string is `GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am`, vs the *pre*-normalized raw fixture cell at `2026-03-rpas:659` which lacks the pipe); the TECH parser joins arrival+departure with `" | "` (`crew.ts:224`). **The pipe is therefore the leg boundary** — `1 cleaned pipe-part = 1 segment`, containing ALL of that leg's tokens (route + airline + date + times + conf), so a TECH leg's leading `ROUTE AIRLINE` is never dropped.
 
 1. **Guard:** `flightInfo` null/empty/whitespace → `{ confirmation: null, segments: [] }`.
-2. **Pre-clean per part** exactly as the current card does, so display behavior is preserved: split on `/\s*\|\s*|\n/`, `stripAgendaUrls` each part (`lib/visibility/agendaUrls.ts:35`), drop parts that are empty or `shouldHideGenericOptional` (`lib/visibility/emptyState.ts:75`) — `TBD`/`N/A`/`TBA`/`""` removed. The **pipe-part boundary is retained** (an unstructured TECH `"arrival | departure"` must stay two display rows, never merge).
-3. **Segment detection within each surviving part** (by `M/D` date token `/^\d{1,2}\/\d{1,2}$/`):
-   - A part with **0 date tokens** → exactly **one** `structured: false` segment whose `raw` = the cleaned part (covers TECH raw + garbage; preserves today's per-pipe-part rows).
-   - A part with **≥1 date tokens** → **one structured segment per date token**: each segment spans `[date_i, date_{i+1})`. (For real piped data each part has exactly one date → one segment; this rule only matters for an un-normalized multi-date part.)
+2. **Pre-clean + split per pipe-part** exactly as the current card does, so display behavior is preserved: split on `/\s*\|\s*|\n/`, `stripAgendaUrls` each part (`lib/visibility/agendaUrls.ts:35`), drop parts that are empty or `shouldHideGenericOptional` (`lib/visibility/emptyState.ts:75`) — `TBD`/`N/A`/`TBA`/`""` removed.
+3. **One segment per surviving cleaned part** (the part's full whitespace-token stream is the segment). Within a part, find the first `M/D` date token (`/^\d{1,2}\/\d{1,2}$/`):
+   - **0 date tokens** → `structured: false` segment, all fields null, `raw` = the cleaned part (covers genuinely-unparseable / no-date legs).
+   - **≥1 date token** → `structured: true`; extract fields per step 4 from the **whole part's** tokens (the date may sit at the start (TRAVEL) or the middle (TECH); both are handled because the segment keeps every token). A second `M/D` token within one part is unusual (real data is one leg per pipe-part) — only the first date is used for `date`; remaining tokens stay available to field extraction.
 4. **Per-structured-segment field extraction.** Each segment is one of two real layouts (verified against fixtures): **TRAVEL** `[conf] M/D FLIGHT# ORIG - DEST DEP - ARR` (route AFTER the date) and **TECH** `ROUTE AIRLINE M/D - DEP - ARR CONF` (route BEFORE the date). Extract by token type, **scanning all tokens** (do NOT stop at the first `-` for both route and times — each pattern finds its own dash):
    - **Common (both formats):**
      - `date` = the `M/D` token → ISO against `showYear` (§3.2).
@@ -138,7 +138,7 @@ The helper is **total** (never throws): every branch returns a `FlightSegment` (
   - **TRAVEL format** — RPAS normalized string (`GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am`): 2 structured segments with exact `date`/`flightNo` (`AA3002`,`AA2723`)/`origin`/`dest`/`depTime`/`arrTime`; `airline === null`, segment `conf === null`; itinerary `confirmation === "GEUZAB"`. FinTech string (no conf) → `confirmation === null`. **Values derived from the fixture string.**
   - **TECH format** — real East Coast leg (`EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ`): 2 structured segments with `origin/dest` from the `XXX-XXX` token (`EWR`/`FLL`, `FLL`/`EWR`), `airline` (`UNITED`, `JET BLUE`), `flightNo === null`, per-segment `conf` (`HQQ79F`,`OSUULZ`); itinerary `confirmation === null`. Carl Fenton same-conf-both-legs case → both segments `conf === "CGTTLO"`.
   - **Format detection** — a segment with route BEFORE the date is TECH-classified (airline + trailing conf); route AFTER the date is TRAVEL-classified (flightNo + leading itinerary conf). Assert the classifier picks the right branch for each fixture.
-  - **No-pipe robustness:** the same RPAS leg content with the pipe removed (one run-on part, two `M/D` dates) → still 2 structured segments (date-token detection doesn't depend on the pipe — Finding 1).
+  - **Single-pipe-part = single segment:** a 2-leg piped string → exactly 2 segments; the TECH leading `ROUTE AIRLINE` is retained in its segment (never dropped by segmentation).
   - Guards: null/empty/whitespace → empty; sentinel-only → empty (parts dropped); a no-date part → `structured: false`, `raw` preserved; missing carrier/airports/times → that field null, others intact; out-of-range date `13/40` → `date: null` + `structured: true`.
   - `pickUpcomingIndex`: today match, next-upcoming, all-past → null, null-date skipped.
   - **Negative-regression:** mutate the date regex / conf extraction and confirm the corresponding assertion goes RED (helper isn't tautological).
@@ -168,6 +168,6 @@ This is a UI surface (`components/crew/sections/TravelSection.tsx`) → **invari
 
 ## 10. Watchpoints (pre-load the reviewer)
 - **Derived-not-persisted is intentional** (owner-approved Approach A): no DB column, no parser change. The flat string round-trips fine; structuring is a presentation concern.
-- **`structured: false` raw fallback is a feature, not a gap** — TECH-format and any unparseable leg must render exactly as today (no regression).
+- **Both formats are fully classified** (owner R3 decision): TRAVEL *and* TECH legs render as structured fields. `structured: false` raw fallback applies **only** to a part with no usable `M/D` date (genuine garbage) — not to TECH, which is structured.
 - **No new warnings** — display derivation is total; flight parse-warnings already exist at sheet-parse time.
 - **Sorting is render-only + stable** — never reorders the underlying `flight_info`; a no-op on already-chronological real data.
