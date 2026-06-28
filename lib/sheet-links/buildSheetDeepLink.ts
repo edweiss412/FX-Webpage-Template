@@ -30,6 +30,7 @@ export const REGION_IDS = [
   "financials",
   "details",
   "gear_packlist",
+  "gear_scope",
   "schedule",
 ] as const;
 export type RegionId = (typeof REGION_IDS)[number];
@@ -113,6 +114,10 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
     terminators: BLOCK_TERMINATORS,
   },
   gear_packlist: { tabs: ["PULL SHEET", "GEAR"], strategy: "whole-tab" },
+  // gear_scope is the whole-GEAR-tab anchor for the per-discipline scope cards, but it is
+  // EMITTED ONLY when the GEAR tab carries the date-grid signature (gated in
+  // lib/drive/sourceAnchors.ts via rowsHaveGearDateGrid — gear-parser-fidelity Task 8).
+  gear_scope: { tabs: ["GEAR"], strategy: "whole-tab" },
   schedule: { tabs: ["AGENDA"], strategy: "whole-tab" },
 };
 
@@ -134,6 +139,8 @@ export const CARD_REGION_MAP = {
   "gear-scope-audio": "rooms",
   "gear-scope-video": "rooms",
   "gear-scope-lighting": "rooms",
+  "gear-scope-scenic": "rooms",
+  "gear-scope-other": "rooms",
   "gear-pack-list": "gear_packlist",
   "gear-keynote": "details",
   "gear-opening-reel": "details",

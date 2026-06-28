@@ -26,8 +26,9 @@ describe("§8.1↔§9 consistency", () => {
       expect(SOURCE_LINK_ALLOWLIST as readonly string[]).not.toContain(t);
     }
   });
-  it("covers all 12 canonical regions and alias targets resolve", () => {
-    expect(REGION_IDS.length).toBe(12);
+  it("covers all 13 canonical regions and alias targets resolve", () => {
+    expect(REGION_IDS.length).toBe(13);
+    expect(REGION_IDS).toContain("gear_scope"); // gear-parser-fidelity Task 8
     for (const id of REGION_IDS) {
       const s = REGION_ANCHOR_SPEC[id];
       if (s.strategy === "alias-of") expect(REGION_IDS).toContain(s.region);

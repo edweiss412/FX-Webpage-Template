@@ -178,14 +178,18 @@ describe("parsePullSheet — partial parse (synthetic fixture)", () => {
   });
 });
 
-// ── Test 6: ambiguous format — non-5-column data rows emit PULL_SHEET_AMBIGUOUS_FORMAT ─
+// ── Test 6: ambiguous format — too-narrow (<5-col) data rows emit PULL_SHEET_AMBIGUOUS_FORMAT ─
+// gear-parser-fidelity Task 5: the ambiguity threshold tightened from `!== 5` to `< 5`
+// (wide >=5-col rows now parse structurally via the leading 5 columns — see Test 10). A
+// row with FEWER than 5 columns still cannot be mapped to [flag, qty, item, sub_cat, cat],
+// so it remains ambiguous. This synthetic now uses 3-column rows to exercise that path.
 describe("parsePullSheet — ambiguous format (synthetic fixture)", () => {
   const md = [
     "| PULL SHEET/Test | PULL SHEET/Test | PULL SHEET/Test | PULL SHEET/Test | PULL SHEET/Test |",
     "| :-: | :-: | :-: | :-: | :-: |",
-    // 7-column data rows (ambiguous)
-    "| FALSE | 1 | Item A | SUB | CAT | EXTRA1 | EXTRA2 |",
-    "| FALSE | 2 | Item B | SUB | CAT | EXTRA1 | EXTRA2 |",
+    // 3-column data rows (too narrow → ambiguous)
+    "| FALSE | 1 | Item A |",
+    "| FALSE | 2 | Item B |",
   ].join("\n");
 
   const result = parsePullSheet(md);
@@ -318,5 +322,18 @@ describe("parsePullSheet — negative and fractional qty values (synthetic fixtu
 
   it("emits no warnings — suspect numeric values are currently accepted silently", () => {
     expect(result.warnings).toHaveLength(0);
+  });
+});
+
+// ── Test 10: exporter wide (>=5-col) pull-sheet rows parse structurally (Task 5) ─
+describe("parsePullSheet — exporter east-coast wide (16-col) rows (gear-parser-fidelity)", () => {
+  it("exporter east-coast 16-cell rows yield structured items, no ambiguous warning", () => {
+    const r = parsePullSheet(readFileSync("fixtures/shows/exporter-xlsx/east-coast.md", "utf8"));
+    expect(r.warnings.find((w) => w.code === "PULL_SHEET_AMBIGUOUS_FORMAT")).toBeUndefined();
+    const items = r.pullSheet![0]!.items;
+    const foh = items.find((i) => /FOH Rack/i.test(i.item))!;
+    expect(foh.qty).toBe(1);
+    expect(foh.cat).toBe("FOH");
+    expect(items.some((i) => i.item.trim() === "")).toBe(false); // no empty-item summary rows
   });
 });

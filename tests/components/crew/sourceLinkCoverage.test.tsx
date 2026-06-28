@@ -218,10 +218,17 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
   // by design. It still must be a real anchorable region (asserted in (c2)).
   const WARNING_ANCHOR_ONLY = new Set<string>(["client"]);
 
+  // `gear_scope` is consumed DYNAMICALLY by GearSection's runtime `scopeRegion`
+  // selection (it prefers the `gear_scope` anchor when present, else the static
+  // CARD_REGION_MAP → `rooms`), so it is intentionally NOT a static CARD_REGION_MAP
+  // value and is exempt from the no-zombie-region parity check (gear-parser-fidelity Task 8).
+  const DYNAMICALLY_CONSUMED = new Set<string>(["gear_scope"]);
+
   it("(c) every REGION_ID is referenced by ≥1 entry in CARD_REGION_MAP (warning-anchor-only regions exempt)", () => {
     const referenced = new Set<string>(Object.values(CARD_REGION_MAP));
     for (const region of REGION_IDS) {
       if (WARNING_ANCHOR_ONLY.has(region)) continue;
+      if (DYNAMICALLY_CONSUMED.has(region)) continue;
       expect(referenced.has(region), `region "${region}" has no card in CARD_REGION_MAP`).toBe(
         true,
       );
@@ -270,7 +277,14 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         sourceBackedSeen += 1;
         // `id` is a verified key of CARD_REGION_MAP (isMapped guard above), so the
         // CardId cast is sound; the lookup then yields a non-undefined RegionId.
-        const region = CARD_REGION_MAP[id as CardId];
+        // gear-scope-* cards select their region DYNAMICALLY (spec §3.6 / R4-M2):
+        // GearSection prefers the `gear_scope` anchor when present (GEAR-derived
+        // scope), else the static `rooms` region. Mirror that here so the expected
+        // href matches the rendered one for both branches.
+        const region =
+          id.startsWith("gear-scope-") && data.sourceAnchors["gear_scope"]
+            ? "gear_scope"
+            : CARD_REGION_MAP[id as CardId];
         const expectedHref = buildSheetDeepLink(data.driveFileId, data.sourceAnchors[region]);
         expect(expectedHref, `helper returned null for region "${region}"`).not.toBeNull();
         expect(

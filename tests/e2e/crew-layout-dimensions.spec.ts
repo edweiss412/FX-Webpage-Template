@@ -832,3 +832,135 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     }
   });
 });
+
+/**
+ * Task 10 — GEAR scope grid (Scenic/Other 5-card) real-browser layout.
+ *
+ * The new Scenic + Other cards (spec §3.6) join the EXISTING `gear-scopes-row`
+ * responsive grid (`grid grid-cols-1 gap-3 min-[720px]:grid-cols-3`). CSS grid
+ * tracks default to `align-items: stretch`, so cards in the same ≥720px row share
+ * an equal height — this asserts that invariant against a live Chromium render so a
+ * regression (a card no longer filling its grid cell) cannot pass jsdom unit tests.
+ * The live Waldorf seed has 0/0/0 room scope, so this block seeds ONE room with all
+ * five disciplines (audio/video/lighting/scenic/other) → all 5 scope cards render
+ * (admin viewer: A/V/L emphasized-first, Scenic/Other neutral → audio,video,lighting
+ * | scenic,other ⇒ 3 + 2 at grid-cols-3). Single-writer (mobile-safari) + restore,
+ * mirroring the run_of_show seeding above.
+ */
+test.describe("crew gear scope grid — Scenic/Other 5-card stretch (Task 10)", () => {
+  test.setTimeout(180_000);
+  const TOL_TIGHT = 0.5;
+  const ROW_TOL = 2;
+
+  let gearSlug = "";
+  let gearShareToken = "";
+  let seededRoomId: string | null = null;
+  let roomOriginal: Record<string, string | null> | null = null;
+
+  const SEED_SCOPE = {
+    audio: "(1) QU32 (1) AB168 (17) Tabletop Mics",
+    video: "(2) Barco Projectors (2) 6'x10' Screens",
+    lighting: "(2) LED Lekos (4) Blizzard Uplights",
+    scenic: "(1) Logo Spandex (2) Grey Spandex Sections",
+    other: "(1) Truss Podium (1) Countdown Clock",
+  };
+
+  test.beforeAll(async ({}, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    const seeded = await lookupSeededShow();
+    const rooms = await admin
+      .from("rooms")
+      .select("id, audio, video, lighting, scenic, other")
+      .eq("show_id", seeded.showId)
+      .limit(1);
+    if (rooms.error || !rooms.data?.[0]) {
+      throw new Error(
+        `Task10 gear setup: no rooms row for the Waldorf seed (run \`pnpm db:seed\`). error=${rooms.error?.message ?? "no row"}`,
+      );
+    }
+    const row = rooms.data[0] as { id: string } & Record<string, string | null>;
+    seededRoomId = row.id;
+    roomOriginal = {
+      audio: row.audio ?? null,
+      video: row.video ?? null,
+      lighting: row.lighting ?? null,
+      scenic: row.scenic ?? null,
+      other: row.other ?? null,
+    };
+    const upd = await admin.from("rooms").update(SEED_SCOPE).eq("id", seededRoomId);
+    if (upd.error)
+      throw new Error(`Task10 gear setup: room scope seed failed: ${upd.error.message}`);
+  });
+
+  test.afterAll(async ({}, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    if (!seededRoomId || !roomOriginal) return;
+    const restore = await admin.from("rooms").update(roomOriginal).eq("id", seededRoomId);
+    if (restore.error) {
+      console.error(
+        `Task10 gear teardown: room scope restore failed (reseed needed): ${restore.error.message}`,
+      );
+    }
+  });
+
+  test("≥720px: all 5 gear-scope cards render; same-row cards are equal-height (grid stretch)", async ({
+    page,
+  }, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // single-writer
+    const seeded = await lookupSeededShow();
+    gearSlug = seeded.slug;
+    gearShareToken = await lookupShareToken(seeded.showId);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+
+    await page.setViewportSize({ width: 1000, height: 1000 });
+    const res = await page.goto(`/show/${gearSlug}/${gearShareToken}?s=gear`, {
+      waitUntil: "domcontentloaded",
+    });
+    expect(res?.status(), "crew gear route must render").toBe(200);
+    await expect(page.getByTestId("section-gear")).toBeVisible();
+    await expect(page.getByTestId("gear-scopes-row")).toBeVisible();
+
+    // All five discipline cards present (seeded room populates every column).
+    const ids = ["audio", "video", "lighting", "scenic", "other"];
+    for (const id of ids) {
+      await expect(
+        page.getByTestId(`gear-scope-${id}`),
+        `gear-scope-${id} card must render`,
+      ).toBeVisible();
+    }
+    await expect
+      .poll(async () => (await rectOf(page.getByTestId("gear-scope-audio"))).height, {
+        timeout: 8000,
+      })
+      .toBeGreaterThan(1);
+
+    const rects = [];
+    for (const id of ids)
+      rects.push({ id, ...(await rectOf(page.getByTestId(`gear-scope-${id}`))) });
+
+    // Group cards into visual rows by their top edge (±ROW_TOL).
+    const rows: (typeof rects)[] = [];
+    for (const r of rects) {
+      const row = rows.find((g) => Math.abs(g[0]!.top - r.top) <= ROW_TOL);
+      if (row) row.push(r);
+      else rows.push([r]);
+    }
+    // grid-cols-3 at ≥720px → no row holds more than 3 cards (5 cards ⇒ 3 + 2).
+    for (const row of rows) {
+      expect(
+        row.length,
+        `a grid-cols-3 row must hold ≤3 cards; got ${row.map((c) => c.id)}`,
+      ).toBeLessThanOrEqual(3);
+      // Stretch invariant: every card in a row fills the row's (cell) height.
+      const h0 = row[0]!.height;
+      for (const c of row) {
+        expect(
+          Math.abs(c.height - h0),
+          `gear-scope-${c.id} height ${c.height} must equal its row height ${h0} (grid align-items:stretch)`,
+        ).toBeLessThanOrEqual(TOL_TIGHT);
+      }
+    }
+    expect(rows.length, "5 cards in grid-cols-3 must wrap to 2 rows (3 + 2)").toBe(2);
+  });
+});

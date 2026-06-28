@@ -36,7 +36,7 @@
  * crewMembers projection — this section does not swallow it).
  */
 import type { JSX, ReactNode } from "react";
-import { Lightbulb, Video, Volume2 } from "lucide-react";
+import { Boxes, Frame, Lightbulb, Video, Volume2 } from "lucide-react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -69,7 +69,7 @@ type GearSectionProps = {
   showId: string;
 };
 
-type Discipline = "audio" | "video" | "lighting";
+type Discipline = "audio" | "video" | "lighting" | "scenic" | "other";
 
 /**
  * Per-discipline static metadata: canonical A→V→L order, lucide glyph, the
@@ -100,6 +100,21 @@ const DISCIPLINES: ReadonlyArray<{
     heading: "Lighting",
     icon: <Lightbulb size={14} strokeWidth={2} />,
     value: (r) => r.lighting,
+  },
+  // Scenic + Other extend the same per-discipline card model (spec §3.6). They are
+  // NEVER emphasized (viewerDisciplines below covers only A/V/L), so they render
+  // neutral, after the three disciplines, and auto-omit when zero non-sentinel rows.
+  {
+    id: "scenic",
+    heading: "Scenic",
+    icon: <Frame size={14} strokeWidth={2} />,
+    value: (r) => r.scenic,
+  },
+  {
+    id: "other",
+    heading: "Other gear",
+    icon: <Boxes size={14} strokeWidth={2} />,
+    value: (r) => r.other,
   },
 ];
 
@@ -256,7 +271,16 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                             ) : null}
                             <SourceLink
                               driveFileId={data.driveFileId}
-                              anchor={data.sourceAnchors[CARD_REGION_MAP[`gear-scope-${d.id}`]]}
+                              anchor={
+                                // GEAR-derived scope (modern shows) → link to the GEAR tab via the
+                                // date-grid-gated `gear_scope` anchor; legacy INFO-inline shows have no
+                                // `gear_scope` anchor → the precise `rooms` (INFO) anchor (spec §3.6).
+                                data.sourceAnchors[
+                                  data.sourceAnchors["gear_scope"]
+                                    ? "gear_scope"
+                                    : CARD_REGION_MAP[`gear-scope-${d.id}`]
+                                ]
+                              }
                             />
                           </span>
                         }

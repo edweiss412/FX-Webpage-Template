@@ -741,7 +741,13 @@ describe("exporter fidelity — C2/R8 additional room: populated fields kept, em
     expect(rf[0]!.notes).toContain("Lunch in Adorn");
     expect(rf[0]!.setup).toMatch(/Not currently contracted/);
 
-    const cons = parse("consultants").rooms.filter((r) => r.kind === "additional");
+    // gear-parser-fidelity: the consultants GEAR tab now ALSO surfaces FOYER +
+    // GRAND BALLROOM C as gear-only `additional` rooms (merged into `rooms`). This
+    // assertion is about the INTAKE-FORM additional-room card, so scope it to that
+    // card by name; the gear-derived rooms are covered by tests/parser/gear.test.ts.
+    const cons = parse("consultants")
+      .rooms.filter((r) => r.kind === "additional")
+      .filter((r) => r.name === "Additional rooms");
     expect(cons).toHaveLength(1);
     expect(cons[0]!.name).toBe("Additional rooms");
     expect(cons[0]!.notes).toContain("Lunch will be held");
