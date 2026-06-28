@@ -242,6 +242,10 @@ describe("parseGearTab — rpas (prod path)", () => {
     const bo = room(rooms, /STATE A/i)!;
     expect(bo.video).toMatch(/EIKI|PROJECTOR/); expect(bo.audio).toBeNull();
   });
+  it("preserves unmatched gear in 'other' (R2-M3): MOUNTING HARDWARE (top-level, no bucket) → other", () => {
+    const gs = room(rooms, /GRAND BALLROOM/i)!;
+    expect(gs.other ?? "").toMatch(/MOUNTING HARDWARE/i);
+  });
 });
 
 describe("parseGearTab — consultants variants (R1/R2/R8)", () => {
@@ -320,6 +324,10 @@ describe("mergeGearIntoRooms via parseSheet — rpas end-to-end", () => {
   it("room count does not double (GEAR rooms matched onto INFO rooms by name token)", () => {
     const names = p.show.rooms.map((r) => r.name);
     expect(new Set(names).size).toBe(names.length);
+  });
+  it("'other' column survives the merge into show.rooms (R2-M3 end-to-end preservation)", () => {
+    const gs = p.show.rooms.find((r) => /GRAND BALLROOM/i.test(r.name))!;
+    expect(gs.other ?? "").toMatch(/MOUNTING HARDWARE/i);
   });
 });
 // R1-HIGH: differentiating unit test — index-matching would attach LASALLE gear to
@@ -411,16 +419,26 @@ describe("EVENT form-layout harvest (spec §3.4)", () => {
   });
 });
 
-// synthetic real-vs-real conflict (R8-M2) — build a minimal markdown with both labels real
-describe("real-vs-real merge (first-real-wins)", () => {
-  it("classic real Opening Reel=YES is preserved over form Opening Sizzle Reel=No", () => {
+// synthetic real-vs-real conflict (R8-M2). NON-TAUTOLOGICAL (plan-R2-H2): the form
+// block carries THREE exact known-vocab labels (Keynote Requirements / Virtual Speaker
+// / Stage Size — all in CANONICAL_KEY_MAP) so the ≥3-known anchor is guaranteed to
+// fire, AND we assert a form-ONLY field was harvested (proving the run ran) BEFORE
+// asserting opening_reel stayed YES. If fillIfAbsentOrSentinel is broken, the form's
+// "Opening Sizzle Reel | No" (→opening_reel) would clobber YES → caught.
+describe("real-vs-real merge (first-real-wins, harvest-proven)", () => {
+  it("classic real Opening Reel=YES survives a HARVESTED form block with Opening Sizzle Reel=No", () => {
     const synthetic = [
-      "| EVENT DETAILS | EVENT DETAILS |","| :---: | :---: |",
-      "| Opening Reel | YES |","| Keynote Requirements | TBD |","",
-      "| Power Requirements | wifi |","| Internet Requirements | yes |","| Opening Sizzle Reel | No |","| Backdrop | none |",
+      "| EVENT DETAILS | EVENT DETAILS |", "| :---: | :---: |",
+      "| Opening Reel | YES |", "",                       // classic block: opening_reel=YES (real)
+      "| Keynote Requirements | KEYNOTE-FROM-FORM |",      // 3 known-vocab labels → anchor fires
+      "| Virtual Speaker | yes |",
+      "| Stage Size | 20x30 |",
+      "| Opening Sizzle Reel | No |",                      // → opening_reel; must NOT clobber YES
     ].join("\n");
-    const ed = parseSheet(synthetic,"s.md").show.event_details;
-    expect(ed["opening_reel"]).toBe("YES");
+    const ed = parseSheet(synthetic, "s.md").show.event_details;
+    expect(ed["keynote_requirements"]).toBe("KEYNOTE-FROM-FORM"); // PROVES the form harvest ran (form-only field)
+    expect(ed["stage_size"]).toBe("20x30");                       // (form-only)
+    expect(ed["opening_reel"]).toBe("YES");                        // first-real-wins: classic real preserved
   });
 });
 ```
@@ -514,10 +532,17 @@ it("east-coast GS lighting captured from the unlabeled continuation row; not in 
 
 ### Task 8: `gear_scope` source region (date-grid-gated)
 
-**Files:** Modify `lib/sheet-links/buildSheetDeepLink.ts` (REGION_IDS, REGION_ANCHOR_SPEC, CARD_REGION_MAP), `lib/drive/sourceAnchors.ts` (gate); Test `tests/parser/sourceAnchorsCorpus.test.ts`.
+**Files:** Modify `lib/sheet-links/buildSheetDeepLink.ts` (REGION_IDS, REGION_ANCHOR_SPEC, CARD_REGION_MAP), `lib/drive/sourceAnchors.ts` (gate); Test `tests/parser/sourceAnchorsCorpus.test.ts`, **`tests/components/crew/sourceLinkCoverage.test.tsx`** (mandatory adaptation — see Step 3b, R2-H1).
 
 - [ ] **Step 1: Failing test** (extend corpus test): a synthetic workbook with a GEAR tab containing the date-grid signature → `anchors.gear_scope.title === "GEAR"`; a GEAR tab with `Rental Dates` but no `Item/date` header → `anchors.gear_scope` undefined; no GEAR tab → undefined.
-- [ ] **Step 2: Run → fail.** **Step 3: Implement:** add `gear_scope` to `REGION_IDS` + `REGION_ANCHOR_SPEC` (`{ tabs: ["GEAR"], strategy: "whole-tab" }`); add `gear-scope-scenic`/`gear-scope-other` → `rooms` in `CARD_REGION_MAP`. In `sourceAnchors.ts`, after choosing the GEAR tab for `gear_scope`, emit the anchor only if `hasGearDateGrid` (Task 2) is true for that tab's grid (convert the chosen sheet's rows to the markdown/row form `hasGearDateGrid` expects, or add a grid-level variant — share the predicate). **Step 4: Run → pass** (+ existing sourceAnchors tests green). **Step 5: Commit** — `feat(crew-page): gear_scope source region gated on the GEAR date-grid signature`
+- [ ] **Step 2: Run → fail.** **Step 3: Implement:** add `gear_scope` to `REGION_IDS` + `REGION_ANCHOR_SPEC` (`{ tabs: ["GEAR"], strategy: "whole-tab" }`); add `gear-scope-scenic`/`gear-scope-other` → `rooms` in `CARD_REGION_MAP`. In `sourceAnchors.ts`, after choosing the GEAR tab for `gear_scope`, emit the anchor only if `hasGearDateGrid` (Task 2) is true for that tab's grid (convert the chosen sheet's rows to the markdown/row form `hasGearDateGrid` expects, or add a grid-level variant — share the predicate). **Step 4: Run → pass** (+ existing sourceAnchors tests green).
+
+- [ ] **Step 3b (MANDATORY — R2-H1): adapt `tests/components/crew/sourceLinkCoverage.test.tsx`** so adding `gear_scope` to `REGION_IDS` does not break the existing meta-test:
+  - Rule (c) ("every `REGION_ID` referenced by ≥1 `CARD_REGION_MAP` entry, warning-anchor-only exempt", `:219-221`): add `gear_scope` to a new `DYNAMICALLY_CONSUMED = new Set(["gear_scope"])` exemption alongside `WARNING_ANCHOR_ONLY` — `gear_scope` is consumed by GearSection's runtime `scopeRegion` selection, not a static `CARD_REGION_MAP` value.
+  - Rule (a) (per-card href = `buildSheetDeepLink(driveFileId, sourceAnchors[CARD_REGION_MAP[id]])`): special-case `gear-scope-*` card ids so the EXPECTED href uses `gear_scope` when the fixture's `sourceAnchors` has a `gear_scope` entry, else `rooms` — mirroring GearSection's selection. Ensure the fully-populated `makeShowForViewer` fixture includes a `gear_scope` anchor so the GEAR-path branch is actually exercised (and a second assertion/fixture without it for the INFO-path branch).
+  Run `npx vitest run tests/components/crew/sourceLinkCoverage.test.tsx` → PASS. **(This step lands in the same commit as Step 3 or its own; do not defer — it's a full-suite breaker otherwise.)**
+
+- [ ] **Step 5: Commit** — `feat(crew-page): gear_scope source region gated on the GEAR date-grid signature`
 
 ---
 
