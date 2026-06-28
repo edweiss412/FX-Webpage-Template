@@ -130,8 +130,9 @@ Render rules:
   const norm = normalizeAgendaExtraction(link.extracted); // lib/agenda/normalizeAgendaExtraction
   const renderable = !!norm && norm.confidence === "high" && norm.days.length > 0;
   ```
-  - if `renderable` → render `<AgendaScheduleBlock extraction={link.extracted}
-    label={links.length > 1 ? agendaDisplayLabel(link.label) : null} />`.
+  - if `renderable` → render the block with a **capped** extraction (see "Render-size
+    cap" below) `<AgendaScheduleBlock extraction={capped} label={links.length > 1 ?
+    agendaDisplayLabel(link.label) : null} />` + an overflow note when truncated.
   - else (missing / low-confidence / malformed / zero-day `extracted`) → a one-line
     muted note: `"{agendaDisplayLabel(link.label) ?? link.label} · agenda PDF not
     auto-readable"`, **followed by an "Open PDF" anchor iff `agendaPdfHref(link)` is
@@ -140,6 +141,31 @@ Render rules:
   `links.length > 1`, mirroring the crew rule
   (`ScheduleSection.tsx:131-132`, `agendaDisplayLabel` from
   `lib/agenda/agendaLabel.ts`, imported at `ScheduleSection.tsx:42`).
+
+**Render-size cap (Codex round-5 Finding 1).** `AgendaScheduleBlock` maps **all**
+days/sessions/tracks — fine on the crew page (authoritative full view) but, on the
+**review** card, an up-to-80-page high-confidence agenda would bloat the expanded
+card, and the existing card breakdowns all cap their lists (`SCHEDULE_ENTRIES_CAP=6`,
+`ROOMS_CAP`, etc. — `Step3SheetCard.tsx:57-58`). The cap is applied in the admin
+breakdown **by slicing the extraction BEFORE it reaches `AgendaScheduleBlock`** (so
+the crew component and crew page are untouched):
+
+- A helper `capExtractionForAdmin(extraction, sessionCap)` walks `days` in order,
+  accumulating sessions until `AGENDA_ADMIN_SESSIONS_CAP` total sessions are kept
+  (a partially-filled day keeps its first sessions; later days are dropped once the
+  cap is hit), and returns `{ capped, droppedSessions, droppedDays }`. Day count is
+  thus transitively bounded by the session cap; **tracks** are not separately capped
+  (each kept session has only a handful) — they are bounded by the session cap.
+- When `droppedSessions > 0`, render an overflow note under the block:
+  `"+{droppedSessions} more sessions — open the PDF"` with the `agendaPdfHref(link)`
+  anchor (same validator). This mirrors `ScheduleBreakdown`'s in-place overflow stub.
+- **Links** are bounded by the per-sheet extraction cap, but the breakdown also caps
+  the number of links it RENDERS at `AGENDA_MAX_PDFS_PER_SHEET` (note-only links
+  included), with a trailing `"+N more agenda PDFs"` note when exceeded — so even a
+  pathological `agenda_links` array can't produce unbounded rows.
+- Constant `AGENDA_ADMIN_SESSIONS_CAP = 8` (compact review view; full agenda is one
+  "Open PDF" click away). Real corpus (RFI 18 / PCF 19 sessions) → 8 shown + overflow
+  note, exactly the bounded-review behavior intended.
 
 **Reuse, not fork:** import the existing `AgendaScheduleBlock`
 (`components/crew/AgendaScheduleBlock.tsx`) — it is a pure presentational Server
@@ -313,11 +339,19 @@ unaffected; they are pure pathological-input backstops.
    (href validation); (h) no `extracted`, `url = "javascript:…"`/relative →
    **NO anchor**; (i) `agenda_links` **undefined** / `pr.show` missing the field /
    **non-array** → no Agenda breakdown, **no crash** (defensive `arr`); (j) zero
-   links → no breakdown. **Derive expected titles from the extraction of
-   `fixtures/agenda/*.pdf`, not hardcoded** (anti-tautology); when scanning DOM for
-   a label, clone-and-strip sibling breakdowns first. *Failure modes caught:* the
+   links → no breakdown; (k) **render-size cap (round-5 F1):** the real
+   `fixtures/agenda/rfi.pdf` extraction (18 sessions > `AGENDA_ADMIN_SESSIONS_CAP`)
+   → exactly `AGENDA_ADMIN_SESSIONS_CAP` session rows rendered + a "+N more sessions
+   — open the PDF" overflow note with the validated href; an extraction with
+   ≤ cap sessions → no overflow note; (l) `agenda_links` with
+   `> AGENDA_MAX_PDFS_PER_SHEET` entries → only that many link rows + a "+N more
+   agenda PDFs" note. **Derive expected counts from the extraction + the cap
+   constants, not hardcoded** (anti-tautology — a fixture with fewer than cap
+   sessions can never prove truncation); when scanning DOM for a label,
+   clone-and-strip sibling breakdowns first. *Failure modes caught:* the
    `link.extracted ? <Block/> : <Note/>` empty-section trap; rendering arbitrary
-   sheet text as an href; crashing on corrupt staged JSON.
+   sheet text as an href; crashing on corrupt staged JSON; an 80-page agenda
+   bloating the expanded review card.
 4. **Extraction budget — bytes × pages × count (round-2 F1 + round-3 F1).**
    - `downloadFileBytes` byte cap: a mocked Drive `files.get` stream emitting
      > `AGENDA_PDF_MAX_BYTES` → `{ kind: "unavailable" }` (NOT `infra_error`); a
@@ -364,11 +398,11 @@ unaffected; they are pure pathological-input backstops.
 |---|---|
 | `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips`; **export** `defaultDriveClient` for the meta-test; create one `agendaBudget` per scan and pass it into every per-sheet `EnrichContext` |
 | `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number }` to `EnrichContext`; pass `ctx.agendaBudget` into `enrichAgenda` |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed |
 | `lib/sync/enrichAgenda.ts` | per-sheet count cap + scan-level `agendaBudget` decrement/skip + skip-warnings (new param) |
-| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion); render from `pr.show?.agenda_links` |
+| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion + `capExtractionForAdmin` render-size cap); render from `pr.show?.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
 | `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
 | `tests/agenda/extractAgendaSchedule.test.ts` | page-cap test + `extractorVersion === 2` (Task 4) |
@@ -405,3 +439,7 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   only when `^https?://`, else no anchor (Codex round-3 F2).
 - Robustness: **`arr(pr.show?.agenda_links)` + per-field string coercion** against
   corrupt staged JSONB (Codex round-3 F3).
+- Render-size cap: **`AGENDA_ADMIN_SESSIONS_CAP = 8` per link** (slice extraction
+  before `AgendaScheduleBlock`; "+N more — open the PDF" overflow) + render at most
+  `AGENDA_MAX_PDFS_PER_SHEET` link rows; crew/`AgendaScheduleBlock` untouched (Codex
+  round-5 F1).
