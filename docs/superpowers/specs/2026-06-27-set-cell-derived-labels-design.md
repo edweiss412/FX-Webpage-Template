@@ -131,7 +131,7 @@ SET cells come in two shapes and **only one** must be tokenized for labels:
 
 | Mode | Trigger | Examples | Treatment |
 |---|---|---|---|
-| **label-before** | the slice *before the first clock* (`c.slice(0, toks[0].start)`) is **colon-terminated** (`/:\s*$/`) | `"Load In: 7:00 PM Room Access: 8:30 PM"`, `"Load In: 8:00 AM Session: 1:00 PM"` | tokenize → per-clock derived labels |
+| **label-before** | the slice *before the first clock* (`c.slice(0, toks[0].start)`) is **colon-terminated** (`/:\s*$/`) **AND its label is in the recognized SET-label vocabulary** (see below) | `"Load In: 7:00 PM Room Access: 8:30 PM"`, `"Load In: 8:00 AM Session: 1:00 PM"` | tokenize → per-clock derived labels (each label recognized, else position default) |
 | **position-default** (= today) | first-clock lead is empty, separator-only, **or non-colon prose** | `"11:00 AM LOAD IN"`, `"9:00PM - LOAD IN 10:00PM - SETUP"`, `"8:00 AM LOAD IN As per Alyssa email 4/29"` (trailing provenance), `"As per Alyssa email 4/29 8:00 AM LOAD IN"` (leading provenance — no colon), `"AFTER 8PM"` | `tokenizeSetSchedule` returns `[]` → caller falls through to `loadIn`/`setupTime` synthesis |
 
 The colon-terminated trigger is the exact fix for two failure modes:
@@ -139,6 +139,8 @@ The colon-terminated trigger is the exact fix for two failure modes:
 - **Leading provenance (R1 P1b):** `"As per Alyssa email 4/29 8:00 AM LOAD IN"` has a non-empty but non-colon lead → position-default → renders `"Load In 8:00 AM"`, not the bogus `"As per Alyssa email 4/29"`. **Pinned by test** (§9.B).
 
 Partial/mixed cells (a colon-label only on a non-first clock, or a no-colon first label) degrade to safe position-default — acceptable, none are in the corpus.
+
+**Closed-vocabulary gate (structural defense).** A colon-terminated lead alone is not sufficient — the label must be in a **closed `SET_LABEL_VOCAB`** (normalized lowercase: `load in`, `room access`, `set`/`setup`/`set up`, `session`, `rehearsal`, `doors`, `soundcheck`/`sound check`, `tech`/`tech check`, `strike`, `load out`, plus hyphen/`loadin` variants). Arbitrary prose / provenance (`"Alyssa email:"`, `"As per …:"`, `"Per email:"`, `"Notes:"`) is **not** in the vocab → the cell falls through to the `loadIn`/`setupTime` synthesis. An open-ended prose heuristic (word-count / no-digits) always has a bypass (the colon-provenance vector recurred across review rounds); a **closed allow-list cannot mislabel prose by construction**. The vocab matches the live corpus exactly (RFI/PCF `Load In`/`Room Access`); it is the single extension point — add a word when a genuinely new SET label appears in a real sheet. Per-entry: an unrecognized later-clock label → `null` → position default (`Load In`/`Setup`/skip).
 
 ### 4.5 `deriveScheduleBookends` SET branch (replaces `scheduleBookends.ts:100-106`)
 
@@ -220,6 +222,7 @@ These are deliberate, precedent-backed decisions. **Reviewers: do not relitigate
 4. **No DB / migration / schema-manifest / validation-parity.** `run_of_show` is schemaless JSONB; `setAgendaRaw` is an in-memory parse field. → no `supabase/migrations/**`, no `pnpm gen:schema-manifest`.
 5. **No §12.4 catalog / `gen:spec-codes` / `gen:internal-code-enums`.** No new error code.
 6. **Clock values are minimally-normalized, not byte-verbatim, and come from the SAME `decodeEntities(clean(row[4]))` as `dates.loadIn`/`setupTime`.** `setAgendaRaw` is stored raw; `tokenizeSetSchedule` and `extractClockTimes` both apply `decodeEntities(clean(...))` to the same raw text → clock values match `loadIn`/`setupTime` exactly (no key-times drift), by construction (R2 P1d). Strict source-verbatim is explicitly *not* pursued — it would force realigning `loadIn`/`setupTime` and risk the normalized `setupTime` assertions (`dates.test.ts:406-420`).
+10. **Label recognition is a CLOSED vocabulary, intentionally** (`SET_LABEL_VOCAB`, §4.4). This is a structural defense shipped after the colon-provenance vector recurred — do **not** re-propose an open-ended prose heuristic (every such heuristic has a bypass) and do **not** flag the vocab as "too restrictive": a genuinely new SET label is the documented single extension point, and dropping an unrecognized label degrades to the safe generic synthesis (never a mislabel). The vocab covers the entire live corpus.
 9. **`extractClockTimes` now `decodeEntities`-s its input** (signature unchanged; body adds the decode it previously lacked). This is a deliberate, corpus-behavior-preserving change required for no-drift + correct labels — **do not flag as scope creep.** Real cells carry `&#10;`/`&#9;` only as field separators between tokens, so decoding them to spaces never alters a match; only the contrived `"7:00&#9;PM"` (entity inside a clock) changes, and changes *correctly*. Verified green against `dates.test.ts:305-481`.
 7. **Colon-required (not the permissive SHOW-DAY `CLOCK_RE`).** Adopting the permissive scanner would turn `"AFTER 8PM"` into a key time — the exact regression `dates.test.ts:475` guards.
 8. **`extractClockTimes` public signature unchanged** (the refactor only extracts an internal/exported core it delegates to).

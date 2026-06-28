@@ -240,8 +240,12 @@ describe("tokenizeSetSchedule (D-SET1)", () => {
   it("mode: leading provenance (non-colon lead) → [] (R1 P1b pin)", () => {
     expect(tokenizeSetSchedule("As per Alyssa email 4/29 8:00 AM LOAD IN")).toEqual([]);
   });
-  it("mode: colon-terminated provenance lead → [] (whole-diff P2: implausible label)", () => {
+  it("mode: colon-terminated provenance → [] (whole-diff P2/R2: closed-vocab gate, all variants)", () => {
+    // long + dated, short + no-digit, and a bare unrecognized word — none are in SET_LABEL_VOCAB.
     expect(tokenizeSetSchedule("As per Alyssa email 4/29: 11:00 AM LOAD IN")).toEqual([]);
+    expect(tokenizeSetSchedule("Alyssa email: 11:00 AM LOAD IN")).toEqual([]);
+    expect(tokenizeSetSchedule("Per email: 11:00 AM LOAD IN")).toEqual([]);
+    expect(tokenizeSetSchedule("Notes: 11:00 AM")).toEqual([]);
   });
   it("separator strip (R1 P2a): '/' before a label", () => {
     expect(tokenizeSetSchedule("Load In: 7:00 PM / Room Access: 8:30 PM")).toEqual([

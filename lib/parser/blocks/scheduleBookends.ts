@@ -60,20 +60,45 @@ function labelBefore(cell: string, from: number, to: number): string {
   return shouldHideGenericOptional(slice) ? "" : slice;
 }
 
-/** A real SET label is short and word-like ("Load In", "Room Access", "Setup"); colon-
- *  terminated provenance prose ("As per Alyssa email 4/29:") is long and/or carries a date.
- *  Reject the latter so it falls to position-default, not a bogus title. D-SET1. */
-function isPlausibleSetLabel(label: string): boolean {
-  const words = label.split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.length <= 3 && !/\d/.test(label);
+/**
+ * Closed vocabulary of recognized SET-day schedule labels (normalized: lowercased + ws-collapsed).
+ * A label-before SET cell is tokenized ONLY when its leads are recognized schedule words; arbitrary
+ * prose / provenance ("Alyssa email:", "As per …:", "Per email:") is NOT in the vocab and falls
+ * through to the loadIn/setupTime synthesis. This is a STRUCTURAL DEFENSE — an open-ended prose
+ * heuristic (word-count / no-digits) always has a bypass, but a closed allow-list cannot mislabel
+ * prose by construction (prose simply is not in the set). Matches the live corpus exactly (RFI/PCF's
+ * "Load In"/"Room Access"). Extend this set when a genuinely new SET label appears in a real sheet. D-SET1.
+ */
+const SET_LABEL_VOCAB = new Set<string>([
+  "load in",
+  "load-in",
+  "loadin",
+  "room access",
+  "set",
+  "set up",
+  "setup",
+  "session",
+  "rehearsal",
+  "doors",
+  "soundcheck",
+  "sound check",
+  "tech",
+  "tech check",
+  "strike",
+  "load out",
+  "load-out",
+  "loadout",
+]);
+function isRecognizedSetLabel(label: string): boolean {
+  return SET_LABEL_VOCAB.has(label.toLowerCase().replace(/\s+/g, " ").trim());
 }
 
 /**
  * Label-before-clock tokenizer for the SET TIME cell. Returns one {label,clock} per
- * colon-required clock when the cell is label-before-shaped (a colon-terminated, plausible
- * label precedes the first clock); otherwise `[]` (time-first / no-colon / provenance-prose /
- * no-clock → caller falls through to the loadIn/setupTime synthesis). Clock values come from
- * the same decodeEntities(clean(...)) as extractClockTimes, so they equal dates.loadIn/setupTime. §4.3
+ * colon-required clock when the cell is label-before-shaped (a colon-terminated, RECOGNIZED
+ * SET label precedes the first clock); otherwise `[]` (time-first / no-colon / unrecognized-prose /
+ * no-clock → caller falls through to the loadIn/setupTime synthesis). Clock values come from the
+ * same decodeEntities(clean(...)) as extractClockTimes, so they equal dates.loadIn/setupTime. §4.3
  */
 export function tokenizeSetSchedule(raw: string | null): { label: string | null; clock: string }[] {
   const c = decodeEntities(clean(raw ?? ""));
@@ -82,11 +107,11 @@ export function tokenizeSetSchedule(raw: string | null): { label: string | null;
   if (toks.length === 0) return [];
   const lead = c.slice(0, toks[0]!.start);
   if (!/:\s*$/.test(lead)) return []; // not colon-terminated → not label-before → caller falls through
-  if (!isPlausibleSetLabel(labelBefore(c, 0, toks[0]!.start))) return []; // provenance prose → fall through
+  if (!isRecognizedSetLabel(labelBefore(c, 0, toks[0]!.start))) return []; // unrecognized lead → fall through
   return toks.map((t, i) => {
     const prevEnd = i === 0 ? 0 : toks[i - 1]!.end;
     const raw2 = labelBefore(c, prevEnd, t.start);
-    const label = raw2 && isPlausibleSetLabel(raw2) ? raw2 : null; // implausible per-entry → position default
+    const label = isRecognizedSetLabel(raw2) ? raw2 : null; // unrecognized per-entry → position default
     return { label, clock: t.clock };
   });
 }
