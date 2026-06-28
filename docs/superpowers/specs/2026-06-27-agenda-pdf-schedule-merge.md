@@ -131,11 +131,13 @@ Server-side build rules (the logic that produces each `AdminAgendaItem`):
 
 - **Defensive coercion (Codex round-3 Finding 3):** the staged `parse_result` is
   untyped-on-the-wire JSONB; an old/corrupt row may have `agenda_links`
-  missing/non-array, or per-link `label`/`fileId`/`url` of the wrong type. Read via
-  `const links = arr(pr.show?.agenda_links)` (the existing `arr` guard,
-  `Step3SheetCard.tsx:62`); per link, treat `label`/`fileId`/`url` as strings only
-  when `typeof === "string"` (else `""`/absent). If `links.length === 0` → **omit**
-  the Agenda breakdown entirely.
+  missing/non-array, or per-link `label`/`fileId`/`url` of the wrong type.
+  `buildAdminAgendaPreview` reads `agenda_links` via an array guard (`arr(...)`, the
+  pattern at `Step3SheetCard.tsx:62` — imported/shared into the server helper); per
+  link, treat `label`/`fileId`/`url` as strings only when `typeof === "string"`
+  (else `""`/absent). Empty/missing/non-array `agenda_links` → empty preview →
+  `fetchStep3Data` sets no `adminAgendaPreview` → the card **omits** the Agenda
+  breakdown (the card just checks `row.adminAgendaPreview?.length`).
 - **Open-PDF href validation (Codex round-3 Finding 2):** `parseAgendaLinks` stores
   arbitrary non-URL text (filenames/descriptions) in `url`
   (`lib/parser/index.ts:253-255`), so `url` must NOT be rendered as an href blindly.
@@ -196,24 +198,39 @@ the crew component and crew page are untouched):
   18 / PCF 19 sessions; ≤2 tracks/session) → 8 shown + overflow note, tracks
   unaffected (under the track cap) — exactly the bounded-review behavior intended.
 
-**Where the server build runs.** `adminAgendaPreview` is computed at the Step-3 row
-assembly — the server boundary that builds `result.rows` for
-`OnboardingWizard`/`Step3Review` AND the staged-review server component
-`app/admin/onboarding/staged/.../page.tsx` (exact files pinned in the plan's
-pre-draft pass). The same boundary strips `agenda_links[].extracted` from the
-client-bound `parse_result`. So the browser receives only the bounded preview
-(≤ `AGENDA_MAX_PDFS_PER_SHEET` items, each block ≤ `AGENDA_ADMIN_SESSIONS_CAP`
-sessions × `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks) — never the full extraction.
-A test asserts the **serialized row props** (not just rendered DOM) carry ≤ cap
-sessions/tracks AND the correct `dropped*`/overflow note for an over-cap extraction.
-(The broader "full `parse_result` → client" shape is pre-existing for every
-breakdown; this feature caps the one large item — extracted agenda — rather than
-refactoring the whole wizard fetch.)
+**Where the server build runs.** `adminAgendaPreview` is computed in the SERVER
+component `OnboardingWizard`'s row-assembly function **`fetchStep3Data`**
+(`components/admin/OnboardingWizard.tsx:191`, an `async` server fn that reads
+`onboarding_scan_manifest` + the staged `parse_result` at `:231`/`:277-283` and maps
+to `Step3Row[]` at `:295`) — and, for the LIVE first-seen path, the analogous staged
+review server component `app/admin/show/staged/[stagedId]/page.tsx`. There, per row:
+build `adminAgendaPreview` from `parse_result.show.agenda_links`, AND **strip**
+`agenda_links[].extracted` from the `parseResult` placed on the client-bound
+`Step3Row`. So the browser receives only the bounded preview (≤ `AGENDA_MAX_PDFS_PER_SHEET`
+items, each block ≤ `AGENDA_ADMIN_SESSIONS_CAP` sessions × `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`
+tracks) — never the full extraction. A test pins `fetchStep3Data`'s output: the
+serialized `Step3Row` carries ≤ cap sessions/tracks, the correct `dropped*`, and no
+raw `extracted`. (The broader "full `parse_result` → client" shape is pre-existing
+for every breakdown; this feature caps only the one large item — extracted agenda.)
 
-**Reuse, not fork:** import the existing `AgendaScheduleBlock`
-(`components/crew/AgendaScheduleBlock.tsx`) — it is a pure presentational Server
-Component consuming the raw `extracted` jsonb via `normalizeAgendaExtraction`, with
-no crew-specific dependency. It is NOT relocated (avoids churn to crew imports).
+**Component boundary (Codex round-10 Finding 1).** `Step3SheetCard`/`Step3Review` are
+`"use client"`; the agenda renderer must therefore be **client-safe**. The existing
+`AgendaScheduleBlock` (`components/crew/AgendaScheduleBlock.tsx`) is in fact a PURE,
+isomorphic component — its only imports are the React `JSX` type and the pure
+`normalizeAgendaExtraction` (whose only import is `@/lib/agenda/types`); it has NO
+`server-only`/`next/headers`/`fs`/Drive dependency (the "Server Component" phrasing in
+its doc comment describes its crew *usage context*, not a hard constraint). A
+component with no `"use client"` and no server-only deps adopts its importer's
+environment, so importing it INTO the client card is valid and bundles it client-side
+— no Next.js boundary break. It renders `block.extraction` (already capped + small).
+**Guard:** a structural test asserts the admin agenda render path pulls in nothing
+`server-only` (keeps `AgendaScheduleBlock`/`normalizeAgendaExtraction` pure), so a
+future server-only import there is caught rather than silently breaking the client
+build. The card is otherwise pure presentation over `AdminAgendaItem` — it does NOT
+call `normalizeAgendaExtraction`/`capExtractionForAdmin`/`agendaPdfHref` itself (those
+run in `fetchStep3Data`); it only renders `block.extraction` via `AgendaScheduleBlock`
+plus the `dropped*` overflow note and the `href` anchor. `AgendaScheduleBlock` is NOT
+relocated (avoids churn to crew imports).
 
 ### 4.3 UI specifics (Opus + impeccable invariant 8)
 
@@ -435,8 +452,19 @@ unaffected; they are pure pathological-input backstops.
    + `fixtures/agenda/*.pdf`); assert the staged `parse_result.show.agenda_links[i].extracted`
    is a high-confidence extraction. *Failure mode:* enrichAgenda silently
    short-circuits.
-3. **`AgendaBreakdown` render (UI/RTL) — predicate, href, coercion (round-2 F2 +
-   round-3 F2/F3).** Cases: (a) two high-confidence `extracted` links → two
+3. **Agenda preview — server helper unit + pure-card render (round-2 F2 + round-3
+   F2/F3 + round-8/9/10).** Split in two: **(3a) `buildAdminAgendaPreview` unit
+   tests** (`lib/agenda/agendaAdminPreview.ts`, server-pure) drive the cases below on
+   the LOGIC (predicate/href/cap/coercion/`dropped*`), asserting the returned
+   `AdminAgendaItem[]`; **(3b) `AgendaBreakdown` presentation tests** feed
+   hand-built `AdminAgendaItem[]` and assert the card renders block→`AgendaScheduleBlock`
+   + overflow note from `dropped*` + `href` anchor, note→muted line, empty→omitted —
+   the card calls NO normalize/cap/href. **(3c) boundary-purity guard** (round-10
+   F1): a structural test asserting `lib/agenda/agendaAdminPreview.ts`,
+   `components/crew/AgendaScheduleBlock.tsx`, and `lib/agenda/normalizeAgendaExtraction.ts`
+   import nothing `server-only`/`next/headers`/`fs` (so the client card's import graph
+   stays valid). Cases (driving 3a, with 3b rendering the resulting items): (a) two
+   high-confidence `extracted` links → two
    `agenda-schedule` blocks with RFI/PCF labels + representative titles;
    (b) **low-confidence** `extracted` → note, no empty block; (c) **malformed**
    `extracted` (garbage object) → note; (d) **high-confidence zero-day** → note;
@@ -533,17 +561,20 @@ unaffected; they are pure pathological-input backstops.
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed; **+ `createStallGuard` idle-abort on the stream → `infra_error` on stall**; `getAgendaChips` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry** (per `sheetGids.ts`) → `infra_error` on timeout |
-| Step-3 server row-assembly (exact files pinned in plan — `OnboardingWizard` `result.rows` source + `app/admin/onboarding/staged/.../page.tsx`) | build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge) **server-side**; strip `agenda_links[].extracted` from the client-bound `parse_result` |
-| Step-3 row type (`AdminAgendaItem` + `adminAgendaPreview` field) | new shared type (next to `Step3Row`) carrying the server-computed preview |
+| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data`, `:191`) + `app/admin/show/staged/[stagedId]/page.tsx` | **server-side** build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate via `normalizeAgendaExtraction` + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge + `arr`/string coercion); strip `agenda_links[].extracted` from the client-bound `Step3Row.parseResult` |
+| Step-3 row type (`AdminAgendaItem` + `adminAgendaPreview` field on `Step3Row`) | new shared type carrying the server-computed preview |
+| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure helpers `capExtractionForAdmin`, `agendaPdfHref`, `buildAdminAgendaPreview(links)` — unit-testable in isolation |
 | `lib/sync/enrichAgenda.ts` | budget **consumes 1 for `getAgendaChips`** (before the call, regardless of outcome) + per-link attempt decrement before `getFile`; per-sheet + scan caps; **no warning** on cap/budget skip (new `agendaBudget` param) |
-| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion + `capExtractionForAdmin` render-size cap); render from `pr.show?.agenda_links` |
+| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` — **pure presentation over `row.adminAgendaPreview`** (NOT `pr.show.agenda_links`): each item's `block` → `<AgendaScheduleBlock extraction={block.extraction}/>` + `dropped*` overflow note + `href` anchor; note item → muted note. Does NOT call normalize/cap/href itself. |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
 | `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
 | `tests/agenda/extractAgendaSchedule.test.ts` | page-cap test + `extractorVersion === 2` (Task 4) |
 | `tests/agenda/constants.test.ts`, `tests/onboarding/enrichAgendaIntegration.test.ts` | update `EXTRACTOR_VERSION`/`extractorVersion` assertions 1→2 |
-| `tests/sync/enrichAgenda.test.ts` | per-sheet count-cap test (Task 4) |
-| `tests/onboarding/...` | extraction-populates-`extracted` test (Task 2) |
-| `tests/components/admin/...` | `AgendaBreakdown` render test incl. low/malformed/zero-day/href/coercion (Task 3) |
+| `tests/sync/enrichAgenda.test.ts` | per-sheet count-cap + scan-budget-consumes-`getAgendaChips` (failure outcomes) + stall/timeout tests (Task 4) |
+| `tests/onboarding/...` | extraction-populates-`extracted` (Task 2); `fetchStep3Data` serialized-props test (≤cap, `dropped*`, no raw `extracted`) (Task 3) |
+| `tests/agenda/agendaAdminPreview.test.ts` (new) | `buildAdminAgendaPreview`/`capExtractionForAdmin`/`agendaPdfHref` unit cases a–n (Task 3a) |
+| `tests/components/admin/...` | `AgendaBreakdown` pure-render from `AdminAgendaItem[]` (Task 3b) |
+| `tests/.../agendaPurityBoundary.test.ts` (new) | structural: admin agenda render path imports nothing server-only (Task 3c) |
 | `BACKLOG.md` | file `BL-AGENDA-EXTRACTION-HYDRATION` |
 
 **Not touched (dropped from rev 1):** `lib/parser/types.ts`,
@@ -590,10 +621,15 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   guards; stall/timeout → `infra_error`) so no Drive/Sheets hang can stall the scan
   (Codex round-8 F1).
 - Client payload + display logic: **server-computed `adminAgendaPreview` shape**
-  (predicate + cap + `dropped*` side-channel + validated href + badge); client card
-  is pure presentation; raw `extracted` stripped from the client `parse_result`
-  (Codex round-8 F2 + round-9 F2 — drop counts ride as explicit siblings so they
-  survive `normalizeAgendaExtraction`).
+  built in `fetchStep3Data` (`OnboardingWizard.tsx:191`) via the new server helper
+  `lib/agenda/agendaAdminPreview.ts` (predicate + cap + `dropped*` side-channel +
+  validated href + badge); client card is pure presentation over `AdminAgendaItem`;
+  raw `extracted` stripped from the client `parse_result` (Codex round-8/9 F2).
+- Component boundary: **`AgendaScheduleBlock`/`normalizeAgendaExtraction` are pure
+  isomorphic** (no server-only deps) → valid to render inside the `"use client"` card;
+  a structural purity-guard test keeps them that way (Codex round-10 F1). §9 table +
+  §4.2 carry the single non-contradictory contract: card consumes only
+  `row.adminAgendaPreview` (round-10 F2).
 - Chip budget: **`getAgendaChips` consumes 1 budget before the call regardless of
   outcome** (not just an entry-gate) so chip-failing sheets can't bypass the
   scan-level bound (Codex round-9 F1).
