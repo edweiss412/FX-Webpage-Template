@@ -57,3 +57,11 @@ export function scheduleTimeUnparsed(index: number, iso: string): ParseWarning {
     blockRef: { kind: "dates", index, iso },
   };
 }
+export function strikeDateOffSchedule(iso: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+    message: `A room strike date (${iso}) is not one of the show's scheduled days; it shows in the admin review but not on crew schedules until corrected`,
+    blockRef: { kind: "rooms", iso },
+  };
+}
