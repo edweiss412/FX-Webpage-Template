@@ -277,7 +277,9 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
  * `start`/`end` index `text`. Shared by `extractClockTimes` and `tokenizeSetSchedule`
  * (scheduleBookends.ts) so SET run-of-show clock values equal `loadIn`/`setupTime`. D-SET1.
  */
-export function extractClockTimeTokens(text: string): { clock: string; start: number; end: number }[] {
+export function extractClockTimeTokens(
+  text: string,
+): { clock: string; start: number; end: number }[] {
   const re = /\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g;
   const out: { clock: string; start: number; end: number }[] = [];
   for (const m of text.matchAll(re)) {

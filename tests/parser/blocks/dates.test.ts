@@ -517,7 +517,10 @@ describe("extractClockTimeTokens — position core (D-SET1)", () => {
     expect(c.slice(toks[1]!.start, toks[1]!.end)).toBe("8:30 PM");
   });
   it("extractClockTimes === extractClockTimeTokens(decoded+cleaned).map(clock)", () => {
-    expect(extractClockTimes("Load In: 7:00 PM Room Access: 8:30 PM")).toEqual(["7:00 PM", "8:30 PM"]);
+    expect(extractClockTimes("Load In: 7:00 PM Room Access: 8:30 PM")).toEqual([
+      "7:00 PM",
+      "8:30 PM",
+    ]);
   });
   it("decodes an entity INSIDE a clock (R2 P1d): '7:00&#9;PM' → ['7:00 PM']", () => {
     expect(extractClockTimes("7:00&#9;PM")).toEqual(["7:00 PM"]);

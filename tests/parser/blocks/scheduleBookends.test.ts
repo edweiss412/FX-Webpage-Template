@@ -291,7 +291,12 @@ describe("deriveScheduleBookends — SET cell-derived labels (D-SET1)", () => {
     expect(runOfShow!["2025-05-12"]!.entries).toEqual([{ start: "11:00 AM", title: "Load In" }]);
   });
   it("null setAgendaRaw → today's loadIn/setupTime synthesis verbatim", () => {
-    const d = dates({ set: "2025-05-12", loadIn: "7:00 PM", setupTime: "8:30 PM", setAgendaRaw: null });
+    const d = dates({
+      set: "2025-05-12",
+      loadIn: "7:00 PM",
+      setupTime: "8:30 PM",
+      setAgendaRaw: null,
+    });
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
     expect(runOfShow!["2025-05-12"]!.entries).toEqual([
       { start: "7:00 PM", title: "Load In" },
