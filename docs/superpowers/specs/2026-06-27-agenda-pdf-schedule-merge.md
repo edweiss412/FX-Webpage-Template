@@ -150,22 +150,27 @@ card, and the existing card breakdowns all cap their lists (`SCHEDULE_ENTRIES_CA
 breakdown **by slicing the extraction BEFORE it reaches `AgendaScheduleBlock`** (so
 the crew component and crew page are untouched):
 
-- A helper `capExtractionForAdmin(extraction, sessionCap)` walks `days` in order,
-  accumulating sessions until `AGENDA_ADMIN_SESSIONS_CAP` total sessions are kept
-  (a partially-filled day keeps its first sessions; later days are dropped once the
-  cap is hit), and returns `{ capped, droppedSessions, droppedDays }`. Day count is
-  thus transitively bounded by the session cap; **tracks** are not separately capped
-  (each kept session has only a handful) — they are bounded by the session cap.
-- When `droppedSessions > 0`, render an overflow note under the block:
-  `"+{droppedSessions} more sessions — open the PDF"` with the `agendaPdfHref(link)`
-  anchor (same validator). This mirrors `ScheduleBreakdown`'s in-place overflow stub.
+- A helper `capExtractionForAdmin(extraction, sessionCap, trackCap)` walks `days` in
+  order, accumulating sessions until `AGENDA_ADMIN_SESSIONS_CAP` total sessions are
+  kept (a partially-filled day keeps its first sessions; later days are dropped once
+  the cap is hit). **For each KEPT session it also truncates `tracks` to the first
+  `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`** (Codex round-6 Finding 2 — the staged
+  extraction is untyped JSONB; a corrupt/unusual session with hundreds of track rows
+  would otherwise bloat the card despite the session cap, since `AgendaScheduleBlock`
+  renders every track of every kept session). Returns
+  `{ capped, droppedSessions, droppedDays, droppedTracks }`.
+- When `droppedSessions > 0` **or `droppedTracks > 0`**, render an overflow note
+  under the block: `"+{droppedSessions} more sessions — open the PDF"` (and, when
+  only tracks were dropped, `"Some breakout tracks hidden — open the PDF"`) with the
+  `agendaPdfHref(link)` anchor. Mirrors `ScheduleBreakdown`'s in-place overflow stub.
 - **Links** are bounded by the per-sheet extraction cap, but the breakdown also caps
   the number of links it RENDERS at `AGENDA_MAX_PDFS_PER_SHEET` (note-only links
   included), with a trailing `"+N more agenda PDFs"` note when exceeded — so even a
   pathological `agenda_links` array can't produce unbounded rows.
-- Constant `AGENDA_ADMIN_SESSIONS_CAP = 8` (compact review view; full agenda is one
-  "Open PDF" click away). Real corpus (RFI 18 / PCF 19 sessions) → 8 shown + overflow
-  note, exactly the bounded-review behavior intended.
+- Constants `AGENDA_ADMIN_SESSIONS_CAP = 8`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP = 6`
+  (compact review view; full agenda is one "Open PDF" click away). Real corpus (RFI
+  18 / PCF 19 sessions; ≤2 tracks/session) → 8 shown + overflow note, tracks
+  unaffected (under the track cap) — exactly the bounded-review behavior intended.
 
 **Reuse, not fork:** import the existing `AgendaScheduleBlock`
 (`components/crew/AgendaScheduleBlock.tsx`) — it is a pure presentational Server
@@ -250,8 +255,8 @@ onboarding request is hard-bounded regardless of folder size:
 |---|---|---|---|
 | Per-PDF download size (memory) | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` (`agendaDrive.ts`) | streamed bounded read aborts → `{ kind: "unavailable" }` → `enrichAgenda` emits existing `AGENDA_PDF_UNREADABLE` (download-failed message) |
 | Per-PDF page count (parse time) | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` (early, right after `getDocument`) | `if (doc.numPages > AGENDA_MAX_PAGES) return LOW()` → 0-day low-confidence → admin note / crew embed-only |
-| Agenda PDFs extracted per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap are skipped with one `AGENDA_PDF_UNREADABLE` warning ("too many agenda PDFs on this sheet …") |
-| **Agenda PDFs extracted per scan (folder-wide)** | `AGENDA_MAX_PDFS_PER_SCAN = 40` | `enrichAgenda` via a shared `agendaBudget` on `EnrichContext` | once the scan's shared budget reaches 0, **all** further links across **all** sheets skip extraction with one `AGENDA_PDF_UNREADABLE` warning ("agenda extraction budget for this scan reached — open the PDF") |
+| Agenda-link **attempts** per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop, **at the top of each link iteration, BEFORE `getFile`** | the (i ≥ cap)-th link is skipped **before any Drive call** with one `AGENDA_PDF_UNREADABLE` warning ("too many agenda PDFs on this sheet …") |
+| **Agenda-link attempts per scan (folder-wide)** | `AGENDA_MAX_PDFS_PER_SCAN = 40` | `enrichAgenda` via shared `agendaBudget` on `EnrichContext`, **decremented per link attempt BEFORE `getFile`** | once the shared budget reaches 0, **all** further links across **all** sheets skip **before any Drive call** with one `AGENDA_PDF_UNREADABLE` warning ("agenda extraction budget for this scan reached — open the PDF") |
 
 **Byte cap mechanism:** `downloadFileBytes` switches its Drive `files.get({ alt:
 "media" })` from `responseType: "arraybuffer"` to `responseType: "stream"` and
@@ -281,16 +286,27 @@ folder. So a **folder-wide** cap is added: `EnrichContext` gains an optional
 `agendaBudget?: { remaining: number }` (`lib/sync/enrichWithDrivePins.ts`).
 `runOnboardingScan` creates **one** budget `{ remaining: AGENDA_MAX_PDFS_PER_SCAN }`
 **before** the `mapWithConcurrency(prepareOne)` loop and passes the SAME object into
-every per-sheet `EnrichContext` (`runOnboardingScan.ts:934`). `enrichAgenda`, before
-each extraction, checks `agendaBudget?.remaining`: `> 0` → decrement and extract;
-`<= 0` → skip with the budget warning. The decrement is synchronous (no `await`
-between read and write), so it is safe under the 12-way async interleaving (JS single
-thread). The cron path passes **no** `agendaBudget` (single show — the per-sheet cap
-already bounds it; `undefined` budget = no scan limit). This makes total onboarding
-agenda work ≤ `AGENDA_MAX_PDFS_PER_SCAN` extractions, each ≤ bytes × pages — a hard
-ceiling independent of folder size. (`AGENDA_MAX_PDFS_PER_SCAN = 40` covers the real
-folder — ~19 sheets, ≤2 PDFs each — with headroom; surplus on a pathological folder
-is skipped + warned, and the scan still completes.)
+every per-sheet `EnrichContext` (`runOnboardingScan.ts:934`).
+
+**The budget (and the per-sheet cap) are consumed per-link as a PROCESSING-ATTEMPT
+budget, decremented at the TOP of each link iteration BEFORE `getFile` / download /
+extract — NOT only on successful extraction** (Codex round-6 Finding 1). This is
+critical: if the budget were checked only after the mime/trashed gate, a folder full
+of non-PDF / trashed / unavailable agenda links would still issue up to
+`AGENDA_MAX_PDFS_PER_SHEET` `getFile` metadata calls per sheet × every sheet,
+re-opening the exact timeout/quota class the budget exists to close. So `enrichAgenda`'s
+per-link loop, FIRST thing per link: if the per-sheet counter ≥ cap OR
+`agendaBudget?.remaining <= 0` → push the skip warning and `continue` **before any
+Drive call**; else decrement both counters and proceed to `getFile`/download/extract.
+A link that consumes an attempt but then fails the mime/byte gate still counts (it
+did Drive work). The decrement is synchronous (no `await` between read and write), so
+it is safe under the 12-way async interleaving (JS single thread). The cron path
+passes **no** `agendaBudget` (single show — the per-sheet cap already bounds it;
+`undefined` budget = no scan limit). This makes total onboarding agenda **Drive work**
+(metadata + downloads) ≤ `AGENDA_MAX_PDFS_PER_SCAN` link-attempts, each ≤ bytes ×
+pages — a hard ceiling independent of folder size or how many links are non-PDFs.
+(`AGENDA_MAX_PDFS_PER_SCAN = 40` covers the real folder — ~19 sheets, ≤2 PDFs each —
+with headroom; surplus is skipped + warned, and the scan still completes.)
 
 **No new §12.4 catalog code:** all four reuse the existing `AGENDA_PDF_UNREADABLE`
 code with new free-text `message` strings; the catalog pins code→`helpfulContext`,
@@ -345,13 +361,16 @@ unaffected; they are pure pathological-input backstops.
    — open the PDF" overflow note with the validated href; an extraction with
    ≤ cap sessions → no overflow note; (l) `agenda_links` with
    `> AGENDA_MAX_PDFS_PER_SHEET` entries → only that many link rows + a "+N more
-   agenda PDFs" note. **Derive expected counts from the extraction + the cap
-   constants, not hardcoded** (anti-tautology — a fixture with fewer than cap
-   sessions can never prove truncation); when scanning DOM for a label,
-   clone-and-strip sibling breakdowns first. *Failure modes caught:* the
-   `link.extracted ? <Block/> : <Note/>` empty-section trap; rendering arbitrary
-   sheet text as an href; crashing on corrupt staged JSON; an 80-page agenda
-   bloating the expanded review card.
+   agenda PDFs" note; (m) **track cap (round-6 F2):** a synthetic high-confidence
+   extraction with one kept session carrying `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP + N`
+   tracks → only the cap is rendered + the track-overflow note (assert via the
+   `agenda-schedule` block's track rows, count derived from the constant). **Derive
+   expected counts from the extraction + the cap constants, not hardcoded**
+   (anti-tautology — a fixture with fewer than cap sessions/tracks can never prove
+   truncation); when scanning DOM for a label, clone-and-strip sibling breakdowns
+   first. *Failure modes caught:* the `link.extracted ? <Block/> : <Note/>`
+   empty-section trap; rendering arbitrary sheet text as an href; crashing on corrupt
+   staged JSON; an 80-page agenda OR a many-track session bloating the review card.
 4. **Extraction budget — bytes × pages × count (round-2 F1 + round-3 F1).**
    - `downloadFileBytes` byte cap: a mocked Drive `files.get` stream emitting
      > `AGENDA_PDF_MAX_BYTES` → `{ kind: "unavailable" }` (NOT `infra_error`); a
@@ -366,12 +385,16 @@ unaffected; they are pure pathological-input backstops.
      `AGENDA_MAX_PDFS_PER_SHEET + 1` fileId-bearing links → only the first N are
      extracted; the surplus links get an `AGENDA_PDF_UNREADABLE` warning and no
      `extracted`.
-   - `enrichAgenda` scan-level budget: drive several `enrichAgenda` calls sharing
-     one `agendaBudget = { remaining: 2 }` (small test value via injected ctx) →
-     extraction stops after 2 total PDFs across calls; later links across later
-     "sheets" skip with the budget warning. Also assert a `ctx` with **no**
-     `agendaBudget` (cron) imposes no scan limit. *Failure mode caught:* total inline
-     extraction unbounded by folder size — scan exceeding the 300s request.
+   - `enrichAgenda` scan-level budget consumed **before `getFile`** (round-6 F1):
+     drive several `enrichAgenda` calls sharing one `agendaBudget = { remaining: 2 }`
+     where the links point at **non-PDF / unavailable** targets (so they'd fail the
+     mime gate anyway) → after 2 link attempts the shared budget is exhausted and all
+     later links skip **without calling `getFile`** (assert the spied `getFile` is
+     invoked at most 2 times total across calls, NOT once per link). This proves the
+     budget bounds Drive *attempts*, not just successful extractions. Also assert a
+     `ctx` with **no** `agendaBudget` (cron) imposes no scan limit. *Failure mode
+     caught:* a folder of non-PDF agenda links issuing unbounded `getFile` calls and
+     exceeding the 300s request despite the "budget".
 5. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
    renders exactly one `AgendaScheduleBlock` per high-confidence link and that
    nothing in this change touches `runOfShow` (guard against accidental
@@ -398,10 +421,10 @@ unaffected; they are pure pathological-input backstops.
 |---|---|
 | `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips`; **export** `defaultDriveClient` for the meta-test; create one `agendaBudget` per scan and pass it into every per-sheet `EnrichContext` |
 | `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number }` to `EnrichContext`; pass `ctx.agendaBudget` into `enrichAgenda` |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed |
-| `lib/sync/enrichAgenda.ts` | per-sheet count cap + scan-level `agendaBudget` decrement/skip + skip-warnings (new param) |
+| `lib/sync/enrichAgenda.ts` | per-link attempt gating **before `getFile`**: per-sheet count cap + scan-level `agendaBudget` decrement/skip + skip-warnings (new param) |
 | `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion + `capExtractionForAdmin` render-size cap); render from `pr.show?.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
 | `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
@@ -439,7 +462,10 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   only when `^https?://`, else no anchor (Codex round-3 F2).
 - Robustness: **`arr(pr.show?.agenda_links)` + per-field string coercion** against
   corrupt staged JSONB (Codex round-3 F3).
-- Render-size cap: **`AGENDA_ADMIN_SESSIONS_CAP = 8` per link** (slice extraction
-  before `AgendaScheduleBlock`; "+N more — open the PDF" overflow) + render at most
-  `AGENDA_MAX_PDFS_PER_SHEET` link rows; crew/`AgendaScheduleBlock` untouched (Codex
-  round-5 F1).
+- Render-size cap: **`AGENDA_ADMIN_SESSIONS_CAP = 8` + `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP = 6`
+  per link** (slice extraction before `AgendaScheduleBlock`; "+N more — open the PDF"
+  overflow incl. dropped tracks) + render at most `AGENDA_MAX_PDFS_PER_SHEET` link
+  rows; crew/`AgendaScheduleBlock` untouched (Codex round-5 F1 + round-6 F2).
+- Budget enforcement point: **per-link attempt consumed before `getFile`** (bounds
+  Drive metadata calls on non-PDF/failed links, not just successful extractions —
+  Codex round-6 F1).
