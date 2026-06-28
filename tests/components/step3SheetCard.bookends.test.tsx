@@ -80,7 +80,7 @@ function stagedRow(pr: ParseResult): Step3Row {
 
 function renderCard(pr: ParseResult): { el: HTMLElement; region: ReturnType<typeof within> } {
   const q = render(<Step3SheetCard row={stagedRow(pr)} wizardSessionId={WSID} />);
-  fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+  fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
   const el = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`);
   return { el, region: within(el) };
 }

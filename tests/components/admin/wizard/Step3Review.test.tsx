@@ -394,7 +394,7 @@ describe("Step3Review", () => {
   });
 });
 
-describe("Step3Review — detail accordion (single open, full-width)", () => {
+describe("Step3Review — per-card details dialog + uniform grid (no accordion)", () => {
   const pr = { show: { title: "Show" } } as unknown as ParseResult;
   const rowA: Step3Row = {
     driveFileId: "acc-A",
@@ -408,58 +408,43 @@ describe("Step3Review — detail accordion (single open, full-width)", () => {
     status: "staged",
     parseResult: pr,
   };
-  // The grid STAYS multi-column at all times; opening a card spans ONLY that card's
-  // cell to full width (`lg:col-span-2 xl:col-span-3`) while dense auto-flow
-  // backfills the gap — so the other cards keep their grid positions instead of all
-  // going full-width (the reported regression).
-  const MULTICOL = "lg:grid-cols-2";
-  const CELL_SPAN = "lg:col-span-2";
-  const cellOf = (expandBtn: HTMLElement): HTMLElement => {
-    const li = expandBtn.closest("li");
-    if (!li) throw new Error("expand button is not inside a grid <li> cell");
-    return li;
-  };
 
-  test("only one card opens at a time; ONLY the open card's cell spans full width (grid stays multi-column)", () => {
+  test("the grid stays uniform — no cell ever spans full-width and there is no dense reflow", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
     );
     const grid = getByTestId("wizard-step3-card-grid");
-    const expandA = getByTestId("wizard-step3-card-acc-A-expand");
-    const expandB = getByTestId("wizard-step3-card-acc-B-expand");
+    // Responsive multi-column grid, but NO dense backfill and NO col-span
+    // machinery — the open-card-spans-full-width accordion is gone (details now
+    // open in a modal overlay), so the grid never reflows.
+    expect(grid.className).toContain("lg:grid-cols-2");
+    expect(grid.className).not.toContain("grid-flow-row-dense");
+    const spansBefore = Array.from(grid.querySelectorAll("li")).filter((li) =>
+      (li.className ?? "").includes("col-span"),
+    );
+    expect(spansBefore).toHaveLength(0);
+    // Opening a card's details does NOT introduce a col-span on any cell.
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
+    const spansAfter = Array.from(grid.querySelectorAll("li")).filter((li) =>
+      (li.className ?? "").includes("col-span"),
+    );
+    expect(spansAfter).toHaveLength(0);
+  });
 
-    // The grid is always the responsive multi-column grid with dense backfill.
-    expect(grid.className).toContain(MULTICOL);
-    expect(grid.className).toContain("grid-flow-row-dense");
-
-    // Both collapsed → neither cell spans.
-    expect(expandA.getAttribute("aria-expanded")).toBe("false");
-    expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(cellOf(expandA).className ?? "").not.toContain(CELL_SPAN);
-    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
-
-    // Open A → ONLY A's cell spans full width; B stays collapsed in the grid; the
-    // grid itself is STILL multi-column (the regression was collapsing all cards).
-    fireEvent.click(expandA);
-    expect(expandA.getAttribute("aria-expanded")).toBe("true");
-    expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
-    expect(cellOf(expandA).className).toContain(CELL_SPAN);
-    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
-
-    // Open B → A closes (single-open accordion); only B's cell spans now.
-    fireEvent.click(expandB);
-    expect(expandB.getAttribute("aria-expanded")).toBe("true");
-    expect(expandA.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
-    expect(cellOf(expandB).className).toContain(CELL_SPAN);
-    expect(cellOf(expandA).className ?? "").not.toContain(CELL_SPAN);
-
-    // Close B → no cell spans; grid stays multi-column throughout.
-    fireEvent.click(expandB);
-    expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
-    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
+  test("each card's 'More' opens ITS OWN details dialog; the other stays closed; Close dismisses it", () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
+    );
+    // Both closed initially (modal mounted only on open).
+    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-B-details-dialog")).toBeNull();
+    // Open A → only A's dialog mounts.
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
+    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).not.toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-B-details-dialog")).toBeNull();
+    // Close A → dismissed.
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-details-close"));
+    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).toBeNull();
   });
 });
 
