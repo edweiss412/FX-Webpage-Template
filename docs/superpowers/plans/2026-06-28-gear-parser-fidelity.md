@@ -439,75 +439,76 @@ describe("mergeGearIntoRooms — name-token match, NOT breakout index (R1-HIGH)"
 
 **Interfaces:**
 - Consumes: `isSensitiveCanonicalKey`, `SENSITIVE_KEY_TOKENS` (Task 1); `CANONICAL_KEY_MAP`, `toCanonicalKey`, `EVENT_LABEL_VOCAB`, `shouldHideGenericOptional` (existing in `event.ts`).
-- Behavior (spec §3.4): (a) add `"opening sizzle reel": "opening_reel"` to `CANONICAL_KEY_MAP` (`:64`); (b) after the classic pass, **unconditionally** run `harvestFormLayout`: find a contiguous 2-cell `| label | value |` run with ≥3 known-vocab labels, harvest the WHOLE run (known→`CANONICAL_KEY_MAP`, unknown→`toCanonicalKey`); (c) SKIP any field whose canonical key `isSensitiveCanonicalKey`; (d) write via **`fillIfAbsentOrSentinel`** (write only when current `event_details[key]` is absent or `shouldHideGenericOptional` — never overwrite a real value); (e) tighten the room terminators (`:165`) to fire only on ALL-CAPS room headers, not title-case `General Session Room Name`.
+- Behavior (spec §3.4) — **CLOSED-VOCABULARY harvest** (revised after the round-1 contradiction: the old "harvest the WHOLE run via `toCanonicalKey` for unknowns" leaked PII/metadata and made RPAS's intake form add ~33 non-classic keys, breaking the 17-key baseline AND leaking Your Name/Email/Phone): (a) add `"opening sizzle reel": "opening_reel"` to `CANONICAL_KEY_MAP` (`:64`); (b) after the classic pass, **unconditionally** run `harvestFormLayout` over the full markdown: scan contiguous 2-cell `| label | value |` runs (separator/blank/non-2-cell ends a run); a run **anchors** when ≥3 of its labels resolve to a **KNOWN** canonical key (`CANONICAL_KEY_MAP` exact OR `gatedVocabCorrect` fuzzy into `EVENT_LABEL_VOCAB`); for an anchored run, harvest **ONLY** rows whose label is known — **UNKNOWN labels are SKIPPED (no `toCanonicalKey`-for-unknowns)**. Because `CANONICAL_KEY_MAP` has no PII/financial/metadata labels, this structurally excludes Your Name / Email / Phone / Budget / PO# / room headers by construction; (c) also skip a known key that `isSensitiveCanonicalKey` (defense-in-depth; the map has none) and skip `TRUE`/`FALSE` values (INTERNAL-checklist booleans, not field values); (d) write via **`fillIfAbsentOrSentinel`** (write only when current `event_details[key]` is absent or `shouldHideGenericOptional`, and never with an empty form value — never overwrite a real value) → deterministic **first-real-wins** (classic real preserved; classic sentinel upgraded by a real form value, e.g. fixed-income `opening_reel` TBD→No); (e) apply `isSensitiveCanonicalKey` at the classic `toCanonicalKey` fallback (`:201`) as defense-in-depth; the room terminators (`:165`) are already ALL-CAPS-only (`/^GENERAL SESSION\b/` is case-sensitive), and the form harvest skips unknown rows (incl. ALL-CAPS room headers) regardless.
 
 - [ ] **Step 1: Failing tests** — `tests/parser/event.test.ts`:
+
+> **CLOSED-VOCAB revision note.** Round-1 implementation surfaced a hard contradiction in the
+> original "whole-block, `toCanonicalKey`-for-unknowns" design: RPAS-raw carries the SAME full
+> 2-cell intake form as consultants-raw, so harvesting unknowns added ~33 non-classic keys to
+> RPAS (breaking the 17-key baseline) AND leaked PII (Your Name/Email/Phone). The revised
+> design harvests **only KNOWN canonical labels**; unknowns are skipped. Baselines below are
+> **empirical** (captured from the closed-vocab parser): East Coast stays 13 (no intake form);
+> RPAS grows 17→18 (adds crew-safe `digital_signage`, upgrades classic sentinels `keynote`/
+> `virtual_speaker`/`virtual_audience` from TBD/N/A to the form's real answers); consultants =
+> 6 known fields; fixed-income `opening_reel` TBD→No. Negative-regression therefore pins
+> classic-REAL preservation + known-safe extras + no-PII/financial, NOT byte-identical.
 
 ```ts
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseSheet } from "@/lib/parser/index";
-const md = (f:string)=>readFileSync(`fixtures/shows/${f}`,"utf8");
+import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
+import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
+const md = (f: string) => readFileSync(`fixtures/shows/${f}`, "utf8");
 
-describe("EVENT form-layout harvest (spec §3.4)", () => {
-  it("consultants form-layout recovers keynote/reel + unknown fields, ≥10 keys", () => {
-    const ed = parseSheet(md("raw/2025-10-consultants-roundtable.md"),"c.md").show.event_details;
-    expect(Object.keys(ed).length).toBeGreaterThanOrEqual(10);
+// Every key the closed-vocab harvest may emit. Any harvested key MUST be in here — the set
+// that structurally excludes PII/financial/metadata (they have no CANONICAL_KEY_MAP entry).
+const KNOWN_CANON = new Set<string>(Object.values(CANONICAL_KEY_MAP));
+const PII_KEY_RE = /^(your_name|email_address|phone_number|title_of_event|logistics_director|venue_name.*|program_(start|end).*|timestamp|onsite_av.*|hotel_contact.*|technician.*|.*room_setup.*|.*room_strike.*|.*_name|.*_names)$/;
+function assertNoPiiOrFinancial(ed: Record<string, string>, label: string): void {
+  expect(Object.keys(ed).filter((k) => PII_KEY_RE.test(k)), `${label} PII`).toEqual([]);
+  expect(Object.keys(ed).filter(isSensitiveCanonicalKey), `${label} financial`).toEqual([]);
+}
+
+describe("EVENT closed-vocab form-layout harvest (spec §3.4)", () => {
+  it("consultants recovers keynote + Opening Sizzle Reel; every key is KNOWN", () => {
+    const ed = parseSheet(md("raw/2025-10-consultants-roundtable.md"), "c.md").show.event_details;
     expect(ed["keynote_requirements"]).toBe("TBD");
     expect(ed["opening_reel"]).toMatch(/Available if needed/i);
-    for (const k of ["power_requirements","internet_requirements","backdrop","additional_notes"])
-      expect(Object.keys(ed)).toContain(k); // toCanonicalKey may vary; assert presence of the snake form
+    for (const k of Object.keys(ed)) expect(KNOWN_CANON.has(k), `unknown key ${k}`).toBe(true);
   });
-  it("permission boundary: NO financial keys leak (Budget/PO#/Invoice Notes)", () => {
-    const ed = parseSheet(md("raw/2025-10-consultants-roundtable.md"),"c.md").show.event_details;
-    for (const k of Object.keys(ed)) expect(k).not.toMatch(/budget|^po$|^po_|purchase|invoice|proposal|cost|price|quote|estimate|internal/);
-    expect(Object.keys(ed)).toContain("additional_notes"); // proves skip-not-stop (after PO#)
+  it("consultants + rpas: no PII / financial key", () => {
+    assertNoPiiOrFinancial(parseSheet(md("raw/2025-10-consultants-roundtable.md"), "c.md").show.event_details, "consultants");
+    assertNoPiiOrFinancial(parseSheet(md("raw/2026-03-rpas-central-four-seasons.md"), "r.md").show.event_details, "rpas");
   });
-  it("fixed-income mixed sheet: form real 'No' upgrades classic sentinel TBD", () => {
-    const ed = parseSheet(md("exporter-xlsx/fixed-income.md"),"fi.md").show.event_details;
-    expect(ed["opening_reel"]).toBe("No");
+  it("rpas negative-regression: classic REAL values preserved exactly, classic keys present, extras known-safe", () => {
+    const ed = parseSheet(md("raw/2026-03-rpas-central-four-seasons.md"), "r.md").show.event_details;
+    const RPAS_CLASSIC_REAL = {diagrams:"LINK",scenic:"(1) II Blue Logo Spandex (2) Sections Grey Spandex",stage_size:"8' x 24' x 2'",opening_reel:"MAYBE",podium_type:"Truss Podium",polling:"YES",internet:"Wifi from Encore",power:"(2) Power Drops from Engineering",equipment_storage:"Behind Spandex Set",fonts:"Aptos Font Folder",test_pattern:"16 x 9 Test Pattern"};
+    for (const [k, v] of Object.entries(RPAS_CLASSIC_REAL)) expect(ed[k], `rpas.${k}`).toBe(v);
+    for (const k of ["led","keynote_requirements","virtual_speaker","virtual_audience","record","staff_office_room"]) expect(Object.keys(ed)).toContain(k); // classic sentinels present (may upgrade)
+    const CLASSIC_17 = new Set([...Object.keys(RPAS_CLASSIC_REAL),"led","keynote_requirements","virtual_speaker","virtual_audience","record","staff_office_room"]);
+    for (const k of Object.keys(ed)) if (!CLASSIC_17.has(k)) expect(KNOWN_CANON.has(k), `rpas extra ${k}`).toBe(true); // e.g. digital_signage
   });
-  // R3-M2: FULL deep-equality (key set AND values), not just counts. Baselines captured
-  // from the pre-change parser (current main) — a renamed/dropped/clobbered key fails.
-  const EAST_ED = {"led":"NO","scenic":"(1) Section Printed Spandex (4) Sections Grey Spandex","stage":"8' x 24' x 2'","opening_reel":"YES - LOOP VIDEO","keynote_requirements":"NONE","truss_podium":"YES","record":"NO","live_streaming":"NO","polling":"YES","internet":"The conference wifi has 20mb download speed.","power":"Only 2 circuits in Mabel Room - this setup needs additional power","storage":"Back of house near kitchen area","test_pattern":"16 x 9 Test Pattern"};
-  const RPAS_ED = {"diagrams":"LINK","led":"N/A","scenic":"(1) II Blue Logo Spandex (2) Sections Grey Spandex","stage_size":"8' x 24' x 2'","opening_reel":"MAYBE","keynote_requirements":"TBD","virtual_speaker":"N/A","virtual_audience":"N/A","podium_type":"Truss Podium","record":"N/A","polling":"YES","internet":"Wifi from Encore","power":"(2) Power Drops from Engineering","equipment_storage":"Behind Spandex Set","staff_office_room":"TBD","fonts":"Aptos Font Folder","test_pattern":"16 x 9 Test Pattern"};
-  it("negative-regression: east-coast event_details is BYTE-IDENTICAL after the unconditional harvest", () => {
-    expect(parseSheet(md("raw/2024-05-east-coast-family-office.md"),"e.md").show.event_details).toEqual(EAST_ED);
+  it("east-coast: byte-identical 13 keys (no intake form → harvest no-op)", () => {
+    const ed = parseSheet(md("raw/2024-05-east-coast-family-office.md"), "e.md").show.event_details;
+    expect(ed).toEqual({internet:"The conference wifi has 20mb download speed.",keynote_requirements:"NONE",led:"NO",live_streaming:"NO",opening_reel:"YES - LOOP VIDEO",polling:"YES",power:"Only 2 circuits in Mabel Room - this setup needs additional power",record:"NO",scenic:"(1) Section Printed Spandex (4) Sections Grey Spandex",stage:"8' x 24' x 2'",storage:"Back of house near kitchen area",test_pattern:"16 x 9 Test Pattern",truss_podium:"YES"});
   });
-  it("negative-regression: rpas event_details is BYTE-IDENTICAL after the unconditional harvest", () => {
-    expect(parseSheet(md("raw/2026-03-rpas-central-four-seasons.md"),"r.md").show.event_details).toEqual(RPAS_ED);
+  it("fixed-income: form real 'No' upgrades classic sentinel TBD", () => {
+    expect(parseSheet(md("exporter-xlsx/fixed-income.md"), "fi.md").show.event_details["opening_reel"]).toBe("No");
   });
-});
-
-// synthetic real-vs-real conflict (R8-M2). NON-TAUTOLOGICAL (plan-R2-H2): the form
-// block carries THREE exact known-vocab labels (Keynote Requirements / Virtual Speaker
-// / Stage Size — all in CANONICAL_KEY_MAP) so the ≥3-known anchor is guaranteed to
-// fire, AND we assert a form-ONLY field was harvested (proving the run ran) BEFORE
-// asserting opening_reel stayed YES. If fillIfAbsentOrSentinel is broken, the form's
-// "Opening Sizzle Reel | No" (→opening_reel) would clobber YES → caught.
-describe("real-vs-real merge (first-real-wins, harvest-proven)", () => {
-  it("classic real Opening Reel=YES survives a HARVESTED form block with Opening Sizzle Reel=No", () => {
-    const synthetic = [
-      "| EVENT DETAILS | EVENT DETAILS |", "| :---: | :---: |",
-      "| Opening Reel | YES |", "",                       // classic block: opening_reel=YES (real)
-      "| Keynote Requirements | KEYNOTE-FROM-FORM |",      // 3 known-vocab labels → anchor fires
-      "| Virtual Speaker | yes |",
-      "| Stage Size | 20x30 |",
-      "| Opening Sizzle Reel | No |",                      // → opening_reel; must NOT clobber YES
-    ].join("\n");
+  it("real-vs-real: classic Opening Reel=YES survives harvested Opening Sizzle Reel=No (first-real-wins)", () => {
+    const synthetic = ["| EVENT DETAILS | EVENT DETAILS |","| :---: | :---: |","| Opening Reel | YES |","","| Keynote Requirements | KEYNOTE-FROM-FORM |","| Virtual Speaker | yes |","| Stage Size | 20x30 |","| Opening Sizzle Reel | No |"].join("\n");
     const ed = parseSheet(synthetic, "s.md").show.event_details;
-    expect(ed["keynote_requirements"]).toBe("KEYNOTE-FROM-FORM"); // PROVES the form harvest ran (form-only field)
-    expect(ed["stage_size"]).toBe("20x30");                       // (form-only)
-    expect(ed["opening_reel"]).toBe("YES");                        // first-real-wins: classic real preserved
+    expect(ed["keynote_requirements"]).toBe("KEYNOTE-FROM-FORM"); // proves harvest ran
+    expect(ed["opening_reel"]).toBe("YES"); // classic real preserved
   });
 });
 ```
 
-> The `additional_notes`/`power_requirements` exact keys depend on `toCanonicalKey`; during impl, confirm the produced keys and adjust the assertion to the actual snake_case `toCanonicalKey` emits (still asserting the field is present, not absent). This is the only place to reconcile key spelling — do it once and pin it.
+- [ ] **Step 2: Run → fail.** **Step 3: Implement** the closed-vocab harvest per spec §3.4. **Step 4: Run → pass** (incl. the negative-regression — classic REAL values must be preserved exactly; if a classic real value changed, the harvest is clobbering — fix the impl, never the assertion).
 
-- [ ] **Step 2: Run → fail.** **Step 3: Implement** per spec §3.4. **Step 4: Run → pass** (incl. the negative-regression — if east-coast/rpas key counts changed, the harvest is over-reaching; fix, don't edit the assertion).
-
-- [ ] **Step 5: Corpus tripwire** — `tests/parser/eventDetailsNoFinancials.test.ts`:
+- [ ] **Step 5: Corpus tripwire** — `tests/parser/eventDetailsNoFinancials.test.ts` (financial AND PII, every fixture):
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -515,36 +516,34 @@ import { readFileSync, readdirSync } from "node:fs";
 import { parseSheet } from "@/lib/parser/index";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
 
+const PII_KEY_RE = /^(your_name|email_address|phone_number|title_of_event|logistics_director|venue_name.*|program_(start|end).*|timestamp|onsite_av.*|hotel_contact.*|technician.*|.*room_setup.*|.*room_strike.*|.*_name|.*_names)$/;
 const files = ["raw","exporter-xlsx"].flatMap((d) =>
   readdirSync(`fixtures/shows/${d}`).filter((f)=>f.endsWith(".md") && !/readme/i.test(f)).map((f)=>`${d}/${f}`));
 
-describe("crew-visible event_details never carries a financial/internal key (spec §6)", () => {
+describe("crew-visible event_details never carries a financial/internal or PII key (spec §6)", () => {
   it.each(files)("%s", (rel) => {
     const ed = parseSheet(readFileSync(`fixtures/shows/${rel}`,"utf8"), rel).show.event_details ?? {};
-    const leaked = Object.keys(ed).filter(isSensitiveCanonicalKey);
-    expect(leaked, `leaked: ${leaked.join(",")}`).toEqual([]);
+    expect(Object.keys(ed).filter(isSensitiveCanonicalKey)).toEqual([]);
+    expect(Object.keys(ed).filter((k) => PII_KEY_RE.test(k))).toEqual([]);
   });
-  it("synthetic injection: financial labels (incl. PO punctuation/spacing/no-sep variants) are dropped while the harvest runs", () => {
+  it("synthetic injection: a SEPARATE closed-vocab form block drops financial + PII labels, harvests only known", () => {
     const synthetic = [
-      "| EVENT DETAILS | EVENT DETAILS |","| :---: | :---: |",
-      // 3 KNOWN-vocab labels guarantee the >=3-known anchor fires (R7-M2):
-      "| Keynote Requirements | KEYNOTE-FROM-FORM |","| Virtual Speaker | yes |","| Stage Size | 20x30 |",
-      // financial labels in every PO spelling + the other roots:
-      "| Budget | 50000 |","| PO# | 12345 |","| P.O. Number | 1 |","| P/O # | 2 |","| P O Number | 3 |","| PONumber | 4 |","| P.O.Number | 5 |",
-      "| Proposal | x |","| Invoice | y |","| Invoice Notes | z |","| Internal | q |",
-      "| Additional Notes | hi |",
+      "| EVENT DETAILS | EVENT DETAILS |","| :---: | :---: |","| Virtual Speaker | yes |","", // classic block, then blank
+      // form block — 3 known labels anchor; financial (every PO spelling) + PII are UNKNOWN → skipped:
+      "| Keynote Requirements | RECOVERED |","| Virtual Audience | no |","| Polling | yes |",
+      "| Budget | 50000 |","| PO# | 12345 |","| P.O. Number | 1 |","| P O Number | 3 |","| PONumber | 4 |","| Proposal | x |","| Invoice Notes | z |","| Internal | q |",
+      "| Your Name | Jane Client |","| Email Address | jane@client.com |","| Phone Number | 555-1234 |","| Logistics Director Name(s) | Jane |",
     ].join("\n");
     const ed = parseSheet(synthetic,"s.md").show.event_details;
-    expect(ed["keynote_requirements"]).toBe("KEYNOTE-FROM-FORM"); // PROVES the form harvest actually ran (R7-M2)
-    // (a) via the helper AND (b) by EXACT key shape — independent of the helper (R6/R7):
+    expect(ed["keynote_requirements"]).toBe("RECOVERED"); // proves the harvest ran past the noise
+    expect(ed["polling"]).toBe("yes");                     // skip-not-stop
     expect(Object.keys(ed).filter(isSensitiveCanonicalKey)).toEqual([]);
-    for (const k of Object.keys(ed)) expect(k.replace(/_/g, "")).not.toMatch(/^po(num(ber)?|s)?$|budget|invoice|proposal|cost|price|quote|estimate|internal|purchase/);
-    expect(ed["additional_notes"]).toBe("hi"); // recovered despite following financials
+    expect(Object.keys(ed).filter((k) => PII_KEY_RE.test(k))).toEqual([]);
   });
 });
 ```
 
-- [ ] **Step 6: Run → pass.** **Step 7: Commit** — `feat(parser): EVENT form-layout harvest (financial-safe, first-real-wins) + opening sizzle reel alias`
+- [ ] **Step 6: Run → pass.** **Step 7: Commit** — `feat(parser): EVENT closed-vocab form-layout harvest (first-real-wins, no PII/financial leak)`
 
 ---
 
@@ -646,7 +645,7 @@ Per AGENTS.md (fixed-dimension parent + flex/grid children) the new Scenic/Other
 
 **Files:** Create `tests/parser/gearCorpusAudit.test.ts`.
 
-- [ ] **Step 1: Test:** run `parseSheet` over all `fixtures/shows/{raw,exporter-xlsx}/*.md`; assert the confirmed GEAR-tab shows (`exporter-xlsx/rpas.md`, `fixed-income.md`) report ≥1 room with non-empty audio OR video OR lighting; the form-layout show (`raw/2025-10-consultants-roundtable.md`) has non-empty `event_details`. Assert against `parseSheet` output (anti-tautology).
+- [ ] **Step 1: Test:** run `parseSheet` over all `fixtures/shows/{raw,exporter-xlsx}/*.md` (smoke: never throws); assert the confirmed GEAR-tab shows (`exporter-xlsx/rpas.md`, `fixed-income.md`) report ≥1 room with non-empty audio OR video OR lighting; the form-layout show (`raw/2025-10-consultants-roundtable.md`) has non-empty `event_details` with `keynote_requirements === "TBD"` and `opening_reel` ~ /Available if needed/ (the closed-vocab Task-4 harvest recovery). Assert against `parseSheet` output (anti-tautology). The detailed event behavior + permission boundary live in `tests/parser/event.test.ts` + `tests/parser/eventDetailsNoFinancials.test.ts`.
 - [ ] **Step 2: Run → pass.** **Step 3: Commit** — `test(parser): full-corpus gear audit regression (modern shows surface scope + event_details)`
 
 ---
