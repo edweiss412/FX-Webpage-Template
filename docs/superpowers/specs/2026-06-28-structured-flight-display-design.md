@@ -33,7 +33,7 @@ Mirrors the existing `lib/crew/agendaDisplay.ts` presentation-derivation pattern
 
 ```ts
 export type FlightSegment = {
-  raw: string;            // the original part text (verbatim) — the fallback render
+  raw: string;            // the post-clean surviving display text (after stripAgendaUrls) — the fallback render, identical to what today's card shows for this leg
   structured: boolean;    // true iff a leading M/D date token was found and fields extracted
   date: string | null;    // ISO yyyy-mm-dd (M/D inferred against showYear) | null
   flightNo: string | null;// e.g. "AA3002"
@@ -50,22 +50,27 @@ export function pickUpcomingIndex(segments: FlightSegment[], todayIso: string): 
 
 ### 3.1 `parseFlightItinerary`
 
+**Input contract.** The helper consumes the **normalized** `flight_info` string as it reaches `viewerFlightInfo`, *not* the raw sheet cell. The TRAVEL parser's `normalizeTravelCell` (`travelFlights.ts:19-32`) already splits legs at `M/D` date tokens and joins them with `" | "`, so the real RPAS string is `GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am` (the raw fixture cell at `2026-03-rpas:659` shows the *pre*-normalized form without the pipe). **The helper does not depend on the pipe being present** — it re-detects legs at `M/D` date tokens (step 4), exactly as the parser does, so it is correct for piped TRAVEL data, the no-pipe raw form, and any future variant.
+
 1. **Guard:** `flightInfo` null/empty/whitespace → `{ confirmation: null, segments: [] }`.
-2. **Pre-clean each part** exactly as the current card does, so behavior is preserved: split on `/\s*\|\s*|\n/`, `stripAgendaUrls` each part (`lib/visibility/agendaUrls.ts:35`), drop parts that are empty or `shouldHideGenericOptional` (`lib/visibility/emptyState.ts:75`) — i.e. `TBD`/`N/A`/`TBA`/`""` legs are removed. (This preserves the shipped sentinel/URL handling; the structuring is layered on top of the *surviving* parts.)
-3. **Confirmation extraction (once):** in the **first surviving part only**, tokens (whitespace-split) before the first `M/D` date token (`/^\d{1,2}\/\d{1,2}$/`) are the confirmation code (joined with a space). `confirmation = null` if the first token is already a date or no date token exists. Confirmation is **itinerary-level**, shown once — never per-segment.
-4. **Per-part field extraction.** For each surviving part, locate the first `M/D` date token:
-   - **No date token →** `structured: false`, all fields null, `raw` = the part. (Covers TECH raw + garbage.)
-   - **Date token found →** `structured: true`. From the date token onward (after conf removal in part 0):
-     - `date` = the M/D token, inferred to ISO against `showYear` (see §3.2).
-     - `flightNo` = first subsequent token matching `/^[A-Z]{1,3}\d{1,4}[A-Z]?$/i` (airline + number), else null.
-     - `origin` / `dest` = the first pair of 3-letter codes (`/^[A-Z]{3}$/i`) surrounding a `-` token, else null/null.
-     - `depTime` / `arrTime` = the first pair of time tokens (`/^\d{1,2}:\d{2}\s*(am|pm)$/i`, tolerant of an attached am/pm) surrounding a `-` token, else null/null.
-   - Every field is extracted **independently and best-effort** — a missing field is null and never blocks the others. A `structured: true` part with some null fields still renders structured (with the present fields).
-5. Returns the itinerary. **Order preserved** from the source (sorting is a render concern, §4).
+2. **Pre-clean per part** exactly as the current card does, so display behavior is preserved: split on `/\s*\|\s*|\n/`, `stripAgendaUrls` each part (`lib/visibility/agendaUrls.ts:35`), drop parts that are empty or `shouldHideGenericOptional` (`lib/visibility/emptyState.ts:75`) — `TBD`/`N/A`/`TBA`/`""` removed. The **pipe-part boundary is retained** (an unstructured TECH `"arrival | departure"` must stay two display rows, never merge).
+3. **Segment detection within each surviving part** (by `M/D` date token `/^\d{1,2}\/\d{1,2}$/`):
+   - A part with **0 date tokens** → exactly **one** `structured: false` segment whose `raw` = the cleaned part (covers TECH raw + garbage; preserves today's per-pipe-part rows).
+   - A part with **≥1 date tokens** → **one structured segment per date token**: each segment spans `[date_i, date_{i+1})`. (For real piped data each part has exactly one date → one segment; this rule only matters for an un-normalized multi-date part.)
+4. **Confirmation extraction (once, itinerary-level):** the whitespace tokens **before the very first date token of the whole itinerary** (i.e. leading tokens of the first part, before its first date) are the confirmation code (space-joined). `confirmation = null` if the itinerary starts at a date or has no date token. Never per-segment. (Leading non-date tokens before a *non-first* date are folded into that segment's token stream — harmless, they match no field.)
+5. **Per-structured-segment field extraction** — from the segment's token stream (the date token onward), each field found **independently, by token type, scanning ALL tokens** (an implementer must NOT stop at the first `-` for both route and times — route codes and time tokens are located by their own patterns, each around its own dash):
+   - `date` = the leading `M/D` token → ISO against `showYear` (§3.2).
+   - `flightNo` = first token matching `/^[A-Z]{1,3}\d{1,4}[A-Z]?$/i` (airline+number; airport codes have no digit so never match), else null.
+   - `origin` / `dest` = the first ordered pair of 3-letter-code tokens (`/^[A-Z]{3}$/i`; flight numbers have digits so never match) separated by a `-` token, else null/null.
+   - `depTime` / `arrTime` = the first ordered pair of time tokens (`/^\d{1,2}:\d{2}\s*(am|pm)$/i`) separated by a `-` token, else null/null.
+   - Every field independent + best-effort: a missing field is null and never blocks the others. A structured segment with some null fields still renders structured with the present fields.
+6. Returns the itinerary; **source order preserved** (sorting is a render concern, §4).
 
 ### 3.2 Date inference
 
-`showYear` is derived by the **caller** from `data.show.dates` — the year of the first available ISO date (`travelIn ?? showDays[0] ?? travelOut`); if none, the caller passes the current year. `parseFlightItinerary` maps `M/D` → `${showYear}-${MM}-${DD}` (zero-padded). No cross-year rollover handling in v1 (a Dec leg on a Jan show uses the show year — acceptable, documented limitation).
+`showYear` is derived by the **caller** from `data.show.dates` — the 4-digit year of the first available ISO date (`travelIn ?? showDays[0] ?? travelOut`, each `yyyy-mm-dd`). If none is present, the caller falls back to the year of the **show-timezone today** (`todayIsoInShowTimezone(data.show, today)`.slice(0,4)), NOT server-local `new Date().getFullYear()` — so a Dec/Jan server-vs-show-timezone boundary can't shift inferred flight dates.
+
+`parseFlightItinerary` maps a valid `M/D` token → `${showYear}-${MM}-${DD}` (zero-padded). **Range validation:** the month must be `1–12` and the day `1–31`; an out-of-range token (e.g. `13/40`) yields `date: null` while the segment stays `structured: true` and the raw `M/D` token is shown (§5). No calendar-aware day-per-month or leap check in v1 (a shaped-but-impossible date is rare operator error; null + raw fallback is safe). No cross-year rollover handling in v1 (a Dec leg on a Jan show uses the show year — acceptable, documented limitation).
 
 ### 3.3 `pickUpcomingIndex(segments, todayIso)`
 
@@ -101,7 +106,8 @@ Each segment renders as a row (reusing the `TravelRow` `mode="flight"` shape —
 - All legs sentinel/empty/URL-only → no card (unchanged, `showFlight === false`).
 - Mixed structured + unstructured legs → structured render the structured ones, raw-render the rest, in one card.
 - `structured: true` but every field null except date → renders just the date row (no crash, no empty primary).
-- `showYear` underivable → caller passes current year; dates still infer (possibly wrong year) but never null-crash; emphasis still computes.
+- **Out-of-range date token** (e.g. `13/40`) → `date: null`, segment stays `structured: true`, the raw `M/D` token renders as the date label; the segment is never picked as next/today (null date), never produces an impossible ISO.
+- `showYear` underivable → caller passes the **show-timezone today's** year (§3.2); dates still infer (possibly the wrong year for a cross-year itinerary) but never null-crash; emphasis still computes.
 - No segment `>= todayIso` → no emphasis chip (all-past itinerary renders plainly).
 
 ### 5.1.1 Cap / list length
@@ -118,11 +124,12 @@ The helper is **total** (never throws): every branch returns a `FlightSegment` (
 
 ## 7. Testing
 
-- **Helper unit tests** (`tests/crew/flightDisplay.test.ts`, new):
-  - RPAS fixture string (with conf `GEUZAB`, 2 legs) → 2 structured segments with exact `date`/`flightNo`/`origin`/`dest`/`depTime`/`arrTime`; `confirmation === "GEUZAB"`. **Values derived from the fixture string**, not hardcoded magic.
-  - FinTech fixture string (no conf) → `confirmation === null`, 2 structured segments.
-  - TECH-shaped raw part → `structured: false`, `raw` preserved.
-  - Guards: null/empty/whitespace → empty; sentinel-only → empty (parts dropped); missing flightNo/airports/times → that field null, others intact; no-date part → unstructured.
+- **Helper unit tests** (`tests/crew/flightDisplay.test.ts`, new). Inputs are the **normalized (piped) `flight_info`** strings the parser actually produces (derive them by running the real fixture cell through `normalizeTravelCell`, or assert the exact piped literal), not the raw pre-normalized fixture cell:
+  - RPAS normalized string (conf `GEUZAB`, 2 piped legs) → 2 structured segments with exact `date`/`flightNo`/`origin`/`dest`/`depTime`/`arrTime`; `confirmation === "GEUZAB"`. **Values derived from the fixture string**, not hardcoded magic.
+  - FinTech normalized string (no conf) → `confirmation === null`, 2 structured segments.
+  - **No-pipe robustness:** the same RPAS leg content with the pipe removed (one run-on part, two `M/D` dates) → still 2 structured segments (proves date-token detection doesn't depend on the pipe — Finding 1).
+  - TECH-shaped `"arrival | departure"` raw (no dates) → **2** `structured: false` segments, each `raw` preserved (pipe boundary kept).
+  - Guards: null/empty/whitespace → empty; sentinel-only → empty (parts dropped); missing flightNo/airports/times → that field null, others intact; out-of-range date `13/40` → `date: null` + `structured: true`.
   - `pickUpcomingIndex`: today match, next-upcoming, all-past → null, null-date skipped.
   - **Negative-regression:** mutate the date regex / conf extraction and confirm the corresponding assertion goes RED (helper isn't tautological).
 - **Render tests** (`tests/components/crew/sections/TravelSection.flight.test.tsx`, extend):
