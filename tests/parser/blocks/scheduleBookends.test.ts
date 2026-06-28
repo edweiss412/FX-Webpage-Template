@@ -240,6 +240,9 @@ describe("tokenizeSetSchedule (D-SET1)", () => {
   it("mode: leading provenance (non-colon lead) → [] (R1 P1b pin)", () => {
     expect(tokenizeSetSchedule("As per Alyssa email 4/29 8:00 AM LOAD IN")).toEqual([]);
   });
+  it("mode: colon-terminated provenance lead → [] (whole-diff P2: implausible label)", () => {
+    expect(tokenizeSetSchedule("As per Alyssa email 4/29: 11:00 AM LOAD IN")).toEqual([]);
+  });
   it("separator strip (R1 P2a): '/' before a label", () => {
     expect(tokenizeSetSchedule("Load In: 7:00 PM / Room Access: 8:30 PM")).toEqual([
       { label: "Load In", clock: "7:00 PM" },

@@ -60,12 +60,20 @@ function labelBefore(cell: string, from: number, to: number): string {
   return shouldHideGenericOptional(slice) ? "" : slice;
 }
 
+/** A real SET label is short and word-like ("Load In", "Room Access", "Setup"); colon-
+ *  terminated provenance prose ("As per Alyssa email 4/29:") is long and/or carries a date.
+ *  Reject the latter so it falls to position-default, not a bogus title. D-SET1. */
+function isPlausibleSetLabel(label: string): boolean {
+  const words = label.split(/\s+/).filter(Boolean);
+  return words.length > 0 && words.length <= 3 && !/\d/.test(label);
+}
+
 /**
  * Label-before-clock tokenizer for the SET TIME cell. Returns one {label,clock} per
- * colon-required clock when the cell is label-before-shaped (a colon-terminated label
- * precedes the first clock); otherwise `[]` (time-first / no-colon / no-clock → caller
- * falls through to the loadIn/setupTime synthesis). Clock values come from the same
- * decodeEntities(clean(...)) as extractClockTimes, so they equal dates.loadIn/setupTime. §4.3
+ * colon-required clock when the cell is label-before-shaped (a colon-terminated, plausible
+ * label precedes the first clock); otherwise `[]` (time-first / no-colon / provenance-prose /
+ * no-clock → caller falls through to the loadIn/setupTime synthesis). Clock values come from
+ * the same decodeEntities(clean(...)) as extractClockTimes, so they equal dates.loadIn/setupTime. §4.3
  */
 export function tokenizeSetSchedule(raw: string | null): { label: string | null; clock: string }[] {
   const c = decodeEntities(clean(raw ?? ""));
@@ -73,11 +81,13 @@ export function tokenizeSetSchedule(raw: string | null): { label: string | null;
   const toks = extractClockTimeTokens(c);
   if (toks.length === 0) return [];
   const lead = c.slice(0, toks[0]!.start);
-  if (!/:\s*$/.test(lead)) return []; // not label-before → caller falls through
+  if (!/:\s*$/.test(lead)) return []; // not colon-terminated → not label-before → caller falls through
+  if (!isPlausibleSetLabel(labelBefore(c, 0, toks[0]!.start))) return []; // provenance prose → fall through
   return toks.map((t, i) => {
     const prevEnd = i === 0 ? 0 : toks[i - 1]!.end;
-    const label = labelBefore(c, prevEnd, t.start);
-    return { label: label || null, clock: t.clock };
+    const raw2 = labelBefore(c, prevEnd, t.start);
+    const label = raw2 && isPlausibleSetLabel(raw2) ? raw2 : null; // implausible per-entry → position default
+    return { label, clock: t.clock };
   });
 }
 
