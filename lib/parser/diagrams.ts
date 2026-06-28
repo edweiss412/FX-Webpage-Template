@@ -30,6 +30,19 @@ const FOLDER_URL_RE = /https?:\/\/drive\.google\.com\/[^\s]*\/folders\/([a-zA-Z0
 const TABLE_ROW_RE = /^\|([^|]+)\|([^|]+)/;
 
 /**
+ * Extract a Drive folder reference from a single cell value.
+ * Returns `{ driveFolderId, driveFolderUrl }` if a `/folders/<id>` URL is present, else null.
+ * Pure — shared by parseDiagrams (exact-label path) and the index.ts misspelled-label fallback.
+ */
+export function extractLinkedFolder(
+  value: string,
+): { driveFolderId: string; driveFolderUrl: string } | null {
+  const folderMatch = value.match(FOLDER_URL_RE);
+  if (!folderMatch || !folderMatch[1]) return null;
+  return { driveFolderId: folderMatch[1], driveFolderUrl: folderMatch[0] };
+}
+
+/**
  * Parse the DIagrams cell from a markdown sheet and return the diagrams shape.
  *
  * @param markdown - Full markdown content of the sheet.
@@ -49,20 +62,14 @@ export function parseDiagrams(markdown: string): {
     if (!DIAGRAMS_LABELS.has(label)) continue;
 
     // Found the DIagrams row — check the value cell for a folder URL
-    const value = rowMatch[2] ?? "";
-    const folderMatch = value.match(FOLDER_URL_RE);
-
-    if (!folderMatch || !folderMatch[1]) {
+    const linked = extractLinkedFolder(rowMatch[2] ?? "");
+    if (!linked) {
       // Cell exists but contains no folder URL (e.g. placeholder "LINK")
       break;
     }
 
-    const folderId = folderMatch[1];
-    // Capture the full matched URL (group 0 of folderMatch)
-    const folderUrl = folderMatch[0];
-
     return {
-      linkedFolder: { driveFolderId: folderId, driveFolderUrl: folderUrl },
+      linkedFolder: linked,
       embeddedImages: [] as never[],
       linkedFolderItems: [] as never[],
     };

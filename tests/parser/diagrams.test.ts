@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseDiagrams } from "@/lib/parser/diagrams";
+import { parseDiagrams, extractLinkedFolder } from "@/lib/parser/diagrams";
 
 const ALL_FIXTURES = [
   "fixtures/shows/raw/2024-05-east-coast-family-office.md",
@@ -119,4 +119,27 @@ describe("parseDiagrams — corpus coverage", () => {
       });
     });
   }
+});
+
+// ── extractLinkedFolder helper (shared by parseDiagrams + the index.ts fallback) ──────────────
+describe("extractLinkedFolder", () => {
+  it("returns folder ref when value contains a Drive folders URL", () => {
+    expect(extractLinkedFolder("https://drive.google.com/drive/folders/ABC123def/view")).toEqual({
+      driveFolderId: "ABC123def",
+      driveFolderUrl: "https://drive.google.com/drive/folders/ABC123def/view",
+    });
+  });
+
+  it("returns folder ref when the URL is embedded in longer text", () => {
+    const r = extractLinkedFolder(
+      "LINK: https://drive.google.com/drive/folders/embed99?usp=sharing",
+    );
+    expect(r?.driveFolderId).toBe("embed99");
+  });
+
+  it("returns null when value has no folder URL (placeholder / file URL)", () => {
+    expect(extractLinkedFolder("LINK")).toBeNull();
+    expect(extractLinkedFolder("")).toBeNull();
+    expect(extractLinkedFolder("https://drive.google.com/file/d/FILEID/view")).toBeNull();
+  });
 });
