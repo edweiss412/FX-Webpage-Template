@@ -7,7 +7,12 @@
  * never falls back to the raw address.
  */
 import { describe, expect, it } from "vitest";
-import { cityFromAddress, splitTrailingKnownCity, venueDisplay } from "@/lib/venue/venueLocation";
+import {
+  cityFromAddress,
+  splitTrailingKnownCity,
+  streetFromAddress,
+  venueDisplay,
+} from "@/lib/venue/venueLocation";
 
 describe("cityFromAddress", () => {
   it("extracts the city from 'STREET, CITY, ST ZIP'", () => {
@@ -173,5 +178,45 @@ describe("splitTrailingKnownCity", () => {
 
   it("a name that is ONLY a city stays the name (base must be non-empty)", () => {
     expect(splitTrailingKnownCity("Chicago")).toEqual({ base: "Chicago", city: null });
+  });
+});
+
+// streetFromAddress — the "street" portion of an address shown alongside a SEPARATE
+// City row (the crew "Where" cards), with the trailing ", <city>, <state/zip>" removed
+// so the city isn't printed twice. Blank address (the common FXAV case) → null → the
+// Address row reflows out, leaving Venue + City.
+describe("streetFromAddress", () => {
+  it("strips the trailing city + state/zip when the city is a segment", () => {
+    expect(streetFromAddress("120 E Delaware Pl, Chicago, IL 60611", "Chicago")).toBe(
+      "120 E Delaware Pl",
+    );
+    expect(streetFromAddress("350 Fifth Ave, New York, NY 10118", "New York")).toBe(
+      "350 Fifth Ave",
+    );
+  });
+
+  it("returns the full address when the city is not a comma-segment (e.g. derived from the name)", () => {
+    expect(streetFromAddress("120 E Delaware Pl", "Chicago")).toBe("120 E Delaware Pl");
+  });
+
+  it("returns null when the address is only the city (and optional state/zip) — no street to show", () => {
+    expect(streetFromAddress("Chicago, IL 60601", "Chicago")).toBeNull();
+    expect(streetFromAddress("Chicago", "Chicago")).toBeNull();
+  });
+
+  it("returns the trimmed whole address when no city is supplied", () => {
+    expect(streetFromAddress("Pier 94", null)).toBe("Pier 94");
+    expect(streetFromAddress("  Pier 94  ", undefined)).toBe("Pier 94");
+  });
+
+  it("null/empty/whitespace address → null", () => {
+    expect(streetFromAddress(null, "Chicago")).toBeNull();
+    expect(streetFromAddress(undefined, "Chicago")).toBeNull();
+    expect(streetFromAddress("", "Chicago")).toBeNull();
+    expect(streetFromAddress("   ", "Chicago")).toBeNull();
+  });
+
+  it("matches the city case-insensitively", () => {
+    expect(streetFromAddress("1 Loop, CHICAGO, IL", "Chicago")).toBe("1 Loop");
   });
 });

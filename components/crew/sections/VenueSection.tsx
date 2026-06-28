@@ -45,6 +45,7 @@ import { SourceLink } from "@/components/crew/primitives/SourceLink";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
+import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import {
   BuildingIcon,
   CarIcon,
@@ -57,6 +58,7 @@ import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 
 type VenueSectionProps = {
   data: ShowForViewer;
@@ -90,26 +92,26 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
 
   const venue = data.show.venue;
 
-  // --- Where: 2-line address (street line 1 / city muted line 2) -------------
-  // The mock `kv` Address dd renders the street on line 1 and the city/region
-  // muted on line 2. Split on the FIRST comma: everything before it is the
-  // street line; the remainder (trimmed) is the muted locality line. A
-  // comma-less address renders as a single street line with no muted line.
-  const rawAddress = venue?.address ?? null;
-  const trimmedAddress = rawAddress !== null && rawAddress.trim() !== "" ? rawAddress.trim() : null;
-  let addressLine1: string | null = null;
-  let addressLine2: string | null = null;
-  if (trimmedAddress !== null) {
-    const comma = trimmedAddress.indexOf(",");
-    if (comma === -1) {
-      addressLine1 = trimmedAddress;
-    } else {
-      addressLine1 = trimmedAddress.slice(0, comma).trim();
-      const rest = trimmedAddress.slice(comma + 1).trim();
-      addressLine2 = rest === "" ? null : rest;
-    }
-  }
-  const hasAddress = addressLine1 !== null;
+  // --- Where: discrete Venue / City / Address rows ---------------------------
+  // venueDisplay resolves the city (geocoded → structured-address → trailing-known
+  // city in the NAME) and returns the venue name with a redundant trailing city
+  // stripped, so a blank-address FXAV venue ("Four Seasons Hotel Chicago") still
+  // shows a clean "Chicago" City row WITHOUT printing the city twice. This card was
+  // previously address-only and rendered NOTHING for such venues; it now always
+  // surfaces the venue name + city. streetFromAddress drops the city tail from the
+  // Address value; an empty street value reflows the Address row out (KeyValueRows
+  // sentinel-hides empty values).
+  const { name: venueDisplayName, city: venueCity } = venueDisplay(venue);
+  const whereRows: KeyValueRow[] = venue
+    ? [
+        { k: "Venue", v: venueDisplayName ?? venue.name ?? "" },
+        ...(venueCity ? [{ k: "City", v: venueCity } as KeyValueRow] : []),
+        { k: "Address", v: streetFromAddress(venue.address, venueCity) ?? "" },
+      ]
+    : [];
+  // KeyValueRows omits empty/sentinel values, so "are there any present rows?" must
+  // use the same predicate to decide whether the Where card has content.
+  const hasWhereRows = whereRows.some((row) => !shouldHideGenericOptional(row.v));
 
   // Maps link — only when the value parses as an http(s) URL. A sentinel like
   // "TBD" is rejected by isParseableUrl so the anchor never becomes a dead
@@ -175,7 +177,7 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
   // multi-line note doesn't belong in the right-aligned `.v` slot).
   const venueNotes = notes;
 
-  const hasWhere = hasAddress || mapHref !== null;
+  const hasWhere = hasWhereRows || mapHref !== null;
   const hasFacts = factRows.length > 0;
   const hasStatus = coi !== null || venueNotes !== null;
 
@@ -225,18 +227,10 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
               />
             }
           >
-            {/* Mock `kv` Address dd — 2-line: street on line 1, locality muted
-                on line 2 (split on the first comma; comma-less → single line). */}
-            {hasAddress ? (
-              <div className="flex flex-col gap-0.5 text-sm/snug">
-                <span className="text-text">{addressLine1}</span>
-                {addressLine2 !== null ? (
-                  <span data-slot="venue-address-locality" className="text-text-subtle">
-                    {addressLine2}
-                  </span>
-                ) : null}
-              </div>
-            ) : null}
+            {/* Discrete Venue / City / Address rows. KeyValueRows omits any
+                empty/sentinel value, so a blank address shows just Venue + City and
+                a city-less venue shows Venue + Address. */}
+            {hasWhereRows ? <KeyValueRows rows={whereRows} /> : null}
             {mapHref ? (
               <a
                 href={mapHref}

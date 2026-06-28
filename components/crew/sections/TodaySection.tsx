@@ -54,6 +54,7 @@ import { buildRightNowContext } from "@/components/right-now/buildRightNowContex
 import { aggregateDays, displayableEntries } from "@/lib/crew/agendaDisplay";
 import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
+import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -250,13 +251,25 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           // space beside it (re-introducing the gap this change removes). Nothing
           // pairs here, so densification doesn't apply to this card.
           const venue = data.show.venue;
+          // Venue / City / Address as discrete rows. venueDisplay resolves the city
+          // (geocoded → structured-address → trailing-known-city in the NAME) and
+          // returns the name with a redundant trailing city stripped, so a blank-address
+          // FXAV venue ("Four Seasons Hotel Chicago") still shows a clean "Chicago" City
+          // row without printing the city twice. streetFromAddress drops the city tail
+          // from the Address value for the same reason; an empty street reflows the
+          // Address row out (KeyValueRows sentinel-hides empty values).
+          const { name: venueDisplayName, city: venueCity } = venueDisplay(venue);
           const whereRows: KeyValueRow[] = venue
             ? [
-                { k: "Venue", v: venue.name ?? "" },
-                { k: "Address", v: venue.address ?? "" },
-                ...(venue.loadingDock != null
-                  ? [{ k: "Loading dock", v: venue.loadingDock } as KeyValueRow]
-                  : []),
+                { k: "Venue", v: venueDisplayName ?? venue.name ?? "" },
+                ...(venueCity ? [{ k: "City", v: venueCity } as KeyValueRow] : []),
+                { k: "Address", v: streetFromAddress(venue.address, venueCity) ?? "" },
+                // Read-site sentinel guard (matches VenueSection's loadingDock contract):
+                // a "TBD"/"N/A" sentinel must reflow out at the READ site, not only at
+                // KeyValueRows render time, so the sentinel-hiding meta-test surface holds.
+                ...(shouldHideGenericOptional(venue.loadingDock ?? null)
+                  ? []
+                  : [{ k: "Loading dock", v: venue.loadingDock! } as KeyValueRow]),
               ]
             : [];
 
