@@ -30,6 +30,8 @@ import { parseDiagrams } from "./diagrams";
 import { extractOpeningReel } from "./opening-reel";
 import { parseAgenda } from "./blocks/agenda";
 import { parseScheduleTimes } from "./blocks/scheduleTimes";
+import { deriveScheduleBookends } from "./blocks/scheduleBookends";
+import { inferShowYear } from "./blocks/_helpers";
 import type { ParsedSheet, ParseError, ShowRow, WorkPhase, ScheduleDay } from "./types";
 
 export type { ParsedSheet, ParseResult, ParseWarning, ParseError } from "./types";
@@ -445,6 +447,11 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     }
     mergedRunOfShow = merged;
   }
+
+  const bookendYear = inferShowYear(markdown);
+  const bookends = deriveScheduleBookends(mergedRunOfShow, dates, transportation, rooms, bookendYear);
+  mergedRunOfShow = bookends.runOfShow;
+  agg.warnings.push(...bookends.warnings);
 
   // Class B (§5.2) — scan for section-header-shaped rows whose col0 matches no
   // known-section-header. Span-independent (registry + header-band shape, NOT
