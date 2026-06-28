@@ -93,6 +93,77 @@ test("Today renders hero + key-times + Tonight/Where/Need-something + dress + no
   expect(container.querySelector('[data-testid="today-band"]')).toBeNull();
 });
 
+// City row — the geocoding-at-ingest follow-up. The Today "Where" card surfaces the
+// venue city as a discrete row (via venueDisplay), even for the common FXAV shape
+// where the city is baked into the NAME and the address is blank. The venue name is
+// shown with its trailing city stripped so the city isn't printed twice.
+test('Today "Where" card surfaces the venue city as a discrete row; name shows city-stripped', () => {
+  const data = makeShowForViewer({
+    // City in the name, blank address — the heuristic the geocoder/name-split covers.
+    show: { venue: { name: "Four Seasons Hotel Chicago", address: "" } },
+  });
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const where = container.querySelector('[data-testid="today-where"]')!;
+  expect(where).toBeTruthy();
+  const dts = Array.from(where.querySelectorAll("dt")).map((dt) => dt.textContent);
+  expect(dts).toContain("City");
+  // The City row's value is the clean city.
+  const cityDt = Array.from(where.querySelectorAll("dt")).find((dt) => dt.textContent === "City")!;
+  expect(cityDt.nextElementSibling!.textContent).toBe("Chicago");
+  // The Venue row shows the name WITHOUT the trailing city (no double-print).
+  const venueDt = Array.from(where.querySelectorAll("dt")).find(
+    (dt) => dt.textContent === "Venue",
+  )!;
+  expect(venueDt.nextElementSibling!.textContent).toBe("Four Seasons Hotel");
+});
+
+// No derivable city → no City row (negative regression: the row is conditional, not
+// always present). A name with no curated/geocoded city + a comma-less address yields
+// nothing to show.
+test('Today "Where" omits the City row when no city is derivable', () => {
+  const data = makeShowForViewer({
+    show: { venue: { name: "Navy Pier Exhibition Hall", address: "Pier 94" } },
+  });
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const where = container.querySelector('[data-testid="today-where"]')!;
+  const dts = Array.from(where.querySelectorAll("dt")).map((dt) => dt.textContent);
+  expect(dts).not.toContain("City");
+  expect(dts).toContain("Venue");
+});
+
+// Read-site sentinel guard for the Loading dock row: a "TBD" sentinel must reflow out
+// (the row is gated by shouldHideGenericOptional at the read site, not just KeyValueRows).
+test('Today "Where" hides the Loading dock row when its value is a sentinel', () => {
+  const data = makeShowForViewer({
+    show: { venue: { name: "Center", address: "5 Ave", loadingDock: "TBD" } },
+  });
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const where = container.querySelector('[data-testid="today-where"]')!;
+  const dts = Array.from(where.querySelectorAll("dt")).map((dt) => dt.textContent);
+  expect(dts).not.toContain("Loading dock");
+});
+
 // TEST B (test 25) — 5-source notes order + transport-gated transport note.
 test("Show notes aggregate all 5 sources in order; transport note gated by transportTileVisible", () => {
   const data = makeShowForViewer({

@@ -266,6 +266,36 @@ function stripTrailingCity(name: string, city: string): string {
 }
 
 /**
+ * The "street" portion of an address for display alongside a SEPARATE City row
+ * (the crew "Where" cards render Venue / City / Address as discrete rows). The
+ * trailing ", <city>, <state/zip>…" is removed so the city isn't shown twice:
+ *
+ *   - "120 E Delaware Pl, Chicago, IL 60611" + "Chicago" → "120 E Delaware Pl"
+ *   - "Chicago, IL 60601"                    + "Chicago" → null  (no street; city-only)
+ *   - "120 E Delaware Pl"                    + "Chicago" → "120 E Delaware Pl"  (city not a segment)
+ *   - "" / null / "   "                      + anything  → null  (Address row reflows out)
+ *
+ * When `city` is null/absent or isn't a comma-segment of the address (e.g. the city
+ * was derived from the venue NAME or geocoded with a blank address), the full trimmed
+ * address is returned unchanged. Match is whole-segment + case-insensitive so a
+ * substring like "York" in "New York" never truncates the street.
+ */
+export function streetFromAddress(
+  address: string | null | undefined,
+  city: string | null | undefined,
+): string | null {
+  const trimmed = address?.trim();
+  if (!trimmed) return null;
+  if (!city || !city.trim()) return trimmed;
+  const target = city.trim().toLowerCase();
+  const segments = trimmed.split(",").map((s) => s.trim());
+  const idx = segments.findIndex((s) => s.toLowerCase() === target);
+  if (idx === -1) return trimmed; // city not a discrete segment → show the whole address
+  const street = segments.slice(0, idx).join(", ").trim();
+  return street === "" ? null : street; // address was only the city[, state/zip] → no street row
+}
+
+/**
  * The collapsed-card Venue row value: the venue name (primary) and a best-effort
  * city (secondary). City comes from a structured address first (cityFromAddress);
  * when the address yields nothing, the city is split off the venue NAME via a

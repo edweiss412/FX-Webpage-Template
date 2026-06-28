@@ -123,7 +123,15 @@ test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons +
   }
 });
 
-test("Address renders 2-line: street on line 1, locality muted on line 2 (split on first comma)", () => {
+// The "Where" card renders Venue / City / Address as discrete rows (geocoding-at-ingest
+// follow-up). venueDisplay resolves the city; streetFromAddress drops the redundant
+// city tail from the Address value so it isn't printed twice.
+function dd(where: Element, label: string): string | null {
+  const dt = Array.from(where.querySelectorAll("dt")).find((el) => el.textContent === label);
+  return dt ? (dt.nextElementSibling?.textContent ?? null) : null;
+}
+
+test("Where card renders discrete Venue / City / Address rows from a structured address", () => {
   const data = makeShowForViewer({
     show: { venue: { name: "Center", address: "350 Fifth Ave, New York, NY 10118" } },
   });
@@ -131,16 +139,15 @@ test("Address renders 2-line: street on line 1, locality muted on line 2 (split 
     <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
-  expect(where.textContent).toContain("350 Fifth Ave");
   // Mock `.card-head .ico` parity: the Where card carries its leading glyph.
   expect(where.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
-  const locality = where.querySelector('[data-slot="venue-address-locality"]');
-  expect(locality).not.toBeNull();
-  // Line 2 is everything after the first comma, trimmed.
-  expect(locality!.textContent).toBe("New York, NY 10118");
+  expect(dd(where, "Venue")).toBe("Center");
+  expect(dd(where, "City")).toBe("New York");
+  // Address shows the street only — the city/state tail is stripped (no double-print).
+  expect(dd(where, "Address")).toBe("350 Fifth Ave");
 });
 
-test("comma-less address renders a single street line with no muted locality line", () => {
+test("Where card omits the City + Address rows when nothing is derivable (comma-less, no city)", () => {
   const data = makeShowForViewer({
     show: { venue: { name: "Center", address: "Pier 94" } },
   });
@@ -148,6 +155,25 @@ test("comma-less address renders a single street line with no muted locality lin
     <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
   );
   const where = container.querySelector('[data-testid="venue-where"]')!;
-  expect(where.textContent).toContain("Pier 94");
-  expect(where.querySelector('[data-slot="venue-address-locality"]')).toBeNull();
+  expect(dd(where, "Venue")).toBe("Center");
+  expect(dd(where, "City")).toBeNull(); // no City row
+  // No city to strip → Address shows the comma-less value verbatim.
+  expect(dd(where, "Address")).toBe("Pier 94");
+});
+
+// The gap this fixes: a blank-address, city-in-NAME FXAV venue used to render NO Where
+// card at all (it was address-only). It now surfaces Venue + City (name city-stripped,
+// no Address row).
+test("Where card surfaces name + city for a blank-address, city-in-name venue", () => {
+  const data = makeShowForViewer({
+    show: { venue: { name: "Four Seasons Hotel Chicago", address: "" } },
+  });
+  const { container } = render(
+    <VenueSection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  const where = container.querySelector('[data-testid="venue-where"]')!;
+  expect(where).not.toBeNull(); // the card now renders (previously omitted)
+  expect(dd(where, "Venue")).toBe("Four Seasons Hotel");
+  expect(dd(where, "City")).toBe("Chicago");
+  expect(dd(where, "Address")).toBeNull(); // blank address → no Address row
 });
