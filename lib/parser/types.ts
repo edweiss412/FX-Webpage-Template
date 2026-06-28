@@ -332,6 +332,7 @@ export type PersistedDiagrams = {
  * "filled" signal: parseAgenda only emits an entry when TITLE is REAL
  * (non-empty AND not a generic sentinel — shouldHideGenericOptional).
  */
+export type AgendaEntryKind = "agenda" | "strike" | "loadout";
 export type AgendaEntry = {
   start: string;
   finish?: string;
@@ -339,6 +340,7 @@ export type AgendaEntry = {
   title: string;
   room?: string;
   av?: string;
+  kind?: AgendaEntryKind; // absent ⇒ "agenda"
 };
 
 export type ScheduleDay = {
