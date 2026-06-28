@@ -401,6 +401,8 @@ function v2Block(rows: string[]): string {
 }
 const FLA = (agg: ReturnType<typeof newAggregator>) =>
   agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+const CHA = (agg: ReturnType<typeof newAggregator>) =>
+  agg.warnings.filter((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED");
 
 describe("parseTransportation — v2 fuzzy schedule-label recovery (PR-D2)", () => {
   it("recovers a misspelled schedule label and warns once (kind=transportation, raw stage kept)", () => {
@@ -473,4 +475,99 @@ describe("parseTransportation — schedule-label gate corrects unseen typos (PR-
       }
     }
   }, 30000); // generous timeout — comprehensive generator sweep (PR-D1 CI-shard-timeout lesson)
+});
+
+// ── v4 passenger column-header fuzzy recovery (PR-passengers) ───────────────────
+describe("parseTransportation — v4 passenger column fuzzy recovery (PR-passengers)", () => {
+  // Mirrors the existing synthetic v4 transport fixture: main header (EMAIL required) + a
+  // DATE/TIME SUBHEADER row carrying the passengers marker + a data row.
+  const v4 = (passengersCell: string) =>
+    `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@example.com | LICENSE |
+| :---: | :---: | :---: | :---: | :---: |
+| Vehicle | Test Van | | | |
+| | DATE | TIME | ${passengersCell} | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | Alice Smith | |
+`;
+
+  it("T1: misspelled 'Pasengers' in the subheader → column recovered + exactly one COLUMN_HEADER_AUTOCORRECTED warn", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(v4("Pasengers"), "v4", undefined, agg);
+    expect(t?.schedule[0]?.assigned_names).toEqual(["Alice Smith"]);
+    const w = CHA(agg);
+    expect(w.length).toBe(1);
+    expect(w[0]?.rawSnippet).toBe("Pasengers");
+    expect(w[0]?.blockRef?.kind).toBe("transportation");
+  });
+
+  it("T2: exact 'Passengers' → names populate, ZERO autocorrect warns", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(v4("Passengers"), "v4", undefined, agg);
+    expect(t?.schedule[0]?.assigned_names).toEqual(["Alice Smith"]);
+    expect(CHA(agg).length).toBe(0);
+  });
+
+  it("T3: exact singular 'Passenger' → names populate via Pass 1, ZERO warns", () => {
+    const agg = newAggregator();
+    const t = parseTransportation(v4("Passenger"), "v4", undefined, agg);
+    expect(t?.schedule[0]?.assigned_names).toEqual(["Alice Smith"]);
+    expect(CHA(agg).length).toBe(0);
+  });
+
+  it("T6: below-minLen 'Pas' → no fuzzy recovery, no warn", () => {
+    const agg = newAggregator();
+    parseTransportation(v4("Pas"), "v4", undefined, agg);
+    // 'Pas' (3 chars) < minLen 5 → not corrected. Pin ONLY the intended signal: no autocorrect warn.
+    // (assigned_names is intentionally NOT asserted — with no passengers column, extractAssignedNames
+    // falls back to a crew-context scan whose result isn't this test's concern.)
+    expect(CHA(agg).length).toBe(0);
+  });
+
+  it("T9: DATE/TIME cells (< minLen) are not fuzzed; only 'Pasengers' fires the single warn", () => {
+    const agg = newAggregator();
+    parseTransportation(v4("Pasengers"), "v4", undefined, agg);
+    const w = CHA(agg);
+    expect(w.length).toBe(1);
+    expect(w[0]?.rawSnippet).toBe("Pasengers");
+  });
+
+  it("T10: data-row value 'Pasengers' with NO exact header → NOT recovered, no warn", () => {
+    // Pass 2 is header-region-only, so a near-match sitting in a DATA row (not the header /
+    // DATE-TIME subheader) must never be read as the passenger column header.
+    const agg = newAggregator();
+    const md = `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@example.com | LICENSE |
+| :---: | :---: | :---: | :---: | :---: |
+| | DATE | TIME | | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | Pasengers | |
+`;
+    parseTransportation(md, "v4", undefined, agg);
+    expect(CHA(agg).length).toBe(0);
+  });
+});
+
+describe("parseTransportation — v4 passenger exact-always-wins (PR-passengers)", () => {
+  it("T4: typo in an earlier row + exact 'Passengers' in a later row → exact column wins, ZERO warns", () => {
+    const agg = newAggregator();
+    const md = `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@example.com | Pasengers |
+| :---: | :---: | :---: | :---: | :---: |
+| | DATE | TIME | Passengers | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | | Alice Smith |
+`;
+    const t = parseTransportation(md, "v4", undefined, agg);
+    // Exact 'Passengers' (col 3, subheader) wins; the typo in the header row is ignored. Col 3 is
+    // empty in the data row → no names. ZERO warns (Pass 1 matched → Pass 2 never ran).
+    expect(t?.schedule[0]?.assigned_names).toEqual([]);
+    expect(CHA(agg).length).toBe(0);
+  });
+
+  it("T5: data cells (names/dates/times), exact header → exactly the header column, ZERO fuzzy warns", () => {
+    const agg = newAggregator();
+    const md = `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@example.com | LICENSE |
+| :---: | :---: | :---: | :---: | :---: |
+| | DATE | TIME | Passengers | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | Alice Smith | |
+`;
+    const t = parseTransportation(md, "v4", undefined, agg);
+    expect(t?.schedule[0]?.assigned_names).toEqual(["Alice Smith"]);
+    expect(CHA(agg).length).toBe(0);
+  });
 });

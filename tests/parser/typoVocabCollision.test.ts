@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { TYPO_VOCABS } from "@/lib/parser/typoVocabRegistry";
 import { inScopeAliases } from "@/lib/parser/aliases";
 import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
-import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
+import { TRANSPORT_SCHEDULE_VOCAB, PASSENGERS_VOCAB } from "@/lib/parser/blocks/transport";
 import { V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
 import { CLIENT_V4_LABELS, CLIENT_V2_LABELS } from "@/lib/parser/blocks/client";
 import { damerauLevenshtein } from "@/lib/parser/fuzzyMatch";
@@ -86,6 +86,21 @@ describe("transport schedule-label vocab registration (PR-D2)", () => {
     expect(tr!.klass).toBe("fuzzable");
     expect([...tr!.members].sort()).toEqual([...TRANSPORT_SCHEDULE_VOCAB].sort());
     expect(tr!.members).toContain("RENTAL PICKUP");
+  });
+});
+
+/**
+ * PR-passengers: the v4 transport passenger column-header fuzzy fallback (gatedVocabCorrect over
+ * PASSENGERS_VOCAB in detectPassengersColIdx) must have a matching registry entry so the collision
+ * tripwire guards it. DERIVED from the exported vocab (single source — gate + registry can't drift).
+ */
+describe("passenger column vocab registration (PR-passengers)", () => {
+  it("registers a passengerColumn fuzzable vocab matching PASSENGERS_VOCAB", () => {
+    const entry = TYPO_VOCABS.find((v) => v.id === "passengerColumn");
+    expect(entry).toBeDefined();
+    expect(entry!.klass).toBe("fuzzable");
+    expect(entry!.minLen).toBe(5);
+    expect([...entry!.members]).toEqual([...PASSENGERS_VOCAB]);
   });
 });
 
