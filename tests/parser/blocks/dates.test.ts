@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseDates, extractClockTimes } from "@/lib/parser/blocks/dates";
+import { parseDates, extractClockTimes, extractClockTimeTokens } from "@/lib/parser/blocks/dates";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 
@@ -359,6 +359,33 @@ describe("parseDates — loadIn capture (§9 test 4)", () => {
     expect(d.loadIn).toBe("10:30 AM");
   });
 
+  // ── setAgendaRaw capture (D-SET1) ──
+  it("captures the RAW SET TIME cell on setAgendaRaw (undecoded; field capture unchanged)", () => {
+    const md = datesTable([["SET", "Tue", "3/23/26", "Load In: 7:00 PM Room Access: 8:30 PM"]]);
+    const d = parseDates(md, "v4");
+    expect(d.setAgendaRaw).toBe("Load In: 7:00 PM Room Access: 8:30 PM");
+    expect(d.loadIn).toBe("7:00 PM");
+    expect(d.setupTime).toBe("8:30 PM");
+  });
+  it("empty SET TIME cell → setAgendaRaw null", () => {
+    const md = datesTable([["SET", "Tue", "3/23/26", ""]]);
+    expect(parseDates(md, "v4").setAgendaRaw).toBeNull();
+  });
+  it("setAgendaRaw precedence: travel_set fills if unset, explicit SET overrides (§9.D)", () => {
+    const md = datesTable([
+      ["TRAVEL / SET", "Mon", "3/22/26", "Load In: 8:00 AM"],
+      ["SET", "Tue", "3/23/26", "Load In: 10:30 AM Room Access: 11:00 AM"],
+    ]);
+    expect(parseDates(md, "v4").setAgendaRaw).toBe("Load In: 10:30 AM Room Access: 11:00 AM");
+  });
+  it("setAgendaRaw from a lone TRAVEL / SET row when no explicit SET row", () => {
+    const md = datesTable([
+      ["TRAVEL / SET", "Mon", "3/22/26", "Load In: 8:00 AM"],
+      ["SHOW DAY 1", "Tue", "3/23/26", ""],
+    ]);
+    expect(parseDates(md, "v4").setAgendaRaw).toBe("Load In: 8:00 AM");
+  });
+
   it("a SHOW row's TIME does NOT populate loadIn (only set-bearing rows)", () => {
     const md = datesTable([
       ["SET", "Tue", "3/23/26", ""],
@@ -477,5 +504,25 @@ describe("extractClockTimes — all-matches, colon-required (R12 finding 19)", (
   });
   it("returns [] for 'LOAD IN' (no clock at all)", () => {
     expect(extractClockTimes("LOAD IN")).toEqual([]);
+  });
+});
+
+// ── extractClockTimeTokens — position core (D-SET1) ───────────────────────────
+describe("extractClockTimeTokens — position core (D-SET1)", () => {
+  it("returns clock + offsets indexing the given (decoded+cleaned) string", () => {
+    const c = "Load In: 7:00 PM Room Access: 8:30 PM";
+    const toks = extractClockTimeTokens(c);
+    expect(toks.map((t) => t.clock)).toEqual(["7:00 PM", "8:30 PM"]);
+    expect(c.slice(toks[0]!.start, toks[0]!.end)).toBe("7:00 PM");
+    expect(c.slice(toks[1]!.start, toks[1]!.end)).toBe("8:30 PM");
+  });
+  it("extractClockTimes === extractClockTimeTokens(decoded+cleaned).map(clock)", () => {
+    expect(extractClockTimes("Load In: 7:00 PM Room Access: 8:30 PM")).toEqual([
+      "7:00 PM",
+      "8:30 PM",
+    ]);
+  });
+  it("decodes an entity INSIDE a clock (R2 P1d): '7:00&#9;PM' → ['7:00 PM']", () => {
+    expect(extractClockTimes("7:00&#9;PM")).toEqual(["7:00 PM"]);
   });
 });

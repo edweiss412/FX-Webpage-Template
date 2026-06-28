@@ -1,6 +1,8 @@
-import { presence, normalizeDate } from "./_helpers";
+import { presence, normalizeDate, clean, decodeEntities } from "./_helpers";
 import { extractFirstClock } from "./scheduleTimes";
+import { extractClockTimeTokens } from "./dates";
 import { strikeDateOffSchedule } from "./agendaWarnings";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import type {
   RoomKind,
   ScheduleDay,
@@ -44,6 +46,74 @@ const STRIKE_ROOM_NAME_CAP = 3;
 function appendEntry(ros: Record<string, ScheduleDay>, iso: string, entry: AgendaEntry): void {
   const day = ros[iso] ?? { entries: [], showStart: null, window: null };
   ros[iso] = { ...day, entries: [...day.entries, entry] };
+}
+
+/** Text immediately before a clock → its label. Mirrors titleAfter (scheduleTimes.ts:88) but
+ *  strips separators on BOTH ends ("Load In:"→"Load In", " / Room Access:"→"Room Access"). D-SET1. */
+function labelBefore(cell: string, from: number, to: number): string {
+  const slice = cell
+    .slice(from, to)
+    .replace(/^\s*[-–:/,;]?\s*/, "")
+    .replace(/\s*[-–:/,;]?\s*$/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return shouldHideGenericOptional(slice) ? "" : slice;
+}
+
+/**
+ * Closed vocabulary of recognized SET-day schedule labels (normalized: lowercased + ws-collapsed).
+ * A label-before SET cell is tokenized ONLY when its leads are recognized schedule words; arbitrary
+ * prose / provenance ("Alyssa email:", "As per …:", "Per email:") is NOT in the vocab and falls
+ * through to the loadIn/setupTime synthesis. This is a STRUCTURAL DEFENSE — an open-ended prose
+ * heuristic (word-count / no-digits) always has a bypass, but a closed allow-list cannot mislabel
+ * prose by construction (prose simply is not in the set). Matches the live corpus exactly (RFI/PCF's
+ * "Load In"/"Room Access"). Extend this set when a genuinely new SET label appears in a real sheet. D-SET1.
+ */
+const SET_LABEL_VOCAB = new Set<string>([
+  "load in",
+  "load-in",
+  "loadin",
+  "room access",
+  "set",
+  "set up",
+  "setup",
+  "session",
+  "rehearsal",
+  "doors",
+  "soundcheck",
+  "sound check",
+  "tech",
+  "tech check",
+  "strike",
+  "load out",
+  "load-out",
+  "loadout",
+]);
+function isRecognizedSetLabel(label: string): boolean {
+  return SET_LABEL_VOCAB.has(label.toLowerCase().replace(/\s+/g, " ").trim());
+}
+
+/**
+ * Label-before-clock tokenizer for the SET TIME cell. Returns one {label,clock} per
+ * colon-required clock when the cell is label-before-shaped (a colon-terminated, RECOGNIZED
+ * SET label precedes the first clock); otherwise `[]` (time-first / no-colon / unrecognized-prose /
+ * no-clock → caller falls through to the loadIn/setupTime synthesis). Clock values come from the
+ * same decodeEntities(clean(...)) as extractClockTimes, so they equal dates.loadIn/setupTime. §4.3
+ */
+export function tokenizeSetSchedule(raw: string | null): { label: string | null; clock: string }[] {
+  const c = decodeEntities(clean(raw ?? ""));
+  if (!c) return [];
+  const toks = extractClockTimeTokens(c);
+  if (toks.length === 0) return [];
+  const lead = c.slice(0, toks[0]!.start);
+  if (!/:\s*$/.test(lead)) return []; // not colon-terminated → not label-before → caller falls through
+  if (!isRecognizedSetLabel(labelBefore(c, 0, toks[0]!.start))) return []; // unrecognized lead → fall through
+  return toks.map((t, i) => {
+    const prevEnd = i === 0 ? 0 : toks[i - 1]!.end;
+    const raw2 = labelBefore(c, prevEnd, t.start);
+    const label = isRecognizedSetLabel(raw2) ? raw2 : null; // unrecognized per-entry → position default
+    return { label, clock: t.clock };
+  });
 }
 
 export function deriveScheduleBookends(
@@ -97,12 +167,21 @@ export function deriveScheduleBookends(
     appendEntry(ros, puv.date, { start: puvClock, title: "Load Out", kind: "loadout" });
   }
 
-  // ── SET load-in / setup (synthesized from dates; appended; kind absent = agenda) ──
+  // ── SET (tokenized cell-derived labels when label-before; else dates fall-through; kind absent) ──
   if (dates.set) {
-    if (presence(dates.loadIn ?? ""))
-      appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
-    if (presence(dates.setupTime ?? ""))
-      appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
+    const tokens = tokenizeSetSchedule(dates.setAgendaRaw ?? null);
+    if (tokens.length > 0) {
+      tokens.forEach((t, i) => {
+        const title = t.label ?? (i === 0 ? "Load In" : i === 1 ? "Setup" : null);
+        if (title == null) return; // 3rd+ unlabeled clock → skip (matches today's ≤2 cap)
+        appendEntry(ros, dates.set!, { start: t.clock, title });
+      });
+    } else {
+      if (presence(dates.loadIn ?? ""))
+        appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
+      if (presence(dates.setupTime ?? ""))
+        appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
+    }
   }
 
   return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings };
