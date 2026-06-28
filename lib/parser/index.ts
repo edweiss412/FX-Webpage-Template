@@ -449,7 +449,13 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   }
 
   const bookendYear = inferShowYear(markdown);
-  const bookends = deriveScheduleBookends(mergedRunOfShow, dates, transportation, rooms, bookendYear);
+  const bookends = deriveScheduleBookends(
+    mergedRunOfShow,
+    dates,
+    transportation,
+    rooms,
+    bookendYear,
+  );
   mergedRunOfShow = bookends.runOfShow;
   agg.warnings.push(...bookends.warnings);
 

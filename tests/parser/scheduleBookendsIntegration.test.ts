@@ -35,9 +35,7 @@ describe("parseSheet wires deriveScheduleBookends into runOfShow", () => {
     expect(loadOut!.start).toBe("2:00 PM");
 
     // No off-schedule warning for the unmodified fixture (3/26 is a show day).
-    expect(
-      r.warnings.some((w) => w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"),
-    ).toBe(false);
+    expect(r.warnings.some((w) => w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE")).toBe(false);
   });
 
   it("emits SCHEDULE_STRIKE_DATE_OFF_SCHEDULE when a strike date is off-schedule", () => {
@@ -46,12 +44,8 @@ describe("parseSheet wires deriveScheduleBookends into runOfShow", () => {
     const offSchedule = md.replace("3/26 @ 12:00pm", "8/30 @ 12:00pm");
     expect(offSchedule).not.toBe(md);
     const r = parseSheet(offSchedule, FIXTURE);
-    expect(
-      r.warnings.some((w) => w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"),
-    ).toBe(true);
+    expect(r.warnings.some((w) => w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE")).toBe(true);
     // The off-schedule strike entry is still present (admin-visible).
-    expect(
-      r.runOfShow!["2025-08-30"]!.entries.some((e) => e.kind === "strike"),
-    ).toBe(true);
+    expect(r.runOfShow!["2025-08-30"]!.entries.some((e) => e.kind === "strike")).toBe(true);
   });
 });

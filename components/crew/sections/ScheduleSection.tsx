@@ -266,7 +266,9 @@ export function ScheduleSection({
                       // and the per-day run-of-show gate/render below, so a day
                       // whose only synthetic entry is a hidden load-out neither
                       // opens a container nor suppresses the meta for that viewer.
-                      const dayEntries = scheduleEntriesForViewer(sd?.entries, { transportVisible });
+                      const dayEntries = scheduleEntriesForViewer(sd?.entries, {
+                        transportVisible,
+                      });
                       let meta: string | undefined;
                       if (isSetDay) {
                         // §6/§9.1: when the SET day carries displayable run-of-show
@@ -274,7 +276,8 @@ export function ScheduleSection({
                         // renders them below — suppress the standalone "Setup <time>"
                         // meta to avoid double-printing setupTime. Guard the RAW
                         // setupTime FIRST, THEN prefix (plan-review R6).
-                        const t = dayEntries.length > 0 ? null : guardMeta(data.show.dates.setupTime);
+                        const t =
+                          dayEntries.length > 0 ? null : guardMeta(data.show.dates.setupTime);
                         meta = t != null ? `Setup ${t}` : undefined;
                       } else if (sd?.window != null) {
                         meta = guardMeta(formatScheduleWindow(sd.window));

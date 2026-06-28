@@ -74,13 +74,17 @@ export function deriveScheduleBookends(
     groups.set(key, g);
   }
   const sorted = [...groups.values()].sort(
-    (a, b) => a.iso.localeCompare(b.iso) || a.time.localeCompare(b.time) || a.rooms.join().localeCompare(b.rooms.join()),
+    (a, b) =>
+      a.iso.localeCompare(b.iso) ||
+      a.time.localeCompare(b.time) ||
+      a.rooms.join().localeCompare(b.rooms.join()),
   );
   for (const g of sorted) {
     let title: string;
     if (g.rooms.length === 1) title = `Strike — ${g.rooms[0]}`;
     else if (g.rooms.length === strikeIntentCount) title = "Strike — all rooms";
-    else if (g.rooms.length <= STRIKE_ROOM_NAME_CAP) title = `Strike — ${[...g.rooms].sort().join(", ")}`;
+    else if (g.rooms.length <= STRIKE_ROOM_NAME_CAP)
+      title = `Strike — ${[...g.rooms].sort().join(", ")}`;
     else title = `Strike — ${g.rooms.length} rooms`;
     appendEntry(ros, g.iso, { start: g.time, title, kind: "strike" });
     if (!scheduleDateSet.has(g.iso)) warnings.push(strikeDateOffSchedule(g.iso));
@@ -95,8 +99,10 @@ export function deriveScheduleBookends(
 
   // ── SET load-in / setup (synthesized from dates; appended; kind absent = agenda) ──
   if (dates.set) {
-    if (presence(dates.loadIn ?? "")) appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
-    if (presence(dates.setupTime ?? "")) appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
+    if (presence(dates.loadIn ?? ""))
+      appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
+    if (presence(dates.setupTime ?? ""))
+      appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
   }
 
   return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings };
