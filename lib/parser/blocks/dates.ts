@@ -58,6 +58,7 @@ export function parseDates(
     travelOut: null,
     loadIn: null,
     setupTime: null,
+    setAgendaRaw: null,
   };
 
   // v2 can still have a 2-col DATES table (e.g. 2024-05-east-coast-family-office),
@@ -212,6 +213,10 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
         const times = extractClockTimes(row[4] ?? "");
         if (times[0] && !result.loadIn) result.loadIn = times[0]; // travel_set fills loadIn only if unset
         if (times[1] && result.setupTime == null) result.setupTime = times[1];
+        if (result.setAgendaRaw == null) {
+          const tsCell = row[4] ?? "";
+          result.setAgendaRaw = clean(tsCell) ? tsCell : null; // fill-if-unset (mirrors loadIn precedence)
+        }
         break;
       }
 
@@ -220,6 +225,8 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
         const times = extractClockTimes(row[4] ?? "");
         if (times[0]) result.loadIn = times[0]; // explicit SET row overrides any travel_set value
         if (times[1]) result.setupTime = times[1];
+        const setCell = row[4] ?? "";
+        result.setAgendaRaw = clean(setCell) ? setCell : null; // explicit SET overrides (raw, undecoded)
         break;
       }
 

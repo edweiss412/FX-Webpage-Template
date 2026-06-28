@@ -415,14 +415,17 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const title = extractTitleFromMarkdown(markdown, eventDetails, filename);
 
   // Step 5: Compose ShowRow.
+  // setAgendaRaw is parse-transient (consumed by deriveScheduleBookends below); never persist/project it.
+  const datesForShow: ShowRow["dates"] = { ...dates };
+  delete datesForShow.setAgendaRaw; // `delete` is lint-clean (no throwaway var); legal — the field is optional
   const show: ShowRow = {
     title,
     client_label,
     client_contact,
     template_version: version,
     venue,
-    dates,
-    schedule_phases: deriveSchedulePhases(dates),
+    dates: datesForShow,
+    schedule_phases: deriveSchedulePhases(datesForShow),
     event_details: eventDetails,
     agenda_links: parseAgendaLinks(markdown),
     coi_status: ops.coi_status,
