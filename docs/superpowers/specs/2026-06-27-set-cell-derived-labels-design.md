@@ -44,18 +44,31 @@ Surveyed **both** the committed fixtures (10 deduplicated shows under `fixtures/
 
 ### 4.1 Plumb the raw SET cell onto `dates`
 
-Add one optional field to `ShowRow["dates"]` (`lib/parser/types.ts`, after `setupTime?` at `:119`):
+Add one **parse-transient** optional field to `ShowRow["dates"]` (`lib/parser/types.ts`, after `setupTime?` at `:119`):
 
 ```ts
-setAgendaRaw?: string | null; // verbatim SET-row TIME cell (cleaned), for the SET run-of-show tokenizer. D-SET1
+// PARSE-TRANSIENT: raw SET-row TIME cell, populated by parseDates and consumed by
+// deriveScheduleBookends. STRIPPED in lib/parser/index.ts before the ShowRow is composed
+// — never written to public.shows.dates nor projected by getShowForViewer. D-SET1.
+setAgendaRaw?: string | null;
 ```
 
 - Initialize it `null` in the `parseDates` result literal (`dates.ts:54-61`).
-- Store the **raw, undecoded** cell (null when the cleaned cell is empty). **Critically, do NOT decode entities at capture time** (that was R1 P1a): `dates.loadIn`/`setupTime` come from `extractClockTimes(row[4])` (`dates.ts:220`) which does **not** decode `&#9;`/`&#10;`, so if the tokenizer decoded first, a cell like `"7:00&#9;PM"` would yield `loadIn="7:00"` but a tokenized `"7:00 PM"` — a no-drift violation. Storing the raw cell makes the tokenizer's clock values come from the **identical `clean(row[4])`** that feeds `loadIn` → no-drift **by construction** (§4.5). Entity decoding happens later, only on the sliced **label** (`labelBefore`, §4.3), where `&#10;`/`&#9;`→space is desired and never touches a clock value. Use the **same precedence the existing `loadIn`/`setupTime` lines encode** — explicit `set` overrides `travel_set`:
+- Store the **raw cell** (null when the cleaned cell is empty). The raw cell (not a decoded/normalized form) is the right carrier because `tokenizeSetSchedule` (§4.3) applies the **identical** `decodeEntities(clean(...))` that `extractClockTimes` (§4.2) applies to `row[4]` — so the tokenizer's clock values are byte-identical to `dates.loadIn`/`setupTime` (no-drift **by construction**, §4.5), and the sliced labels are decoded the same way. Use the **same precedence the existing `loadIn`/`setupTime` lines encode** — explicit `set` overrides `travel_set`:
   - helper: `const setCell = row[4] ?? ""; const sar = clean(setCell) ? setCell : null;` (`clean` only tests emptiness; the raw `setCell` is what gets stored).
   - `travel_set` case (`dates.ts:208-216`): `if (result.setAgendaRaw == null) result.setAgendaRaw = sar;` (fill-if-unset, mirroring `:213-214`).
   - `set` case (`dates.ts:218-224`): `result.setAgendaRaw = sar;` (override, mirroring `:221-222`).
   - `clean` is already imported in `dates.ts:18`.
+
+**Strip before persistence (R2 P1c).** `dates` is persisted: `parseSheet` composes `show.dates` (`lib/parser/index.ts:424`), the cron sync writes `show.dates`→`public.shows.dates` JSONB (`lib/sync/runScheduledCronSync.ts:1045,1119`), and `getShowForViewer` decodes + projects it to the viewer `ShowRow` (`lib/data/getShowForViewer.ts:326,350`). `setAgendaRaw` must therefore be **removed before the `ShowRow` literal**. In `index.ts`, just before the `const show: ShowRow = {…}` at `:418`:
+
+```ts
+// setAgendaRaw is parse-transient (consumed by deriveScheduleBookends below); never persist/project it.
+const datesForShow: ShowRow["dates"] = { ...dates };
+delete datesForShow.setAgendaRaw; // `delete` is lint-clean (no throwaway var); legal because the field is optional
+```
+
+Use `datesForShow` for `show.dates` (`:424`) and `deriveSchedulePhases(datesForShow)` (`:425`). Keep passing the **full** `dates` local (with `setAgendaRaw`) to `deriveScheduleBookends` (`:460-466`, which runs after the literal and reads `dates.setAgendaRaw`). The `delete`-based omit is chosen over a `{ setAgendaRaw: _x, ...rest }` destructure to avoid a `@typescript-eslint/no-unused-vars` failure (`ignoreRestSiblings` is not guaranteed in `eslint-config-next/typescript`). Pinned by a test asserting `parseSheet(...).show.dates` has no `setAgendaRaw` key (§9.F).
 - **Rationale for a field vs. re-reading `row[4]`:** the DATES-tab read is a single forward scan gated by `inDatesBlock` with per-row `classifyLabel` (`dates.ts:32-44`, scan `:169-237`); re-reading would duplicate ~70 lines of block-shape/version logic and risk drift. `row[4]` is already in hand at the capture site.
 
 ### 4.2 Position-returning clock core (zero behavior change to `extractClockTimes`)
@@ -74,29 +87,30 @@ export function extractClockTimeTokens(text: string): { clock: string; start: nu
   return out;
 }
 export function extractClockTimes(raw: string): string[] {
-  const c = clean(raw);
+  const c = decodeEntities(clean(raw)); // decode &#10;/&#9;→space BEFORE tokenizing (R2 P1d)
   if (!c) return [];
   return extractClockTimeTokens(c).map((t) => t.clock);
 }
 ```
 
-- `clock` is normalized **identically** to today (collapse ws + uppercase am/pm); `extractClockTimes` still does its single `clean(raw)` then maps — so its output is unchanged byte-for-byte → all of `dates.test.ts:469-481` stay green by construction.
-- The tokenizer (§4.3) computes `c = clean(raw)` **once** and passes that same `c` to `extractClockTimeTokens`, so `start`/`end` index exactly the `c` the labels are sliced from — no idempotency assumption needed.
+- **`extractClockTimes` now `decodeEntities`-s its input** (it previously `clean`-ed only). This is **behavior-preserving for the entire corpus**: real cells only ever carry `&#10;`/`&#9;` as field *separators between* tokens (exporter-xlsx), never *inside* a clock — decoding a separator to a space leaves the same matches. It is required so that a contrived `"7:00&#9;PM"` tokenizes to `"7:00 PM"` instead of `"7:00"`, keeping `dates.loadIn`/`setupTime` consistent with the tokenizer (R2 P1d). Both existing `extractClockTimes` assertions (`dates.test.ts:469-481`, no entities) and every SET-row `loadIn`/`setupTime` test (`dates.test.ts:305-420`, no entities) stay green — `decodeEntities` is the identity on entity-free strings. Pinned green-by-construction + a new `"7:00&#9;PM"→["7:00 PM"]` test (§9.A).
+- `extractClockTimeTokens` is called only by `extractClockTimes` and `tokenizeSetSchedule`, each of which passes an already-`decodeEntities(clean(...))`-ed string. `start`/`end` index that string; the tokenizer slices labels from the **same** string — no idempotency assumption.
+- `decodeEntities` is imported from `./_helpers` in `dates.ts:18` (extend the existing import).
 
 ### 4.3 `tokenizeSetSchedule(raw): { label: string | null; clock: string }[]`
 
 New export in `lib/parser/blocks/scheduleBookends.ts` (or a small sibling module it imports). Algorithm:
 
-1. `const c = clean(raw ?? "");` — if empty, return `[]`. (This is the **single** clean; `c` is both tokenized and label-sliced.)
+1. `const c = decodeEntities(clean(raw ?? ""));` — if empty, return `[]`. (This is the **single** decode+clean — identical to what `extractClockTimes` applies to `row[4]`; `c` is both tokenized and label-sliced, so clock values match `dates.loadIn`/`setupTime`.)
 2. `const toks = extractClockTimeTokens(c);` — if empty, return `[]`. Offsets index `c`.
 3. **Mode detection (§4.4).** `const lead = c.slice(0, toks[0].start);` — if `lead` is **not colon-terminated** (`!/:\s*$/.test(lead)`), return `[]` (→ caller falls through to today's path). The trailing-colon is the true `"Label:"` signature; "non-empty lead" alone is too weak (R1 P1b — it would turn leading provenance like `"As per Alyssa email 4/29 8:00 AM"` into a bogus label).
 4. For each token `i`: `label = labelBefore(c, prevEnd, toks[i].start)` where `prevEnd = i === 0 ? 0 : toks[i-1].end`. Push `{ label: label || null, clock: toks[i].clock }`.
 
-`labelBefore` (mirror of `titleAfter` at `scheduleTimes.ts:88-94`, but decoding entities and stripping a wider separator set on **both** ends so `"Load In:"`→`"Load In"` and `" / Room Access:"`→`"Room Access"`):
+`labelBefore` (mirror of `titleAfter` at `scheduleTimes.ts:88-94`, stripping a wider separator set on **both** ends so `"Load In:"`→`"Load In"` and `" / Room Access:"`→`"Room Access"`; `c` is already decoded so no `decodeEntities` here):
 
 ```ts
 function labelBefore(cell: string, from: number, to: number): string {
-  const slice = decodeEntities(cell.slice(from, to)) // &#10;/&#9; → space (labels only — never clocks)
+  const slice = cell.slice(from, to)
     .replace(/^\s*[-–:/,;]?\s*/, "") // leading separator (e.g. " / ", " - " trailing a prior clock)
     .replace(/\s*[-–:/,;]?\s*$/, "") // trailing separator (the label's own colon, or "/")
     .replace(/\s+/g, " ")
@@ -106,8 +120,8 @@ function labelBefore(cell: string, from: number, to: number): string {
 ```
 
 - New imports in `scheduleBookends.ts` (currently imports only `presence, normalizeDate` from `./_helpers` at `:1`): add `clean`, `decodeEntities` (`_helpers.ts:45,66`), `extractClockTimeTokens` (from `./dates`), and `shouldHideGenericOptional` from `@/lib/visibility/emptyState` (same import the SHOW-DAY tokenizer uses, `scheduleTimes.ts:13`).
-- Decoding is confined to the **label** slice (R1 P1a) — clock values come from `toks[i].clock` (undecoded `c`), keeping them identical to `dates.loadIn`/`setupTime`.
-- A residual backslash in a contrived label (`"Load\\ In"`) is cosmetic and out-of-corpus; it does **not** cause an offset/drift bug because `c` is cleaned exactly once and both tokenization and slicing use that one `c`.
+- Clock values come from `toks[i].clock` over the decoded `c` — identical to `dates.loadIn`/`setupTime` (which `extractClockTimes` derives from `decodeEntities(clean(row[4]))`). No drift (R2 P1d).
+- A residual backslash in a contrived label (`"Load\\ In"`) is cosmetic and out-of-corpus; `clean` runs exactly once per path so there is no offset/drift bug.
 
 **Label casing is verbatim** — the operator's exact text (consistent with the verbatim-clock policy, `extractFirstClock` doc at `scheduleTimes.ts:56-58`). No `STAGE_LABEL_MAP` canonicalization (kept out of scope; additive later if wanted).
 
@@ -160,7 +174,7 @@ SET entries remain **kind-absent** (rendered as STRONG agenda rows, exactly as t
 - **Caps unchanged & never hit in practice.** Per-day agenda cap is 20 (crew, `lib/crew/agendaDisplay.ts:16` via `RunOfShowList.tsx:133-137`) / 6 (admin, `Step3SheetCard.tsx:58,196-202`). Realistic SET entry counts are 1–3. If a pathological cell ever exceeds the cap, the existing `+N more` / `Show all` affordance handles it correctly (no special-casing needed).
 - **`isSetDay` "Setup"-meta suppression already correct.** `components/crew/sections/ScheduleSection.tsx:273-281` suppresses the standalone `"Setup <time>"` DayCard meta whenever `dayEntries.length > 0`; multi-entry SET keeps this working unchanged.
 - **`resolveKeyTimes` safe.** The Set strip anchor is built from `dates.loadIn` (`resolveKeyTimes.ts:104-112`), independent of run-of-show entries; the show-anchor loop iterates only `visibleShowDays` (`:128`), which excludes the SET day — so SET entries are never visited and never need a kind to stay out of the show-start anchor.
-- **`getShowForViewer` projection already includes the SET day.** `dates.set` is in the aggregate-day domain (`aggregateDays` pushes phase `'Set'`, `lib/crew/agendaDisplay.ts:87`; gate at `lib/data/getShowForViewer.ts:674`), so N SET entries reach crew untouched (the PR #169 widening).
+- **`getShowForViewer` projection already includes the SET day** (and never sees `setAgendaRaw`, which is stripped at `index.ts` before persistence, §4.1). `dates.set` is in the aggregate-day domain (`aggregateDays` pushes phase `'Set'`, `lib/crew/agendaDisplay.ts:87`; gate at `lib/data/getShowForViewer.ts:674`), so N SET *run-of-show entries* reach crew untouched (the PR #169 widening).
 - **Trust-boundary filter unaffected.** `scheduleEntriesForViewer` (`agendaDisplay.ts:59-64`) only transport-gates `kind:"loadout"`; kind-absent SET entries pass ungated (correct — SET is not transport-gated). Each entry must carry a real non-sentinel title to render (`displayableEntries`, `:43-50`) — derived labels and the `"Load In"`/`"Setup"` defaults all qualify.
 
 ---
@@ -190,7 +204,7 @@ SET entries remain **kind-absent** (rendered as STRONG agenda rows, exactly as t
 
 | Storage | Write path | Read path | Effect on output |
 |---|---|---|---|
-| `ShowRow["dates"].setAgendaRaw` (in-memory parse result, **raw undecoded cell** (null when clean-empty); rides existing `run_of_show` derivation, **not** persisted as its own column) | `dates.ts` `set`/`travel_set` cases (§4.1) | `deriveScheduleBookends` → `tokenizeSetSchedule` (`scheduleBookends.ts`, §4.3/§4.5) only | When label-before-shaped → cell-derived SET run-of-show titles (clocks from the same undecoded `clean()` as `loadIn`; labels decoded); otherwise inert (fall-through). Not read anywhere else; not serialized to the DB independently. |
+| `ShowRow["dates"].setAgendaRaw` — **parse-transient**: raw cell (null when clean-empty), present only on the in-parser `dates` local; **stripped at `index.ts:418` before the `ShowRow` literal** so it is never persisted to `public.shows.dates` nor projected by `getShowForViewer` | `dates.ts` `set`/`travel_set` cases (§4.1) | `deriveScheduleBookends` → `tokenizeSetSchedule` (`scheduleBookends.ts`, §4.3/§4.5) only — reads the full pre-strip `dates` | When label-before-shaped → cell-derived SET run-of-show titles (clocks from the same `decodeEntities(clean())` as `loadIn`); otherwise inert (fall-through). Strip pinned by §9.F. Not a zombie: written, read, and dropped within `parseSheet`. |
 
 No zombie-flag risk: the field has exactly one writer and one reader, both in this change.
 
@@ -205,7 +219,8 @@ These are deliberate, precedent-backed decisions. **Reviewers: do not relitigate
 3. **No UI files touched.** The render path already handles N kind-absent entries (§5). → **invariant 8 (impeccable dual-gate) does not apply.** (The plan will include a guard step that fails if any `app/**`/`components/**`/CSS file is in the diff.)
 4. **No DB / migration / schema-manifest / validation-parity.** `run_of_show` is schemaless JSONB; `setAgendaRaw` is an in-memory parse field. → no `supabase/migrations/**`, no `pnpm gen:schema-manifest`.
 5. **No §12.4 catalog / `gen:spec-codes` / `gen:internal-code-enums`.** No new error code.
-6. **Clock values are minimally-normalized, not byte-verbatim, and come from the SAME undecoded `clean(row[4])` as `dates.loadIn`/`setupTime`.** `setAgendaRaw` is stored undecoded; `tokenizeSetSchedule` and `extractClockTimes` both tokenize `clean(setAgendaRaw)`/`clean(row[4])` (identical string) → clock values match `loadIn`/`setupTime` exactly (no key-times drift), by construction (R1 P1a). Entity decoding is applied only to label slices. Strict source-verbatim is explicitly *not* pursued — it would force realigning `loadIn`/`setupTime` and risk the normalized `setupTime` assertions (`dates.test.ts:406-420`).
+6. **Clock values are minimally-normalized, not byte-verbatim, and come from the SAME `decodeEntities(clean(row[4]))` as `dates.loadIn`/`setupTime`.** `setAgendaRaw` is stored raw; `tokenizeSetSchedule` and `extractClockTimes` both apply `decodeEntities(clean(...))` to the same raw text → clock values match `loadIn`/`setupTime` exactly (no key-times drift), by construction (R2 P1d). Strict source-verbatim is explicitly *not* pursued — it would force realigning `loadIn`/`setupTime` and risk the normalized `setupTime` assertions (`dates.test.ts:406-420`).
+9. **`extractClockTimes` now `decodeEntities`-s its input** (signature unchanged; body adds the decode it previously lacked). This is a deliberate, corpus-behavior-preserving change required for no-drift + correct labels — **do not flag as scope creep.** Real cells carry `&#10;`/`&#9;` only as field separators between tokens, so decoding them to spaces never alters a match; only the contrived `"7:00&#9;PM"` (entity inside a clock) changes, and changes *correctly*. Verified green against `dates.test.ts:305-481`.
 7. **Colon-required (not the permissive SHOW-DAY `CLOCK_RE`).** Adopting the permissive scanner would turn `"AFTER 8PM"` into a key time — the exact regression `dates.test.ts:475` guards.
 8. **`extractClockTimes` public signature unchanged** (the refactor only extracts an internal/exported core it delegates to).
 
@@ -216,8 +231,9 @@ These are deliberate, precedent-backed decisions. **Reviewers: do not relitigate
 All new tests are parser unit/integration (jsdom not required). Each states the failure mode it catches.
 
 **A. `extractClockTimeTokens` + `extractClockTimes` regression** (`tests/parser/blocks/dates.test.ts`, extend):
-- `extractClockTimeTokens("Load In: 7:00 PM Room Access: 8:30 PM")` → 2 tokens with correct `clock`/`start`/`end`; `.map(t=>t.clock)` equals the existing `extractClockTimes` output. *Catches: offsets wrong / normalization drift.*
+- `extractClockTimeTokens("Load In: 7:00 PM Room Access: 8:30 PM")` → 2 tokens with correct `clock`/`start`/`end`; `.map(t=>t.clock)` equals `extractClockTimes` output. *Catches: offsets wrong / normalization drift.*
 - **All existing `extractClockTimes` assertions (`:469-481`) unchanged and green.** *Catches: the refactor altering public behavior.*
+- **entity decode (R2 P1d):** `extractClockTimes("7:00&#9;PM")` → `["7:00 PM"]` (previously would have been `["7:00"]`). *Catches: the decode regression / entity-inside-clock.*
 
 **B. `tokenizeSetSchedule` unit** (`tests/parser/blocks/scheduleBookends.test.ts`, extend):
 - label-before 2-time: `"Load In: 7:00 PM Room Access: 8:30 PM"` → `[{label:"Load In",clock:"7:00 PM"},{label:"Room Access",clock:"8:30 PM"}]`. *Catches: the core fidelity gap.*
@@ -225,7 +241,8 @@ All new tests are parser unit/integration (jsdom not required). Each states the 
 - **mode detection — trailing labels (R9–R14 pin):** `"9:00PM - LOAD IN 10:00PM - SETUP"` → `[]`; `"8:00 AM LOAD IN As per Alyssa email 4/29"` → `[]`; `"11:00 AM LOAD IN"` → `[]`. *Catches: time-first cells being mislabeled.*
 - **mode detection — leading provenance (R1 P1b pin):** `"As per Alyssa email 4/29 8:00 AM LOAD IN"` → `[]` (non-colon lead → position-default). *Catches: leading prose becoming a bogus label.*
 - **separator strip (R1 P2a):** `"Load In: 7:00 PM / Room Access: 8:30 PM"` → 2nd label `"Room Access"` (not `"/ Room Access"`). *Catches: incomplete separator set.*
-- **entity decode in label (R1 P1a corollary):** `"Load In: 7:00 PM Room Access:&#10;8:30 PM"` → 2nd label `"Room Access"` (entity → space, stripped). *Catches: undecoded `&#10;` leaking into a label.*
+- **entity decode in label (R2 P1d):** `"Load In: 7:00 PM Room Access:&#10;8:30 PM"` → 2nd label `"Room Access"` (entity → space, stripped). *Catches: undecoded `&#10;` leaking into a label.*
+- **entity inside a clock (R2 P1d):** `"Load In: 7:00&#9;PM Room Access: 8:30 PM"` → `[{label:"Load In",clock:"7:00 PM"},{label:"Room Access",clock:"8:30 PM"}]` — **not** `clock:"7:00"` and **not** label `"PM Room Access"`. *Catches: the exact R2 P1d mislabel.*
 - degradation: `""`→`[]`; `"AFTER 8PM"`→`[]`; `null`→`[]`. *Catches: crashes / phantom entries on coarse text.*
 - unlabeled-tail: `"Setup: 7:00 PM 8:30 PM"` → `[{Setup,7:00 PM},{null,8:30 PM}]`. *Catches: gap-slice over-attribution.*
 
@@ -234,7 +251,7 @@ All new tests are parser unit/integration (jsdom not required). Each states the 
 - With `setAgendaRaw="11:00 AM LOAD IN"` (time-first), `loadIn="11:00 AM"`, `setupTime=null` → exactly one `{start:"11:00 AM",title:"Load In"}` (fall-through). *Catches: regression of the dominant corpus shape.*
 - With `setAgendaRaw=null`, `loadIn`/`setupTime` set → today's 2 entries verbatim. *Catches: fall-through path breaking.*
 - **Append-not-overwrite:** a pre-existing grid `ScheduleDay` on `dates.set` keeps its grid entries AND gains the SET entries. *Catches: collision/overwrite (R10/R13 class).*
-- **Clock equals field (no-drift, R1 P1a pin):** the synthesized entry's `start` `===` `dates.loadIn` for the first clock — including an entity case: a SET cell `"Load In: 7:00&#9;PM Room Access: 8:30 PM"` produces a first-entry `start` byte-identical to `dates.loadIn` (both derive from the same undecoded `clean(row[4])`, so neither gains a decoded `PM` the other lacks). *Catches: tokenizer decoding clocks while `loadIn` doesn't (resolveKeyTimes drift).*
+- **Clock equals field + label correct (no-drift, R2 P1d pin):** for a SET cell `"Load In: 7:00&#9;PM Room Access: 8:30 PM"`, the first entry's `start` `===` `dates.loadIn` (`"7:00 PM"` on both — both derive from `decodeEntities(clean(row[4]))`) AND the second entry's `title` `=== "Room Access"` (not `"PM Room Access"`). *Catches: tokenizer/loadIn drift (resolveKeyTimes) AND the entity-mislabel.*
 
 **D. `dates.ts` capture** (`tests/parser/blocks/dates.test.ts`, extend):
 - A `SET` row with TIME `"Load In: 7:00 PM Room Access: 8:30 PM"` → `dates.setAgendaRaw === "Load In: 7:00 PM Room Access: 8:30 PM"` (raw cell) AND `dates.loadIn="7:00 PM"`, `dates.setupTime="8:30 PM"` (field capture unchanged). *Catches: precedence / not-captured / accidental decode-at-capture.*
@@ -242,7 +259,10 @@ All new tests are parser unit/integration (jsdom not required). Each states the 
 - `travel_set` fills `setAgendaRaw` only if unset; explicit `set` overrides. *Catches: precedence inversion.*
 
 **E. Integration** (`tests/parser/scheduleBookendsIntegration.test.ts` or `parseSheet`):
-- The RFI/PCF fixture (`fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md` or its `exporter-xlsx` sibling) parsed end-to-end → SET day run-of-show contains a `"Room Access"` entry, **not** `"Setup"`. *Catches: the whole pipeline, asserted against the data source (the parse result), not a rendered container (anti-tautology rule).*
+- The RFI/PCF fixture (`fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md` or its `exporter-xlsx` sibling `fixtures/shows/exporter-xlsx/redefining-fi.md`) parsed end-to-end → SET day run-of-show contains a `"Room Access"` entry, **not** `"Setup"`. *Catches: the whole pipeline, asserted against the data source (the parse result), not a rendered container (anti-tautology rule).*
+
+**F. Strip / no-persist (R2 P1c pin)** (`tests/parser/scheduleBookendsIntegration.test.ts` or `parseSheet`):
+- `parseSheet(...).show.dates` for the RFI/PCF fixture does **not** have a `setAgendaRaw` own-property (`expect("setAgendaRaw" in show.dates).toBe(false)`), even though the run-of-show still has the `"Room Access"` entry. *Catches: the transient field leaking into the persisted/projected `dates` (the exact R2 P1c failure).*
 
 ---
 
@@ -266,12 +286,13 @@ All new tests are parser unit/integration (jsdom not required). Each states the 
 
 | File | Change |
 |---|---|
-| `lib/parser/types.ts` | + `setAgendaRaw?: string \| null` on `dates` |
-| `lib/parser/blocks/dates.ts` | refactor `extractClockTimes` → `extractClockTimeTokens` core + wrapper; capture `setAgendaRaw` in `set`/`travel_set` cases + init in result literal |
-| `lib/parser/blocks/scheduleBookends.ts` | + `tokenizeSetSchedule` + `labelBefore`; rewrite SET branch (`:100-106`) |
-| `tests/parser/blocks/dates.test.ts` | + token core, capture, precedence tests |
+| `lib/parser/types.ts` | + `setAgendaRaw?: string \| null` (parse-transient) on `dates` |
+| `lib/parser/blocks/dates.ts` | refactor `extractClockTimes` → `extractClockTimeTokens` core + decoding wrapper; capture `setAgendaRaw` in `set`/`travel_set` cases + init in result literal; extend `_helpers` import with `decodeEntities` |
+| `lib/parser/blocks/scheduleBookends.ts` | + `tokenizeSetSchedule` + `labelBefore`; rewrite SET branch (`:100-106`); new imports (`clean`, `decodeEntities`, `extractClockTimeTokens`, `shouldHideGenericOptional`) |
+| `lib/parser/index.ts` | strip `setAgendaRaw` from `dates` before the `ShowRow` literal (`:418`); pass full `dates` to `deriveScheduleBookends` |
+| `tests/parser/blocks/dates.test.ts` | + token core, decode, capture, precedence tests |
 | `tests/parser/blocks/scheduleBookends.test.ts` | + tokenizer + SET-branch tests |
-| `tests/parser/scheduleBookendsIntegration.test.ts` | + RFI/PCF end-to-end label assertion |
+| `tests/parser/scheduleBookendsIntegration.test.ts` | + RFI/PCF end-to-end label assertion + strip/no-persist assertion |
 | `DEFERRED.md` | resolve **D-SET1** (mark shipped) |
 
 No other files. No UI, no DB, no migrations, no catalog, no generated artifacts.
