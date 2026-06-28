@@ -112,6 +112,15 @@ export const TRANSPORT_SCHEDULE_VOCAB: readonly string[] = [...V2_SCHEDULE_LABEL
 );
 const TRANSPORT_SCHEDULE_GATE_OPTS = { minLen: 5, tieAbort: true } as const;
 
+// Fuzzable vocab for the v4 transport passenger column header (detectPassengersColIdx).
+// Single canonical plural member: the exact regex /^passengers?$/i already recovers singular
+// AND plural with no warn, so adding "PASSENGER" would only create a within-vocab Damerau-1 tie
+// (tieAbort would then reject mid-point typos) + trip the collision tripwire. minLen:5 subsumes
+// any short neighbor (DATE/DAY/ROOM), so no exclude. lib/parser/typoVocabRegistry.ts imports this
+// exact const so the registry can't drift.
+export const PASSENGERS_VOCAB: readonly string[] = ["PASSENGERS"];
+const PASSENGERS_GATE_OPTS = { minLen: 5, tieAbort: true } as const;
+
 export function parseTransportation(
   markdown: string,
   _version: "v1" | "v2" | "v4",

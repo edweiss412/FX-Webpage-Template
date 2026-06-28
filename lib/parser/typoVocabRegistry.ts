@@ -1,6 +1,6 @@
 import { inScopeAliases } from "@/lib/parser/aliases";
 import { EVENT_LABEL_VOCAB } from "@/lib/parser/blocks/event";
-import { TRANSPORT_SCHEDULE_VOCAB } from "@/lib/parser/blocks/transport";
+import { TRANSPORT_SCHEDULE_VOCAB, PASSENGERS_VOCAB } from "@/lib/parser/blocks/transport";
 import { V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
 import { CLIENT_V4_LABELS, CLIENT_V2_LABELS } from "@/lib/parser/blocks/client";
 
@@ -42,9 +42,9 @@ export const TYPO_VOCABS: readonly VocabEntry[] = [
     members: ["CONTENT CREATION", "SHOW CALLER", "GREEN ROOM", "CAM OP"],
   },
   { id: "crewColumn", klass: "fuzzable", members: ["NAME", "ROLE", "PHONE", "EMAIL"] },
-  // NOTE: the passenger column ({PASSENGERS}) is DEFERRED from PR-A — its only caller
-  // parseV4Transport (transport.ts:143) has no `agg`/anchor in scope, so the warn emission
-  // is awkward; it moves to a P1-followup. Not registered here (nothing wires it yet).
+  // v4 transport passenger column header. detectPassengersColIdx's exact regex /^passengers?$/i
+  // covers singular+plural; only the canonical plural is fuzzable. DERIVED from PASSENGERS_VOCAB.
+  { id: "passengerColumn", klass: "fuzzable", minLen: 5, members: [...PASSENGERS_VOCAB] },
   {
     id: "longSectionHeader",
     klass: "fuzzable",
