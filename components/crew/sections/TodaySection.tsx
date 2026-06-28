@@ -51,7 +51,7 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
-import { aggregateDays, displayableEntries } from "@/lib/crew/agendaDisplay";
+import { aggregateDays, scheduleEntriesForViewer } from "@/lib/crew/agendaDisplay";
 import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -198,10 +198,19 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const eligible =
             dateRestriction.kind === "none" ||
             (dateRestriction.kind === "explicit" && new Set(dateRestriction.days).has(todayIso));
+          // §9.6 load-out trust boundary — computed BEFORE `todays` so the Mode-A
+          // gate and the rendered list are the SAME post-gate set: a viewer whose
+          // only today entry is a gated-out load-out falls to Mode B (no empty
+          // run-of-show). Also reused below for the 5-source notes transport gate.
+          const transportVisible = transportTileVisible({
+            transportation: data.transportation,
+            viewerName: data.viewerName,
+            isAdmin: ctx.isAdmin,
+          });
           const todays =
             dateRestriction.kind === "unknown_asterisk"
               ? []
-              : displayableEntries(data.runOfShow?.[todayIso]?.entries);
+              : scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible });
           const modeA = isShowDay && eligible && todays.length > 0;
 
           const rightNowContext = buildRightNowContext({
@@ -276,13 +285,9 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           const dressRaw = shouldHideGenericOptional(dressValue) ? null : dressValue;
           const showDress = dressRaw !== null;
 
-          // 5-source notes — transport source gated on transportTileVisible (the gate
-          // uses the projection's `viewerName`, per the NotesTile transport contract).
-          const transportVisible = transportTileVisible({
-            transportation: data.transportation,
-            viewerName: data.viewerName,
-            isAdmin: ctx.isAdmin,
-          });
+          // 5-source notes — transport source gated on transportTileVisible
+          // (computed above; the gate uses the projection's `viewerName`, per the
+          // NotesTile transport contract).
           const noteEntries = aggregateNotes(data, transportVisible);
           const visibleNotes = noteEntries.slice(0, SOURCE_CAP);
           const overflowCount = Math.max(0, noteEntries.length - SOURCE_CAP);
@@ -577,10 +582,7 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <RunOfShowList
-                          entries={data.runOfShow![todayIso]!.entries}
-                          isoDate={todayIso}
-                        />
+                        <RunOfShowList entries={todays} isoDate={todayIso} />
                       </SectionCard>
                     </div>
                     <div className="min-w-0">{quickCardsStack}</div>
