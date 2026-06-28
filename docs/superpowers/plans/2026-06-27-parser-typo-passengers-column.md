@@ -4,7 +4,7 @@
 
 **Goal:** Make the v4 transport **passenger column header** typo-tolerant — a misspelled `Passengers` header (e.g. `Pasengers`) recovers the column (so `assigned_names` still populate) and emits a `COLUMN_HEADER_AUTOCORRECTED` warning. This closes the last open gap in the parser typo-tolerance milestone, self-flagged as a P1-followup at `lib/parser/typoVocabRegistry.ts:45-47`.
 
-**Architecture:** Thread the existing `agg` aggregator into `parseV4Transport` (the only un-`agg`'d transport sub-parser) and into its `detectPassengersColIdx` helper. Rewrite `detectPassengersColIdx` as **two separate full passes**: Pass 1 = the existing exact `/^passengers?$/i` scan across all rows (unchanged, no warn); Pass 2 (only if Pass 1 found nothing) = a gated fuzzy scan across all rows that recovers a near-miss and emits the warn. Register a derived `passengerColumn` vocab so the collision tripwire guards it.
+**Architecture:** Thread the existing `agg` aggregator into `parseV4Transport` (the only un-`agg`'d transport sub-parser) and into its `detectPassengersColIdx` helper. Rewrite `detectPassengersColIdx` as **two separate passes**: Pass 1 = the existing exact `/^passengers?$/i` scan across **all** rows (unchanged, no warn); Pass 2 (only if Pass 1 found nothing) = a gated fuzzy scan restricted to the **header rows** — the main header (row 0) plus the DATE/TIME subheader (the row carrying bare `DATE`/`TIME` cells, where the `Passengers` column header sits) — that recovers a near-miss and emits the warn. **Data rows are excluded from the fuzzy pass** so a data value that happens to be Damerau-1 of `PASSENGERS` is never mistaken for the column header. Register a derived `passengerColumn` vocab so the collision tripwire guards it.
 
 **Tech Stack:** TypeScript, vitest. Pure parser — no Drive/Sheets/fetch, no DB, no UI, no migration, no advisory-lock surface.
 
@@ -15,6 +15,7 @@
 - **No new error code.** Reuse `COLUMN_HEADER_AUTOCORRECTED`, which already exists in `lib/messages/catalog.ts:1091`, `lib/messages/__generated__/spec-codes.ts:221`, `lib/parser/dataGaps.ts:129`, and `lib/drive/showDayTimeAnchors.ts:139`, and is already used for column headers by `lib/parser/blocks/crew.ts:127`. **No §12.4 three-lockstep needed.**
 - **Correct code per spec §114** (canonical): `COLUMN_HEADER_AUTOCORRECTED` is designated for "crew/passenger column header"; `FIELD_LABEL_AUTOCORRECTED` is for row-level field labels (v2 schedule labels, ops/venue/client). Use the column-header code here.
 - **Exact-always-wins:** Pass 1 (exact) runs to completion across **all** rows before Pass 2 (fuzzy) runs at all — a later-row exact match must beat an earlier-row fuzzy near-miss.
+- **Fuzzy pass is header-region-only:** Pass 2 scans only row 0 + the DATE/TIME subheader (rows with a bare `DATE`/`TIME` cell). Data rows are never fuzzy-scanned, so a data value Damerau-1 of `PASSENGERS` cannot false-recover the column.
 - **Derived single-source registry:** the registry entry's `members` references the **same** exported `PASSENGERS_VOCAB` const the gate fuzzes (cannot drift).
 - **`parseV4Transport` gains an optional `agg?` param only** — its public arity stays backward-compatible (all existing call sites without `agg` keep working; the warn just no-ops).
 
@@ -160,12 +161,27 @@ describe("parseTransportation — v4 passenger column fuzzy recovery (PR-passeng
     expect(CHA(agg).length).toBe(0);
   });
 
-  it("T6: below-minLen 'Pas' → no fuzzy recovery, no warn (column not found)", () => {
+  it("T6: below-minLen 'Pas' → no fuzzy recovery, no warn", () => {
     const agg = newAggregator();
-    const t = parseTransportation(v4("Pas"), "v4", undefined, agg);
+    parseTransportation(v4("Pas"), "v4", undefined, agg);
+    // 'Pas' (3 chars) < minLen 5 → not corrected. Pin ONLY the intended signal: no autocorrect
+    // warn. (assigned_names is intentionally NOT asserted — when no passengers column is found,
+    // extractAssignedNames falls back to a crew-context scan whose result isn't this test's concern.)
     expect(CHA(agg).length).toBe(0);
-    // 'Pas' (3 chars) < minLen 5 → not corrected → passenger column not detected.
-    expect(t?.schedule[0]?.assigned_names ?? []).toEqual([]);
+  });
+
+  it("T10: data-row value 'Pasengers' with NO exact header → NOT recovered, no warn", () => {
+    // Pass 2 is header-region-only, so a near-match sitting in a DATA row (not the header /
+    // DATE-TIME subheader) must never be read as the passenger column header.
+    const agg = newAggregator();
+    const md =
+      `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@example.com | LICENSE |
+| :---: | :---: | :---: | :---: | :---: |
+| | DATE | TIME | | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | Pasengers | |
+`;
+    parseTransportation(md, "v4", undefined, agg);
+    expect(CHA(agg).length).toBe(0);
   });
 
   it("T9: DATE/TIME cells (< minLen) are not fuzzed; only 'Pasengers' fires the single warn", () => {
@@ -210,7 +226,7 @@ describe("parseTransportation — v4 passenger exact-always-wins (PR-passengers)
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `pnpm vitest run tests/parser/blocks/transport.test.ts -t "PR-passengers"`
-Expected: FAIL — T1/T9 fail (no warn emitted yet; `parseV4Transport` ignores `agg` and the fuzzy pass doesn't exist). T2/T3/T5 (exact paths) and T4/T6 may already pass; that's fine — they pin behavior that must be preserved.
+Expected: FAIL — T1/T9 fail (no warn emitted yet; `parseV4Transport` ignores `agg` and the fuzzy pass doesn't exist). The no-warn assertions (T2/T3/T5/T6/T10) and T4 already pass pre-impl (nothing emits a warn yet); that's fine — they pin behavior that must be preserved. T10's load-bearingness is proven by Mutation B in Step 5, not by initial RED.
 
 - [ ] **Step 3: Thread `agg` + implement the two-pass detector**
 
@@ -253,10 +269,19 @@ function detectPassengersColIdx(tableLines: string[], agg?: ParseAggregator): nu
       if (/^passengers?$/i.test(clean(cells[i] ?? ""))) return i;
     }
   }
-  // Pass 2 — gated fuzzy (only reached when no exact match exists). minLen:5 subsumes
-  // DATE/DAY/ROOM so no exclude is needed. Returns on the FIRST near-miss → warn fires once.
-  for (const line of tableLines) {
-    const cells = splitRow(line);
+  // Pass 2 — gated fuzzy, only reached when no exact spelling exists anywhere. Restricted to
+  // HEADER rows: row 0 (main header) + the DATE/TIME subheader (located the same way
+  // detectDateColIdx finds DATE) — where the Passengers column header sits. Data rows are
+  // NOT scanned, so a data value Damerau-1 of PASSENGERS can't be mistaken for the header.
+  // minLen:5 subsumes DATE/DAY/ROOM so no exclude is needed. First near-miss → warn once.
+  const isHeaderRow = (line: string): boolean =>
+    splitRow(line).some((c) => {
+      const v = clean(c ?? "");
+      return /^DATE$/i.test(v) || /^TIME$/i.test(v);
+    });
+  for (let r = 0; r < tableLines.length; r++) {
+    if (r !== 0 && !isHeaderRow(tableLines[r] ?? "")) continue;
+    const cells = splitRow(tableLines[r] ?? "");
     for (let i = 0; i < cells.length; i++) {
       const raw = clean(cells[i] ?? "");
       const fix = gatedVocabCorrect(raw.toUpperCase(), PASSENGERS_VOCAB, PASSENGERS_GATE_OPTS);
@@ -264,7 +289,7 @@ function detectPassengersColIdx(tableLines: string[], agg?: ParseAggregator): nu
         agg?.warnings.push({
           severity: "warn",
           code: "COLUMN_HEADER_AUTOCORRECTED",
-          message: `Read likely-misspelled transport passenger column header '${raw}' as 'PASSENGERS'`,
+          message: `Read likely-misspelled transport passenger column header '${raw}' as '${fix.match}'`,
           blockRef: { kind: "transportation" },
           rawSnippet: raw,
         });
@@ -276,31 +301,36 @@ function detectPassengersColIdx(tableLines: string[], agg?: ParseAggregator): nu
 }
 ```
 
-Note: `gatedVocabCorrect` accepts `readonly string[]`; `PASSENGERS_VOCAB` (`readonly ["PASSENGERS"]`) satisfies it. If a type error arises, pass `[...PASSENGERS_VOCAB]`.
+Note: `gatedVocabCorrect` accepts `readonly string[]`; `PASSENGERS_VOCAB` (`readonly ["PASSENGERS"]`) satisfies it. If a type error arises, pass `[...PASSENGERS_VOCAB]`. `fix.match` is the gate's matched canonical member (`"PASSENGERS"`), mirroring `crew.ts`'s `'${c.corrected}'` rather than hardcoding the literal.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/parser/blocks/transport.test.ts`
 Expected: PASS — all PR-passengers tests + every pre-existing transport test (the all-rows fuzzy pass only runs when no exact `passengers?` exists, so the existing exact fixture at `transport.test.ts:217` is unaffected).
 
-- [ ] **Step 5: Negative-regression proof (T7 — the all-rows scope is load-bearing)**
+- [ ] **Step 5: Negative-regression proof (T7 — the header-region scope is load-bearing in BOTH directions)**
 
-Back up then mutate to prove T1 isn't tautological — restrict Pass 2 to only the first row (`tableLines[0]`):
+Back up, then run TWO mutations proving the scope is neither too narrow nor too broad:
 
 ```bash
 cp lib/parser/blocks/transport.ts /tmp/transport.ts.bak
 ```
 
-Temporarily change Pass 2's outer loop to scan only the header row, e.g. `for (const line of tableLines.slice(0, 1)) {`. Re-run:
+**Mutation A — too narrow (row 0 only):** change Pass 2's row guard to skip every non-zero row, e.g. `if (r !== 0) continue;`. Re-run:
 
 Run: `pnpm vitest run tests/parser/blocks/transport.test.ts -t "T1:"`
-Expected: **FAIL** — the `Pasengers` marker lives in the subheader row (`tableLines[3]`), so header-row-only never recovers it → no warn + empty `assigned_names`. This proves T1 guards the all-rows scope (the design-stress CRITICAL). Then restore:
+Expected: **FAIL** — the `Pasengers` marker lives in the DATE/TIME subheader, so row-0-only never recovers it (no warn). Proves the subheader must be included (the design-stress CRITICAL). Restore from backup.
+
+**Mutation B — too broad (all rows):** change Pass 2's row guard to scan every row, e.g. replace the `if (r !== 0 && !isHeaderRow(...)) continue;` line with nothing (scan all). Re-run:
+
+Run: `pnpm vitest run tests/parser/blocks/transport.test.ts -t "T10:"`
+Expected: **FAIL** — the data-row `Pasengers` is now fuzzy-matched and emits a spurious warn. Proves data rows must be excluded (Codex plan-review Finding 1). Restore:
 
 ```bash
 cp /tmp/transport.ts.bak lib/parser/blocks/transport.ts && rm -f /tmp/transport.ts.bak
 ```
 
-Re-run `pnpm vitest run tests/parser/blocks/transport.test.ts` → back to PASS.
+Re-run `pnpm vitest run tests/parser/blocks/transport.test.ts` → back to PASS. (Verify each mutation actually applied by grepping the file before trusting the RED — a no-op edit yields a false GREEN.)
 
 - [ ] **Step 6: Commit**
 
@@ -321,7 +351,7 @@ git commit -m "feat(parser): recover a misspelled v4 transport passenger column 
 
 ### Task 4: Adversarial review (cross-model)
 
-- [ ] After self-review, run Codex `adversarial-review` on the whole diff (REVIEWER ONLY brief; distinct verdict marker; `< /dev/null`; background). Iterate to APPROVE. Preempt relitigation in the brief: (1) **all-rows fuzzy scope is required, not a false-positive risk** — the PASSENGERS marker lives in the DATE/TIME subheader row (`transport.test.ts:217`), header-row-only would be inert; bounded by minLen:5 + Damerau≤1 + tieAbort (nearest neighbor PARKING=6), same profile as the shipped all-rows `detectDateColIdx`. (2) **`COLUMN_HEADER_AUTOCORRECTED` is the spec-correct code** (§114, `crew.ts:127`), not `FIELD_LABEL_AUTOCORRECTED`; it already exists in catalog/spec-codes/dataGaps/anchor-dispatch → no §12.4 lockstep. (3) **two separate full passes** guarantee exact-always-wins.
+- [ ] After self-review, run Codex `adversarial-review` on the whole diff (REVIEWER ONLY brief; distinct verdict marker; `< /dev/null`; background). Iterate to APPROVE. Preempt relitigation in the brief: (1) **fuzzy scope is header-region** (row 0 + the DATE/TIME subheader where the marker lives, `transport.test.ts:217`), NOT all-rows (would false-recover a data value) and NOT row-0-only (would be inert — the marker is in the subheader). T10 + Mutation B pin the data-row exclusion; T1 + Mutation A pin the subheader inclusion. (2) **`COLUMN_HEADER_AUTOCORRECTED` is the spec-correct code** (§114, `crew.ts:127`), not `FIELD_LABEL_AUTOCORRECTED`; it already exists in catalog/spec-codes/dataGaps/anchor-dispatch → no §12.4 lockstep. (3) **Pass 1 (exact) is all-rows and runs fully before Pass 2** → exact-always-wins.
 
 ### Task 5: Execution handoff
 
@@ -337,6 +367,6 @@ git commit -m "feat(parser): recover a misspelled v4 transport passenger column 
 
 **Type consistency:** `PASSENGERS_VOCAB: readonly ["PASSENGERS"]` defined in Task 1, consumed in Task 2 (`gatedVocabCorrect(... PASSENGERS_VOCAB, PASSENGERS_GATE_OPTS)`) and the registry (`[...PASSENGERS_VOCAB]`); `agg?: ParseAggregator` threaded consistently (dispatch → `parseV4Transport` → `detectPassengersColIdx`). ✅
 
-**Anti-tautology:** Task 2 Step 5 mutates Pass 2 to header-row-only and asserts T1 goes RED (the design-stress CRITICAL) while exact controls stay GREEN. Expected values derive from the fixture (`Alice Smith`, `Pasengers`), not magic. ✅
+**Anti-tautology:** Task 2 Step 5 runs two mutations — row-0-only (T1 → RED, proves subheader inclusion) and all-rows (T10 → RED, proves data-row exclusion) — bracketing the header-region scope from both sides while exact controls stay GREEN. Expected values derive from the fixture (`Alice Smith`, `Pasengers`), not magic. ✅
 
-**Concrete failure mode each test catches:** T1 — header-row-only scope misses the real subheader placement (empty names + no warn). T2/T3 — fuzzy mis-fires on a valid exact header. T4 — interleaved scan picks an early typo over a later exact (wrong column + spurious warn). T5 — all-rows fuzzy mis-detects a data cell. T6 — short token over-corrected (minLen load-bearing). T8 — registry drift / Damerau-1 collision. T9 — DATE/DAY/ROOM not subsumed by minLen. ✅
+**Concrete failure mode each test catches:** T1 — row-0-only scope misses the real subheader placement (no warn). T2/T3 — fuzzy mis-fires on a valid exact header. T4 — interleaved scan picks an early typo over a later exact (wrong column + spurious warn). T5 — fuzzy mis-detects a data cell when an exact header exists. T6 — short token over-corrected (minLen load-bearing). T8 — registry drift / Damerau-1 collision. T9 — DATE/DAY/ROOM not subsumed by minLen. T10 — all-rows scope false-recovers a data-row near-match (Codex Finding 1). ✅
