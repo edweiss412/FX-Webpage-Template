@@ -20,9 +20,12 @@
  *
  *   - Your flight — the viewer's OWN itinerary, projected as
  *     `viewerFlightInfo` ("arrival | departure"). Rendered FIRST (full-width,
- *     above the getting-there/hotels split) as the most personal Travel datum;
- *     each leg is sentinel/URL-stripped, and the card is omitted when nothing
- *     survives (no false "not added" placeholder).
+ *     above the getting-there/hotels split) as the most personal Travel datum.
+ *     `parseFlightItinerary` (lib/crew/flightDisplay.ts) sentinel/URL-strips then
+ *     classifies each leg (TRAVEL vs TECH) into structured fields — date · carrier
+ *     · route · times · conf — with the next/today flight emphasized; an
+ *     unparseable (no-date) leg falls back to its raw line. The card is omitted
+ *     when nothing survives (no false "not added" placeholder).
  *
  * When ALL blocks are hidden/empty, a section-level `<EmptyState
  * data-testid="section-empty">` renders so the surface is never blank.
@@ -49,8 +52,14 @@ import { WrappedSection } from "@/components/crew/WrappedSection";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { formatIsoDate } from "@/lib/format/date";
-import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import {
+  parseFlightItinerary,
+  sortSegmentsByDate,
+  pickUpcomingIndex,
+  formatFlightDate,
+} from "@/lib/crew/flightDisplay";
+import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 
 type TravelSectionProps = {
@@ -134,7 +143,7 @@ function TravelRow({
   );
 }
 
-export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX.Element {
+export function TravelSection({ data, viewer, showId, today }: TravelSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + isAdmin true;
   // crew/admin_preview → matched row; malformed projection throws
   // MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
@@ -257,15 +266,24 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
           const transportFetchFailed =
             Boolean(data.tileErrors["transportation"]) && (ctx.isAdmin || transportVisible);
 
-          // Flight: the parsed flight_info is "arrival | departure" (the TECH-path
-          // separator; the parsed value has no \n — also split on \n as a harmless
-          // forward-compat allowance). Strip schemed/Google URLs per-leg, drop
-          // empty/sentinel/URL-only legs.
-          const flightLegs = (data.viewerFlightInfo ?? "")
-            .split(/\s*\|\s*|\n/)
-            .map((leg) => stripAgendaUrls(leg))
-            .filter((leg) => leg.length > 0 && !shouldHideGenericOptional(leg));
-          const showFlight = flightLegs.length > 0;
+          // Flight: derive structured segments from the viewer's flight_info string
+          // (pure; no DB/projection change). parseFlightItinerary owns the same
+          // strip/sentinel pre-clean as before, then classifies each leg (TRAVEL vs
+          // TECH) into fields. showYear: from the show's dates, else the show-tz year.
+          const flightTodayIso = todayIsoInShowTimezone(data.show, today);
+          const showYear =
+            Number(
+              (
+                data.show.dates.travelIn ??
+                data.show.dates.showDays[0] ??
+                data.show.dates.travelOut ??
+                ""
+              ).slice(0, 4),
+            ) || Number(flightTodayIso.slice(0, 4));
+          const flightItinerary = parseFlightItinerary(data.viewerFlightInfo, showYear);
+          const flightSegments = sortSegmentsByDate(flightItinerary.segments);
+          const showFlight = flightSegments.length > 0;
+          const flightNextIdx = pickUpcomingIndex(flightSegments, flightTodayIso);
 
           const allHidden = !showFlight && !hasGettingThere && !hasHotels;
 
@@ -487,20 +505,78 @@ export function TravelSection({ data, viewer, showId }: TravelSectionProps): JSX
                       />
                     }
                   >
-                    <div data-testid="travel-flight" className="flex flex-col gap-1">
-                      {flightLegs.map((leg, i) => (
-                        <span
-                          key={i}
-                          data-testid="travel-flight-leg"
-                          // §2.4: each leg carries times / dates / confirmation codes
-                          // (e.g. "11:29am", "5/13", "HQQ79F"); tabular figures so the
-                          // digits read at a glance and don't shift width. Alphabetic
-                          // tokens (airport codes, carrier) are unaffected by tnum.
-                          className="text-sm/relaxed  text-text tabular-nums"
-                        >
-                          {leg}
-                        </span>
-                      ))}
+                    <div data-testid="travel-flight" className="flex flex-col gap-1.5">
+                      {flightSegments.map((seg, i) => {
+                        const carrier = seg.flightNo ?? seg.airline;
+                        const route =
+                          seg.origin && seg.dest
+                            ? `${seg.origin} → ${seg.dest}`
+                            : (seg.origin ?? seg.dest ?? "");
+                        const isNext = i === flightNextIdx;
+                        return (
+                          <div
+                            key={i}
+                            data-testid="travel-flight-seg"
+                            className={
+                              // Emphasis = a sunken tint + the chip (NO side-stripe border —
+                              // DESIGN.md "no side-stripe borders >1px"). 12px radius is on-token.
+                              isNext ? "rounded-md bg-surface-sunken/60 px-3 py-2" : "p-1 "
+                            }
+                          >
+                            {seg.structured ? (
+                              // §2.4: tabular figures so flight numbers / times / codes read at a
+                              // glance and don't shift width; alpha tokens unaffected by tnum.
+                              <div className="flex min-w-0 flex-col gap-0.5">
+                                <p className="flex items-center gap-2 text-[10.5px] font-bold uppercase leading-none tracking-eyebrow text-text-faint">
+                                  <span>
+                                    {seg.date ? formatFlightDate(seg.date) : (seg.dateRaw ?? "")}
+                                  </span>
+                                  {isNext ? (
+                                    <span
+                                      data-testid="flight-next-chip"
+                                      // accent-on-bg (4.6:1 AA) — NOT raw text-accent (3.0:1, AA-large only) per DESIGN.md §1.1
+                                      className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-accent-on-bg"
+                                    >
+                                      {seg.date === flightTodayIso ? "Today" : "Next"}
+                                    </span>
+                                  ) : null}
+                                </p>
+                                <p className="text-sm/relaxed text-text tabular-nums">
+                                  {carrier ? (
+                                    <span className="font-semibold">{carrier}</span>
+                                  ) : null}
+                                  {carrier && route ? (
+                                    <span className="text-text-subtle"> · </span>
+                                  ) : null}
+                                  {route}
+                                </p>
+                                {seg.depTime && seg.arrTime ? (
+                                  <p className="text-[13px] text-text-subtle tabular-nums">
+                                    {seg.depTime} – {seg.arrTime}
+                                  </p>
+                                ) : null}
+                                {seg.conf ? (
+                                  <p className="text-xs text-text-faint tabular-nums">
+                                    Conf {seg.conf}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span
+                                data-testid="travel-flight-leg"
+                                className="text-sm/relaxed text-text tabular-nums"
+                              >
+                                {seg.raw}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {flightItinerary.confirmation ? (
+                        <p className="px-1 text-xs text-text-faint tabular-nums">
+                          Confirmation {flightItinerary.confirmation}
+                        </p>
+                      ) : null}
                     </div>
                   </SectionCard>
                 </div>
