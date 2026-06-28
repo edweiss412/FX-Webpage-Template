@@ -26,7 +26,7 @@ import { parseContacts } from "./blocks/contacts";
 import { parseEventDetails } from "./blocks/event";
 import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
-import { parseDiagrams } from "./diagrams";
+import { parseDiagrams, extractLinkedFolder } from "./diagrams";
 import { extractOpeningReel } from "./opening-reel";
 import { parseAgenda } from "./blocks/agenda";
 import { parseScheduleTimes } from "./blocks/scheduleTimes";
@@ -395,8 +395,16 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   agg.warnings.push(...pullSheetResult.warnings);
   const pullSheet = pullSheetResult.pullSheet;
 
-  // parseDiagrams takes only markdown (no agg param in its signature).
-  const { linkedFolder, embeddedImages, linkedFolderItems } = parseDiagrams(markdown);
+  // parseDiagrams is a pure exact-label extractor. If the DIagrams label was misspelled,
+  // its exact scan misses — but parseEventDetails (typo-tolerant, PR-D1) already recovered the
+  // cell value into eventDetails.diagrams AND warned (FIELD_LABEL_AUTOCORRECTED). Recover the
+  // folder link from that value (mirrors extractOpeningReel(eventDetails["opening_reel"]) below).
+  const diag = parseDiagrams(markdown);
+  const { embeddedImages, linkedFolderItems } = diag;
+  let linkedFolder = diag.linkedFolder;
+  if (linkedFolder === null) {
+    linkedFolder = extractLinkedFolder(eventDetails["diagrams"] ?? "");
+  }
 
   // extractOpeningReel reads the opening_reel field from event details.
   const openingReel = extractOpeningReel(eventDetails["opening_reel"] ?? null);
