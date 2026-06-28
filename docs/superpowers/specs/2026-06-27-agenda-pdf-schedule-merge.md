@@ -64,8 +64,12 @@ during the onboarding scan). No change to crew rendering.
   operator's call).
 - No change to crew (`ScheduleSection`, `AgendaScheduleBlock`, `AgendaEmbed`,
   `RunOfShowList`), to `runOfShow` / `decodeRunOfShow`, or to `ScheduleDay`.
-- No change to the extractor.
-- No new DB columns / DDL, no migration, no advisory-lock change.
+- No change to the **extractor** (`extractAgendaSchedule`). NOTE: `downloadFileBytes`
+  and `enrichAgenda` DO gain the §4.5 budget caps (byte cap + per-sheet count cap);
+  these are shared, so they also bound the cron path (a deliberate net improvement,
+  sized far above the real corpus so behavior is unchanged for real shows).
+- No new DB columns / DDL, no migration, no advisory-lock change. No §12.4 catalog
+  change (the budget warnings reuse the existing `AGENDA_PDF_UNREADABLE` code).
 - **Prior-extraction hydration across parses is out of scope** (see §4.4) — it is a
   pre-existing efficiency gap affecting cron today and is filed to BACKLOG, not
   introduced or fixed here.
@@ -101,15 +105,24 @@ Render rules:
 - `links = pr.show.agenda_links`. If `links.length === 0` → **omit** the Agenda
   breakdown entirely (mirrors the existing breakdowns' empty handling).
 - Else render a `BreakdownSection label="Agenda" count={links.length}` containing,
-  per link **in array order**:
-  - if `link.extracted` is a high-confidence extraction with ≥1 day → render
-    `<AgendaScheduleBlock extraction={link.extracted} label={links.length > 1 ?
-    agendaDisplayLabel(link.label) : null} />`. `AgendaScheduleBlock` self-gates
-    (returns `null` for low/malformed/0-day — `AgendaScheduleBlock.tsx:62-64`), so
-    a low-confidence link falls through to the note below.
-  - else → a one-line muted note: `"{agendaDisplayLabel(link.label)} · agenda PDF
-    not auto-readable — open the PDF to view"` (so the operator sees that a PDF is
-    linked but produced no structured schedule).
+  per link **in array order**. **The block-vs-note choice is made by an EXPLICIT
+  renderability predicate, NOT `link.extracted` truthiness** (Codex round-2
+  Finding 2): a React component returning `null` does NOT fall through to a sibling
+  branch, so `link.extracted ? <Block/> : <Note/>` would render an empty section
+  for a low-confidence/malformed/zero-day payload (which IS truthy). The card
+  computes the SAME gate `AgendaScheduleBlock` uses, up front:
+  ```ts
+  const norm = normalizeAgendaExtraction(link.extracted); // lib/agenda/normalizeAgendaExtraction
+  const renderable = !!norm && norm.confidence === "high" && norm.days.length > 0;
+  ```
+  - if `renderable` → render `<AgendaScheduleBlock extraction={link.extracted}
+    label={links.length > 1 ? agendaDisplayLabel(link.label) : null} />`.
+  - else (missing / low-confidence / malformed / zero-day `extracted`) → a one-line
+    muted note: `"{agendaDisplayLabel(link.label) ?? link.label} · agenda PDF not
+    auto-readable"` **followed by an actionable link to the PDF** when a target is
+    available: `link.url` if present, else `https://drive.google.com/file/d/${link.fileId}/view`
+    when `link.fileId` is set (anchor text "Open PDF"). No target (neither
+    fileId nor url) → note text only.
 - The `label` badge (per-document, e.g. "RFI"/"PCF") is shown only when
   `links.length > 1`, mirroring the crew rule
   (`ScheduleSection.tsx:131-132`, `agendaDisplayLabel` from
@@ -175,7 +188,51 @@ repeated cost for BOTH onboarding re-scans and cron, but it touches the cron rea
 path and is a pre-existing inefficiency independent of this feature → filed to
 `BACKLOG.md` as `BL-AGENDA-EXTRACTION-HYDRATION`, out of scope here.
 
-## 5. Guard conditions (every input) — see §4.3.
+### 4.5 Onboarding extraction budget (Codex round-2 Finding 1)
+
+The onboarding scan route holds a single request open (`maxDuration = 300`,
+`app/api/admin/onboarding/scan/route.ts:19`) while `prepareOnboardingFiles`
+processes **every** spreadsheet the folder `listFolder` returns, at concurrency
+`ONBOARDING_PREPARE_CONCURRENCY = 12` (`runOnboardingScan.ts`). That cap bounds
+concurrent *sheet* prep, NOT total agenda work. Today `downloadFileBytes`
+(`lib/drive/agendaDrive.ts:53`) reads the **full arraybuffer** with no byte cap,
+and `enrichAgenda` iterates **all** agenda links with no count cap — so a large
+shared folder, a sheet with many agenda links, or a single huge PDF could push the
+scan into route-timeout / memory / quota failure. (This unbounded shape already
+exists on cron; bounding it here improves both paths.)
+
+Two explicit, testable caps are added (constants in `lib/agenda/constants.ts`),
+both with deterministic **skip + warning** behavior — never a silent drop:
+
+| Cap | Constant (proposed) | Where enforced | On exceed |
+|---|---|---|---|
+| Per-PDF download size | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` (`agendaDrive.ts`) | streamed bounded read aborts → return `{ kind: "unavailable" }` → `enrichAgenda` emits the existing `AGENDA_PDF_UNREADABLE` (download-failed message) |
+| Agenda PDFs extracted per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap are skipped with one `AGENDA_PDF_UNREADABLE` warning ("too many agenda PDFs on this sheet to read automatically — open the PDF") |
+
+**Byte cap mechanism:** `downloadFileBytes` switches its Drive `files.get({ alt:
+"media" })` from `responseType: "arraybuffer"` to `responseType: "stream"` and
+consumes it via `bytesFromNodeStream(stream, AGENDA_PDF_MAX_BYTES)`
+(`lib/sync/boundedBytes.ts:110`); a `ByteLimitExceededError`
+(`boundedBytes.ts:5`) is caught and mapped to `{ kind: "unavailable" }` (NOT
+`infra_error` — it is a deterministic too-large outcome, mirrors the 404/403 →
+`unavailable` mapping at `agendaDrive.ts:65`). This bounds peak memory per PDF.
+
+**No new §12.4 catalog code:** both behaviors reuse the existing
+`AGENDA_PDF_UNREADABLE` code with new free-text `message` strings; the catalog
+pins code→`helpfulContext`, not per-instance messages, so no catalog/`gen:spec-codes`
+change is required. (Confirmed: `AGENDA_PDF_UNREADABLE` is an existing code emitted
+throughout `enrichAgenda.ts`.)
+
+**No page cap** is added — the byte cap bounds the dominant memory/parse-time risk
+(a many-page agenda is also many bytes), and a page cap would require modifying the
+shared extractor + a large multi-page fixture for no marginal safety. The extractor
+stays untouched.
+
+These caps are sized far above the real corpus (rfi.pdf 538 KB / 10 pp, pcf.pdf
+495 KB / 7 pp; ≤2 PDFs per sheet) so production extraction is unaffected; the caps
+are pure pathological-input backstops.
+
+## 5. Guard conditions (every input) — see §4.3 + §4.5.
 
 ## 6. Numeric sweep
 
@@ -203,20 +260,36 @@ path and is a pre-existing inefficiency independent of this feature → filed to
    + `fixtures/agenda/*.pdf`); assert the staged `parse_result.show.agenda_links[i].extracted`
    is a high-confidence extraction. *Failure mode:* enrichAgenda silently
    short-circuits.
-3. **`AgendaBreakdown` render (UI/RTL).** Given a `ParseResult` with two
-   high-confidence `extracted` links → two `agenda-schedule` blocks with RFI/PCF
-   labels and representative titles ("Registration & Breakfast", "Lunch"). Given a
-   link with no `extracted` → the muted note line, no block. Given zero agenda
-   links → no Agenda breakdown rendered. **Derive expected titles from the
-   extraction of `fixtures/agenda/*.pdf`, not hardcoded** (anti-tautology); when
-   scanning DOM for a label, clone-and-strip the sibling Schedule/Rooms breakdowns
-   first so the assertion can't be satisfied by another section.
-4. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
+3. **`AgendaBreakdown` render (UI/RTL) — block-vs-note predicate (Finding 2).**
+   Cases: (a) two high-confidence `extracted` links → two `agenda-schedule` blocks
+   with RFI/PCF labels + representative titles; (b) **low-confidence** `extracted`
+   → note line (NOT an empty block); (c) **malformed** `extracted` (garbage object)
+   → note line; (d) **high-confidence zero-day** `extracted` → note line; (e) no
+   `extracted` → note line with an "Open PDF" link derived from `fileId`; (f) link
+   with `url` only → note "Open PDF" → `url`; (g) zero agenda links → no Agenda
+   breakdown at all. **Derive expected titles from the extraction of
+   `fixtures/agenda/*.pdf`, not hardcoded** (anti-tautology); when scanning DOM for
+   a label, clone-and-strip the sibling Schedule/Rooms breakdowns first so the
+   assertion can't be satisfied by another section. *Failure mode caught:* the
+   `link.extracted ? <Block/> : <Note/>` trap rendering an empty section for
+   low/malformed payloads (hides the degraded state the operator must review).
+4. **Extraction budget (Finding 1).**
+   - `downloadFileBytes` byte cap: a mocked Drive `files.get` stream emitting
+     > `AGENDA_PDF_MAX_BYTES` → returns `{ kind: "unavailable" }` (NOT
+     `infra_error`); a stream under the cap → `{ kind: "bytes" }` with correct
+     bytes (regression: existing fixture downloads still succeed). Use a small
+     test-injected stream; assert the cap is honored by feeding `cap + 1` bytes.
+   - `enrichAgenda` per-sheet count cap: a `ParseResult` with
+     `AGENDA_MAX_PDFS_PER_SHEET + 1` fileId-bearing links → only the first N are
+     extracted; the surplus links get an `AGENDA_PDF_UNREADABLE` warning and no
+     `extracted`. *Failure mode caught:* unbounded inline extraction inside the
+     300s onboarding request on a pathological folder/PDF.
+5. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
    renders exactly one `AgendaScheduleBlock` per high-confidence link and that
    nothing in this change touches `runOfShow` (guard against accidental
    duplication / re-introduction of the merge). Verify by confirming no new
    `runOfShow` write path exists.
-5. **Impeccable dual-gate** (critique + audit) on the admin card diff (invariant 8).
+6. **Impeccable dual-gate** (critique + audit) on the admin card diff (invariant 8).
 
 ## 8. Meta-test inventory
 
@@ -236,10 +309,15 @@ path and is a pre-existing inefficiency independent of this feature → filed to
 | File | Change |
 |---|---|
 | `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips` (import from `agendaDrive.ts`); **export** `defaultDriveClient` for the meta-test |
-| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock`); render it from `pr.show.agenda_links` |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PDFS_PER_SHEET` (§4.5) |
+| `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed |
+| `lib/sync/enrichAgenda.ts` | per-sheet extraction count cap + skip-warning |
+| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate); render from `pr.show.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
+| `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
+| `tests/sync/enrichAgenda.test.ts` | per-sheet count-cap test (Task 4) |
 | `tests/onboarding/...` | extraction-populates-`extracted` test (Task 2) |
-| `tests/components/admin/...` | `AgendaBreakdown` render test (Task 3) |
+| `tests/components/admin/...` | `AgendaBreakdown` render test incl. low/malformed/zero-day (Task 3) |
 | `BACKLOG.md` | file `BL-AGENDA-EXTRACTION-HYDRATION` |
 
 **Not touched (dropped from rev 1):** `lib/parser/types.ts`,
@@ -257,3 +335,9 @@ path and is a pre-existing inefficiency independent of this feature → filed to
   (pre-existing); hydration → BACKLOG (Codex F2).
 - Structural pin: **onboarding `defaultDriveClient` added to the DriveClient
   completeness meta-test** (Codex F3).
+- Render gate: **explicit `normalizeAgendaExtraction` predicate** decides
+  block-vs-note (never `link.extracted` truthiness); note carries an "Open PDF"
+  link; tests cover low/malformed/zero-day (Codex round-2 F2).
+- Budget: **per-PDF byte cap + per-sheet PDF count cap**, deterministic
+  skip+warning, shared (bounds cron too), sized above the real corpus (Codex
+  round-2 F1).
