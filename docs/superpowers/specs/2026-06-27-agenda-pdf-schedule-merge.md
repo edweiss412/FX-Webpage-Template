@@ -328,7 +328,7 @@ onboarding request is hard-bounded regardless of folder size:
 | Per-PDF download size (memory) | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` (`agendaDrive.ts`) | streamed bounded read aborts → `{ kind: "unavailable" }` → `enrichAgenda` emits existing `AGENDA_PDF_UNREADABLE` (download-failed message) |
 | Per-PDF page count (parse time) | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` (early, right after `getDocument`) | `if (doc.numPages > AGENDA_MAX_PAGES) return LOW()` → 0-day low-confidence → admin note / crew embed-only |
 | Agenda-link **attempts** per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop, **at the top of each link iteration, BEFORE `getFile`** | the (i ≥ cap)-th link skips **before any Drive call**; surfaced via the admin card note / crew embed (NO warning — see "Skip visibility" below) |
-| **Agenda-link attempts per scan (folder-wide)** | `AGENDA_MAX_PDFS_PER_SCAN = 40` | `enrichAgenda` entry-gate + per-link decrement, **before `getAgendaChips` AND before `getFile`** | once the shared budget reaches 0, the sheet skips **all** agenda work (chips + links) **before any Sheets/Drive call**; surfaced via the card note / crew embed (NO warning) |
+| **Total agenda Drive/Sheets calls per scan (folder-wide)** — counts BOTH each `getAgendaChips` read AND each per-PDF `getFile`+download attempt | `AGENDA_MAX_SCAN_ATTEMPTS = 128` | `enrichAgenda` — decrement 1 before each `getAgendaChips` AND before each per-link `getFile` | once the shared budget reaches 0, further chip recovery + links skip **before any Sheets/Drive call**; surfaced via the card note / crew embed (NO warning) |
 
 **Call-timeout / stall guard (Codex round-8 Finding 1).** Byte/page/count caps bound
 *work*, not a *hang*: googleapis/gaxios have no default wall-clock, and moving agenda
@@ -375,7 +375,7 @@ bound each unit but total work still scales with folder size (sheets × ≤6 × 
 which could keep the streamed 300s request open or saturate CPU on a large shared
 folder. So a **folder-wide** cap is added: `EnrichContext` gains an optional
 `agendaBudget?: { remaining: number }` (`lib/sync/enrichWithDrivePins.ts`).
-`runOnboardingScan` creates **one** budget `{ remaining: AGENDA_MAX_PDFS_PER_SCAN }`
+`runOnboardingScan` creates **one** budget `{ remaining: AGENDA_MAX_SCAN_ATTEMPTS }`
 **before** the `mapWithConcurrency(prepareOne)` loop and passes the SAME object into
 every per-sheet `EnrichContext` (`runOnboardingScan.ts:934`).
 
@@ -408,16 +408,21 @@ recovery entirely (links stay fileId-less → note items); else **decrement 1**
 (reserving the Sheets call) and call `getAgendaChips`. The decrement happens
 **regardless of the chip call's outcome** (rows / mismatch / `infra_error`), so every
 `getAgendaChips` consumes budget. The per-link loop then decrements per processed
-fileId-bearing link as before. Net: `getAgendaChips` calls ≤ `AGENDA_MAX_PDFS_PER_SCAN`
+fileId-bearing link as before. Net: `getAgendaChips` calls ≤ `AGENDA_MAX_SCAN_ATTEMPTS`
 + concurrency, and total Sheets+Drive calls (chips + getFile + downloads) are all
 budget-bounded, independent of folder size or chip-failure rate. (The per-sheet cap
-`AGENDA_MAX_PDFS_PER_SHEET` likewise counts the chip reservation + per-link attempts.)
+`AGENDA_MAX_PDFS_PER_SHEET = 6` bounds per-link attempts within a sheet; the 1 chip
+read/sheet is inherently bounded.)
 
-Net: total onboarding agenda work — `getAgendaChips` reads, `getFile` metadata, and
-`downloadFileBytes` — is ≤ `AGENDA_MAX_PDFS_PER_SCAN` (+concurrency) attempts, each
-≤ bytes × pages. A hard ceiling independent of folder size or how many links are
-non-PDF/chip-based. (`AGENDA_MAX_PDFS_PER_SCAN = 40` covers the real ~19-sheet folder
-with headroom; surplus is skipped, the scan completes.)
+**Sizing (Codex round-12 Finding 1).** Because `AGENDA_MAX_SCAN_ATTEMPTS` counts BOTH
+chip reads AND per-PDF attempts, it must cover the real-corpus worst case of BOTH:
+the `fxav-test-shows` folder is ≤19 sheets × (1 chip read + ≤2 PDF attempts) = ≤19 +
+≤38 = **≤57 calls**. `AGENDA_MAX_SCAN_ATTEMPTS = 128` gives >2× headroom over 57, so
+**no real-corpus agenda is ever skipped during onboarding** (the earlier `40` was
+mis-sized — it counted only PDFs while the budget also consumes chip reads). It still
+hard-bounds a pathological folder (a 1000-sheet folder stops at 128 calls). Net: total
+onboarding agenda work — `getAgendaChips` + `getFile` + `downloadFileBytes` — is ≤ 128
+(+concurrency) calls, each ≤ bytes × pages.
 
 **Skip visibility — no warning for count/scan-budget skips (Codex round-7 Finding 2).**
 The Step-3 + per-show warning UIs render the **cataloged title/helpfulContext** for a
@@ -451,6 +456,9 @@ unaffected; they are pure pathological-input backstops.
   render per `AgendaScheduleBlock`'s own rules; 1 drift note on the 12:25 lunch).
 - `AgendaScheduleBlock` render gate: high-confidence + ≥1 day
   (`AgendaScheduleBlock.tsx:62-64`).
+- **Scan-budget arithmetic:** real folder ≤19 sheets × (1 chip read + ≤2 PDF
+  attempts) = ≤19 + ≤38 = **≤57** budget units; `AGENDA_MAX_SCAN_ATTEMPTS = 128` >
+  57 (>2× headroom) → no real-corpus agenda skipped. Per-sheet: 1 chip + ≤6 links.
 - No counts in `runOfShow` / `decodeRunOfShow` change (those are untouched).
 
 ## 7. Test plan (TDD per task)
@@ -542,6 +550,13 @@ unaffected; they are pure pathological-input backstops.
      **no** `agendaBudget` (cron) imposes no scan limit. *Failure mode caught:* a
      folder of chip-FAILING sheets issuing unbounded `getAgendaChips` reads because
      the loop-only decrement never fires.
+   - **Real-corpus headroom (round-12 F1):** model the stated worst case — 19
+     chip-based "sheets" × (1 chip read + 2 PDF attempts) = 57 budget units — against
+     `agendaBudget = { remaining: AGENDA_MAX_SCAN_ATTEMPTS }` (128) and assert **every**
+     sheet's PDFs are extracted (no skip), proving the cap is sized above
+     chip-reads + PDF-attempts, not just PDFs. *Failure mode caught:* the rev-9→12
+     mis-sizing where chips share the budget but the cap counts only PDFs, silently
+     skipping real agendas late in a normal scan.
    - **Call-timeout / stall (round-8 F1):** `downloadFileBytes` over a stream that
      stalls (no bytes past the idle window, via a tiny `createStallGuard` timeout
      seam) → `{ kind: "infra_error" }` (aborted, not a hang); `getAgendaChips` whose
@@ -574,7 +589,7 @@ unaffected; they are pure pathological-input backstops.
 |---|---|
 | `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips`; **export** `defaultDriveClient` for the meta-test; create one `agendaBudget` per scan and pass it into every per-sheet `EnrichContext` |
 | `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number }` to `EnrichContext`; pass `ctx.agendaBudget` into `enrichAgenda` |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_SCAN_ATTEMPTS`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed; **+ `createStallGuard` idle-abort on the stream → `infra_error` on stall**; `getAgendaChips` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry** (per `sheetGids.ts`) → `infra_error` on timeout |
 | `components/admin/OnboardingWizard.tsx` (`fetchStep3Data`, `:191`) | **server-side** build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate via `normalizeAgendaExtraction` + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge + `arr`/string coercion); strip `agenda_links[].extracted` from the client-bound `Step3Row.parseResult`. (The `StagedReviewCard` staged pages are out of scope — §3.) |
@@ -613,9 +628,11 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   block-vs-note (never `link.extracted` truthiness); note carries an "Open PDF"
   link; tests cover low/malformed/zero-day (Codex round-2 F2).
 - Budget: **per-PDF byte + per-PDF page + per-sheet count + per-scan total** caps,
-  deterministic skip+warning, sized above the real corpus (Codex round-2/3/4 F1).
-  Page cap bumps `EXTRACTOR_VERSION`→2. Scan-level cap via a shared `agendaBudget` on
-  `EnrichContext` (onboarding only; cron passes none). Every cost dimension bounded.
+  deterministic skip, sized above the real corpus. Page cap bumps `EXTRACTOR_VERSION`→2.
+  Scan cap `AGENDA_MAX_SCAN_ATTEMPTS = 128` counts **every** agenda Drive/Sheets call
+  (chip reads + per-PDF attempts), sized > the real worst case (≤19 chips + ≤38 PDFs
+  = ≤57) with >2× headroom so no real agenda is skipped (Codex round-2/3/4 F1 +
+  round-12 F1). Shared `agendaBudget` on `EnrichContext`; cron passes none.
 - Href safety: **`agendaPdfHref` validator** — Drive URL from `fileId`, or `url`
   only when `^https?://`, else no anchor (Codex round-3 F2).
 - Robustness: **`arr(pr.show?.agenda_links)` + per-field string coercion** against
