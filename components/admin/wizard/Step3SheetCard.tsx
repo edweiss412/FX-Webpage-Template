@@ -10,9 +10,11 @@
  *   - Summary (always visible): the show title (a deep link to the SOURCE sheet
  *     that WRAPS, never truncates), client, dates, venue name, a dedicated city
  *     row, diagrams/reel badges, and the per-class data-gap chips when present.
- *   - Breakdown (expand toggle): crew names+roles, schedule outline, rooms, and
- *     hotels in a balanced multi-column flow, then a FULL-WIDTH warnings callout
- *     below the rest — each list capped per §4.3.
+ *   - Breakdown ("More" → details overlay): crew names+roles, schedule outline,
+ *     rooms, and hotels in a balanced multi-column flow, then a FULL-WIDTH
+ *     warnings callout below the rest — each list capped per §4.3. The "More"
+ *     button opens <Step3DetailsDialog> (a bottom sheet on mobile, a centered
+ *     popup on desktop), replacing the old inline height-morph expand.
  *
  * This is a PRESENTATIONAL card (a `row` prop). D2 deliberately adds NO
  * checkbox / select-all / approve / ignore wiring — those are D3/D4/D5. The
@@ -20,18 +22,18 @@
  * without a layout change.
  *
  * Guard conditions (§4.6): a null/corrupt `parseResult` renders the title
- * fallback + a human "couldn't read" sentence and NO expand toggle. Undefined
+ * fallback + a human "couldn't read" sentence and NO "More" button. Undefined
  * arrays coerce to `[]` (counts render 0 — a 0 is a signal, not hidden).
  * Undefined warnings → no chip. The component never crashes on a missing
  * field (the JSONB is untyped on the wire).
  *
- * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px. The breakdown
- * height-morph + reduced-motion handling live in app/globals.css
- * (`[data-step3-breakdown]`), consuming --duration-normal.
+ * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px. The details overlay's
+ * rise/pop/scrim animation lives in app/globals.css ([data-step3-details-panel]
+ * / [data-step3-details-scrim]), consuming the motion tokens.
  */
-import { Fragment, useId, useState } from "react";
+import { Fragment, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ExternalLink } from "lucide-react";
+import { Check, ChevronRight, ExternalLink } from "lucide-react";
 import type {
   AgendaEntry,
   CrewMemberRow,
@@ -49,6 +51,7 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
+import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -574,19 +577,11 @@ function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
 export function Step3SheetCard({
   row,
   wizardSessionId,
-  expanded: expandedProp,
-  onToggleExpanded,
   checked: checkedProp,
   onToggleChecked,
 }: {
   row: Step3Row;
   wizardSessionId: string;
-  // Optional controlled expand state. When the parent grid supplies these, the
-  // card is part of the single-open accordion (only one open at a time, the open
-  // one spans full width). Omitted → the card self-manages its own expand state
-  // (standalone / test usage stays unchanged).
-  expanded?: boolean | undefined;
-  onToggleExpanded?: (() => void) | undefined;
   // Optional controlled publish-intent (lifted into Step3Review). When the parent
   // supplies `onToggleChecked`, the checkbox is controlled by the shared optimistic
   // state so "Select all" updates this box instantly. Omitted → the checkbox
@@ -596,14 +591,14 @@ export function Step3SheetCard({
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
-  const [expandedInternal, setExpandedInternal] = useState(false);
-  const isControlled = expandedProp !== undefined;
-  const expanded = isControlled ? expandedProp : expandedInternal;
-  const toggleExpanded = () => {
-    if (isControlled) onToggleExpanded?.();
-    else setExpandedInternal((v) => !v);
-  };
-  const panelId = useId();
+  // The details overlay is self-managed per card: "More" opens it, the dialog
+  // closes itself (Escape / scrim / close button). It is a MODAL, so only one is
+  // ever open at a time (the scrim covers the viewport) — no parent accordion
+  // state is needed, and every card stays a uniform cell in the grid.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  // Stable close handler so the dialog's Escape keydown effect (keyed on onClose)
+  // subscribes once per open, not on every parent re-render while it is open.
+  const closeDetails = useCallback(() => setDetailsOpen(false), []);
 
   const titleFallback = row.driveFileName || dfid;
 
@@ -784,75 +779,63 @@ export function Step3SheetCard({
         </div>
       </div>
 
-      {/* Details disclosure — a quiet, left-aligned TEXT toggle (not a boxed,
-          full-width dropdown-styled button). The label + chevron is the affordance
-          (discoverable without hover, PRODUCT.md); hover only adds an underline.
-          ≥44px tap target via min-h-tap-min; self-start so it sizes to its content
-          and sits at the card's left edge instead of stretching full width. */}
+      {/* "More" — a quiet, left-aligned TEXT button that opens the details
+          overlay (<Step3DetailsDialog>: a bottom sheet on mobile, a centered
+          popup on desktop). It replaced the old inline expand toggle, so the
+          card stays a compact summary tile and every grid cell is uniform.
+          `aria-haspopup="dialog"` announces that it opens a modal; the trailing
+          chevron is the persistent (non-hover) "opens more" affordance. ≥44px
+          tap target via min-h-tap-min; self-start so it sizes to its content at
+          the card's left edge instead of stretching full width. */}
       <button
         type="button"
-        data-testid={`wizard-step3-card-${dfid}-expand`}
-        aria-expanded={expanded}
-        aria-controls={panelId}
-        onClick={toggleExpanded}
+        data-testid={`wizard-step3-card-${dfid}-more`}
+        aria-haspopup="dialog"
+        onClick={() => setDetailsOpen(true)}
         className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
-        <span>{expanded ? "Hide details" : "Show details"}</span>
-        <ChevronDown
-          aria-hidden="true"
-          className={`size-4 transition-transform duration-fast ${expanded ? "rotate-180" : ""}`}
-        />
+        <span>More</span>
+        <ChevronRight aria-hidden="true" className="size-4" />
       </button>
 
-      {/* Bounded, height-morphing breakdown region (§4.4/§4.5). overflow-hidden
-          via the [data-step3-breakdown] rule in globals.css keeps the
-          fixed-width column from overflowing during the morph. `inert` while
-          collapsed removes the panel's focusable controls (the "Show all N
-          times" expander) from the tab order + a11y tree — the height:0 morph
-          is NOT display:none, so without `inert` they'd be tabbable +
-          AT-discoverable while hidden (whole-diff R2 HIGH). */}
-      <div
-        id={panelId}
-        data-testid={`wizard-step3-card-${dfid}-breakdown`}
-        data-step3-breakdown=""
-        data-expanded={expanded ? "true" : "false"}
-        inert={!expanded}
-      >
-        {/* Balanced multi-column flow. The expanded card spans the full grid
-            width (the open accordion card is `lg:col-span-2 xl:col-span-3`), so on
-            desktop it has room for 2–3 columns; CSS multi-column balances the
-            variable-height sections into them and fills the horizontal dead space a
-            single column left behind. `break-inside-avoid` keeps each section whole
-            across a column boundary; `mb-6` carries the vertical rhythm `gap` can't
-            provide in column flow (last section drops it). Collapses to one column
-            on mobile/narrow. `wrap-break-word` still bounds any unbreakable token
-            (§4.4). Column count uses named breakpoints (DESIGN.md §6: sm/lg/xl — no
-            `md`), never an arbitrary value (token discipline §10). */}
-        <div
-          data-testid={`wizard-step3-card-${dfid}-breakdown-grid`}
-          className="columns-1 gap-x-8 wrap-break-word pt-1 sm:columns-2 xl:columns-3 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
-        >
-          <CrewBreakdown dfid={dfid} members={crewMembers} />
-          <ScheduleBreakdown dfid={dfid} ros={ros} />
-          <RoomsBreakdown dfid={dfid} rooms={rooms} />
-          <HotelsBreakdown dfid={dfid} hotels={hotels} />
-        </div>
-        {/* Warnings — pulled OUT of the multi-column data flow into a FULL-WIDTH
-            bordered callout BELOW the rest of the breakdown, so the non-blocking
-            data-quality notes stand apart from the show data instead of competing
-            with it in a column. Warm warning-bg + a full strong border (DESIGN.md
-            §1.2 — warning, not error; full border, never a side-stripe). Gated on
-            warnings so there is no empty box (WarningsBreakdown also returns null
-            when empty). */}
-        {warnings.length > 0 ? (
+      {/* The details overlay — mounted ONLY while open, so a closed card carries
+          no breakdown (and none of its focusable "Show all N times" controls) in
+          the DOM at all (absent, not merely `inert`). The breakdown lays its
+          sections out in a balanced column flow — 1 column in the mobile sheet,
+          2 in the desktop popup, both bounded by the dialog width (no longer the
+          grid cell) — with the FULL-WIDTH warnings callout below.
+          `break-inside-avoid` keeps each section whole across a column break;
+          `mb-6` carries the vertical rhythm column flow can't get from `gap`
+          (last section drops it). `wrap-break-word` bounds any unbreakable token
+          (§4.4). Column count uses the named `sm` breakpoint (DESIGN.md §6),
+          which is also the sheet→popup mode boundary, so 1-col tracks the sheet
+          and 2-col tracks the popup. */}
+      {detailsOpen ? (
+        <Step3DetailsDialog dfid={dfid} title={title} onClose={closeDetails}>
           <div
-            data-testid={`wizard-step3-card-${dfid}-warnings-panel`}
-            className="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad"
+            data-testid={`wizard-step3-card-${dfid}-breakdown-grid`}
+            className="columns-1 gap-x-8 wrap-break-word sm:columns-2 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
           >
-            <WarningsBreakdown dfid={dfid} warnings={warnings} />
+            <CrewBreakdown dfid={dfid} members={crewMembers} />
+            <ScheduleBreakdown dfid={dfid} ros={ros} />
+            <RoomsBreakdown dfid={dfid} rooms={rooms} />
+            <HotelsBreakdown dfid={dfid} hotels={hotels} />
           </div>
-        ) : null}
-      </div>
+          {/* Warnings — pulled OUT of the column flow into a FULL-WIDTH bordered
+              callout BELOW the rest, so the non-blocking data-quality notes stand
+              apart from the show data. Warm warning-bg + a full strong border
+              (DESIGN.md §1.2 — warning, not error; full border, never a
+              side-stripe). Gated on warnings so there is no empty box. */}
+          {warnings.length > 0 ? (
+            <div
+              data-testid={`wizard-step3-card-${dfid}-warnings-panel`}
+              className="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad"
+            >
+              <WarningsBreakdown dfid={dfid} warnings={warnings} />
+            </div>
+          ) : null}
+        </Step3DetailsDialog>
+      ) : null}
     </article>
   );
 }

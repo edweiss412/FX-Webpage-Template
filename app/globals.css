@@ -550,33 +550,64 @@ body {
       height var(--duration-fast) ease-out,
       content-visibility var(--duration-fast) allow-discrete;
   }
+}
 
-  /* Step-3 sheet card breakdown (Task D2, spec §4.4/§4.5). The breakdown
-     region morphs height collapsed↔expanded via interpolate-size (height: 0
-     when [data-expanded="false"], auto when "true"). `overflow: hidden` bounds
-     it so the fixed-width list column never horizontally overflows during the
-     morph. Consumes --duration-normal (DESIGN.md §5.1 accordion expand), which
-     the reduced-motion block collapses to 0ms — so the transition is instant
-     under prefers-reduced-motion with no per-component opt-in. */
-  [data-step3-breakdown] {
-    overflow: hidden;
-    height: 0;
-    transition:
-      height var(--duration-normal) var(--ease-out-quart),
-      content-visibility var(--duration-normal) allow-discrete;
+/* Step-3 "More" details overlay (components/admin/wizard/Step3DetailsDialog).
+   The responsive disclosure that replaced the inline height-morph breakdown:
+   a bottom SHEET that rises on mobile (<640px) and a centered POPUP that fades
+   in on desktop (>=640px); the scrim fades in under both. translateY/opacity
+   only — never an animated layout property (DESIGN.md §5.4). Durations consume
+   the motion tokens, which the reduced-motion block collapses to 0ms; the
+   explicit override below also rests every surface at its natural end state
+   (panel un-transformed, scrim opaque) so reduced-motion users get the overlay
+   instantly with no entrance flash. */
+@keyframes step3-details-sheet-rise {
+  from {
+    transform: translateY(100%);
   }
-  [data-step3-breakdown][data-expanded="true"] {
-    height: auto;
+  to {
+    transform: translateY(0);
   }
 }
-/* No-interpolate-size fallback: instant show/hide so the breakdown is always
-   reachable (progressive enhancement — the morph is enhancement only). */
-@supports not (interpolate-size: allow-keywords) {
-  [data-step3-breakdown] {
-    overflow: hidden;
+@keyframes step3-details-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
   }
-  [data-step3-breakdown][data-expanded="false"] {
-    display: none;
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes step3-details-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+[data-step3-details-scrim] {
+  animation: step3-details-scrim-in var(--duration-normal) ease-out;
+}
+[data-step3-details-panel] {
+  animation: step3-details-sheet-rise var(--duration-normal) var(--ease-out-quart);
+}
+@media (min-width: 640px) {
+  /* The desktop popup pops in over --duration-fast, so the scrim fades over the
+     same window (it would otherwise keep darkening after the popup had landed);
+     the mobile sheet keeps --duration-normal to match its longer rise. */
+  [data-step3-details-scrim] {
+    animation: step3-details-scrim-in var(--duration-fast) ease-out;
+  }
+  [data-step3-details-panel] {
+    animation: step3-details-pop-in var(--duration-fast) var(--ease-out-quart);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-step3-details-scrim],
+  [data-step3-details-panel] {
+    animation: none;
   }
 }
 
