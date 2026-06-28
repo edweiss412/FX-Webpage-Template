@@ -174,6 +174,25 @@ the crew component and crew page are untouched):
   18 / PCF 19 sessions; ≤2 tracks/session) → 8 shown + overflow note, tracks
   unaffected (under the track cap) — exactly the bounded-review behavior intended.
 
+**Cap the CLIENT payload, not just the DOM (Codex round-8 Finding 2).** `Step3Review`
+and `Step3SheetCard` are `"use client"` (`Step3SheetCard.tsx:2`, `Step3Review.tsx:7`),
+so the full staged `parse_result` — including each stored `agenda_links[].extracted`
+(up to an 80-page agenda × up to `AGENDA_MAX_PDFS_PER_SCAN` links) — is serialized to
+the browser as props. Slicing inside the card caps DOM rows but NOT the serialized
+JSON. So `capExtractionForAdmin` is applied **server-side, where the Step-3 rows are
+assembled** (the server boundary that builds `result.rows` for
+`OnboardingWizard`/`Step3Review` — exact file pinned in the plan's pre-draft pass;
+candidates are the scan-result row assembly and the staged-review server component
+`app/admin/onboarding/staged/.../page.tsx`): each row's
+`agenda_links[].extracted` is replaced with its capped form (≤ `AGENDA_ADMIN_SESSIONS_CAP`
+sessions, ≤ `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks/session) plus the drop
+counts, BEFORE the row crosses into the client component. The card then renders the
+already-capped data (no second cap needed, but the predicate/note logic is unchanged).
+A test asserts the **client props** (not just the rendered DOM) carry ≤ cap
+sessions/tracks for an over-cap extraction. (The broader "full `parse_result` →
+client" shape is pre-existing for every breakdown; this feature caps the one item —
+extracted agenda — that can be large, rather than refactoring the whole wizard fetch.)
+
 **Reuse, not fork:** import the existing `AgendaScheduleBlock`
 (`components/crew/AgendaScheduleBlock.tsx`) — it is a pure presentational Server
 Component consuming the raw `extracted` jsonb via `normalizeAgendaExtraction`, with
@@ -260,6 +279,25 @@ onboarding request is hard-bounded regardless of folder size:
 | Per-PDF page count (parse time) | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` (early, right after `getDocument`) | `if (doc.numPages > AGENDA_MAX_PAGES) return LOW()` → 0-day low-confidence → admin note / crew embed-only |
 | Agenda-link **attempts** per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop, **at the top of each link iteration, BEFORE `getFile`** | the (i ≥ cap)-th link skips **before any Drive call**; surfaced via the admin card note / crew embed (NO warning — see "Skip visibility" below) |
 | **Agenda-link attempts per scan (folder-wide)** | `AGENDA_MAX_PDFS_PER_SCAN = 40` | `enrichAgenda` entry-gate + per-link decrement, **before `getAgendaChips` AND before `getFile`** | once the shared budget reaches 0, the sheet skips **all** agenda work (chips + links) **before any Sheets/Drive call**; surfaced via the card note / crew embed (NO warning) |
+
+**Call-timeout / stall guard (Codex round-8 Finding 1).** Byte/page/count caps bound
+*work*, not a *hang*: googleapis/gaxios have no default wall-clock, and moving agenda
+Drive/Sheets calls into the 300s onboarding request re-opens the onboarding-scan hang
+class the repo already closed for its export reads (PRs #128/#132/#136/#140 — untimed
+Drive reads stalled `prepareOne`). So the two NEW calls reuse the existing guards:
+- `downloadFileBytes` (now streamed): wrap the byte-stream consumption in
+  `createStallGuard(...)` (`lib/drive/stallGuard.ts:32` — the idle/no-progress
+  AbortController already used for asset/revision byte-streams; a stalled socket
+  trips the idle timer) and pass its `signal` to the gaxios stream request; an abort
+  (stall) is caught → `{ kind: "infra_error" }` (transient, retried next sync — NOT a
+  deterministic `unavailable`).
+- `getAgendaChips` (Sheets `spreadsheets.get`): add `{ timeout: DRIVE_FILES_GET_TIMEOUT_MS }`
+  (`lib/drive/fetch.ts:99`) and the existing transient-retry wrapper, mirroring the
+  timed+retried Sheets get at `lib/drive/sheetGids.ts`. A timeout → `{ kind: "infra_error" }`.
+- `getFile` already routes through the timed metadata fetch
+  (`fetch.ts` `DRIVE_FILES_GET_TIMEOUT_MS`) on both clients — unchanged.
+This makes every new Drive/Sheets call wall-clock-bounded, so no single stalled call
+can hang the scan past its guard.
 
 **Byte cap mechanism:** `downloadFileBytes` switches its Drive `files.get({ alt:
 "media" })` from `responseType: "arraybuffer"` to `responseType: "stream"` and
@@ -394,13 +432,18 @@ unaffected; they are pure pathological-input backstops.
    agenda PDFs" note; (m) **track cap (round-6 F2):** a synthetic high-confidence
    extraction with one kept session carrying `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP + N`
    tracks → only the cap is rendered + the track-overflow note (assert via the
-   `agenda-schedule` block's track rows, count derived from the constant). **Derive
-   expected counts from the extraction + the cap constants, not hardcoded**
-   (anti-tautology — a fixture with fewer than cap sessions/tracks can never prove
-   truncation); when scanning DOM for a label, clone-and-strip sibling breakdowns
-   first. *Failure modes caught:* the `link.extracted ? <Block/> : <Note/>`
-   empty-section trap; rendering arbitrary sheet text as an href; crashing on corrupt
-   staged JSON; an 80-page agenda OR a many-track session bloating the review card.
+   `agenda-schedule` block's track rows, count derived from the constant); (n)
+   **client-payload cap (round-8 F2):** the SERVER row-assembly applied to an over-cap
+   extraction yields client `rows` whose `agenda_links[].extracted` carries
+   ≤ `AGENDA_ADMIN_SESSIONS_CAP` sessions / ≤ `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`
+   tracks — assert against the **serialized row props**, not the rendered DOM (prove
+   the surplus never reaches the browser). **Derive expected counts from the
+   extraction + the cap constants, not hardcoded** (anti-tautology — a fixture with
+   fewer than cap sessions/tracks can never prove truncation); when scanning DOM for a
+   label, clone-and-strip sibling breakdowns first. *Failure modes caught:* the
+   `link.extracted ? <Block/> : <Note/>` empty-section trap; arbitrary sheet text as
+   an href; crashing on corrupt staged JSON; an 80-page agenda / many-track session
+   bloating the DOM **or the client payload**.
 4. **Extraction budget — bytes × pages × count (round-2 F1 + round-3 F1).**
    - `downloadFileBytes` byte cap: a mocked Drive `files.get` stream emitting
      > `AGENDA_PDF_MAX_BYTES` → `{ kind: "unavailable" }` (NOT `infra_error`); a
@@ -425,6 +468,12 @@ unaffected; they are pure pathological-input backstops.
      call). Assert a `ctx` with **no** `agendaBudget` (cron) imposes no scan limit.
      *Failure mode caught:* a chip-based folder issuing one `getAgendaChips` Sheets
      read per sheet before the budget is consulted, exceeding the 300s request.
+   - **Call-timeout / stall (round-8 F1):** `downloadFileBytes` over a stream that
+     stalls (no bytes past the idle window, via a tiny `createStallGuard` timeout
+     seam) → `{ kind: "infra_error" }` (aborted, not a hang); `getAgendaChips` whose
+     Sheets call rejects with a timeout → `{ kind: "infra_error" }`. *Failure mode
+     caught:* an untimed Drive/Sheets call hanging the onboarding scan (the
+     #128/#132/#136/#140 class).
 5. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
    renders exactly one `AgendaScheduleBlock` per high-confidence link and that
    nothing in this change touches `runOfShow` (guard against accidental
@@ -453,7 +502,8 @@ unaffected; they are pure pathological-input backstops.
 | `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number }` to `EnrichContext`; pass `ctx.agendaBudget` into `enrichAgenda` |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
-| `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed |
+| `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed; **+ `createStallGuard` idle-abort on the stream → `infra_error` on stall**; `getAgendaChips` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry** (per `sheetGids.ts`) → `infra_error` on timeout |
+| Step-3 server row-assembly (exact file pinned in plan — `OnboardingWizard` `result.rows` source + `app/admin/onboarding/staged/.../page.tsx`) | apply `capExtractionForAdmin` to each row's `agenda_links[].extracted` **server-side** before it crosses to the client component (caps the serialized payload, not just DOM) |
 | `lib/sync/enrichAgenda.ts` | entry-gate (`remaining<=0`→return) before `getAgendaChips`; per-link attempt gating before `getFile`: per-sheet count cap + scan `agendaBudget` decrement/skip; **no warning** on cap/budget skip (new `agendaBudget` param) |
 | `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion + `capExtractionForAdmin` render-size cap); render from `pr.show?.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
@@ -504,3 +554,10 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   the cataloged generic title, not `w.message`) — surfaced via the admin card note +
   crew embed; byte/page caps reuse existing cataloged warning paths. No §12.4 change
   (Codex round-7 F2).
+- Call-timeout: **`createStallGuard` on the `downloadFileBytes` stream + `DRIVE_FILES_GET_TIMEOUT_MS`
+  + retry on `getAgendaChips`** (reuse the existing onboarding-scan Drive-timeout
+  guards; stall/timeout → `infra_error`) so no Drive/Sheets hang can stall the scan
+  (Codex round-8 F1).
+- Client payload: **`capExtractionForAdmin` applied server-side at Step-3 row
+  assembly** so the capped agenda (not the full extraction) is serialized to the
+  client (Codex round-8 F2).
