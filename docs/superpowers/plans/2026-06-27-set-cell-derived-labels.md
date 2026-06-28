@@ -175,7 +175,11 @@ it("does NOT persist/project the parse-transient setAgendaRaw on show.dates", ()
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `pnpm vitest run tests/parser/blocks/dates.test.ts -t "setAgendaRaw" tests/parser/scheduleBookendsIntegration.test.ts -t "transient"`
+Run (separate invocations — vitest rejects two `-t` flags in one command):
+```bash
+pnpm vitest run tests/parser/blocks/dates.test.ts -t "setAgendaRaw"
+pnpm vitest run tests/parser/scheduleBookendsIntegration.test.ts -t "transient"
+```
 Expected: FAIL — `setAgendaRaw` not on the type / not captured. (The strip guard will pass trivially until capture exists; after Step 3a it fails, after Step 3b it passes — see Step 3.)
 
 - [ ] **Step 3: Minimal implementation**
@@ -405,7 +409,11 @@ it("RFI/PCF SET cell → run-of-show shows 'Room Access', not 'Setup'", () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `pnpm vitest run tests/parser/blocks/scheduleBookends.test.ts -t "cell-derived" tests/parser/scheduleBookendsIntegration.test.ts -t "Room Access"`
+Run (separate invocations — vitest rejects two `-t` flags in one command):
+```bash
+pnpm vitest run tests/parser/blocks/scheduleBookends.test.ts -t "cell-derived"
+pnpm vitest run tests/parser/scheduleBookendsIntegration.test.ts -t "Room Access"
+```
 Expected: FAIL — current SET branch ignores `setAgendaRaw`, emits generic `"Setup"`.
 
 - [ ] **Step 3: Minimal implementation** — replace the SET block (`scheduleBookends.ts:100-106`):
