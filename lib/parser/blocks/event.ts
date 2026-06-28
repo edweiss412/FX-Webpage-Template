@@ -224,18 +224,20 @@ export function parseEventDetails(
     });
   }
 
-  // Closed-vocabulary form-layout harvest (§3.4). Runs UNCONDITIONALLY after the classic
-  // pass, over the full markdown, to recover the value-bearing intake-form blocks the
-  // classic header-slice never reaches (consultants) and to upgrade classic sentinels from
-  // a later form block (fixed-income Opening Sizzle Reel). Closed-vocab by construction:
-  // only labels resolving to a KNOWN canonical key are harvested — unknown labels (Your
-  // Name / Email / Phone / Budget / PO# / room headers …) are skipped, so no PII/financial/
-  // metadata can ever enter crew-visible event_details. fillIfAbsentOrSentinel = first-real-wins.
-  harvestFormLayout(markdown, result);
+  // Closed-vocabulary form-layout harvest (§3.4) — runs ONLY when the classic EVENT DETAILS
+  // block was dropped (event_details still empty), recovering the form-layout intake block for
+  // shows whose classic block fails (e.g. consultants / dci-rpas / asset-mgmt-2025-04). Working
+  // shows with a populated classic block are left UNCHANGED — the harvest is scoped to Bug #2
+  // ("event_details dropped on form-layout shows"), so it never mutates a working show
+  // (no sentinel "upgrades", no tangential field adds). Closed-vocab by construction: only
+  // labels resolving to a KNOWN canonical key are harvested — unknown labels (Your Name /
+  // Email / Phone / Budget / PO# / room headers …) are skipped, so no PII/financial/metadata
+  // can ever enter crew-visible event_details. fillIfAbsentOrSentinel = first-real-wins.
+  if (Object.keys(result).length === 0) harvestFormLayout(markdown, result);
 
-  // D1: the no-header case already returned above, so reaching here with an empty
-  // result means a recognized EVENT DETAILS header parsed zero fields (label-only
-  // / exporter-collapsed block) — fail loud instead of dropping it silently.
+  // D1: the no-header case already returned above, so reaching here with an empty result
+  // means a recognized EVENT DETAILS header parsed zero fields AND the form harvest found no
+  // anchored block — fail loud instead of dropping it silently.
   if (Object.keys(result).length === 0) emitEmptySection(agg, "event_details");
   return result;
 }

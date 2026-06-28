@@ -28,15 +28,14 @@ describe("crew-visible event_details never carries a financial/internal or PII k
   });
 
   it("synthetic injection: a closed-vocab form block drops financial + PII labels and harvests only known fields", () => {
-    // The financial/PII rows live in a SEPARATE form block (after the blank that ends the
-    // classic EVENT DETAILS block), mirroring real sheets where the intake form is a distinct
-    // block the classic pass never reaches — only the closed-vocab harvest does, and it skips
-    // every UNKNOWN label (financial in every PO spelling, the other money roots, and PII).
+    // The classic EVENT DETAILS block is EMPTY (header only) so the CONDITIONAL harvest fires
+    // (§3.4 — runs only when the classic block dropped everything). The form block then mirrors
+    // a real intake form: the closed-vocab harvest skips every UNKNOWN label (financial in every
+    // PO spelling, the other money roots, and PII) and keeps only the known event fields.
     const synthetic = [
       "| EVENT DETAILS | EVENT DETAILS |",
       "| :---: | :---: |",
-      "| Virtual Speaker | yes |", // classic block (1 field), then blank ends it
-      "",
+      "", // classic block has NO data rows → event_details empty → harvest runs
       // form block — 3 KNOWN-vocab labels guarantee the >=3-known anchor fires:
       "| Keynote Requirements | RECOVERED |",
       "| Virtual Audience | no |",
