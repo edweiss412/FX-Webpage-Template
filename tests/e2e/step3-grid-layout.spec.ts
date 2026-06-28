@@ -68,7 +68,7 @@ function dialogHtml(): string {
     </section>`;
   return `
   <div data-testid="details-dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-h" class="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-    <button data-testid="details-backdrop" data-step3-details-scrim="" aria-hidden="true" tabindex="-1" class="absolute inset-0 bg-overlay-scrim"></button>
+    <button data-testid="details-backdrop" data-step3-details-scrim="" aria-label="Close" tabindex="-1" class="absolute inset-0 bg-overlay-scrim"></button>
     <div data-testid="details-panel" data-step3-details-panel="" class="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-t-lg bg-surface text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:rounded-lg">
       <div class="mx-auto mt-2 h-1 w-10 shrink-0 rounded-pill bg-border sm:hidden"></div>
       <header class="flex items-start justify-between gap-4 px-tile-pad py-3 sm:pt-4">

@@ -83,15 +83,16 @@ export function Step3DetailsDialog({
       aria-labelledby={headingId}
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
     >
-      {/* Scrim — tap-out closes. A bare, AT-hidden button: pointer-only
-          (tabIndex -1, aria-hidden so a screen reader doesn't hear a second
-          "Close" alongside the real close button); Escape + the close button are
-          the keyboard/AT exits. */}
+      {/* Scrim — tap-out closes. Matches the established ReportModal backdrop: a
+          labelled close button kept OUT of the tab order (tabIndex -1) so the
+          focus trap never lands on it; Escape + the visible close button are the
+          keyboard/AT exits. Deliberately NOT aria-hidden — aria-hidden on an
+          interactive control is an a11y footgun. */}
       <button
         type="button"
         data-testid={`wizard-step3-card-${dfid}-details-backdrop`}
         data-step3-details-scrim=""
-        aria-hidden="true"
+        aria-label="Close"
         tabIndex={-1}
         onClick={onClose}
         className="absolute inset-0 bg-overlay-scrim"

@@ -38,7 +38,9 @@ describe("Step3DetailsDialog — modal a11y contract", () => {
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     const labelledBy = dialog.getAttribute("aria-labelledby");
     expect(labelledBy).toBeTruthy();
-    const heading = dialog.querySelector(`#${labelledBy}`);
+    // getElementById (not querySelector(`#${id}`)) — a React useId() value
+    // contains characters (e.g. ":") that are invalid in a CSS id selector.
+    const heading = document.getElementById(labelledBy!);
     expect(heading?.textContent).toContain("Asset Mgmt Summit");
   });
 
@@ -58,11 +60,16 @@ describe("Step3DetailsDialog — modal a11y contract", () => {
     expect(document.activeElement).toBe(q.getByTestId(`wizard-step3-card-${DFID}-details-close`));
   });
 
-  test("the scrim is hidden from assistive tech (no duplicate 'Close' announcement)", () => {
+  test("the scrim is a pointer-only close affordance: out of the tab order, NOT an aria-hidden interactive control", () => {
     const { q } = renderDialog();
     const scrim = q.getByTestId(`wizard-step3-card-${DFID}-details-backdrop`);
-    expect(scrim.getAttribute("aria-hidden")).toBe("true");
+    // tabIndex -1 keeps it out of the focus-trap tab cycle (keyboard/AT users
+    // close via Escape or the visible close button). It must NOT be aria-hidden —
+    // aria-hidden on an interactive control is an a11y footgun; instead it carries
+    // a real accessible name, mirroring the established ReportModal backdrop.
     expect(scrim.getAttribute("tabindex")).toBe("-1");
+    expect(scrim.getAttribute("aria-hidden")).toBeNull();
+    expect(scrim.getAttribute("aria-label")).toBe("Close");
   });
 });
 
