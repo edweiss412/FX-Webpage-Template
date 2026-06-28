@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseDates, extractClockTimes } from "@/lib/parser/blocks/dates";
+import { parseDates, extractClockTimes, extractClockTimeTokens } from "@/lib/parser/blocks/dates";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 
@@ -477,5 +477,22 @@ describe("extractClockTimes — all-matches, colon-required (R12 finding 19)", (
   });
   it("returns [] for 'LOAD IN' (no clock at all)", () => {
     expect(extractClockTimes("LOAD IN")).toEqual([]);
+  });
+});
+
+// ── extractClockTimeTokens — position core (D-SET1) ───────────────────────────
+describe("extractClockTimeTokens — position core (D-SET1)", () => {
+  it("returns clock + offsets indexing the given (decoded+cleaned) string", () => {
+    const c = "Load In: 7:00 PM Room Access: 8:30 PM";
+    const toks = extractClockTimeTokens(c);
+    expect(toks.map((t) => t.clock)).toEqual(["7:00 PM", "8:30 PM"]);
+    expect(c.slice(toks[0]!.start, toks[0]!.end)).toBe("7:00 PM");
+    expect(c.slice(toks[1]!.start, toks[1]!.end)).toBe("8:30 PM");
+  });
+  it("extractClockTimes === extractClockTimeTokens(decoded+cleaned).map(clock)", () => {
+    expect(extractClockTimes("Load In: 7:00 PM Room Access: 8:30 PM")).toEqual(["7:00 PM", "8:30 PM"]);
+  });
+  it("decodes an entity INSIDE a clock (R2 P1d): '7:00&#9;PM' → ['7:00 PM']", () => {
+    expect(extractClockTimes("7:00&#9;PM")).toEqual(["7:00 PM"]);
   });
 });

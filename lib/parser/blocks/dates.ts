@@ -15,7 +15,7 @@
  * All date parsing is pure regex + Date construction — no date library dependency.
  */
 
-import { parseTableRows, clean, presence, normalizeDate } from "./_helpers";
+import { parseTableRows, clean, presence, normalizeDate, decodeEntities } from "./_helpers";
 import type { ShowRow } from "@/lib/parser/types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 
@@ -264,17 +264,31 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
  * NOT matched here — that tolerance is exclusive to the SHOW DAY tokenizer in
  * scheduleTimes.ts, §4.2 R12 finding 19). "LOAD IN" / "AFTER 8PM" → []. §4.2.
  */
-export function extractClockTimes(raw: string): string[] {
-  const c = clean(raw);
-  if (!c) return [];
-  const matches = c.match(/\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g);
-  if (!matches) return [];
-  return matches.map((m) =>
-    m
+/**
+ * Clock tokens (colon-required HH:MM[am/pm]) with offsets, over `text` AS GIVEN —
+ * the caller is responsible for `decodeEntities(clean(...))`-ing first. The returned
+ * `start`/`end` index `text`. Shared by `extractClockTimes` and `tokenizeSetSchedule`
+ * (scheduleBookends.ts) so SET run-of-show clock values equal `loadIn`/`setupTime`. D-SET1.
+ */
+export function extractClockTimeTokens(text: string): { clock: string; start: number; end: number }[] {
+  const re = /\d{1,2}:\d{2}(?:\s*[AaPp][Mm])?/g;
+  const out: { clock: string; start: number; end: number }[] = [];
+  for (const m of text.matchAll(re)) {
+    const raw = m[0]!; // a regex match always has [0] (noUncheckedIndexedAccess widens to string|undefined)
+    const idx = m.index!; // matchAll always sets .index (typed number|undefined)
+    const clock = raw
       .replace(/\s+/g, " ")
       .replace(/([AaPp][Mm])$/, (s) => s.toUpperCase())
-      .trim(),
-  );
+      .trim();
+    out.push({ clock, start: idx, end: idx + raw.length });
+  }
+  return out;
+}
+
+export function extractClockTimes(raw: string): string[] {
+  const c = decodeEntities(clean(raw));
+  if (!c) return [];
+  return extractClockTimeTokens(c).map((t) => t.clock);
 }
 
 function extractAllDates(text: string): string[] {
