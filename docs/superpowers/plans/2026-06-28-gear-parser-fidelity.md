@@ -51,7 +51,7 @@
 - Produces:
   - `type GearDiscipline = "audio" | "video" | "lighting" | "scenic" | "other"`
   - `gearBucketFor(text: string): "audio" | "lighting" | null` — bucket-setter detection (`/SOUND SYSTEM/i`→audio; `/STAGE LIGHTING/i|/UPLIGHTING/i`→lighting).
-  - `isGroupingOnly(text: string): boolean` — true iff trimmed text ends in `PACKAGE` (bucket-setter not emitted as item).
+  - `isGroupingOnly(text: string): boolean` — true iff the row is a recognized **bucket-setter AND** its trimmed text ends in `PACKAGE` (i.e. a structural grouping header — SOUND SYSTEM / STAGE LIGHTING / (LED) UPLIGHTING PACKAGE — that is NOT emitted as an item). Real `* PACKAGE` equipment that is NOT a bucket-setter (`ZOOM LAPTOP PACKAGE`, `PTZ CAMERA PACKAGE`) is NOT grouping-only and IS emitted (R5-HIGH — a blanket `/PACKAGE$/` rule would silently drop them).
   - `classifyGearItem(text: string, activeBucket: "audio"|"lighting"|null): GearDiscipline` — allow-list-first, bucket fallback, else `other`.
   - `SENSITIVE_KEY_TOKENS: ReadonlySet<string>` = `{budget, po, purchase, proposal, invoice, cost, price, quote, estimate, internal}`.
   - `isSensitiveCanonicalKey(key: string): boolean` — true iff any `_`-token of `key` ∈ `SENSITIVE_KEY_TOKENS`.
@@ -102,9 +102,17 @@ describe("gearBucketFor / isGroupingOnly", () => {
     expect(gearBucketFor("STAGE LIGHTING PACKAGE")).toBe("lighting");
     expect(gearBucketFor("LED UPLIGHTING PACKAGE")).toBe("lighting");
   });
-  it("only PACKAGE-suffixed rows are grouping-only (not emitted)", () => {
+  it("only structural bucket-setter PACKAGE headers are grouping-only; real * PACKAGE gear is NOT (R5-HIGH)", () => {
     expect(isGroupingOnly("SOUND SYSTEM PACKAGE")).toBe(true);
-    expect(isGroupingOnly("SMALL SOUND SYSTEM")).toBe(false);
+    expect(isGroupingOnly("STAGE LIGHTING PACKAGE")).toBe(true);
+    expect(isGroupingOnly("LED UPLIGHTING PACKAGE")).toBe(true);
+    expect(isGroupingOnly("SMALL SOUND SYSTEM")).toBe(false); // bucket-setter but no PACKAGE suffix → emitted
+    expect(isGroupingOnly("ZOOM LAPTOP PACKAGE")).toBe(false); // not a bucket-setter → real gear, emitted
+    expect(isGroupingOnly("PTZ CAMERA PACKAGE")).toBe(false);
+  });
+  it("real * PACKAGE gear classifies to its discipline (not dropped)", () => {
+    expect(classifyGearItem("ZOOM LAPTOP PACKAGE", null)).toBe("video"); // LAPTOP
+    expect(classifyGearItem("PTZ CAMERA PACKAGE", null)).toBe("video");  // CAMERA
   });
 });
 
@@ -135,7 +143,12 @@ export function gearBucketFor(text: string): "audio" | "lighting" | null {
   if (/STAGE LIGHTING/i.test(text) || /UPLIGHTING/i.test(text)) return "lighting";
   return null;
 }
-export function isGroupingOnly(text: string): boolean { return /PACKAGE\s*$/i.test(text.trim()); }
+// Grouping-only = a recognized bucket-setter that ALSO ends in PACKAGE (structural
+// header, not emitted). NOT a blanket /PACKAGE$/ — ZOOM LAPTOP PACKAGE / PTZ CAMERA
+// PACKAGE are real gear (gearBucketFor === null) and must be emitted (R5-HIGH).
+export function isGroupingOnly(text: string): boolean {
+  return gearBucketFor(text) !== null && /PACKAGE\s*$/i.test(text.trim());
+}
 export function classifyGearItem(text: string, activeBucket: "audio"|"lighting"|null): GearDiscipline {
   const u = text.toUpperCase();
   for (const [disc, kws] of ALLOW) if (kws.some((k) => u.includes(k))) return disc;
@@ -251,6 +264,10 @@ describe("parseGearTab — rpas (prod path)", () => {
   it("preserves unmatched gear in 'other' (R2-M3): MOUNTING HARDWARE (top-level, no bucket) → other", () => {
     const gs = room(rooms, /GRAND BALLROOM/i)!;
     expect(gs.other ?? "").toMatch(/MOUNTING HARDWARE/i);
+  });
+  it("real '* PACKAGE' gear is NOT dropped (R5-HIGH): ZOOM LAPTOP / PTZ CAMERA PACKAGE → video", () => {
+    const gs = room(rooms, /GRAND BALLROOM/i)!;
+    expect(gs.video ?? "").toMatch(/ZOOM|PTZ/i);
   });
 });
 
