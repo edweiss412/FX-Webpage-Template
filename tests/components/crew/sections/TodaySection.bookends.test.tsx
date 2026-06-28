@@ -14,7 +14,7 @@
  * sibling TodaySection tests).
  *
  * Anti-tautology: SET entry time asserted against data.show.dates.loadIn (source);
- * synthetic presence/absence scoped to the kind-badge data-testid (not titles).
+ * synthetic presence/absence scoped to the row's data-entry-kind marker (not titles).
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
@@ -62,10 +62,10 @@ function transport(assignedNames: string[]): TransportationRow {
 
 const crewViewer = { kind: "crew", crewMemberId: "c1" } as const;
 const adminViewer = { kind: "admin" } as const;
-const loadoutBadge = (el: HTMLElement) =>
-  el.querySelector('[data-testid="agenda-entry-kind-badge"][data-agenda-kind="loadout"]');
-const strikeBadge = (el: HTMLElement) =>
-  el.querySelector('[data-testid="agenda-entry-kind-badge"][data-agenda-kind="strike"]');
+const loadoutRow = (el: HTMLElement) =>
+  el.querySelector('[data-testid="agenda-entry"][data-entry-kind="loadout"]');
+const strikeRow = (el: HTMLElement) =>
+  el.querySelector('[data-testid="agenda-entry"][data-entry-kind="strike"]');
 
 test("when today is the set day, Today's run-of-show shows the synthesized Load In", () => {
   const setEntries: AgendaEntry[] = [
@@ -115,8 +115,8 @@ test("unassigned crew viewer is DENIED the load-out on today; the strike still s
   );
   const ros = container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`) as HTMLElement;
   expect(ros).not.toBeNull();
-  expect(strikeBadge(ros)).not.toBeNull();
-  expect(loadoutBadge(ros)).toBeNull();
+  expect(strikeRow(ros)).not.toBeNull();
+  expect(loadoutRow(ros)).toBeNull();
   expect(ros.textContent ?? "").not.toContain("Load Out");
   // The strike title is still readable.
   expect(within(ros).getByText("Strike — GS")).toBeTruthy();
@@ -143,7 +143,7 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
   const aRos = assigned.container.querySelector(
     `[data-testid="run-of-show-${TODAY_ISO}"]`,
   ) as HTMLElement;
-  expect(loadoutBadge(aRos)).not.toBeNull();
+  expect(loadoutRow(aRos)).not.toBeNull();
   cleanup();
 
   const admin = render(
@@ -152,5 +152,5 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
   const bRos = admin.container.querySelector(
     `[data-testid="run-of-show-${TODAY_ISO}"]`,
   ) as HTMLElement;
-  expect(loadoutBadge(bRos)).not.toBeNull();
+  expect(loadoutRow(bRos)).not.toBeNull();
 });

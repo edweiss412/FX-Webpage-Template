@@ -6,27 +6,29 @@
  * `grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5`).
  *
  * INVARIANT (spec §13): a synthetic entry (a `Strike` / `Load Out` row whose
- * title cell carries an uppercase badge) sits in the SAME two tracks as a plain
- * agenda row — its `start` in the `auto` time track, its title (+badge) in the
- * `1fr` title track. The badge sits INSIDE the title cell, so it must NOT push
- * the title into a different column or introduce a third grid column. Concretely:
+ * title cell carries the muted-title treatment — text-text-subtle + a leading
+ * `border-l … pl-2` hairline, NOT a kind-word badge) sits in the SAME two tracks
+ * as a plain agenda row — its `start` in the `auto` time track, its title in the
+ * `1fr` title track. The muted treatment lives INSIDE the title cell, so it must
+ * NOT push the title into a different column or introduce a third grid column.
+ * Concretely:
  *   - every `…-sched-time` cell shares ONE left edge (±0.5px), agenda + synthetic;
- *   - every `…-sched-title` cell shares ONE left edge (±0.5px), agenda + synthetic;
- *   - the badge's left edge coincides with its title cell's left edge (it lives
- *     inside the 1fr cell, it is not a 3rd track).
+ *   - every `…-sched-title` cell shares ONE left edge (±0.5px), agenda + synthetic
+ *     (the in-cell border-l + pl-2 indents the TEXT, not the cell's border-box,
+ *     so the grid track edge is unchanged).
  *
- * A "badge as a 3rd grid item" regression would, under `grid-cols-[auto_1fr]`
+ * A "marker as a 3rd grid item" regression would, under `grid-cols-[auto_1fr]`
  * (exactly two tracks), wrap the per-row items across implicit rows and shatter
  * the shared time/title left edges — which these assertions catch. jsdom computes
  * NO layout, so this MUST be verified end-to-end in a real browser.
  *
  * HARNESS (standalone, no app boot): modelled on tests/e2e/step3-card-dimensions
  * .spec.ts — compile the REAL token CSS from app/globals.css via the Tailwind CLI
- * (so `grid-cols-[auto_1fr]`, `items-baseline`, `tracking-eyebrow`,
- * `bg-surface-sunken`, the `text-*` tokens, etc. resolve exactly as the build
- * emits them), write a static harness.html with the EXACT ScheduleDayRow grid
- * markup INCLUDING two synthetic rows with the badge span, serve over HTTP
- * (file:// is blocked in Chromium automation), measure getBoundingClientRect().
+ * (so `grid-cols-[auto_1fr]`, `items-baseline`, `border-border`, the `text-*`
+ * tokens, etc. resolve exactly as the build emits them), write a static
+ * harness.html with the EXACT ScheduleDayRow grid markup INCLUDING two synthetic
+ * rows with the muted title treatment, serve over HTTP (file:// is blocked in
+ * Chromium automation), measure getBoundingClientRect().
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
@@ -48,29 +50,27 @@ const DFID = "synthrow";
 
 type Row = { start: string; title: string; kind: "agenda" | "strike" | "loadout" };
 
-// schedKindLabel (Step3SheetCard.tsx:183) — STRIKE / LOAD OUT, null for agenda.
-function badgeLabel(kind: Row["kind"]): string | null {
-  return kind === "strike" ? "STRIKE" : kind === "loadout" ? "LOAD OUT" : null;
-}
-
 // A day with ≥2 agenda rows + 1 strike + 1 load-out. Class strings are
 // transcribed VERBATIM from components/admin/wizard/Step3SheetCard.tsx
-// (the <li>, the date <span>, the grid <div>, the time <span>, the title
-// <span>, and the badge <span>) so the compiled Tailwind resolves identically.
+// (the <li>, the date <span>, the grid <div>, the time <span>, and the title
+// <span> — including the synthetic muted treatment) so the compiled Tailwind
+// resolves identically.
 const ROWS: Row[] = [
   { start: "08:00", title: "Doors / House Open", kind: "agenda" },
   { start: "19:30", title: "Show Start", kind: "agenda" },
-  { start: "23:00", title: "Strike", kind: "strike" },
+  { start: "23:00", title: "Strike — GS", kind: "strike" },
   { start: "23:45", title: "Load Out", kind: "loadout" },
 ];
 
 function dayHtml(): string {
   const cells = ROWS.map((e) => {
-    const badge = badgeLabel(e.kind);
-    const badgeSpan = badge
-      ? `<span data-testid="wizard-step3-card-${DFID}-sched-kind-badge" data-agenda-kind="${e.kind}" class="mr-1.5 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle">${badge}</span>`
-      : "";
-    return `<span data-testid="wizard-step3-card-${DFID}-sched-time" class="whitespace-nowrap text-sm tabular-nums text-text-subtle">${e.start}</span><span data-testid="wizard-step3-card-${DFID}-sched-title" class="text-sm text-text">${badgeSpan}${e.title}</span>`;
+    const isSynthetic = e.kind === "strike" || e.kind === "loadout";
+    // Mirror Step3SheetCard.tsx ScheduleDayRow title-cell class + data-entry-kind.
+    const titleClass = isSynthetic
+      ? "text-sm border-l border-border pl-2 text-text-subtle"
+      : "text-sm text-text";
+    const kindAttr = isSynthetic ? ` data-entry-kind="${e.kind}"` : "";
+    return `<span data-testid="wizard-step3-card-${DFID}-sched-time" class="whitespace-nowrap text-sm tabular-nums text-text-subtle">${e.start}</span><span data-testid="wizard-step3-card-${DFID}-sched-title"${kindAttr} class="${titleClass}">${e.title}</span>`;
   }).join("");
   return `<li class="flex flex-col gap-1">
   <span class="text-xs font-medium tabular-nums text-text-strong">Thu, Apr 9</span>
@@ -147,7 +147,7 @@ async function rects(page: import("@playwright/test").Page, testid: string) {
 
 const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
 
-test("ScheduleDayRow: synthetic badge keeps the 2-track grid aligned (spec §13)", async ({
+test("ScheduleDayRow: synthetic muted title keeps the 2-track grid aligned (spec §13)", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 1200 });
@@ -155,26 +155,31 @@ test("ScheduleDayRow: synthetic badge keeps the 2-track grid aligned (spec §13)
 
   const timeCells = await rects(page, `wizard-step3-card-${DFID}-sched-time`);
   const titleCells = await rects(page, `wizard-step3-card-${DFID}-sched-title`);
-  const badges = await rects(page, `wizard-step3-card-${DFID}-sched-kind-badge`);
 
   // Cell counts prove there is no 3rd grid track: exactly one time + one title
-  // cell per row (4 each), and exactly the two synthetic rows carry a badge.
+  // cell per row (4 each).
   expect(timeCells.length, "one time cell per row (2 agenda + 2 synthetic)").toBe(ROWS.length);
   expect(titleCells.length, "one title cell per row").toBe(ROWS.length);
-  expect(badges.length, "exactly the 2 synthetic rows carry a badge").toBe(2);
 
   // INVARIANT 1: every time cell shares ONE left edge (the `auto` track start),
-  // agenda and synthetic alike. A badge promoted to a 3rd grid item would wrap
+  // agenda and synthetic alike. A marker promoted to a 3rd grid item would wrap
   // the per-row items across implicit rows under `grid-cols-[auto_1fr]` and
   // scatter these left edges.
   const timeLefts = timeCells.map((c) => c.left);
-  expect(spread(timeLefts), `time cells share one left edge (lefts: ${timeLefts.join(", ")})`).toBeLessThanOrEqual(TOL);
+  expect(
+    spread(timeLefts),
+    `time cells share one left edge (lefts: ${timeLefts.join(", ")})`,
+  ).toBeLessThanOrEqual(TOL);
 
   // INVARIANT 2: every title cell shares ONE left edge (the `1fr` track start),
-  // agenda and synthetic alike — the badge does NOT push synthetic titles into a
-  // different column.
+  // agenda and synthetic alike — the synthetic cell's in-cell border-l + pl-2
+  // indents the TEXT, not the cell's border-box, so the grid track edge is the
+  // same for all rows.
   const titleLefts = titleCells.map((c) => c.left);
-  expect(spread(titleLefts), `title cells share one left edge (lefts: ${titleLefts.join(", ")})`).toBeLessThanOrEqual(TOL);
+  expect(
+    spread(titleLefts),
+    `title cells share one left edge (lefts: ${titleLefts.join(", ")})`,
+  ).toBeLessThanOrEqual(TOL);
 
   // INVARIANT 3: the title track is strictly to the right of the time track
   // (two distinct columns, gap-x-2 between them) — guards against a collapse to
@@ -183,15 +188,4 @@ test("ScheduleDayRow: synthetic badge keeps the 2-track grid aligned (spec §13)
     Math.min(...titleLefts),
     `title column starts right of the time column (title ${Math.min(...titleLefts)} > time-right ${Math.max(...timeCells.map((c) => c.right))})`,
   ).toBeGreaterThan(Math.max(...timeCells.map((c) => c.right)));
-
-  // INVARIANT 4: each synthetic badge's left edge coincides with its title
-  // cell's left edge — i.e. the badge lives INSIDE the 1fr title cell, flush to
-  // its start, not as its own track. Synthetic rows are the last 2 (indices 2,3).
-  const syntheticTitleLefts = titleCells.slice(ROWS.length - badges.length).map((c) => c.left);
-  for (let i = 0; i < badges.length; i++) {
-    expect(
-      Math.abs(badges[i]!.left - syntheticTitleLefts[i]!),
-      `badge ${i} sits at the start of its title cell (badge ${badges[i]!.left} vs title ${syntheticTitleLefts[i]!})`,
-    ).toBeLessThanOrEqual(TOL);
-  }
 });

@@ -6,24 +6,20 @@
  * The admin Step-3 ScheduleBreakdown is the operator's review surface — it shows
  * ALL kinds (no per-viewer transport gate). It must:
  *   - render the SET Load In/Setup, per-room Strike, and Load-Out entries;
- *   - badge synthetic titles INSIDE the 1fr title cell (no 3rd grid column);
+ *   - mark synthetic entries with data-entry-kind + a muted title treatment INSIDE
+ *     the 1fr title cell (no 3rd grid column, no redundant kind-word badge);
  *   - exempt synthetic entries from the per-day SCHEDULE_ENTRIES_CAP (a same-day
  *     load-out is visible WITHOUT clicking "Show all");
  *   - exempt synthetic-bearing DAYS from SCHEDULE_DAYS_CAP, and count the
  *     "…and N more days" note on dropped NON-synthetic days only.
  *
- * Anti-tautology: cap-exemption is proven behaviorally (the synthetic badge is
- * present in the COLLAPSED state); the day-note count derives from the fixture's
- * day structure.
+ * Anti-tautology: cap-exemption is proven behaviorally (the synthetic title cell's
+ * data-entry-kind marker is present in the COLLAPSED state); the day-note count
+ * derives from the fixture's day structure.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, fireEvent, within } from "@testing-library/react";
-import type {
-  AgendaEntry,
-  ParseResult,
-  RunOfShow,
-  ShowRow,
-} from "@/lib/parser/types";
+import type { AgendaEntry, ParseResult, RunOfShow, ShowRow } from "@/lib/parser/types";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 
@@ -89,13 +85,14 @@ function renderCard(pr: ParseResult): { el: HTMLElement; region: ReturnType<type
   return { el, region: within(el) };
 }
 
-const kindBadge = (el: HTMLElement, kind: string) =>
+// The synthetic marker is now data-entry-kind ON the 1fr title cell (no badge).
+const kindCell = (el: HTMLElement, kind: string) =>
   el.querySelector(
-    `[data-testid="wizard-step3-card-${DFID}-sched-kind-badge"][data-agenda-kind="${kind}"]`,
+    `[data-testid="wizard-step3-card-${DFID}-sched-title"][data-entry-kind="${kind}"]`,
   );
 
 describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", () => {
-  test("renders SET Load In, strike, and load-out with distinct uppercase badges in the title cell", () => {
+  test("renders SET Load In, strike, and load-out; synthetic title cells carry the muted data-entry-kind marker", () => {
     const ros: RunOfShow = {
       "2026-04-09": {
         entries: [
@@ -118,14 +115,22 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
     const { el, region } = renderCard(parseResult({ runOfShow: ros }));
     // SET entries (plain agenda) render.
     expect(region.getByText("Load In")).toBeTruthy();
-    // Synthetic titles render, with their kind badges scoped to the badge element.
+    // Synthetic titles render the title text itself; the synthetic marker is the
+    // title cell's data-entry-kind (NOT a redundant kind-word badge).
     expect(region.getByText("Strike — GS")).toBeTruthy();
     expect(region.getByText("Load Out")).toBeTruthy();
-    expect(kindBadge(el, "strike")?.textContent ?? "").toBe("STRIKE");
-    expect(kindBadge(el, "loadout")?.textContent ?? "").toBe("LOAD OUT");
+    expect(kindCell(el, "strike")?.getAttribute("data-entry-kind")).toBe("strike");
+    expect(kindCell(el, "strike")?.textContent).toBe("Strike — GS");
+    expect(kindCell(el, "loadout")?.getAttribute("data-entry-kind")).toBe("loadout");
+    expect(kindCell(el, "loadout")?.textContent).toBe("Load Out");
+    // The redundant uppercase kind-word badge is gone; synthetic cells are muted.
+    expect(
+      el.querySelector(`[data-testid="wizard-step3-card-${DFID}-sched-kind-badge"]`),
+    ).toBeNull();
+    expect(kindCell(el, "strike")?.className).toContain("text-text-subtle");
   });
 
-  test("synthetic title badge lives INSIDE the 1fr sched-title cell (no 3rd grid column)", () => {
+  test("synthetic marker lives ON the 1fr sched-title cell (no 3rd grid column, no badge)", () => {
     const ros: RunOfShow = {
       "2026-04-10": {
         entries: [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }],
@@ -138,12 +143,12 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
     expect(region.getAllByTestId(`wizard-step3-card-${DFID}-sched-time`).length).toBe(1);
     const titleCells = region.getAllByTestId(`wizard-step3-card-${DFID}-sched-title`);
     expect(titleCells.length).toBe(1);
-    // The badge is a descendant of the title cell — not a sibling third column.
-    const badge = titleCells[0]!.querySelector(
-      `[data-testid="wizard-step3-card-${DFID}-sched-kind-badge"]`,
-    );
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent).toBe("LOAD OUT");
+    // The synthetic marker is on the title cell itself (the 1fr track), not a
+    // sibling third column; the title text leads with the kind word — that's the
+    // marker, so no separate badge element exists.
+    expect(titleCells[0]!.getAttribute("data-entry-kind")).toBe("loadout");
+    expect(titleCells[0]!.textContent).toBe("Load Out");
+    expect(region.queryByTestId(`wizard-step3-card-${DFID}-sched-kind-badge`)).toBeNull();
   });
 
   test("entry cap-exemption: a load-out is visible WITHOUT 'Show all' even when agenda exceeds the cap", () => {
@@ -162,8 +167,8 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
     const { el, region } = renderCard(parseResult({ runOfShow: ros }));
     // Collapsed state: the "Show all" button exists (agenda overflowed)…
     expect(region.getByText(/Show all \d+ times/)).toBeTruthy();
-    // …yet the load-out badge is ALREADY visible (cap-exempt, not behind "Show all").
-    expect(kindBadge(el, "loadout")).not.toBeNull();
+    // …yet the load-out cell is ALREADY visible (cap-exempt, not behind "Show all").
+    expect(kindCell(el, "loadout")).not.toBeNull();
     expect(region.getByText("Load Out")).toBeTruthy();
   });
 

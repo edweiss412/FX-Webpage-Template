@@ -13,8 +13,8 @@
  *   - SET entry times are asserted against the data source (data.show.dates.loadIn
  *     / setupTime), not the container.
  *   - Synthetic presence/absence is scoped to the day's run-of-show list via the
- *     kind-badge data-testid (not the title text, which independently spells the
- *     same words).
+ *     row's data-entry-kind marker (not the title text, which independently spells
+ *     the same words).
  *   - The transport-gate test asserts an UNASSIGNED viewer (transportTileVisible
  *     false) is denied the load-out while admin + an ASSIGNED viewer get it.
  */
@@ -86,10 +86,10 @@ const setCard = (c: HTMLElement) => c.querySelector(`[data-day="${SET}"]`) as HT
 const showCard = (c: HTMLElement) => c.querySelector(`[data-day="${SHOW}"]`) as HTMLElement | null;
 const todayCard = (c: HTMLElement) =>
   c.querySelector('[data-testid="schedule-day-today"]') as HTMLElement | null;
-const loadoutBadge = (el: HTMLElement) =>
-  el.querySelector('[data-testid="agenda-entry-kind-badge"][data-agenda-kind="loadout"]');
-const strikeBadge = (el: HTMLElement) =>
-  el.querySelector('[data-testid="agenda-entry-kind-badge"][data-agenda-kind="strike"]');
+const loadoutRow = (el: HTMLElement) =>
+  el.querySelector('[data-testid="agenda-entry"][data-entry-kind="loadout"]');
+const strikeRow = (el: HTMLElement) =>
+  el.querySelector('[data-testid="agenda-entry"][data-entry-kind="strike"]');
 
 describe("ScheduleSection — SET synthesis + strike + transport-gated load-out (Task 12)", () => {
   test("SET day renders synthesized Load In/Setup entries; the 'Setup' meta is suppressed", () => {
@@ -116,7 +116,7 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
     );
     const card = (showCard(container) ?? todayCard(container))!;
     expect(card).not.toBeNull();
-    expect(strikeBadge(card)).not.toBeNull();
+    expect(strikeRow(card)).not.toBeNull();
     expect(within(card).getByText("Strike — GS")).toBeTruthy();
   });
 
@@ -129,8 +129,8 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
     const card = (showCard(container) ?? todayCard(container))!;
     expect(card).not.toBeNull();
     // Strike present (ungated), load-out absent (transport-gated false).
-    expect(strikeBadge(card)).not.toBeNull();
-    expect(loadoutBadge(card)).toBeNull();
+    expect(strikeRow(card)).not.toBeNull();
+    expect(loadoutRow(card)).toBeNull();
     const ros = card.querySelector(`[data-testid="run-of-show-${SHOW}"]`) as HTMLElement;
     expect(ros.textContent ?? "").not.toContain("Load Out");
   });
@@ -142,7 +142,7 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
       <ScheduleSection data={assigned} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
     );
     const aCard = (showCard(a.container) ?? todayCard(a.container))!;
-    expect(loadoutBadge(aCard)).not.toBeNull();
+    expect(loadoutRow(aCard)).not.toBeNull();
     cleanup();
     // Admin: unconditionally visible regardless of assignment.
     const adminData = makeData({ assignedNames: ["Nobody Here"] });
@@ -150,6 +150,6 @@ describe("ScheduleSection — SET synthesis + strike + transport-gated load-out 
       <ScheduleSection data={adminData} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,
     );
     const bCard = (showCard(b.container) ?? todayCard(b.container))!;
-    expect(loadoutBadge(bCard)).not.toBeNull();
+    expect(loadoutRow(bCard)).not.toBeNull();
   });
 });

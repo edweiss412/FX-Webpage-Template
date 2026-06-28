@@ -37,11 +37,14 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   const trt = resolveOptionalField(entry.trt);
   const room = resolveOptionalField(entry.room);
   const av = resolveOptionalField(entry.av);
-  // Synthetic-entry eyebrow (spec §9.3): strike/load-out read as production
-  // milestones via a DISTINCT uppercase badge reusing the av-badge surface token,
-  // rendered INSIDE the title cell (not a new column). Agenda entries → null.
-  const kindBadge =
-    entry.kind === "strike" ? "STRIKE" : entry.kind === "loadout" ? "LOAD OUT" : null;
+  // Synthetic-entry treatment (spec §9.3): strike/load-out read as production
+  // milestones via the §9.3 "muted-title" option — the title itself renders in a
+  // muted tone (text-text-subtle vs the agenda row's text-text-strong) with a
+  // leading hairline rule, NOT a kind-word badge. A badge would duplicate the
+  // title's own leading word ("STRIKE" badge + "Strike — …" title = a redundant
+  // double-read). Agenda entries (kind absent/"agenda") render unchanged.
+  const isSynthetic = entry.kind === "strike" || entry.kind === "loadout";
+  const titleTone = isSynthetic ? "text-text-subtle" : "text-text-strong";
   // Time group (spec §4.3 row shape): START–FINISH with the TRT duration as a
   // middot-joined suffix when present (e.g. "7:15 AM–7:30 AM · 0:15"). Each part
   // is sentinel-guarded via resolveOptionalField, so a TBD/blank trt/finish drops
@@ -50,7 +53,11 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   const timeLabel = trt ? (range ? `${range} · ${trt}` : trt) : range;
 
   return (
-    <li data-testid="agenda-entry" className="flex flex-col gap-0.5 py-1">
+    <li
+      data-testid="agenda-entry"
+      data-entry-kind={isSynthetic ? entry.kind : undefined}
+      className="flex flex-col gap-0.5 py-1"
+    >
       <div className="flex items-baseline gap-2">
         {timeLabel ? (
           <span
@@ -60,28 +67,27 @@ function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
             {timeLabel}
           </span>
         ) : null}
-        {/* Title cell (the flexible track): the synthetic badge sits WITH the
-            title here, never as its own column — so a load-out badge can't break
-            the time/title two-track read. */}
-        <div className="flex min-w-0 items-baseline gap-2">
-          {kindBadge ? (
-            <span
-              data-testid="agenda-entry-kind-badge"
-              data-agenda-kind={entry.kind}
-              className="shrink-0 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
-            >
-              {kindBadge}
-            </span>
-          ) : null}
+        {/* Title cell (the flexible track): on a synthetic entry the title itself
+            carries the muted tone + a leading hairline rule (§9.3 "muted-title"
+            option — no kind-word badge), so it reads as a milestone without
+            repeating its own leading word. The rule lives inside the title cell,
+            never as its own column — so it can't break the time/title two-track read. */}
+        <div
+          className={`flex min-w-0 items-baseline gap-2${
+            isSynthetic ? " border-l border-border pl-2" : ""
+          }`}
+        >
           {isLong ? (
             <details data-testid="agenda-title-truncated" className="min-w-0">
-              <summary className="cursor-pointer list-none text-sm font-medium text-text-strong [&::-webkit-details-marker]:hidden">
+              <summary
+                className={`cursor-pointer list-none text-sm font-medium ${titleTone} [&::-webkit-details-marker]:hidden`}
+              >
                 {`${title.slice(0, TITLE_TRUNCATE_AT)}…`}
               </summary>
-              <span className="text-sm text-text-strong">{title}</span>
+              <span className={`text-sm ${titleTone}`}>{title}</span>
             </details>
           ) : (
-            <span className="min-w-0 text-sm font-medium text-text-strong">{title}</span>
+            <span className={`min-w-0 text-sm font-medium ${titleTone}`}>{title}</span>
           )}
         </div>
       </div>

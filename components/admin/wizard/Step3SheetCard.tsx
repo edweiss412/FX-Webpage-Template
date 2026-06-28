@@ -179,11 +179,6 @@ function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow
  * entries show; a "Show all M times" button reveals the rest for THIS day only
  * (local state). No silent "…+N" tail.
  */
-/** Synthetic-entry eyebrow label (spec §9.3) — null for plain agenda entries. */
-function schedKindLabel(kind: AgendaEntry["kind"]): string | null {
-  return kind === "strike" ? "STRIKE" : kind === "loadout" ? "LOAD OUT" : null;
-}
-
 function ScheduleDayRow({
   dfid,
   iso,
@@ -213,7 +208,7 @@ function ScheduleDayRow({
       </span>
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
         {rows.map((e, i) => {
-          const badge = schedKindLabel(e.kind);
+          const isSynthetic = e.kind === "strike" || e.kind === "loadout";
           return (
             <Fragment key={`${iso}-${i}`}>
               <span
@@ -222,21 +217,17 @@ function ScheduleDayRow({
               >
                 {e.start}
               </span>
-              {/* Title cell = the 1fr track. The synthetic badge sits INSIDE this
-                  cell (never a 3rd column) so the two-track alignment holds. */}
+              {/* Title cell = the 1fr track. A synthetic entry (strike/load-out)
+                  carries a MUTED tone + a leading hairline rule INSIDE this cell
+                  (§9.3 "muted-title" option — no kind-word badge that would repeat
+                  the title's own leading word), so the two-track alignment holds. */}
               <span
                 data-testid={`wizard-step3-card-${dfid}-sched-title`}
-                className="text-sm text-text"
+                data-entry-kind={isSynthetic ? e.kind : undefined}
+                className={`text-sm ${
+                  isSynthetic ? "border-l border-border pl-2 text-text-subtle" : "text-text"
+                }`}
               >
-                {badge ? (
-                  <span
-                    data-testid={`wizard-step3-card-${dfid}-sched-kind-badge`}
-                    data-agenda-kind={e.kind}
-                    className="mr-1.5 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
-                  >
-                    {badge}
-                  </span>
-                ) : null}
                 {e.title || ""}
               </span>
             </Fragment>
