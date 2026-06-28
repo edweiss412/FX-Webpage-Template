@@ -512,6 +512,11 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
                           seg.origin && seg.dest
                             ? `${seg.origin} → ${seg.dest}`
                             : (seg.origin ?? seg.dest ?? "");
+                        // Render structured fields ONLY when a leg has real content beyond a bare
+                        // date — otherwise (e.g. "3/22 Charter pending") fall back to the raw line so
+                        // the operator's text is never dropped. The date still drives sort/emphasis.
+                        const hasContent = Boolean(carrier || route || seg.depTime || seg.arrTime);
+                        const showStructured = seg.structured && hasContent;
                         const isNext = i === flightNextIdx;
                         return (
                           <div
@@ -523,7 +528,7 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
                               isNext ? "rounded-md bg-surface-sunken/60 px-3 py-2" : "p-1 "
                             }
                           >
-                            {seg.structured ? (
+                            {showStructured ? (
                               // §2.4: tabular figures so flight numbers / times / codes read at a
                               // glance and don't shift width; alpha tokens unaffected by tnum.
                               <div className="flex min-w-0 flex-col gap-0.5">

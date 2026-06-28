@@ -78,6 +78,18 @@ describe("TravelSection — flight card", () => {
     );
   });
 
+  it("a date-only leg with no flight content shows its raw text, not just the date", () => {
+    const { getByTestId } = renderTravel(
+      baseData({
+        viewerFlightInfo: "3/22 Charter pending",
+        show: { dates: { travelIn: "2026-03-22" } } as never,
+      }),
+    );
+    const card = getByTestId("travel-flight");
+    // Raw operator text preserved (regression guard from the old raw-leg rendering).
+    expect(within(card).getByTestId("travel-flight-leg")).toHaveTextContent("3/22 Charter pending");
+  });
+
   it.each([
     null,
     "",

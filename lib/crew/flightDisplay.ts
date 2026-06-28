@@ -40,13 +40,19 @@ const FLIGHTNO_RE = /^[A-Z]{1,3}\d{1,4}[A-Z]?$/i; // AA3002
 const CONF_RE = /^[A-Z0-9]{4,}$/i; // HQQ79F, GEUZAB
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function toIso(mdToken: string, showYear: number): string | null {
+type MonthDay = { month: number; day: number };
+
+function parseMd(mdToken: string): MonthDay | null {
   const m = mdToken.match(DATE_RE);
   if (!m) return null;
   const month = Number(m[1]);
   const day = Number(m[2]);
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return `${showYear}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { month, day };
+}
+
+function isoOf(year: number, md: MonthDay): string {
+  return `${year}-${String(md.month).padStart(2, "0")}-${String(md.day).padStart(2, "0")}`;
 }
 
 export function formatFlightDate(iso: string): string {
@@ -57,10 +63,15 @@ export function formatFlightDate(iso: string): string {
 
 type SegFields = Omit<FlightSegment, "raw" | "structured">;
 
-function parsePart(
-  tokens: string[],
-  showYear: number,
-): { fields: SegFields; hasDate: boolean; techShaped: boolean; dateIdx: number } {
+// parsePart extracts everything EXCEPT the calendar year — `date` stays null here and is
+// assigned by parseFlightItinerary, which applies a running year with cross-year rollover.
+function parsePart(tokens: string[]): {
+  fields: SegFields;
+  md: MonthDay | null;
+  hasDate: boolean;
+  techShaped: boolean;
+  dateIdx: number;
+} {
   const empty: SegFields = {
     date: null,
     dateRaw: null,
@@ -73,10 +84,11 @@ function parsePart(
     conf: null,
   };
   const dateIdx = tokens.findIndex((t) => DATE_RE.test(t));
-  if (dateIdx === -1) return { fields: empty, hasDate: false, techShaped: false, dateIdx: -1 };
+  if (dateIdx === -1)
+    return { fields: empty, md: null, hasDate: false, techShaped: false, dateIdx: -1 };
 
   const dateRaw = tokens[dateIdx]!;
-  const date = toIso(dateRaw, showYear);
+  const md = parseMd(dateRaw);
 
   // route: single XXX-XXX token, else spaced XXX - XXX pair
   let origin: string | null = null;
@@ -137,7 +149,8 @@ function parsePart(
   }
 
   return {
-    fields: { date, dateRaw, flightNo, airline, origin, dest, depTime, arrTime, conf },
+    fields: { date: null, dateRaw, flightNo, airline, origin, dest, depTime, arrTime, conf },
+    md,
     hasDate: true,
     techShaped,
     dateIdx,
@@ -154,10 +167,15 @@ export function parseFlightItinerary(flightInfo: string | null, showYear: number
 
   const segments: FlightSegment[] = [];
   let confirmation: string | null = null;
+  // Running year with cross-year rollover: assume itinerary legs are in chronological
+  // source order; when a leg's M/D goes backward vs the previous leg (e.g. 12/30 → 1/2),
+  // bump the year so a New-Year-crossing return leg dates + sorts correctly.
+  let runningYear = showYear;
+  let prevMd: MonthDay | null = null;
 
   parts.forEach((part, idx) => {
     const tokens = part.split(/\s+/);
-    const { fields, hasDate, techShaped, dateIdx } = parsePart(tokens, showYear);
+    const { fields, md, hasDate, techShaped, dateIdx } = parsePart(tokens);
     if (!hasDate) {
       segments.push({
         raw: part,
@@ -174,13 +192,24 @@ export function parseFlightItinerary(flightInfo: string | null, showYear: number
       });
       return;
     }
+    let date: string | null = null;
+    if (md) {
+      if (
+        prevMd &&
+        (md.month < prevMd.month || (md.month === prevMd.month && md.day < prevMd.day))
+      ) {
+        runningYear += 1;
+      }
+      date = isoOf(runningYear, md);
+      prevMd = md;
+    }
     // Itinerary-level confirmation: leading tokens before the date in the FIRST part,
     // ONLY when that part is TRAVEL-shaped (route after date) — TECH leading tokens are route+airline.
     if (idx === 0 && !techShaped && dateIdx > 0) {
       const lead = tokens.slice(0, dateIdx).join(" ").trim();
       confirmation = lead.length > 0 ? lead : null;
     }
-    segments.push({ raw: part, structured: true, ...fields });
+    segments.push({ raw: part, structured: true, ...fields, date });
   });
 
   return { confirmation, segments };

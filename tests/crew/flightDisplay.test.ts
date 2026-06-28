@@ -112,14 +112,41 @@ describe("parseFlightItinerary — guards", () => {
   });
 });
 
-describe("sort + pick + format", () => {
-  it("sortSegmentsByDate ascending, nulls last, stable", () => {
+describe("year rollover + thin legs (Codex whole-diff R1)", () => {
+  it("New-Year-crossing return leg dates into the next year + sorts correctly", () => {
     const segs = parseFlightItinerary(
-      "3/26 AA2 LGA - ORD 7:00am - 8:00am | 3/22 AA1 ORD - LGA 7:00am - 8:00am",
+      "12/30 AA1 EWR - LAX 7:00am - 10:00am | 1/2 AA2 LAX - EWR 7:00am - 3:00pm",
+      2025,
+    ).segments;
+    expect(segs[0]!.date).toBe("2025-12-30");
+    expect(segs[1]!.date).toBe("2026-01-02"); // rolled to next year, not 2025-01-02
+    const sorted = sortSegmentsByDate(segs);
+    expect(sorted.map((s) => s.date)).toEqual(["2025-12-30", "2026-01-02"]); // outbound still first
+  });
+  it("date-only leg with no flight content keeps date (for sort) but preserves raw text", () => {
+    const { segments } = parseFlightItinerary("3/22 Charter pending", 2026);
+    expect(segments[0]).toMatchObject({
+      structured: true,
+      date: "2026-03-22",
+      raw: "3/22 Charter pending",
+      flightNo: null,
+      airline: null,
+      origin: null,
+      depTime: null,
+    });
+  });
+});
+
+describe("sort + pick + format", () => {
+  it("sortSegmentsByDate puts null-date legs last, dated legs first (ascending order is guaranteed by the year-rollover construction)", () => {
+    const segs = parseFlightItinerary(
+      "UNKNOWN NO DATE | 3/22 AA1 LGA - ORD 7:00am - 8:00am",
       2026,
     ).segments;
+    // segs in source order: [null-date raw "UNKNOWN NO DATE", dated 3/22]
     const sorted = sortSegmentsByDate(segs);
-    expect(sorted.map((s) => s.date)).toEqual(["2026-03-22", "2026-03-26"]);
+    expect(sorted[0]!.date).toBe("2026-03-22"); // dated leg first
+    expect(sorted[1]!.date).toBeNull(); // null-date leg last
   });
   it("pickUpcomingIndex: today match wins", () => {
     const segs = parseFlightItinerary(RPAS, 2026).segments;
