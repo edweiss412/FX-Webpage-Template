@@ -117,10 +117,10 @@ describe("gearBucketFor / isGroupingOnly", () => {
 });
 
 describe("isSensitiveCanonicalKey (permission boundary)", () => {
-  it.each(["budget", "po", "po_number", "purchase_order", "invoice", "invoice_notes", "proposal", "cost", "price", "quote", "estimate", "internal", "internal_notes"])(
-    "%s is sensitive", (k) => expect(isSensitiveCanonicalKey(k)).toBe(true));
-  it.each(["keynote_requirements", "opening_reel", "power", "internet", "additional_notes", "backdrop", "podium_type"])(
-    "%s is NOT sensitive", (k) => expect(isSensitiveCanonicalKey(k)).toBe(false));
+  it.each(["budget", "po", "po_number", "po_", "p_o_number", "purchase_order", "invoice", "invoice_notes", "proposal", "cost", "price", "quote", "estimate", "internal", "internal_notes"])(
+    "%s is sensitive", (k) => expect(isSensitiveCanonicalKey(k)).toBe(true)); // p_o_number = the space-separated 'P O Number' bypass (R6)
+  it.each(["keynote_requirements", "opening_reel", "power", "internet", "additional_notes", "backdrop", "podium_type", "deposit", "component", "report", "polling"])(
+    "%s is NOT sensitive (no anchored-po over-match)", (k) => expect(isSensitiveCanonicalKey(k)).toBe(false));
 });
 ```
 
@@ -156,7 +156,13 @@ export function classifyGearItem(text: string, activeBucket: "audio"|"lighting"|
 }
 export const SENSITIVE_KEY_TOKENS: ReadonlySet<string> = new Set(["budget","po","purchase","proposal","invoice","cost","price","quote","estimate","internal"]);
 export function isSensitiveCanonicalKey(key: string): boolean {
-  return key.toLowerCase().split("_").some((t) => SENSITIVE_KEY_TOKENS.has(t));
+  const k = key.toLowerCase();
+  if (k.split("_").some((t) => SENSITIVE_KEY_TOKENS.has(t))) return true;
+  // PO punctuation/spacing variants (R6): toCanonicalKey strips dots/slashes so
+  // "P.O. Number"->"po_number" and "P/O #"->"po_" are already caught by the `po`
+  // token; this anchored regex ALSO closes the space-separated "P O Number"->
+  // "p_o_number" case. Anchored on token boundaries so "deposit"/"component" don't match.
+  return /(^|_)p_?o(_|$)/.test(k);
 }
 // Exposed for the collision tripwire:
 export const __ALLOW_LISTS__ = { audio: AUDIO, video: VIDEO, lighting: LIGHTING, scenic: SCENIC } as const;
@@ -492,14 +498,17 @@ describe("crew-visible event_details never carries a financial/internal key (spe
     const leaked = Object.keys(ed).filter(isSensitiveCanonicalKey);
     expect(leaked, `leaked: ${leaked.join(",")}`).toEqual([]);
   });
-  it("synthetic injection: each forbidden label is dropped from a harvested form run", () => {
+  it("synthetic injection: each forbidden label (incl. PO punctuation/spacing variants) is dropped", () => {
     const synthetic = [
       "| EVENT DETAILS | EVENT DETAILS |","| :---: | :---: |",
       "| Keynote Requirements | TBD |","| Power Requirements | wifi |","| Internet Requirements | y |",
-      "| Budget | 50000 |","| PO# | 12345 |","| Proposal | x |","| Invoice | y |","| Invoice Notes | z |","| Internal | q |","| Additional Notes | hi |",
+      "| Budget | 50000 |","| PO# | 12345 |","| P.O. Number | 1 |","| P/O # | 2 |","| P O Number | 3 |",
+      "| Proposal | x |","| Invoice | y |","| Invoice Notes | z |","| Internal | q |","| Additional Notes | hi |",
     ].join("\n");
     const ed = parseSheet(synthetic,"s.md").show.event_details;
+    // (a) via the helper, AND (b) by EXACT key shape (non-tautological — independent of the helper, R6):
     expect(Object.keys(ed).filter(isSensitiveCanonicalKey)).toEqual([]);
+    for (const k of Object.keys(ed)) expect(k).not.toMatch(/(^|_)p_?o(_|$)|budget|invoice|proposal|cost|price|quote|estimate|internal|purchase/);
     expect(ed["additional_notes"]).toBe("hi"); // recovered despite following financials
   });
 });
