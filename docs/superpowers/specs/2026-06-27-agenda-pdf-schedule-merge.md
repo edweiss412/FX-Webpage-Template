@@ -64,12 +64,15 @@ during the onboarding scan). No change to crew rendering.
   operator's call).
 - No change to crew (`ScheduleSection`, `AgendaScheduleBlock`, `AgendaEmbed`,
   `RunOfShowList`), to `runOfShow` / `decodeRunOfShow`, or to `ScheduleDay`.
-- No extractor *algorithm* change. NOTE: `extractAgendaSchedule` gains ONE guard —
-  the §4.5 page cap (early `LOW()` return before the page loop) — and
-  `downloadFileBytes` + `enrichAgenda` gain the §4.5 byte cap + per-sheet count cap.
-  These are shared, so they also bound the cron path (a deliberate net improvement,
-  sized far above the real corpus so behavior is unchanged for real shows). The page
-  guard bumps `EXTRACTOR_VERSION` 1→2 (gate-logic change per its own contract).
+- No extractor *algorithm* change. NOTE: `extractAgendaSchedule` gains TWO guards —
+  the §4.5 page cap (early `LOW()` before the page loop) and an optional
+  `{ signal }` checked between pages (active-cancellation `LOW()` on deadline abort) —
+  and `downloadFileBytes` + `getAgendaChips` + `enrichAgenda` gain the §4.5 byte/count
+  caps + deadline-signal threading. These are shared, so they also bound the cron path
+  (a deliberate net improvement; cron passes no signal → no behavior change, and the
+  caps sit far above the real corpus). The page guard bumps `EXTRACTOR_VERSION` 1→2
+  (gate-logic change per its own contract); the `signal` is non-output-affecting
+  (only fires on pathological deadline) but rides the same version bump.
 - No new DB columns / DDL, no migration, no advisory-lock change. No §12.4 catalog
   change (the budget warnings reuse the existing `AGENDA_PDF_UNREADABLE` code).
 - **`StagedReviewCard` surfaces are out of scope** (Codex round-11): the live
@@ -330,7 +333,7 @@ regardless of folder size:
 | Per-PDF page count (parse time) | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` (early, right after `getDocument`) | `if (doc.numPages > AGENDA_MAX_PAGES) return LOW()` → 0-day low-confidence → admin note / crew embed-only |
 | Agenda-link **attempts** per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop, **at the top of each link iteration, BEFORE `getFile`** | the (i ≥ cap)-th link skips **before any Drive call**; surfaced via the admin card note / crew embed (NO warning — see "Skip visibility" below) |
 | **Agenda processing ATTEMPTS per scan (folder-wide)** — 1 unit per `getAgendaChips` read AND 1 unit per per-PDF link attempt (a link attempt issues ≤2 Drive calls: `getFile` + `downloadFileBytes`) | `AGENDA_MAX_SCAN_ATTEMPTS = 128` | `enrichAgenda` — decrement 1 before each `getAgendaChips` AND 1 before each per-link `getFile` | once the budget reaches 0, further chip recovery + links skip **before any Sheets/Drive call**; surfaced via the card note / crew embed (NO warning) |
-| **Agenda wall-clock deadline per scan (folder-wide TIME bound)** | `AGENDA_SCAN_DEADLINE_MS = 120_000` | `enrichAgenda` checks `Date.now() > agendaBudget.deadlineAt` at the same gates as `remaining` | past the deadline, ALL further agenda work (chips + links + parse) skips for this and every later sheet; surfaced via the card note. Proven 120 s < `maxDuration` 300 s |
+| **Agenda wall-clock deadline per scan (folder-wide TIME bound, ACTIVE)** | `AGENDA_SCAN_DEADLINE_MS = 120_000` | scan-wide `AbortSignal.timeout(...)` threaded into download stream, `getAgendaChips`, and the extractor parse loop + entry-gate fast-path | past the deadline, in-flight download/parse/chip **abort** + future work skips; surfaced via the card note. Proven agenda fully stops ≤~128 s < `maxDuration` 300 s |
 
 **Call-timeout / stall guard (Codex round-8 Finding 1).** Byte/page/count caps bound
 *work*, not a *hang*: googleapis/gaxios have no default wall-clock, and moving agenda
@@ -339,9 +342,10 @@ class the repo already closed for its export reads (PRs #128/#132/#136/#140 — 
 Drive reads stalled `prepareOne`). So the two NEW calls reuse the existing guards:
 - `downloadFileBytes` (now streamed): use `createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)`
   (`lib/drive/stallGuard.ts:32`, const `:75`). Per the stallGuard contract
-  (`stallGuard.ts:13-22`), wire ALL of: (1) pass `guard.signal` to the gaxios stream
-  `files.get({ ..., signal })`; (2) **for the Node Readable, register
-  `guard.signal.addEventListener("abort", () => stream.destroy(new Error("agenda download stalled")))`**
+  (`stallGuard.ts:13-22`), wire ALL of: (1) pass the COMBINED
+  `AbortSignal.any([guard.signal, agendaSignal])` to the gaxios stream
+  `files.get({ ..., signal })` (idle-stall OR scan-deadline aborts it); (2) **register
+  `combinedSignal.addEventListener("abort", () => stream.destroy(new Error("agenda download aborted")))`**
   — gaxios abort does NOT reliably interrupt an already-returned Node Readable
   consumed by `for await`, so the explicit `destroy()` is REQUIRED (omitting it
   reopens the hang class); (3) `reset()` the guard on every chunk via
@@ -363,8 +367,10 @@ can hang the scan past its guard.
 
 **Byte cap mechanism (exact APIs — Codex round-14 F1):** `downloadFileBytes` calls
 `drive.files.get({ fileId, alt: "media", supportsAllDrives: true }, { responseType:
-"stream", signal: guard.signal, retry: false })` (gaxios options are the SECOND arg;
-`signal` makes the pre-response request abortable) and consumes the returned Node
+"stream", signal: AbortSignal.any([guard.signal, agendaSignal].filter(Boolean)), retry:
+false })` (gaxios options are the SECOND arg; the combined `signal` makes the
+pre-response request abortable on EITHER idle-stall OR the scan deadline) and consumes
+the returned Node
 Readable via **`readBoundedNodeStream(stream, AGENDA_PDF_MAX_BYTES, { onChunk: () =>
 guard.reset() })`** (`lib/sync/boundedBytes.ts:77` — the variant that HAS the `onChunk`
 seam; `bytesFromNodeStream` at `:110` does NOT take options, so it cannot reset the
@@ -445,26 +451,48 @@ chip reads). It still hard-bounds a pathological folder (a 1000-sheet folder sto
 128 attempts → ≤128 chip + ≤128 getFile + ≤128 downloads), each download ≤ bytes,
 each parse ≤ pages — folder-size-independent.
 
-**Wall-clock deadline — the TIME dimension (Codex round-14 Finding 2).** Count/byte/
-page caps bound each unit but NOT total elapsed time: 128 near-cap PDFs (each a 25MB
-download bounded only by *idle* progress + an 80-page parse) — or a slow-but-progressing
-stream that keeps resetting the idle guard — can collectively exceed the route's
-`maxDuration = 300`, so Step-3 never populates. So a **folder-wide wall-clock deadline**
-is the final cap. `runOnboardingScan` stamps `agendaDeadlineAt = scanStart +
-AGENDA_SCAN_DEADLINE_MS` (`AGENDA_SCAN_DEADLINE_MS = 120_000`) onto the shared
-`agendaBudget` (`{ remaining: number; deadlineAt: number }`). `enrichAgenda` checks,
-at the SAME points it checks `remaining` (before `getAgendaChips`, before each per-link
-`getFile`): if `Date.now() > agendaBudget.deadlineAt` → skip ALL further agenda work
-(chips + links) for this and every later sheet, surfaced via the card note (no warning,
-per "Skip visibility"). **Worst-case proof:** agenda Drive/parse work performs NOTHING
-after `scanStart + 120_000 ms`; 120 s < `maxDuration` 300 s, leaving ≥180 s headroom
-for the pre-existing per-sheet XLSX export pipeline (which already completes within the
-route today, sans agenda). Each unit that DOES run before the deadline is itself
-bounded (≤25 MB / ≤80 pp / idle-guarded / timed metadata+chips), so the deadline can't
-be overshot by an unbounded in-flight unit. The real corpus finishes agenda in ~8 s, so
-the deadline never triggers — it is purely a pathological-folder backstop. `Date.now()`
-is runtime code (NOT a workflow-script context), so it is available here. Cron passes
-no `agendaBudget` (no deadline; single-show cron is bounded by its own step timeout).
+**Wall-clock deadline — ACTIVE cancellation of in-flight work (Codex round-14 F2 +
+round-15 F1; user-approved "full active-cancellation").** Count/byte/page caps bound
+each unit but NOT total elapsed time, and an entry-gate-only deadline is insufficient:
+a download or parse that STARTS just before the deadline can overshoot — and a
+steady-slow 25 MB stream that keeps making just-enough progress is NOT caught by the
+idle stall guard at all, so a single in-flight unit can run arbitrarily long. The
+deadline must therefore ACTIVELY cancel in-flight downloads, parses, and Sheets calls,
+not just gate future ones.
+
+`runOnboardingScan` creates a single scan-wide **deadline `AbortSignal`**
+`agendaSignal = AbortSignal.timeout(AGENDA_SCAN_DEADLINE_MS)` (`= 120_000`; Node 20
+supports `AbortSignal.timeout`/`AbortSignal.any`) and stamps the shared `agendaBudget =
+{ remaining: number; deadlineAt: number; signal: AbortSignal }` (`deadlineAt = scanStart
++ AGENDA_SCAN_DEADLINE_MS` is the cheap pre-check; `signal` is the active teeth).
+`enrichAgenda` threads it everywhere agenda work can block:
+
+1. **Entry-gate fast-path:** before `getAgendaChips` and before each per-link `getFile`,
+   if `Date.now() > deadlineAt` (or `signal.aborted`) → skip ALL further agenda work
+   for this and every later sheet (card note, no warning) — avoids even starting work.
+2. **`downloadFileBytes(fileId, { signal })`:** the gaxios stream request and the Node
+   Readable abort on `AbortSignal.any([stallGuard.signal, agendaSignal])` — so a
+   steady-slow stream is killed at the deadline (`stream.destroy`), not just on idle.
+   Abort → `{ kind: "infra_error" }`.
+3. **`getAgendaChips(spreadsheetId, { signal })`:** request signal =
+   `AbortSignal.any([<DRIVE_FILES_GET_TIMEOUT_MS timeout>, agendaSignal])` → abort →
+   `infra_error`. (`getFile` is a fast metadata call already bounded by
+   `DRIVE_FILES_GET_TIMEOUT_MS` ≤ 8 s AND entry-gated, so an in-flight one finishes
+   within ≤8 s of the deadline — a bounded tail, no separate threading needed.)
+4. **`extractAgendaSchedule(bytes, { signal })`:** the per-page loop
+   (`for p=1..numPages`) checks `signal.aborted` before each page's `getTextContent()`
+   and returns `LOW()` if aborted — bounding a long pdfjs parse to ≤ one page past the
+   deadline.
+
+**Worst-case proof:** at `scanStart + 120 s` the signal fires; every in-flight
+download/parse/chip aborts immediately and any in-flight `getFile` finishes within
+≤8 s, so agenda work fully stops by ≤~128 s — comfortably < `maxDuration` 300 s,
+leaving ≥170 s for the pre-existing XLSX export pipeline. No single in-flight unit can
+overshoot unboundedly (download + chips abort on the signal; parse bails between pages;
+getFile is ≤8 s). The real corpus finishes agenda in ~8 s, so the signal never fires —
+it is purely a pathological-folder backstop. `Date.now()`/`AbortSignal` are runtime
+code (NOT a workflow-script context). Cron passes no `agendaBudget` (no deadline;
+single-show cron is bounded by its own step timeout).
 
 **Skip visibility — no warning for count/scan-budget skips (Codex round-7 Finding 2).**
 The Step-3 + per-show warning UIs render the **cataloged title/helpfulContext** for a
@@ -603,12 +631,20 @@ unaffected; they are pure pathological-input backstops.
      pass. *Failure mode caught:* (a) chips sharing the budget but the cap sized for
      PDFs-only → real agendas skipped; (b) the "1 unit = 1 call" mislabel hiding that
      a link attempt does 2 Drive calls.
-   - **Wall-clock deadline (round-14 F2):** with `agendaBudget.deadlineAt` set to a
-     value already in the past (or a tiny `AGENDA_SCAN_DEADLINE_MS` seam), assert
-     `enrichAgenda` makes **zero** `getAgendaChips`/`getFile`/`downloadFileBytes` calls
-     and the links surface as note items; with a future deadline + real corpus, all
-     extract. *Failure mode caught:* a slow-but-progressing stream / many near-cap PDFs
-     pushing the scan past `maxDuration = 300` even though every per-call cap holds.
+   - **Wall-clock deadline — entry-gate (round-14 F2):** with `agendaBudget` whose
+     `deadlineAt` is already past (or an aborted `signal`), `enrichAgenda` makes
+     **zero** `getAgendaChips`/`getFile`/`downloadFileBytes` calls; links → note items.
+   - **Wall-clock deadline — ACTIVE cancellation (round-15 F1):** (a) a
+     `downloadFileBytes` over a steady-slow stream that NEVER trips the idle guard,
+     with the scan `signal` firing mid-download → the stream is `destroy()`-ed and the
+     call returns `infra_error` (proves the deadline kills an in-flight steady-slow
+     download the idle guard misses); (b) `extractAgendaSchedule(bytes, { signal })`
+     with a signal that aborts after page 1 of a multi-page fixture → returns
+     `confidence:"low"`, and `getTextContent` is NOT called for later pages (spy);
+     (c) `getAgendaChips`/`downloadFileBytes` started just before the deadline →
+     aborted via the combined `AbortSignal.any`. *Failure mode caught:* a unit that
+     PASSED the entry-gate just before the deadline running a slow download/long parse
+     past `maxDuration = 300`.
    - **Call-timeout / stall (round-8 F1):** `downloadFileBytes` over a stream that
      stalls (no bytes past the idle window, via a tiny `createStallGuard` timeout
      seam) → `{ kind: "infra_error" }` (aborted, not a hang); `getAgendaChips` whose
@@ -639,19 +675,19 @@ unaffected; they are pure pathological-input backstops.
 
 | File | Change |
 |---|---|
-| `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips`; **export** `defaultDriveClient` for the meta-test; create one `agendaBudget` per scan and pass it into every per-sheet `EnrichContext` |
-| `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number; deadlineAt: number }` to `EnrichContext`; pass `ctx.agendaBudget` into `enrichAgenda` |
+| `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips` (now `{ signal }`-aware); **export** `defaultDriveClient` for the meta-test; create one `agendaBudget` (incl. `signal = AbortSignal.timeout(AGENDA_SCAN_DEADLINE_MS)`) per scan and pass it into every per-sheet `EnrichContext` |
+| `lib/sync/enrichWithDrivePins.ts` | add optional `agendaBudget?: { remaining: number; deadlineAt: number; signal: AbortSignal }` to `EnrichContext`; widen `DriveClient.downloadFileBytes`/`getAgendaChips` signatures with optional `{ signal }`; pass `ctx.agendaBudget` into `enrichAgenda` |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_SCAN_ATTEMPTS`, `AGENDA_SCAN_DEADLINE_MS`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5). (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist.) |
-| `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
-| `lib/drive/agendaDrive.ts` | `downloadFileBytes`: stream + byte cap (`bytesFromNodeStream`→`unavailable`) + **`createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)` with FULL Node-stream wiring** (signal→gaxios, abort→`stream.destroy`, `reset` on `onChunk`, `clear` in `finally`, `timedOut()`→`infra_error`); `getAgendaChips` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry** (per `sheetGids.ts`)→`infra_error` |
+| `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) **+ optional `{ signal }`: check `signal.aborted` between pages → `LOW()`** (active deadline cancellation) |
+| `lib/drive/agendaDrive.ts` | `downloadFileBytes(fileId, { signal })`: stream + byte cap (`readBoundedNodeStream({onChunk})`→`unavailable`) + **`createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)`** combined w/ the scan `signal` via `AbortSignal.any` (gaxios `{responseType:'stream',signal,retry:false}`; abort→`stream.destroy`; `reset` on `onChunk`; `clear` in `finally`; `timedOut()`→`infra_error`); `getAgendaChips(spreadsheetId, { signal })` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + retry** (per `sheetGids.ts`), signal combined→`infra_error` |
 | `components/admin/OnboardingWizard.tsx` (`fetchStep3Data`, `:191`) | **server-side** build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate via `normalizeAgendaExtraction` + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge + `arr`/string coercion); strip `agenda_links[].extracted` from the client-bound `Step3Row.parseResult`. (The `StagedReviewCard` staged pages are out of scope — §3.) |
 | Step-3 row type (`AdminAgendaItem` + `adminAgendaPreview` field on `Step3Row`) | new shared type carrying the server-computed preview |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure helpers `capExtractionForAdmin`, `agendaPdfHref`, `buildAdminAgendaPreview(links)` — unit-testable in isolation |
-| `lib/sync/enrichAgenda.ts` | budget **consumes 1 for `getAgendaChips`** (before the call, regardless of outcome) + per-link attempt decrement before `getFile`; per-sheet + scan caps; **no warning** on cap/budget skip (new `agendaBudget` param) |
+| `lib/sync/enrichAgenda.ts` | budget **consumes 1 for `getAgendaChips`** + per-link decrement before `getFile`; per-sheet + scan caps; deadline entry-gate; **threads `agendaBudget.signal`** into `getAgendaChips`/`downloadFileBytes`/`extractAgendaSchedule`; **no warning** on cap/budget skip (new `agendaBudget` param) |
 | `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` — **pure presentation over `row.adminAgendaPreview`** (NOT `pr.show.agenda_links`): each item's `block` → `<AgendaScheduleBlock extraction={block.extraction}/>` + `dropped*` overflow note + `href` anchor; note item → muted note. Does NOT call normalize/cap/href itself. |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
-| `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
-| `tests/agenda/extractAgendaSchedule.test.ts` | page-cap test + `extractorVersion === 2` (Task 4) |
+| `tests/drive/agendaDrive.test.ts` | byte-cap + stall-guard (idle, pre-response abort, slow-progress) + scan-signal active-abort tests (Task 4) |
+| `tests/agenda/extractAgendaSchedule.test.ts` | page-cap test + per-page `{ signal }` abort test + `extractorVersion === 2` (Task 4) |
 | `tests/agenda/constants.test.ts`, `tests/onboarding/enrichAgendaIntegration.test.ts` | update `EXTRACTOR_VERSION`/`extractorVersion` assertions 1→2 |
 | `tests/sync/enrichAgenda.test.ts` | per-sheet count-cap + scan-budget-consumes-`getAgendaChips` (failure outcomes) + stall/timeout tests (Task 4) |
 | `tests/onboarding/...` | extraction-populates-`extracted` (Task 2); `fetchStep3Data` serialized-props test (≤cap, `dropped*`, no raw `extracted`) (Task 3) |
@@ -685,10 +721,13 @@ of rev5 — the `EnrichContext.agendaBudget` field.)
   + 1 unit/per-link attempt; a link attempt = ≤2 Drive calls), so each call-type
   (`getAgendaChips`/`getFile`/`downloadFileBytes`) ≤ budget; sized > the real worst
   case (≤19 chips + ≤38 link attempts = ≤57) with >2× headroom so no real agenda is
-  skipped (Codex round-2/3/4 F1 + round-12/13). PLUS a **wall-clock deadline**
-  `AGENDA_SCAN_DEADLINE_MS = 120_000` on the same `agendaBudget` (the TIME dimension —
-  agenda work performs nothing after scanStart+120s, proven < `maxDuration` 300s;
-  round-14 F2). Shared `agendaBudget` on `EnrichContext`; cron passes none.
+  skipped (Codex round-2/3/4 F1 + round-12/13). PLUS a **wall-clock deadline** with
+  **active cancellation** (user-approved): `AGENDA_SCAN_DEADLINE_MS = 120_000` →
+  `agendaBudget.signal = AbortSignal.timeout(...)` threaded into the download stream
+  (combined w/ stall guard via `AbortSignal.any`), `getAgendaChips`, and the extractor
+  per-page loop, PLUS an entry-gate fast-path. In-flight download/parse/chip ABORT at
+  the deadline; agenda fully stops ≤~128s < `maxDuration` 300s (round-14 F2 + round-15
+  F1). Shared `agendaBudget` on `EnrichContext`; cron passes none.
 - Stall guard: **`createStallGuard` with FULL Node-stream wiring** on `downloadFileBytes`
   — `signal`→`files.get(params,{responseType:'stream',signal,retry:false})`,
   abort→`stream.destroy()`, `reset` via `readBoundedNodeStream`'s `onChunk` (NOT
