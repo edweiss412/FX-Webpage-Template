@@ -277,7 +277,14 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         sourceBackedSeen += 1;
         // `id` is a verified key of CARD_REGION_MAP (isMapped guard above), so the
         // CardId cast is sound; the lookup then yields a non-undefined RegionId.
-        const region = CARD_REGION_MAP[id as CardId];
+        // gear-scope-* cards select their region DYNAMICALLY (spec §3.6 / R4-M2):
+        // GearSection prefers the `gear_scope` anchor when present (GEAR-derived
+        // scope), else the static `rooms` region. Mirror that here so the expected
+        // href matches the rendered one for both branches.
+        const region =
+          id.startsWith("gear-scope-") && data.sourceAnchors["gear_scope"]
+            ? "gear_scope"
+            : CARD_REGION_MAP[id as CardId];
         const expectedHref = buildSheetDeepLink(data.driveFileId, data.sourceAnchors[region]);
         expect(expectedHref, `helper returned null for region "${region}"`).not.toBeNull();
         expect(
