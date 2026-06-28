@@ -36,9 +36,9 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const rooms = [room("GS", "gs", "5/14 @ 5:00 PM"), room("Lasalle", "breakout", "5/14 @ 5:00 PM"),
                    room("Walton", "breakout", "5/14 @ 5:00 PM")];
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
-    const e = runOfShow!["2025-05-14"].entries.filter((x) => x.kind === "strike");
+    const e = runOfShow!["2025-05-14"]!.entries.filter((x) => x.kind === "strike");
     expect(e).toHaveLength(1);
-    expect(e[0].title).toBe("Strike — all rooms");
+    expect(e[0]!.title).toBe("Strike — all rooms");
   });
 
   it("partial simultaneous group names rooms; a TBD sibling blocks 'all rooms'", () => {
@@ -46,7 +46,7 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const rooms = [room("GS", "gs", "5/14 @ 5:00 PM"), room("Lasalle", "breakout", "5/14 @ 5:00 PM"),
                    room("Walton", "breakout", "TBD")];
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
-    const e = runOfShow!["2025-05-14"].entries.find((x) => x.kind === "strike")!;
+    const e = runOfShow!["2025-05-14"]!.entries.find((x) => x.kind === "strike")!;
     expect(e.title).toBe("Strike — GS, Lasalle"); // sorted; Walton (TBD) blocks "all rooms"
   });
 
@@ -54,24 +54,24 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const d = dates({ showDays: ["2026-03-24", "2026-03-25"] });
     const rooms = [room("GS", "gs", "3/25 @ 12:30pm"), room("State A", "breakout", "3/24 @ 12:15pm")];
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2026");
-    expect(runOfShow!["2026-03-24"].entries.some((e) => e.kind === "strike" && e.start === "12:15pm")).toBe(true);
-    expect(runOfShow!["2026-03-25"].entries.some((e) => e.kind === "strike" && e.start === "12:30pm")).toBe(true);
+    expect(runOfShow!["2026-03-24"]!.entries.some((e) => e.kind === "strike" && e.start === "12:15pm")).toBe(true);
+    expect(runOfShow!["2026-03-25"]!.entries.some((e) => e.kind === "strike" && e.start === "12:30pm")).toBe(true);
   });
 
   it("timeless/non-clock strike → no entry, still blocks all-rooms", () => {
     const d = dates({ showDays: ["2025-05-14"] });
     const rooms = [room("GS", "gs", "5/14 @ TBD"), room("Lasalle", "breakout", "5/14 @ 5:00 PM")];
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
-    const e = runOfShow!["2025-05-14"].entries.filter((x) => x.kind === "strike");
+    const e = runOfShow!["2025-05-14"]!.entries.filter((x) => x.kind === "strike");
     expect(e).toHaveLength(1);
-    expect(e[0].title).toBe("Strike — Lasalle"); // GS has no clock → no entry; intent count 2 ≠ group 1
+    expect(e[0]!.title).toBe("Strike — Lasalle"); // GS has no clock → no entry; intent count 2 ≠ group 1
   });
 
   it("off-schedule strike date → warning + entry still present (admin-visible)", () => {
     const d = dates({ travelIn: "2025-05-12", set: "2025-05-13", showDays: ["2025-05-14"], travelOut: "2025-05-15" });
     const rooms = [room("GS", "gs", "5/20 @ 5:00 PM")]; // 5/20 ∉ aggregate
     const { runOfShow, warnings } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
-    expect(runOfShow!["2025-05-20"].entries.some((e) => e.kind === "strike")).toBe(true);
+    expect(runOfShow!["2025-05-20"]!.entries.some((e) => e.kind === "strike")).toBe(true);
     expect(warnings.some((w) => w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE")).toBe(true);
   });
 
@@ -86,9 +86,9 @@ describe("deriveScheduleBookends — strike derivation", () => {
     const d = dates({ showDays: ["2025-05-14"] });
     const rooms = [room("GS", "gs", null), room("Lasalle", "breakout", "5/14 @ 5:00 PM")];
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
-    const e = runOfShow!["2025-05-14"].entries.filter((x) => x.kind === "strike");
+    const e = runOfShow!["2025-05-14"]!.entries.filter((x) => x.kind === "strike");
     expect(e).toHaveLength(1);
-    expect(e[0].title).toBe("Strike — Lasalle"); // null-strike room not an intent → group-of-1
+    expect(e[0]!.title).toBe("Strike — Lasalle"); // null-strike room not an intent → group-of-1
   });
 });
 
@@ -101,7 +101,7 @@ describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
     const d = dates({ showDays: ["2026-05-06"] });
     const t = transport([{ stage: "Pick Up Venue", date: "2026-05-06", time: "6:00 PM", assigned_names: [] }]);
     const { runOfShow } = deriveScheduleBookends(undefined, d, t, [], "2026");
-    const e = runOfShow!["2026-05-06"].entries.find((x) => x.kind === "loadout")!;
+    const e = runOfShow!["2026-05-06"]!.entries.find((x) => x.kind === "loadout")!;
     expect(e).toMatchObject({ start: "6:00 PM", title: "Load Out", kind: "loadout" });
   });
 
@@ -115,7 +115,7 @@ describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
   it("synthesizes SET Load In/Setup from dates (label-before-clock fixture)", () => {
     const d = dates({ set: "2025-05-12", showDays: ["2025-05-13"], loadIn: "7:00 PM", setupTime: "8:30 PM" });
     const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
-    const e = runOfShow!["2025-05-12"].entries;
+    const e = runOfShow!["2025-05-12"]!.entries;
     expect(e).toEqual([
       { start: "7:00 PM", title: "Load In" },
       { start: "8:30 PM", title: "Setup" },
@@ -132,6 +132,6 @@ describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
     const d = dates({ set: "2025-05-12", showDays: ["2025-05-13"], loadIn: "7:00 PM" });
     const input = { "2025-05-12": { entries: [{ start: "2 PM", title: "Session" }], showStart: null, window: null } };
     const { runOfShow } = deriveScheduleBookends(input, d, null, [], "2025");
-    expect(runOfShow!["2025-05-12"].entries.map((e) => e.title)).toEqual(["Session", "Load In"]);
+    expect(runOfShow!["2025-05-12"]!.entries.map((e) => e.title)).toEqual(["Session", "Load In"]);
   });
 });

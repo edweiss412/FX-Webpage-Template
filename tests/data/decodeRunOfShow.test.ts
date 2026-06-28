@@ -134,7 +134,7 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
     };
     const { value, corrupt } = decodeRunOfShow(raw);
     expect(corrupt).toBe(false);
-    expect(value!["2026-05-06"].entries.map((e) => e.kind)).toEqual(["strike", "loadout"]);
+    expect(value!["2026-05-06"]!.entries.map((e) => e.kind)).toEqual(["strike", "loadout"]);
   });
 
   it("coerces an unknown kind to absent (agenda), not corrupt", () => {
@@ -147,7 +147,7 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
     };
     const { value, corrupt } = decodeRunOfShow(raw);
     expect(corrupt).toBe(false); // unknown kind is dropped like a bad optional field, not corrupting
-    expect(value!["2026-05-06"].entries[0].kind).toBeUndefined();
+    expect(value!["2026-05-06"]!.entries[0]!.kind).toBeUndefined();
   });
 
   it("decodes a legacy entry without kind unchanged", () => {
@@ -155,6 +155,6 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
       "2026-05-06": { entries: [{ start: "1 PM", title: "X" }], showStart: null, window: null },
     };
     const { value } = decodeRunOfShow(raw);
-    expect(value!["2026-05-06"].entries[0].kind).toBeUndefined();
+    expect(value!["2026-05-06"]!.entries[0]!.kind).toBeUndefined();
   });
 });
