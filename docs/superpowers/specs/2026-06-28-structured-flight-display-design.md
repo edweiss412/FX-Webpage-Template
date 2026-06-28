@@ -33,15 +33,18 @@ Mirrors the existing `lib/crew/agendaDisplay.ts` presentation-derivation pattern
 
 ```ts
 export type FlightSegment = {
-  raw: string;            // the post-clean surviving display text (after stripAgendaUrls) — the fallback render, identical to what today's card shows for this leg
-  structured: boolean;    // true iff a leading M/D date token was found and fields extracted
+  raw: string;            // post-clean surviving display text (after stripAgendaUrls) — the fallback render, identical to today's card for this leg
+  structured: boolean;    // true iff an M/D date token was found and fields extracted
   date: string | null;    // ISO yyyy-mm-dd (M/D inferred against showYear) | null
-  flightNo: string | null;// e.g. "AA3002"
-  origin: string | null;  // e.g. "LGA"
-  dest: string | null;    // e.g. "ORD"
-  depTime: string | null; // e.g. "7:23am"
-  arrTime: string | null; // e.g. "9:15am"
+  flightNo: string | null;// TRAVEL carrier code+number, e.g. "AA3002" (null for TECH-shaped legs)
+  airline: string | null; // TECH carrier name, e.g. "UNITED" / "JET BLUE" (null for TRAVEL-shaped legs)
+  origin: string | null;  // e.g. "LGA" / "EWR"
+  dest: string | null;    // e.g. "ORD" / "FLL"
+  depTime: string | null; // e.g. "7:23am" / "11:29am"
+  arrTime: string | null; // e.g. "9:15am" / "2:34pm"
+  conf: string | null;    // per-segment TRAILING confirmation (TECH, e.g. "HQQ79F"); null when conf is itinerary-level (TRAVEL)
 };
+// confirmation = itinerary-level LEADING confirmation (TRAVEL, e.g. "GEUZAB"); null for TECH (whose conf is per-segment).
 export type FlightItinerary = { confirmation: string | null; segments: FlightSegment[] };
 
 export function parseFlightItinerary(flightInfo: string | null, showYear: number): FlightItinerary;
@@ -57,13 +60,20 @@ export function pickUpcomingIndex(segments: FlightSegment[], todayIso: string): 
 3. **Segment detection within each surviving part** (by `M/D` date token `/^\d{1,2}\/\d{1,2}$/`):
    - A part with **0 date tokens** → exactly **one** `structured: false` segment whose `raw` = the cleaned part (covers TECH raw + garbage; preserves today's per-pipe-part rows).
    - A part with **≥1 date tokens** → **one structured segment per date token**: each segment spans `[date_i, date_{i+1})`. (For real piped data each part has exactly one date → one segment; this rule only matters for an un-normalized multi-date part.)
-4. **Confirmation extraction (once, itinerary-level):** the whitespace tokens **before the very first date token of the whole itinerary** (i.e. leading tokens of the first part, before its first date) are the confirmation code (space-joined). `confirmation = null` if the itinerary starts at a date or has no date token. Never per-segment. (Leading non-date tokens before a *non-first* date are folded into that segment's token stream — harmless, they match no field.)
-5. **Per-structured-segment field extraction** — from the segment's token stream (the date token onward), each field found **independently, by token type, scanning ALL tokens** (an implementer must NOT stop at the first `-` for both route and times — route codes and time tokens are located by their own patterns, each around its own dash):
-   - `date` = the leading `M/D` token → ISO against `showYear` (§3.2).
-   - `flightNo` = first token matching `/^[A-Z]{1,3}\d{1,4}[A-Z]?$/i` (airline+number; airport codes have no digit so never match), else null.
-   - `origin` / `dest` = the first ordered pair of 3-letter-code tokens (`/^[A-Z]{3}$/i`; flight numbers have digits so never match) separated by a `-` token, else null/null.
-   - `depTime` / `arrTime` = the first ordered pair of time tokens (`/^\d{1,2}:\d{2}\s*(am|pm)$/i`) separated by a `-` token, else null/null.
-   - Every field independent + best-effort: a missing field is null and never blocks the others. A structured segment with some null fields still renders structured with the present fields.
+4. **Per-structured-segment field extraction.** Each segment is one of two real layouts (verified against fixtures): **TRAVEL** `[conf] M/D FLIGHT# ORIG - DEST DEP - ARR` (route AFTER the date) and **TECH** `ROUTE AIRLINE M/D - DEP - ARR CONF` (route BEFORE the date). Extract by token type, **scanning all tokens** (do NOT stop at the first `-` for both route and times — each pattern finds its own dash):
+   - **Common (both formats):**
+     - `date` = the `M/D` token → ISO against `showYear` (§3.2).
+     - `origin` / `dest` = the route, accepted in EITHER encoding: a single token `/^[A-Z]{3}-[A-Z]{3}$/i` (TECH `EWR-FLL`) **or** an ordered pair of `/^[A-Z]{3}$/i` tokens separated by a `-` token (TRAVEL `LGA - ORD`). First occurrence wins; else null/null.
+     - `depTime` / `arrTime` = the first ordered pair of time tokens (`/^\d{1,2}:\d{2}\s*(am|pm)$/i`) separated by a `-` token, else null/null.
+   - **Format detection by route-vs-date position** (let `di` = date index, `ri` = route start index; if no route, treat as TRAVEL-shaped):
+     - **TECH-shaped (`ri < di`, route before date):**
+       - `airline` = the tokens strictly between the route and the date, space-joined (e.g. `UNITED`, `JET BLUE`), else null. `flightNo` = null.
+       - `conf` (per-segment) = the **last** token of the segment **after** the arrival time, if it matches `/^[A-Z0-9]{4,}$/i` and is not itself a time/route/date, else null (e.g. `HQQ79F`, `OSUULZ`).
+     - **TRAVEL-shaped (`ri > di` or no route):**
+       - `flightNo` = the token **immediately after the date** if it matches `/^[A-Z]{1,3}\d{1,4}[A-Z]?$/i` (airline+number; airport codes have no digit so never match), else null. `airline` = null.
+       - `conf` (per-segment) = null (TRAVEL conf is itinerary-level, step 5).
+   - Every field independent + best-effort: a missing field is null and never blocks the others. A structured segment with some null fields still renders with the present fields.
+5. **Itinerary-level confirmation (TRAVEL only):** the whitespace tokens **before the very first date token of the whole itinerary** that are NOT part of a route (i.e. the first part is TRAVEL-shaped — route after date) → `confirmation` (space-joined, e.g. `GEUZAB`). If the first segment is TECH-shaped (route before date) or the itinerary starts at a date / has no date, `confirmation = null` (TECH confs live per-segment in `conf`).
 6. Returns the itinerary; **source order preserved** (sorting is a render concern, §4).
 
 ### 3.2 Date inference
@@ -95,10 +105,10 @@ Replaces the current plain-`<span>`-per-leg block (`TravelSection.tsx:490-505`).
 
 Each segment renders as a row (reusing the `TravelRow` `mode="flight"` shape — `label`/`primary`/`meta`/`conf` slots already exist, `TravelSection.tsx:79-93`), OR a purpose-built structured row, carrying:
 - **Date** (eyebrow/label) — friendly form derived from the ISO (e.g. `Mar 22`); falls back to the raw `M/D` if `date` is null.
-- **Primary line:** `flightNo` · route `origin → dest` (with a `→` glyph), `tabular-nums`.
+- **Primary line:** the **carrier** (`flightNo` for TRAVEL, e.g. `AA3002`; `airline` for TECH, e.g. `UNITED` — whichever is non-null) · route `origin → dest` (with a `→` glyph), `tabular-nums`. If both carrier fields are null, render just the route; if route is null, just the carrier.
 - **Meta line:** `depTime – arrTime` (en dash), `tabular-nums`.
-- **Confirmation:** shown **once** for the itinerary (e.g. a footer chip on the card), not per segment.
-- **Unstructured segment (`structured: false`):** renders its `raw` string exactly as today (plain `tabular-nums` line) — zero regression for TECH/garbage legs.
+- **Confirmation:** the itinerary-level `confirmation` (TRAVEL) shown **once** as a card-footer chip; a per-segment `conf` (TECH) shown **inline on its segment row** (the `conf` slot). When every TECH segment shares the same `conf`, it may be collapsed to one footer chip (render nicety, not required).
+- **Unstructured segment (`structured: false`):** renders its `raw` string exactly as today (plain `tabular-nums` line) — zero regression for garbage/no-date legs.
 - **Emphasized segment:** a small **"Today"/"Next" chip** + accent left-border / surface tint.
 
 ### 5.1 Guard conditions (every input state)
@@ -125,17 +135,17 @@ The helper is **total** (never throws): every branch returns a `FlightSegment` (
 ## 7. Testing
 
 - **Helper unit tests** (`tests/crew/flightDisplay.test.ts`, new). Inputs are the **normalized (piped) `flight_info`** strings the parser actually produces (derive them by running the real fixture cell through `normalizeTravelCell`, or assert the exact piped literal), not the raw pre-normalized fixture cell:
-  - RPAS normalized string (conf `GEUZAB`, 2 piped legs) → 2 structured segments with exact `date`/`flightNo`/`origin`/`dest`/`depTime`/`arrTime`; `confirmation === "GEUZAB"`. **Values derived from the fixture string**, not hardcoded magic.
-  - FinTech normalized string (no conf) → `confirmation === null`, 2 structured segments.
-  - **No-pipe robustness:** the same RPAS leg content with the pipe removed (one run-on part, two `M/D` dates) → still 2 structured segments (proves date-token detection doesn't depend on the pipe — Finding 1).
-  - TECH-shaped `"arrival | departure"` raw (no dates) → **2** `structured: false` segments, each `raw` preserved (pipe boundary kept).
-  - Guards: null/empty/whitespace → empty; sentinel-only → empty (parts dropped); missing flightNo/airports/times → that field null, others intact; out-of-range date `13/40` → `date: null` + `structured: true`.
+  - **TRAVEL format** — RPAS normalized string (`GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am`): 2 structured segments with exact `date`/`flightNo` (`AA3002`,`AA2723`)/`origin`/`dest`/`depTime`/`arrTime`; `airline === null`, segment `conf === null`; itinerary `confirmation === "GEUZAB"`. FinTech string (no conf) → `confirmation === null`. **Values derived from the fixture string.**
+  - **TECH format** — real East Coast leg (`EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ`): 2 structured segments with `origin/dest` from the `XXX-XXX` token (`EWR`/`FLL`, `FLL`/`EWR`), `airline` (`UNITED`, `JET BLUE`), `flightNo === null`, per-segment `conf` (`HQQ79F`,`OSUULZ`); itinerary `confirmation === null`. Carl Fenton same-conf-both-legs case → both segments `conf === "CGTTLO"`.
+  - **Format detection** — a segment with route BEFORE the date is TECH-classified (airline + trailing conf); route AFTER the date is TRAVEL-classified (flightNo + leading itinerary conf). Assert the classifier picks the right branch for each fixture.
+  - **No-pipe robustness:** the same RPAS leg content with the pipe removed (one run-on part, two `M/D` dates) → still 2 structured segments (date-token detection doesn't depend on the pipe — Finding 1).
+  - Guards: null/empty/whitespace → empty; sentinel-only → empty (parts dropped); a no-date part → `structured: false`, `raw` preserved; missing carrier/airports/times → that field null, others intact; out-of-range date `13/40` → `date: null` + `structured: true`.
   - `pickUpcomingIndex`: today match, next-upcoming, all-past → null, null-date skipped.
   - **Negative-regression:** mutate the date regex / conf extraction and confirm the corresponding assertion goes RED (helper isn't tautological).
-- **Render tests** (`tests/components/crew/sections/TravelSection.flight.test.tsx`, extend):
-  - Structured card renders date/flightNo/route/times distinct elements (assert against the parsed data source per anti-tautology, not just text scan).
+- **Render tests** (`tests/components/crew/sections/TravelSection.flight.test.tsx`, **update** — the existing tests use TECH-format strings that now render *structured* (no longer raw `travel-flight-leg` spans), so their assertions are rewritten to the new structured rows):
+  - TRAVEL + TECH structured card each render date/carrier/route/times as distinct elements (assert against the parsed data source per anti-tautology, not just text scan).
   - Emphasis chip on the correct segment for a given `today`; "Today" vs "Next" label.
-  - Unstructured leg → raw fallback line.
+  - A genuinely-unstructured leg (no date) → raw fallback line preserved.
   - Empty/sentinel → card omitted (regression of the shipped behavior).
 - **Existing flight tests stay green** (`tests/parser/travelFlights.test.ts`, `tests/data/getShowForViewerFlight.test.ts`) — the parser + projection are untouched.
 
