@@ -59,4 +59,12 @@ describe("parseSheet — SET cell-derived run-of-show labels (D-SET1)", () => {
     const r = parseSheet(md, RFI_FIXTURE);
     expect("setAgendaRaw" in r.show.dates).toBe(false);
   });
+
+  it("RFI/PCF SET cell → run-of-show shows 'Room Access', not 'Setup'", () => {
+    const md = readFileSync(RFI_FIXTURE, "utf8");
+    const r = parseSheet(md, RFI_FIXTURE);
+    const setEntries = r.runOfShow![r.show.dates.set!]!.entries.map((e) => e.title);
+    expect(setEntries).toContain("Room Access");
+    expect(setEntries).not.toContain("Setup");
+  });
 });

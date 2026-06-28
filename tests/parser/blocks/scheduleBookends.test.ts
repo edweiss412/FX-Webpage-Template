@@ -270,3 +270,59 @@ describe("tokenizeSetSchedule (D-SET1)", () => {
     ]);
   });
 });
+
+describe("deriveScheduleBookends — SET cell-derived labels (D-SET1)", () => {
+  it("label-before cell → derived 'Room Access' entry (not generic 'Setup')", () => {
+    const d = dates({
+      set: "2025-05-12",
+      loadIn: "7:00 PM",
+      setupTime: "8:30 PM",
+      setAgendaRaw: "Load In: 7:00 PM Room Access: 8:30 PM",
+    });
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
+    expect(runOfShow!["2025-05-12"]!.entries).toEqual([
+      { start: "7:00 PM", title: "Load In" },
+      { start: "8:30 PM", title: "Room Access" },
+    ]);
+  });
+  it("time-first cell → fall-through to loadIn/setupTime (generic)", () => {
+    const d = dates({ set: "2025-05-12", loadIn: "11:00 AM", setAgendaRaw: "11:00 AM LOAD IN" });
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
+    expect(runOfShow!["2025-05-12"]!.entries).toEqual([{ start: "11:00 AM", title: "Load In" }]);
+  });
+  it("null setAgendaRaw → today's loadIn/setupTime synthesis verbatim", () => {
+    const d = dates({ set: "2025-05-12", loadIn: "7:00 PM", setupTime: "8:30 PM", setAgendaRaw: null });
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
+    expect(runOfShow!["2025-05-12"]!.entries).toEqual([
+      { start: "7:00 PM", title: "Load In" },
+      { start: "8:30 PM", title: "Setup" },
+    ]);
+  });
+  it("append-not-overwrite: keeps a pre-existing grid day", () => {
+    const d = dates({ set: "2025-05-12", setAgendaRaw: "Load In: 7:00 PM Room Access: 8:30 PM" });
+    const grid = {
+      "2025-05-12": {
+        entries: [{ start: "9:00 AM", title: "Keynote" }],
+        showStart: "9:00 AM",
+        window: null,
+      },
+    };
+    const { runOfShow } = deriveScheduleBookends(grid, d, null, [], "2025");
+    expect(runOfShow!["2025-05-12"]!.entries.map((e) => e.title)).toEqual([
+      "Keynote",
+      "Load In",
+      "Room Access",
+    ]);
+  });
+  it("no-drift + correct label for entity-in-clock (R2 P1d)", () => {
+    const d = dates({
+      set: "2025-05-12",
+      loadIn: "7:00 PM",
+      setAgendaRaw: "Load In: 7:00&#9;PM Room Access: 8:30 PM",
+    });
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, [], "2025");
+    const e = runOfShow!["2025-05-12"]!.entries;
+    expect(e[0]!.start).toBe(d.loadIn); // "7:00 PM" both sides — no resolveKeyTimes drift
+    expect(e[1]!.title).toBe("Room Access"); // not "PM Room Access"
+  });
+});

@@ -132,12 +132,21 @@ export function deriveScheduleBookends(
     appendEntry(ros, puv.date, { start: puvClock, title: "Load Out", kind: "loadout" });
   }
 
-  // ── SET load-in / setup (synthesized from dates; appended; kind absent = agenda) ──
+  // ── SET (tokenized cell-derived labels when label-before; else dates fall-through; kind absent) ──
   if (dates.set) {
-    if (presence(dates.loadIn ?? ""))
-      appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
-    if (presence(dates.setupTime ?? ""))
-      appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
+    const tokens = tokenizeSetSchedule(dates.setAgendaRaw ?? null);
+    if (tokens.length > 0) {
+      tokens.forEach((t, i) => {
+        const title = t.label ?? (i === 0 ? "Load In" : i === 1 ? "Setup" : null);
+        if (title == null) return; // 3rd+ unlabeled clock → skip (matches today's ≤2 cap)
+        appendEntry(ros, dates.set!, { start: t.clock, title });
+      });
+    } else {
+      if (presence(dates.loadIn ?? ""))
+        appendEntry(ros, dates.set, { start: dates.loadIn!, title: "Load In" });
+      if (presence(dates.setupTime ?? ""))
+        appendEntry(ros, dates.set, { start: dates.setupTime!, title: "Setup" });
+    }
   }
 
   return { runOfShow: Object.keys(ros).length ? ros : rosIn, warnings };
