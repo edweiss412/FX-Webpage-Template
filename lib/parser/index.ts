@@ -21,6 +21,7 @@ import { normalizeSectionHeaders } from "./sectionHeaderNormalize";
 import { parseTravelFlights } from "./blocks/travelFlights";
 import { parseHotels } from "./blocks/hotels";
 import { parseRooms } from "./blocks/rooms";
+import { parseGearTab, type GearRoom } from "./blocks/gear";
 import { parseTransportation } from "./blocks/transport";
 import { parseContacts } from "./blocks/contacts";
 import { parseEventDetails } from "./blocks/event";
@@ -320,6 +321,66 @@ export function deriveSchedulePhases(dates: ShowRow["dates"]): ShowRow["schedule
 
 // ── Main orchestrator ─────────────────────────────────────────────────────────
 
+// Strip the room-type prefix + trailing Dimensions/Floor and uppercase, yielding the
+// composite-key name token used to match GEAR rooms onto INFO rooms (spec §3.1/§3.3).
+const ROOM_NAME_PREFIX_RE =
+  /^(GENERAL SESSION|BREAKOUT( SESSION)?\s*\d*|LUNCH( ROOM| SESSION)?|ADDITIONAL( ROOM)?)\s*-?\s*/i;
+function gearNameToken(name: string): string {
+  return name
+    .replace(ROOM_NAME_PREFIX_RE, "")
+    .replace(/\s*(Dimensions|Floor).*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+const GEAR_COLUMNS = ["audio", "video", "lighting", "scenic", "other"] as const;
+
+/**
+ * Merge GEAR-tab discipline scope onto the INFO-parsed rooms (spec §3.1/§3.3/§5).
+ *
+ * Match each GearRoom to a parsed room by the composite key `(kind, name token)` —
+ * NOT by breakout index (R1-HIGH) and NOT by name token alone (R8-H1, an `additional`
+ * and a `breakout` can share a token). On match: fill-don't-clobber each gear column
+ * (set only when the parsed column is currently null). On no match: append a new
+ * RoomRow carrying ONLY the gear columns, with all time/setup/dimensions/floor null
+ * (inert in the schedule — `deriveScheduleBookends` keys Strike on `strike_time`).
+ * All-null GearRooms are never appended. No warning code (spec D7).
+ */
+export function mergeGearIntoRooms(parsed: RoomRow[], gear: GearRoom[]): RoomRow[] {
+  const result = [...parsed];
+  for (const g of gear) {
+    if (!g.audio && !g.video && !g.lighting && !g.scenic && !g.other) continue; // skip all-null
+    const token = gearNameToken(g.name);
+    const match = result.find((r) => r.kind === g.kind && gearNameToken(r.name) === token);
+    if (match) {
+      for (const col of GEAR_COLUMNS) {
+        if (match[col] == null && g[col] != null) match[col] = g[col];
+      }
+    } else {
+      result.push({
+        kind: g.kind,
+        name: g.name,
+        dimensions: null,
+        floor: null,
+        setup: null,
+        set_time: null,
+        show_time: null,
+        strike_time: null,
+        audio: g.audio,
+        video: g.video,
+        lighting: g.lighting,
+        scenic: g.scenic,
+        power: null,
+        digital_signage: null,
+        other: g.other,
+        notes: null,
+      });
+    }
+  }
+  return result;
+}
+
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const hardErrors: ParseError[] = [];
 
@@ -386,7 +447,8 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const crewMembers = parseCrew(markdown, version, agg);
   parseTravelFlights(markdown, crewMembers, agg);
   const hotelReservations = parseHotels(markdown, version, agg);
-  const rooms = parseRooms(markdown, version, agg);
+  const gearRooms = parseGearTab(markdown);
+  const rooms = mergeGearIntoRooms(parseRooms(markdown, version, agg), gearRooms);
   const transportation = parseTransportation(markdown, version, crewMembers, agg);
   const contacts = parseContacts(markdown, version, agg);
   const eventDetails = parseEventDetails(markdown, version, agg);
