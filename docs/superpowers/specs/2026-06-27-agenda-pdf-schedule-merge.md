@@ -64,10 +64,12 @@ during the onboarding scan). No change to crew rendering.
   operator's call).
 - No change to crew (`ScheduleSection`, `AgendaScheduleBlock`, `AgendaEmbed`,
   `RunOfShowList`), to `runOfShow` / `decodeRunOfShow`, or to `ScheduleDay`.
-- No change to the **extractor** (`extractAgendaSchedule`). NOTE: `downloadFileBytes`
-  and `enrichAgenda` DO gain the §4.5 budget caps (byte cap + per-sheet count cap);
-  these are shared, so they also bound the cron path (a deliberate net improvement,
-  sized far above the real corpus so behavior is unchanged for real shows).
+- No extractor *algorithm* change. NOTE: `extractAgendaSchedule` gains ONE guard —
+  the §4.5 page cap (early `LOW()` return before the page loop) — and
+  `downloadFileBytes` + `enrichAgenda` gain the §4.5 byte cap + per-sheet count cap.
+  These are shared, so they also bound the cron path (a deliberate net improvement,
+  sized far above the real corpus so behavior is unchanged for real shows). The page
+  guard bumps `EXTRACTOR_VERSION` 1→2 (gate-logic change per its own contract).
 - No new DB columns / DDL, no migration, no advisory-lock change. No §12.4 catalog
   change (the budget warnings reuse the existing `AGENDA_PDF_UNREADABLE` code).
 - **Prior-extraction hydration across parses is out of scope** (see §4.4) — it is a
@@ -102,8 +104,21 @@ Rooms / Hotels. Data source: `pr.show.agenda_links` (the staged `ParseResult`'s
 
 Render rules:
 
-- `links = pr.show.agenda_links`. If `links.length === 0` → **omit** the Agenda
-  breakdown entirely (mirrors the existing breakdowns' empty handling).
+- **Defensive coercion (Codex round-3 Finding 3):** the staged `parse_result` is
+  untyped-on-the-wire JSONB; an old/corrupt row may have `agenda_links`
+  missing/non-array, or per-link `label`/`fileId`/`url` of the wrong type. Read via
+  `const links = arr(pr.show?.agenda_links)` (the existing `arr` guard,
+  `Step3SheetCard.tsx:62`); per link, treat `label`/`fileId`/`url` as strings only
+  when `typeof === "string"` (else `""`/absent). If `links.length === 0` → **omit**
+  the Agenda breakdown entirely.
+- **Open-PDF href validation (Codex round-3 Finding 2):** `parseAgendaLinks` stores
+  arbitrary non-URL text (filenames/descriptions) in `url`
+  (`lib/parser/index.ts:253-255`), so `url` must NOT be rendered as an href blindly.
+  A shared helper `agendaPdfHref(link): string | null` returns:
+  `link.fileId` (non-empty string) → `https://drive.google.com/file/d/${fileId}/view`;
+  else `link.url` ONLY when `typeof url === "string" && /^https?:\/\//i.test(url)`;
+  else `null`. The "Open PDF" anchor renders only when the href is non-null, with
+  `target="_blank" rel="noopener noreferrer"`; a null href → note text only.
 - Else render a `BreakdownSection label="Agenda" count={links.length}` containing,
   per link **in array order**. **The block-vs-note choice is made by an EXPLICIT
   renderability predicate, NOT `link.extracted` truthiness** (Codex round-2
@@ -119,10 +134,8 @@ Render rules:
     label={links.length > 1 ? agendaDisplayLabel(link.label) : null} />`.
   - else (missing / low-confidence / malformed / zero-day `extracted`) → a one-line
     muted note: `"{agendaDisplayLabel(link.label) ?? link.label} · agenda PDF not
-    auto-readable"` **followed by an actionable link to the PDF** when a target is
-    available: `link.url` if present, else `https://drive.google.com/file/d/${link.fileId}/view`
-    when `link.fileId` is set (anchor text "Open PDF"). No target (neither
-    fileId nor url) → note text only.
+    auto-readable"`, **followed by an "Open PDF" anchor iff `agendaPdfHref(link)` is
+    non-null** (the validated href above). No valid target → note text only.
 - The `label` badge (per-document, e.g. "RFI"/"PCF") is shown only when
   `links.length > 1`, mirroring the crew rule
   (`ScheduleSection.tsx:131-132`, `agendaDisplayLabel` from
@@ -201,12 +214,15 @@ shared folder, a sheet with many agenda links, or a single huge PDF could push t
 scan into route-timeout / memory / quota failure. (This unbounded shape already
 exists on cron; bounding it here improves both paths.)
 
-Two explicit, testable caps are added (constants in `lib/agenda/constants.ts`),
-both with deterministic **skip + warning** behavior — never a silent drop:
+**Three** explicit, testable caps are added (constants in `lib/agenda/constants.ts`),
+each with deterministic **skip + warning** behavior — never a silent drop. The three
+bound the three independent cost dimensions: bytes (memory), pages (parse CPU/time),
+and per-sheet PDF count:
 
 | Cap | Constant (proposed) | Where enforced | On exceed |
 |---|---|---|---|
-| Per-PDF download size | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` (`agendaDrive.ts`) | streamed bounded read aborts → return `{ kind: "unavailable" }` → `enrichAgenda` emits the existing `AGENDA_PDF_UNREADABLE` (download-failed message) |
+| Per-PDF download size (memory) | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` (`agendaDrive.ts`) | streamed bounded read aborts → `{ kind: "unavailable" }` → `enrichAgenda` emits existing `AGENDA_PDF_UNREADABLE` (download-failed message) |
+| Per-PDF page count (parse time) | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` (early, right after `getDocument`) | `if (doc.numPages > AGENDA_MAX_PAGES) return LOW()` → 0-day low-confidence → admin note / crew embed-only |
 | Agenda PDFs extracted per sheet | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap are skipped with one `AGENDA_PDF_UNREADABLE` warning ("too many agenda PDFs on this sheet to read automatically — open the PDF") |
 
 **Byte cap mechanism:** `downloadFileBytes` switches its Drive `files.get({ alt:
@@ -214,23 +230,36 @@ both with deterministic **skip + warning** behavior — never a silent drop:
 consumes it via `bytesFromNodeStream(stream, AGENDA_PDF_MAX_BYTES)`
 (`lib/sync/boundedBytes.ts:110`); a `ByteLimitExceededError`
 (`boundedBytes.ts:5`) is caught and mapped to `{ kind: "unavailable" }` (NOT
-`infra_error` — it is a deterministic too-large outcome, mirrors the 404/403 →
-`unavailable` mapping at `agendaDrive.ts:65`). This bounds peak memory per PDF.
+`infra_error` — deterministic too-large outcome, mirrors the 404/403 →
+`unavailable` mapping at `agendaDrive.ts:65`). Bounds peak memory per PDF.
 
-**No new §12.4 catalog code:** both behaviors reuse the existing
-`AGENDA_PDF_UNREADABLE` code with new free-text `message` strings; the catalog
-pins code→`helpfulContext`, not per-instance messages, so no catalog/`gen:spec-codes`
-change is required. (Confirmed: `AGENDA_PDF_UNREADABLE` is an existing code emitted
-throughout `enrichAgenda.ts`.)
+**Page cap mechanism (Codex round-3 Finding 1):** the byte cap alone does NOT bound
+parse time — a small-byte PDF can carry many pages, and `extractAgendaSchedule`
+loops `for (p=1..doc.numPages) getTextContent()` (`extractAgendaSchedule.ts:142`),
+keeping the 300s onboarding request open. The page cap is checked **once, right
+after `getDocument(...).promise`, before the page loop**, returning `LOW()` when
+`doc.numPages > AGENDA_MAX_PAGES`. This is a true CPU/time bound (the work is never
+done), unlike a `Promise.race` timeout (which lets pdfjs keep running in the
+background and consuming CPU across the 12 concurrent prepares). It is a gate-logic
+change, so **`EXTRACTOR_VERSION` is bumped 1→2** (its own contract — `constants.ts:11`)
+and all `extractorVersion === 1` test assertions update to `2`
+(`tests/agenda/extractAgendaSchedule.test.ts`, `tests/agenda/constants.test.ts`,
+`tests/onboarding/enrichAgendaIntegration.test.ts`).
 
-**No page cap** is added — the byte cap bounds the dominant memory/parse-time risk
-(a many-page agenda is also many bytes), and a page cap would require modifying the
-shared extractor + a large multi-page fixture for no marginal safety. The extractor
-stays untouched.
+**Total-scan scaling (preempt):** no folder-wide total cap is added — `enrichAgenda`
+is per-sheet and has no scan-level state. Total agenda work scales with folder size,
+exactly like the scan's existing per-sheet XLSX export work; each unit is now bounded
+(bytes × pages), the per-sheet PDF count is capped, and the whole step is best-effort
+under the existing concurrency cap. A folder-wide budget would require threading
+scan-level counters through `enrichWithDrivePins` and is out of scope.
+
+**No new §12.4 catalog code:** all three reuse the existing `AGENDA_PDF_UNREADABLE`
+code with new free-text `message` strings; the catalog pins code→`helpfulContext`,
+not per-instance messages, so no catalog/`gen:spec-codes` change is required.
 
 These caps are sized far above the real corpus (rfi.pdf 538 KB / 10 pp, pcf.pdf
-495 KB / 7 pp; ≤2 PDFs per sheet) so production extraction is unaffected; the caps
-are pure pathological-input backstops.
+495 KB / 7 pp, fit.pdf 2-day < 80 pp; ≤2 PDFs per sheet) so production extraction is
+unaffected; they are pure pathological-input backstops.
 
 ## 5. Guard conditions (every input) — see §4.3 + §4.5.
 
@@ -260,30 +289,37 @@ are pure pathological-input backstops.
    + `fixtures/agenda/*.pdf`); assert the staged `parse_result.show.agenda_links[i].extracted`
    is a high-confidence extraction. *Failure mode:* enrichAgenda silently
    short-circuits.
-3. **`AgendaBreakdown` render (UI/RTL) — block-vs-note predicate (Finding 2).**
-   Cases: (a) two high-confidence `extracted` links → two `agenda-schedule` blocks
-   with RFI/PCF labels + representative titles; (b) **low-confidence** `extracted`
-   → note line (NOT an empty block); (c) **malformed** `extracted` (garbage object)
-   → note line; (d) **high-confidence zero-day** `extracted` → note line; (e) no
-   `extracted` → note line with an "Open PDF" link derived from `fileId`; (f) link
-   with `url` only → note "Open PDF" → `url`; (g) zero agenda links → no Agenda
-   breakdown at all. **Derive expected titles from the extraction of
+3. **`AgendaBreakdown` render (UI/RTL) — predicate, href, coercion (round-2 F2 +
+   round-3 F2/F3).** Cases: (a) two high-confidence `extracted` links → two
+   `agenda-schedule` blocks with RFI/PCF labels + representative titles;
+   (b) **low-confidence** `extracted` → note, no empty block; (c) **malformed**
+   `extracted` (garbage object) → note; (d) **high-confidence zero-day** → note;
+   (e) no `extracted`, `fileId` set → note + "Open PDF" → `drive.google.com/file/d/<id>/view`;
+   (f) no `extracted`, `url = "https://…"` → note + "Open PDF" → that url;
+   (g) no `extracted`, `url = "Program.pdf"` (filename) → note, **NO anchor**
+   (href validation); (h) no `extracted`, `url = "javascript:…"`/relative →
+   **NO anchor**; (i) `agenda_links` **undefined** / `pr.show` missing the field /
+   **non-array** → no Agenda breakdown, **no crash** (defensive `arr`); (j) zero
+   links → no breakdown. **Derive expected titles from the extraction of
    `fixtures/agenda/*.pdf`, not hardcoded** (anti-tautology); when scanning DOM for
-   a label, clone-and-strip the sibling Schedule/Rooms breakdowns first so the
-   assertion can't be satisfied by another section. *Failure mode caught:* the
-   `link.extracted ? <Block/> : <Note/>` trap rendering an empty section for
-   low/malformed payloads (hides the degraded state the operator must review).
-4. **Extraction budget (Finding 1).**
+   a label, clone-and-strip sibling breakdowns first. *Failure modes caught:* the
+   `link.extracted ? <Block/> : <Note/>` empty-section trap; rendering arbitrary
+   sheet text as an href; crashing on corrupt staged JSON.
+4. **Extraction budget — bytes × pages × count (round-2 F1 + round-3 F1).**
    - `downloadFileBytes` byte cap: a mocked Drive `files.get` stream emitting
-     > `AGENDA_PDF_MAX_BYTES` → returns `{ kind: "unavailable" }` (NOT
-     `infra_error`); a stream under the cap → `{ kind: "bytes" }` with correct
-     bytes (regression: existing fixture downloads still succeed). Use a small
-     test-injected stream; assert the cap is honored by feeding `cap + 1` bytes.
+     > `AGENDA_PDF_MAX_BYTES` → `{ kind: "unavailable" }` (NOT `infra_error`); a
+     stream under the cap → `{ kind: "bytes" }` with correct bytes (regression:
+     existing fixture downloads still succeed). Feed `cap + 1` bytes.
+   - `extractAgendaSchedule` page cap: mock the pdfjs loader so `getDocument` yields
+     a doc with `numPages = AGENDA_MAX_PAGES + 1` → returns `confidence: "low"`,
+     `days: []` **without** iterating pages (assert `getPage`/`getTextContent` is
+     not called past the guard, or use a spy). Regression: `fixtures/agenda/*.pdf`
+     (≤10 pp) still extract high-confidence. Also assert `extractorVersion === 2`.
    - `enrichAgenda` per-sheet count cap: a `ParseResult` with
      `AGENDA_MAX_PDFS_PER_SHEET + 1` fileId-bearing links → only the first N are
      extracted; the surplus links get an `AGENDA_PDF_UNREADABLE` warning and no
-     `extracted`. *Failure mode caught:* unbounded inline extraction inside the
-     300s onboarding request on a pathological folder/PDF.
+     `extracted`. *Failure mode caught:* unbounded inline extraction (bytes, parse
+     time, or count) inside the 300s onboarding request on a pathological input.
 5. **Crew no-regression (negative).** Assert the crew `ScheduleSection` still
    renders exactly one `AgendaScheduleBlock` per high-confidence link and that
    nothing in this change touches `runOfShow` (guard against accidental
@@ -309,15 +345,18 @@ are pure pathological-input backstops.
 | File | Change |
 |---|---|
 | `lib/sync/runOnboardingScan.ts` | extend `defaultDriveClient` w/ `downloadFileBytes`+`getAgendaChips` (import from `agendaDrive.ts`); **export** `defaultDriveClient` for the meta-test |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PDFS_PER_SHEET` (§4.5) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
+| `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed |
 | `lib/sync/enrichAgenda.ts` | per-sheet extraction count cap + skip-warning |
-| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate); render from `pr.show.agenda_links` |
+| `components/admin/wizard/Step3SheetCard.tsx` | new `AgendaBreakdown` (reuses `AgendaScheduleBlock` + `normalizeAgendaExtraction` predicate + `agendaPdfHref` validator + `arr` coercion); render from `pr.show?.agenda_links` |
 | `tests/sync/driveClientImplCompleteness.test.ts` | add onboarding default to `IMPLS` |
 | `tests/drive/agendaDrive.test.ts` | byte-cap test (Task 4) |
+| `tests/agenda/extractAgendaSchedule.test.ts` | page-cap test + `extractorVersion === 2` (Task 4) |
+| `tests/agenda/constants.test.ts`, `tests/onboarding/enrichAgendaIntegration.test.ts` | update `EXTRACTOR_VERSION`/`extractorVersion` assertions 1→2 |
 | `tests/sync/enrichAgenda.test.ts` | per-sheet count-cap test (Task 4) |
 | `tests/onboarding/...` | extraction-populates-`extracted` test (Task 2) |
-| `tests/components/admin/...` | `AgendaBreakdown` render test incl. low/malformed/zero-day (Task 3) |
+| `tests/components/admin/...` | `AgendaBreakdown` render test incl. low/malformed/zero-day/href/coercion (Task 3) |
 | `BACKLOG.md` | file `BL-AGENDA-EXTRACTION-HYDRATION` |
 
 **Not touched (dropped from rev 1):** `lib/parser/types.ts`,
@@ -338,6 +377,11 @@ are pure pathological-input backstops.
 - Render gate: **explicit `normalizeAgendaExtraction` predicate** decides
   block-vs-note (never `link.extracted` truthiness); note carries an "Open PDF"
   link; tests cover low/malformed/zero-day (Codex round-2 F2).
-- Budget: **per-PDF byte cap + per-sheet PDF count cap**, deterministic
-  skip+warning, shared (bounds cron too), sized above the real corpus (Codex
-  round-2 F1).
+- Budget: **per-PDF byte cap + per-PDF page cap + per-sheet PDF count cap**,
+  deterministic skip+warning, shared (bounds cron too), sized above the real corpus
+  (Codex round-2 F1 + round-3 F1). Page cap bumps `EXTRACTOR_VERSION`→2. No
+  folder-wide total cap (per-sheet + per-unit bounds suffice; out of scope).
+- Href safety: **`agendaPdfHref` validator** — Drive URL from `fileId`, or `url`
+  only when `^https?://`, else no anchor (Codex round-3 F2).
+- Robustness: **`arr(pr.show?.agenda_links)` + per-field string coercion** against
+  corrupt staged JSONB (Codex round-3 F3).
