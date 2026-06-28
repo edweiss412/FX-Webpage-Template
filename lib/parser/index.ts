@@ -33,7 +33,7 @@ import { parseAgenda } from "./blocks/agenda";
 import { parseScheduleTimes } from "./blocks/scheduleTimes";
 import { deriveScheduleBookends } from "./blocks/scheduleBookends";
 import { inferShowYear } from "./blocks/_helpers";
-import type { ParsedSheet, ParseError, ShowRow, WorkPhase, ScheduleDay } from "./types";
+import type { ParsedSheet, ParseError, ShowRow, WorkPhase, ScheduleDay, RoomRow } from "./types";
 
 export type { ParsedSheet, ParseResult, ParseWarning, ParseError } from "./types";
 export type {
