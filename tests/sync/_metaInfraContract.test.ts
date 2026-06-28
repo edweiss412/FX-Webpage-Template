@@ -371,6 +371,18 @@ const infraRegistry = [
     contract:
       "INFO-tab smart-chip recovery (spec §4.5.3): a thrown Sheets spreadsheets.get fault → { kind:'infra_error' } (a real union member) so 'couldn't read the sheet' can never collapse into 'no agenda rows / count mismatch'; success → { kind:'rows' } in grid order (invariant 9). Behavioral coverage in tests/drive/agendaDrive.test.ts.",
   },
+  {
+    helper: "readGeocodeCache",
+    path: "lib/geocoding/cache.ts",
+    contract:
+      "geocode cache read (geocoding-at-ingest): a thrown service-role construction / .from() fault AND a returned {error} both map to { kind:'infra_error' } (never a silent miss); a non-expired row → { kind:'hit', city } (city may be null), absent → { kind:'miss' }. Never throws so the enrichment treats a fault as a cache miss (invariant 9).",
+  },
+  {
+    helper: "writeGeocodeCache",
+    path: "lib/geocoding/cache.ts",
+    contract:
+      "geocode cache upsert (geocoding-at-ingest): a thrown service-role construction / .from() fault AND a returned {error} both map to { kind:'infra_error' }; success → { kind:'ok' }. Never throws (invariant 9).",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -901,6 +913,41 @@ describe("sync Supabase infra-failure contract", () => {
     test("rejectMi11Hold: rpc throw → SYNC_INFRA_ERROR (no throw)", async () => {
       const { rejectMi11Hold } = await importGateWithThrows({ throwOnRpc: true });
       await expect(rejectMi11Hold("h1", "T0")).resolves.toEqual(INFRA);
+    });
+  });
+
+  // Invariant 9 applies to the Supabase CALL BOUNDARIES — readGeocodeCache /
+  // writeGeocodeCache (registered + pinned below). The enrichVenueGeocode caller is
+  // deliberately NOT a registry surface: it is best-effort city enrichment with an
+  // outer try/catch that swallows everything and leaves venue.city unset (the display
+  // falls back to the offline heuristics). It owns no typed-result contract — the typed
+  // infra_error discipline lives at the cache boundary it calls.
+  describe("geocode cache (geocoding-at-ingest)", () => {
+    async function importCache() {
+      vi.resetModules();
+      return import("@/lib/geocoding/cache");
+    }
+    const ARGS = { queryHash: "h", venueName: null, venueAddress: null, city: null };
+
+    test("readGeocodeCache: service-role construction throw → infra_error (no throw)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { readGeocodeCache } = await importCache();
+      await expect(readGeocodeCache("h")).resolves.toEqual({ kind: "infra_error" });
+    });
+    test("readGeocodeCache: .from() throw → infra_error (no throw)", async () => {
+      infraMock.throwOnFrom = true;
+      const { readGeocodeCache } = await importCache();
+      await expect(readGeocodeCache("h")).resolves.toEqual({ kind: "infra_error" });
+    });
+    test("writeGeocodeCache: service-role construction throw → infra_error (no throw)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { writeGeocodeCache } = await importCache();
+      await expect(writeGeocodeCache(ARGS)).resolves.toEqual({ kind: "infra_error" });
+    });
+    test("writeGeocodeCache: .from() throw → infra_error (no throw)", async () => {
+      infraMock.throwOnFrom = true;
+      const { writeGeocodeCache } = await importCache();
+      await expect(writeGeocodeCache(ARGS)).resolves.toEqual({ kind: "infra_error" });
     });
   });
 });

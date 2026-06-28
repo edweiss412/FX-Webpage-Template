@@ -114,6 +114,41 @@ describe("venueDisplay", () => {
       }),
     ).toEqual({ name: "Four Seasons Hotel", city: "Chicago" });
   });
+
+  // The geocoded city (set by the ingest enrichment) is the AUTHORITATIVE source and
+  // wins over both fallbacks — it works for venues anywhere, not just the curated set.
+  it("prefers the geocoded venue.city over the address/name fallbacks", () => {
+    // venue.city present + a name with NO known-city suffix (Portland IS curated, but
+    // here the geocoded value is what must win regardless).
+    expect(venueDisplay({ name: "The Benson", address: "", city: "Portland" })).toEqual({
+      name: "The Benson",
+      city: "Portland",
+    });
+  });
+
+  it("the geocoded city wins even when the curated name-split would resolve a DIFFERENT city", () => {
+    // Name ends in a curated city ("Chicago") but the geocoder resolved the real one.
+    // The geocoded city must win, and the redundant trailing token is NOT this city.
+    expect(venueDisplay({ name: "Kimpton Gray", address: "", city: "Chicago" })).toEqual({
+      name: "Kimpton Gray",
+      city: "Chicago",
+    });
+  });
+
+  it("the geocoded city strips a redundant trailing copy from the venue name", () => {
+    expect(
+      venueDisplay({ name: "Four Seasons Hotel Chicago", address: "", city: "Chicago" }),
+    ).toEqual({ name: "Four Seasons Hotel", city: "Chicago" });
+  });
+
+  it("a blank/empty/whitespace geocoded city falls through to the offline fallbacks", () => {
+    for (const city of ["  ", "", null]) {
+      expect(venueDisplay({ name: "Park Hyatt Chicago", address: "", city })).toEqual({
+        name: "Park Hyatt",
+        city: "Chicago",
+      });
+    }
+  });
 });
 
 describe("splitTrailingKnownCity", () => {
