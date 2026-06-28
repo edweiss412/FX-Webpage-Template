@@ -28,16 +28,15 @@ describe("full-corpus gear audit regression (gear-parser-fidelity Task 11)", () 
     },
   );
 
-  // BLOCKED by Task 4 (EVENT form-layout harvest): consultants-raw `event_details` is
-  // currently empty (the dropped-form bug). The harvest that would recover it is
-  // unimplementable AS SPECIFIED — the RPAS-raw negative-regression baseline (17 keys)
-  // is incompatible with harvesting the identical full 2-cell intake form that
-  // consultants-raw carries (RPAS-raw contains the same form at lines 701-751; harvesting
-  // it adds ~33 non-classic keys, and the zero-keys gate that would exclude it is
-  // explicitly forbidden by the spec and would break fixed-income). See the
-  // implementation report. Un-skip once Task 4's harvest design is resolved.
-  it.skip("raw/2025-10-consultants-roundtable.md recovers non-empty event_details (needs Task 4)", () => {
+  // The form-layout show: the closed-vocab EVENT harvest (Task 4) recovers consultants-raw's
+  // dropped intake-form values — keynote_requirements + Opening Sizzle Reel — into a
+  // non-empty event_details (was 0 keys before the harvest). Asserted against parseSheet
+  // output; the full behavioral detail + permission boundary are pinned in
+  // tests/parser/event.test.ts + tests/parser/eventDetailsNoFinancials.test.ts.
+  it("raw/2025-10-consultants-roundtable.md recovers non-empty event_details (form harvest)", () => {
     const ed = parseSheet(md("raw/2025-10-consultants-roundtable.md"), "c.md").show.event_details;
     expect(Object.keys(ed).length).toBeGreaterThan(0);
+    expect(ed["keynote_requirements"]).toBe("TBD");
+    expect(ed["opening_reel"]).toMatch(/Available if needed/i);
   });
 });
