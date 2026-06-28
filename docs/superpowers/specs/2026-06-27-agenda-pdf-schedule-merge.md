@@ -72,6 +72,13 @@ during the onboarding scan). No change to crew rendering.
   guard bumps `EXTRACTOR_VERSION` 1→2 (gate-logic change per its own contract).
 - No new DB columns / DDL, no migration, no advisory-lock change. No §12.4 catalog
   change (the budget warnings reuse the existing `AGENDA_PDF_UNREADABLE` code).
+- **`StagedReviewCard` surfaces are out of scope** (Codex round-11): the live
+  first-seen page (`app/admin/show/staged/[stagedId]/page.tsx`) and the wizard
+  finalize-failure re-review (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx`)
+  render `StagedReviewCard` with a summary-only `StagedRow` (no full breakdown), so
+  they get no agenda preview — consistent with their existing contract, no regression.
+  The single in-scope surface is the onboarding wizard Step-3 (`Step3SheetCard` via
+  `fetchStep3Data`).
 - **Prior-extraction hydration across parses is out of scope** (see §4.4) — it is a
   pre-existing efficiency gap affecting cron today and is filed to BACKLOG, not
   introduced or fixed here.
@@ -198,20 +205,29 @@ the crew component and crew page are untouched):
   18 / PCF 19 sessions; ≤2 tracks/session) → 8 shown + overflow note, tracks
   unaffected (under the track cap) — exactly the bounded-review behavior intended.
 
-**Where the server build runs.** `adminAgendaPreview` is computed in the SERVER
-component `OnboardingWizard`'s row-assembly function **`fetchStep3Data`**
+**Where the server build runs (single surface — Codex round-11 Finding 1).** The ONLY
+surface in scope is the onboarding wizard Step-3 review: the SERVER component
+`OnboardingWizard`'s row-assembly function **`fetchStep3Data`**
 (`components/admin/OnboardingWizard.tsx:191`, an `async` server fn that reads
 `onboarding_scan_manifest` + the staged `parse_result` at `:231`/`:277-283` and maps
-to `Step3Row[]` at `:295`) — and, for the LIVE first-seen path, the analogous staged
-review server component `app/admin/show/staged/[stagedId]/page.tsx`. There, per row:
-build `adminAgendaPreview` from `parse_result.show.agenda_links`, AND **strip**
+to `Step3Row[]` at `:295` → renders the client `Step3Review`/`Step3SheetCard`). There,
+per row: build `adminAgendaPreview` from `parse_result.show.agenda_links` AND **strip**
 `agenda_links[].extracted` from the `parseResult` placed on the client-bound
 `Step3Row`. So the browser receives only the bounded preview (≤ `AGENDA_MAX_PDFS_PER_SHEET`
 items, each block ≤ `AGENDA_ADMIN_SESSIONS_CAP` sessions × `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`
 tracks) — never the full extraction. A test pins `fetchStep3Data`'s output: the
-serialized `Step3Row` carries ≤ cap sessions/tracks, the correct `dropped*`, and no
-raw `extracted`. (The broader "full `parse_result` → client" shape is pre-existing
-for every breakdown; this feature caps only the one large item — extracted agenda.)
+serialized `Step3Row` carries `adminAgendaPreview` with ≤ cap sessions/tracks, the
+correct `dropped*`, and no raw `extracted`.
+
+The **`StagedReviewCard` surfaces are explicitly OUT OF SCOPE** (§3): both
+`app/admin/show/staged/[stagedId]/page.tsx` (live first-seen) and
+`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx` (wizard
+finalize-failure re-review) render `StagedReviewCard` with the summary-only `StagedRow`
+(title + warnings + review items — `stagedRowFromLiveFirstSeen` / `summaryFromParseResult`
+never carry the full breakdown). They show NO Crew/Schedule/Rooms/Hotels breakdowns
+today, so omitting the agenda breakdown there is **no regression** — not a half-shipped
+feature. (The broader "full `parse_result` → client" shape is pre-existing for every
+Step3SheetCard breakdown; this feature caps only the one large item — extracted agenda.)
 
 **Component boundary (Codex round-10 Finding 1).** `Step3SheetCard`/`Step3Review` are
 `"use client"`; the agenda renderer must therefore be **client-safe**. The existing
@@ -561,7 +577,7 @@ unaffected; they are pure pathological-input backstops.
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_MAX_PDFS_PER_SCAN`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`; bump `EXTRACTOR_VERSION` 1→2 (§4.5) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard: early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES` (before the page loop) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap via streamed `bytesFromNodeStream` → `unavailable` on exceed; **+ `createStallGuard` idle-abort on the stream → `infra_error` on stall**; `getAgendaChips` **+ `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry** (per `sheetGids.ts`) → `infra_error` on timeout |
-| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data`, `:191`) + `app/admin/show/staged/[stagedId]/page.tsx` | **server-side** build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate via `normalizeAgendaExtraction` + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge + `arr`/string coercion); strip `agenda_links[].extracted` from the client-bound `Step3Row.parseResult` |
+| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data`, `:191`) | **server-side** build `adminAgendaPreview: AdminAgendaItem[]` per row (predicate via `normalizeAgendaExtraction` + `capExtractionForAdmin` + `dropped*` + `agendaPdfHref` + badge + `arr`/string coercion); strip `agenda_links[].extracted` from the client-bound `Step3Row.parseResult`. (The `StagedReviewCard` staged pages are out of scope — §3.) |
 | Step-3 row type (`AdminAgendaItem` + `adminAgendaPreview` field on `Step3Row`) | new shared type carrying the server-computed preview |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure helpers `capExtractionForAdmin`, `agendaPdfHref`, `buildAdminAgendaPreview(links)` — unit-testable in isolation |
 | `lib/sync/enrichAgenda.ts` | budget **consumes 1 for `getAgendaChips`** (before the call, regardless of outcome) + per-link attempt decrement before `getFile`; per-sheet + scan caps; **no warning** on cap/budget skip (new `agendaBudget` param) |
