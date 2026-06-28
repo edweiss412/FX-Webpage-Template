@@ -650,8 +650,8 @@ Per AGENTS.md (fixed-dimension parent + flex/grid children) the new Scenic/Other
 
 - [ ] **Step 1:** Run the full suite: `npx vitest run` → all green (incl. the 2 new meta-tests). Run lint/typecheck/prettier per the repo quality gate (`pnpm lint`, `pnpm typecheck` or the project's gate command) → green. (Do NOT `--no-verify` the final commits — the quality gate must actually pass; see memory: `--no-verify` skips prettier/eslint → CI quality-gate fail.)
 - [ ] **Step 2:** invariant-8 impeccable dual-gate on the UI diff (`GearSection.tsx`, `emptyState.ts`, `buildSheetDeepLink.ts`): `/impeccable critique` AND `/impeccable audit` with the canonical v3 preflight gates; HIGH/CRITICAL fixed or DEFERRED (record dispositions in the handoff). External attestation (fresh subagent/user), not self-attested.
-- [ ] **Step 3:** Regen crew-preview gear screenshots (`public/help/screenshots/crew-preview-gear-mobile-*.webp`) via the screenshots workflow — the RPAS gear preview now shows real A/V/L. Re-author the bot commit if the regen lands as `github-actions[bot]` (memory: bot-commit `action_required` gate). Verify the regenerated WebP shows the gear cards.
-- [ ] **Step 4: Commit** — `chore(crew-page): regen crew-preview gear screenshots (GEAR scope now surfaced)`
+- [ ] **Step 3 (screenshots):** Expected NO regen — the seed parses RAW fixtures (`supabase/seed.ts:15`); raw RPAS's GEAR grid is out-of-scope and the EVENT harvest is conditional, so the raw-seeded RPAS gear page (hence `crew-preview-gear-mobile-*.webp`) is unchanged. Verify via the real-CI `screenshots-drift` job; only if it flags a diff, regen via the screenshots workflow + re-author the bot commit (`action_required` gotcha).
+- [ ] **Step 4 (only if drift):** Commit the regenerated WebPs — `chore(crew-page): regen crew-preview gear screenshots`
 
 ---
 
