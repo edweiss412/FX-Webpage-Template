@@ -85,7 +85,7 @@ Exports `parseGearTab(markdown: string, agg?: ParseAggregator): GearRoom[]` wher
 
 Within a room+discipline the classified item summaries join into a single `(N) ITEM` string (D4), order-preserving.
 
-**Collision tripwire** (`tests/parser/gearClassificationRegistry.test.ts`): asserts no keyword appears in more than one discipline allow-list and no allow-list keyword equals a package-header token. Same structural-defense shape as the typo-tolerance registry guard.
+**Collision tripwire** (`tests/parser/gearClassificationRegistry.test.ts`) — guards **cross-discipline** mistakes, NOT the intentional same-discipline overlap (Codex R9). Bucket-setters and allow-list keywords are SEPARATE registries that may share a token *within one discipline* (e.g. `SOUND SYSTEM` is both an `audio` allow-list keyword and the `audio` bucket-setter — required for the R8 lunch-room fix). The tripwire asserts: (1) no keyword appears in more than one discipline's allow-list; (2) each bucket-setter maps to exactly one discipline; (3) **discipline-consistency** — if a bucket-setter token is also an allow-list keyword, it must be in the SAME discipline's allow-list (catches an accidental audio-bucket / lighting-keyword cross-wire while permitting `SOUND SYSTEM`→audio in both). It does NOT assert "allow-list keyword ≠ bucket-setter token" (that over-broad rule made the registry unsatisfiable). Same structural-defense shape as the typo-tolerance registry guard.
 
 ### 3.3 Integration point
 
