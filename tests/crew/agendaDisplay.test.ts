@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { visibleShowDays, formatScheduleWindow, todayShowAnchors } from "@/lib/crew/agendaDisplay";
+import {
+  visibleShowDays,
+  formatScheduleWindow,
+  todayShowAnchors,
+  scheduleEntriesForViewer,
+} from "@/lib/crew/agendaDisplay";
+import type { AgendaEntry } from "@/lib/parser/types";
 
 const SHOW_DAYS = ["2025-10-08", "2025-10-09"]; // Consultants Day1/Day2, ASC
 
@@ -54,5 +60,30 @@ describe("todayShowAnchors (Today filter — §5.4)", () => {
   it("non-show 'today' → [] (Set/Strike pass through elsewhere, not here)", () => {
     const anchors = [{ date: "2025-10-08", label: "Day 1", time: "7:15am" }];
     expect(todayShowAnchors(anchors, "2025-10-07")).toEqual([]);
+  });
+});
+
+describe("scheduleEntriesForViewer (load-out transport gate — D12)", () => {
+  const entries: AgendaEntry[] = [
+    { start: "9 AM", title: "Registration" },
+    { start: "5 PM", title: "Strike — GS", kind: "strike" },
+    { start: "6 PM", title: "Load Out", kind: "loadout" },
+  ];
+
+  it("drops the load-out entry when transport is not visible (strike + agenda stay)", () => {
+    expect(
+      scheduleEntriesForViewer(entries, { transportVisible: false }).map((e) => e.title),
+    ).toEqual(["Registration", "Strike — GS"]);
+  });
+
+  it("keeps the load-out entry when transport is visible", () => {
+    expect(scheduleEntriesForViewer(entries, { transportVisible: true })).toHaveLength(3);
+    expect(
+      scheduleEntriesForViewer(entries, { transportVisible: true }).map((e) => e.title),
+    ).toEqual(["Registration", "Strike — GS", "Load Out"]);
+  });
+
+  it("undefined entries → empty array (no throw)", () => {
+    expect(scheduleEntriesForViewer(undefined, { transportVisible: false })).toEqual([]);
   });
 });
