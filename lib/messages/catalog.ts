@@ -1218,6 +1218,19 @@ export const MESSAGE_CATALOG = {
       "A show day's TIME cell had content we couldn't read as a start time, so that day shows the standard schedule. Give the cell a clear start time and it'll update on the next sync.",
     helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
   },
+  SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
+    code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+    dougFacing:
+      "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in your admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day (travel-in, set, a show day, or travel-out) and it'll appear for crew on the next sync.",
+    title: "Strike dated off the schedule",
+    longExplanation:
+      "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in the admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day and it'll appear on the next sync.",
+    helpHref: "/help/errors#SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+  },
   AGENDA_PDF_UNREADABLE: {
     code: "AGENDA_PDF_UNREADABLE",
     dougFacing:

@@ -138,10 +138,12 @@ export function attachSourceCellAnchors(
       w.code === "UNKNOWN_FIELD" ||
       w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
       w.code === "SECTION_HEADER_AUTOCORRECTED" ||
-      w.code === "FIELD_LABEL_AUTOCORRECTED"
+      w.code === "FIELD_LABEL_AUTOCORRECTED" ||
+      w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"
     ) {
       // Region-level anchor: blockRef.kind is a RegionId (crew column → "crew";
-      // section header → the corrected section's RegionId, e.g. "transportation"/"details").
+      // section header → the corrected section's RegionId, e.g. "transportation"/"details";
+      // off-schedule strike → "rooms", the ROOMS-tab region the strike was read from).
       const kind = w.blockRef?.kind;
       cell = kind ? (sources.region[kind] ?? null) : null;
     }

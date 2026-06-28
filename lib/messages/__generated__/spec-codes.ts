@@ -944,6 +944,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional fix",
     "helpfulContext": "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
   },
+  "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE": {
+    "crewFacing": null,
+    "dougFacing": "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in your admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day (travel-in, set, a show day, or travel-out) and it'll appear for crew on the next sync.",
+  },
   "SCHEDULE_TIME_UNPARSED": {
     "crewFacing": null,
     "dougFacing": "We couldn't read a start time for one of _<sheet-name>_'s show days, so that day shows the standard schedule. Make sure the day's TIME cell starts with a time like '7:15am - Registration' or '7:30am - 5:50pm'.",

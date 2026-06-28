@@ -188,6 +188,9 @@ export const INTERNAL_CODE_ENUMS = {
   ROLE_TOKEN_AUTOCORRECTED: {
     source: "parse_warnings.code"
   },
+  SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
+    source: "parse_warnings.code"
+  },
   SCHEDULE_TIME_UNPARSED: {
     source: "parse_warnings.code"
   },
