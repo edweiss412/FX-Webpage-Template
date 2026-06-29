@@ -463,6 +463,27 @@ describe("runCronRoute", () => {
     });
   });
 
+  test("AWAITS the emit before returning (serverless-freeze guarantee, §4.2.1 / AC6)", async () => {
+    // A synchronous sink can't catch a missing `await`; use a PENDING sink and assert
+    // runCronRoute does not resolve until the emit promise resolves.
+    vi.resetModules();
+    let released = false;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = () => { released = true; r(); }; });
+    const log = await import("@/lib/log");
+    log.setLogSink(() => gate); // sink returns a pending promise (real Sink may return Promise<void>)
+    const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+    let settled = false;
+    const p = runCronRoute("sync", req(), async () => ({ response: new Response(null), summary: { outcome: "ok" } }));
+    void p.then(() => { settled = true; });
+    await new Promise((r) => setTimeout(r, 0)); // flush microtasks (real timers in this test)
+    expect(settled).toBe(false); // has NOT returned — awaiting the emit
+    release();
+    await p;
+    expect(released).toBe(true);
+    log.resetLogSink();
+  });
+
   test("source code uses literal log methods, never computed log[level] dispatch", () => {
     const src = readFileSync(join(__dirname, "..", "..", "lib/cron/withCronRunSummary.ts"), "utf8");
     expect(src).not.toMatch(/log\s*\[/); // no log[...] computed access
@@ -531,7 +552,7 @@ export async function runCronRoute(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/cron/withCronRunSummary.test.ts`
-Expected: PASS (5 tests). The sink is the bare-function `Sink` from `lib/log/types.ts`; the record's `source`/`code`/`requestId` are top-level and `jobName/outcome/durationMs/counts` are in `record.context` (per `logger.ts buildRecord` — `RESERVED` keys become columns, the rest go to context).
+Expected: PASS (6 tests). The sink is the bare-function `Sink` from `lib/log/types.ts`; the record's `source`/`code`/`requestId` are top-level and `jobName/outcome/durationMs/counts` are in `record.context` (per `logger.ts buildRecord` — `RESERVED` keys become columns, the rest go to context).
 
 - [ ] **Step 5: Commit**
 
@@ -652,7 +673,22 @@ export async function GET(request: NextRequest): Promise<Response> {
 
 For `notify`, branch the jobName on `?job=` (read `app/api/cron/notify/route.ts:40`); classify per the notify rule; keep the existing `statusFor`-based status code on the response. For `report-reaper`, keep its internal try/catch returning 500 and have its catch produce `{ outcome:"infra" }` to the wrapper. For `asset-recovery`/`diagram-gc`, build counts from the real result fields.
 
-- [ ] **Step 5: Add per-route assertions to the test** — extend `cronRouteSummaries.test.ts` with one `describe` block per remaining route (mock its orchestrator to a representative result, assert exactly one summary with the expected `source` + `outcome`: notify infra-on-fault, asset-recovery partial-on-`partial_failure`, report-reaper infra-on-`ReportReaperInfraError`, the count-only routes → ok). Run until all PASS.
+- [ ] **Step 5: Add per-route assertions to the test** — extend `cronRouteSummaries.test.ts` with one `describe` block per remaining route (mock its orchestrator to a representative result, assert exactly one summary with the expected `source` + `outcome`: notify infra-on-fault, asset-recovery partial-on-`partial_failure`, report-reaper infra-on-`ReportReaperInfraError`, the count-only routes → ok). **Also pin notify's unknown-`?job=`→400-no-summary branch** (AC6: both 401 AND 400 emit no summary):
+
+```ts
+  test("notify: unknown ?job= → 400 and NO summary (branch outside the wrapper)", async () => {
+    vi.resetModules();
+    // notify's orchestrator need not run for an unknown job; mock it as a no-op for safety.
+    vi.doMock("@/lib/notify/runNotify", () => ({ runNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "ok", sent: 0 } }) }));
+    const sink = await setSink();
+    const { GET } = await import("@/app/api/cron/notify/route");
+    const r = await GET({ headers: new Headers({ authorization: "Bearer secret" }), url: "https://x/api/cron/notify?job=bogus" } as never);
+    expect(r.status).toBe(400);
+    expect(sink.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
+  });
+```
+
+Run until all PASS. (Read `app/api/cron/notify/route.ts` for the real import name of its orchestrator and adjust the `vi.doMock` target accordingly.)
 
 Run: `pnpm vitest run tests/cron/cronRouteSummaries.test.ts`
 Expected: PASS (all routes).
@@ -946,6 +982,15 @@ describe("loadAppEvents", () => {
     expect(c.__calls.some((x) => x.method === "ilike" && String(x.args[1]).includes("5\\%x"))).toBe(true);
   });
 
+  test("cursor → exactly one .or(...) keyset predicate with occurred_at AND id tie-breaker", async () => {
+    const c = mockClient(mk(0)); const load = await withClient(c);
+    await load({ cursor: { occurredAt: "2026-06-29T00:00:00.000Z", id: "id-9" } });
+    const ors = c.__calls.filter((x) => x.method === "or");
+    expect(ors).toHaveLength(1);
+    expect(String(ors[0].args[0])).toContain("occurred_at.lt.2026-06-29T00:00:00.000Z");
+    expect(String(ors[0].args[0])).toContain("id.lt.id-9");
+  });
+
   test("returned {error} → infra_error (no throw, message names app_events)", async () => {
     const c = mockClient([], { error: { message: "boom" } }); const load = await withClient(c);
     const r = await load({});
@@ -1047,7 +1092,7 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/admin/loadAppEvents.test.ts`
-Expected: PASS (6 tests). If the real PostgREST embed key differs (e.g. `shows` vs aliased), align `select(...)` + the `shows` extraction; keep behavior identical.
+Expected: PASS (7 tests). If the real PostgREST embed key differs (e.g. `shows` vs aliased), align `select(...)` + the `shows` extraction; keep behavior identical.
 
 - [ ] **Step 5: Commit**
 
@@ -1210,7 +1255,7 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult> {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/admin/loadCronHealth.test.ts`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1242,7 +1287,7 @@ git commit --no-verify -m "feat(observability): loadCronHealth per-job latest su
     helper: "loadCronHealth",
     path: "lib/admin/loadCronHealth.ts",
     contract:
-      "cron health: Promise.all of 9 per-job app_events limit(1) reads (service-role) in one try/catch; per-result returned-error funnels to the catch → infra_error('app_events read threw'); construction throw → infra_error.",
+      "cron health: Promise.all of 9 per-job app_events limit(1) reads (service-role) in one try/catch; a per-result RETURNED {error} → infra_error('app_events read returned error') (distinct path, behaviorally tested in tests/admin/loadCronHealth.test.ts); a genuine THROW (network/construction) → infra_error('app_events read threw'); construction throw → infra_error.",
   },
 ```
 
@@ -1763,7 +1808,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/components/observability/eventRow.test.tsx`
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1835,6 +1880,21 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     expect(href).toContain("source=cron.sync");
     expect(href).not.toContain("cursorAt");
     expect(href).not.toContain("cursorId");
+  });
+  test("level toggle drops the cursor (every mutation resets pagination)", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    fireEvent.click(screen.getByRole("button", { name: "error" }));
+    const href = push.mock.calls[0][0] as string;
+    expect(href).toContain("level=error");
+    expect(href).not.toContain("cursorAt");
+    expect(href).not.toContain("cursorId");
+  });
+  test("since preset drops the cursor", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "7d" } });
+    const href = push.mock.calls[0][0] as string;
+    expect(href).toContain("since=7d");
+    expect(href).not.toContain("cursorAt");
   });
   test("requestId mode shows the 'Showing one request' chip", () => {
     render(<EventFilters filters={{ requestId: "req-9", sinceHours: null }} />);
@@ -2103,7 +2163,7 @@ export function AutoRefreshControl() {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/components/observability/autoRefreshControl.test.tsx`
-Expected: PASS (4 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2426,16 +2486,25 @@ test("cron health cards are equal height; event rows do not overflow", async ({ 
 
   const row = page.locator("li:has([data-testid^=event-level-])").first();
   const geom = await row.evaluate((li) => {
-    const style = getComputedStyle(li);
-    const innerW = li.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-    const badge = li.querySelector("[data-testid^=event-level-]") as HTMLElement;
-    const content = badge.nextElementSibling as HTMLElement;
-    const flex = badge.parentElement as HTMLElement;
-    const gap = parseFloat(getComputedStyle(flex).columnGap || "0");
-    return { innerW, badgeW: badge.getBoundingClientRect().width, contentW: content.getBoundingClientRect().width, gap,
-      contentScroll: content.scrollWidth, contentClient: content.clientWidth };
+    // The flex row holds EVERY sibling: badge + content column + timestamp + request chip + gaps.
+    const flex = (li.querySelector("[data-testid^=event-level-]") as HTMLElement).parentElement as HTMLElement;
+    const fstyle = getComputedStyle(flex);
+    const flexInnerRight = flex.getBoundingClientRect().right - parseFloat(fstyle.paddingRight);
+    const children = Array.from(flex.children) as HTMLElement[];
+    const childOverflows = children
+      .map((c) => c.getBoundingClientRect().right - flexInnerRight)
+      .filter((d) => d > 0.5).length;
+    const content = children.find((c) => c.className.includes("flex-1")) as HTMLElement;
+    return {
+      rowScroll: flex.scrollWidth, rowClient: flex.clientWidth, childOverflows,
+      contentScroll: content.scrollWidth, contentClient: content.clientWidth,
+    };
   });
-  expect(geom.badgeW + geom.gap + geom.contentW).toBeLessThanOrEqual(geom.innerW + 0.5);
+  // (2a) the whole flex row — every child + every gap — does not overflow horizontally
+  expect(geom.rowScroll).toBeLessThanOrEqual(geom.rowClient + 0.5);
+  // (2b) no direct flex child (badge / content / timestamp / request chip) extends past the row's padding box
+  expect(geom.childOverflows).toBe(0);
+  // (2c) the content column truncates rather than overflowing
   expect(geom.contentScroll).toBeLessThanOrEqual(geom.contentClient + 0.5);
 });
 ```
