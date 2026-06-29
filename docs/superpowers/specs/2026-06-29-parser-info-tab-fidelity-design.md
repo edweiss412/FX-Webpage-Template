@@ -29,22 +29,27 @@ This spec fixes data fidelity at the parse layer for shipped, consumer-backed su
 
 **Bug.** `parseEventDetails` slices markdown from the DETAILS header (`event.ts:134-137`) and only reads rows in that slice. The INFO `DRESS` block sits **before** the DETAILS header (fixture:31-33, header at fixture:63), so the `dress`/`attire`→`dress_code` aliases (`event.ts:97-100`) never fire. `crew.ts:34` lists `"DRESS"` only as a parse *terminator*. No dress capture exists → `event_details.dress_code === undefined` → TodaySection dress card renders null (TodaySection.tsx:297-299,467). DRESS-before-DETAILS is the standard exporter layout → affects every show.
 
-**Source shape** (fixture:31-33):
+**Source shape** (fixture:31-34) — note the markdown **separator row** between the header and the continuation, and the blank line that terminates the block:
 ```
 | DRESS | Set/Strike: Black Pants, Black Polo Shirt, Black Footwear |
+| :---: | :---: |
 |  | Show: Black Pants, Black Long Sleeve Button Down Shirt, Black Footwear |
+<blank line>
 ```
-Header row: col0 == `DRESS`, value in col1. Continuation row: col0 empty, value in col1.
+Header row: col0 == `DRESS`, value in col1. Then a separator row (`| :---: | :---: |`). Then a continuation row: col0 empty, value in col1. Then a blank line.
 
 **Design.** New block parser `lib/parser/blocks/dress.ts` exporting `parseDress(markdown): string | null`:
 - Scan lines for a table row whose normalized col0 === `"DRESS"` (uppercase, single-spaced, trimmed — reuse `normalizeHeader` from `knownSections.ts`).
-- Collect that row's col1 (if non-empty) and each subsequent **continuation row** (col0 empty/whitespace, col1 non-empty) until: a row whose col0 is a non-empty label, a section header, a blank line, or EOF.
+- Collect that row's col1 (if non-empty), then continue scanning subsequent lines:
+  - **separator row** (matches the repo-standard `/^\|\s*:?-+:?\s*\|/` — i.e. `| :---: | … |`) → **SKIP** and keep scanning. **This is the round-2 fix (Codex spec-R2): the exporter emits a `| :---: | :---: |` separator between the DRESS header and the `Show:` continuation, so without skipping it the scan would stop and persist only the Set/Strike line — recreating a lossy capture for every standard exporter sheet.**
+  - **continuation row** (col0 empty/whitespace, col1 non-empty) → COLLECT col1.
+  - **terminator** — a blank/non-table line, EOF, or a row whose col0 is a non-empty label/section header → STOP.
 - Join the collected lines with `\n`, trimmed. Return `null` if nothing collected.
 - Handle exporter column-duplication: `Set/Strike: X | Set/Strike: X | …` → take the first non-empty cell after col0 and de-dup identical trailing cells (mirror how room headers treat `col1 === col0`).
 
 Wire into `index.ts` orchestrator after `parseEventDetails`: `const dress = parseDress(markdown); if (dress) eventDetails.dress_code = dress;` — **overwrite precedence**: `parseDress` captures the complete block (header value + continuations), strictly ≥ what the in-DETAILS single-row alias could capture, so it wins when both fire. For a show whose dress is a `| Dress | X |` row *inside* DETAILS, `parseEventDetails` already set `dress_code = X`; `parseDress` finds the same `DRESS`/`Dress` row, captures `X` (no continuations) → idempotent, no regression. The typo-tolerant alias path (`atire`→dress_code) is untouched: `parseDress` matches only exact normalized `DRESS`, so fuzzy-only labels stay with `parseEventDetails`.
 
-**Guard conditions:** no DRESS block → returns `null` → `dress_code` stays absent → card hidden (unchanged). DRESS header with empty col1 and no continuations → `null`. Single-row DRESS → that one line. Sentinel value (`N/A`) → stored; TodaySection's `shouldHideGenericOptional` hides it (existing behavior).
+**Guard conditions:** no DRESS block → returns `null` → `dress_code` stays absent → card hidden (unchanged). DRESS header with empty col1 and no continuations → `null`. Single-row DRESS → that one line. A separator row immediately after the header does NOT terminate the scan (it is skipped — round-2 fix). A blank line or a real labeled row terminates. Sentinel value (`N/A`) → stored; TodaySection's `shouldHideGenericOptional` hides it (existing behavior).
 
 **Meta-test:** add `"DRESS"` to `REQUIRED_HEADERS` in `tests/parser/_metaKnownSectionsRegistry.test.ts` and the citing comment (DRESS becomes a parser-recognized header). `DRESS` is already in `KNOWN_SECTION_HEADERS` (knownSections.ts) → registry passes unchanged.
 
@@ -84,7 +89,7 @@ Result: GEAR lunch `{breakout, name "BALLROOM C", token BALLROOM C}` matches INF
 | rpas | `II - Retirement Plan Advisor Institute - Central 2026` | `RETIREMENT PLAN ADVISOR INSTITUTE - CENTRAL 2026` |
 | east-coast / ria / redefining-fi | banner present | (no `Event Name:` row) |
 
-**Design.** Add a new **priority #0** to `extractTitleFromMarkdown`: scan the first table region; the **banner** is a row whose first cell (`cells[0]`) is non-empty, not a `KNOWN_NON_TITLES` member, and whose value is **duplicated in ≥1 other cell of the same row** (`cells[1] === cells[0]`, after trim). If found, return it. This signature:
+**Design.** Add a new **priority #0** to `extractTitleFromMarkdown`: scan the first table region (skipping markdown **separator rows** `/^\|\s*[:|-]+\s*\|/`, mirroring the existing #6 scan at index.ts:197); the **banner** is the first non-separator row whose first cell (`cells[0]`) is non-empty, not a `KNOWN_NON_TITLES` member, and whose value is **duplicated in ≥1 other cell of the same row** (`cells[1] === cells[0]`, after trim). If found, return it. This signature:
 - Matches all exporter banners (title in every cell).
 - Skips the exporter `Event Name:` row (`cells[0]="Event Name:"` ≠ `cells[1]`).
 - Skips RAW `| CLIENT | Institutional Investor |` rows (not duplicated; `cells[0]="CLIENT"` ≠ `cells[1]`) → raw consultants title **unchanged** (still via the existing path).
@@ -154,7 +159,7 @@ N/A — no `pg_advisory*` touched.
 
 Each fix lands as its own commit: failing test → minimal impl → green → commit.
 
-1. **parseDress unit** (`dress.ts` + new `tests/parser/dress.test.ts`): inline fixture with a DRESS block (header + continuation) **before** a DETAILS header → assert `event_details.dress_code === "Set/Strike: …\nShow: …"` (both lines, labels retained). Negative: no DRESS block → `dress_code` absent. Idempotency: DRESS-inside-DETAILS single row → same value, no duplication. Concrete failure caught: the slice-after-DETAILS drop (today returns `undefined`).
+1. **parseDress unit** (`dress.ts` + new `tests/parser/dress.test.ts`): inline fixture using the **exact 3-line shape from `fixtures/shows/exporter-xlsx/consultants.md` including the `| :---: | :---: |` separator row** between header and continuation (header → separator → continuation → blank) **before** a DETAILS header → assert `event_details.dress_code === "Set/Strike: …\nShow: …"` (both lines, labels retained). **Separator-skip assertion (Codex spec-R2):** this exact shape proves the parser does not stop at the separator and drop the `Show:` line. Negative: no DRESS block → `dress_code` absent. Idempotency: DRESS-inside-DETAILS single row → same value, no duplication. Negative-regression: make `parseDress` treat the separator as a terminator → only `Set/Strike` captured → test fails. Concrete failure caught: the slice-after-DETAILS drop (today returns `undefined`) AND the separator-stop loss.
 2. **Dress on real fixture** (`parseSheet`/`exporterFixtures`): assert `parseSheet(consultants).show.event_details.dress_code` contains both `Set/Strike` and `Show`. Negative-regression: mutate `parseDress` to return only the header row → test fails (proves it captures continuations).
 3. **Lunch dedup** (`tests/parser/...`): assert `parseSheet(consultants).rooms` has exactly one `BALLROOM C`-token room with `kind:"breakout"` carrying **both** the INFO times and the GEAR audio gear; assert no separate `GRAND BALLROOM C` room; assert total room count 9→8; assert GS and FOYER unchanged. **Collision negative test (Codex spec-R1 finding 2):** an inline fixture with a GEAR `additional` room `GRAND FOYER` and an INFO `additional` room `FOYER` (or any non-lunch `GRAND X`/`X` same-kind pair) → assert they do **not** merge (two distinct rooms remain), proving the `GRAND` strip is lunch-scoped and `gearNameToken` is unchanged. Negative-regression: revert the gear-kind branch → two lunch rooms reappear.
 4. **GS dims** — two layers:
