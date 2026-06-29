@@ -523,7 +523,7 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
         `${FINALIZE}: §5.6 re-SELECT (wizard_session_id + drive_file_id + staged_id + ` +
           `staged_modified_time) not found — Task 12 re-read was removed or renamed`,
       ).toMatch(
-        /select parse_result from public\.pending_syncs[\s\S]*?where[\s\S]*?wizard_session_id[\s\S]*?drive_file_id[\s\S]*?staged_id[\s\S]*?staged_modified_time/i,
+        /select parse_result[\s\S]*?from public\.pending_syncs[\s\S]*?where[\s\S]*?wizard_session_id[\s\S]*?drive_file_id[\s\S]*?staged_id[\s\S]*?staged_modified_time/i,
       );
 
       // (2) Acquisition count must remain at exactly 1 (single-holder rule). A second

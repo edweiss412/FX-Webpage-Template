@@ -229,9 +229,23 @@ class FakeRaceDb implements FinalizeRouteTx {
 
     // §5.6 generation-scoped re-SELECT under the per-row show: lock.
     // null → 0 rows (generation-scoped stale); a value → fresh parse_result.
-    if (n.startsWith("select parse_result from public.pending_syncs where wizard_session_id")) {
+    if (n.startsWith("select parse_result, wizard_approved")) {
       if (this.rereadParseResult === null) return { rows: [] as T[], rowCount: 0 };
-      return { rows: [{ parse_result: this.rereadParseResult } as T], rowCount: 1 };
+      const r = this.approved[0]!;
+      return {
+        rows: [
+          {
+            parse_result: this.rereadParseResult,
+            wizard_approved: r.wizard_approved,
+            wizard_reviewer_choices: r.wizard_reviewer_choices,
+            wizard_reviewer_choices_version: r.wizard_reviewer_choices_version,
+            wizard_approved_by_email: r.wizard_approved_by_email,
+            wizard_approved_at: r.wizard_approved_at,
+            last_finalize_failure_code: r.last_finalize_failure_code ?? null,
+          } as T,
+        ],
+        rowCount: 1,
+      };
     }
 
     // showExists

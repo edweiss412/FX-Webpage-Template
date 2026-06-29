@@ -111,6 +111,10 @@ type PendingFinalizeRow = {
   wizard_approved_at: string | Date | null;
   triggered_review_items: unknown;
   base_modified_time: string | Date | null;
+  // Re-read under the show: lock for the finishable re-validation (spec §3.2). NOT
+  // selected by selectFinishableCleanRows (which uses it only in its WHERE) — optional
+  // because the outer-select rows omit it; the widened locked re-read always sets it.
+  last_finalize_failure_code?: string | null;
 };
 
 type PerRowResult =
@@ -766,8 +770,26 @@ async function processApprovedRow(input: {
   // modified_time) returns 0 rows → stale demote, no publish.
   // Drive-light: finalize does NO per-PDF Drive call here — spec §5.7 temporal-scope
   // delegates post-publish re-validation to the cron path.
-  const freshRead = await tx.query<{ parse_result: ParseResult }>(
-    `select parse_result from public.pending_syncs
+  // Widened to the FULL decision row (spec §3.1): approve/unapprove change the
+  // approval columns WITHOUT bumping staged_modified_time, so the generation-scoped
+  // re-read must re-fetch them to drive the 4-branch from LOCKED values, not the
+  // stale select-time columns. last_finalize_failure_code is re-read for the
+  // finishable re-validation (§3.2). parse_result stays first (greppable prefix).
+  const freshRead = await tx.query<{
+    parse_result: ParseResult;
+    wizard_approved: boolean;
+    wizard_reviewer_choices: unknown[];
+    wizard_reviewer_choices_version: number | null;
+    wizard_approved_by_email: string | null;
+    wizard_approved_at: string | Date | null;
+    last_finalize_failure_code: string | null;
+  }>(
+    `select parse_result,
+            wizard_approved,
+            wizard_reviewer_choices, wizard_reviewer_choices_version,
+            wizard_approved_by_email, wizard_approved_at,
+            last_finalize_failure_code
+       from public.pending_syncs
       where wizard_session_id = $1::uuid
         and drive_file_id = $2
         and staged_id = $3::uuid
@@ -788,9 +810,16 @@ async function processApprovedRow(input: {
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
   }
+  const locked = freshRead.rows[0]!;
   const rereadRow: PendingFinalizeRow = {
     ...row,
-    parse_result: freshRead.rows[0]!.parse_result,
+    parse_result: locked.parse_result,
+    wizard_approved: locked.wizard_approved,
+    wizard_reviewer_choices: locked.wizard_reviewer_choices,
+    wizard_reviewer_choices_version: locked.wizard_reviewer_choices_version,
+    wizard_approved_by_email: locked.wizard_approved_by_email,
+    wizard_approved_at: locked.wizard_approved_at,
+    last_finalize_failure_code: locked.last_finalize_failure_code,
   };
 
   // `parse_result` is jsonb read via postgres.js. A legacy row written by the
