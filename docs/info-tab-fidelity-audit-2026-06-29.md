@@ -33,7 +33,9 @@ The parser captures all 19 `DETAILS` keys (`event.ts` CANONICAL_KEY_MAP + `alias
 
 ### 🟠 M1 — Per-room setup / dimensions / floor / per-room times not delivered (mixed) → `BL-ROOM-DETAIL-UNRENDERED`
 
-`room.setup` ("Chevron theater for 60", "Boardroom for 12"), `room.floor`, and per-room set/show/strike times are captured by the parser (`rooms.ts:167,376-378,623-625…`) but read by **zero** components; per-room times collapse only into the show-wide `KeyTimesStrip` (`resolveKeyTimes.ts:110-124`). **GS dimensions** (82'×63'×14') are a genuine parse drop — they live in a standalone row matching no room header, so `room.dimensions` is null. Review modal renders name+kind+gear only (`ROOM_SCOPE_FIELDS`, `Step3SheetCard.tsx:87-93`).
+`room.setup` ("Chevron theater for 60", "Boardroom for 12"), `room.floor`, `room.dimensions`, and per-room set/show/strike times are captured by the parser but read by **zero** components; per-room times collapse only into the show-wide `KeyTimesStrip` (`resolveKeyTimes.ts:110-124`). Review modal renders name+kind+gear only (`ROOM_SCOPE_FIELDS`, `Step3SheetCard.tsx:87-93`).
+
+**Correction (2026-06-29 spec review):** the initial read that **GS dimensions are a parse drop** was an artifact of testing the stale `exporter-xlsx` fixture (its GS header omits dims; they sit in a standalone intake row). The **live** Consultants sheet carries GS dims **inline** in the `GENERAL SESSION\nNAME\nDIMS\nFLOOR` header cell, which `splitRoomHeader` already parses (verified live via gsheets MCP; pinned by `tests/parser/exporterFixtures.test.ts:1168-1185`, which marks the standalone-row shape obsolete). So this whole finding is **render-only** (`BL-ROOM-DETAIL-UNRENDERED`), not a parse drop — the GS-dimension parser fix was investigated in the parser-cluster spec and dropped.
 
 ### 🟠 M2 — Step-3 review modal is blind at the publish gate (REVIEW-ONLY GAP) → `BL-REVIEW-MODAL-COMPLETENESS`
 
@@ -112,17 +114,17 @@ The modal body is exactly 6 BreakdownSections + Agenda + Warnings (`Step3SheetCa
 | DT17 | Test Pattern | yes | no | no | **H3** |
 | DT18 | Fonts | yes | no | no | **H3** |
 | DT19 | Notes (N/A) | yes | no | no | sentinel, low |
-| R-GS | General Session / Grand Ballroom A/B | yes | yes | partial | M1 — dims null, floor/setup unrendered, times aggregate-only |
+| R-GS | General Session / Grand Ballroom A/B | yes | yes | partial | M1 — dims captured inline on live sheet but floor/setup/dims unrendered, times aggregate-only |
 | R-BO1..4 | Breakouts (Delaware/Lasalle/Walton/State B) | yes | yes | partial | M1 — name+gear only; setup/floor/times unrendered |
 | R-LUNCH | Lunch Room / Ballroom C | partial | yes | partial | **H2 — duplicated**; setup/dims/times unrendered |
-| R-SUBFIELDS | Per-room dims/floor/setup/times | partial | no | partial | M1 (dims = parse drop; rest = render gap) |
+| R-SUBFIELDS | Per-room dims/floor/setup/times | yes | no | partial | M1 — render gap (dims captured inline on live sheet; not a parse drop) |
 | R-GEAR | Per-room A/V/L/Scenic gear | partial | yes | yes | OK except H2 lunch-room merge miss (Additional-rooms + FOYER cards are intentional) |
 
 ---
 
 ## Recommended sequencing
 
-1. **Parser-only cluster** (non-UI, TDD, low risk): H1 dress drop, H2 room dedup, M3 title preference, M1 GS-dimension parse. Cleanest wins.
+1. **Parser-only cluster** (non-UI, TDD, low risk): H1 dress drop, H2 room dedup, M3 title preference. Cleanest wins. (M1 GS-dimension parse was investigated and is NOT a live parse drop — folded into the render-only BL-ROOM-DETAIL-UNRENDERED.)
 2. **Render surfaces** (Opus + impeccable v3): H3 tech-specs card, M1 per-room detail, M4 partial-attendance chip.
 3. **Review-modal completeness** (M2): operator-only sections so the publish gate sees everything the crew page shows.
 

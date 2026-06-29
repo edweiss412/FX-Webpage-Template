@@ -6,7 +6,7 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ## INFO-tab data-fidelity audit (2026-06-29)
 
-The seven items below were surfaced by a parser → review-modal → crew-page audit of the **AII/III - Consultants Roundtable** show (source sheet `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4`). Every finding carries verified `file:line` evidence (parser re-run on `fixtures/shows/exporter-xlsx/consultants.md`). Full field-by-field table + evidence: **`docs/info-tab-fidelity-audit-2026-06-29.md`**. Suggested order: parser-only cluster first (DRESS, ROOM-DEDUP, TITLE, GS-dims) → render surfaces (Opus + impeccable v3) → review-modal completeness.
+The seven items below were surfaced by a parser → review-modal → crew-page audit of the **AII/III - Consultants Roundtable** show (source sheet `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4`). Every finding carries verified `file:line` evidence (parser re-run on `fixtures/shows/exporter-xlsx/consultants.md`). Full field-by-field table + evidence: **`docs/info-tab-fidelity-audit-2026-06-29.md`**. Suggested order: parser-only cluster first (DRESS, ROOM-DEDUP, TITLE — GS-dims was investigated and is NOT a live parse drop, folded into BL-ROOM-DETAIL-UNRENDERED as render-only) → render surfaces (Opus + impeccable v3) → review-modal completeness.
 
 ### BL-PARSER-DRESS-DROP — capture the DRESS block (parser data drop)
 
@@ -28,9 +28,9 @@ The parser captures all 19 `event_details` keys but the crew page renders 5 and 
 
 ### BL-ROOM-DETAIL-UNRENDERED — deliver per-room setup/dimensions/floor/times (mixed) 
 
-**Status:** open · **Severity:** medium · **Class:** mostly PARSED-NOT-RENDERED (+ one parse drop) · **Routing:** UI → Opus (parser sub-task non-UI)
+**Status:** open · **Severity:** medium · **Class:** PARSED-NOT-RENDERED · **Routing:** UI → Opus
 
-`room.setup` ("Chevron theater for 60" / "Boardroom for 12"), `room.floor`, and per-room set/show/strike times are parsed (`rooms.ts:167,623-625…`) but read by zero components; per-room times collapse only into the show-wide `KeyTimesStrip`. **GS dimensions** (82'×63'×14') are a parse drop — a standalone row matching no room header → `room.dimensions` null. **Fix:** (parser) capture the standalone GS dimension row; (UI) render setup + dimensions + floor + per-room times per room on crew Gear/Venue + the review modal.
+`room.setup` ("Chevron theater for 60" / "Boardroom for 12"), `room.floor`, `room.dimensions`, and per-room set/show/strike times are parsed but read by zero components; per-room times collapse only into the show-wide `KeyTimesStrip`. **Correction (2026-06-29, spec review):** GS dimensions are NOT a parse drop on live data — the live Consultants sheet carries them **inline** in the `GENERAL SESSION\nNAME\nDIMS\nFLOOR` header cell, which `splitRoomHeader` already captures (pinned by `tests/parser/exporterFixtures.test.ts:1168-1185`; the standalone-`ROOM DIMENSIONS:`-row shape is obsolete). The earlier "parse drop" reading was an artifact of the stale `exporter-xlsx` fixture; a separate-row backfill was attempted in the parser-cluster spec and DROPPED. **Fix (this BL):** purely render — show setup + dimensions + floor + per-room times per room on crew Gear/Venue + the review modal. If a genuine live capture gap is found, design it against the inline-header shape, not the obsolete standalone row.
 
 ### BL-REVIEW-MODAL-COMPLETENESS — close the Step-3 publish-gate blind spots (review-only gap)
 

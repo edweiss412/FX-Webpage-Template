@@ -2,8 +2,8 @@
 
 **Date:** 2026-06-29
 **Slug:** parser-info-tab-fidelity
-**Scope:** four parser-only (non-UI) fixes surfaced by the INFO-tab data-fidelity audit (`docs/info-tab-fidelity-audit-2026-06-29.md`). No migrations, no UI files, no `app/`, no `components/`. Commit style `feat|fix|test(parser):`.
-**Source of truth fixture:** `fixtures/shows/exporter-xlsx/consultants.md` (prod-exporter synthesis). The `fixtures/shows/raw/*` family is legacy MCP-converter output — **never regenerate it**; add focused inline fixtures for new unit tests.
+**Scope:** **three** parser-only (non-UI) fixes surfaced by the INFO-tab data-fidelity audit (`docs/info-tab-fidelity-audit-2026-06-29.md`): H1 DRESS capture, H2 lunch-room dedup, M3 title banner-preference. No migrations, no UI files, no `app/`, no `components/`. Commit style `feat|fix|test(parser):`. **(A fourth fix — M1 GS-dimension capture — was DROPPED during spec review; see Resolved Decision 5.)**
+**Source of truth fixture:** `fixtures/shows/exporter-xlsx/consultants.md` (prod-exporter synthesis) cross-checked against the LIVE Consultants INFO/GEAR tabs (gsheets MCP). The `fixtures/shows/raw/*` family is legacy MCP-converter output — **never regenerate it**; add focused inline fixtures for new unit tests. **Caveat (learned this round):** the committed exporter fixtures are stale 2026-06-18 snapshots and are NOT authoritative for sheet *content* — a fix must be validated against the live sheet, not just the fixture (AGENTS.md Codex notes; `exporterFixtures.test.ts:1168-1177`).
 
 This spec fixes data fidelity at the parse layer for shipped, consumer-backed surfaces. Rendering work (tech-specs card, per-room detail display, review-modal completeness, partial-attendance chip) is explicitly OUT OF SCOPE and tracked separately in `BACKLOG.md`.
 
@@ -19,7 +19,7 @@ This spec fixes data fidelity at the parse layer for shipped, consumer-backed su
 
 4. **The lunch-room dedup changes the consultants room key-set, which triggers a one-time MI-7b re-stage on next sync.** invariants.ts:337 keys room preservation on `${kind}::${name}`; removing the duplicate `additional::GRAND BALLROOM C` room is a room-set change → MI-7b re-stages affected already-staged shows exactly once. This is the documented, intended MI-7b behavior (parser changes re-stage once), not a regression.
 
-5. **GS `room.dimensions` capture is parse-only; it has no renderer yet (by design).** `room.dimensions` is an existing field already populated for rooms whose header carries dims; no component renders it today (audit R-SUBFIELDS). Capturing GS dims makes population *consistent*, verified by a parser unit test. Rendering per-room dims is deferred to `BL-ROOM-DETAIL-UNRENDERED`. This is not a new zombie field — it fills an existing, sometimes-populated field.
+5. **GS `room.dimensions` capture (the audit's M1) is DROPPED from this PR — it targets a stale fixture artifact, not live behavior.** The audit observed `GS room.dimensions === null` while testing the committed `exporter-xlsx/consultants.md`, whose GS header carries no dims (they sit in a standalone `ROOM DIMENSIONS:` intake row). But the **live** Consultants sheet carries GS dims **inline** in the `GENERAL SESSION\nNAME\nDIMS\nFLOOR` header cell — which `splitRoomHeader` already parses (verified: live INFO tab via gsheets MCP; pinned by `tests/parser/exporterFixtures.test.ts:1168-1185`, which also states the *"separate-ROOM-DIMENSIONS-row #1b is obsolete: no live sheet uses that shape anymore"*). So on production data GS dims are **not** dropped; a standalone-row backfill would fix a non-problem, add a fresh collision surface (spec-R3/R4), and cause needless MI-7b re-stage churn. The render-side gap (no component renders `room.dimensions`) remains real and stays in `BL-ROOM-DETAIL-UNRENDERED`, where any genuine live capture gap must be designed against the inline-header shape.
 
 6. **No `lib/parser/versions/` mirror exists** (verified: directory absent). Companion-surface mirror check (a) is moot.
 
@@ -104,29 +104,9 @@ Stop the #0 scan at the first non-separator table row (don't scan deep). Keep pr
 
 ---
 
-## Fix 4 — M1(part): capture GS room dimensions (`BL-ROOM-DETAIL-UNRENDERED`, parse portion)
+## Fix 4 — DROPPED (re-scoped out of this PR)
 
-**Bug.** The GS room header `GENERAL SESSION - GRAND BALLROOM A/B` (fixture:143) carries no dimensions, so `splitRoomHeader` leaves `room.dimensions = null`. The dims live in a standalone client-intake row (fixture:253): `BALLROOM A/B - 8th Floor ROOM DIMENSIONS: TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'`, which matches no room header → GS dims dropped.
-
-**Design.** A **dedicated extractor** for standalone intake dimension rows (NOT `splitRoomHeader`, which is built for room *headers* and mis-parses this shape — verified: `splitRoomHeader("BALLROOM A/B - 8th Floor ROOM DIMENSIONS: TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'", "gs")` yields `name="BALLROOM A/B - ROOM :"`, which would never match the GS room token → silent no-op; Codex spec-R1 finding 1).
-
-New exported helper `extractIntakeDimensionRow(col0): { nameToken, dimensions, floor } | null` in rooms.ts:
-- Match the row shape `^<NAME> (?:- )?<Nth> Floor ROOM DIMENSIONS:\s*<dims>$` (case-insensitive), or more robustly: split on `ROOM DIMENSIONS:` — the left side is `<NAME> - <floor>`, the right side is the dims.
-- From the left side: extract `floor` via the existing `\b\d+\s*(?:st|nd|rd|th)\s+floor\b` regex, then the remaining text (minus a trailing ` - ` separator) is the room name → derive `nameToken = gearNameToken(name)`.
-- From the right side: `dimensions` = the trimmed text after `ROOM DIMENSIONS:` (e.g., `TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'`).
-- Return `null` if no `ROOM DIMENSIONS:` marker or no dims token (`\d+\s*'\s*x`) present.
-
-New helper `backfillRoomDimensionsFromIntake(rooms, markdown)` run in `index.ts` after `mergeGearIntoRooms`:
-- For each table row, call `extractIntakeDimensionRow(col0)`; skip on `null`.
-- **Match the room with a two-stage, collision-safe lookup (round-3 fix, Codex spec-R3):**
-  1. **Exact first** — find all rooms where `gearNameToken(room.name) === nameToken`. If exactly one → use it. (Multiple exact = same-named rooms, a pre-existing duplicate; first wins is acceptable since they share a name.)
-  2. **GRAND-tolerant fallback ONLY if no exact match** — find all rooms where `stripGrand(gearNameToken(room.name)) === stripGrand(nameToken)` (local `stripGrand = s => s.replace(/^GRAND\s+/i,"")`). Use it **only when it yields exactly ONE candidate**. If it yields zero or **two or more** candidates → **skip the backfill** (do NOT first-wins; an ambiguous `GRAND X`/`X` pair must not silently corrupt the wrong room).
-  - GS case: intake `BALLROOM A/B` has no exact room (`GRAND BALLROOM A/B`), the fallback finds exactly one (`GRAND BALLROOM A/B`) → fills it. A show with both `GRAND BALLROOM A/B` and `BALLROOM A/B`: exact stage matches the literal `BALLROOM A/B` room → no ambiguity. A show with two distinct `GRAND X` and `X` rooms and an intake row for a third stripped-equal name → ≥2 fallback candidates → skip. The global `gearNameToken` and merge key stay untouched.
-- **Fill-don't-clobber:** set `room.dimensions`/`room.floor` only when currently `null`.
-
-**Guard conditions:** no `ROOM DIMENSIONS:` row → no-op. No matching room → skip (no phantom room created — this only back-fills existing rooms). Room already has dims/floor → untouched. Exact match multiple → first wins (same-named dup). GRAND-tolerant fallback ambiguous (≥2) → **skip, no backfill** (collision-safe). Malformed row (marker present, no dim token) → `null`.
-
-**Consumer:** none yet (Resolved Decision 5) — verified by a parser unit test, render deferred to `BL-ROOM-DETAIL-UNRENDERED`.
+The audit's M1 "GS dimensions dropped" was an **artifact of testing the stale exporter fixture**, not a live-data defect. The live Consultants sheet carries GS dims **inline** in the `GENERAL SESSION\nNAME\nDIMS\nFLOOR` header cell, which `splitRoomHeader` already parses (verified live via gsheets MCP; pinned by `tests/parser/exporterFixtures.test.ts:1168-1185`, which declares the standalone-`ROOM DIMENSIONS:`-row shape **obsolete**). A standalone-row backfill would fix a non-problem, introduce a fresh collision surface, and cause needless re-stage churn (Codex spec-R3/R4). **Removed from scope** (Resolved Decision 5). The render-side gap stays in `BL-ROOM-DETAIL-UNRENDERED`. **This PR ships 3 fixes: H1 (dress), H2 (lunch dedup), M3 (title).**
 
 ---
 
@@ -135,11 +115,10 @@ New helper `backfillRoomDimensionsFromIntake(rooms, markdown)` run in `index.ts`
 | field | storage | write path(s) | read path(s) | effect |
 |---|---|---|---|---|
 | `event_details.dress_code` | `ShowRow.event_details` | NEW `parseDress` (authoritative) + existing in-DETAILS alias | TodaySection.tsx:297 (existing) | crew "Dress code" card now populates |
-| `room.dimensions` (GS) | `RoomRow.dimensions` | NEW `backfillRoomDimensionsFromIntake` + NEW `extractIntakeDimensionRow` | none yet (render deferred, `BL-ROOM-DETAIL-UNRENDERED`) | consistent capture; future per-room dims UI |
 | `room.kind` (GEAR lunch) | `RoomRow.kind` | gear.ts `newRoom` (NEW lunch branch) | `mergeGearIntoRooms` key; room render by kind | lunch gear merges onto INFO lunch room |
 | `show.title` | `ShowRow.title` | `extractTitleFromMarkdown` (NEW priority #0) | crew header, review-modal link (existing) | proper-cased banner title |
 
-No empty/zombie columns except `room.dimensions` read-path, which is an existing field with deferred render (Resolved Decision 5), explicitly tracked.
+No empty/zombie columns — every field written has an existing reader. (The dropped GS-dimension fix is the reason there is no zombie `room.dimensions` write here; see Resolved Decision 5.)
 
 ---
 
@@ -167,11 +146,9 @@ Each fix lands as its own commit: failing test → minimal impl → green → co
 1. **parseDress unit** (`dress.ts` + new `tests/parser/dress.test.ts`): inline fixture using the **exact 3-line shape from `fixtures/shows/exporter-xlsx/consultants.md` including the `| :---: | :---: |` separator row** between header and continuation (header → separator → continuation → blank) **before** a DETAILS header → assert `event_details.dress_code === "Set/Strike: …\nShow: …"` (both lines, labels retained). **Separator-skip assertion (Codex spec-R2):** this exact shape proves the parser does not stop at the separator and drop the `Show:` line. Negative: no DRESS block → `dress_code` absent. Idempotency: DRESS-inside-DETAILS single row → same value, no duplication. Negative-regression: make `parseDress` treat the separator as a terminator → only `Set/Strike` captured → test fails. Concrete failure caught: the slice-after-DETAILS drop (today returns `undefined`) AND the separator-stop loss.
 2. **Dress on real fixture** (`parseSheet`/`exporterFixtures`): assert `parseSheet(consultants).show.event_details.dress_code` contains both `Set/Strike` and `Show`. Negative-regression: mutate `parseDress` to return only the header row → test fails (proves it captures continuations).
 3. **Lunch dedup** (`tests/parser/...`): assert `parseSheet(consultants).rooms` has exactly one `BALLROOM C`-token room with `kind:"breakout"` carrying **both** the INFO times and the GEAR audio gear; assert no separate `GRAND BALLROOM C` room; assert total room count 9→8; assert GS and FOYER unchanged. **Collision negative test (Codex spec-R1 finding 2):** an inline fixture with a GEAR `additional` room `GRAND FOYER` and an INFO `additional` room `FOYER` (or any non-lunch `GRAND X`/`X` same-kind pair) → assert they do **not** merge (two distinct rooms remain), proving the `GRAND` strip is lunch-scoped and `gearNameToken` is unchanged. Negative-regression: revert the gear-kind branch → two lunch rooms reappear.
-4. **GS dims** — two layers:
-   a. **Dedicated extractor unit** (`extractIntakeDimensionRow`): feed the exact consultants intake row string → assert `{ nameToken: "BALLROOM A/B", dimensions: contains "82' x 63' x 14'", floor: "8th Floor" }`. Negative: a row with no `ROOM DIMENSIONS:` marker → `null`; marker but no dim token → `null`. (This catches the splitRoomHeader mis-parse class directly, not only via `parseSheet`.)
-   b. **End-to-end** (`parseSheet`): assert the GS room `dimensions` contains `82' x 63' x 14'` and `floor` contains `8th Floor`. Negative: remove the `ROOM DIMENSIONS:` row from an inline fixture → GS dims stay null. Negative-regression: break the extractor's name-token match → GS dims revert to null.
-   c. **Dimension-match collision negative (Codex spec-R3):** inline fixture with TWO distinct rooms that strip-equal (e.g. `GRAND BALLROOM A/B` and another `BALLROOM A/B` of a different room, neither an exact match for the intake name, OR two rooms both stripping to the same token) + a standalone `ROOM DIMENSIONS:` row for that ambiguous token → assert the backfill **skips** (neither room's `dimensions` is set) rather than first-wins. Plus: a fixture with both `GRAND BALLROOM A/B` and a literal `BALLROOM A/B` room + an intake row for `BALLROOM A/B` → assert dims land on the **exact** `BALLROOM A/B` room, not the `GRAND` one.
-5. **Title banner** (`tests/parser/...`): exact assertions — consultants → `AII/III - Consultants Roundtable 2025`; fintech/fixed-income/rpas → proper-cased banners (not uppercase). Unchanged assertions: east-coast, ria, redefining-fi titles equal their current values (snapshot the current value first, assert preserved). Generic guards (parseSheet.test.ts:44/54) still pass. Negative: revert priority #0 → consultants title reverts to uppercase.
-6. **Meta-test** (`_metaKnownSectionsRegistry`): `DRESS` registered (passes with the registry as-is).
+4. **Title banner** (`tests/parser/...`): exact assertions — consultants → `AII/III - Consultants Roundtable 2025`; fintech/fixed-income/rpas → proper-cased banners (not uppercase). Unchanged assertions: east-coast, ria, redefining-fi titles equal their current values (snapshot the current value first, assert preserved). Generic guards (parseSheet.test.ts:44/54) still pass. Negative: revert priority #0 → consultants title reverts to uppercase.
+5. **Meta-test** (`_metaKnownSectionsRegistry`): `DRESS` registered (passes with the registry as-is).
+
+(GS-dimension tests removed with Fix 4 — see Resolved Decision 5.)
 
 Full `pnpm test` (or the parser-scoped suite + `exporterFixtures` + `parseSheet` + `invariants`/`dataGaps`/`warnings`) green before whole-diff review.
