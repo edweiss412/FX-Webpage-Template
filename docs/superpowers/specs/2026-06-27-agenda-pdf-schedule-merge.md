@@ -171,10 +171,9 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
 2. **In-memory fast-path (NO DB) — OWNERSHIP-scoped `try/finally` (Codex round-28 F2 +
    round-29 F2).** A cheap per-instance optimization that avoids even hitting the DB for
    obvious same-instance duplicates; the **durable lease (step 3) is the cross-instance
-   authority**. Flags `ownsInFlight`/`acquiredSlot` default `false`. Check the per-`dfid`
-   in-flight set (keyed by `drive_file_id` ALONE — NOT `(wiz,dfid)` — so a rescan/new
-   session for the same Drive file is also coalesced; round-40): present → `202
-   { status: "in_progress" }` immediately
+   authority**. Flags `ownsInFlight`/`acquiredSlot` default `false`. Check the
+   per-`(wiz,dfid)` in-flight set (the staged-row identity — matches the durable lease key,
+   round-41): present → `202 { status: "in_progress" }` immediately
    (`ownsInFlight`/`acquiredSlot` stay `false`). Else insert the key (`ownsInFlight =
    true`) + try a process-wide semaphore slot `AGENDA_MAX_CONCURRENT_EXTRACTIONS`
    (module-level counter; secondary per-instance CPU/Drive-quota bound) — got one →
@@ -184,24 +183,34 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
    leaks.
 3. **SHORT tx #1 — claim durable lease + read + lifecycle + capture GENERATION** — open a
    tx and:
-   - **Claim the durable extraction lease — keyed by `drive_file_id` ALONE (Codex round-32
-     + round-40):** the Drive file (its chips/PDFs) is the expensive-resource dedup unit,
-     INDEPENDENT of which wizard session is extracting it; keying the lease by
-     `(wizard_session_id, drive_file_id)` would let an OLD session and a rescan/NEW session
-     for the same `drive_file_id` claim DIFFERENT lease rows and run concurrent Drive/PDF
-     work (round-40). So the lease PK is `drive_file_id`: atomically
-     `INSERT INTO public.agenda_extract_leases (drive_file_id, owner, expires_at) VALUES
-     ($dfid, $owner, now() + AGENDA_EXTRACT_LEASE_TTL_MS) ON CONFLICT (drive_file_id) DO
-     UPDATE SET owner = EXCLUDED.owner, expires_at = EXCLUDED.expires_at WHERE
-     public.agenda_extract_leases.expires_at < now() RETURNING owner` — succeeds iff there
-     was NO live lease (insert) or the prior lease had EXPIRED (TTL backstop for a crashed
-     extractor). **0 rows = a LIVE lease held by ANY request (any session, any instance)
-     for this Drive file** → `202 { status: "in_progress" }` **with a `Retry-After` header**
+   - **Claim the durable extraction lease — keyed by `(wizard_session_id, drive_file_id)`,
+     the STAGED-ROW identity (Codex round-32 + round-41):** the dedup unit is the staged
+     ROW, because tx#2 persists the result to exactly that `(wiz, dfid)` `pending_syncs`
+     row — so a lease can only meaningfully serialize requests that will write the SAME row.
+     This is the actual amplification vector round-32 raised: many instances/tabs/refreshes/
+     admins hitting the SAME staged row. (A `drive_file_id`-only lease would serialize a
+     rescan/new session against the old one but hand it NO result — different rows — so it
+     would wait the full window then re-extract anyway: round-41. We DON'T cross-session
+     share; see the scope note below.) Atomically
+     `INSERT INTO public.agenda_extract_leases (wizard_session_id, drive_file_id, owner,
+     expires_at) VALUES ($wiz, $dfid, $owner, now() + AGENDA_EXTRACT_LEASE_TTL_MS) ON
+     CONFLICT (wizard_session_id, drive_file_id) DO UPDATE SET owner = EXCLUDED.owner,
+     expires_at = EXCLUDED.expires_at WHERE public.agenda_extract_leases.expires_at < now()
+     RETURNING owner` — succeeds iff NO live lease (insert) or the prior had EXPIRED (TTL
+     backstop). **0 rows = a LIVE lease held by another request for this staged row (any
+     instance)** → `202 { status: "in_progress" }` **with a `Retry-After` header**
      (client polls the full window — round-33 F1; all `202` paths set `Retry-After`) (no
-     Drive). This gives true deployment-wide **exactly-one-extraction-per-Drive-file**,
-     across sessions AND instances. `$owner` is a per-request token. TTL
-     `AGENDA_EXTRACT_LEASE_TTL_MS` ≈ `maxDuration` + margin (~330 000 ms) so a dead
-     holder's lease auto-expires.
+     Drive). This gives deployment-wide **exactly-one-extraction-per-STAGED-ROW** across
+     instances. **Scope note (round-41):** we deliberately do NOT cross-session share — a
+     concurrent DIFFERENT session for the same `drive_file_id` (only the rare rescan-overlap
+     window) extracts its OWN row; whichever session was superseded by the rescan is
+     discarded at the lifecycle-guarded persist (tx#2 `0 rows → 409`). At most a brief,
+     bounded 2× overlap (≤ a couple PDFs), self-limited by supersession — NOT the unbounded
+     same-row amplification round-32 targeted. Cross-session result-sharing (a shared
+     extraction cache keyed by `drive_file_id` + `modifiedTime`) is deferred (BACKLOG) —
+     the sessions have different staged generations, so sharing is not straightforwardly
+     correct. `$owner` is a per-request token. TTL `AGENDA_EXTRACT_LEASE_TTL_MS` ≈
+     `maxDuration` + margin (~330 000 ms) so a dead holder's lease auto-expires.
    - **Read + lifecycle + generation + folder scope:** `SELECT staged_id,
      staged_modified_time, parse_result (+ lifecycle cols) from public.pending_syncs where
      wizard_session_id = $1 and drive_file_id = $2`; ALSO `SELECT pending_folder_id from
@@ -306,16 +315,16 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      set parse_result = $1::jsonb where wizard_session_id = $2 and drive_file_id = $3 AND
      staged_id = $4 AND staged_modified_time = $5 AND <active-session, not-superseded> AND
      <not finalize-consumed/in-progress> AND EXISTS (select 1 from
-     public.agenda_extract_leases l where l.drive_file_id = $3
+     public.agenda_extract_leases l where l.wizard_session_id = $2 and l.drive_file_id = $3
      and l.owner = $owner and l.expires_at > now()) returning staged_id` (`$1` = MERGED
      result; `$4/$5` = tx#1 generation; `$owner` = our lease token; does NOT exclude
      `approval_payload IS NOT NULL`; pass the object, NOT `JSON.stringify`). **0 rows**
      (row superseded / finalize-consumed / regenerated by a rescan / **lease lost to a TTL
      reclaim**) → discard, `409 stale` — never clobbers a newer owner. **1 row** → the SAME
      tx#2 also **releases the durable lease** (owner-scoped: `DELETE FROM
-     public.agenda_extract_leases WHERE drive_file_id = $3 AND owner = $owner` — only if WE
-     still own it, so a reclaimed lease isn't deleted out from under the new owner) →
-     commit (releases `show:`). Then **build + return `200 { items }`** via
+     public.agenda_extract_leases WHERE wizard_session_id = $2 and drive_file_id = $3 AND
+     owner = $owner` — only if WE still own it, so a reclaimed lease isn't deleted out from
+     under the new owner) → commit (releases `show:`). Then **build + return `200 { items }`** via
      `buildAdminAgendaPreview(mergedLinks, { freshByLinkKey })` — where `freshByLinkKey`
      is the set of **ordinals** (indices in `mergedLinks`) of the confirmed-fresh links
      (per-link, NOT `fileId` — round-35 F2: a shared `fileId` across duplicate links must
@@ -338,9 +347,10 @@ discarded) or runs just after. **Finalize itself re-reads `parse_result` under t
 lock before publishing (§5.6, Codex round-34)** — so a finalize that pre-read the row
 before our persist still picks up the extracted agenda (the brief tx#2 `show:` lock is
 necessary but not sufficient on its own; finalize's read-before-lock is the other half).
-**Deployment-wide, exactly ONE extraction per Drive file runs at a time** (the durable
-`agenda_extract_leases` row keyed by `drive_file_id` — cross-instance AND cross-session,
-TTL-recovered — round-40), with
+**Deployment-wide, exactly ONE extraction per STAGED ROW runs at a time** (the durable
+`agenda_extract_leases` row keyed by `(wizard_session_id, drive_file_id)` — cross-instance,
+TTL-recovered; a rare concurrent different-session extraction for the same Drive file is
+bounded + self-limited by supersession — round-41), with
 the in-memory `AGENDA_MAX_CONCURRENT_EXTRACTIONS` as a per-instance aggregate guard and
 `AGENDA_CLIENT_CONCURRENCY` per browser; repeated POSTs are cheap (cache → `getFile`, no
 download). **Publishing is never gated on a best-effort preview; no DB connection is held
@@ -620,17 +630,19 @@ re-select adds no second acquisition (the topology is unchanged).
    (`headRevisionId`+`EXTRACTOR_VERSION` match) → items with **zero `downloadFileBytes`
    and zero `getAgendaChips`** (the expensive ops), while the cheap per-link `getFile`
    metadata read IS allowed (needed to read the current revision) — assert the download
-   spies are 0, NOT that all Drive is 0; (d) **dedupe — durable + cross-instance** (round-32):
-   two concurrent POSTs for the same `drive_file_id` from **independent in-memory state
-   stores** (simulating two serverless instances — distinct in-flight sets/semaphores) →
-   only ONE claims the `agenda_extract_leases` row + extracts; the other's `INSERT … ON
-   CONFLICT (drive_file_id) … WHERE expires_at < now()` affects 0 rows → `202 in_progress`,
-   **no second extraction** (assert `downloadFileBytes` runs once across both); (d-x)
-   **cross-SESSION dedupe** (round-40): session A passes tx#1 + is extracting `drive_file_id`
-   X; session B (a rescan/new wizard session, SAME `drive_file_id` X, different
-   `wizard_session_id`) POSTs → B's lease claim hits the SAME `drive_file_id` row (live) →
-   `202`, only ONE extraction across both sessions (assert `downloadFileBytes` once);
-   (d2) **lease TTL recovery**: a
+   spies are 0, NOT that all Drive is 0; (d) **dedupe — durable + cross-instance, per STAGED ROW** (round-32 + round-41):
+   two concurrent POSTs for the same `(wizard_session_id, drive_file_id)` from **independent
+   in-memory state stores** (simulating two serverless instances — distinct in-flight
+   sets/semaphores) → only ONE claims the `agenda_extract_leases` row + extracts; the
+   other's `INSERT … ON CONFLICT (wizard_session_id, drive_file_id) … WHERE expires_at <
+   now()` affects 0 rows → `202 in_progress`, **no second extraction** (assert
+   `downloadFileBytes` runs once across both); (d-x) **different-session = independent row**
+   (round-41 scope): session B (a NEW wizard session, same `drive_file_id`, different
+   `wizard_session_id`) claims its OWN lease row and extracts ITS staged row; if a rescan
+   superseded session A, A's in-flight extraction → tx#2 `0 rows` (lifecycle) → `409`
+   discarded — assert B's row gets its agenda and A does not clobber it (NOT a cross-session
+   result handoff — we accept B re-extracts its own generation); (d2) **lease TTL
+   recovery**: a
    stale lease with `expires_at < now()` (crashed prior holder) → the next POST's claim
    succeeds (ON CONFLICT update) and extracts; (d3) **owner-scoped release**: tx#2 deletes
    the lease only when `owner` matches — a lease reclaimed by a new owner after TTL expiry
@@ -812,7 +824,7 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
 | File | Change |
 |---|---|
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** claim durable `agenda_extract_leases` (live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation + `app_settings.pending_folder_id` → top-level **revision + source-scope fence** via `fetchDriveFileMetadata` (`modifiedTime == staged_modified_time` + `parents.includes(pending_folder_id)`) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
-| `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (drive_file_id text primary key, owner text not null, expires_at timestamptz not null)` — keyed by `drive_file_id` ALONE (the Drive file is the dedup unit, session-independent — round-40); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
+| `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_MAX_CONCURRENT_EXTRACTIONS`, `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
@@ -868,14 +880,18 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
   a post-scan sheet edit (incl. between a download-failed recovery and its retry) OR a
   move-OUT-of-folder without an edit → `409 stale`/out-of-scope, mirroring finalize's
   `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` (round-28/29/31/37/39).
-- Concurrency: a **durable `agenda_extract_leases` row keyed by `drive_file_id` ALONE**
-  (claimed in tx#1, released owner-scoped in tx#2, TTL-recovered) gives **deployment-wide
-  per-Drive-file dedupe + bound** across instances AND sessions (round-32 + round-40: a
-  `(wiz,dfid)` key would let a rescan/new session extract the same file concurrently), with
-  the in-memory ownership-scoped (`ownsInFlight`/`acquiredSlot`) fast-path (also `dfid`-keyed)
-  + `AGENDA_MAX_CONCURRENT_EXTRACTIONS` as a per-instance secondary guard (round-28/29 F2).
-  NO DB connection held during Drive. Adds a migration (REVOKE + manifest + validation
-  apply); blast radius now includes one new RPC-gated table.
+- Concurrency: a **durable `agenda_extract_leases` row keyed by
+  `(wizard_session_id, drive_file_id)`** — the STAGED-ROW identity (claimed in tx#1,
+  released owner-scoped in tx#2, TTL-recovered) — gives **deployment-wide per-staged-row
+  dedupe + bound** across instances (round-32; this is the real amplification vector —
+  tabs/refreshes/admins on the same staged row). A `drive_file_id`-only key was tried
+  (round-40) but reverted (round-41): it serialized a rescan/new session against the old
+  one WITHOUT a result handoff (tx#2 persists only to the current row), so the waiting
+  session re-extracts anyway. A concurrent DIFFERENT session for the same Drive file (rare
+  rescan-overlap) extracts its own row, bounded + self-limited by supersession; cross-session
+  result-sharing is deferred (BACKLOG). In-memory ownership-scoped fast-path (same
+  `(wiz,dfid)` key) + `AGENDA_MAX_CONCURRENT_EXTRACTIONS` per-instance secondary guard. NO
+  DB connection held during Drive. Adds a migration (REVOKE + manifest + validation apply).
 - fileId vs extraction persistence split: tx#2 merges `recoveredFileIds` (every fenced
   ordinal+label match — persisted even when the PDF download FAILS, giving the note a
   valid Open-PDF href + warming the row so retries skip `getAgendaChips`) SEPARATELY from
