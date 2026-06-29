@@ -1221,9 +1221,12 @@ there.)
   (advisory lock + DML lockdown + Supabase write boundary); cron remains a fallback.
 - Render: server-pure `buildAdminAgendaPreview` (predicate + caps + `dropped*` + href +
   badge); client card is pure presentation; reuse pure `AgendaScheduleBlock`.
-- Hygiene caps kept (bytes/pages/per-show count/stall/timeout) as shared per-PDF
-  bounds; the **scan-level** budget/deadline/active-cancellation is **dropped** (no
-  longer needed off the scan path).
-- Drop from inline drafts: onboarding-client wiring, `agendaBudget`/`EnrichContext`
-  change, `AGENDA_MAX_SCAN_ATTEMPTS`, `AGENDA_SCAN_DEADLINE_MS`, active-cancellation
-  signal threading.
+- Hygiene caps kept (bytes/pages/per-show count/stall/total-deadline) as shared per-PDF
+  bounds; only the **scan-level `agendaBudget`/scan-deadline/attempts apparatus** is
+  **dropped** (no longer needed off the scan path). **AbortSignal threading is RETAINED and
+  REQUIRED** (round-22) — the endpoint + per-PDF total deadlines (`AGENDA_EXTRACT_DEADLINE_MS`
+  / `AGENDA_PDF_DEADLINE_MS`) thread an `AbortSignal` into `downloadFileBytes`/`getAgendaChips`/
+  `enrichAgenda` so cooperative Drive work aborts promptly (§5.5; round-48/18).
+- Drop from inline drafts: onboarding-client wiring, the scan-level `agendaBudget`/
+  `EnrichContext` change, `AGENDA_MAX_SCAN_ATTEMPTS`, `AGENDA_SCAN_DEADLINE_MS` — NOT the
+  endpoint/Drive `AbortSignal` (that is retained, above).

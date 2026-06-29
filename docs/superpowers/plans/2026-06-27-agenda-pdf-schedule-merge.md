@@ -188,7 +188,7 @@ revoke insert, update, delete, select on table public.agenda_extract_leases from
 
 - [ ] **Step 3: Negative-regression check** — temporarily `grant select on public.agenda_extract_leases to authenticated;` in a scratch psql session, re-run → the SELECT assertion must FAIL (proves the test is real); then `revoke` to restore. Do NOT commit the grant.
 
-- [ ] **Step 4: Commit** — `git commit -am "test(db): register agenda_extract_leases in postgrest-dml-lockdown"`
+- [ ] **Step 4: Commit** — `git add -A && git commit -m "test(db): register agenda_extract_leases in postgrest-dml-lockdown"`
 
 ---
 
@@ -233,7 +233,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS; also `pnpm vitest run tests/agenda/extractAgendaSchedule.test.ts` (existing RFI/PCF/FIT cases still pass — they're ≤10pp).
 
-- [ ] **Step 5: Commit** — `git commit -am "feat(agenda): page-cap guard (early LOW > AGENDA_MAX_PAGES)"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agenda): page-cap guard (early LOW > AGENDA_MAX_PAGES)"`
 
 ---
 
@@ -258,7 +258,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS.
 
-- [ ] **Step 5: Commit** — `git commit -am "feat(agenda): per-PDF byte cap + idle stall + total-time deadline in downloadFileBytes"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agenda): per-PDF byte cap + idle stall + total-time deadline in downloadFileBytes"`
 
 ---
 
@@ -280,7 +280,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS; run the full `tests/onboarding/enrichAgendaIntegration.test.ts`.
 
-- [ ] **Step 5: Commit** — `git commit -am "feat(agenda): enrichAgenda accepts AbortSignal + returns per-link freshness verdict (per-PDF before/after rev)"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agenda): enrichAgenda accepts AbortSignal + returns per-link freshness verdict (per-PDF before/after rev)"`
 
 ---
 
@@ -302,9 +302,9 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(agenda): buildAdminAgendaPreview (ordinal freshness gate, validatedHrefs, caps)"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agenda): buildAdminAgendaPreview (ordinal freshness gate, validatedHrefs, caps)"`
 
-- [ ] **Step 6: Boundary-purity guard** (spec §8 test 5; round-3 plan finding) — create `tests/agenda/agendaPurityBoundary.test.ts` that reads the source of `lib/agenda/agendaAdminPreview.ts`, `components/crew/AgendaScheduleBlock.tsx`, and `lib/agenda/normalizeAgendaExtraction.ts` and asserts NONE import `server-only`, `next/headers`, `fs`, `googleapis`, or any `lib/drive/*` module (so they stay safe to bundle into the `"use client"` card). Run → PASS. Negative-regression: add a throwaway `import "server-only"` to `agendaAdminPreview.ts` → test FAILS → revert. Commit: `git commit -am "test(agenda): boundary-purity guard for client-bundled render code"`.
+- [ ] **Step 6: Boundary-purity guard** (spec §8 test 5; round-3 plan finding) — create `tests/agenda/agendaPurityBoundary.test.ts` that reads the source of `lib/agenda/agendaAdminPreview.ts`, `components/crew/AgendaScheduleBlock.tsx`, and `lib/agenda/normalizeAgendaExtraction.ts` and asserts NONE import `server-only`, `next/headers`, `fs`, `googleapis`, or any `lib/drive/*` module (so they stay safe to bundle into the `"use client"` card). Run → PASS. Negative-regression: add a throwaway `import "server-only"` to `agendaAdminPreview.ts` → test FAILS → revert. Commit: `git add -A && git commit -m "test(agenda): boundary-purity guard for client-bundled render code"`.
 
 ---
 
@@ -326,7 +326,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS.
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(agenda): durable extraction lease (admit-lock + GC + strict cap) + in-memory slot"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agenda): durable extraction lease (admit-lock + GC + strict cap) + in-memory slot"`
 
 ---
 
@@ -348,7 +348,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS (iterate until all §8 test-2 cases green).
 
-- [ ] **Step 5: Commit** — `git commit -m "feat(agenda): per-show extract-agenda endpoint (lease, fences, no-DB-during-Drive, atomic persist)"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(agenda): per-show extract-agenda endpoint (lease, fences, no-DB-during-Drive, atomic persist)"`
 
 ---
 
@@ -366,7 +366,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 3: Negative-regression (route AND helper)** — (i) temporarily add a stray `pg_advisory_xact_lock(hashtext('show:'...))` inside the Drive window of the route → the meta-test must FAIL; revert. (ii) temporarily add a second `agenda-extract-admit` acquisition OR a `show:` acquisition inside `lib/agenda/extractAgendaLease.ts` → the meta-test must FAIL (proves the helper scan is real — round-14); revert.
 
-- [ ] **Step 4: Commit** — `git commit -am "test(auth): pin agenda-extract-admit + brief show: topology"`
+- [ ] **Step 4: Commit** — `git add -A && git commit -m "test(auth): pin agenda-extract-admit + brief show: topology"`
 
 ---
 
@@ -389,7 +389,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS; `pnpm tsc --noEmit`.
 
-- [ ] **Step 5: Commit** — `git commit -am "feat(admin): baseline adminAgendaPreview + agendaStateKey in fetchStep3Data"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(admin): baseline adminAgendaPreview + agendaStateKey in fetchStep3Data"`
 
 ---
 
@@ -415,7 +415,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 6: Run the full advisory-lock + finalize suites** — `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts tests/app/admin/finalizeAgendaRace.test.ts` → PASS.
 
-- [ ] **Step 7: Commit** — `git commit -am "fix(admin): finalize re-reads parse_result generation-scoped under the per-row show lock (publish-safety) + advisory-lock pin"`
+- [ ] **Step 7: Commit** — `git add -A && git commit -m "fix(admin): finalize re-reads parse_result generation-scoped under the per-row show lock (publish-safety) + advisory-lock pin"`
 
 ---
 
@@ -436,7 +436,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS; `pnpm tsc --noEmit`.
 
-- [ ] **Step 5: Commit** — `git commit -am "feat(admin): AgendaBreakdown live-fill card (5-state, fence-validated anchors)"`
+- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat(admin): AgendaBreakdown live-fill card (5-state, fence-validated anchors)"`
 
 ---
 
@@ -452,7 +452,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 2: Run** → confirm it catches a deliberate `min-w-0`→removed mutation (negative regression), then revert.
 
-- [ ] **Step 3: Commit** — `git commit -am "test(admin): real-browser layout assertion for agenda breakdown"`
+- [ ] **Step 3: Commit** — `git add -A && git commit -m "test(admin): real-browser layout assertion for agenda breakdown"`
 
 ---
 
@@ -470,7 +470,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 3: Run both** → PASS.
 
-- [ ] **Step 4: Commit** — `git commit -am "test(admin,crew): transition audit + crew no-regression + stale/legacy gate"`
+- [ ] **Step 4: Commit** — `git add -A && git commit -m "test(admin,crew): transition audit + crew no-regression + stale/legacy gate"`
 
 ---
 
@@ -481,7 +481,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 - [ ] **Step 1:** Run `/impeccable critique` on the card diff with the canonical v3 preflight gates (PRODUCT.md → DESIGN.md → register → preflight signal). Record findings.
 - [ ] **Step 2:** Run `/impeccable audit` on the same diff. Record findings.
 - [ ] **Step 3:** Fix every HIGH/CRITICAL or defer via a `DEFERRED.md` entry. Record findings + dispositions in the milestone handoff (§12 convention).
-- [ ] **Step 4: Commit** any fixes — `git commit -am "fix(admin): impeccable critique+audit dispositions for agenda card"`
+- [ ] **Step 4: Commit** any fixes — `git add -A && git commit -m "fix(admin): impeccable critique+audit dispositions for agenda card"`
 
 ---
 
