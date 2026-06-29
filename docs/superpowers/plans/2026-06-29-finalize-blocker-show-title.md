@@ -420,3 +420,18 @@ git commit --no-verify -m "docs(deferred): resolve RESCAN-1 (blocker rows now sh
 ## Adversarial review (cross-model)
 
 After self-review, invoke the cross-model adversarial review (Codex) on this plan; iterate until APPROVE; then execution handoff.
+
+---
+
+## Close-out record
+
+### Impeccable UI gate (invariant 8) — PASS
+
+Run externally (fresh subagent, not the implementer) on the three touched components (`FinalizeButton.tsx`, `RunFinalCASButton.tsx`, `ResumeFinalizeButton.tsx`), 2026-06-29.
+
+- **Deterministic detector:** `npx impeccable --json` on all three files → exit 0, `[]` (clean).
+- **Substantive critique + audit** (browser/visual half not runnable headlessly — admin route is auth-gated, no dev server; substantive equivalent done against `DESIGN.md` + `PRODUCT.md`): **PASS, no HIGH/CRITICAL.**
+  - A11y/operator-need: the label now announces a human show title instead of an opaque Drive id (strictly better, aligns with DESIGN principle 5 / PRODUCT "plain language, never technical chrome"); the id is retained where load-bearing (row `key`, reapply `data-testid`, `re_apply_url`, `RescanSheetButton` props).
+  - Guard conditions: `parsedShowTitle` collapses empty/whitespace to `null`; every render uses `display_name ?? drive_file_id` — no blank-label hole.
+  - Theming/tokens/responsive: unchanged (same `font-medium` span, no literals, no layout change; overflow risk drops — titles are shorter than 44-char ids).
+- **MEDIUM (declined):** two blocked sheets with an identical parsed title render indistinguishable visible labels (an extreme batch edge; React keys/links stay unique). Declined — a secondary id line would reintroduce technical chrome against design intent; identity/actions are unaffected.
