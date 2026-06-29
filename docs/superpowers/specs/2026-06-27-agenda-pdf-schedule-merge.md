@@ -306,8 +306,8 @@ fast-path** (per-instance):
    for a zero-fileId staged parse). **No DB connection is open during any of this.**
 6. **POSITIVE per-link freshness (Codex round-24 F1)** — do NOT trust `enrichAgenda`
    side-effects as freshness proof: on a `downloadFileBytes` `infra_error` (or its
-   catch-all), `enrichAgenda` PRESERVES the prior `link.extracted`, so a stale v1 /
-   old-revision high-confidence extraction would otherwise be rendered + persisted as a
+   catch-all), `enrichAgenda` PRESERVES the prior `link.extracted`, so a stale
+   (non-current-version / old-revision) high-confidence extraction would otherwise be rendered + persisted as a
    fresh block exactly when refresh FAILED. So a link is **block-eligible ONLY if it was
    positively confirmed fresh THIS call**: `extracted.extractorVersion === EXTRACTOR_VERSION`
    **AND** `extracted.sourceRevision === <the `headRevisionId` `getFile` returned this
@@ -521,9 +521,14 @@ placeholder with the "couldn't auto-read" note — **NO Open-PDF anchor**, round
 `{ready|stale|error} → idle` (generation reset:
 clear items, re-fire — round-36 F2). Unreachable/instant (no animation): `idle→ready`,
 `idle→stale`, `idle→error` (always pass through `loading`); `ready↔stale`, `ready↔error`,
-`stale↔error` (terminal — only reachable via an `→idle` reset then a fresh fetch). No
-compound transitions: each row is independent; the card's expand/collapse toggle is
-unchanged.
+`stale↔error` (terminal — only reachable via an `→idle` reset then a fresh fetch).
+**Compound transition — late-response suppression after a generation reset (Codex round-24):**
+the ONE real compound case is a POST/poll for generation A that resolves AFTER the row
+re-rendered for generation B (a rescan/new `agendaStateKey`). Every fetch/poll loop
+**captures the current `agendaStateKey` and an `AbortController`; on key change it aborts the
+in-flight request AND ignores any resolution whose captured key ≠ the current key** — so A's
+delayed `200`/`409` can NEVER set `ready`/`stale` for B (which would re-expose stale agenda
+at the UI, defeating the server fence). The card's expand/collapse toggle is unchanged.
 
 **Dimensional invariants:** `AgendaScheduleBlock` already declares its own
 (`AgendaScheduleBlock.tsx:30-37`). The placeholder + breakdown wrapper are flow content
@@ -572,7 +577,7 @@ Rules (all server-side, derived from earlier review rounds):
   NO `freshByLinkKey` (→ baseline, all note-only); the endpoint passes the ordinals of the
   links it POSITIVELY confirmed fresh THIS call (per §5.2 step 6: `extractorVersion ===
   EXTRACTOR_VERSION` AND `sourceRevision === the `headRevisionId` `getFile` returned this
-  call`). A stored v1 / old-revision / refresh-failed link's ordinal is NOT in the set →
+  call`). A stored non-current-version (e.g. `0`) / old-revision / refresh-failed link's ordinal is NOT in the set →
   note-only, always. (This replaces the earlier `baseline` flag — empty default IS baseline.)
 - **Renderability predicate, NOT `extracted` truthiness:** for a link in `freshByLinkKey`,
   `const norm = normalizeAgendaExtraction(link.extracted); const renderable = !!norm &&
@@ -780,7 +785,7 @@ by this change.
    high-confidence `extracted` (round-20 F1 / round-25 F2: the default is NOT-fresh); (n)
    **freshness is an explicit PER-LINK (ordinal) input** — a high-confidence `extracted`
    whose ordinal is NOT in `freshByLinkKey` → note-only; only a link whose ordinal IS in
-   the set → block. Assert a stale v1/old-revision `extracted` (ordinal not in set) ALWAYS
+   the set → block. Assert a stale `extracted` (a NON-current `extractorVersion` e.g. `0` — NOT `1`, which stays current — OR an old `sourceRevision`; ordinal not in set) ALWAYS
    note-only, and that `buildAdminAgendaPreview` NEVER reads version/revision off
    `link.extracted` to decide a block (the set is the sole gate); (n2) **duplicate-fileId,
    per-link gate** (round-35 F2): TWO links with the SAME `fileId`, one ordinal in
@@ -851,7 +856,7 @@ by this change.
    `fileId` + fresh `extracted` → zero `downloadFileBytes`/`getAgendaChips`), proving the
    recovered fileId was persisted and the cache warmed; (i) **stale refresh →
    note-only, not persisted-as-fresh** (round-24 F1): a stored high-confidence `extracted`
-   with old `extractorVersion` (v1) OR old `sourceRevision`, AND the refresh
+   with a NON-current `extractorVersion` (e.g. `EXTRACTOR_VERSION - 1` / `0` — NOT `1`, which stays current) OR an old `sourceRevision`, AND the refresh
    `downloadFileBytes` returns `infra_error` → the returned item is **note-only**
    (`block: null`) and the stale `extracted` is **NOT written back as a fresh block**
    (assert `parse_result` not upgraded to a fresh block); (i2) **per-PDF mid-download
