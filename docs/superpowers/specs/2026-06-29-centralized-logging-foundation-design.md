@@ -317,8 +317,9 @@ export async function persistAppEvent(record: LogRecord): Promise<void> {
   `from("app_events")` call is the `.insert` in `lib/log/persist.ts`; (b) no
   `.update(`/`.delete(`/`.upsert(` on `app_events` anywhere; (c) no raw
   `update …app_events` / `delete …app_events` SQL outside the migration (prune is
-  the single sanctioned delete). The `grant insert, select` (no delete) backs this
-  at the DB layer.
+  the single sanctioned delete). This guard is the **sole** append-only enforcement:
+  `service_role` retains ALL DML (Layer-1 requirement, §5.2 SQL comment), so the DB
+  grant does not constrain mutation — the guard + sole-prune-delete do.
 
 ### 5.3 Retention / prune (bounds growth from day one)
 
