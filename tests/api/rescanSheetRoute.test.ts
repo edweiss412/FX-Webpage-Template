@@ -64,11 +64,14 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
     ["non-string wizardSessionId", { driveFileId: DRIVE, wizardSessionId: null }],
     ["empty-string driveFileId", { driveFileId: "", wizardSessionId: SESSION }],
     ["no body at all", undefined],
-  ])("400 BAD_REQUEST + no rescan when %s", async (_label, body) => {
+  ])("400 malformed-body + no rescan when %s", async (_label, body) => {
     const rescan = rescanMock({ status: "updated", needsReview: false, changed: true });
     const res = await handleRescanSheet(req(body), { rescanWizardSheet: rescan });
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ ok: false, code: "BAD_REQUEST" });
+    expect(await res.json()).toEqual({
+      ok: false,
+      error: "Request must include driveFileId and wizardSessionId.",
+    });
     expect(rescan).not.toHaveBeenCalled();
   });
 

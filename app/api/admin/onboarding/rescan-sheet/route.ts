@@ -51,7 +51,10 @@ export async function handleRescanSheet(
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, code: "BAD_REQUEST" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Request must include driveFileId and wizardSessionId." },
+      { status: 400 },
+    );
   }
   const driveFileId = (body as { driveFileId?: unknown } | null)?.driveFileId;
   const wizardSessionId = (body as { wizardSessionId?: unknown } | null)?.wizardSessionId;
@@ -61,7 +64,10 @@ export async function handleRescanSheet(
     typeof wizardSessionId !== "string" ||
     wizardSessionId.length === 0
   ) {
-    return NextResponse.json({ ok: false, code: "BAD_REQUEST" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Request must include driveFileId and wizardSessionId." },
+      { status: 400 },
+    );
   }
 
   const run = deps?.rescanWizardSheet ?? realRescanWizardSheet;
