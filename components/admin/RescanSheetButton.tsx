@@ -28,6 +28,7 @@ import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 
 export type RescanSheetButtonProps = {
   driveFileId: string;
@@ -135,7 +136,7 @@ export function RescanSheetButton({ driveFileId, wizardSessionId }: RescanSheetB
               : "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong"
           }
         >
-          <p>{result.copy}</p>
+          <p>{renderEmphasis(result.copy)}</p>
           {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
         </div>
       ) : null}
