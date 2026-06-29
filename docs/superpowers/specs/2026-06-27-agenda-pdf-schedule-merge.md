@@ -130,18 +130,22 @@ untouched. (This reverts every inline-extraction change from the earlier drafts.
 
 `fetchStep3Data` (`components/admin/OnboardingWizard.tsx:191`, server) ALWAYS computes a
 **baseline** `adminAgendaPreview: AdminAgendaItem[]` per `Step3Row` by calling
-`buildAdminAgendaPreview(arr(pr?.show?.agenda_links), { baseline: true })` (§5.4) — pure,
-no Drive calls. **Every baseline item is NOTE-ONLY (`block: null`)** carrying only the
-server-validated `href` + `label` + `badge` — even if the staged `parse_result` already
-has `extracted` (Codex round-20 F1: the baseline can't verify freshness — it cannot know
-the current Drive `headRevisionId` without a Drive call, and a stored extraction may be a
-stale `EXTRACTOR_VERSION` v1; so it must NOT render blocks). The baseline's sole job is
-to supply **validated hrefs for every state** (loading/error; Codex round-17).
-`adminAgendaPreview.length` IS the agenda-link count. An empty `agenda_links` → empty
-array → no Agenda breakdown. **Blocks ONLY ever come from the extract endpoint (§5.2),
-which is the single freshness-gated source** (version + revision via `enrichAgenda`); the
-client always fetches it (the endpoint cache-hits cheaply when the extraction is already
-fresh — §5.2 step 5 — so an already-extracted show still fills in fast, just via a
+`buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` (§5.4) with **NO `freshByLinkKey`**
+— pure, no Drive calls, so **every baseline item is NOTE-ONLY** (the empty-default
+`freshByLinkKey` ⇒ no blocks; round-20 F1 / round-25 F2). It carries `label` + `badge`
++ a **best-effort `href`**: present when `agendaPdfHref` can resolve it (a `/d/`-URL
+`fileId` or an `http(s)` `url`), but **`null` for the target smart-chip links**, whose
+staged value is filename text with NO `fileId` (recovered only by `getAgendaChips`, a
+Drive call the pure baseline cannot make — Codex round-25 F3). For those, the loading/
+error note shows **no Open-PDF anchor**; the card's **existing source-sheet deep link**
+(per-card, already present) is the universal PDF-recovery path. Once the endpoint runs,
+its returned items DO carry recovered `href`s (the endpoint recovers `fileId`s via
+`getAgendaChips` even when the PDF download fails), so the Open-PDF link appears in
+`ready`/note states. `adminAgendaPreview.length` IS the agenda-link count; empty
+`agenda_links` → no Agenda breakdown. **Blocks ONLY ever come from the extract endpoint
+(§5.2), the single freshness-gated source**; the client always fetches it (the endpoint
+cache-hits cheaply when already fresh — §5.2 step 5 — so an already-extracted show fills
+in fast, just via a
 freshness-checked round-trip rather than an unverified baseline block).
 
 ### 5.2 Per-show extract endpoint — SHORT transactions, no DB connection during Drive
@@ -195,18 +199,25 @@ best-effort same-instance dedupe:
    that failed to refresh → **note-only** (`block: null`) and its stale `extracted` is
    NOT written back as if fresh. (Plan: extend `enrichAgenda`/the wrapper to return
    per-link confirmed-fresh + revision, rather than relying on mutation side-effects.)
-6. **SHORT tx #2 — brief `show:` lock + atomic conditional persist** — open a new tx,
-   acquire the canonical `show:` lock (`pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`,
-   blocking, held only for this quick write — finalize waits at most ms, never the
-   extraction window), and ATOMICALLY re-check lifecycle in the write:
-   `update public.pending_syncs set parse_result = $1::jsonb where wizard_session_id = $2
-   and drive_file_id = $3 AND <active-session, not-superseded> AND <not
-   finalize-consumed/in-progress> returning staged_id` (predicate matches step 3; does
-   NOT exclude `approval_payload IS NOT NULL`; pass the object, NOT `JSON.stringify` —
-   postgres.js encodes `$1::jsonb` itself). **0 rows** (row superseded/finalize-consumed
-   during extraction) → discard, `409 { status: "stale" }`. **1 row** → commit (releases
-   `show:`). Then **build + return `200 { items }`** from the (freshly-confirmed)
-   extraction via `buildAdminAgendaPreview` (§5.4).
+6. **SHORT tx #2 — brief `show:` lock + REREAD-MERGE-conditional persist (Codex round-25
+   F1)** — open a new tx, acquire the canonical `show:` lock
+   (`pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`, blocking, held only for
+   this quick write — finalize waits at most ms, never the extraction window). Do NOT
+   overwrite the whole `parse_result` with the tx#1 snapshot — that would lose any change
+   (another extractor's success, or other staged edits) made during the no-DB extraction
+   window, and a LATER stale extraction could erase a newer one. Instead: **REREAD** the
+   CURRENT `parse_result`, and **MERGE ONLY the positively-confirmed-fresh `extracted`
+   payloads** (per §5.2 step 5, matched to the current row's `agenda_links` by `fileId`)
+   into it — touching nothing else. A request with NO confirmed-fresh links merges
+   nothing (so a failed/stale refresh NEVER erases an earlier success). The write
+   ATOMICALLY re-checks lifecycle: `update public.pending_syncs set parse_result =
+   $1::jsonb where wizard_session_id = $2 and drive_file_id = $3 AND <active-session,
+   not-superseded> AND <not finalize-consumed/in-progress> returning staged_id` (where
+   `$1` is the MERGED result; predicate matches step 3, does NOT exclude
+   `approval_payload IS NOT NULL`; pass the object, NOT `JSON.stringify`). **0 rows**
+   (superseded/finalize-consumed during extraction) → discard, `409 stale`. **1 row** →
+   commit (releases `show:`). Then **build + return `200 { items }`** via
+   `buildAdminAgendaPreview(currentLinks, { freshByLinkKey })` over the merged links.
 
 **Pool-safety + publish-safety + dedupe:** a DB connection is held ONLY during the two
 short txns (read pre-check; brief `show:` persist) — NEVER during the ≤300 s Drive/PDF
@@ -224,9 +235,11 @@ external I/O; stale refresh-failed extractions render note-only, never a stale b
 ### 5.3 Client orchestration + live fill-in (UI; Opus + impeccable invariant 8)
 
 `Step3Review`/`Step3SheetCard` are `"use client"`. Each row arrives with the
-server-built **baseline** `adminAgendaPreview` (note-only items, validated hrefs; §5.1).
-The card NEVER computes hrefs — it always renders `AdminAgendaItem`s the SERVER built
-(baseline or endpoint result).
+server-built **baseline** `adminAgendaPreview` (note-only items; §5.1). The card NEVER
+computes hrefs — it renders `AdminAgendaItem`s the SERVER built (baseline or endpoint
+result). Hrefs are **best-effort**: present for resolvable links; for smart-chip links
+(no `fileId`) the baseline href is `null` and the **card's existing per-card source-sheet
+deep link** is the PDF-recovery path until the endpoint returns recovered hrefs (§5.1).
 
 - `adminAgendaPreview.length === 0` → **no Agenda breakdown** (omitted).
 - Else, per row, a state machine over the extract fetch: `idle → loading →
@@ -241,8 +254,10 @@ The card NEVER computes hrefs — it always renders `AdminAgendaItem`s the SERVE
   finalizing row) is **terminal**: stop retrying, render the baseline note (any agenda
   lands via cron post-publish). A network/5xx → `error` → baseline.
 - The `AgendaBreakdown` renders the EFFECTIVE items = `state === "ready" &&
-  resultItems.length ? resultItems : baselineItems` (so hrefs are always present, even
-  on an empty/raced endpoint result), with a state-driven affordance:
+  resultItems.length ? resultItems : baselineItems` (preferring the endpoint result,
+  whose items carry recovered hrefs even for smart-chips; falling back to baseline on a
+  hard fetch failure — where a smart-chip item may have no anchor, covered by the
+  source-sheet link), with a state-driven affordance:
   - `loading` → render the baseline note items PLUS a calm **"Parsing agenda… (N PDF{s})"**
     eyebrow/skeleton (`N = adminAgendaPreview.length`); each baseline item still shows its
     "Open PDF" anchor.
@@ -291,24 +306,23 @@ type AdminAgendaItem = {
 
 Rules (all server-side, derived from earlier review rounds):
 
-- **`opts.baseline` (Codex round-20 F1):** when called with `{ baseline: true }`
-  (`fetchStep3Data`), `block` is FORCED to `null` for every item — the baseline never
-  renders unverified blocks (it can't confirm `headRevisionId`/`EXTRACTOR_VERSION`
-  freshness without a Drive call). Only the endpoint (which calls it WITHOUT `baseline`
-  on links whose `extracted` was just set by `enrichAgenda` to the current
-  `headRevisionId` + `EXTRACTOR_VERSION`) renders blocks → blocks are always
-  freshness-gated.
-- **Renderability predicate — confidence AND POSITIVELY-CONFIRMED freshness (Codex
-  round-24 F1):** (endpoint path) `const norm = normalizeAgendaExtraction(link.extracted);
-  const renderable = !!norm && norm.confidence === "high" && norm.days.length > 0 &&
-  freshThisCall(link);` where `freshThisCall` is the per-link flag from §5.2 step 5
-  (`extractorVersion === EXTRACTOR_VERSION` AND `sourceRevision === the headRevisionId
-  getFile returned THIS call`). A low/malformed/zero-day payload is truthy
-  (`extracted ? block : note` would yield an empty block) AND a refresh-FAILED
-  stale-preserved `extracted` is high-confidence-but-stale — both → `block = null`
-  (note-only). `renderable` → `block = { extraction: capExtractionForAdmin(norm,…),
-  dropped* }`. The endpoint NEVER relies on `enrichAgenda`'s preserve-on-error
-  side-effect as proof of freshness; a stale v1 / old-revision extraction can never
+- **Freshness is an EXPLICIT REQUIRED input, default NOT-fresh (Codex round-24 F1 +
+  round-25 F2):** the signature is `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?:
+  Set<string> })`. A `block` is produced for a link ONLY when its stable key (its
+  `fileId`) is present in `freshByLinkKey` AND it is renderable (below). `freshByLinkKey`
+  **defaults to empty** → no blocks. So freshness is never inferred from `link.extracted`
+  side-effects: `fetchStep3Data` passes NO `freshByLinkKey` (→ baseline, all note-only),
+  and the endpoint passes the set of links it POSITIVELY confirmed fresh THIS call (per
+  §5.2 step 5: `extractorVersion === EXTRACTOR_VERSION` AND `sourceRevision === the
+  `headRevisionId` `getFile` returned this call`). A stored v1 / old-revision / refresh-
+  failed link is NOT in the set → note-only, always. (This replaces the earlier
+  `baseline` flag — the empty default IS the baseline behavior.)
+- **Renderability predicate, NOT `extracted` truthiness:** for a link in `freshByLinkKey`,
+  `const norm = normalizeAgendaExtraction(link.extracted); const renderable = !!norm &&
+  norm.confidence === "high" && norm.days.length > 0;` (a low/malformed/zero-day payload
+  is truthy — `extracted ? block : note` would yield an empty block). `renderable` →
+  `block = { extraction: capExtractionForAdmin(norm,…), dropped* }`; else `block = null`.
+  Because freshness is gated by `freshByLinkKey` BEFORE this, a stale extraction can never
   reach a rendered block, and is not persisted as if fresh.
 - **Render-size cap (`capExtractionForAdmin`):** keep ≤ `AGENDA_ADMIN_SESSIONS_CAP = 8`
   sessions across days (later days dropped once hit) and ≤
@@ -392,13 +406,13 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    (i) `agenda_links` undefined/non-array → `[]`; (j) > `AGENDA_MAX_PDFS_PER_SHEET`
    links → capped + "+N more agenda PDFs"; (k) 18-session extraction → 8 + overflow
    `dropped*`; (l) > `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks in one kept session →
-   capped + track overflow; (m) **`{ baseline: true }` forces note-only** even for a
-   high-confidence `extracted` (Codex round-20 F1: baseline never renders blocks); (n)
-   a stored `extractorVersion: 1` extraction passed WITHOUT `baseline` still yields a
-   block ONLY via the endpoint's fresh-extracted path — assert the predicate alone does
-   not gate version (freshness is the endpoint's `enrichAgenda` job), so the test pins
-   that `fetchStep3Data` uses `baseline: true` (the version-bypass is closed by baseline,
-   not by the predicate).
+   capped + track overflow; (m) **no `freshByLinkKey` ⇒ all note-only** even for a
+   high-confidence `extracted` (round-20 F1 / round-25 F2: the default is NOT-fresh); (n)
+   **freshness is an explicit required input** — a high-confidence `extracted` whose
+   `fileId` is NOT in `freshByLinkKey` → note-only; only a link whose `fileId` IS in
+   `freshByLinkKey` → block. Assert a stale v1/old-revision `extracted` (not in the set)
+   ALWAYS returns note-only, and that `buildAdminAgendaPreview` NEVER reads version/
+   revision off `link.extracted` to decide a block (the set is the sole gate).
 2. **Extract endpoint (`tests/app/admin/...extractAgenda.test.ts`)** — (a) auth required
    (unauth → rejected); (b) staged `parse_result` w/ chip-based links + agenda client
    over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks AND the updated
@@ -427,7 +441,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    (assert `parse_result` not upgraded to a fresh block); (j) **no DB connection / show:
    lock during Drive** (round-23/24 F2): assert the Drive/PDF window holds NO advisory
    lock and NO open tx — a concurrent `show:` acquisition (finalize) AND a concurrent DB
-   query both succeed DURING extraction; `show:` is taken only in tx#2; (f) missing row →
+   query both succeed DURING extraction; `show:` is taken only in tx#2; (k) **reread-merge,
+   no lost-update** (round-25 F1): extractor A succeeds + persists link X's fresh
+   `extracted`; meanwhile a slower request B (whose refresh FAILED, no fresh links)
+   reaches tx#2 LAST → its merge adds nothing → assert link X's fresh `extracted` is
+   **still present** (B did not clobber A); also a write to an unrelated `parse_result`
+   field in the gap survives (merge touches only fresh `extracted`); (f) missing row →
    `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
@@ -435,13 +454,14 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    (mock `numPages = cap+1` → low, no per-page parse; `extractorVersion === 2`);
    per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET + 1` links → first N extracted).
 4. **Card live fill-in (RTL, `tests/components/admin/...`)** — given a SERVER-built
-   baseline `adminAgendaPreview` (note-only items with hrefs), pure-presentation +
-   per-row fetch state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)"
-   eyebrow, each with its "Open PDF" anchor; (b) `ready` (mock fetch resolves with
-   upgraded items) → two `agenda-schedule` blocks (+ overflow notes); (c) **`error`
-   (mock fetch REJECTS) → the baseline items render with the "Open PDF" anchor present
-   and a SAFE href** (Codex round-17 — proves the error fallback has a server-validated
-   href, no client href logic); (d) empty baseline → no breakdown; (e) **always-fetch /
+   baseline `adminAgendaPreview` (note-only items), pure-presentation + per-row fetch
+   state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)" eyebrow; (b) `ready`
+   (mock fetch resolves with upgraded items) → two `agenda-schedule` blocks (+ overflow
+   notes); (c) **`error` (mock fetch REJECTS) → baseline items render**: a `fileId`/http
+   item shows a SAFE "Open PDF" anchor (round-17, server-validated, no client href
+   logic), while a **smart-chip item (no `fileId`) shows the note with NO anchor** and
+   the breakdown still renders (round-25 F3 — the per-card source-sheet link is the
+   recovery path; the card never invents an href); (d) empty baseline → no breakdown; (e) **always-fetch /
    no stale-baseline bypass** (Codex round-20 F1 + round-21): a nonempty baseline ALWAYS
    triggers the POST — even if a (hypothetical, contract-violating) baseline item arrived
    with a populated `block`, the card MUST still fire the fetch and MUST NOT render that
@@ -491,7 +511,7 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 | File | Change |
 |---|---|
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory concurrency slot (`AGENDA_MAX_CONCURRENT_EXTRACTIONS`) + same-instance in-flight dedupe (→`202`) → **SHORT tx#1** SELECT `pending_syncs.parse_result` + lifecycle pre-check (superseded/finalize-consumed → `409`; approved OK) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → **SHORT tx#2** brief `show:` lock + atomic lifecycle-conditional `UPDATE … RETURNING` (0 rows → `409`) → `buildAdminAgendaPreview` → `200 { items }`. No DB held during Drive; raw postgres.js |
-| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?)` (`opts.baseline` forces note-only — round-20 F1), `capExtractionForAdmin`, `agendaPdfHref` |
+| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links in `freshByLinkKey` (default empty ⇒ note-only; round-25 F2); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`, `AGENDA_MAX_CONCURRENT_EXTRACTIONS`; bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
 | `tests/db/postgrest-dml-lockdown.test.ts` | ensure `pending_syncs` DML lockdown covered (registry row if absent) |
@@ -519,9 +539,16 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   `AGENDA_MAX_CONCURRENT_EXTRACTIONS` cap (no DB lock) — so previews can't exhaust the
   pool or block finalize/publish. Raw postgres.js (no Supabase for `pending_syncs`).
 - Freshness: cache hit costs a cheap `getFile` (not zero Drive — round-23 F1); blocks
-  render ONLY for links **positively confirmed fresh this call** (current
-  `EXTRACTOR_VERSION` + current `headRevisionId`), so a refresh-failed stale extraction
-  renders note-only and is never persisted as a fresh block (round-24 F1).
+  render ONLY for links in `freshByLinkKey` (an EXPLICIT typed input, default empty —
+  round-25 F2) = links **positively confirmed fresh this call** (current
+  `EXTRACTOR_VERSION` + current `headRevisionId`); a refresh-failed stale extraction is
+  note-only and never persisted as a fresh block (round-24 F1).
+- Persist integrity: tx#2 **rereads + merges only confirmed-fresh `extracted` by
+  `fileId`** into the current `parse_result` (never a whole-blob clobber), so a slower
+  stale/failed extractor can't erase a newer success or other staged edits (round-25 F1).
+- Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
+  links (no `fileId`) get none from the pure baseline (the endpoint result carries
+  recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
 - Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
   finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
   review rows until finalize consumes them, and persistence carries the agenda to
