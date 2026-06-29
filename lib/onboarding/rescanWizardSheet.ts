@@ -14,6 +14,7 @@ import { STAGED_PARSE_SOURCE_OUT_OF_SCOPE } from "@/lib/sync/applyStaged";
 import { computeRescanDecision } from "@/lib/onboarding/rescanDecision";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { parseShadowPayloadForApply } from "@/lib/onboarding/shadowPayload";
+import { asParseResult } from "@/lib/db/coerceJsonbObject";
 import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 
@@ -115,7 +116,20 @@ async function capturePriorState(
   }>;
   const ps = psRows[0];
   if (ps) {
-    const priorParse = ps.parse_result ?? null;
+    // Fail-closed (matching Flow B's `parseShadowPayloadForApply`): validate the
+    // stored Flow-A `parse_result` via `asParseResult` rather than casting the raw
+    // jsonb. Re-scan is the UI's recovery for a corrupt / no-details card, so a
+    // previously-ready row whose prior parse is unreadable must NOT throw inside
+    // `computeRescanDecision`'s `runInvariants` (a `{}` / non-object prior derefs
+    // `prior.crewMembers.length` → TypeError → empty 500). On invalid/corrupt →
+    // priorParse=null, which the §6 DIRTY clause (`priorReady && priorParse === null`)
+    // turns into a forced review instead of a thrown 500.
+    let priorParse: ParseResult | null = null;
+    try {
+      priorParse = ps.parse_result == null ? null : asParseResult(ps.parse_result);
+    } catch {
+      priorParse = null;
+    }
     return {
       priorReady: ps.wizard_approved === true,
       priorApprovedByEmail: ps.wizard_approved_by_email,

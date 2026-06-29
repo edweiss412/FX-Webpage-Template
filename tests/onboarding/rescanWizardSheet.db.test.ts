@@ -578,6 +578,39 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
   );
 
   test.skipIf(!dbUp)(
+    "T-A-CORRUPT: a corrupt Flow-A prior parse_result fails closed (no throw) → previously-approved row is demoted, not a 500",
+    async () => {
+      await setSession();
+      const seedItems = await stageOriginal(makeParse("Show", CREW), SEED_MODIFIED);
+      await seedManifest("staged");
+      await approve(seedItems, APPROVER, SEED_APPROVED_AT);
+      // Corrupt the stored prior parse_result to a non-ParseResult object. Re-scan is the
+      // operator's recovery for exactly this (no-details / corrupt) card, so capturing the
+      // prior must NOT throw inside computeRescanDecision's runInvariants (which derefs
+      // prior.crewMembers.length and would TypeError → empty 500).
+      await sql!.unsafe(
+        `update public.pending_syncs set parse_result = '{}'::jsonb
+          where drive_file_id = $1 and wizard_session_id = $2::uuid`,
+        [DRIVE, SESSION],
+      );
+
+      // Must resolve (no throw) even with a clean refresh.
+      const result = await rescanWizardSheet(
+        DRIVE,
+        SESSION,
+        deps({ refreshedParse: makeParse("Show", CREW) }),
+      );
+
+      // Fail-closed: a previously-ready row whose prior parse is unreadable forces review.
+      expect(result).toEqual({ status: "updated", needsReview: true, changed: true });
+      const row = await readPending();
+      expect(row.wizard_approved).toBe(false);
+      expect(row.wizard_approved_by_email).toBeNull();
+      expect(row.last_finalize_failure_code).toBe(RESCAN_REVIEW_REQUIRED);
+    },
+  );
+
+  test.skipIf(!dbUp)(
     "T-DEMOTED-CLEAN: a previously-demoted row rescanned clean clears its failure code (un-blocks)",
     async () => {
       await setSession();
