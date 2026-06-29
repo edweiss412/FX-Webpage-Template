@@ -591,10 +591,19 @@ the real corpus (rfi 538 KB/10 pp, pcf 495 KB/7 pp, ≤2 PDFs/show):
 | Per-PDF page count | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` early `LOW()` when `doc.numPages > cap` (before the page loop) | low-confidence → note |
 | PDFs extracted per show | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap skip; surfaced via the card note (no warning) |
 
-The page-cap guard bumps `EXTRACTOR_VERSION` 1→2 (gate-logic change per
-`constants.ts:11`; update the `extractorVersion === 1` assertions in
-`tests/agenda/extractAgendaSchedule.test.ts`, `tests/agenda/constants.test.ts`,
-`tests/onboarding/enrichAgendaIntegration.test.ts`). `getFile` already routes through
+**`EXTRACTOR_VERSION` stays `1` — do NOT bump (Codex round-49).** The page-cap guard is a
+pure-function gate that changes output ONLY for >80pp PDFs (the real corpus is ≤10pp, so
+v1 and the page-capped output are IDENTICAL there); it applies to every NEW extraction
+without a version bump. Bumping 1→2 would mark every EXISTING published-show `extracted`
+payload (cron-populated, `extractorVersion: 1`) stale-by-version, and crew renders
+`link.extracted` directly — so a bump would either blank legacy agenda on crew until cron
+re-extracts OR require a crew render gate (forbidden — "crew unchanged", §11). Since the
+endpoint only writes STAGED rows (which had NO prior extraction — the wizard never extracted
+before this feature) and published-show freshness remains cron's existing job, keeping
+`EXTRACTOR_VERSION = 1` means legacy data stays valid (version matches current), no
+invalidation, no crew gate, no migration. A pre-existing >80pp v1 extraction stays cached
+(already parsed — the cost was paid; the cap only prevents NEW expensive parses). `getFile`
+already routes through
 the timed metadata fetch (`fetch.ts` `DRIVE_FILES_GET_TIMEOUT_MS`) — unchanged.
 `enrichAgenda` no longer takes the SCAN-level `agendaBudget`/deadline apparatus (the
 attempts/scan-deadline knobs are gone) — but it DOES accept a thread-in **`AbortSignal`**
@@ -684,6 +693,16 @@ invariant** (round-47 F1): because a known-stale `extracted` is CLEARED at persi
 and crew — which read `link.extracted` directly — never publish/render stale agenda. The
 admin `freshByLinkKey` gate is then a SECOND layer (defends the live preview against a stored
 value that's stale-but-not-yet-cleared, e.g. an UNKNOWN/transient case), not the only one.
+
+**Scope of the invariant + legacy data (Codex round-49):** this endpoint writes ONLY
+STAGED (wizard) rows, which had NO prior `extracted` (the wizard never extracted before this
+feature) — so every staged `extracted` the endpoint creates is fresh-or-cleared by the
+contract above. PUBLISHED shows' `link.extracted` is maintained by the existing cron
+`enrichAgenda` (unchanged by this feature) — crew freshness for live shows is cron's job, as
+today. **No `EXTRACTOR_VERSION` bump** (§5.5) means existing `extractorVersion: 1` payloads
+stay version-current — the feature invalidates NO legacy data and adds NO crew render gate
+("crew unchanged"). So crew/publish behavior for already-published shows is byte-unaffected
+by this change.
 
 ## 6. Guard conditions (every input)
 
@@ -851,7 +870,7 @@ value that's stale-but-not-yet-cleared, e.g. an UNKNOWN/transient case), not the
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
-   (mock `numPages = cap+1` → low, no per-page parse; `extractorVersion === 2`);
+   (mock `numPages = cap+1` → low, no per-page parse; `extractorVersion === 1` — unchanged, round-49);
    per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET + 1` links → first N extracted);
    **slow-drip TOTAL-time deadline** (round-48 F1): a stream that emits a TINY chunk just
    BEFORE each idle `DRIVE_ASSET_STALL_TIMEOUT_MS` (so the idle stall guard keeps resetting
@@ -912,7 +931,11 @@ value that's stale-but-not-yet-cleared, e.g. an UNKNOWN/transient case), not the
    stale agenda and (b) crew `AgendaScheduleBlock` renders nothing for that link (not the
    stale block). Contrast: an UNKNOWN case (getFile `infra_error`) LEAVES the `extracted`
    (last-known-good). Assert against the persisted `parse_result` + a crew render of it, NOT
-   only the admin preview.
+   only the admin preview. **Plus legacy-data unaffected** (round-49): an EXISTING published
+   show with `extractorVersion: 1` `extracted` payloads → assert this feature does NOT
+   invalidate or blank them (no `EXTRACTOR_VERSION` bump → version-current; crew renders them
+   exactly as before; the endpoint never touches published rows) — a `constants.test.ts`
+   assertion pins `EXTRACTOR_VERSION === 1` (NOT bumped).
 7. **Finalize/extract race (`tests/.../finalizeAgendaRace.test.ts`)** — round-34, BOTH
    apply paths: finalize `selectFinishableCleanRows` reads the row's `parse_result` (no
    agenda) FIRST; the extractor then persists the agenda under the `show:` lock; finalize
@@ -991,7 +1014,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000), `AGENDA_PDF_DEADLINE_MS` + `AGENDA_EXTRACT_DEADLINE_MS` (~250 000, `< maxDuration` — total-time deadlines, round-48 F1); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000), `AGENDA_PDF_DEADLINE_MS` + `AGENDA_EXTRACT_DEADLINE_MS` (~250 000, `< maxDuration` — total-time deadlines, round-48 F1); **`EXTRACTOR_VERSION` stays `1`** (NOT bumped — round-49; `DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a brief `show:`||dfid holder (tx#2) + a brief global `agenda-extract-admit` holder (tx#1, never during Drive); finalize re-select adds no new holder |
 | `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
 | `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
@@ -1036,6 +1059,11 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
   lease holder is extracting THIS row). The client's one-window `AGENDA_CLIENT_POLL_BUDGET_MS`
   timer starts only at admission; `queued` polling uses a larger `AGENDA_CLIENT_QUEUE_BUDGET_MS`
   — so a row queued behind EITHER cap still renders its eventual `200`.
+- No `EXTRACTOR_VERSION` bump (round-49): stays `1`. The page-cap guard applies to new
+  extractions without a bump; bumping would mark legacy published-show v1 `extracted`
+  stale-by-version and (since crew renders `extracted` directly and "crew unchanged" forbids
+  a crew gate) blank legacy crew agenda or force a migration. Endpoint writes only staged
+  rows (no prior extraction); published freshness stays cron's job → legacy data untouched.
 - Total-time deadline + active cancellation (round-48 F1): per-PDF (`AGENDA_PDF_DEADLINE_MS`)
   and endpoint (`AGENDA_EXTRACT_DEADLINE_MS`, `< maxDuration`) TOTAL-time deadlines via an
   `AbortSignal` bound a slow-drip download that evades the idle stall guard; on fire they
@@ -1123,8 +1151,8 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
   zero-fileId staged parse can never vacuously skip and stay note-only.
 - Baseline freshness (Codex round-20 F1 / round-25 F2): `fetchStep3Data`'s baseline is
   ALWAYS note-only (omits `freshByLinkKey` ⇒ empty default); blocks come ONLY from the endpoint, which
-  freshness-gates on `EXTRACTOR_VERSION` (bumped to 2) + `headRevisionId` via
-  `enrichAgenda` — a stale v1 cached extraction can never render or skip the refresh.
+  freshness-gates on `EXTRACTOR_VERSION` (stays `1` — round-49) + `headRevisionId` via
+  `enrichAgenda` — a sourceRevision-stale extraction can never render or skip the refresh.
 - Persistence: endpoint **persists** the extracted agenda to the staged `parse_result`
   (cache + dedupe + publish-carries-forward) via the staged-mutation discipline
   (advisory lock + DML lockdown + Supabase write boundary); cron remains a fallback.
