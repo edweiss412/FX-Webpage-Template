@@ -554,19 +554,30 @@ held lock (`assertShowLockHeld` — it is NOT an acquisition API). The fix is th
 to **re-SELECT `parse_result` for the row INSIDE the already-locked per-row tx, immediately
 before consuming it**, and use that fresh value — no topology change, no new lock:
 
+Both re-selects MUST be **generation-scoped (Codex round-42)** — bound to the exact
+`staged_id` + `staged_modified_time` finalize originally selected AND the operator
+approved. A bare `(wizard_session_id, drive_file_id)` re-select could, under a same-session
+rescan/row regeneration landing between finalize's initial `selectFinishableCleanRows` and
+this locked re-read, return a NEWER row's `parse_result` while finalize still carries the
+OLD row's approval/generation metadata — feeding a mismatched parse into apply/shadow-stage
+BEFORE the downstream generation guard rejects. So each re-select is `… where
+wizard_session_id = $1 and drive_file_id = $2 AND staged_id = $3 AND staged_modified_time =
+$4`; **0 rows (row regenerated) → treat as stale**: demote / `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`
+(the existing race path), NO apply/shadow-stage side effects on the mismatched parse.
+
 - **First-seen apply** (`finalize/route.ts:823-828`): under the row-tx's held lock
-  (asserted via `adoptShowLockHeld`), add `SELECT parse_result from public.pending_syncs
-  where wizard_session_id = $1 and drive_file_id = $2` and pass THAT (coerced) to
-  `applyStagedCore` as `parseResult` instead of the pre-read `coercedRow.parse_result`.
-  (The pre-read `staged_id`/`staged_modified_time` stay the generation guard — the
-  extractor's tx#2 does NOT change them, so the existing `stale_write` /
-  `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` path is unaffected.)
+  (asserted via `adoptShowLockHeld`), add the generation-scoped `SELECT parse_result from
+  public.pending_syncs where wizard_session_id = $1 and drive_file_id = $2 AND staged_id =
+  $3 AND staged_modified_time = $4` and pass THAT (coerced) to `applyStagedCore` as
+  `parseResult` instead of the pre-read `coercedRow.parse_result`; 0 rows → stale (no
+  apply). (The extractor's tx#2 does NOT change `staged_id`/`staged_modified_time`, so a
+  pure agenda persist still matches; only a genuine rescan-regeneration misses.)
 - **Existing-show shadow** (`finalize/route.ts:771`, `stageExistingShowShadow` at
   `:525-568`): this also already runs inside the locked row-tx (the `tx` passed in IS the
-  `show:`-locked `rowTx`). Re-SELECT `parse_result` inside it and stage THAT into the
-  shadow's `parse_result` (`:546`) — the shadow is the authoritative source for the
-  Phase-D apply (and `pending_syncs` is deleted right after, `:773`), so the re-read must
-  happen here.
+  `show:`-locked `rowTx`). Run the SAME generation-scoped re-SELECT and stage THAT into the
+  shadow's `parse_result` (`:546`); 0 rows → stale (no shadow-stage). The shadow is the
+  authoritative source for the Phase-D apply (and `pending_syncs` is deleted right after,
+  `:773`), so the re-read must happen here.
 
 Because the per-row tx already holds `show:<dfid>`, the extractor's tx#2 (which needs the
 same lock) is blocked during finalize, so the re-read is the latest committed value and no
@@ -771,7 +782,13 @@ re-select adds no second acquisition (the topology is unchanged).
    finalize re-reads under the lock, not the stale pre-read. Also assert (negative
    regression) that with NO concurrent extraction the published payload is unchanged, and
    that the re-select adds **no new `show:` acquisition** (reuses `defaultWithRowTx`'s lock
-   — the topology is unchanged) via the extended advisory-lock meta-test.
+   — the topology is unchanged) via the extended advisory-lock meta-test. **Generation-scoped
+   re-read** (round-42, BOTH paths): the row is REGENERATED (rescan → new `staged_id`)
+   between finalize's initial `selectFinishableCleanRows` and the locked re-read → the
+   generation-scoped re-SELECT (`AND staged_id = $3 AND staged_modified_time = $4`) returns
+   **0 rows** → finalize treats it as STALE (demote / `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`),
+   and does NOT apply or shadow-stage the newer row's `parse_result` under the old approval
+   metadata (assert no apply/shadow side effect on the mismatched parse).
 8. **Impeccable dual-gate** (critique + audit) on the admin card diff (invariant 8).
 
 ## 9. Meta-test inventory
@@ -910,8 +927,11 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
 - Publish-safety: finalize **re-reads `parse_result` inside its already-`show:`-locked
   per-row tx** (`defaultWithRowTx:164`) before apply/shadow-stage on BOTH paths
   (round-34/35) — the extractor's tx#2 persist alone is not enough because finalize reads
-  the row BEFORE per-row processing. **No advisory-lock topology change** — the re-select
-  reuses the existing per-row lock (`adoptShowLockHeld` asserts, not acquires).
+  the row BEFORE per-row processing. The re-select is **generation-scoped** (`AND staged_id
+  AND staged_modified_time` — round-42) so a same-session regeneration can't feed a newer
+  parse under the old approval metadata (0 rows → stale, no apply/shadow side effect). **No
+  advisory-lock topology change** — the re-select reuses the existing per-row lock
+  (`adoptShowLockHeld` asserts, not acquires).
 - Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
   finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
   review rows until finalize consumes them, and persistence carries the agenda to
