@@ -183,7 +183,9 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      EXCLUDED.expires_at WHERE public.agenda_extract_leases.expires_at < now() RETURNING
      owner` — succeeds iff there was NO live lease (insert) or the prior lease had EXPIRED
      (TTL backstop for a crashed extractor). **0 rows = a LIVE lease held by another
-     request anywhere in the deployment** → `202 { status: "in_progress" }` (no Drive). This
+     request anywhere in the deployment** → `202 { status: "in_progress" }` **with a
+     `Retry-After` header** (so the client polls for the full extraction window, not a
+     short fixed count — round-33 F1; all `202` paths set `Retry-After`) (no Drive). This
      is the cross-instance dedupe + per-show bound the in-memory cap alone could not give:
      exactly one extraction per show proceeds across ALL instances. `$owner` is a
      per-request token. TTL `AGENDA_EXTRACT_LEASE_TTL_MS` ≈ `maxDuration` + margin
@@ -322,12 +324,20 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
   freshness-gated block source; baseline blocks never exist) in a `useEffect` keyed on
   `driveFileId`, throttled to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows.
   The endpoint cache-hits cheaply when already fresh, so this is fast. A
-  **`202 { status: "in_progress" }`**
-  response (another request holds the lock) keeps the row in `loading` and retries
-  after a short backoff (≤ `AGENDA_CLIENT_RETRY_LIMIT = 5` attempts, then → `error`/
-  baseline). A **`409 { status: "stale" }`** (lifecycle guard — superseded session /
-  finalizing row) is **terminal**: stop retrying, render the baseline note (any agenda
-  lands via cron post-publish). A network/5xx → `error` → baseline.
+  **`202 { status: "in_progress" }`** response (another request holds the durable lease)
+  keeps the row in `loading` and retries — but the poll budget is **tied to the
+  extraction window, NOT a short fixed attempt count (Codex round-33 F1)**: the durable
+  lease holder can legitimately run for nearly the full `maxDuration = 300 s`, and under a
+  Strict-Mode remount / refresh / second tab the VISIBLE request may be a duplicate that
+  only ever sees `202`s while a DIFFERENT request owns the extraction. So the client keeps
+  polling `202` (honoring the endpoint's `Retry-After` header, with backoff) until it
+  receives the persisted `200`/`409`, bounded by a total **`AGENDA_CLIENT_POLL_BUDGET_MS`
+  ≈ `maxDuration` + margin (~330 000 ms)** — only then → `error`/baseline. (A short fixed
+  5-attempt budget would abandon the live-fill before the owner persists, leaving
+  smart-chip rows note-only/no-href even though extraction succeeds seconds later.) A
+  **`409 { status: "stale" }`** (lifecycle guard — superseded session / finalizing row) is
+  **terminal**: stop polling, render the baseline note (any agenda lands via cron
+  post-publish). A network/5xx → `error` → baseline.
 - The `AgendaBreakdown` renders the EFFECTIVE items = `state === "ready" &&
   resultItems.length ? resultItems : baselineItems` (preferring the endpoint result,
   whose items carry recovered hrefs even for smart-chips; falling back to baseline on a
@@ -584,7 +594,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    fetch fires for every nonempty baseline and no baseline `block` is ever rendered.
    Clone-and-strip sibling breakdowns before scanning DOM (anti-tautology). Assert ≤
    `AGENDA_CLIENT_CONCURRENCY` concurrent in-flight; assert the card computes NO
-   normalize/cap/href itself (hrefs only come from the server-built items).
+   normalize/cap/href itself (hrefs only come from the server-built items); (f)
+   **long-poll past a fixed retry count** (round-33 F1): the mock returns `202` for MANY
+   more than 5 attempts (simulating a duplicate request while another owns the ≤300 s
+   extraction), then a `200` with upgraded items → the card MUST keep polling (honoring
+   `Retry-After`, bounded by `AGENDA_CLIENT_POLL_BUDGET_MS`, using fake timers) and finally
+   render the `ready` blocks — it must NOT fall back to baseline/error after 5 attempts.
 5. **Boundary-purity guard (`agendaPurityBoundary.test.ts`)** — `agendaAdminPreview.ts`,
    `AgendaScheduleBlock.tsx`, `normalizeAgendaExtraction.ts` import nothing
    `server-only`/`next/headers`/`fs`.
@@ -641,14 +656,14 @@ It creates no new meta-test.
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** claim durable `agenda_extract_leases` (live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation → top-level **revision fence** → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id …, drive_file_id text, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))`; `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links in `freshByLinkKey` (default empty ⇒ note-only; round-25 F2); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`, `AGENDA_MAX_CONCURRENT_EXTRACTIONS`, `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_MAX_CONCURRENT_EXTRACTIONS`, `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
 | `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
 | `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param**; **expose per-link confirmed-fresh + just-fetched `headRevisionId`** (round-24 F1) so the endpoint can positively gate blocks (not rely on preserve-on-error side-effects) |
-| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links), { baseline: true })` per row (pure, **note-only** + validated hrefs — never blocks; round-20 F1) |
+| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row — **omit `freshByLinkKey`** (default empty ⇒ **note-only**; round-25 F2), pure, best-effort hrefs, never blocks |
 | Step-3 row type | add `adminAgendaPreview: AdminAgendaItem[]` to `Step3Row` (always present; empty → no breakdown); new `AdminAgendaItem` type |
 | `components/admin/wizard/Step3SheetCard.tsx` + `Step3Review.tsx` | new client `AgendaBreakdown` + per-row extract-fetch state machine (throttled), "parsing…" placeholder, live replace; pure presentation over `AdminAgendaItem` |
 | tests (per §8) | new + extended |
@@ -710,8 +725,8 @@ It creates no new meta-test.
   a `fileId` AND a fresh `extracted` — any link missing a `fileId` (the target
   smart-chip shape, recovered only by `getAgendaChips`) FORCES extraction, so a
   zero-fileId staged parse can never vacuously skip and stay note-only.
-- Baseline freshness (Codex round-20 F1): `fetchStep3Data`'s baseline is ALWAYS
-  note-only (`{ baseline: true }`); blocks come ONLY from the endpoint, which
+- Baseline freshness (Codex round-20 F1 / round-25 F2): `fetchStep3Data`'s baseline is
+  ALWAYS note-only (omits `freshByLinkKey` ⇒ empty default); blocks come ONLY from the endpoint, which
   freshness-gates on `EXTRACTOR_VERSION` (bumped to 2) + `headRevisionId` via
   `enrichAgenda` — a stale v1 cached extraction can never render or skip the refresh.
 - Persistence: endpoint **persists** the extracted agenda to the staged `parse_result`
