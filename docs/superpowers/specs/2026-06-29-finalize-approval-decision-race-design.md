@@ -1,7 +1,7 @@
 # Finalize Approval-Decision Race — Design Spec
 
 **Status:** Draft → self-review → Codex adversarial-review (autonomous-ship; user-review gates waived per AGENTS.md brainstorming gate, user approved 2026-06-29).
-**Scope:** Backend-only, single file (`app/api/admin/onboarding/finalize/route.ts`) + one new test file. No schema change, no new RPC, no new advisory-lock holder, no new §12.4 error code.
+**Scope:** Backend-only. One production file (`app/api/admin/onboarding/finalize/route.ts`) + one new test file + four mechanical existing-test updates (full list in §9). No schema change, no new RPC, no new advisory-lock holder, no new §12.4 error code.
 **Backlog item closed:** `BL-FINALIZE-APPROVAL-DECISION-RACE` (BACKLOG.md).
 
 ---
@@ -43,7 +43,7 @@ Verified at the agenda feature's merge-base: finalize always used select-time ap
 
 ## 2. The decision columns at risk
 
-`selectFinishableCleanRows` selects these columns (`finalize/route.ts:376-381`) into `PendingFinalizeRow` (type at `:96-113`):
+`selectFinishableCleanRows` selects these columns (`finalize/route.ts:376-381`) into `PendingFinalizeRow` (type at `:97-114`):
 
 | column | in `PendingFinalizeRow`? | mutated by approve | mutated by unapprove | drives |
 |---|---|---|---|---|
@@ -162,7 +162,7 @@ No demote is needed for either; the rows stay finishable and are simply re-drive
 ## 5. Non-goals (explicit)
 
 - **No client-side gating** of the Step-3 Finish button. The server-side locked re-read fully closes the race; client gating adds the impeccable invariant-8 UI dual-gate for no additional correctness. (User chose server-only, 2026-06-29.)
-- **No new advisory-lock holder.** The re-read runs inside the **already-held** `show:` lock from `defaultWithRowTx` (`:176`); `adoptShowLockHeld` asserts-only (no acquire). The advisory-lock single-holder topology is **unchanged** — no edit to `tests/auth/advisoryLockRpcDeadlock.test.ts` is required, but the plan will confirm the topology is unchanged.
+- **No new advisory-lock holder.** The re-read runs inside the **already-held** `show:` lock from `defaultWithRowTx` (`:176`); `adoptShowLockHeld` asserts-only (no acquire). The advisory-lock single-holder **topology is unchanged**. The `advisoryLockRpcDeadlock.test.ts` topology assertions (no new lock, no Drive call) still pass as-is; only its re-SELECT *shape* regex needs the mechanical widening for the new column list (§6, §9) — that is a test-string update, not a topology change.
 - **No schema change, no migration, no validation-project apply.**
 - **No new §12.4 code** (reuses `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`), so no 3-way catalog lockstep and no x1 gate interaction.
 
