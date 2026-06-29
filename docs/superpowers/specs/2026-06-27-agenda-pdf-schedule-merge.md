@@ -1046,14 +1046,19 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param**; **expose per-link confirmed-fresh + just-fetched `headRevisionId`** (round-24 F1); **per-PDF before+after `headRevisionId` stability check** (round-46: re-`getFile` after download; `rev_after !== rev_before` → not fresh) so the endpoint can positively gate blocks (not rely on preserve-on-error side-effects) |
+| `lib/drive/agendaDrive.ts` | `downloadFileBytes` byte cap + idle stall + total-time deadline; **`getAgendaChips` bounding** (it is currently UNBOUNDED — add gaxios `{signal,timeout}` + composed deadline + one transient retry); both accept an optional `{ signal?, deadlineMs? }` |
+| `lib/sync/enrichWithDrivePins.ts` (interface only — amended-in round-9) | the SHARED `DriveClient` interface (`:67`) `downloadFileBytes?`/`getAgendaChips?` (`:102/:115`) gain the OPTIONAL `{ signal?: AbortSignal; deadlineMs?: number }` arg so cancellation threads through the shared boundary — backward-compatible (existing scan/cron callers omit it). Blast radius: update `lib/sync/mocks/mockDriveClient.ts` + keep `tests/sync/driveClientImplCompleteness.test.ts` green |
 | `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row — **omit `freshByLinkKey` AND `validatedHrefs`** (default ⇒ **note-only, `href: null`**; round-25 F2 / round-50), pure, never blocks; also stamp `agendaStateKey` |
 | Step-3 row type | add `adminAgendaPreview: AdminAgendaItem[]` to `Step3Row` (always present; empty → no breakdown); new `AdminAgendaItem` type |
 | `components/admin/wizard/Step3SheetCard.tsx` + `Step3Review.tsx` | new client `AgendaBreakdown` + per-row extract-fetch state machine (throttled), "parsing…" placeholder, live replace; pure presentation over `AdminAgendaItem` |
 | tests (per §8) | new + extended |
 
-**Not touched:** `lib/sync/runOnboardingScan.ts` (scan unchanged — no PDF work),
-`lib/sync/enrichWithDrivePins.ts`, `lib/parser/types.ts`, `lib/data/decodeRunOfShow.ts`,
-`components/crew/**`, any `runOfShow` write path.
+**Not touched:** `lib/sync/runOnboardingScan.ts` (scan unchanged — no PDF work; the new
+optional DriveClient arg is backward-compatible so the scan path compiles unchanged),
+`lib/parser/types.ts`, `lib/data/decodeRunOfShow.ts`, `components/crew/**`, any `runOfShow`
+write path. (`lib/sync/enrichWithDrivePins.ts` was moved to "touched" in round-9 — the
+shared `DriveClient` interface needs the optional cancellation arg; it is the only change
+there.)
 
 ## 11. Resolved decisions
 
