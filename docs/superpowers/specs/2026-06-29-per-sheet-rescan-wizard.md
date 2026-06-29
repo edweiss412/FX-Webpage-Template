@@ -2,64 +2,63 @@
 
 - **Date:** 2026-06-29
 - **Slug:** `per-sheet-rescan-wizard`
-- **Status:** Draft (autonomous-ship; user spec/plan review gates waived per AGENTS.md)
+- **Status:** Draft — round 2 (autonomous-ship; user spec/plan review gates waived per AGENTS.md)
 - **Owner:** Opus / Claude Code (UI surfaces are Opus-only per ROUTING.md)
 - **Master spec:** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`
+- **Revision note:** Round 2 integrates Codex adversarial-review round-1 findings (lock coordination with the finalize session lock; clean-rule via direct `runInvariants` diff since the onboarding scan is blinded; dirty rescans must *truly* block finalize via the demote shape; posted `wizardSessionId` stale-tab guard; Flow-B hard-fail postconditions; count-based data-gap rule; citation fixes).
 
 ---
 
 ## 1. Problem & goal
 
-During setup (the onboarding wizard), the operator (Doug) sometimes spots something wrong in a sheet — or simply wants to change it — and edits the Google Sheet. Today there is **no per-sheet way** to make the wizard pick up that one edit:
+During setup (the onboarding wizard), the operator (Doug) sometimes spots something wrong in a sheet — or wants to change it — and edits the Google Sheet. Today there is **no per-sheet way** to make the wizard pick up that one edit:
 
-- The only refresh during setup is a **whole-folder re-scan** (Step 2 "Re-scan"), which re-stages every sheet and is heavy.
-- The per-sheet wizard re-review page (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx:114-151`) reads `pending_syncs WHERE wizard_approved = false` (confirmed `:135`) — it does **not** re-fetch from Drive and does **not** serve a sheet that is blocked at final publish (whose `pending_syncs` row was deleted at Phase B).
-- `runManualSyncForShow` (the live-show "Re-sync from Drive" engine, `lib/sync/runManualSyncForShow.ts`) deliberately **refuses finalize-owned shows** (`FINALIZE_OWNED_SHOW`, `:296`) and is the published-show path, not the in-wizard path.
-- A sheet blocked at final publish with `STAGED_PARSE_OUTDATED_AT_PHASE_D` (`app/api/admin/onboarding/finalize-cas/route.ts:377/383/444`) can only be cleared by a full folder re-scan.
+- The only refresh during setup is a **whole-folder re-scan** (Step 2 "Re-scan"), which re-stages every sheet.
+- The per-sheet wizard re-review page (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx:135`) reads `pending_syncs WHERE wizard_approved = false` — it does **not** re-fetch from Drive, and does **not** serve a sheet blocked at final publish (whose `pending_syncs` row was deleted at Phase B, `finalize/route.ts:589`).
+- `runManualSyncForShow` (the live-show "Re-sync from Drive" engine) is the published-show path and refuses finalize-owned shows (`FINALIZE_OWNED_SHOW`, `lib/sync/runManualSyncForShow.ts:296`).
+- A sheet blocked with `STAGED_PARSE_OUTDATED_AT_PHASE_D` (`finalize-cas/route.ts:377/383/444`) can only be cleared by a full folder re-scan.
 
-**Goal:** add a manual **"Re-scan this sheet"** button, available where Doug reviews/blocks on a single sheet during setup, that re-fetches just that one Drive file, re-parses it, re-stages it, clears a `STAGED_PARSE_OUTDATED_AT_PHASE_D` block, and — when the refreshed sheet is "clean" — keeps Doug's prior approval so he isn't forced to re-review for a typo fix.
+**Goal:** add a manual **"Re-scan this sheet"** button, available where Doug reviews/blocks on a single sheet during setup, that re-fetches just that one Drive file, re-parses, re-stages, clears a `STAGED_PARSE_OUTDATED_AT_PHASE_D` block, and — when the refreshed sheet is "clean" — keeps Doug's prior approval so he isn't forced to re-review for a typo fix.
 
 Live/published shows already have this (`ReSyncButton` → `POST /api/admin/sync/[slug]`); this spec brings the equivalent into the **wizard** context only.
 
 ## 2. Resolved decisions (from brainstorming, 2026-06-29)
 
-1. **Trigger = manual button** (not real-time auto-pickup). Real-time is out of scope (the folder isn't watched until finalize; admin has no realtime channel).
-2. **Surfaces = both**: (a) each Step-3 review card (`Step3SheetCard`), and (b) each blocked row at the final-publish step (`RunFinalCASButton` / `FinalizeButton` `cas_per_row`).
-3. **Re-review semantics = auto-keep approval if "clean"**: a re-scan keeps the sheet's prior approval iff the refreshed parse surfaces nothing that needs a decision; otherwise the sheet drops to "needs review." Precise rule in §6.
-4. **Approach = purpose-built isolated route** (`POST /api/admin/onboarding/rescan-sheet`) + a new `rescanWizardSheet` lib function. We do **not** generalize the folder scan and do **not** extend `retrySingleFile` (it is gated on a `pending_ingestions` row, `lib/sync/retrySingleFile.ts:114/60`, which this path must not inherit).
+1. **Trigger = manual button** (not real-time). Real-time is out of scope.
+2. **Surfaces = both**: each Step-3 review card (`Step3SheetCard`) and each blocked row at the final-publish step (`RunFinalCASButton` / `FinalizeButton` `cas_per_row`).
+3. **Re-review semantics = auto-keep approval if "clean"**: a re-scan keeps the sheet's prior approval iff the refreshed parse surfaces nothing that needs a decision; otherwise the sheet drops to "needs review" *and is blocked from publishing* until Doug re-reviews. Precise rule in §6.
+4. **Approach = purpose-built isolated route** (`POST /api/admin/onboarding/rescan-sheet`) + a new `rescanWizardSheet` lib function. We do **not** generalize the folder scan and do **not** extend `retrySingleFile` (it is gated on a `pending_ingestions` row, `lib/sync/retrySingleFile.ts:114/60`).
 
 ## 3. Non-goals (explicit, to preempt relitigation)
 
-- **No real-time / Drive-push changes.** The webhook (`app/api/drive/webhook/route.ts`) and cron (`app/api/cron/sync/route.ts`) are untouched.
-- **No live/published-show changes.** `ReSyncButton` / `runManualSyncForShow` / `POST /api/admin/sync/[slug]` are untouched; this is wizard-only.
-- **No schema migration.** Reuses existing tables (`pending_syncs`, `shows_pending_changes`, `wizard_finalize_checkpoints`, `onboarding_scan_manifest`, `app_settings`). If implementation proves a migration is unavoidable, it honors the `validation-schema-parity` gate (manifest regen + surgical apply) — but none is anticipated.
-- **No new §12.4 error code.** Error paths reuse existing cataloged codes (§10). The "updated / needs-review / no-changes" result is a typed success result rendered as plain copy, not an error code.
-- **No change to the clean-vs-dirty *publish-intent* checkbox semantics** beyond what §7 specifies.
+- **No real-time / Drive-push changes.** The webhook + cron are untouched.
+- **No live/published-show changes.** `ReSyncButton` / `runManualSyncForShow` are untouched; this is wizard-only.
+- **No schema migration.** Reuses existing tables and existing enum **values**. The dirty-block uses `pending_syncs.last_finalize_failure_code` (plain `text`, no CHECK — `migrations/20260518010444`), so blocking needs no migration.
+- **Exactly ONE new §12.4 code:** `RESCAN_REVIEW_REQUIRED` (the dirty-rescan block reason, surfaced in the wizard as "this sheet changed — re-review before publishing"). It lands via the §12.4 three-way lockstep (spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`) and is added to `demotePending`'s `code` union (`finalize/route.ts:401-407`). All other codes are reused (§10). *(This corrects round-1's "no new code" claim — finding 3 showed a real block requires it.)*
+- **No change to the existing finalize consumption model** beyond adding the rescan write paths.
 
 ## 4. Architecture
 
 Three units, each independently testable:
 
-1. **`rescanWizardSheet(driveFileId, wizardSessionId, deps): Promise<RescanResult>`** — `lib/onboarding/rescanWizardSheet.ts` (NEW). The orchestration core: capture prior state → pre-lock Drive read + parse → under the single per-show advisory lock, re-stage + heal + apply the clean rule → return a typed result. Pure of HTTP; deps-injected for tests (mirrors the `deps`-injection style of `runOnboardingScan`/`retrySingleFile`).
-2. **`POST /api/admin/onboarding/rescan-sheet`** — `app/api/admin/onboarding/rescan-sheet/route.ts` (NEW). Thin handler: `requireAdmin()` (`lib/auth/requireAdmin.ts:263`), read body `{ driveFileId }`, derive `wizardSessionId` + `folderId` from `app_settings` (`pending_wizard_session_id` / `pending_folder_id`), call `rescanWizardSheet`, map the result to a JSON response. Mutations flow ONLY through this server route under the lock (PostgREST DML lockdown honored).
-3. **`RescanSheetButton`** — `components/admin/RescanSheetButton.tsx` (NEW, client). Mounts on both surfaces; POSTs `{ driveFileId }`; on success `router.refresh()` and renders an inline result line. Mirrors `ReSyncButton.tsx`'s UX (label / "Re-scanning…" / refresh-on-ok).
+1. **`rescanWizardSheet(driveFileId, wizardSessionId, deps): Promise<RescanResult>`** — `lib/onboarding/rescanWizardSheet.ts` (NEW). Orchestration core: capture prior state → pre-lock Drive read + parse → under the finalize→app_settings→show lock order, re-stage + heal + apply the clean rule → typed result. Deps-injected (mirrors `runOnboardingScan`/`retrySingleFile`).
+2. **`POST /api/admin/onboarding/rescan-sheet`** — `app/api/admin/onboarding/rescan-sheet/route.ts` (NEW). `requireAdmin()` (`lib/auth/requireAdmin.ts:263`); body `{ driveFileId, wizardSessionId }` (the **rendered** session, per finding 4); maps the result to JSON. Mutations flow ONLY through this server route under the lock (PostgREST DML lockdown).
+3. **`RescanSheetButton`** — `components/admin/RescanSheetButton.tsx` (NEW, client). Mounts on both surfaces; POSTs `{ driveFileId, wizardSessionId }`; on `ok` `router.refresh()` and renders an inline result line (mirrors the existing `wizard-step3-retry` button's `fetch`→`{status}|{ok:false,code}`→`router.refresh()` pattern, `Step3Review.tsx:146-191`, and `ReSyncButton.tsx:59-104`).
 
 ```
-Doug edits the Google Sheet
-        │  clicks "Re-scan this sheet"  (Step3SheetCard  OR  cas_per_row row)
-        ▼
-POST /api/admin/onboarding/rescan-sheet { driveFileId }
-        │  requireAdmin; derive (wizardSessionId, folderId) from app_settings
-        ▼
+Doug edits the Google Sheet → clicks "Re-scan this sheet"  (Step3SheetCard OR cas_per_row row)
+   ▼  POST /api/admin/onboarding/rescan-sheet { driveFileId, wizardSessionId }
 rescanWizardSheet(driveFileId, wizardSessionId, deps)
-        │  1. capture PRIOR state (approval + choices + dataGaps) from pending_syncs OR shadow
-        │  2. PRE-LOCK Drive read: fetch metadata → prepareOnboardingFiles(folder,{listFolder:()=>[meta]})
-        │  3. withShowLock(driveFileId, tryOnly) — single holder:
-        │       a. runPhase1 stage → fresh pending_syncs (fresh base, new parse_result, new item ids)
-        │       b. HEAL: delete orphan shadow; reset manifest→'staged'/publish_intent; reset checkpoint
-        │       c. CLEAN RULE: keep-or-drop wizard_approved + regenerate reviewer_choices
-        ▼
-RescanResult → JSON → button renders + router.refresh()
+   1. capture PRIOR state (priorReady + priorParse + priorChoices + priorDataGaps) from pending_syncs OR shadow
+   2. PRE-LOCK Drive read: fetch metadata → prepareOnboardingFiles(folder,{listFolder:()=>[meta]})
+   3. LOCK ORDER (identical to finalize → no deadlock):
+        i.  tryFinalizeLock(finalize:<session>)  — held → busy (CONCURRENT_FINALIZE_IN_FLIGHT)
+        ii. app_settings FOR UPDATE → re-check pending_wizard_session_id === wizardSessionId  (else superseded)
+        iii.withShowLock(driveFileId) blocking
+        a. re-stage pending_syncs (fresh base, new parse_result, new item ids)
+        b. HEAL: delete orphan shadow; reset manifest/checkpoint so next Publish re-stages
+        c. CLEAN RULE (runInvariants diff): keep-or-block + regenerate choices
+   ▼  RescanResult → JSON → button renders + router.refresh()
 ```
 
 ## 5. `rescanWizardSheet` — sequence & guards
@@ -68,189 +67,190 @@ RescanResult → JSON → button renders + router.refresh()
 
 | Input | Guard | Result if violated |
 |---|---|---|
-| `driveFileId` (string) | non-empty | route 400 `{ ok:false, code:"BAD_REQUEST" }` (route-level; not a §12.4 code) |
-| active wizard session | `app_settings.pending_wizard_session_id === wizardSessionId` (read in the route; re-checked under lock) | `WIZARD_SUPERSEDED`-style typed result → button shows "Setup moved on — refresh." (reuse the existing superseded copy path; see §10) |
-| sheet belongs to this session | a row exists in `onboarding_scan_manifest WHERE (wizard_session_id, drive_file_id)` | typed `not_found` result → button shows "That sheet isn't part of this setup." |
+| `driveFileId` (string) | non-empty | route 400 `{ ok:false, code:"BAD_REQUEST" }` (route-level) |
+| `wizardSessionId` (string, **posted by the client**) | well-formed UUID | route 400 |
+| active wizard session | re-checked **under the `app_settings FOR UPDATE` row lock** (step ii): `pending_wizard_session_id === wizardSessionId` | typed `superseded` → button: "Setup moved on — refresh this page." |
+| sheet belongs to this session | `onboarding_scan_manifest` row exists for `(wizard_session_id, drive_file_id)` | typed `not_found` → "That sheet isn't part of this setup." |
 | folder | `app_settings.pending_folder_id` non-null | typed `no_active_session` → "Setup isn't active." |
 
-`driveFileId` provenance is bound to the session via the manifest row (mirrors `retrySingleFile`'s `discovered_during_folder_id` / `wizard_session_id` provenance check, `lib/sync/retrySingleFile.ts:60-75`) so a stale tab on a superseded session cannot re-scan into the wrong session.
+**Stale-tab guard (finding 4):** the button posts the **rendered** `wizardSessionId`; the route re-checks it against `app_settings.pending_wizard_session_id` *under the `FOR UPDATE` lock* before any write, then checks the manifest row. An old tab on a superseded session is rejected (`superseded`) even if its `driveFileId` exists in a newer session's manifest, because the posted session id won't match.
 
 ### 5.2 Step 1 — capture prior state (BEFORE any write)
 
-Read, in this order, whichever exists for `(wizard_session_id, drive_file_id)`, and derive `priorReady` ("was this sheet on track to publish before the re-scan?"):
-- **`pending_syncs`** row (Flow A — sheet still in review): `priorReady = (wizard_approved === true)`; capture `wizard_reviewer_choices`, `triggered_review_items`, `warning_summary`/dataGaps.
-- else **`shows_pending_changes`** shadow (Flow B — sheet blocked at publish, `pending_syncs` deleted at Phase B per `finalize/route.ts:589`): `priorReady = true` — a shadow is staged **only** when `/finalize` Phase B processed the row as part of a Publish the operator initiated (the row was finishable, `selectFinishableCleanRows` `finalize/route.ts:346`), so a clean re-scan should restore it to publish-ready rather than force Doug to re-include a typo-fixed sheet. Capture `payload.triggered_review_items` + `payload.reviewer_choices` + the dataGaps derivable from `payload.parse_result.warnings`.
-- else **neither** (first-seen, never finalized, never approved): `priorReady = false`.
-
-`priorReady`, `priorDataGapClasses`, and `priorChoices` are the captured inputs to the clean rule (§6).
+Read whichever exists for `(wizard_session_id, drive_file_id)` and derive `priorReady`, `priorParse`, `priorChoices`, `priorDataGaps`:
+- **`pending_syncs`** row (Flow A — still in review): `priorReady = (wizard_approved === true)`; `priorParse = parse_result`; `priorChoices = wizard_reviewer_choices`; `priorDataGaps = summarizeDataGaps(parse_result.warnings)`.
+- else **`shows_pending_changes`** shadow (Flow B — blocked at publish, `pending_syncs` deleted at Phase B): `priorReady = true` (a shadow is staged only when `/finalize` Phase B processed the row as part of a Publish the operator initiated — `selectFinishableCleanRows`, `finalize/route.ts:346`); `priorParse = payload.parse_result`; `priorChoices = payload.reviewer_choices`; `priorDataGaps = summarizeDataGaps(payload.parse_result.warnings)`.
+- else **neither** (first-seen, never finalized/approved): `priorReady = false`; `priorParse = null`.
 
 ### 5.3 Step 2 — pre-lock Drive read (side-effect-free)
 
-Fetch the file's current Drive metadata for `driveFileId` (id, name, mimeType, modifiedTime, parents) the same way `retrySingleFile` does (`lib/sync/retrySingleFile.ts:232`), then:
+Fetch the file's current Drive metadata for `driveFileId` (id, name, mimeType, modifiedTime, parents) as `retrySingleFile` does (`lib/sync/retrySingleFile.ts:232`), then `prepared = await prepareOnboardingFiles(folderId, { ...deps, listFolder: async () => [metadata] })` (`lib/sync/runOnboardingScan.ts:907`; `listFolder` injection `:147`). Returns one `PreparedOnboardingFile`.
 
-```
-prepared = await prepareOnboardingFiles(folderId, { ...deps, listFolder: async () => [metadata] })
-```
+- **Drive fetch / export failure or timeout** → typed `{ status:"needs_attention", code }` (reuse the existing onboarding Drive-failure code); NO mutation (pre-lock).
+- **`kind:"non_sheet"`** → typed `not_a_sheet`; NO mutation. **Flow-B postcondition:** the orphan shadow is **left intact** (do not destroy the only recovery surface for a row that mysteriously stopped being a sheet). (Not expected for an existing wizard row.)
 
-`prepareOnboardingFiles` (`lib/sync/runOnboardingScan.ts:907`) is pre-lock and side-effect-free; the injected `listFolder` (`RunOnboardingScanDeps.listFolder`, `:147`) scopes it to exactly this one file. It returns one `PreparedOnboardingFile` (`{file, kind:"non_sheet"}` or `{file, kind:"sheet", binding, parseResult}`).
+### 5.4 Step 3 — locked mutation (lock order = finalize → app_settings → show)
 
-- **Drive fetch / export failure or timeout** → typed result `{ status:"needs_attention", code:"STAGED_PARSE_FAILED"|<existing drive-failure code> }`; NO mutation. (Pre-lock, so nothing is half-written.)
-- **`kind:"non_sheet"`** → typed `not_a_sheet` result; no mutation. (Not expected for an existing wizard row, but guarded.)
+Single-holder + deadlock-free (§8): acquire in the **same order** finalize/finalize-cas use:
+1. **`tryFinalizeLock(tx, wizardSessionId)`** = `pg_try_advisory_xact_lock(hashtext('finalize:'||$1))` (`finalize/route.ts:263-269`). If not acquired (a finalize is in flight) → typed `busy` → **`CONCURRENT_FINALIZE_IN_FLIGHT`**; NO mutation.
+2. **`app_settings ... FOR UPDATE`** re-check `pending_wizard_session_id === wizardSessionId` (`readActiveSessionForUpdate`, `finalize/route.ts:251-261`) — else `superseded`; NO mutation.
+3. **`withShowLock(driveFileId, { tx })`** = `pg_advisory_xact_lock(hashtext('show:'||$1))` (`lib/sync/lockedShowTx.ts:88`), **blocking** (matches finalize's per-show acquisition `finalize-cas/route.ts:122`). Because both rescan and finalize take `finalize:<session>` first, there is no AB-BA deadlock.
 
-### 5.4 Step 3 — under `withShowLock(driveFileId, { tryOnly:true })`
+All of (a)/(b)/(c) run inside this one transaction; the scan's internal lock is satisfied via the held-lock passthrough (`deps.withShowLock = (_id, fn) => fn(scanTx)`, the `holdPort` pattern of `retrySingleFile.ts:254-272`) — a single acquirer, no nesting.
 
-Single-holder rule (§8): the re-scan acquires the per-show advisory lock at exactly **one** layer — `withShowLock` (`lib/sync/lockedShowTx.ts:88`, `pg_try_advisory_xact_lock(hashtext('show:'||$1))`). `scanOnboardingPreparedFiles` already acquires this lock internally (`runOnboardingScan.ts:835-847` via `deps.withShowLock ?? defaultWithShowLock`); `rescanWizardSheet` therefore performs **all** of (a)/(b)/(c) inside that same single lock acquisition by routing the heal + clean-rule writes through the scan's already-locked transaction (the `holdPort` passthrough pattern that `retrySingleFile.ts:254-272` uses — `withShowLock: (_id, fn) => fn(scanTx)` — so there is no second acquirer and no nesting).
+**(a) Re-stage `pending_syncs`** — `scanOnboardingPreparedFiles(folderId, wizardSessionId, [prepared], deps)` (`runOnboardingScan.ts:994`) → `runPhase1` (`phase1.ts:258`) stages the `ONBOARDING_SCAN_REVIEW` sentinel (`phase1.ts:253`), `outcome:"stage"`; `upsertLivePendingSync` (`:382`) writes a fresh row with `base_modified_time = coalesce(staged, live watermark)` (`:404-407`), new `parse_result`, new `triggered_review_items` (new `randomUUID` ids — the scan is blinded so these are **just the sentinel**, never MI-11; the decision diff is computed separately in (c)), and `staged_modified_time` = current Drive `modifiedTime`. The ON CONFLICT set-list (`:416-426`) does **not** touch `wizard_approved`/`wizard_reviewer_choices`/`last_finalize_failure_code` — (c) sets all three explicitly.
+- **`runPhase1` outcome `hard_fail`** → the scan path creates a `pending_ingestions` error row + manifest `status='hard_failed'`. **Flow-B postcondition (finding 6):** also `DELETE` the orphan shadow (the re-scan supersedes it; the now-`hard_failed` manifest keeps final CAS blocked via `unresolvedManifestCount`). Result `{ status:"needs_attention", code:"STAGED_PARSE_FAILED" }`; clean rule skipped.
 
-- **Lock contention** (`pg_try_advisory_xact_lock` returns false — another finalize/cron/scan holds it) → typed result mapped to **`SHOW_BUSY_RETRY`** (`lib/messages/catalog.ts:2534`); NO mutation. This is the serialization guard against an in-flight finalize (no separate `FINALIZE_OWNED_SHOW` check is needed — the per-show lock is the single point of mutual exclusion).
+**(b) Heal the finalize state (idempotent — no-op for Flow A; the blocker fix for Flow B).** Post-conditions:
+1. **No orphan shadow:** `DELETE FROM shows_pending_changes WHERE wizard_session_id=$1 AND drive_file_id=$2` (Flow A: 0 rows; Flow B: removes the `STAGED_PARSE_OUTDATED`-emitting orphan).
+2. **Manifest re-stageable:** the `onboarding_scan_manifest` row ends at `status='staged'` (a previously-`'applied'` blocked row moves back) with `publish_intent` per §7 — so `selectFinishableCleanRows` re-selects it on the next Publish (`finalize/route.ts:346`).
+3. **Checkpoint re-openable:** if `wizard_finalize_checkpoints.status` for the session is `'all_batches_complete'` or `'final_cas_done'`, reset it to `'in_progress'` (so the next `/finalize` re-processes the re-opened row — `ensureCheckpoint` never resets, `finalize/route.ts:271`). The reset is per-session but only widens what finalize re-examines; it never skips a sibling.
 
-**(a) Re-stage `pending_syncs`** — run the single prepared file through `scanOnboardingPreparedFiles(folderId, wizardSessionId, [prepared], deps)` (`runOnboardingScan.ts:994`), which calls `runPhase1` (`lib/sync/phase1.ts:258`). For a sheet in `onboarding_scan` mode this stages the `ONBOARDING_SCAN_REVIEW` sentinel (`phase1.ts:253`) and returns `outcome:"stage"`; `upsertLivePendingSync` (`runOnboardingScan.ts:382`) writes a fresh `pending_syncs` row with `base_modified_time = coalesce(staged, live watermark)` (`:404-407`), the new `parse_result`, new `triggered_review_items` (new `randomUUID` ids), and `staged_modified_time` = the current Drive `modifiedTime`.
-- **`runPhase1` outcome `hard_fail`** → the sheet became a `pending_ingestions` error row + manifest `hard_failed`; result `{ status:"needs_attention", code:"STAGED_PARSE_FAILED", needsReview:true }`. (No `pending_syncs` row to approve; the clean rule is skipped.)
-- Confirmed invariant: the `upsertLivePendingSync` ON CONFLICT DO UPDATE set-list (`:416-426`) does **not** touch `wizard_approved` / `wizard_reviewer_choices`, so without step (c) the re-stage would silently preserve a stale approval whose choices reference deleted item ids. Step (c) is therefore mandatory.
+> **Pinned by the Flow-B real-DB test (§11 T-B), not asserted blindly:** the end-to-end invariant — *after re-scanning a blocked sheet, clicking Publish again cleanly re-stages (Phase B) and publishes (Phase D) that sheet, with no orphan shadow and no stale checkpoint, and the sibling sheets' shadows/rows are untouched.* The batch-hold semantics (`finalize-cas/route.ts:711-721`: any blocked row 409s the whole batch *before* the publish flip, though already-applied row-txns are durably committed) make "don't disturb siblings" a real assertion.
 
-**(b) Heal the finalize state (idempotent — no-op for Flow A, the blocker fix for Flow B).** Required POST-CONDITIONS after a re-scan of any sheet:
-1. **No orphan shadow:** `DELETE FROM shows_pending_changes WHERE wizard_session_id = $1 AND drive_file_id = $2`. (Flow A: 0 rows; Flow B: removes the orphan that was emitting `STAGED_PARSE_OUTDATED_AT_PHASE_D`.)
-2. **Manifest re-stageable:** the `onboarding_scan_manifest` row for `(session, driveFileId)` ends at `status='staged'` and `publish_intent` per §7 (a previously-`'applied'` blocked row must move back to `'staged'` so `selectFinishableCleanRows` re-selects it on the next Publish — `finalize/route.ts:346`).
-3. **Checkpoint allows re-finalize:** `wizard_finalize_checkpoints.status` for the session must not be left at `'all_batches_complete'`/`'final_cas_done'` if it would prevent the next `/finalize` from re-processing the re-staged row; it is reset to `'in_progress'` when the re-scan re-opens a row for publishing. (`ensureCheckpoint` is INSERT-ON-CONFLICT-DO-NOTHING, `finalize/route.ts:271`, so it never resets — the reset is performed here.)
-
-> **Implementation note (pinned by a real-DB test, not asserted blindly here):** the exact field values for (2)/(3) — and whether the checkpoint reset is conditional on the row having been `'applied'` — are verified by the Flow-B integration test (§11 T-B), which asserts the end-to-end invariant: *after re-scanning a blocked sheet, clicking Publish again cleanly re-stages (Phase B) and publishes (Phase D) that sheet with no orphan shadow and no stale checkpoint, and does not disturb the other sheets in the batch.* The batch-hold semantics (`finalize-cas/route.ts:711-721`: any blocked row 409s the whole batch *before* the publish flip, though already-applied row-txns are durably committed) mean the re-scan must restore exactly the re-staged sheet, leaving sibling shadows intact.
-
-**(c) Apply the clean rule (§6)** to the freshly re-staged `pending_syncs` row, using the captured prior state.
+**(c) Apply the clean rule (§6).**
 
 ### 5.5 Step 4 — result
 
 ```ts
 type RescanResult =
-  | { status: "updated"; needsReview: boolean; changed: boolean }   // staged OK
+  | { status: "updated"; needsReview: boolean; changed: boolean }   // staged OK (needsReview=true ⇒ blocked/demoted)
   | { status: "needs_attention"; code: string }                     // parse hard-fail / drive fail
-  | { status: "busy"; code: "SHOW_BUSY_RETRY" }
-  | { status: "no_active_session" | "not_found" | "superseded" | "not_a_sheet" };
+  | { status: "busy"; code: "CONCURRENT_FINALIZE_IN_FLIGHT" }
+  | { status: "superseded" | "no_active_session" | "not_found" | "not_a_sheet" };
 ```
 
-`changed` = whether the new `staged_modified_time` differs from the prior staged value (drives "Updated" vs "No changes found" copy). The route serializes this; the button renders the matching inline copy and `router.refresh()`es.
+`changed` = new `staged_modified_time` ≠ prior staged value (drives "Updated" vs "No changes found"). The route serializes this; the button renders the matching inline copy and `router.refresh()`es.
 
 ## 6. The "clean" rule (precise, pinned)
 
-After a successful re-stage (outcome `stage`), the sheet is **DIRTY** (→ `wizard_approved=false`, `wizard_reviewer_choices=NULL`, `needsReview=true`) iff **any** of:
+The clean/dirty decision is computed by a **direct diff of `priorParse` vs the refreshed parse**, NOT from the staged `triggered_review_items` (finding 2: the onboarding scan path passes `null` prior to `runInvariants`, so it can never emit MI-11 — `invariants.ts:218-227`).
 
-- **(D1)** the new `triggered_review_items` contain a **decision-requiring** item. Decision-requiring = the **MI-11** invariant (existing-crew email change; produced at `lib/parser/invariants.ts:563-580`) — the only gated invariant that routes to a per-crew reviewer choice. The `ONBOARDING_SCAN_REVIEW` sentinel (`phase1.ts:253`) is **not** decision-requiring. (Forward-compat: any future gated invariant added to the reviewer-choice surface is added to this list — pinned by a meta-test, §11 T-M.)
-- **(D2)** the refreshed parse introduces a **new data-gap class** vs the captured prior: `summarizeDataGaps(new.warnings).classes` (`lib/parser/dataGaps.ts:53`, classes `FIELD_UNREADABLE` / `UNKNOWN_SECTION_HEADER` / `BLOCK_DISAPPEARED`) has a non-zero class **not** present in `priorDataGapClasses`. (A gap Doug fixed — count drops — is still clean; a gap he introduced is dirty.)
+Compute `decisionItems` and `gapRegressed`:
+- `decisionItems` = the **decision-requiring** items from `runInvariants(priorParse, refreshedParse)` (`lib/parser/invariants.ts:98` → `{outcome:"stage", triggeredItems}`). **MI-11 (existing-crew email change, `invariants.ts:566`, item shape `{id, invariant:"MI-11", crew_name, prior_email, new_email}` `types.ts:461-464`) is the ONLY decision-requiring invariant** — `phase1.ts:312-319` documents that MI-11 is the sole gated invariant; every other MI-6..MI-14 (including crew renames MI-12/13/14 and room renames MI-7b) is an auto-apply **notification** that routes to no reviewer choice. (Forward-compat: the decision-requiring set is a single named constant, pinned by meta-test §11 T-M.) If `priorParse === null` (first-seen), `decisionItems = []` (no prior to diff; such a row has `priorReady=false` and stays needs-review anyway).
+- `gapRegressed` (finding 5) = `summarizeDataGaps(refreshed.warnings).classes` has **any class whose count is greater** than that class's count in `priorDataGaps` (a per-class **count increase**, not merely a new class). A fixed gap (count drops) is NOT a regression.
 
-Otherwise the sheet is **CLEAN**. When CLEAN:
+The sheet is **DIRTY** iff `decisionItems.length > 0` OR `gapRegressed`. Otherwise **CLEAN**.
 
-- If `priorReady === true`: re-stamp `wizard_approved=true`, `wizard_reviewer_choices_version=1`, and **regenerate** `wizard_reviewer_choices` as one `{ item_id, action:"apply" }` per new `triggered_review_item` (the only items in a clean re-scan are non-decision sentinels, whose contract is `action:"apply"` — matching how the wizard records sentinel choices, e.g. `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts`). Preserve `wizard_approved_by_email`; refresh `wizard_approved_at`. → `needsReview=false`, sheet stays publish-ready.
-- If `priorReady === false` (Doug hadn't approved/included it yet): leave `wizard_approved=false` — the refreshed content is shown but still needs his review. → `needsReview=true`.
+### 6.1 DIRTY → block + route to re-review (the demote shape)
 
-Regeneration is mandatory even when CLEAN because re-parse mints **new** `randomUUID` item ids; the prior choices reference deleted ids and would fail `validateReviewerChoices` at finalize (MISSING/EXTRA choice).
+A dirty rescan must *truly* block finalize (finding 3: `wizard_approved=false` alone is silently consumed because `selectFinishableCleanRows` admits `last_finalize_failure_code IS NULL`). It writes the **`demotePending` end-state** (`finalize/route.ts:397-432`), extended to carry the decision items:
+- `pending_syncs`: `wizard_approved=false`, `wizard_approved_by_email=null`, `wizard_approved_at=null`, `wizard_reviewer_choices=null`, `wizard_reviewer_choices_version=null`, **`last_finalize_failure_code='RESCAN_REVIEW_REQUIRED'`** (the NEW code), and `triggered_review_items = [ONBOARDING_SCAN_REVIEW, ...decisionItems]` (so the re-review surface shows the MI-11 decision).
+- `onboarding_scan_manifest`: `status='staged'` (with `last_finalize_failure_code` set, this is counted blocking by `unresolvedManifestCount`, `finalize/route.ts:323-326` + `finalize-cas:282-285`, and EXCLUDED from `selectFinishableCleanRows`).
+- Result `{ status:"updated", needsReview:true, changed }`.
 
-Guard table for the clean rule inputs:
+Recovery is the existing demoted-row flow: the sheet shows "needs review" in Step 3; the re-review page (`/admin/onboarding/staged/[session]/[driveFileId]`, which serves `wizard_approved=false` rows in `wizard_failed_reapply` mode) lets Doug resolve the MI-11 choice and re-approve, which clears `last_finalize_failure_code` and restores `wizard_approved=true`. *(Plan T-B2 verifies the re-review page renders the MI-11 choice for a rescan-demoted row and clears the code on re-approve.)*
+
+### 6.2 CLEAN
+
+- If `priorReady === true`: re-stamp `wizard_approved=true`, `wizard_reviewer_choices_version=1`, `last_finalize_failure_code=null`, and **regenerate** `wizard_reviewer_choices` as one `{ item_id, action:"apply" }` per new `triggered_review_item` (a clean re-scan's only item is the non-decision `ONBOARDING_SCAN_REVIEW` sentinel, whose synthesized choice is `apply` — `synthesizeDefaultChoices`, `applyStagedCore.ts:228`). Preserve `wizard_approved_by_email`; refresh `wizard_approved_at`. → `needsReview=false`, stays publish-ready. Regeneration is mandatory because re-parse mints new item ids (the prior choices reference deleted ids → `validateReviewerChoices` would 500 at finalize, `applyStagedCore.ts:129`).
+- If `priorReady === false`: leave `wizard_approved=false`, `last_finalize_failure_code=null` — the refreshed content is shown and the sheet keeps its prior (un-reviewed) finalize behavior (existing fresh-unchecked semantics — unchanged). → `needsReview=true` (advisory; not a hard block).
+
+Guard table:
 
 | Input | null / empty / corrupt | Behavior |
 |---|---|---|
-| new `triggered_review_items` | empty (no sentinel — not expected) | CLEAN by D1; choices = `[]` |
-| new `triggered_review_items` | corrupt (fails `parseTriggeredReviewItems`, `lib/staging/triggeredReviewItems.ts`) | treat as hard-fail-equivalent → `needs_attention` (do not approve over a corrupt review surface) |
-| `priorChoices` | null / not-array | treated as "no prior approval covering items" → DIRTY if any decision item, else regenerate fresh |
-| `priorDataGapClasses` | null (no prior) | any new gap class → DIRTY (conservative) |
-| `new.warnings` | null / not-array | treat as `[]` → no gaps |
+| refreshed `triggered_review_items` | corrupt (fails `parseTriggeredReviewItems`, `lib/staging/triggeredReviewItems.ts`) | `needs_attention` — never approve over a corrupt review surface |
+| `priorParse` | null (first-seen) | `decisionItems=[]`; CLEAN-path with `priorReady=false` → needs-review |
+| `priorDataGaps` | null | any refreshed gap class with count>0 → `gapRegressed=true` (conservative) |
+| `refreshed.warnings` | null / not-array | treat as `[]` → no gaps |
+| `priorChoices` | null/not-array | irrelevant to the diff; choices are regenerated/cleared per branch |
 
 ## 7. `publish_intent` on re-scan
 
-`publish_intent` (`onboarding_scan_manifest`, added `migrations/20260623000001:10`) is the per-sheet "include in this publish" flag.
-
-- **CLEAN + priorApproved** → preserve `publish_intent` unchanged (a typo-fix must not silently drop the sheet from the publish batch).
-- **DIRTY** → preserve `publish_intent` as-is but the sheet renders as "needs review"; finalize already refuses an un-approved row, so an unreviewed dirty sheet cannot publish regardless of the flag.
-- **Flow B blocked row** (`status` was `'applied'`) → on re-scan, `status` returns to `'staged'`; `publish_intent` stays `true` (it was being published). The §11 T-B test pins that the subsequent Publish re-includes exactly this sheet.
+`publish_intent` (`onboarding_scan_manifest`, `migrations/20260623000001:10`) is the per-sheet "include in this publish" flag. The re-scan **preserves** `publish_intent` in all branches (a typo-fix must not silently drop the sheet from the batch; a dirty sheet is blocked by `last_finalize_failure_code` regardless of the flag). For a Flow-B blocked row (`status` was `'applied'`, `publish_intent=true`), the heal returns `status='staged'` and keeps `publish_intent=true`; §11 T-B pins that the subsequent Publish re-includes exactly this sheet.
 
 ## 8. Invariants honored
 
-- **Per-show advisory lock — single holder (invariant 2).** `rescanWizardSheet` acquires `withShowLock(driveFileId)` exactly once and performs the re-stage + heal + clean-rule writes inside that one held transaction (holdPort passthrough; no nested acquirer). Holder enumeration for `hashtext('show:'||driveFileId)`: `withShowLock` is the sole acquirer; `withPostgresSyncPipelineLock` delegates to it (`runScheduledCronSync.ts:1471`), not a second acquire. The plan extends `tests/auth/advisoryLockRpcDeadlock.test.ts` to pin the re-scan surface's topology.
-- **Email canonicalization at the boundary (invariant 3).** Re-staging flows through the same `runPhase1` → parser path as the folder scan; emails are canonicalized at the existing stage boundary (`lib/email/canonicalize.ts`); no new raw-email handling is introduced.
-- **No raw error codes in UI (invariant 5).** The route returns typed results; the button renders error states via the message catalog (`lookupDougFacing`) using existing codes only (§10). Success/needs-review copy is plain English (no code).
-- **Supabase call-boundary discipline (invariant 9).** Any new Supabase client call in the route destructures `{ data, error }` and distinguishes thrown vs returned errors; new boundary helpers register in the relevant meta-test or carry an inline `// not-subject-to-meta:` note.
-- **PostgREST DML lockdown.** All mutations (`pending_syncs`, `shows_pending_changes`, `wizard_finalize_checkpoints`, `onboarding_scan_manifest`) happen server-side under the lock via the existing locked tx path — never via client PostgREST builders.
-- **UI quality gate (invariant 8).** `RescanSheetButton` + the `Step3SheetCard` / `cas_per_row` mount changes are UI surfaces → `/impeccable critique` + `/impeccable audit` on the diff before cross-model review; HIGH/CRITICAL fixed or `DEFERRED.md`-deferred.
+- **Per-show advisory lock — single holder + deadlock-free (invariant 2).** The rescan acquires `finalize:<session>` (try) → `app_settings FOR UPDATE` → `show:<driveFileId>` (blocking) — the **identical** total order to `/finalize` and `/finalize-cas` (`finalize:→app_settings→show:`, pinned by `tests/auth/advisoryLockRpcDeadlock.test.ts`), so mutual exclusion holds and no AB-BA deadlock is possible. `withShowLock` is the sole `show:` acquirer (held-lock passthrough inside the scan; no nested acquire). The plan extends `advisoryLockRpcDeadlock.test.ts` to pin the rescan surface.
+- **Email canonicalization at the boundary (invariant 3).** Re-staging flows through the same `runPhase1`→parser path; emails canonicalize at the existing stage boundary (`lib/email/canonicalize.ts`).
+- **No raw error codes in UI (invariant 5).** The route returns typed results; the button renders error/busy states via the catalog (`lookupDougFacing`). Success/needs-review copy is plain English.
+- **Supabase call-boundary discipline (invariant 9).** New Supabase calls destructure `{ data, error }`, distinguish thrown vs returned errors, and register in the relevant meta-test or carry an inline `// not-subject-to-meta:` note.
+- **PostgREST DML lockdown.** All mutations happen server-side under the lock via the locked tx path — never client PostgREST.
+- **UI quality gate (invariant 8).** `RescanSheetButton` + `Step3SheetCard`/`cas_per_row` changes → `/impeccable critique` + `/impeccable audit` before cross-model review.
+- **§12.4 lockstep (invariant 5 corollary).** The new `RESCAN_REVIEW_REQUIRED` code lands in spec §12.4 + `pnpm gen:spec-codes` + `lib/messages/catalog.ts` in one commit; the `x1-catalog-parity` gate (`tests/cross-cutting/codes.test.ts`) confirms parity.
 - **TDD per task; commit per task.**
 
-### 8.1 Flag lifecycle (the two booleans this spec touches)
+### 8.1 Flag / field lifecycle (state this rescan touches)
 
-| Flag | Storage | Write path(s) | Read path(s) | Effect on output |
+| Field | Storage | Write path(s) | Read path(s) | Effect |
 |---|---|---|---|---|
-| `pending_syncs.wizard_approved` | bool, migration `20260518010444` | existing wizard Apply; **NEW**: `rescanWizardSheet` clean-rule (§6) sets `true` (clean+priorReady) or `false` (dirty / not-ready). `upsertLivePendingSync` does NOT touch it (`runOnboardingScan.ts:416-426`), so the re-scan sets it explicitly. | `selectFinishableCleanRows` (`finalize/route.ts:346`); Step-3 review render | gates whether `/finalize` will stage+publish the row |
-| `onboarding_scan_manifest.publish_intent` | bool, migration `20260623000001` | existing Step-3 "include in publish" toggle; **NEW**: `rescanWizardSheet` heal resets `status`→`'staged'` for a re-opened blocked row but **preserves** `publish_intent` (§7) | finalize flip / `unresolvedManifestCount` | whether the sheet is in the publish batch |
+| `pending_syncs.wizard_approved` | bool | existing Apply; **NEW** rescan clean-rule (§6.1/§6.2). `upsertLivePendingSync` does NOT touch it. | `selectFinishableCleanRows` (`finalize/route.ts:346`); Step-3 render | gates finalize selection |
+| `pending_syncs.last_finalize_failure_code` | text (no CHECK) | existing `demotePending`; **NEW** rescan dirty (§6.1) sets `'RESCAN_REVIEW_REQUIRED'`; clean (§6.2) sets `null` | `selectFinishableCleanRows` exclusion + `unresolvedManifestCount` blocking (`finalize/route.ts:323-326`) | a dirty sheet cannot be consumed/published until re-review clears it |
+| `onboarding_scan_manifest.publish_intent` | bool | existing Step-3 toggle; **NEW** rescan **preserves** it | finalize flip / `unresolvedManifestCount` | whether the sheet is in the publish batch |
+| `onboarding_scan_manifest.status` | text enum | existing; **NEW** rescan heal sets `'staged'` (or `'hard_failed'` on re-parse hard-fail) | finalize selection/blocking | re-stageable vs blocking |
 
-No zombie flags: both are written and read; the re-scan's writes are the only additions.
+No zombie flags; every field is written and read.
 
-### 8.2 Matrices that do not apply (stated explicitly to preempt review)
+### 8.2 Matrices that do not apply
 
-- **Tier × domain (surcharge) matrix: N/A** — this feature touches no surcharge/pay-config surface (no user/client/booking/shift × short-turn/holiday/meal/overnight cells).
-- **CHECK / enum migration matrix: N/A** — no migration; no CHECK constraint or enum is added or altered. Reuses existing `onboarding_scan_manifest.status` / `wizard_finalize_checkpoints.status` enum **values** only (no new value introduced).
-- **Build-vs-runtime gate: N/A** — no env-gated feature; the button is always present in the wizard build.
+- **Tier × domain (surcharge) matrix: N/A** — no surcharge/pay-config surface.
+- **CHECK / enum migration matrix: N/A** — no migration; `last_finalize_failure_code` is plain `text` (no CHECK); `onboarding_scan_manifest.status` / `wizard_finalize_checkpoints.status` reuse existing enum **values** only (`'staged'`, `'hard_failed'`, `'in_progress'`). The ONLY catalog change is the new `RESCAN_REVIEW_REQUIRED` §12.4 row (text column, no DB constraint).
+- **Build-vs-runtime gate: N/A** — the button is always present in the wizard build.
 
 ## 9. UI — `RescanSheetButton`
 
-- **Placement:** (a) in `Step3SheetCard`'s action area (`components/admin/wizard/Step3SheetCard.tsx`, alongside the existing per-row actions); (b) inside each `<li>` of the `cas_per_row` block (`RunFinalCASButton.tsx:115`, and the equivalent block in `FinalizeButton.tsx:295`). Each row already carries `drive_file_id` (`CasPerRowEntry`, `RunFinalCASButton.tsx:25`).
-- **States (mode boundary):** `idle` ("Re-scan this sheet") → `loading` ("Re-scanning…", disabled) → result. Mirrors `ReSyncButton.tsx:103` label/loading and `router.refresh()` on ok (`:77-79`).
+- **Placement:** (a) `Step3SheetCard` — **both** render paths: the null-parse early return (`components/admin/wizard/Step3SheetCard.tsx:777-794`, after the "We couldn't read the details" warning — re-scan is exactly how you recover a no-details row) AND the normal render (alongside the "More" button, `:963-972`). (b) inside each `<li>` of the `cas_per_row` block (`RunFinalCASButton.tsx:115` and the equivalent in `FinalizeButton.tsx:295`); each row carries `drive_file_id` (`CasPerRowEntry`, `RunFinalCASButton.tsx:25`).
+- **States (mode boundary):** `idle` ("Re-scan this sheet") → `loading` ("Re-scanning…", disabled) → result. Mirrors `ReSyncButton.tsx:103`.
 - **Result copy (plain English, inline, `aria-live="polite"`):**
-  - `updated` + `!needsReview` + changed → "Updated — still ready to publish."
+  - `updated` + `!needsReview` + `changed` → "Updated — still ready to publish."
   - `updated` + `!needsReview` + `!changed` → "No changes found."
-  - `updated` + `needsReview` → "Updated — please re-review this sheet."
-  - `needs_attention` → the cataloged `dougFacing` for the returned code + `HelpAffordance`.
-  - `busy` → the `SHOW_BUSY_RETRY` dougFacing ("Another sync is in progress — try again in a moment.").
+  - `updated` + `needsReview` → "Updated — this sheet changed and needs your review before publishing."
+  - `needs_attention` → cataloged `dougFacing` for the code + `HelpAffordance`.
+  - `busy` → the `CONCURRENT_FINALIZE_IN_FLIGHT` dougFacing.
   - `superseded`/`no_active_session`/`not_found`/`not_a_sheet` → a short plain line each.
-- **Guard conditions:** disabled while loading; a row whose `parseResult` is null still renders the button (re-scan is exactly how you recover a no-details row); double-click guarded by the loading state (no self-disabling `form action` pattern — see `feedback_react_form_action_synchronous_disable_cancels_submit`).
-- **Dimensional invariants:** the button is intrinsic-sized inline content, not a fixed-dimension-parent child; no `getBoundingClientRect` layout assertion required. (Stated explicitly per the dimensional-invariant rule.)
+- **Guards:** disabled while loading; renders even when `parseResult` is null (the no-details recovery case); double-click guarded by the loading state — **not** a self-disabling `form action` (see `feedback_react_form_action_synchronous_disable_cancels_submit`).
+- **Dimensional invariants:** intrinsic-sized inline content, not a fixed-dimension-parent child; no `getBoundingClientRect` assertion required (stated explicitly).
 
-### Transition inventory (button + card state)
+### Transition inventory
 
 | From → To | Treatment |
 |---|---|
 | idle → loading | instant (disable + label swap) |
-| loading → result (any) | instant; result line appears with `aria-live` (no animation) |
-| card: approved ✓ → needs-review (after dirty re-scan + refresh) | instant on `router.refresh()` re-render — no in-place animation (server re-render swaps the card's state chip) |
-| card: needs-review → approved ✓ (clean re-scan of a previously-approved-then-edited sheet) | instant on refresh |
-| blocked row → cleared (Flow B, after refresh) | the row leaves the `cas_per_row` list on the next Publish attempt; the re-scan itself shows the inline result then refresh |
+| loading → result (any) | instant; result line via `aria-live` (no animation) |
+| card approved ✓ → needs-review (dirty re-scan + refresh) | instant on `router.refresh()` server re-render |
+| card needs-review → approved ✓ (clean re-scan of an edited-but-previously-ready sheet) | instant on refresh |
+| blocked `cas_per_row` row → cleared (Flow B) | the re-scan shows its inline result + refresh; the row leaves the list on the next Publish |
 
-All transitions are deliberately instant (a button + server re-render); there are no compound mid-animation states.
+All transitions are instant (a button + server re-render); no compound mid-animation states.
 
-## 10. Error handling & §12.4 codes (reuse only)
+## 10. Error handling & §12.4 codes
 
-| Condition | Code (existing) | catalog cite |
+| Condition | Code | source |
 |---|---|---|
-| lock contention (busy) | `SHOW_BUSY_RETRY` | `lib/messages/catalog.ts:2534` |
-| re-parse hard-fail | `STAGED_PARSE_FAILED` | `:2585` |
-| Drive fetch/export failure | reuse the existing onboarding Drive-failure code surfaced by the scan path (no new code) | — |
+| a finalize is in flight (`finalize:<session>` held) | `CONCURRENT_FINALIZE_IN_FLIGHT` (existing; `finalize/route.ts:933`) | reuse |
+| re-parse hard-fail | `STAGED_PARSE_FAILED` (`catalog.ts:2585`) | reuse |
+| Drive fetch/export failure | the existing onboarding Drive-failure code surfaced by the scan path | reuse |
+| dirty rescan needs re-review (block reason) | **`RESCAN_REVIEW_REQUIRED`** | **NEW** (§12.4 three-way lockstep) |
 
-No new `§12.4` row is added → **no catalog 3-way lockstep / x1 gate change**. `FINALIZE_OWNED_SHOW` (`:1551`) is available but not used (the per-show lock already serializes against finalize; using it would imply a second guard layer we don't need).
+`SHOW_BUSY_RETRY` (`catalog.ts:2536`, dougFacing "That show is already syncing. Try again in a moment.") is **not** used (the `show:` lock is blocking and the finalize-busy case uses `CONCURRENT_FINALIZE_IN_FLIGHT`). `FINALIZE_OWNED_SHOW` is not used (the finalize lock already serializes).
 
 ## 11. Testing
 
-Real-DB (`*.db.test.ts`, loopback) tests siblings of `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts`, exercising the **production** writers:
+Real-DB (`*.db.test.ts`, loopback) siblings of `tests/onboarding/finalizeCasReonboardBaseline.db.test.ts`, exercising production writers; each states the failure mode it catches; expectations derive from fixture dimensions, never hardcoded.
 
-- **T-A1 (review, clean):** stage a sheet via the scan path, approve it; edit the fixture (typo-level, no MI-11, no new gap); `rescanWizardSheet` → assert `pending_syncs` refreshed (new `parse_result`, fresh base), `wizard_approved=true`, `wizard_reviewer_choices` regenerated to match the **new** item ids (derive ids from the row, not hardcoded), result `needsReview=false`.
-- **T-A2 (review, dirty via D1):** edit the fixture to introduce an MI-11 email change; re-scan → `wizard_approved=false`, `wizard_reviewer_choices=NULL`, `needsReview=true`.
-- **T-A3 (review, dirty via D2):** edit the fixture to introduce a new data-gap class not previously present; re-scan → `needsReview=true`. Negative control: a re-scan that *removes* a gap stays clean.
-- **T-A4 (parse hard-fail):** edit the fixture to a hard-fail shape; re-scan → `needs_attention` + `STAGED_PARSE_FAILED`, no `pending_syncs` approval, manifest `hard_failed`.
-- **T-B (blocker heal, the headline integration test):** drive a sheet to a real `STAGED_PARSE_OUTDATED_AT_PHASE_D` block (genuine mid-setup live-watermark advance, mirroring the true-staleness case in `finalizeCasReonboardBaseline.db.test.ts`), with at least one *sibling* sheet also staged. Re-scan the blocked sheet → assert: orphan shadow deleted, fresh `pending_syncs` with base==current live watermark, manifest `'staged'`+`publish_intent` preserved, checkpoint re-openable, **sibling shadow untouched**. Then run `handleOnboardingFinalize` + `handleOnboardingFinalizeCas` → assert per_row `OK` and the batch publishes. Pre-fix control: without the heal, the second finalize-cas still 409s.
-- **T-busy:** hold the per-show lock in a concurrent tx; re-scan returns `SHOW_BUSY_RETRY`; no mutation.
-- **T-M (meta-test):** the decision-requiring-invariant list (D1) is pinned by a structural test so a future gated invariant can't silently bypass the clean rule.
-- **Route tests:** `requireAdmin` enforced; `wizardSessionId`/`folderId` derived from `app_settings`; superseded session → `superseded`; non-manifest `driveFileId` → `not_found`.
-- **Component tests:** `RescanSheetButton` renders on `Step3SheetCard` and in a `cas_per_row` `<li>`; posts `{ driveFileId }`; renders each result-copy branch; `router.refresh()` on ok. Anti-tautology: assert the posted body + the rendered branch independently, and remove sibling label-bearing nodes before scanning for result copy.
-
-Every test states the concrete failure mode it catches (per the anti-tautology rule); expectations derive from fixture dimensions, never hardcoded ids/times.
+- **T-A1 (review, clean):** approve a staged sheet; edit fixture (typo, no MI-11, no gap increase); rescan → `pending_syncs` refreshed (new parse, fresh base), `wizard_approved=true`, `last_finalize_failure_code=null`, `wizard_reviewer_choices` regenerated to the **new** item ids, `needsReview=false`.
+- **T-A2 (dirty via MI-11, the key correctness test):** edit fixture to change an existing crew member's email; rescan → `decisionItems` contains MI-11, `wizard_approved=false`, `last_finalize_failure_code='RESCAN_REVIEW_REQUIRED'`, `triggered_review_items` includes the MI-11 item, manifest `'staged'`. **Then** `handleOnboardingFinalize` → assert the row is NOT consumed (excluded from finishable) and `unresolvedManifestCount` blocks finish. Negative control: an identical-email edit stays CLEAN and is not blocked.
+- **T-A3 (dirty via gap-count, finding 5):** edit fixture to add a second `FIELD_UNREADABLE` (count 1→2) → `gapRegressed=true` → blocked. Negative control: removing a gap stays clean.
+- **T-A4 (parse hard-fail):** edit fixture to hard-fail → `needs_attention`+`STAGED_PARSE_FAILED`, manifest `hard_failed`, Flow-B orphan shadow deleted.
+- **T-B (blocker heal, headline integration):** drive a sheet to a genuine `STAGED_PARSE_OUTDATED_AT_PHASE_D` block with a **sibling** sheet also staged; rescan the blocked sheet → orphan shadow deleted, fresh base==live watermark, manifest `'staged'`+`publish_intent` preserved, checkpoint re-openable, **sibling shadow untouched**; then `handleOnboardingFinalize`+`handleOnboardingFinalizeCas` → per_row `OK`, batch publishes. Pre-heal control: without the heal, the second finalize-cas still 409s.
+- **T-LOCK (race, findings 1+4):** (i) hold `finalize:<session>` in a concurrent tx → rescan returns `CONCURRENT_FINALIZE_IN_FLIGHT`, no mutation; (ii) post a stale `wizardSessionId` after a session supersession → `superseded`, no mutation; (iii) extend `tests/auth/advisoryLockRpcDeadlock.test.ts` to pin the rescan lock order.
+- **T-M (meta-test):** the decision-requiring-invariant set is a single named constant pinned so a future gated invariant can't silently bypass the clean rule.
+- **Route tests:** `requireAdmin`; body `{driveFileId, wizardSessionId}`; superseded; non-manifest `driveFileId` → `not_found`.
+- **Component tests:** `RescanSheetButton` renders on both `Step3SheetCard` paths and in a `cas_per_row` `<li>`; posts `{driveFileId, wizardSessionId}`; renders each result branch; `router.refresh()` on ok. Anti-tautology: assert the posted body and the rendered branch independently; clone+strip sibling label-bearing nodes before scanning result copy.
+- **§12.4 parity:** `RESCAN_REVIEW_REQUIRED` passes `x1-catalog-parity`.
 
 ## 12. Out of scope / future
 
-- Real-time auto-pickup (decision 1 deferred mechanism) — `BACKLOG.md` candidate.
-- A per-sheet re-scan on the standalone re-review page (`/admin/onboarding/staged/[…]`) — that page serves Phase-B failures and already has a re-apply flow; folding re-scan in there is a follow-up, not this spec.
+- Real-time auto-pickup — `BACKLOG.md`.
+- Re-scan on the standalone re-review page — follow-up (that page already has a re-apply flow).
 
 ## 13. Citations appendix (verified against `origin/main` worktree, 2026-06-29)
 
-- `prepareOnboardingFiles` `lib/sync/runOnboardingScan.ts:907`; `RunOnboardingScanDeps.listFolder` `:147`; `scanOnboardingPreparedFiles` `:994`; per-file lock `:835-847`; `upsertLivePendingSync` `:382` (base coalesce `:404-407`, ON-CONFLICT set-list `:416-426`, does NOT reset `wizard_approved`).
-- `runPhase1` `lib/sync/phase1.ts:258`; outcomes union `:79-104`; `ONBOARDING_SCAN_REVIEW` sentinel `:253`.
-- `withShowLock` `lib/sync/lockedShowTx.ts:88`; `withPostgresSyncPipelineLock` delegates `lib/sync/runScheduledCronSync.ts:1471`; holdPort passthrough pattern `lib/sync/retrySingleFile.ts:254-272`; pending_ingestions gate (NOT inherited) `:60-75/:114`.
-- `stageExistingShowShadow` `app/api/admin/onboarding/finalize/route.ts:525` (base coalesce); `deleteApprovedPending` `:589`; `selectFinishableCleanRows` `:346`; `ensureCheckpoint` `:271`; `advanceCheckpoint` `:610`; `stampManifestPublishIntent` `:499`.
-- `applyShadow` `app/api/admin/onboarding/finalize-cas/route.ts:351`; `STAGED_PARSE_OUTDATED_AT_PHASE_D` `:377/:383/:444`; batch-hold `:711-721`.
-- `shows_pending_changes` `migrations/20260501001000_internal_and_admin.sql:433` (UNIQUE `:442`); `wizard_finalize_checkpoints` `:420` (status enum `:427`); `onboarding_scan_manifest` `:336` (status enum `:343`); `created_show_id` `migrations/20260611000000:15`; `publish_intent` `migrations/20260623000001:10`.
-- UI: `CasPerRowEntry` `components/admin/RunFinalCASButton.tsx:25`; per-row render `:106-125`; `FinalizeButton` `cas_per_row` `:295`; `Step3SheetCard` `components/admin/wizard/Step3SheetCard.tsx:749`; `ReSyncButton` `components/admin/ReSyncButton.tsx:59-104`; sync route `app/api/admin/sync/[slug]/route.ts:54-81`; re-review page `app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx:135`.
-- Messages: `FINALIZE_OWNED_SHOW` `lib/messages/catalog.ts:1551`; `SHOW_BUSY_RETRY` `:2534`; `STAGED_PARSE_FAILED` `:2585`; `ONBOARDING_SCAN_REVIEW` `:1000`.
-- Clean-rule inputs: MI-11 `lib/parser/invariants.ts:563-580`; `summarizeDataGaps` `lib/parser/dataGaps.ts:53` (classes `:19`); `ReviewerChoice` `lib/sync/applyStagedCore.ts:33`; `TriggeredReviewItem` `lib/parser/types.ts:428`; `parseTriggeredReviewItems` `lib/staging/triggeredReviewItems.ts`.
-- Gate: `app_settings.pending_wizard_session_id` read pattern `lib/sync/applyStaged.ts:524-528`; `requireAdmin` `lib/auth/requireAdmin.ts:263`.
+- Scan/stage: `prepareOnboardingFiles` `lib/sync/runOnboardingScan.ts:907` (listFolder dep `:147`); `scanOnboardingPreparedFiles` `:994`; `upsertLivePendingSync` `:382` (coalesce `:404-407`, set-list `:416-426`, does NOT touch `wizard_approved`/`last_finalize_failure_code`); `runPhase1` `lib/sync/phase1.ts:258`; sentinel `:253`; gated-invariant comment `:312-319`; blinded-prior `invariants.ts:218-227`.
+- Diff: `runInvariants(prior|null, next)` `lib/parser/invariants.ts:98`; MI-11 `:566`; MI-11 item shape `lib/parser/types.ts:461-464`; `ReviewerChoice` `lib/sync/applyStagedCore.ts:33-37`; `synthesizeDefaultChoices` `:228`; `validateReviewerChoices` `:129`; `summarizeDataGaps` `lib/parser/dataGaps.ts:53` (classes `:19`).
+- Lock: `tryFinalizeLock` `finalize/route.ts:263-269` (`pg_try_advisory_xact_lock(hashtext('finalize:'||$1))`), mirror `finalize-cas:221`; lock order `/finalize` `:927/:932/:935/:987`; `/finalize-cas` `:653/:668/:674/:713`; per-show `pg_advisory_xact_lock(hashtext('show:'||$1))` `finalize-cas:122`; `adoptShowLockHeld` `:386`/`lockedShowTx.ts:155`; `withShowLock` `lockedShowTx.ts:88`; total order pinned `tests/auth/advisoryLockRpcDeadlock.test.ts`; `readActiveSessionForUpdate` `finalize/route.ts:251-261`.
+- Finalize selection/block: `selectFinishableCleanRows` `finalize/route.ts:346-371` (WHERE `:362-364`); `unresolvedManifestCount` `:298-331` (pred `:323-326`), mirror `finalize-cas:256-290`; `demotePending` `:397-432` (code union `:401-407`); `processApprovedRow` invalid_request throw `:870-877`; unchecked existing no-op `:789-805`; `deleteApprovedPending` `:589`; `ensureCheckpoint` `:271`; checkpoint status enum `migrations/20260501001000_internal_and_admin.sql:427`.
+- Finalize-cas: `applyShadow` `finalize-cas/route.ts:351`; `STAGED_PARSE_OUTDATED_AT_PHASE_D` `:377/:383/:444`; batch-hold `:711-721`; `readShadowRows` `:292`; publish flip `:489-497`.
+- Schema: `shows_pending_changes` `migrations/20260501001000:433` (UNIQUE `:442`); `wizard_finalize_checkpoints` `:420`; `onboarding_scan_manifest` `:336` (status `:343`); `created_show_id` `20260611000000:15`; `publish_intent` `20260623000001:10`; `last_finalize_failure_code` text no-CHECK `20260518010444`.
+- UI/messages: `Step3SheetCard` `components/admin/wizard/Step3SheetCard.tsx:749` (null-parse return `:777-794`, "More" `:963-972`); existing retry button `Step3Review.tsx:146-191` (endpoint `:143`); staged-apply variant `:718-723`; `CasPerRowEntry` `RunFinalCASButton.tsx:25` (render `:106-125`); `FinalizeButton` `cas_per_row` `:295`; `ReSyncButton` `:59-104`; re-review page `app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx:135`; `SHOW_BUSY_RETRY` dougFacing `catalog.ts:2536`; `STAGED_PARSE_FAILED` `:2585`; `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` `:210`; `requireAdmin` `lib/auth/requireAdmin.ts:263`; active-session read `lib/sync/applyStaged.ts:524-528`.
