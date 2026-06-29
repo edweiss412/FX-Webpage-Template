@@ -12,10 +12,12 @@ import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wiza
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 
+const EXISTING_SHOW_TITLE = "Existing Show";
+
 function parseResult() {
   return {
     show: {
-      title: "Existing Show",
+      title: EXISTING_SHOW_TITLE,
       client_label: "Client",
       client_contact: null,
       template_version: "v4",
@@ -382,7 +384,11 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       per_row: [
         { drive_file_id: "existing-1", code: "OK" },
         { drive_file_id: "existing-2", code: "OK" },
-        { drive_file_id: "existing-3", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+        {
+          drive_file_id: "existing-3",
+          code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+          display_name: EXISTING_SHOW_TITLE,
+        },
         { drive_file_id: "existing-4", code: "OK" },
         { drive_file_id: "existing-5", code: "OK" },
       ],
@@ -478,7 +484,13 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(await json(response)).toEqual({
       ok: false,
       code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
-      per_row: [{ drive_file_id: "existing-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" }],
+      per_row: [
+        {
+          drive_file_id: "existing-1",
+          code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+          display_name: EXISTING_SHOW_TITLE,
+        },
+      ],
     });
     expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-1"]);
     expect(db.published).toBe(false);
@@ -612,7 +624,11 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       ok: false,
       code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
       per_row: [
-        { drive_file_id: "existing-archived", code: "SHOW_ARCHIVED_IMMUTABLE" },
+        {
+          drive_file_id: "existing-archived",
+          code: "SHOW_ARCHIVED_IMMUTABLE",
+          display_name: EXISTING_SHOW_TITLE,
+        },
         { drive_file_id: "existing-2", code: "OK" },
       ],
     });

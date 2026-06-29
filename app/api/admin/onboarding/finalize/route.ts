@@ -10,6 +10,7 @@ import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch, STAGED_REVIEW_ITEMS_CORRUPT } from "@/lib/sync/applyStaged";
 import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
@@ -129,6 +130,7 @@ type PerRowResult =
         | typeof STAGED_REVIEW_ITEMS_CORRUPT
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
+      display_name?: string;
     };
 
 function databaseUrl(): string {
@@ -1104,7 +1106,15 @@ export async function handleOnboardingFinalize(
             re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
           };
         }
-        perRow.push(result);
+        // Narrow `result` to the failure variant BEFORE spreading (a bare ternary leaves
+        // `result` as the full union — the OK variant has no display_name, so
+        // {...okVariant, display_name} is not assignable under exactOptionalPropertyTypes).
+        if (result.code === OK_CODE) {
+          perRow.push(result);
+        } else {
+          const displayTitle = parsedShowTitle(row.parse_result);
+          perRow.push(displayTitle ? { ...result, display_name: displayTitle } : result);
+        }
       }
 
       const remainingCount = await countRemainingCleanRows(tx, wizardSessionId);

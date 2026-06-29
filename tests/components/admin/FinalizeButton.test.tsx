@@ -594,6 +594,101 @@ describe("FinalizeButton", () => {
     expect(queryByTestId("wizard-finalize-cas-per-row")).toBeNull();
   });
 
+  // Blocker rows label the sheet by the parsed show title (display_name), dropping the raw
+  // drive_file_id from the visible <span>. The id survives only as the reapply/rescan
+  // data-testid (+ key) — so the negative assertion clones the list and strips those subtrees.
+  const BLOCKER_TITLE = "Consultants Roundtable";
+  const BLOCKER_TITLE_ID = "1AbC_opaque_id";
+  const BLOCKER_FALLBACK_ID = "2Xyz_fallback_id";
+
+  test("Phase B race-row list: shows display_name, drops the id from the label, falls back to the id when display_name is absent", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        status: "all_batches_complete",
+        wizard_session_id: WIZARD_SESSION_ID,
+        remaining_count: 0,
+        unresolved_manifest_count: 1,
+        per_row: [
+          {
+            drive_file_id: BLOCKER_TITLE_ID,
+            wizard_session_id: WIZARD_SESSION_ID,
+            code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+            re_apply_url: `/admin/onboarding/staged/${WIZARD_SESSION_ID}/${BLOCKER_TITLE_ID}`,
+            display_name: BLOCKER_TITLE,
+          },
+          {
+            drive_file_id: BLOCKER_FALLBACK_ID,
+            wizard_session_id: WIZARD_SESSION_ID,
+            code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+            re_apply_url: `/admin/onboarding/staged/${WIZARD_SESSION_ID}/${BLOCKER_FALLBACK_ID}`,
+            // NO display_name key (exactOptionalPropertyTypes rejects a present `undefined`).
+          },
+        ],
+      }),
+    );
+    const { getByTestId, getByText } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => expect(getByTestId("wizard-finalize-race-row")).toBeTruthy());
+    // (1) the title is the row label
+    expect(getByText(BLOCKER_TITLE)).toBeTruthy();
+    // (2) the title row's raw id is NOT the visible label
+    const list = getByTestId("wizard-finalize-race-row").cloneNode(true) as HTMLElement;
+    list
+      .querySelectorAll("[data-testid*='reapply'], [data-testid*='rescan']")
+      .forEach((n) => n.remove());
+    expect(list.textContent ?? "").not.toContain(BLOCKER_TITLE_ID);
+    // (3) fallback: the entry WITHOUT display_name shows its id
+    expect(getByText(BLOCKER_FALLBACK_ID)).toBeTruthy();
+  });
+
+  test("Phase D cas-per-row list: shows display_name, drops the id from the label, falls back to the id when display_name is absent", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+            per_row: [
+              {
+                drive_file_id: BLOCKER_TITLE_ID,
+                code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+                display_name: BLOCKER_TITLE,
+              },
+              { drive_file_id: BLOCKER_FALLBACK_ID, code: "STAGED_PARSE_RESULT_CORRUPT" },
+            ],
+          },
+          { status: 409 },
+        ),
+      );
+    const { getByTestId, getByText } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => expect(getByTestId("wizard-finalize-cas-per-row")).toBeTruthy());
+    expect(getByText(BLOCKER_TITLE)).toBeTruthy();
+    const list = getByTestId("wizard-finalize-cas-per-row").cloneNode(true) as HTMLElement;
+    list
+      .querySelectorAll("[data-testid*='reapply'], [data-testid*='rescan']")
+      .forEach((n) => n.remove());
+    expect(list.textContent ?? "").not.toContain(BLOCKER_TITLE_ID);
+    expect(getByText(BLOCKER_FALLBACK_ID)).toBeTruthy();
+  });
+
   test("clicking while a request is in flight does not double-fire", async () => {
     let resolveFirst!: (value: Response) => void;
     fetchMock.mockImplementation(

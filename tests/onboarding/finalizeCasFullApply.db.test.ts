@@ -278,7 +278,12 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type PerRow = { drive_file_id: string; code: string; disposition?: string };
+type PerRow = {
+  drive_file_id: string;
+  code: string;
+  disposition?: string;
+  display_name?: string;
+};
 
 async function perRows(res: Response): Promise<PerRow[]> {
   return ((await res.json()) as { per_row: PerRow[] }).per_row;
@@ -396,7 +401,10 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
         crew: seededCrew,
         lastSeen: MID,
       });
-      const parse = makeParse("Cas Two", [
+      // The shadow payload's show.title is the FIRST makeParse arg (NOT the seedLiveShow title
+      // "Cas Two Live") — hoist it so the display_name assertion derives from the fixture.
+      const CAS2_SHADOW_TITLE = "Cas Two";
+      const parse = makeParse(CAS2_SHADOW_TITLE, [
         { name: "Ada", email: "ada@old.example" },
         { name: "Bo", email: "bo@x.example" },
       ]);
@@ -406,6 +414,7 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
       expect(res.status).toBe(409);
       const rows = await perRows(res);
       expect(rows[0]!.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D"); // code retained
+      expect(rows[0]!.display_name).toBe(CAS2_SHADOW_TITLE);
       // per-row rollback: NO child writes, shadow RETAINED, watermark unchanged at MID:
       const show = one<{ id: string; last_seen_modified_time: Date }>(
         await sql!.unsafe(
@@ -462,6 +471,11 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
       const rows = await perRows(res);
       expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!.code).toBe(
         "STAGED_REVIEW_ITEMS_CORRUPT",
+      );
+      // Parse-failure row: no clean parse → no title baked in → property ABSENT (client falls
+      // back to the id). not.toHaveProperty, not toBeUndefined — the contract is absence.
+      expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!).not.toHaveProperty(
+        "display_name",
       );
       expect(rows.find((r) => r.drive_file_id === "drive-cas-4")!.code).toBe("OK");
       // Ada's email did NOT change (the identity gate held), shadow retained for operator cleanup:
@@ -829,10 +843,11 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
         crew: [{ name: "Bo", email: "bo@x.example" }],
         lastSeen: MID,
       });
+      const CAS_DONE_B_TITLE = "Cas Done B";
       await seedShadow(
         "drive-cas-done-b",
         staleShowId,
-        shadowPayload(makeParse("Cas Done B", [{ name: "Bo", email: "bo@x.example" }]), {
+        shadowPayload(makeParse(CAS_DONE_B_TITLE, [{ name: "Bo", email: "bo@x.example" }]), {
           base: BASE,
         }),
       );
@@ -867,8 +882,13 @@ describe("Phase D finalize-cas — shared apply core (real DB)", () => {
       expect(res2.status).toBe(409);
       const body2 = (await res2.json()) as { code: string; per_row: PerRow[] };
       expect(body2.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+      // Parse-OK blocker → the row now carries the parsed show title (derived from the fixture).
       expect(body2.per_row).toEqual([
-        { drive_file_id: "drive-cas-done-b", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+        {
+          drive_file_id: "drive-cas-done-b",
+          code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+          display_name: CAS_DONE_B_TITLE,
+        },
       ]);
 
       // Clear the sibling (watermark back at the staged baseline) → finalize COMPLETES.
