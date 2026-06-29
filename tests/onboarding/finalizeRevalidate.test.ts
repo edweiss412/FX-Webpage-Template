@@ -202,6 +202,21 @@ class FakeFinalizeDb implements FinalizeRouteTx {
       }
       return { rows: [this.checkpoint as T], rowCount: this.checkpoint ? 1 : 0 };
     }
+    // Generation-scoped publish-safety re-read (finalize/route.ts processApprovedRow):
+    // re-SELECT parse_result under the row's already-held show: lock, pinned by
+    // (wizard_session_id, drive_file_id, staged_id, staged_modified_time). Returns the
+    // current row's parse_result; 0 rows on a generation mismatch → finalize stale path.
+    if (n.startsWith("select parse_result from public.pending_syncs where wizard_session_id")) {
+      const row = this.approved.find(
+        (r) =>
+          r.drive_file_id === params[1] &&
+          r.staged_id === params[2] &&
+          r.staged_modified_time === params[3],
+      );
+      return row
+        ? { rows: [{ parse_result: row.parse_result } as T], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
     throw new Error(`Unhandled SQL in finalize fake: ${n}`);
   }
 }

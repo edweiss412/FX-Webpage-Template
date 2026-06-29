@@ -115,7 +115,7 @@ export class DriveFetchError extends Error {
 const TRANSIENT_DRIVE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const DEFAULT_MAX_DRIVE_RETRIES = 3;
 
-function driveErrorStatus(error: unknown): number | null {
+export function driveErrorStatus(error: unknown): number | null {
   if (error instanceof DriveFetchError) {
     return typeof error.status === "number" ? error.status : null;
   }

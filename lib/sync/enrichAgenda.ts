@@ -1,5 +1,5 @@
 /**
- * lib/sync/enrichAgenda.ts (agenda Phase B, Task 10)
+ * lib/sync/enrichAgenda.ts (agenda Phase B, Task 10 → Task 6 verdict layer)
  *
  * Best-effort sync step that surfaces each show's agenda PDF schedule. Runs inside
  * the shared `enrichWithDrivePins` so all four sync paths inherit it (spec §4.5.4).
@@ -7,29 +7,38 @@
  * fault leaves the links as-is and retries next sync (mirrors PR #134's anchor
  * attach).
  *
- * Flow (spec §4.5.1–§4.5.4):
- *  1. fileId recovery — document-order ORDINAL 1:1 correlation between the full
- *     ordered `agenda_links` list and the full ordered `getAgendaChips` row list.
- *     Counts AND per-position labels must align exactly; any divergence binds
- *     nothing and emits AGENDA_PDF_UNREADABLE once for the fileId-less entries
- *     (url-form entries keep their parser-supplied fileId). `getAgendaChips` is
- *     gated — fired only when ≥1 entry lacks a fileId. An `infra_error` from it
- *     leaves the links unenriched and retries next sync (NOT a count-mismatch).
+ * Flow (spec §4.5.1–§4.5.4 + Task-6 verdict layer):
+ *  1. fileId recovery — capped at AGENDA_MAX_PDFS_PER_SHEET: per-ordinal label-matched
+ *     correlation between the first N agenda links and the INFO-tab chip rows. A
+ *     mismatch at ordinal i silently skips that ordinal (no wrong bind, no warning).
+ *     `getAgendaChips` is called at most ONCE (sheet-level); rows.length > N is allowed.
+ *     An `infra_error` from it leaves the links unenriched and retries next sync.
  *  2. metadata gate + cache — `getFile(fileId)` supplies the PDF-type gate and the
- *     `headRevisionId` cache key; re-extraction is skipped iff the stored
- *     `sourceRevision` AND `extractorVersion` both match.
- *  3. download + extract — `downloadFileBytes` (bytes → extract; unavailable →
- *     AGENDA_PDF_UNREADABLE; infra_error → preserve prior `extracted`, no note).
- *  4. data-quality codes — 0 sessions → AGENDA_PDF_UNREADABLE; else low confidence
- *     → AGENDA_SCHEDULE_LOW_CONFIDENCE and any corrections → AGENDA_SCHEDULE_TIME_ADJUSTED.
+ *     `headRevisionId` cache key. CACHE HIT: stored sourceRevision === currentRev AND
+ *     stored extractorVersion === EXTRACTOR_VERSION → "fresh" with the stored extraction
+ *     (no download). A missing/empty revision is NOT cacheable.
+ *  3. download + extract + re-getFile stability fence — after extraction, `getFile` is
+ *     called again for rev_after. "fresh" iff rev_before === rev_after (stable).
+ *  4. per-link verdict — discriminated PerLinkVerdict riding the EnrichAgendaReport:
+ *       "fresh"       — extraction payload valid and stable; emitted for cache hits too.
+ *       "known_stale" — rev readable but extraction not fresh (version/revision mismatch,
+ *                       download failure, or revision changed during extract).
+ *       "unknown"     — getFile threw (infra_error); leave-existing safe.
+ *  5. data-quality codes — emitted ONLY for fresh (stable) extractions.
+ *
+ * Additive only: existing scan/cron callers ignore the return value; link.extracted is
+ * still mutated on "fresh" for backward compat. Cap and per-ordinal recovery replace
+ * the old strict-alignment check without breaking url-form link behaviour.
  *
  * Invariant 9: every Drive/Sheets outcome is a discriminated union; an infra fault
  * is never collapsed into "no agenda".
  */
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
+import type { AgendaExtraction } from "@/lib/agenda/types";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
-import { EXTRACTOR_VERSION } from "@/lib/agenda/constants";
+import { EXTRACTOR_VERSION, AGENDA_MAX_PDFS_PER_SHEET } from "@/lib/agenda/constants";
+import { driveErrorStatus } from "@/lib/drive/fetch";
 
 function warn(code: string, message: string): ParseWarning {
   return { severity: "warn", code, message };
@@ -41,61 +50,134 @@ function labelsAlign(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase(); // canonicalize-exempt: AGENDA LINK label match, not an email (invariant 3 N/A)
 }
 
+/**
+ * Per-link freshness verdict after the before/after revision stability fence.
+ * The `extraction` payload rides ONLY on "fresh" (spec §5.2 / §5.7).
+ * A later endpoint persists ONLY from `verdict:"fresh"` entries — never from the
+ * mutated `link.extracted` (which is the tx#1b read snapshot, preserved on refresh
+ * failure for backward compat with existing cron/scan callers).
+ */
+export type PerLinkVerdict =
+  | { ordinal: number; recoveredFileId?: string; verdict: "fresh"; extraction: AgendaExtraction }
+  | { ordinal: number; recoveredFileId?: string; verdict: "known_stale" }
+  | { ordinal: number; recoveredFileId?: string; verdict: "unknown" };
+
+/** Report returned by enrichAgenda. Existing callers (cron/scan) safely ignore it. */
+export type EnrichAgendaReport = { perLink: PerLinkVerdict[] };
+
 export async function enrichAgenda(
   result: ParseResult,
   driveClient: DriveClient,
   spreadsheetId: string,
-): Promise<void> {
+  opts?: { signal?: AbortSignal },
+): Promise<EnrichAgendaReport> {
   // Methods are optional on the interface so existing impls compile; required-
   // ness is enforced at runtime (mirrors the listSpreadsheetSheets guard) and by
-  // the Task-11 DriveClient-impl meta-test. Capture locals so the narrowing
-  // survives the awaits below. `downloadFileBytes` is REQUIRED — without bytes
-  // there is nothing to extract. `getAgendaChips` is needed ONLY to recover a
-  // missing chip fileId, so it gates just the chip-recovery branch: a client
-  // that can download but not read chips still enriches url-parsed fileId links
-  // (Codex whole-diff R1 #3).
+  // the Task-11 DriveClient-impl meta-test. `downloadFileBytes` is REQUIRED —
+  // without bytes there is nothing to extract. `getAgendaChips` is needed ONLY to
+  // recover a missing chip fileId (Codex whole-diff R1 #3).
   const downloadFileBytes = driveClient.downloadFileBytes;
-  if (!downloadFileBytes) return;
+  if (!downloadFileBytes) return { perLink: [] };
   const getAgendaChips = driveClient.getAgendaChips;
+
+  const signal = opts?.signal;
+  if (signal?.aborted) return { perLink: [] };
 
   const warnings = result.warnings;
   const links = result.show.agenda_links;
+  const perLink: PerLinkVerdict[] = [];
+
+  // cap: process at most AGENDA_MAX_PDFS_PER_SHEET links (spec §5.5).
+  // Links at ordinal >= cap are skipped: no download, no fileId recovery.
+  const cap = Math.min(links.length, AGENDA_MAX_PDFS_PER_SHEET);
+
+  // Track fileIds recovered via chip correlation (for the recoveredFileId verdict field).
+  const recoveredFileIds = new Map<number, string>();
 
   try {
-    // ── 1. fileId recovery via ordinal chip correlation ───────────────────────
-    const needsChips = links.some((link) => !link.fileId);
+    // ── 1. fileId recovery via capped ordinal + label chip correlation ─────────
+    // rows.length > cap is explicitly allowed (spec §5.5): don't require strict count
+    // alignment — that would break when an N+1-link sheet is capped at N.
+    const needsChips = links.slice(0, cap).some((link) => !link.fileId);
     if (needsChips && getAgendaChips) {
-      const chips = await getAgendaChips(spreadsheetId);
+      const chips = await getAgendaChips(
+        spreadsheetId,
+        signal !== undefined ? { signal } : undefined,
+      );
       if (chips.kind === "infra_error") {
-        // Couldn't read the sheet — leave links unenriched and retry next sync.
-        // NOT a count-mismatch, NOT AGENDA_PDF_UNREADABLE (invariant 9).
-        return;
-      }
-      const rows = chips.rows;
-      const aligned =
-        rows.length === links.length &&
-        links.every((link, i) => labelsAlign(link.label, rows[i]!.label));
-      if (aligned) {
-        links.forEach((link, i) => {
-          const chipFileId = rows[i]!.chipFileId;
-          if (!link.fileId && chipFileId) link.fileId = chipFileId;
-        });
+        // Couldn't read the INFO tab → recover NO fileIds this pass. Do NOT abort
+        // the whole enrichment (Codex whole-diff R3): the chip read only serves the
+        // fileId-LESS links (smart-chip recovery). On failure those links simply stay
+        // unrecovered and are skipped in the per-link loop below — but every link that
+        // ALREADY has a fileId still runs its own getFile revision check, so a
+        // transient chip-read failure can't suppress stale detection (and stale
+        // clearing) for an unrelated, already-bound PDF. NOT AGENDA_PDF_UNREADABLE
+        // (invariant 9 — surfaced as the absence of recovery, not a swallowed fault).
       } else {
-        // Untrustworthy mapping → bind nothing; one note for the chip entries.
-        warnings.push(
-          warn(
-            "AGENDA_PDF_UNREADABLE",
-            "Agenda links on the INFO tab didn't line up 1:1 with their smart-chip rows, so the linked agenda PDFs couldn't be resolved.",
-          ),
-        );
+        const rows = chips.rows;
+        for (let i = 0; i < cap; i++) {
+          const link = links[i]!;
+          const row = rows[i];
+          // Per-ordinal label-matched recovery: mismatch at i → silently skip
+          // (never a wrong bind, no warning — this is safe by construction).
+          if (!link.fileId && row && row.chipFileId && labelsAlign(link.label, row.label)) {
+            link.fileId = row.chipFileId;
+            recoveredFileIds.set(i, row.chipFileId);
+          }
+        }
       }
     }
 
-    // ── 2-4. per-entry metadata gate, cache, download, extract, codes ──────────
-    for (const link of links) {
+    // ── 2–4. per-link: getFile gate, cache, download+extract, stability fence ──
+    for (let i = 0; i < cap; i++) {
+      if (signal?.aborted) break;
+
+      const link = links[i]!;
       if (!link.fileId) continue;
 
-      const fileMeta = await driveClient.getFile(link.fileId);
+      const recoveredFileId = recoveredFileIds.get(i);
+
+      // getFile for current rev. When getFile FAILS we have NO currentRev, so we
+      // cannot prove the stored extraction is stale — unlike the download/extract
+      // paths below, which are only reached AFTER a successful getFile whose
+      // currentRev failed the cache check (i.e. the stored is provably stale-by-rev).
+      // So this catch CLEARS ("known_stale") ONLY on DEFINITIVE-GONE proof —
+      // 404 (notFound) / 400 (invalid fileId) — where the file no longer exists and
+      // the stored schedule is orphaned. Everything else is AMBIGUOUS or TRANSIENT
+      // and must LEAVE-existing ("unknown"): a 403 is ambiguous (ACL OR Drive
+      // `rateLimitExceeded`/`userRateLimitExceeded` quota throttles — Codex whole-diff
+      // R6), and 429/5xx/timeout are transient. NEVER destroy a valid schedule on a
+      // throttle/ambiguous fault — the next sync re-checks (and a genuinely
+      // permissioned-away file's stale schedule is a far milder outcome than wrongly
+      // clearing a valid one, which cron would not self-heal). Drive 403 error-reason
+      // taxonomy: https://developers.google.com/workspace/drive/api/guides/handle-errors
+      let fileMeta: Awaited<ReturnType<typeof driveClient.getFile>>;
+      try {
+        fileMeta = await driveClient.getFile(link.fileId);
+      } catch (error) {
+        const status = driveErrorStatus(error);
+        if (status === 404 || status === 400) {
+          warnings.push(
+            warn(
+              "AGENDA_PDF_UNREADABLE",
+              `Agenda link "${link.label}" doesn't point at a readable PDF, so crew see the embed only.`,
+            ),
+          );
+          perLink.push({
+            ordinal: i,
+            ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+            verdict: "known_stale",
+          });
+        } else {
+          perLink.push({
+            ordinal: i,
+            ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+            verdict: "unknown",
+          });
+        }
+        continue;
+      }
+
       const trashed = (fileMeta as { trashed?: boolean }).trashed === true;
       if (fileMeta.mimeType !== "application/pdf" || trashed) {
         warnings.push(
@@ -104,25 +186,57 @@ export async function enrichAgenda(
             `Agenda link "${link.label}" doesn't point at a readable PDF, so crew see the embed only.`,
           ),
         );
+        // Rev was readable but content is non-extractable → "known_stale".
+        perLink.push({
+          ordinal: i,
+          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+          verdict: "known_stale",
+        });
         continue;
       }
 
-      // Cache key is the PDF's headRevisionId + the extractor version. A missing/
-      // empty revision is NOT cacheable (Codex whole-diff R1 #1): otherwise an
-      // undefined revision would match a stored-undefined sourceRevision and a
-      // changed PDF would never re-extract. Missing revision → re-extract (the
-      // extractor is deterministic, so this is correct, just not skipped).
-      const rev = fileMeta.headRevisionId;
-      const cached =
-        typeof rev === "string" &&
-        rev.length > 0 &&
-        link.extracted?.sourceRevision === rev &&
-        link.extracted?.extractorVersion === EXTRACTOR_VERSION;
-      if (cached) continue;
+      const currentRev = fileMeta.headRevisionId;
 
-      const download = await downloadFileBytes(link.fileId);
+      // CACHE HIT: stored extraction is current on BOTH axes (revision AND version).
+      // A missing/empty revision is NOT cacheable (Codex whole-diff R1 #1): otherwise
+      // an undefined revision would match a stored-undefined sourceRevision and a
+      // changed PDF would never re-extract. Missing revision → re-extract (deterministic).
+      const cached =
+        typeof currentRev === "string" &&
+        currentRev.length > 0 &&
+        link.extracted?.sourceRevision === currentRev &&
+        link.extracted?.extractorVersion === EXTRACTOR_VERSION;
+      if (cached) {
+        // Emit "fresh" with the STORED extraction — no download, no getAgendaChips.
+        perLink.push({
+          ordinal: i,
+          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+          verdict: "fresh",
+          extraction: link.extracted!,
+        });
+        continue;
+      }
+
+      // Download
+      const download = await downloadFileBytes(
+        link.fileId,
+        signal !== undefined ? { signal } : undefined,
+      );
       if (download.kind === "infra_error") {
-        // Transient — keep any prior extracted, no note, retry next sync.
+        // STRUCTURAL INVARIANT (Codex whole-diff R6 re-analysis): reaching the
+        // download path PROVES the stored extraction is stale-by-revision — getFile
+        // SUCCEEDED and returned a currentRev that FAILED the cache check above
+        // (stored.sourceRevision !== currentRev). So clearing here is sound REGARDLESS
+        // of why the download failed (transient throttle, stall, 5xx): the stored
+        // schedule is for a superseded revision and must not publish. (Contrast the
+        // getFile-FAILURE catch above, which lacks a currentRev and so clears only on
+        // definitive-gone 404/400.) If there is no stored extraction, known_stale
+        // clears nothing — harmless.
+        perLink.push({
+          ordinal: i,
+          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+          verdict: "known_stale",
+        });
         continue;
       }
       if (download.kind === "unavailable") {
@@ -132,45 +246,104 @@ export async function enrichAgenda(
             `Agenda PDF for "${link.label}" couldn't be downloaded, so crew see the embed only.`,
           ),
         );
+        perLink.push({
+          ordinal: i,
+          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+          verdict: "known_stale",
+        });
         continue;
       }
 
+      // VERDICT vs RENDERING are ORTHOGONAL axes (Codex whole-diff R7 — structural
+      // defense; do NOT gate the verdict on confidence). The PerLinkVerdict
+      // (fresh/known_stale/unknown) reflects only REVISION/VERSION CURRENCY — "is this
+      // extraction the current result for the PDF's revision?" — per plan Task 6. A
+      // LOW-confidence extraction of a CURRENT, stable revision is correctly "fresh":
+      // extraction is deterministic, so re-running it would yield the same low-conf
+      // result; caching it (and skipping re-extraction until the revision OR
+      // EXTRACTOR_VERSION changes — the cache-invalidation triggers) is correct and
+      // efficient, NOT a preserved "unusable state". CONFIDENCE governs RENDERING, not
+      // the verdict: buildAdminAgendaPreview emits a schedule BLOCK only for a
+      // high-confidence normalized extraction, so a fresh low-conf link renders
+      // note-only, and the data-quality warning below ("no readable sessions") informs
+      // the operator. Gating the verdict on confidence would break plan Task 6 + the
+      // cache contract (round-12) and is intentionally NOT done.
       const extraction = await extractAgendaSchedule(download.bytes);
-      link.extracted = {
+      const payload: AgendaExtraction = {
         ...extraction,
-        sourceRevision: fileMeta.headRevisionId,
+        ...(typeof currentRev === "string" && currentRev.length > 0
+          ? { sourceRevision: currentRev }
+          : {}),
         extractorVersion: EXTRACTOR_VERSION,
       };
 
-      const sessionCount = extraction.days.reduce((total, day) => total + day.sessions.length, 0);
-      if (sessionCount === 0) {
-        warnings.push(
-          warn(
-            "AGENDA_PDF_UNREADABLE",
-            `Agenda PDF for "${link.label}" produced no readable sessions, so crew see the embed only.`,
-          ),
-        );
+      // Re-getFile stability fence: "fresh" iff rev_before === rev_after (PDF unchanged
+      // during download+extract). A throw here → rev_after undefined → not fresh.
+      let revAfter: string | undefined;
+      try {
+        const afterMeta = await driveClient.getFile(link.fileId);
+        revAfter = afterMeta.headRevisionId;
+      } catch {
+        revAfter = undefined;
+      }
+
+      const revStable =
+        typeof currentRev === "string" &&
+        currentRev.length > 0 &&
+        payload.extractorVersion === EXTRACTOR_VERSION &&
+        typeof payload.sourceRevision === "string" &&
+        revAfter === payload.sourceRevision;
+
+      if (revStable) {
+        // Mutate link.extracted for backward compat: cron/scan callers read it.
+        link.extracted = payload;
+        perLink.push({
+          ordinal: i,
+          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+          verdict: "fresh",
+          extraction: payload,
+        });
+
+        // Data-quality codes — emitted ONLY for fresh (stable) extractions.
+        const sessionCount = extraction.days.reduce((total, day) => total + day.sessions.length, 0);
+        if (sessionCount === 0) {
+          warnings.push(
+            warn(
+              "AGENDA_PDF_UNREADABLE",
+              `Agenda PDF for "${link.label}" produced no readable sessions, so crew see the embed only.`,
+            ),
+          );
+        } else {
+          if (extraction.confidence === "low") {
+            warnings.push(
+              warn(
+                "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+                `Agenda PDF for "${link.label}" was gated to embed-only (low extraction confidence).`,
+              ),
+            );
+          }
+          if (extraction.corrections > 0) {
+            warnings.push(
+              warn(
+                "AGENDA_SCHEDULE_TIME_ADJUSTED",
+                `Adjusted ${extraction.corrections} session time(s) while reading the agenda PDF for "${link.label}".`,
+              ),
+            );
+          }
+        }
       } else {
-        if (extraction.confidence === "low") {
-          warnings.push(
-            warn(
-              "AGENDA_SCHEDULE_LOW_CONFIDENCE",
-              `Agenda PDF for "${link.label}" was gated to embed-only (low extraction confidence).`,
-            ),
-          );
-        }
-        if (extraction.corrections > 0) {
-          warnings.push(
-            warn(
-              "AGENDA_SCHEDULE_TIME_ADJUSTED",
-              `Adjusted ${extraction.corrections} session time(s) while reading the agenda PDF for "${link.label}".`,
-            ),
-          );
-        }
+        // Revision changed during download → extraction is from a transient state.
+        perLink.push({
+          ordinal: i,
+          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+          verdict: "known_stale",
+        });
       }
     }
   } catch {
     // Best-effort: never break the scan. A getFile/extract throw leaves the link
     // as-is; prior `extracted` payloads are preserved (we mutate after the reads).
   }
+
+  return { perLink };
 }
