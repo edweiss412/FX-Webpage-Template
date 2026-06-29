@@ -404,7 +404,11 @@ function packItemLabel(item: PullSheetItem): string {
   const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
   const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
   const qtyPart = item.qty !== null && item.qty !== undefined ? `${item.qty} × ` : "";
-  return `${qtyPart}${item.item}${taxonomy ? ` (${taxonomy})` : ""}`;
+  // Defensive (§4.6, untyped-on-wire JSONB): the type says `item: string`, but a
+  // malformed row must never render the literal "undefined". A nameless item is
+  // itself a parse signal worth seeing on a review surface, so label it.
+  const name = hasContent(item.item) ? item.item : "(unnamed item)";
+  return `${qtyPart}${name}${taxonomy ? ` (${taxonomy})` : ""}`;
 }
 
 // The parsed PULL-tab pack list (`pr.pullSheet`) — the same data the crew
