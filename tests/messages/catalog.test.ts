@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
+
 import {
   MESSAGE_CATALOG,
   messageFor,
@@ -83,7 +85,9 @@ function producedCodes(): string[] {
   ];
 
   for (const file of files) {
-    const source = readFileSync(file, "utf8");
+    // Exclude lib/log emission codes (`log.*({ code })`) — free-form app_events
+    // forensic codes, not §12.4-gated user-facing producers.
+    const source = stripLogEmissionCalls(readFileSync(file, "utf8"));
     for (const pattern of patterns) {
       for (const match of source.matchAll(pattern)) {
         const code = match[1];

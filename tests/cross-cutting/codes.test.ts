@@ -3,6 +3,7 @@ import { relative } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
+import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { RETIRED_CODES, SPEC_CODES } from "@/lib/messages/__generated__/spec-codes";
 import { CODE_SCENARIOS } from "@/tests/cross-cutting/code-scenarios";
@@ -32,7 +33,9 @@ function codeProducerLiterals(): Set<string> {
     if (file === "lib/messages/catalog.ts" || file.startsWith("lib/messages/__generated__/")) {
       continue;
     }
-    const source = readFileSync(file, "utf8");
+    // Exclude lib/log emission codes (`log.*({ code })`) — free-form app_events
+    // forensic codes, not §12.4-gated user-facing producers.
+    const source = stripLogEmissionCalls(readFileSync(file, "utf8"));
     for (const match of source.matchAll(PRODUCER_RE)) {
       if (match[1]) codes.add(match[1]);
     }
@@ -49,7 +52,7 @@ function producerLocations(code: string): string[] {
   for (const file of walkSourceFiles(ACTIVE_PRODUCER_ROOTS)) {
     if (file === "lib/messages/catalog.ts") continue;
     if (file.startsWith("lib/messages/__generated__/")) continue;
-    const source = readFileSync(file, "utf8");
+    const source = stripLogEmissionCalls(readFileSync(file, "utf8"));
     if (producer.test(source)) locations.push(relative(process.cwd(), file));
   }
   return locations;

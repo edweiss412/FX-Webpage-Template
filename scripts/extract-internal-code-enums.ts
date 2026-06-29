@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
+import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmissionCalls";
 
 export type InternalCodeEnumPayload = {
   source: string;
@@ -39,7 +40,10 @@ function addCodeLiteralsFromSource(
   provenance: string,
   regex = CODE_LITERAL_RE,
 ): void {
-  for (const match of sourceText.matchAll(regex)) {
+  // Exclude lib/log emission codes: `log.*({ code: "X" })` is a free-form
+  // forensic app_events code, not a persisted/user-facing internal-code-enum.
+  const scannable = stripLogEmissionCalls(sourceText);
+  for (const match of scannable.matchAll(regex)) {
     const code = match[1];
     if (code && CODE_RE.test(code)) add(out, code, provenance);
   }
