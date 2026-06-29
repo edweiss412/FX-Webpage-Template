@@ -85,10 +85,12 @@ No change to crew rendering.
   into the staged `parse_result` and short-circuiting when it's already fresh, and
   (b) **dedupes** concurrent same-show requests via the per-show advisory lock
   (`hashtext('show:' || drive_file_id)`, the canonical sync-pipeline key; invariant 2
-  single-holder). This reuses the existing staged-mutation discipline (advisory lock +
-  PostgREST DML lockdown for the `pending_syncs.parse_result` write + Supabase
-  call-boundary). Bonus: persistence means re-view is instant AND publish carries the
-  extracted agenda forward (crew sees it on publish, not just after the next cron).
+  single-holder), with a **lifecycle guard** so stale tabs do no work. This reuses the
+  existing staged-mutation discipline: ONE `withPostgresSyncPipelineLock` postgres.js
+  transaction owns the lock + the raw-SQL read/write of `pending_syncs` (PostgREST DML
+  for `pending_syncs` is already REVOKEd). Bonus: persistence means re-view is instant
+  AND publish carries the extracted agenda forward (crew sees it on publish, not just
+  after the next cron).
 - **`StagedReviewCard` surfaces are out of scope**: the live first-seen page
   (`app/admin/show/staged/[stagedId]/page.tsx`) and the wizard finalize-failure
   re-review (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx`)
@@ -141,45 +143,62 @@ not a special case). An empty `agenda_links` → empty array → no Agenda break
 ### 5.2 Per-show extract endpoint — advisory-locked, cache-on-revision, persists
 
 New route `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts`
-(POST, `export const maxDuration = 300`). Per request, all inside ONE transaction under
-the per-show advisory lock (the established staged-mutation pattern —
-`withPostgresSyncPipelineLock` / `makeSyncPipelineTx`, as used by the
-approve/apply/discard routes):
+(POST, `export const maxDuration = 300`).
+
+**ONE transaction owner — raw postgres.js, NO Supabase for `pending_syncs`
+(Codex round-19 F1).** A `pg_try_advisory_xact_lock` lives in a postgres.js transaction;
+a Supabase/PostgREST call is a SEPARATE connection and CANNOT join that transaction — so
+the read/write must NOT go through Supabase or the read/write would be outside the lock
+(or a write-RPC re-taking `show:` would violate single-holder). The endpoint therefore
+owns the JS-side `withPostgresSyncPipelineLock(driveFileId, { tryOnly: true }, async (tx) =>
+{…})` transaction (the staged-mutation pattern; lock key `hashtext('show:' ||
+drive_file_id)` via `lib/sync/lockedShowTx.ts`) and does the staged-row SELECT + UPDATE
+as **raw SQL through that same `tx`/`SyncPipelineTx`** — no Supabase/PostgREST for
+`pending_syncs` at all. Sequence:
 
 1. **Auth** — `requireAdminIdentity()` (`@/lib/auth/requireAdmin`); reject otherwise.
-2. **Advisory lock (dedupe)** — `pg_try_advisory_xact_lock(hashtext('show:' ||
-   drive_file_id))` (the CANONICAL sync-pipeline key — single-holder, invariant 2; the
-   endpoint is the sole holder for its call, never nests a second). **Try**-lock (non-
-   blocking): if NOT acquired (another request is extracting this show) → return `202
-   { status: "in_progress" }` immediately — no held connection, no duplicate work; the
-   client keeps "parsing…" and retries (§5.3).
-3. **Read** the staged `parse_result` from `pending_syncs` (`.eq("wizard_session_id",
-   …)` + `drive_file_id`, `parse_result` column; Supabase read, invariant 9 — `{ data,
-   error }`, infra fault → typed error result). Missing row (race) → `200 { items: [] }`
-   → client keeps its baseline (§5.3).
-4. **Cache short-circuit** — if every fileId-bearing `agenda_link` already has
+2. **Try-lock** — `withPostgresSyncPipelineLock(..., { tryOnly: true })`. Not acquired
+   (another request is extracting this show) → `202 { status: "in_progress" }`
+   immediately (no held connection, no duplicate work; client retries, §5.3).
+   Single-holder (invariant 2): the lock is acquired at exactly this JS layer; the raw
+   SQL read/write below do NOT re-acquire it.
+3. **SELECT** `parse_result` (+ lifecycle columns) `from public.pending_syncs where
+   wizard_session_id = $1 and drive_file_id = $2` via `tx` (raw postgres.js). Missing
+   row → `200 { items: [] }` (client keeps baseline).
+4. **Lifecycle guard (Codex round-19 F2)** — BEFORE any Drive work, verify the row is
+   still extractable: `wizard_session_id` is the **currently-active** pending wizard
+   session AND the row is NOT already approved / finalizing / consumed (the same
+   active-session + approval-state predicate the wizard/finalize flow uses — exact
+   columns pinned in the plan: e.g. `approval_payload IS NULL`, no finalize-in-progress
+   marker, session-supersession check). If STALE → release immediately (no Drive work,
+   no write) and return a **terminal** `409 { status: "stale" }`; the client stops
+   retrying and shows the baseline note (§5.3). This prevents an old Step-3 tab from
+   holding the `show:` lock for up to 300 s, doing Drive work, and persisting agenda to
+   a row a superseding session / finalize no longer owns.
+5. **Cache short-circuit** — if every fileId-bearing `agenda_link` already has
    `extracted` with a matching `headRevisionId` + current `EXTRACTOR_VERSION`
-   (`enrichAgenda`'s existing freshness check, `enrichAgenda.ts:115-121`) → **skip all
-   Drive work**, build the preview from the stored `extracted`, return `200 { items }`.
-   This is the dominant repeat path (re-view, refresh, multi-tab after the first run).
-5. **Extract + persist** — else `enrichAgenda(parseResult, defaultAgendaDriveClient(),
+   (`enrichAgenda.ts:115-121`) → skip all Drive work, build preview from stored
+   `extracted`, return `200 { items }`. Dominant repeat path (re-view, refresh,
+   multi-tab after the first run).
+6. **Extract** — else `enrichAgenda(parseResult, defaultAgendaDriveClient(),
    driveFileId)` (production `downloadFileBytes` + `getAgendaChips`,
-   `runScheduledCronSync.ts:1665-1666`; one show ≤ a couple PDFs ⇒ well within 300 s;
-   per-PDF/per-show hygiene caps §5.5 bound a pathological show). Then **persist** the
-   updated `parse_result` (now carrying `extracted`) back to `pending_syncs` via the
-   RPC-gated staged-write path (PostgREST DML lockdown — the `pending_syncs` mutation
-   goes through the same SECURITY DEFINER / pipeline-tx path as the other staged
-   mutations, never a raw `from('pending_syncs').update`). Build + return
-   `200 { items }`.
+   `runScheduledCronSync.ts:1665-1666`; ≤ a couple PDFs ⇒ well within 300 s; §5.5 caps
+   bound a pathological show). The Drive reads are the ONLY external I/O inside the tx;
+   holding the lock during this capped work mirrors the onboarding scan (PR #80, which
+   already does Drive work under the per-show lock).
+7. **Persist (raw UPDATE in the same tx)** — `update public.pending_syncs set
+   parse_result = $1::jsonb where wizard_session_id = $2 and drive_file_id = $3` via
+   `tx`, passing the updated object (NOT `JSON.stringify` — postgres.js serializes the
+   `$1::jsonb` param itself; double-encoding is a known footgun). The write is privileged
+   postgres.js (the sync-pipeline connection), so the PostgREST `pending_syncs` DML
+   REVOKE (`20260601000000_b2_show_lifecycle.sql`) is satisfied (no PostgREST write).
+   Build + return `200 { items }`. Commit releases the advisory lock.
 
-**Dedupe + cache properties:** concurrent same-show POSTs → the first holds the lock +
-extracts + persists; the rest get `202 in_progress` (no duplicate Drive work) and on
-retry hit the cache (step 4). Different shows use different hashkeys → parallel (bounded
-by the client's `AGENDA_CLIENT_CONCURRENCY`). Holding the lock during the (capped,
-≤ couple-PDF) extraction mirrors the onboarding scan, which already does Drive work
-under the per-show lock (PR #80 `PostgresOnboardingScanTx`). React strict-mode
-double-fire is absorbed by the try-lock + cache. **No durable work is duplicated and no
-unbounded server amplification is possible.**
+**Dedupe + cache:** concurrent same-show POSTs → first holds the lock + extracts +
+persists; others get `202 in_progress` and on retry cache-hit (step 5). Different shows
+→ different hashkeys → parallel (bounded by `AGENDA_CLIENT_CONCURRENCY`). Strict-mode
+double-fire absorbed by try-lock + cache. **No durable work is duplicated; no unbounded
+amplification; stale rows do no work.**
 
 ### 5.3 Client orchestration + live fill-in (UI; Opus + impeccable invariant 8)
 
@@ -196,7 +215,9 @@ The card NEVER computes hrefs — it always renders `AdminAgendaItem`s the SERVE
   fast-path → state starts `ready`, no fetch). A **`202 { status: "in_progress" }`**
   response (another request holds the lock) keeps the row in `loading` and retries
   after a short backoff (≤ `AGENDA_CLIENT_RETRY_LIMIT = 5` attempts, then → `error`/
-  baseline) — so the placeholder simply persists until the in-flight extraction lands.
+  baseline). A **`409 { status: "stale" }`** (lifecycle guard — superseded session /
+  finalizing row) is **terminal**: stop retrying, render the baseline note (any agenda
+  lands via cron post-publish). A network/5xx → `error` → baseline.
 - The `AgendaBreakdown` renders the EFFECTIVE items = `state === "ready" &&
   resultItems.length ? resultItems : baselineItems` (so hrefs are always present, even
   on an empty/raced endpoint result), with a state-driven affordance:
@@ -337,18 +358,20 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    links → capped + "+N more agenda PDFs"; (k) 18-session extraction → 8 + overflow
    `dropped*`; (l) > `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks in one kept session →
    capped + track overflow.
-2. **Extract endpoint (`tests/app/admin/...extractAgenda.test.ts`)** — (a) auth
-   required (unauth → rejected); (b) staged `parse_result` w/ chip-based links + agenda
-   client over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks AND the
-   updated `parse_result` is **persisted** to `pending_syncs` via the RPC-gated path
-   (assert the write happened, through the pipeline-tx, not a raw `from().update`);
-   (c) **cache short-circuit**: a second call when `extracted` is already fresh
-   (matching `headRevisionId`+`EXTRACTOR_VERSION`) → returns items with **zero Drive
-   calls** (spy `downloadFileBytes`/`getAgendaChips` = 0); (d) **dedupe**: bypass the
-   client throttle — two concurrent POSTs for the same show → the second sees the
-   advisory `try_lock` fail → `202 { status: "in_progress" }` and does **no** duplicate
-   extraction (assert Drive calls happen once); (e) missing staged row → `200 { items:
-   [] }`; (f) infra fault on read → typed error result (invariant 9), not silent empty.
+2. **Extract endpoint (`tests/app/admin/...extractAgenda.test.ts`)** — (a) auth required
+   (unauth → rejected); (b) staged `parse_result` w/ chip-based links + agenda client
+   over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks AND the updated
+   `parse_result` is **persisted** by a raw `tx` UPDATE on `pending_syncs` inside the
+   locked transaction (assert via the pipeline-tx test seam, not Supabase); (c) **cache
+   short-circuit**: a second call when `extracted` is already fresh
+   (`headRevisionId`+`EXTRACTOR_VERSION` match) → items with **zero Drive calls** (spy
+   `downloadFileBytes`/`getAgendaChips` = 0); (d) **dedupe**: bypass the client throttle —
+   two concurrent POSTs for the same show → the second's `try_lock` fails → `202
+   in_progress`, **no** duplicate extraction (Drive calls happen once); (e) **stale
+   lifecycle guard** (Codex round-19 F2): a row whose `wizard_session_id` is superseded
+   OR whose state is approved/finalizing → `409 stale`, **zero Drive calls, no write**
+   (assert the lock is released without extraction); (f) missing staged row → `200
+   { items: [] }`; (g) infra fault on read → typed error from the `tx` path, not silent.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
@@ -377,11 +400,13 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 
 ## 9. Meta-test inventory
 
-- **Supabase call-boundary** (invariant 9): the endpoint's staged-`parse_result` READ
-  and WRITE are Supabase call boundaries → register both (destructure `{ data, error }`;
-  infra fault → typed result, never silent). Drive reads
-  (`downloadFileBytes`/`getAgendaChips`) already registered in
-  `tests/sync/_metaInfraContract.test.ts`.
+- **Supabase call-boundary** (invariant 9): the endpoint's `pending_syncs` READ + WRITE
+  are **raw postgres.js** inside the `withPostgresSyncPipelineLock` transaction (Codex
+  round-19 F1) — they are NOT Supabase/PostgREST calls, so they are governed by the
+  `SyncPipelineTx` pattern (the existing sync-pipeline error contract), not the Supabase
+  call-boundary registry. The Drive reads (`downloadFileBytes`/`getAgendaChips`) ARE
+  googleapis boundaries, already registered in `tests/sync/_metaInfraContract.test.ts`.
+  The only Supabase call is `requireAdminIdentity()` (existing, registered).
 - **Advisory-lock topology (invariant 2):** the endpoint is a NEW holder of
   `hashtext('show:' || drive_file_id)` (JS-side, `pg_try_advisory_xact_lock`, the
   canonical sync-pipeline key). It is the SOLE holder for its call (never nests another
@@ -390,19 +415,21 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   the same hashkey → no deadlock). Document every existing holder of this key (the
   approve/apply/discard staged routes + the sync pipeline) and confirm the endpoint
   adds no second layer.
-- **PostgREST DML lockdown:** the `pending_syncs.parse_result` write goes through the
-  existing RPC-gated staged-mutation path (the same SECURITY DEFINER / pipeline-tx the
-  approve/apply routes use) — NOT a raw `from('pending_syncs').update`. Confirm
-  `pending_syncs` INSERT/UPDATE/DELETE are REVOKEd from `authenticated`/`anon` (and add
-  a registry row to `tests/db/postgrest-dml-lockdown.test.ts` if `pending_syncs` isn't
-  already covered). No NEW table.
+- **PostgREST DML lockdown:** the `pending_syncs.parse_result` write is a **privileged
+  raw postgres.js UPDATE** through the sync-pipeline `tx` (the same connection the
+  approve/apply routes mutate staged rows with) — NOT a PostgREST
+  `from('pending_syncs').update`. `pending_syncs` INSERT/UPDATE/DELETE are already
+  REVOKEd from `authenticated`/`anon` (`20260601000000_b2_show_lifecycle.sql`), so the
+  lockdown intent (no client-role DML) is satisfied; confirm `pending_syncs` has a
+  registry row in `tests/db/postgrest-dml-lockdown.test.ts` (add if absent). No NEW
+  table, no migration.
 - No catalog change (§3).
 
 ## 10. Files touched
 
 | File | Change |
 |---|---|
-| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → `pg_try_advisory_xact_lock('show:'||dfid)` (not acquired → `202 in_progress`) → read staged `parse_result` → cache short-circuit if `extracted` fresh → else `enrichAgenda(…, defaultAgendaDriveClient())` + **persist** to `pending_syncs` (RPC-gated) → `buildAdminAgendaPreview` → `200 { items }` |
+| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → `withPostgresSyncPipelineLock('show:'||dfid, {tryOnly:true})` (not acquired → `202 in_progress`) → raw `tx` SELECT `pending_syncs.parse_result` → **lifecycle guard** (superseded/finalizing → `409 stale`) → cache short-circuit if `extracted` fresh → else `enrichAgenda(…, defaultAgendaDriveClient())` + raw `tx` UPDATE `pending_syncs` → `buildAdminAgendaPreview` → `200 { items }`. ALL in one postgres.js tx; no Supabase for `pending_syncs` |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview`, `capExtractionForAdmin`, `agendaPdfHref` |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`; bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
@@ -425,11 +452,14 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 - Architecture: **async-decouple** — scan stays fast (no PDF work); a per-show
   extract endpoint fills the card live; "parsing agenda…" placeholder → preview on
   resolve (user-approved pivot, round 16).
-- Endpoint boundary: **advisory-locked (`try_lock` on `show:`||dfid) + cache-on-revision
-  + persist to staged `parse_result`** (Codex round-18) — concurrent same-show POSTs
-  dedupe (`202 in_progress`), re-views cache-hit (no Drive work), publish carries the
-  agenda forward. Reuses the staged-mutation discipline (advisory lock + DML lockdown +
-  Supabase write boundary).
+- Endpoint boundary: **one postgres.js tx via `withPostgresSyncPipelineLock` (try-lock
+  on `show:`||dfid) — raw `tx` SELECT + UPDATE of `pending_syncs`, NO Supabase for it**
+  (Codex round-19 F1); cache-on-revision + persist; concurrent same-show → `202
+  in_progress`; re-view cache-hit; publish carries the agenda forward.
+- Lifecycle guard (Codex round-19 F2): before any Drive work, verify the
+  `wizardSessionId` is the active pending session and the row isn't approved/finalizing;
+  else `409 stale` (terminal, no extraction/persist) — stale tabs can't hold the lock or
+  write to a superseded/consumed row.
 - Persistence: endpoint **persists** the extracted agenda to the staged `parse_result`
   (cache + dedupe + publish-carries-forward) via the staged-mutation discipline
   (advisory lock + DML lockdown + Supabase write boundary); cron remains a fallback.
