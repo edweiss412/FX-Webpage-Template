@@ -676,6 +676,8 @@ describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSec
         { qty: 2, cat: "Audio", subCat: "RF", item: "Shure ULXD4" },
         { qty: null, cat: null, subCat: null, item: "Handheld Capsule" }, // no qty prefix, no taxonomy
         { qty: 4, cat: "TBD", subCat: "N/A", item: "DI Box" }, // sentinel taxonomy → hidden
+        { qty: 0, cat: null, subCat: null, item: "Spare Fuse" }, // qty 0 is kept (parity with crew)
+        { qty: 3, cat: null, subCat: null, item: "" }, // nameless on malformed JSONB → "(unnamed item)"
       ],
     };
     const pr = packPr([richCase] as unknown as ReturnType<typeof caseRow>[]);
@@ -688,6 +690,9 @@ describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSec
     expect(t).toContain("4 × DI Box"); // qty kept
     expect(t).not.toContain("(TBD"); // sentinel cat hidden → no taxonomy parens
     expect(t).not.toContain("N/A"); // sentinel subCat hidden
+    expect(t).toContain("0 × Spare Fuse"); // qty 0 is a real value, shown (not dropped)
+    expect(t).toContain("3 × (unnamed item)"); // empty item name → defensive fallback, never "undefined"
+    expect(t).not.toContain("undefined"); // never leak the literal on untyped JSONB
     // the case is expandable (has items) → a <details> testid exists
     expect(getByTestId("wizard-step3-card-pack-4-pack-case-0").tagName.toLowerCase()).toBe(
       "details",
