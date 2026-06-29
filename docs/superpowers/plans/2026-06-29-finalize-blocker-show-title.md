@@ -145,10 +145,16 @@ git commit --no-verify -m "feat(onboarding): parsedShowTitle helper for blocker-
 expect(rows[0]!.display_name).toBe(CAS2_SHADOW_TITLE);
 ```
 
+Also cover the spec's **parse-failure** case (display_name absent): in the existing test `"(c) corrupt/missing items payload is REFUSED per-row…"` (~L431), where `drive-cas-3` blocks with `STAGED_REVIEW_ITEMS_CORRUPT` (assertion at L463-465), add — this row's payload is not cleanly parse-OK, so the route must NOT bake in a name (the client falls back to the id):
+
+```ts
+expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!.display_name).toBeUndefined();
+```
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run --fileParallelism=false tests/onboarding/finalizeCasFullApply.db.test.ts`
-Expected: FAIL — `display_name` is `undefined` (route does not set it yet).
+Expected: the `drive-cas-2` `display_name` assertion FAILS (`undefined`, route does not set it yet). The `drive-cas-3` `toBeUndefined()` passes already — it guards against a future impl baking the id in; its fail-first proof is the Step-5 revert (an impl that set `display_name: result.drive_file_id` would make it red).
 
 - [ ] **Step 3: Write minimal implementation** — three edits in `finalize-cas/route.ts`:
 
@@ -179,10 +185,11 @@ Expected: FAIL — `display_name` is `undefined` (route does not set it yet).
       continue;
     }
     const parsed = parseShadowPayloadForApply(row.payload);
-    shadowResults.push({
-      ...result,
-      display_name: parsed.ok ? (parsedShowTitle(parsed.parseResult) ?? undefined) : undefined,
-    });
+    const title = parsed.ok ? parsedShowTitle(parsed.parseResult) : null;
+    // exactOptionalPropertyTypes (tsconfig.json): `display_name?: string` rejects a
+    // present `undefined`, so ADD the property only when a real title exists; a blocked
+    // row without a title is pushed WITHOUT it (the client falls back to the id).
+    shadowResults.push(title ? { ...result, display_name: title } : result);
   }
 ```
 
@@ -260,11 +267,10 @@ Expected: FAIL — `display_name` undefined on the failure entry.
 (b) Enrich at the single `perRow.push` collection point (L1068). Replace `perRow.push(result);` with:
 
 ```ts
-        perRow.push(
-          result.code === OK_CODE
-            ? result
-            : { ...result, display_name: parsedShowTitle(row.parse_result) ?? undefined },
-        );
+        // exactOptionalPropertyTypes (tsconfig.json): add display_name ONLY when a title
+        // exists; otherwise push the bare result (no present `undefined`).
+        const displayTitle = result.code === OK_CODE ? null : parsedShowTitle(row.parse_result);
+        perRow.push(displayTitle ? { ...result, display_name: displayTitle } : result);
 ```
 
 Add the import (after L11 `import type { ParseResult … }`):
