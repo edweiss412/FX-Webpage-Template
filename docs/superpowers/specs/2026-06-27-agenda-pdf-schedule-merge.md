@@ -187,25 +187,27 @@ best-effort same-instance dedupe:
    row → `200 { items: [] }`. STALE (superseded session OR finalize-consumed/in-progress;
    **approved/applied rows are NOT stale** — round-22 F2) → `409 { status: "stale" }`
    (release slot, no Drive). NO `show:` lock here.
-4. **Exactly ONE fenced chip read (Codex round-28 F1 + round-29 F1)** — smart-chip
-   `fileId` recovery reads the LIVE sheet via `getAgendaChips(spreadsheetId)`, and the
-   ordinal+label correlation is only valid for the sheet revision the staged parse was
-   derived from. But `enrichAgenda` performs its OWN internal `getAgendaChips` when any
-   link lacks `fileId` (`enrichAgenda.ts:66-68`) — so the endpoint must NOT do a second,
-   separate chip read (a sheet edit between two reads reopens the corruption). Instead,
-   the endpoint passes `enrichAgenda` a driveClient whose **`getAgendaChips` is a FENCED
-   WRAPPER**: it reads the spreadsheet's current revision token (`getSpreadsheetRevisionId`
-   / `getFile(spreadsheetId).modifiedTime`) immediately before AND after the underlying
-   `getAgendaChips`, requires both to equal the staged row's `staged_modified_time`
-   (captured in tx#1), and on any mismatch returns a stale signal (e.g.
-   `{ kind: "infra_error" }` + an out-of-band stale flag, or throws a `StaleRevisionError`).
-   `enrichAgenda` thus makes **exactly one** chip read, and it is fenced. On the stale
-   signal the endpoint aborts with **`409 stale`** (no fileId recovery, no extraction
-   persisted) — the operator re-scans. (Mirrors the sync pipeline's
-   modifiedTime/headRevisionId TOCTOU fence; no second unfenced read can occur.)
-5. **Extract (NO DB connection held)** — `enrichAgenda(parseResult, fencedDriveClient,
-   driveFileId)` (production `downloadFileBytes` + the **fenced** `getAgendaChips`
-   wrapper, `runScheduledCronSync.ts:1665-1666`; §5.5 caps bound a pathological show).
+4. **TOP-LEVEL sheet-revision fence — gates ALL fileId trust, before AND after Drive
+   (Codex round-28 F1 + round-29 F1 + round-31)** — the ENTIRE staged parse (links,
+   ordinals, and any previously-recovered `fileId`s) is valid ONLY for the sheet revision
+   it was derived from. So the fence is NOT scoped to `getAgendaChips` — it is a top-level
+   check applied to **every** extraction attempt, whether links are smart-chips (need
+   `getAgendaChips`) OR already fileId-bearing (staged OR a previously-recovered fileId
+   from a download-failed retry). **BEFORE any Drive trust** (chip read OR download): fetch
+   the spreadsheet's current revision token (`getSpreadsheetRevisionId` /
+   `getFile(spreadsheetId).modifiedTime`) and require it to equal the staged row's
+   `staged_modified_time` (captured in tx#1). Mismatch → **`409 stale`**, NO Drive work,
+   NO trust of any staged/recovered fileId (this is the round-31 fix: a retry that would
+   otherwise skip `getAgendaChips` and download a now-stale recovered fileId is caught
+   here). **AFTER** extraction, before persist (step 7), **re-fetch** the revision and
+   require it STILL equals `staged_modified_time` — catching a sheet edit DURING the
+   ≤300 s window. Either mismatch → `409 stale`, no persist; the operator re-scans.
+   (Mirrors the sync pipeline's modifiedTime TOCTOU fence.) Because the precheck already
+   gated everything, `enrichAgenda`'s single internal `getAgendaChips` (`enrichAgenda.ts:66-68`)
+   runs within the fenced window — and the after-check covers any edit landing during it.
+5. **Extract (NO DB connection held)** — `enrichAgenda(parseResult,
+   defaultAgendaDriveClient(), driveFileId)` (production `downloadFileBytes` +
+   `getAgendaChips`, `runScheduledCronSync.ts:1665-1666`; §5.5 caps bound a pathological show).
    `enrichAgenda`'s built-in per-link cache (`getFile` metadata → skip download
    when the stored `extracted` matches `headRevisionId` + `EXTRACTOR_VERSION`) means a
    **cached** show costs only cheap `getFile`s, **zero `downloadFileBytes`/`getAgendaChips`**
@@ -507,11 +509,15 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    during extraction a rescan DELETES + RECREATES the `(drive_file_id, wizard_session_id)`
    row with a NEW `staged_id` → tx#2 `WHERE … AND staged_id = $4 AND staged_modified_time
    = $5` affects **0 rows** → `409 stale`, the NEW scan's `parse_result` is NOT mutated by
-   the old extraction; (m) **exactly one fenced chip read** (round-28 F1 + round-29 F1): assert `enrichAgenda`
-   receives the FENCED `getAgendaChips` wrapper and the endpoint makes **no second,
-   separate** chip read (spy: total `getAgendaChips` invocations ≤ 1); a spreadsheet
-   revision differing from `staged_modified_time` at the before- OR after-check → `409
-   stale`, **no recovery/extraction/persist** (`parse_result` unchanged); (n) **ownership-
+   the old extraction; (m) **top-level revision fence gates ALL fileId trust** (round-28 F1 + round-29 F1 +
+   round-31): a spreadsheet revision differing from `staged_modified_time` at the BEFORE
+   check → `409 stale` with **zero Drive work** (no `getAgendaChips`, no `downloadFileBytes`),
+   AND differing at the AFTER check (edited during extraction) → `409 stale`, no persist
+   (`parse_result` unchanged) — assert for BOTH a smart-chip link AND an already-fileId-
+   bearing link (the fence is not scoped to chip reads); **round-31 retry case:** a first
+   call persists a recovered `fileId` after a download failure, then the sheet
+   `modifiedTime` changes, then a SECOND call MUST return `409 stale` and MUST NOT download
+   the now-stale recovered fileId (assert no `downloadFileBytes` on the stale retry); (n) **ownership-
    scoped slot/in-flight lifecycle** (round-28 F2 + round-29 F2): drive each exit
    (success, missing-row, tx error, extraction throw, revision/lifecycle `409`, tx#2
    stale) → assert slot count + in-flight set return to baseline; AND a **duplicate `202`
@@ -633,10 +639,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 - Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
   links (no `fileId`) get none from the pure baseline (the endpoint result carries
   recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
-- Chip-recovery revision fence: **exactly ONE chip read**, via a FENCED `getAgendaChips`
-  wrapper injected into the driveClient `enrichAgenda` uses (revision == `staged_modified_time`
-  before+after); a post-scan sheet edit → `409 stale`, never a second unfenced read, never
-  a different PDF on the old parse (round-28 F1 + round-29 F1).
+- Sheet-revision fence: a **TOP-LEVEL precheck** (current spreadsheet revision ==
+  `staged_modified_time`) gating ALL fileId trust — chip recovery AND download of any
+  staged OR previously-recovered fileId — applied before AND after the Drive phase on
+  EVERY attempt; a post-scan sheet edit (incl. one between a download-failed recovery and
+  its retry) → `409 stale`, never a different PDF on the old parse (round-28 F1 +
+  round-29 F1 + round-31).
 - Concurrency-slot lifecycle: ownership-scoped (`ownsInFlight`/`acquiredSlot`) `try/finally`
   release on EVERY exit; a duplicate `202` consumes no slot AND never deletes the owner's
   in-flight marker (no leak, no dedupe defeat — round-28 F2 + round-29 F2).
