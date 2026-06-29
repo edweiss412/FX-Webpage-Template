@@ -83,8 +83,10 @@ No change to crew rendering.
   alone can't stop multiple tabs/refreshes/strict-mode/direct POSTs from re-doing
   expensive Drive/PDF work. So the endpoint (a) **caches** by persisting the extraction
   into the staged `parse_result` and short-circuiting when it's already fresh, and
-  (b) **dedupes/bounds** via an in-memory process-wide concurrency cap (NOT a DB lock —
-  Codex round-24 F2), with a **lifecycle guard** so stale tabs do no work. Crucially,
+  (b) **dedupes/bounds DB-backed** (round-32 pivot): a durable `agenda_extract_leases` row
+  (per-staged-row, cross-instance) + a brief `agenda-extract-admit` advisory lock (strict
+  deployment-wide cap), with an in-memory cap only as a per-instance fast-path; plus a
+  **lifecycle guard** so stale tabs do no work. Crucially,
   **NO DB connection is held during the ≤300 s Drive/PDF work** (short read tx → extract
   with no DB → short brief-`show:`-lock persist tx), so previews can't exhaust the
   postgres pool or block finalize/publish (round-23/24 F2). Raw postgres.js (no Supabase
@@ -1073,10 +1075,14 @@ there.)
   extract endpoint fills the card live; "parsing agenda…" placeholder → preview on
   resolve (user-approved pivot, round 16).
 - Endpoint boundary: **two SHORT txns, NO DB connection held during Drive** (Codex
-  round-23/24 F2) — tx#1 read+lifecycle, extract with no DB held, tx#2 brief `show:` lock
-  + atomic conditional persist. Dedupe + resource-bound via an in-memory process-wide
-  `AGENDA_MAX_CONCURRENT_EXTRACTIONS` cap (no DB lock) — so previews can't exhaust the
-  pool or block finalize/publish. Raw postgres.js (no Supabase for `pending_syncs`).
+  round-23/24 F2) — tx#1 (claim lease + read + lifecycle), extract with no DB held, tx#2
+  brief `show:` lock + atomic conditional persist. **Dedupe + cap are DB-backed (round-32
+  pivot — supersedes the original in-memory-only design):** the durable
+  `agenda_extract_leases` row (per-staged-row dedupe) + the brief `agenda-extract-admit`
+  advisory lock (strict deployment-wide cap via live-lease count) are MANDATORY for
+  cross-instance correctness; the in-memory `AGENDA_MAX_CONCURRENT_EXTRACTIONS` cap is ONLY
+  a per-instance fast-path/secondary guard, NOT the authority. No DB connection is held
+  during Drive. Raw postgres.js (no Supabase for `pending_syncs`/`agenda_extract_leases`).
 - Freshness: cache hit costs a cheap `getFile` (not zero Drive — round-23 F1); blocks
   render ONLY for links whose **ordinal** is in `freshByLinkKey` (an EXPLICIT typed input,
   per-link not fileId — round-35 F2; default empty — round-25 F2) = links **positively
