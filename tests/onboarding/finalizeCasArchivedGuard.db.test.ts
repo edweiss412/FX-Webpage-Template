@@ -44,6 +44,10 @@ const SIBLING_PARSE_CREW: Crew[] = [
   { name: "Dee", email: "dee@x.example" },
 ];
 
+// Archived shadow's parsed title — the finalize-cas blocked-row enricher surfaces it as
+// display_name on the SHOW_ARCHIVED_IMMUTABLE per_row entry (parse succeeds before the guard).
+const ARCHIVED_TITLE = "Acg Archived";
+
 function makeParse(title: string, crew: Crew[]): Record<string, unknown> {
   return {
     show: {
@@ -272,7 +276,7 @@ describe("Phase D finalize-cas — archived-show immutability guard (real DB)", 
       await seedShadow(
         "drive-acg-a",
         archivedShowId,
-        makeParse("Acg Archived", ARCHIVED_PARSE_CREW),
+        makeParse(ARCHIVED_TITLE, ARCHIVED_PARSE_CREW),
       );
       // Archive AFTER staging — the exact DEF-4 race window this guard closes.
       await archiveShow(archivedShowId);
@@ -293,7 +297,11 @@ describe("Phase D finalize-cas — archived-show immutability guard (real DB)", 
       };
       expect(body.ok).toBe(false);
       expect(body.per_row).toEqual([
-        { drive_file_id: "drive-acg-a", code: "SHOW_ARCHIVED_IMMUTABLE" },
+        {
+          drive_file_id: "drive-acg-a",
+          code: "SHOW_ARCHIVED_IMMUTABLE",
+          display_name: ARCHIVED_TITLE,
+        },
         { drive_file_id: "drive-acg-b", code: "OK" },
       ]);
 
