@@ -2582,6 +2582,18 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  RESCAN_REVIEW_REQUIRED: {
+    code: "RESCAN_REVIEW_REQUIRED",
+    dougFacing: "This sheet changed and needs your review before publishing.",
+    crewFacing: null,
+    followUp: "Doug → re-review this sheet in setup, then publish",
+    helpfulContext:
+      "A re-scan of this sheet surfaced a change that needs a decision (for example a crew email, name, or roster change), so setup is holding it out of the publish batch until you re-review and re-approve it from the reapply page.",
+    title: "This sheet changed during setup",
+    longExplanation:
+      "You re-scanned this sheet and the refreshed version changed something that needs a look — a crew email, name, or roster change, or a new data-quality gap. Setup is holding it out of the publish batch until you open it and re-approve it from the reapply page; the publish checkbox alone won't clear it.",
+    helpHref: "/help/errors#RESCAN_REVIEW_REQUIRED",
+  },
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
     dougFacing: "That sheet could not be parsed during retry.",
