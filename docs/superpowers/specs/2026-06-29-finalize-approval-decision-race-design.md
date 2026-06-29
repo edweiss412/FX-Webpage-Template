@@ -62,24 +62,26 @@ Verified at the agenda feature's merge-base: finalize always used select-time ap
 
 ## 3. Design
 
-Extend the existing generation-scoped locked re-read from `select parse_result` to a **full decision-row re-read**, **move it to the top of `processApprovedRow`** (before the version gate, so the authoritative locked decision row exists before any decision is taken), and drive every checked/unchecked branch from the **locked** values.
+Extend the existing generation-scoped locked re-read from `select parse_result` to a **full decision-row re-read** (kept in its current position), drive every checked/unchecked branch from the **locked** values, and **move only the small version gate** down so it keys on the locked values too.
 
-### 3.0 Reorder: the re-read runs FIRST (resolves the version-gate ordering bug)
+### 3.0 Move ONLY the version gate (NOT the re-read/coercion)
 
-Today the order inside `processApprovedRow` is: version gate (`:702-715`, reads `row.wizard_approved` + `row.wizard_reviewer_choices_version`) → Drive metadata fence (`:717-753`) → locked re-read (`:769`) → `coercedRow` (`:806`) → 4-branch (`:843+`). The version gate runs **before** the re-read, so it currently keys on **stale** select-time values, and `coercedRow` does not yet exist there.
+Today the order inside `processApprovedRow` is: version gate (`:704-715`, reads `row.wizard_approved` + `row.wizard_reviewer_choices_version`) → Drive metadata fence (`:717-753`, per-row demotes `DRIVE_FETCH_FAILED` / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` / `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`) → locked re-read (`:769`) → `coercedRow` (`:806`, runs `asParseResult`/`coerceJsonbArray` which **throw a typed error on corrupt payload → whole-route 500** that wedges the batch, `:827`, `:1150`) → 4-branch (`:843+`).
 
-**Move the full-decision locked re-read + `rereadRow` + `coercedRow` construction to the very top of `processApprovedRow`** (immediately after `const { row, wizardSessionId, tx } = input;` at `:697`), so the order becomes:
+**The re-read + `coercedRow` construction stay exactly where they are** (after the Drive fence). Moving the coercion earlier is **incorrect**: a corrupt `parse_result`/reviewer-choices value on a row that should get a graceful per-row Drive demote would instead throw the route-level `ONBOARDING_FINALIZE_INTERNAL_ERROR` and wedge the whole batch. The existing "per-row demote before coercion" ordering must be preserved.
 
-1. **locked full-decision re-read** (§3.1) → 0 rows → existing generation-stale demote (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`)
-2. build `rereadRow` + `coercedRow` from locked values
-3. **finishable re-validation** (§3.2) → non-finishable → typed per-row skip
-4. **version gate** keyed on `coercedRow` (§3.3)
-5. Drive metadata fence (unchanged — uses `row.drive_file_id` / `row.staged_modified_time`, both immutable)
+**Move only the version-gate block** (`:704-715`, ~12 lines) **down to immediately after `coercedRow` (`:810`)**, keyed on `coercedRow`. New order:
+
+1. Drive metadata fence (unchanged — uses `row.drive_file_id` / `row.staged_modified_time`, both immutable)
+2. locked **full-decision** re-read (§3.1, unchanged position `:769`) → 0 rows → existing generation-stale demote
+3. `rereadRow` + `coercedRow` from locked values (unchanged position `:806`)
+4. **finishable re-validation** (§3.2) → non-finishable → typed per-row skip
+5. **version gate** keyed on `coercedRow` (§3.3)
 6. `parsedItems` + the 4-branch (`coercedRow`)
 
-The Drive fence reads only immutable columns off `row`, so moving the DB re-read above it is safe and slightly more efficient (a generation-superseded row is demoted before the Drive call). The re-read's WHERE params (`row.staged_id`, `row.staged_modified_time`) are immutable, so they are correct at the top.
+**Behavior delta of moving the version gate:** for a checked row that is *both* version-unsupported *and* Drive-failing, the demote code becomes the Drive code instead of `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED` (the Drive fence now runs first). This is immaterial: `REVIEWER_CHOICES_VERSION` is `1` and the CHECK forces every checked row's version to a non-null value (today only `1`), so the version gate **never fires in practice** — it is a forward-guard against a future version bump. Either way the row is demoted (not published). The gate is moved purely so that, once it *can* fire, it keys on the locked version (closing the race for that future case) without reordering the coercion.
 
-### 3.1 The locked re-read (widen + relocate; replaces `finalize/route.ts:769-794`, moved per §3.0)
+### 3.1 The locked re-read (widen in place; `finalize/route.ts:769-794` — position unchanged)
 
 ```sql
 select parse_result,
@@ -94,7 +96,7 @@ select parse_result,
    and staged_modified_time = $4::timestamptz
 ```
 
-- **Generation-scoped** (unchanged): the `(staged_id, staged_modified_time)` predicate means a mid-flight **rescan** that replaced the row (new `staged_id` or `modified_time`) returns 0 rows → the existing stale demote path (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`) fires (`finalize/route.ts:777-789`, now relocated to the top). **Unchanged.**
+- **Generation-scoped** (unchanged): the `(staged_id, staged_modified_time)` predicate means a mid-flight **rescan** that replaced the row (new `staged_id` or `modified_time`) returns 0 rows → the existing stale demote path (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`) fires (`finalize/route.ts:777-789`, position unchanged). **Unchanged.**
 - **Single SELECT** so all decision columns are mutually consistent under the lock (a half-applied approve cannot be observed — approve/unapprove each commit atomically while holding the same `show:` lock).
 - `rereadRow` is rebuilt as `{ ...row, <each re-read column> }` so the immutable columns (`staged_id`, `staged_modified_time`, `triggered_review_items`, `base_modified_time`) stay from `row` and the decision columns + `parse_result` + `last_finalize_failure_code` come from the locked read. `PendingFinalizeRow` gains a `last_finalize_failure_code: string | null` field (it is consumed by §3.2 only, never written by finalize's apply path).
 
@@ -110,15 +112,22 @@ If **not** finishable, route to a **typed per-row skip** reusing `STAGED_PARSE_R
 
 **The full selector predicate also gates on manifest status** `m.status in ('staged','applied')` (`finalize/route.ts:385,390`). The locked re-read is `pending_syncs`-only and does **not** re-read manifest status, because every concurrent writer leaves the manifest in-set: approve → `applied` (`approve/route.ts:176-177`), unapprove → `staged` (`unapprove/route.ts:102-103`), rescan-demote → `staged`. So re-validating the approval-column part against the locked `pending_syncs` row is sufficient; the manifest component cannot flip the row out of the finishable set via any concurrent path. (Stated explicitly so the reviewer does not read §3.2's two-term predicate as the *whole* selector predicate.)
 
-**Reachability of the non-finishable skip:** the non-finishable combo is `wizard_approved=false AND last_finalize_failure_code IS NOT NULL`. This is **NOT** unreachable — `last_finalize_failure_code` is written by finalize's own `demotePending` (`finalize/route.ts:444`) **and** by the per-sheet re-scan flow (`lib/onboarding/rescanWizardSheet.ts:367-370`, DIRTY branch: `wizard_approved=false` + `last_finalize_failure_code=RESCAN_REVIEW_REQUIRED`). Re-scan **also holds the same `show:` lock** (`rescanWizardSheet.ts:269`). So a concurrent rescan-demote that commits before finalize's locked re-read, leaving the same generation, yields a locked row that is genuinely non-finishable (the operator just re-scanned; it must go back to review, not publish). The skip is therefore **load-bearing**, not dead code — it correctly diverts such a row to the per-row skip instead of publishing/Holding stale intent. (The approve/unapprove vector *specifically* cannot produce this combo: the CHECK constraint `pending_syncs_approved_requires_full_payload` requires `wizard_approved=true → last_finalize_failure_code IS NULL` — `supabase/migrations/20260518010444_pending_syncs_last_finalize_failure_code.sql:23-30` — and unapprove never sets a failure code. So an approve→checked locked row always has `failure_code=null`, and an unapprove→unchecked locked row keeps `failure_code` whatever it was, which was `null` for a finishable-clean row.) Asserted by §8.4.
+**Reachability of the non-finishable skip — honest accounting:** the non-finishable combo is `wizard_approved=false AND last_finalize_failure_code IS NOT NULL`. This is **not reachable at the same generation by any current concurrent writer**, so the skip is **forward-looking defense-in-depth**, not a live code path:
+
+- **approve** sets `last_finalize_failure_code=null` and requires the full-approved payload (CHECK `pending_syncs_approved_requires_full_payload`, `supabase/migrations/20260518010444_pending_syncs_last_finalize_failure_code.sql:23-30`) → never produces the combo.
+- **unapprove** never writes `last_finalize_failure_code` (`unapprove/route.ts:73-79`); a finishable-clean row had it `null`, so an unapprove→unchecked locked row keeps `failure_code=null` (finishable).
+- **re-scan** *does* write `wizard_approved=false` + `last_finalize_failure_code` (`rescanWizardSheet.ts:362-373`, under the same `show:` lock, `:269`), BUT it re-stages first via `scanOnboardingPreparedFiles` (`:281`) → `runOnboardingScan`'s upsert mints a new `staged_id` (`coalesce($8::uuid, gen_random_uuid())` + `staged_id = excluded.staged_id` on conflict, `lib/sync/runOnboardingScan.ts:409,424`). So a rescan **changes the generation** → finalize's generation-scoped re-read returns **0 rows** → the existing stale-demote path (step 2), **not** the same-generation non-finishable skip.
+- **finalize's own `demotePending`** (`:444`) is serialized by the same lock and processes each row once per pass.
+
+So the skip's branch is currently unreachable. It is retained as a **cheap, explicit fail-safe**: if a future same-generation writer ever leaves a non-finishable locked row, finalize must **skip** it (back to review) rather than fall through to the unchecked branch and create a Held show for a row that carries a failure code. §8.4 is a **unit test of the guard's behavior** (it forces the combo via the fake re-read) — it documents intent, and explicitly is not a claim that production reaches it. (If the reviewer prefers YAGNI removal over forward-defense, that is a one-line deletion + dropping §8.4; the author's call is to keep the guard because a future demote-writer regression would otherwise publish/Hold a review-required row silently.)
 
 ### 3.3 Drive every branch from the locked values
 
-After the §3.0 reorder, `coercedRow` (`asParseResult` + `coerceJsonbArray` overlaid on `rereadRow`, currently `finalize/route.ts:806-810`) is constructed at the **top** of `processApprovedRow`, so it is in scope for every decision read, including the relocated version gate. Re-point the **six direct `row.<decisionCol>` reads** to `coercedRow`:
+`coercedRow` (`asParseResult` + `coerceJsonbArray` overlaid on `rereadRow`, `finalize/route.ts:806-810`) stays in its current position (after the Drive fence). The version gate is relocated to **immediately after** it (§3.0), so `coercedRow` is in scope for every decision read. Re-point the **six direct `row.<decisionCol>` reads** to `coercedRow`:
 
 | current line | current | change to |
 |---|---|---|
-| `:704` (version gate; **moves** below the re-read per §3.0) | `row.wizard_approved && row.wizard_reviewer_choices_version !== …` | `coercedRow.wizard_approved && coercedRow.wizard_reviewer_choices_version !== …` |
+| `:704` (version gate; **relocated** to after `coercedRow` per §3.0) | `row.wizard_approved && row.wizard_reviewer_choices_version !== …` | `coercedRow.wizard_approved && coercedRow.wizard_reviewer_choices_version !== …` |
 | `:846` | `if (row.wizard_approved)` (existing-show split) | `if (coercedRow.wizard_approved)` |
 | `:892` | `appliedByEmail = row.wizard_approved ? …` | `coercedRow.wizard_approved` |
 | `:895-896` | `appliedAt = row.wizard_approved ? normalizeTimestamptz(row.wizard_approved_at) : …` | `coercedRow.wizard_approved` / `coercedRow.wizard_approved_at` |
@@ -143,7 +152,7 @@ No demote is needed for either; the rows stay finishable and are simply re-drive
 ## 4. Guard conditions / edge cases
 
 - **Re-read returns 0 rows** (rescan replaced the generation): existing stale demote (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`). Unchanged from current behavior.
-- **`wizard_approved=true` but `wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION`** in the locked row: the existing version-gate demote (`finalize/route.ts:702-715`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`) fires — now keyed on the **locked** version, which is correct (a row re-checked concurrently carries a fresh version=1; a row whose choices are genuinely unsupported is still demoted).
+- **`wizard_approved=true` but `wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION`** in the locked row: the version-gate demote (`finalize/route.ts:704-715`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`), relocated to after `coercedRow` (§3.0), now keys on the **locked** version. Today it never fires (version is invariant `1` for checked rows per the CHECK); the relocation makes it race-correct for a future version bump. The demote still fires for a genuinely-unsupported future version, and is correctly skipped for the unchecked locked row.
 - **`wizard_approved=true` but `wizard_approved_by_email=null`** in the locked row: `requireApprovedByEmail(coercedRow)` throws (`:243`) → the route's never-empty-500 wrapper. This is corrupt-by-construction (the approve route always writes the email with `wizard_approved=true`, enforced by CHECK `pending_syncs_approved_requires_full_payload`), so a throw is the correct typed-500, unchanged in spirit from today.
 - **postgres.js types:** `wizard_approved_at` comes back as a JS `Date`; `normalizeTimestamptz` already wraps every read of it (`:896`). `wizard_reviewer_choices` is jsonb → `coerceJsonbArray` already wraps it (`:809`). `last_finalize_failure_code` is `text | null` — compared with `== null` (covers SQL NULL → JS `null`). No new type-coercion surface.
 - **Non-DB-touching columns unchanged:** `display_name` (added by #183 post-return, `:133`) is computed outside `processApprovedRow` from the per-row result; untouched.
@@ -172,7 +181,7 @@ Per AGENTS.md, declare which structural meta-tests this change creates/extends:
 
 ## 7. Watchpoints (disagreement-loop preempts for the reviewer)
 
-- **The non-finishable skip (§3.2) is load-bearing, NOT dead code** — it is reachable via a concurrent **rescan-demote** (which holds the same `show:` lock and writes `last_finalize_failure_code` with `wizard_approved=false`, `rescanWizardSheet.ts:269,367-370`). The approve/unapprove vector specifically cannot produce the combo (CHECK `pending_syncs_approved_requires_full_payload`). Do not relitigate it as dead code, and do not relitigate the corrected reachability claim.
+- **The non-finishable skip (§3.2) is forward-looking defense-in-depth, not a live path** — it is currently unreachable at the same generation (approve sets `failure_code=null`; unapprove never writes it; rescan changes the generation → 0-row path; finalize is self-serialized). It is retained as a cheap fail-safe against a future same-generation demote writer. §8.4 unit-tests the guard's behavior; it is **not** a claim that production reaches it. This is the author's deliberate keep-the-guard call; YAGNI removal is a noted alternative (one-line). Do not relitigate the reachability accounting — it is stated honestly in §3.2.
 - **"Why not demote on approval change?"** — answered in §3.4: the two real transitions stay finishable; demoting would interact badly with the `wizard_approved=true OR last_finalize_failure_code is null` predicate (BACKLOG note). We re-drive, not demote.
 - **`staged_modified_time` is intentionally NOT bumped by approve/unapprove** — this is why the generation-scoped re-read alone (parse_result-only) could not catch the race; the fix is the column-set widening, not a generation-key change. Do not propose bumping `staged_modified_time` on approve (it would spuriously invalidate the agenda generation guard).
 - **Single SELECT, not per-column reads** — all decision columns must come from one re-read row for mutual consistency; do not split.
@@ -186,7 +195,7 @@ New file `tests/onboarding/finalizeApprovalRace.test.ts`, modeled on the FakeRac
 - **8.1 checked→unchecked (unapprove wins the race):** outer select returns `wizard_approved=true`; locked re-read returns `wizard_approved=false, last_finalize_failure_code=null`. Assert: existing-show path → **D10 NO-OP** (manifest `applied`, `publish_intent=false`, NO shadow INSERT); first-seen path → created **Held** (`recordCreatedShowProvenance` called with `false`, `publish_intent` not flipped). The row is **not** published. *Failure mode caught:* finalize publishing a just-unchecked row.
 - **8.2 unchecked→checked (approve wins the race):** outer select returns `wizard_approved=false`; locked re-read returns `wizard_approved=true` + email + choices + version=1. Assert: checked path → shadow INSERT (existing-show) / `publish_intent` stamped `true` (first-seen), provenance uses the **locked** approver email + applied-at. *Failure mode caught:* finalize Holding a just-checked row.
 - **8.3 negative regression (no concurrent change):** outer select and locked re-read identical (`wizard_approved=true`). Assert checked path with the same values — proves the re-read is *used* and 8.1/8.2 are not passing by accident of always reading one source. (Anti-tautology: 8.1/8.2 assert against the **re-read** values; this proves the non-race case is unaffected.)
-- **8.4 defensive non-finishable skip:** locked re-read returns `wizard_approved=false, last_finalize_failure_code='SOME_CODE'` (non-finishable). Assert: typed per-row skip (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`), demote called, NO shadow INSERT, NO first-seen apply, NO publish. *Failure mode caught:* a row that became non-finishable under the lock being published/Held on stale intent.
+- **8.4 defensive non-finishable skip (guard-behavior unit test, not a reachability claim):** locked re-read returns `wizard_approved=false, last_finalize_failure_code='SOME_CODE'` (non-finishable — forced via the fake re-read; §3.2 documents that no current concurrent writer reaches this at the same generation). Assert: typed per-row skip (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`), demote called, NO shadow INSERT, NO first-seen apply, NO publish. *Failure mode caught:* a future same-generation demote writer leaving a review-required row that finalize would otherwise fall through to the unchecked branch and create as a Held show.
 - **8.5 locked email provenance:** in the 8.2 checked first-seen path, assert the audit provenance email is the **locked** `wizard_approved_by_email`, not the outer-select email (set them to different values). *Failure mode caught:* provenance attributed to a stale approver.
 
 Each test derives its expected outcome from the configured re-read values, never a hardcoded constant. Negative-regression discipline: an implementation that ignores the widened re-read (reads decision columns off the outer-select `row`) fails 8.1, 8.2, and 8.5.
@@ -195,7 +204,7 @@ Each test derives its expected outcome from the configured re-read values, never
 
 ## 9. Files touched
 
-- `app/api/admin/onboarding/finalize/route.ts` — move the locked re-read to the top of `processApprovedRow` (§3.0), widen its SELECT + add `last_finalize_failure_code` to `PendingFinalizeRow` (§3.1), add the finishable re-validation (§3.2), re-point six `row.<decisionCol>` reads to `coercedRow` (§3.3). ~35 lines net.
+- `app/api/admin/onboarding/finalize/route.ts` — relocate only the version-gate block to after `coercedRow` (§3.0), widen the in-place locked re-read SELECT + add `last_finalize_failure_code` to `PendingFinalizeRow` (§3.1), add the finishable re-validation after `coercedRow` (§3.2), re-point six `row.<decisionCol>` reads to `coercedRow` (§3.3). ~30 lines net. The re-read + coercion stay in their current position (after the Drive fence).
 - `tests/onboarding/finalizeApprovalRace.test.ts` — **new** (§8.1-8.5).
 - **`tests/app/admin/finalizeAgendaRace.test.ts`** — update the fake-DB re-read handler at `:232` (matches `select parse_result from public.pending_syncs where wizard_session_id`) so it still matches the **widened** SELECT and returns the new decision columns. Without this, the widened SQL falls through to `FakeRaceDb`'s "unhandled SQL" throw and the existing agenda-race tests break.
 - **`tests/onboarding/finalize.test.ts`** — update the re-read handler(s) at `:255` and `:286` (same prefix-match break).
