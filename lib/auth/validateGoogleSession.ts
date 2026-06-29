@@ -3,6 +3,7 @@ import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 export type GoogleSessionViewer = {
   kind: "crew";
@@ -65,6 +66,10 @@ export async function validateGoogleSession(
   try {
     supabase = await createSupabaseServerClient();
   } catch {
+    await log.error("google session validation failed", {
+      source: "auth/validateGoogleSession",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return {
       kind: "terminal_failure",
       status: 500,
@@ -84,6 +89,10 @@ export async function validateGoogleSession(
     userResult = r.data;
     userError = r.error;
   } catch {
+    await log.error("google session validation failed", {
+      source: "auth/validateGoogleSession",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return {
       kind: "terminal_failure",
       status: 500,
@@ -100,6 +109,10 @@ export async function validateGoogleSession(
     // auth chain that fell to denied/no_credentials → 401,
     // recreating the exact infra-as-auth masking class R15 was meant
     // to eliminate. Surface as terminal_failure 500.
+    await log.error("google session validation failed", {
+      source: "auth/validateGoogleSession",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return {
       kind: "terminal_failure",
       status: 500,

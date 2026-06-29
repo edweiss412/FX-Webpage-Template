@@ -1,6 +1,7 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
+import { log } from "@/lib/log";
 
 /**
  * R15 #3 (round-14 §B MEDIUM): the `reason` discriminator distinguishes
@@ -31,6 +32,10 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
       if (isAuthSessionMissingError(userError)) {
         return { ok: false, reason: "not_admin" };
       }
+      await log.error("admin session lookup failed", {
+        source: "auth/isAdminSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
       return { ok: false, reason: "infra_error" };
     }
     const email = canonicalize(userResult.user?.email);
@@ -41,6 +46,10 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
 
     const { data, error } = await supabase.rpc("is_admin");
     if (error) {
+      await log.error("admin session lookup failed", {
+        source: "auth/isAdminSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
       return { ok: false, reason: "infra_error" };
     }
     if (data !== true) {
@@ -52,6 +61,10 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
     // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY
     // are missing or the cookie store is unavailable — infrastructure
     // configuration failure, not an auth signal.
+    await log.error("admin session lookup failed", {
+      source: "auth/isAdminSession",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return { ok: false, reason: "infra_error" };
   }
 }

@@ -26,6 +26,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { validateNextParam, DEFAULT_AUTH_NEXT_PATH } from "@/lib/auth/validateNextParam";
+import { log } from "@/lib/log";
 
 /**
  * Block-1-finding-5 helper (2026-05-27): UNAUTHED admin paths redirect to
@@ -162,6 +163,10 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
     // rather than 403. The chokepoint still fails closed (the throw
     // propagates to Next's error boundary), but the response category
     // is correct.
+    await log.error("admin gate infra failure", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     throw new AdminInfraError(
       `requireAdmin: server client construction failed: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -177,6 +182,10 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
     claimsData = r.data;
     claimsError = r.error;
   } catch (err) {
+    await log.error("admin gate infra failure", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     throw new AdminInfraError(
       `requireAdmin: getClaims threw: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -187,6 +196,10 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
       // authed-but-not-admin 403 path below is unchanged — security boundary.
       return await redirectToSignIn();
     }
+    await log.error("admin gate infra failure", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     throw new AdminInfraError(
       `requireAdmin: getClaims failed: ${String((claimsError as { message?: string }).message)}`,
     );
@@ -210,6 +223,10 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
       supabase.rpc("is_admin"),
     ]);
   } catch (err) {
+    await log.error("admin gate infra failure", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     throw new AdminInfraError(
       `requireAdmin: session/admin RPC threw: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -222,11 +239,19 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
   // adminError} does NOT collapse into a benign redirect and hide an admin
   // DB outage.
   if (sessionError) {
+    await log.error("admin gate infra failure", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     throw new AdminInfraError(
       `requireAdmin: is_session_live RPC failed: ${String((sessionError as { message?: string }).message)}`,
     );
   }
   if (adminError) {
+    await log.error("admin gate infra failure", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     throw new AdminInfraError(
       `requireAdmin: is_admin RPC failed: ${String((adminError as { message?: string }).message)}`,
     );
