@@ -2596,14 +2596,14 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_OUTDATED_AT_PHASE_D: {
     code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
-    dougFacing: "A live show changed after setup staged its publish changes.",
+    dougFacing: "This sheet changed after setup reviewed it, so its update is on hold.",
     crewFacing: null,
     followUp: "Doug → re-run setup review for that sheet before final publish",
     helpfulContext:
-      "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
-    title: "Live show advanced during finalize",
+      "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Re-run this sheet's review to pick up the latest version, then publish.",
+    title: "This sheet changed during setup",
     longExplanation:
-      "Finalize Phase D only promotes shadow changes when the live show hasn't advanced past the wizard-staged modified time. A live show changed after setup staged its publish changes, so this batch is held.",
+      "Setup saves the version of each sheet you reviewed and confirms it has not changed before publishing. This sheet was edited after review, so its update is on hold rather than overwriting the newer content. Re-run this sheet's review to pick up the latest version, then finish publishing.",
     helpHref: "/help/errors#STAGED_PARSE_OUTDATED_AT_PHASE_D",
   },
   STALE_ORPHAN_REPORT: {
