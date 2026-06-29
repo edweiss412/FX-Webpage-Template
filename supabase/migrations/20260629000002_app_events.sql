@@ -45,13 +45,18 @@ revoke all on function public.prune_app_events(interval) from public, anon, auth
 grant execute on function public.prune_app_events(interval) to service_role;
 
 -- Daily retention prune (SQL-body cron, bootstrap_nonces precedent :33-40). Idempotent.
+-- Job name deliberately OUTSIDE the `fxav_cron_` namespace: that prefix is the
+-- pg-cron-coverage contract for the 9 Vercel-route net.http_get cron jobs
+-- (tests/cross-cutting/pg-cron-coverage.test.ts), and this is a pure-SQL
+-- maintenance cron. The self-guarded unschedule below makes it idempotent on its
+-- own (it does not rely on the 20260527000003 `fxav_cron_%` sweep).
 do $$
 begin
-  if exists (select 1 from cron.job where jobname = 'fxav_cron_prune_app_events') then
-    perform cron.unschedule('fxav_cron_prune_app_events');
+  if exists (select 1 from cron.job where jobname = 'app_events_prune') then
+    perform cron.unschedule('app_events_prune');
   end if;
   perform cron.schedule(
-    'fxav_cron_prune_app_events',
+    'app_events_prune',
     '17 4 * * *',
     'select public.prune_app_events();'
   );

@@ -72,7 +72,7 @@ describe("app_events schema", () => {
 
   test("prune cron job is registered", async () => {
     const jobs = await sql<{ jobname: string }[]>`
-      select jobname from cron.job where jobname = 'fxav_cron_prune_app_events'`;
+      select jobname from cron.job where jobname = 'app_events_prune'`;
     expect(jobs.length).toBe(1);
   });
 });

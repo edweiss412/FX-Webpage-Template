@@ -340,20 +340,23 @@ grant execute on function public.prune_app_events(interval) to service_role;
 -- idempotent self-scheduling (guarded unschedule so re-apply is safe;
 -- IF-EXISTS-THEN form per the bootstrap_nonces precedent :33-40):
 do $$ begin
-  if exists (select 1 from cron.job where jobname = 'fxav_cron_prune_app_events') then
-    perform cron.unschedule('fxav_cron_prune_app_events');
+  if exists (select 1 from cron.job where jobname = 'app_events_prune') then
+    perform cron.unschedule('app_events_prune');
   end if;
-  perform cron.schedule('fxav_cron_prune_app_events', '17 4 * * *',
+  perform cron.schedule('app_events_prune', '17 4 * * *',
     'select public.prune_app_events();');
 end $$;
 ```
 
-- 60-day default retention. The `fxav_cron_` prefix matches the idempotent
-  unschedule loop in `…/20260527000003_schedule_cron_jobs.sql:72-74`; because
-  migrations apply in sequence, a full re-apply ends with the prune job present
-  (that loop re-creates only its own jobs, then this later migration re-creates
-  the prune job). The guarded `do $$` block also makes this migration idempotent
-  applied alone.
+- 60-day default retention. **Job name `app_events_prune` is deliberately OUTSIDE
+  the `fxav_cron_` namespace:** that prefix is the pg-cron-coverage contract
+  (`tests/cross-cutting/pg-cron-coverage.test.ts`) for the 9 Vercel-route
+  `net.http_get` cron jobs, each asserted to carry auth headers + a canonical
+  route; a pure-SQL maintenance cron would fail every per-job assertion and break
+  the canonical-count. It is registered instead in that test's
+  `EXPECTED_NON_FXAV_NON_ORPHAN_CRONS` snapshot. The guarded `do $$` block (exact-
+  name `if exists … unschedule`) makes the migration idempotent on its own — it
+  does NOT rely on the `20260527000003` `fxav_cron_%` sweep.
 
 ### 5.4 Correlation: `AsyncLocalStorage` request context
 
@@ -510,7 +513,7 @@ fault **also emits a structured log** with the expected `level`/`code`:
   + **1** explicit-capture (streamed `onboarding/scan`). Excluded: `drive/webhook`
   (deferred `after()`), `cron/notify`, `cron/report-reaper` (no Phase-1 emitter).
 - Silent producers tapped: **9** rows (§5.5); emission-meta-pinned: **5**.
-- Retention default: **60** days. Prune cron: **1** (`fxav_cron_prune_app_events`, `17 4 * * *`).
+- Retention default: **60** days. Prune cron: **1** (`app_events_prune`, `17 4 * * *`).
 - New migration number: **20260629000002** (renumber if main advances).
 - Out-of-scope phases: **3** (UI+cron-summary; Sentry; alerting+console-migration).
 

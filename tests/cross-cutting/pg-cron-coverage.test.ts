@@ -73,7 +73,12 @@ const REQUIRED_NOTIFY_JOBS = [
 // orphan T3 cleans up. Empty at M12.1 commit boundary (the orphan was the only
 // pre-existing non-fxav cron). If a future pre-T3 cron is added, this constant
 // MUST be updated in lockstep so the snapshot-equality contract holds.
-const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = [];
+//
+// app_events_prune (2026-06-29 logging foundation): a pure-SQL retention cron
+// (`select public.prune_app_events()`), NOT a Vercel-route net.http_get job, so
+// it is intentionally outside the `fxav_cron_` namespace + canonical
+// pg-cron-jobs.json (which models only the route jobs) and lives here.
+const EXPECTED_NON_FXAV_NON_ORPHAN_CRONS: readonly string[] = ["app_events_prune"];
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";

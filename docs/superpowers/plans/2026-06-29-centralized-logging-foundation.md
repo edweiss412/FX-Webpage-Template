@@ -776,7 +776,7 @@ git commit --no-verify -m "feat(log): add best-effort app_events persist sink"
 - Test: `tests/log/appEventsSchema.test.ts`
 
 **Interfaces:**
-- Produces: `public.app_events` table; `public.prune_app_events(interval)`; `fxav_cron_prune_app_events` cron job.
+- Produces: `public.app_events` table; `public.prune_app_events(interval)`; `app_events_prune` cron job.
 
 > Requires a local Supabase DB. Apply the migration to the local stack before running the DB test: `psql "$(npx supabase status -o env | sed -n 's/^DB_URL="\(.*\)"/\1/p')" -f supabase/migrations/20260629000002_app_events.sql` (or `supabase db reset` if you prefer a full re-apply). The schema test reads `TEST_DATABASE_URL`/local DB.
 
@@ -844,7 +844,7 @@ describe("app_events schema", () => {
 
   test("prune cron job is registered", async () => {
     const jobs = await sql<{ jobname: string }[]>`
-      select jobname from cron.job where jobname = 'fxav_cron_prune_app_events'`;
+      select jobname from cron.job where jobname = 'app_events_prune'`;
     expect(jobs.length).toBe(1);
   });
 });
@@ -908,11 +908,11 @@ grant execute on function public.prune_app_events(interval) to service_role;
 -- Daily retention prune (SQL-body cron, bootstrap_nonces precedent :33-40). Idempotent.
 do $$
 begin
-  if exists (select 1 from cron.job where jobname = 'fxav_cron_prune_app_events') then
-    perform cron.unschedule('fxav_cron_prune_app_events');
+  if exists (select 1 from cron.job where jobname = 'app_events_prune') then
+    perform cron.unschedule('app_events_prune');
   end if;
   perform cron.schedule(
-    'fxav_cron_prune_app_events',
+    'app_events_prune',
     '17 4 * * *',
     'select public.prune_app_events();'
   );
