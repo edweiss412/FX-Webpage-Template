@@ -105,7 +105,7 @@ No change to crew rendering.
         │                       • read staged parse_result        show "parsing agenda…",
         ▼                       • enrichAgenda(result, prod        replace with returned
  fetchStep3Data builds            agendaClient, dfid)  ← Drive    adminAgendaPreview on
- Step3Row { …, agendaLinkCount,   PDF reads, per-PDF caps         resolve (or a note on
+ Step3Row { …, baseline          PDF reads, per-PDF caps         resolve (or keep the
    adminAgendaPreview? }          + per-show count cap            failure/empty).
         │                       • buildAdminAgendaPreview                │
         └──────────────────────► returns { adminAgendaPreview } ◄───────┘
@@ -120,13 +120,18 @@ scan continues to stage `parse_result` with `agenda_links` (label/fileId/url, no
 `extracted`). No inline PDF download/parse → the scan's existing wall-clock behavior is
 untouched. (This reverts every inline-extraction change from the earlier drafts.)
 
-`fetchStep3Data` (`components/admin/OnboardingWizard.tsx:191`, server) adds, per
-`Step3Row`, a server-coerced `agendaLinkCount: number` = count of the staged
-`parse_result.show.agenda_links` (defensive: `arr(pr?.show?.agenda_links).length`). It
-MAY also pre-build `adminAgendaPreview` when the staged `parse_result` already carries
-`extracted` (e.g. a first-seen cron staged it earlier) — an optional fast-path that
-skips the client round-trip; otherwise `adminAgendaPreview` is absent and the client
-fetches it (§5.3).
+`fetchStep3Data` (`components/admin/OnboardingWizard.tsx:191`, server) ALWAYS computes a
+**baseline** `adminAgendaPreview: AdminAgendaItem[]` per `Step3Row` by calling
+`buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` (§5.4) on the staged links —
+**pure, no Drive calls**. With no `extracted` yet, every item is **note-only**
+(`block: null`) but carries the server-validated `href` + `label` + `badge`. This is
+the load-bearing fix for the loading/error states (Codex round-17): the card ALWAYS has
+server-validated hrefs available, in every state, without ever computing an href
+client-side. `adminAgendaPreview.length` IS the agenda-link count (no separate field).
+If the staged `parse_result` already carries `extracted` (e.g. a first-seen cron staged
+it earlier), the baseline already includes the populated `block`s — so the card renders
+the full agenda immediately and the client skips the round-trip (an inherent fast-path,
+not a special case). An empty `agenda_links` → empty array → no Agenda breakdown.
 
 ### 5.2 Per-show read-only extract endpoint
 
@@ -136,9 +141,10 @@ New route `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileI
 1. **Auth** — `requireAdminIdentity()` (same gate as the other onboarding routes);
    reject otherwise.
 2. **Read** the staged `parse_result` for `(wizardSessionId, driveFileId)` from
-   `pending_syncs` / the manifest (Supabase read; invariant 9 — destructure
-   `{ data, error }`, infra fault → typed error result, never silent). Missing/corrupt
-   row → `{ items: [] }` (card shows nothing).
+   `pending_syncs` (`.eq("wizard_session_id", …)`, `parse_result` column; Supabase read;
+   invariant 9 — destructure `{ data, error }`, infra fault → typed error result, never
+   silent). Missing/corrupt row (race: deleted mid-review) → `{ items: [] }`; the client
+   then keeps its server-built baseline (§5.3), so Open-PDF links never disappear.
 3. **Extract** — `enrichAgenda(parseResult, defaultAgendaDriveClient(), driveFileId)`,
    reusing the PRODUCTION `downloadFileBytes` + `getAgendaChips` (`lib/drive/agendaDrive.ts`,
    the same impls cron wires at `runScheduledCronSync.ts:1665-1666`). One show ⇒ ≤ a
@@ -156,21 +162,28 @@ PDFs).
 
 ### 5.3 Client orchestration + live fill-in (UI; Opus + impeccable invariant 8)
 
-`Step3Review`/`Step3SheetCard` are `"use client"`. New behavior:
+`Step3Review`/`Step3SheetCard` are `"use client"`. Each row arrives with the
+server-built **baseline** `adminAgendaPreview` (note-only items, validated hrefs; §5.1).
+The card NEVER computes hrefs — it always renders `AdminAgendaItem`s the SERVER built
+(baseline or endpoint result).
 
-- Per row with `agendaLinkCount > 0` and no server-provided `adminAgendaPreview`, the
-  client POSTs the extract endpoint (a `useEffect` keyed on `driveFileId`, throttled to
-  ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows). Per-row state machine:
-  `idle → loading → ready(items) | error`.
-- The `AgendaBreakdown` renders by state:
-  - `agendaLinkCount === 0` → **no Agenda breakdown** (omitted).
-  - `loading` (or `idle` before fire) → a **"Parsing agenda… (N PDF{s})"** placeholder
-    (a calm skeleton/eyebrow line, `N = agendaLinkCount`).
-  - `ready(items)` → render the items (§5.4): block → `AgendaScheduleBlock` + overflow
-    note; note item → muted note + "Open PDF".
-  - `error` (request failed) → a muted "Couldn't read the agenda here — open the PDF"
-    note with the validated href (the agenda is not lost — cron extracts it
-    post-publish; §3).
+- `adminAgendaPreview.length === 0` → **no Agenda breakdown** (omitted).
+- Else, per row, a state machine over the extract fetch: `idle → loading → ready(items)
+  | error`. The client fires the POST in a `useEffect` keyed on `driveFileId` (throttled
+  to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows) UNLESS the baseline already
+  has populated `block`s (already-extracted fast-path → state starts `ready`, no fetch).
+- The `AgendaBreakdown` renders the EFFECTIVE items = `state === "ready" &&
+  resultItems.length ? resultItems : baselineItems` (so hrefs are always present, even
+  on an empty/raced endpoint result), with a state-driven affordance:
+  - `loading` → render the baseline note items PLUS a calm **"Parsing agenda… (N PDF{s})"**
+    eyebrow/skeleton (`N = adminAgendaPreview.length`); each baseline item still shows its
+    "Open PDF" anchor.
+  - `ready` → render `resultItems` (§5.4): block → `AgendaScheduleBlock` + overflow note;
+    note item → muted note + "Open PDF".
+  - `error` (request rejected/non-2xx) → render the **baseline** items (muted
+    "couldn't auto-read — open the PDF" note + the server-validated "Open PDF" anchor).
+    The agenda is not lost — cron extracts it post-publish (§3). Hrefs come from the
+    baseline `AdminAgendaItem`, so the fallback is safe with NO client href logic.
 - Strict-mode/double-render safe (idempotent endpoint + per-row in-flight guard). A
   closed tab simply means un-fired rows aren't previewed during THIS review (re-open
   re-fires; publish → cron). No work is dropped.
@@ -192,8 +205,11 @@ through `lib/messages/lookup.ts` (invariant 5 N/A).
 
 `buildAdminAgendaPreview(links): AdminAgendaItem[]` (new `lib/agenda/agendaAdminPreview.ts`,
 server-pure, unit-testable) is the SINGLE place agenda display logic lives; the client
-card is pure presentation over its output. It is called by the extract endpoint (§5.2)
-and by `fetchStep3Data`'s optional fast-path (§5.1).
+card is pure presentation over its output. It is called in BOTH server locations: by
+`fetchStep3Data` over the not-yet-extracted staged links (→ the note-only baseline with
+validated hrefs, §5.1) AND by the extract endpoint over the freshly-`extracted` links
+(→ the upgraded items with `block`s, §5.2). Same function, same shape — the only
+difference is whether `link.extracted` is populated.
 
 ```ts
 type AdminAgendaItem = {
@@ -264,8 +280,8 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 
 ## 6. Guard conditions (every input)
 
-- `agenda_links` empty / missing / non-array → `agendaLinkCount = 0` → no Agenda
-  breakdown.
+- `agenda_links` empty / missing / non-array → baseline `adminAgendaPreview = []` → no
+  Agenda breakdown.
 - staged row missing/corrupt at the endpoint → `{ items: [] }`.
 - extract endpoint request fails (network/500) → client `error` state → note + Open PDF.
 - `extracted` low-confidence / malformed / zero-day → `block = null` → note item.
@@ -308,13 +324,18 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
    (mock `numPages = cap+1` → low, no per-page parse; `extractorVersion === 2`);
    per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET + 1` links → first N extracted).
-4. **Card live fill-in (RTL, `tests/components/admin/...`)** — pure-presentation over
-   `AdminAgendaItem[]` + per-row state: (a) `loading` → "Parsing agenda… (2 PDFs)"
-   placeholder; (b) `ready` → two `agenda-schedule` blocks (+ overflow notes); (c)
-   `error` → note + Open PDF; (d) `agendaLinkCount === 0` → no breakdown; clone-and-
-   strip sibling breakdowns before scanning DOM (anti-tautology). Mock `fetch` to the
-   endpoint; assert ≤ `AGENDA_CLIENT_CONCURRENCY` concurrent in-flight; assert the card
-   computes NO normalize/cap/href itself.
+4. **Card live fill-in (RTL, `tests/components/admin/...`)** — given a SERVER-built
+   baseline `adminAgendaPreview` (note-only items with hrefs), pure-presentation +
+   per-row fetch state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)"
+   eyebrow, each with its "Open PDF" anchor; (b) `ready` (mock fetch resolves with
+   upgraded items) → two `agenda-schedule` blocks (+ overflow notes); (c) **`error`
+   (mock fetch REJECTS) → the baseline items render with the "Open PDF" anchor present
+   and a SAFE href** (Codex round-17 — proves the error fallback has a server-validated
+   href, no client href logic); (d) empty baseline → no breakdown; (e) baseline already
+   has `block`s (already-extracted) → renders immediately, **no fetch fired**.
+   Clone-and-strip sibling breakdowns before scanning DOM (anti-tautology). Assert ≤
+   `AGENDA_CLIENT_CONCURRENCY` concurrent in-flight; assert the card computes NO
+   normalize/cap/href itself (hrefs only come from the server-built items).
 5. **Boundary-purity guard (`agendaPurityBoundary.test.ts`)** — `agendaAdminPreview.ts`,
    `AgendaScheduleBlock.tsx`, `normalizeAgendaExtraction.ts` import nothing
    `server-only`/`next/headers`/`fs`.
@@ -347,8 +368,8 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param** (scan apparatus removed) |
-| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | add `agendaLinkCount` to `Step3Row`; optional fast-path `adminAgendaPreview` when staged `extracted` already present |
-| Step-3 row type | add `agendaLinkCount: number` + optional `adminAgendaPreview?: AdminAgendaItem[]` to `Step3Row`; new `AdminAgendaItem` type |
+| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build the baseline `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row (pure, note-only + validated hrefs; populated `block`s if `extracted` already present) |
+| Step-3 row type | add `adminAgendaPreview: AdminAgendaItem[]` to `Step3Row` (always present; empty → no breakdown); new `AdminAgendaItem` type |
 | `components/admin/wizard/Step3SheetCard.tsx` + `Step3Review.tsx` | new client `AgendaBreakdown` + per-row extract-fetch state machine (throttled), "parsing…" placeholder, live replace; pure presentation over `AdminAgendaItem` |
 | tests (per §8) | new + extended |
 
