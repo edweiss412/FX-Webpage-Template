@@ -414,8 +414,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    upgraded items) → two `agenda-schedule` blocks (+ overflow notes); (c) **`error`
    (mock fetch REJECTS) → the baseline items render with the "Open PDF" anchor present
    and a SAFE href** (Codex round-17 — proves the error fallback has a server-validated
-   href, no client href logic); (d) empty baseline → no breakdown; (e) baseline already
-   has `block`s (already-extracted) → renders immediately, **no fetch fired**.
+   href, no client href logic); (d) empty baseline → no breakdown; (e) **always-fetch /
+   no stale-baseline bypass** (Codex round-20 F1 + round-21): a nonempty baseline ALWAYS
+   triggers the POST — even if a (hypothetical, contract-violating) baseline item arrived
+   with a populated `block`, the card MUST still fire the fetch and MUST NOT render that
+   baseline block (blocks render only from endpoint-returned `ready` items). Assert the
+   fetch fires for every nonempty baseline and no baseline `block` is ever rendered.
    Clone-and-strip sibling breakdowns before scanning DOM (anti-tautology). Assert ≤
    `AGENDA_CLIENT_CONCURRENCY` concurrent in-flight; assert the card computes NO
    normalize/cap/href itself (hrefs only come from the server-built items).
