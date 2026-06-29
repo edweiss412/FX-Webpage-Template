@@ -932,6 +932,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → wait or text Doug",
     "helpfulContext": null,
   },
+  "RESCAN_REVIEW_REQUIRED": {
+    "crewFacing": null,
+    "dougFacing": "This sheet changed and needs your review before publishing.",
+    "followUp": "Doug → re-review this sheet in setup, then publish",
+    "helpfulContext": "A re-scan of this sheet surfaced a change that needs a decision (for example a crew email, name, or roster change), so setup is holding it out of the publish batch until you re-review and re-approve it from the reapply page.",
+  },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
     "dougFacing": "A crew member's role flags changed. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",
@@ -943,6 +949,12 @@ export const SPEC_CODES = {
     "dougFacing": "We read a likely-misspelled role in _<crew-name>_'s cell (for example 'Content Cretion' as 'Content Creation') and used the corrected version. If it was intentional, update the sheet.",
     "followUp": "Doug → optional fix",
     "helpfulContext": "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
+  },
+  "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE": {
+    "crewFacing": null,
+    "dougFacing": "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",
+    "followUp": "Doug → check sheet",
+    "helpfulContext": "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in your admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day (travel-in, set, a show day, or travel-out) and it'll appear for crew on the next sync.",
   },
   "SCHEDULE_TIME_UNPARSED": {
     "crewFacing": null,
@@ -1138,9 +1150,9 @@ export const SPEC_CODES = {
   },
   "STAGED_PARSE_OUTDATED_AT_PHASE_D": {
     "crewFacing": null,
-    "dougFacing": "A live show changed after setup staged its publish changes.",
-    "followUp": "Doug → re-run setup review for that sheet before final publish",
-    "helpfulContext": "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
+    "dougFacing": "This sheet changed after setup reviewed it, so its update is on hold.",
+    "followUp": "Doug → re-scan the folder in setup, then re-review and publish",
+    "helpfulContext": "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Go back to the scan step and re-scan the folder to pick up the latest version, then review and publish again.",
   },
   "STAGED_PARSE_RESTAGED_INLINE": {
     "crewFacing": null,

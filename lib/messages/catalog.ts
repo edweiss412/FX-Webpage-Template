@@ -1218,6 +1218,19 @@ export const MESSAGE_CATALOG = {
       "A show day's TIME cell had content we couldn't read as a start time, so that day shows the standard schedule. Give the cell a clear start time and it'll update on the next sync.",
     helpHref: "/help/errors#SCHEDULE_TIME_UNPARSED",
   },
+  SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
+    code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+    dougFacing:
+      "A room's strike time is dated on a day that isn't part of _<sheet-name>_'s schedule, so it shows in your review but not on crew pages. Fix the date in the room's Strike Time cell so it matches a show day.",
+    crewFacing: null,
+    followUp: "Doug → check sheet",
+    helpfulContext:
+      "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in your admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day (travel-in, set, a show day, or travel-out) and it'll appear for crew on the next sync.",
+    title: "Strike dated off the schedule",
+    longExplanation:
+      "A room's Strike Time was dated on a day that isn't part of the show's schedule, so the strike shows in the admin review but not on crew schedules. Fix the date in that room's Strike Time cell to match a show day and it'll appear on the next sync.",
+    helpHref: "/help/errors#SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+  },
   AGENDA_PDF_UNREADABLE: {
     code: "AGENDA_PDF_UNREADABLE",
     dougFacing:
@@ -2569,6 +2582,18 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  RESCAN_REVIEW_REQUIRED: {
+    code: "RESCAN_REVIEW_REQUIRED",
+    dougFacing: "This sheet changed and needs your review before publishing.",
+    crewFacing: null,
+    followUp: "Doug → re-review this sheet in setup, then publish",
+    helpfulContext:
+      "A re-scan of this sheet surfaced a change that needs a decision (for example a crew email, name, or roster change), so setup is holding it out of the publish batch until you re-review and re-approve it from the reapply page.",
+    title: "This sheet changed during setup",
+    longExplanation:
+      "You re-scanned this sheet and the refreshed version changed something that needs a look — a crew email, name, or roster change, or a new data-quality gap. Setup is holding it out of the publish batch until you open it and re-approve it from the reapply page; the publish checkbox alone won't clear it.",
+    helpHref: "/help/errors#RESCAN_REVIEW_REQUIRED",
+  },
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
     dougFacing: "That sheet could not be parsed during retry.",
@@ -2583,14 +2608,14 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_OUTDATED_AT_PHASE_D: {
     code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
-    dougFacing: "A live show changed after setup staged its publish changes.",
+    dougFacing: "This sheet changed after setup reviewed it, so its update is on hold.",
     crewFacing: null,
-    followUp: "Doug → re-run setup review for that sheet before final publish",
+    followUp: "Doug → re-scan the folder in setup, then re-review and publish",
     helpfulContext:
-      "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
-    title: "Live show advanced during finalize",
+      "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Go back to the scan step and re-scan the folder to pick up the latest version, then review and publish again.",
+    title: "This sheet changed during setup",
     longExplanation:
-      "Finalize Phase D only promotes shadow changes when the live show hasn't advanced past the wizard-staged modified time. A live show changed after setup staged its publish changes, so this batch is held.",
+      "Setup saves the version of each sheet you reviewed and confirms it has not changed before publishing. This sheet was edited after review, so its update is on hold rather than overwriting the newer content. Go back to the scan step and re-scan the folder to refresh this sheet, then review and publish again.",
     helpHref: "/help/errors#STAGED_PARSE_OUTDATED_AT_PHASE_D",
   },
   STALE_ORPHAN_REPORT: {

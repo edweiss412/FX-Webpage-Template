@@ -394,7 +394,7 @@ describe("Step3Review", () => {
   });
 });
 
-describe("Step3Review — detail accordion (single open, full-width)", () => {
+describe("Step3Review — per-card details dialog + uniform grid (no accordion)", () => {
   const pr = { show: { title: "Show" } } as unknown as ParseResult;
   const rowA: Step3Row = {
     driveFileId: "acc-A",
@@ -408,58 +408,43 @@ describe("Step3Review — detail accordion (single open, full-width)", () => {
     status: "staged",
     parseResult: pr,
   };
-  // The grid STAYS multi-column at all times; opening a card spans ONLY that card's
-  // cell to full width (`lg:col-span-2 xl:col-span-3`) while dense auto-flow
-  // backfills the gap — so the other cards keep their grid positions instead of all
-  // going full-width (the reported regression).
-  const MULTICOL = "lg:grid-cols-2";
-  const CELL_SPAN = "lg:col-span-2";
-  const cellOf = (expandBtn: HTMLElement): HTMLElement => {
-    const li = expandBtn.closest("li");
-    if (!li) throw new Error("expand button is not inside a grid <li> cell");
-    return li;
-  };
 
-  test("only one card opens at a time; ONLY the open card's cell spans full width (grid stays multi-column)", () => {
+  test("the grid stays uniform — no cell ever spans full-width and there is no dense reflow", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
     );
     const grid = getByTestId("wizard-step3-card-grid");
-    const expandA = getByTestId("wizard-step3-card-acc-A-expand");
-    const expandB = getByTestId("wizard-step3-card-acc-B-expand");
+    // Responsive multi-column grid, but NO dense backfill and NO col-span
+    // machinery — the open-card-spans-full-width accordion is gone (details now
+    // open in a modal overlay), so the grid never reflows.
+    expect(grid.className).toContain("lg:grid-cols-2");
+    expect(grid.className).not.toContain("grid-flow-row-dense");
+    const spansBefore = Array.from(grid.querySelectorAll("li")).filter((li) =>
+      (li.className ?? "").includes("col-span"),
+    );
+    expect(spansBefore).toHaveLength(0);
+    // Opening a card's details does NOT introduce a col-span on any cell.
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
+    const spansAfter = Array.from(grid.querySelectorAll("li")).filter((li) =>
+      (li.className ?? "").includes("col-span"),
+    );
+    expect(spansAfter).toHaveLength(0);
+  });
 
-    // The grid is always the responsive multi-column grid with dense backfill.
-    expect(grid.className).toContain(MULTICOL);
-    expect(grid.className).toContain("grid-flow-row-dense");
-
-    // Both collapsed → neither cell spans.
-    expect(expandA.getAttribute("aria-expanded")).toBe("false");
-    expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(cellOf(expandA).className ?? "").not.toContain(CELL_SPAN);
-    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
-
-    // Open A → ONLY A's cell spans full width; B stays collapsed in the grid; the
-    // grid itself is STILL multi-column (the regression was collapsing all cards).
-    fireEvent.click(expandA);
-    expect(expandA.getAttribute("aria-expanded")).toBe("true");
-    expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
-    expect(cellOf(expandA).className).toContain(CELL_SPAN);
-    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
-
-    // Open B → A closes (single-open accordion); only B's cell spans now.
-    fireEvent.click(expandB);
-    expect(expandB.getAttribute("aria-expanded")).toBe("true");
-    expect(expandA.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
-    expect(cellOf(expandB).className).toContain(CELL_SPAN);
-    expect(cellOf(expandA).className ?? "").not.toContain(CELL_SPAN);
-
-    // Close B → no cell spans; grid stays multi-column throughout.
-    fireEvent.click(expandB);
-    expect(expandB.getAttribute("aria-expanded")).toBe("false");
-    expect(grid.className).toContain(MULTICOL);
-    expect(cellOf(expandB).className ?? "").not.toContain(CELL_SPAN);
+  test("each card's 'More' opens ITS OWN details dialog; the other stays closed; Close dismisses it", () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
+    );
+    // Both closed initially (modal mounted only on open).
+    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-B-details-dialog")).toBeNull();
+    // Open A → only A's dialog mounts.
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
+    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).not.toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-B-details-dialog")).toBeNull();
+    // Close A → dismissed.
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-details-close"));
+    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).toBeNull();
   });
 });
 
@@ -525,5 +510,215 @@ describe("Step3Review — set-aside sections (ignored / deferred / skipped, out 
     expect(queryByTestId("wizard-step3-ignored")).not.toBeNull();
     expect(queryByTestId("wizard-step3-deferred")).toBeNull();
     expect(queryByTestId("wizard-step3-skipped")).toBeNull();
+  });
+});
+
+describe("Step3SheetCard — gear review (per-room scope + event details)", () => {
+  const GEAR_PR = {
+    show: {
+      title: "RPAS Central 2026",
+      dates: {},
+      venue: {},
+      event_details: {
+        keynote_requirements: "TBD",
+        opening_reel: "YES - https://drive.google.com/file/d/abc/view",
+      },
+    },
+    crewMembers: [],
+    hotelReservations: [],
+    warnings: [],
+    rooms: [
+      {
+        kind: "gs",
+        name: "GRAND BALLROOM",
+        audio: "(1) QU32 (17) Tabletop Mics",
+        video: "(2) Barco Projectors",
+        lighting: "(2) LED Lekos",
+        scenic: "(2) Grey Spandex",
+        other: "(1) Truss Podium",
+      },
+      {
+        kind: "additional",
+        name: "EMPTY ROOM",
+        audio: null,
+        video: null,
+        lighting: null,
+        scenic: null,
+        other: null,
+      },
+    ],
+  } as unknown as ParseResult;
+  const GEAR_ROW: Step3Row = {
+    driveFileId: "drive-gear-1",
+    driveFileName: "RPAS.gsheet",
+    status: "staged",
+    stagedShowTitle: "RPAS Central 2026",
+    parseResult: GEAR_PR,
+  };
+
+  test("each room shows its non-empty A/V/L/scenic/other scope; an empty room shows none", () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-1-more"));
+    const scope = getByTestId("wizard-step3-card-drive-gear-1-room-0-scope");
+    const t = scope.textContent ?? "";
+    for (const label of ["Audio:", "Video:", "Lighting:", "Scenic:", "Other:"])
+      expect(t).toContain(label);
+    expect(t).toContain("(1) QU32 (17) Tabletop Mics"); // value rendered, not just the label
+    expect(t).toContain("(2) Barco Projectors");
+    // index-1 room has all-null scope → no scope sub-list at all
+    expect(queryByTestId("wizard-step3-card-drive-gear-1-room-1-scope")).toBeNull();
+  });
+
+  test("event-details breakdown shows keynote + URL-stripped opening reel (no Drive URL leak)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-1-more"));
+    const ed =
+      getByTestId("wizard-step3-card-drive-gear-1-breakdown-event-details").textContent ?? "";
+    expect(ed).toContain("Keynote:");
+    expect(ed).toContain("TBD"); // shown as-parsed (review surface, not sentinel-hidden like the crew page)
+    expect(ed).toContain("Opening reel:");
+    expect(ed).toContain("YES");
+    expect(ed).not.toContain("https://"); // stripOpeningReelText removed the URL
+    expect(ed).not.toContain("drive.google.com");
+  });
+
+  test("event-details breakdown reads 'No event details parsed.' when absent", () => {
+    const noEd = {
+      ...GEAR_PR,
+      show: { ...(GEAR_PR as unknown as { show: object }).show, event_details: {} },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-gear-2", parseResult: noEd };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-2-more"));
+    expect(
+      getByTestId("wizard-step3-card-drive-gear-2-breakdown-event-details").textContent,
+    ).toContain("No event details parsed.");
+  });
+});
+
+describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {
+  function caseRow(caseLabel: string, itemCount: number) {
+    return { caseLabel, items: Array.from({ length: itemCount }, (_, k) => ({ item: `i${k}` })) };
+  }
+  function packPr(cases: ReturnType<typeof caseRow>[]) {
+    return {
+      show: { title: "Pack Show", dates: {}, venue: {}, event_details: {} },
+      crewMembers: [],
+      hotelReservations: [],
+      warnings: [],
+      rooms: [],
+      pullSheet: cases,
+    } as unknown as ParseResult;
+  }
+  function openPack(dfid: string, pr: ParseResult) {
+    const r = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[
+          {
+            driveFileId: dfid,
+            driveFileName: "P.gsheet",
+            status: "staged",
+            stagedShowTitle: "Pack Show",
+            parseResult: pr,
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(r.getByTestId(`wizard-step3-card-${dfid}-more`));
+    return r;
+  }
+
+  test("renders each case with its label + item count (plural/singular), blank label → 'Case N'", () => {
+    const cases = [caseRow("Audio Rack A", 3), caseRow("", 1)]; // blank label = index-1 → "Case 2"
+    const { getByTestId } = openPack("pack-1", packPr(cases));
+    const t = getByTestId("wizard-step3-card-pack-1-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("Audio Rack A");
+    expect(t).toContain(`${cases[0]!.items.length} items`); // 3 items — derived, plural
+    expect(t).toContain("Case 2"); // blank caseLabel fallback at index 1
+    expect(t).toContain(`${cases[1]!.items.length} item`); // 1 item — singular
+    // Anti-tautology for the singular branch: an always-plural mutation would
+    // render "1 items", which substring-passes `toContain("1 item")`. Pin it.
+    // (Fixture counts are 3 and 1, so no multi-digit "…1 items" can appear.)
+    expect(t).not.toContain("1 items");
+    // count badge in the section header equals the number of cases
+    expect(t).toContain(`(${cases.length})`);
+  });
+
+  test("caps at 12 cases and appends an overflow note for the remainder", () => {
+    const CASES = Array.from({ length: 14 }, (_, i) => caseRow(`Case L${i}`, 2));
+    const { getByTestId } = openPack("pack-2", packPr(CASES));
+    const t = getByTestId("wizard-step3-card-pack-2-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain(`(${CASES.length})`); // header count is the FULL total, not the cap
+    expect(t).toContain("Case L0"); // first shown
+    expect(t).toContain("Case L11"); // 12th shown (index 11)
+    expect(t).not.toContain("Case L12"); // 13th NOT shown (beyond cap)
+    expect(t).toContain(`…and ${CASES.length - 12} more cases`); // overflow note, derived
+  });
+
+  test("empty pull sheet reads 'No pack list parsed.'", () => {
+    const { getByTestId } = openPack("pack-3", packPr([]));
+    expect(getByTestId("wizard-step3-card-pack-3-breakdown-pack-list").textContent).toContain(
+      "No pack list parsed.",
+    );
+  });
+
+  test("expanding a case reveals its items as 'qty × item (cat / subCat)', taxonomy sentinel-guarded", () => {
+    const richCase = {
+      caseLabel: "Audio Rack",
+      items: [
+        { qty: 2, cat: "Audio", subCat: "RF", item: "Shure ULXD4" },
+        { qty: null, cat: null, subCat: null, item: "Handheld Capsule" }, // no qty prefix, no taxonomy
+        { qty: 4, cat: "TBD", subCat: "N/A", item: "DI Box" }, // sentinel taxonomy → hidden
+        { qty: 0, cat: null, subCat: null, item: "Spare Fuse" }, // qty 0 is kept (parity with crew)
+        { qty: 3, cat: null, subCat: null, item: "" }, // nameless on malformed JSONB → "(unnamed item)"
+      ],
+    };
+    const pr = packPr([richCase] as unknown as ReturnType<typeof caseRow>[]);
+    const { getByTestId } = openPack("pack-4", pr);
+    // <details> content is in the DOM even while collapsed, so textContent sees it.
+    const t = getByTestId("wizard-step3-card-pack-4-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("2 × Shure ULXD4 (Audio / RF)"); // qty + full taxonomy
+    expect(t).toContain("Handheld Capsule"); // qty null → no "× " prefix
+    expect(t).not.toContain("× Handheld Capsule"); // assert the prefix is truly absent
+    expect(t).toContain("4 × DI Box"); // qty kept
+    expect(t).not.toContain("(TBD"); // sentinel cat hidden → no taxonomy parens
+    expect(t).not.toContain("N/A"); // sentinel subCat hidden
+    expect(t).toContain("0 × Spare Fuse"); // qty 0 is a real value, shown (not dropped)
+    expect(t).toContain("3 × (unnamed item)"); // empty item name → defensive fallback, never "undefined"
+    expect(t).not.toContain("undefined"); // never leak the literal on untyped JSONB
+    // the case is expandable (has items) → a <details> testid exists
+    expect(getByTestId("wizard-step3-card-pack-4-pack-case-0").tagName.toLowerCase()).toBe(
+      "details",
+    );
+  });
+
+  test("caps items per case at 8 with a '+K more items' tail", () => {
+    const items = Array.from({ length: 10 }, (_, k) => ({ item: `WIDGET-${k}` }));
+    const pr = packPr([{ caseLabel: "Big Case", items }] as unknown as ReturnType<
+      typeof caseRow
+    >[]);
+    const { getByTestId } = openPack("pack-5", pr);
+    const t = getByTestId("wizard-step3-card-pack-5-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("WIDGET-0"); // first shown
+    expect(t).toContain("WIDGET-7"); // 8th shown (index 7)
+    expect(t).not.toContain("WIDGET-8"); // 9th beyond the item cap
+    expect(t).toContain(`…and ${items.length - 8} more items`); // overflow tail, derived
+  });
+
+  test("a zero-item case renders a plain non-expandable line (no <details>), no crash on missing items", () => {
+    // items omitted entirely → arr(c.items) coerces to [] (untyped-JSONB guard).
+    const pr = packPr([{ caseLabel: "Empty Case" }] as unknown as ReturnType<typeof caseRow>[]);
+    const { getByTestId, queryByTestId } = openPack("pack-6", pr);
+    const t = getByTestId("wizard-step3-card-pack-6-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("Empty Case");
+    expect(t).toContain("0 items"); // count still renders; no throw
+    expect(queryByTestId("wizard-step3-card-pack-6-pack-case-0")).toBeNull(); // not expandable
   });
 });

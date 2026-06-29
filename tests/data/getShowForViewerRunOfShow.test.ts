@@ -285,6 +285,77 @@ describe("getShowForViewer.runOfShow ScheduleDay projection (per-day-schedule)",
   });
 });
 
+describe("getShowForViewer.runOfShow aggregate-day widening (D12)", () => {
+  beforeEach(() => {
+    mockState.responses = {};
+    mockState.showsInternalThrows = false;
+    mockState.writeCalls = [];
+  });
+
+  const setDay = "2026-06-23"; // SET day — in the aggregate domain, NOT a show day
+  const offAggregate = "2026-07-15"; // not in the aggregate domain at all
+
+  // Show row whose dates carry a SET day alongside show days d1/d2, so
+  // aggregateDays(dates) = { setDay, d1, d2 } ⊋ showDays.
+  function showRowWithSet() {
+    return {
+      ...showRow([d1, d2]),
+      dates: { travelIn: null, set: setDay, showDays: [d1, d2], travelOut: null },
+    };
+  }
+
+  function setupWithSet(opts: { showsInternal: Resp; crew?: Resp }) {
+    mockState.responses = {
+      shows: { data: showRowWithSet(), error: null },
+      crew_members: opts.crew ?? { data: [], error: null },
+      hotel_reservations: { data: [], error: null },
+      rooms: { data: [], error: null },
+      transportation: { data: null, error: null },
+      contacts: { data: [], error: null },
+      shows_internal: opts.showsInternal,
+    };
+    mockState.showsInternalThrows = false;
+    mockState.writeCalls = [];
+  }
+
+  it("none/admin viewer: SET-day + show-day keys survive; an off-aggregate key is dropped", async () => {
+    setupWithSet({
+      showsInternal: {
+        data: { run_of_show: { [setDay]: e, [d1]: e, [offAggregate]: e } },
+        error: null,
+      },
+    });
+    const out = await getShowForViewer(SHOW_ID, ADMIN);
+    // SET day now reaches crew (aggregate widening); off-aggregate still dropped.
+    expect(out.runOfShow).toEqual({ [setDay]: eSD, [d1]: eSD });
+  });
+
+  it("explicit viewer: SET key present iff restriction.days includes the set date", async () => {
+    setupWithSet({
+      showsInternal: {
+        data: { run_of_show: { [setDay]: e, [d1]: e } },
+        error: null,
+      },
+      crew: { data: [crewRow({ kind: "explicit", days: [setDay] })], error: null },
+    });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    // restriction lists only the SET day → only the SET day survives (explicit ∩ aggregate).
+    expect(out.runOfShow).toEqual({ [setDay]: eSD });
+  });
+
+  it("unknown_asterisk viewer → null even when a SET-day key is stored (∅ preserved)", async () => {
+    setupWithSet({
+      showsInternal: {
+        data: { run_of_show: { [setDay]: e, [d1]: e } },
+        error: null,
+      },
+      crew: { data: [crewRow({ kind: "unknown_asterisk" })], error: null },
+    });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    expect(out.runOfShow).toBeNull();
+  });
+});
+
 // R20 LIVE-READ source-scan guard: the mock above keys off the TABLE NAME, but a structural assert pins that the
 // live read actually targets shows_internal.run_of_show (not only the mock). Uses readFileSync (imported at top) —
 // getShowForViewer is a function, not a class method, so classMethodSource doesn't apply.

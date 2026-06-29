@@ -10,9 +10,11 @@
  *   - Summary (always visible): the show title (a deep link to the SOURCE sheet
  *     that WRAPS, never truncates), client, dates, venue name, a dedicated city
  *     row, diagrams/reel badges, and the per-class data-gap chips when present.
- *   - Breakdown (expand toggle): crew names+roles, schedule outline, rooms, and
- *     hotels in a balanced multi-column flow, then a FULL-WIDTH warnings callout
- *     below the rest — each list capped per §4.3.
+ *   - Breakdown ("More" → details overlay): crew names+roles, schedule outline,
+ *     rooms, and hotels in a balanced multi-column flow, then a FULL-WIDTH
+ *     warnings callout below the rest — each list capped per §4.3. The "More"
+ *     button opens <Step3DetailsDialog> (a bottom sheet on mobile, a centered
+ *     popup on desktop), replacing the old inline height-morph expand.
  *
  * This is a PRESENTATIONAL card (a `row` prop). D2 deliberately adds NO
  * checkbox / select-all / approve / ignore wiring — those are D3/D4/D5. The
@@ -20,24 +22,28 @@
  * without a layout change.
  *
  * Guard conditions (§4.6): a null/corrupt `parseResult` renders the title
- * fallback + a human "couldn't read" sentence and NO expand toggle. Undefined
+ * fallback + a human "couldn't read" sentence and NO "More" button. Undefined
  * arrays coerce to `[]` (counts render 0 — a 0 is a signal, not hidden).
  * Undefined warnings → no chip. The component never crashes on a missing
  * field (the JSONB is untyped on the wire).
  *
- * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px. The breakdown
- * height-morph + reduced-motion handling live in app/globals.css
- * (`[data-step3-breakdown]`), consuming --duration-normal.
+ * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px. The details overlay's
+ * rise/pop/scrim animation lives in app/globals.css ([data-step3-details-panel]
+ * / [data-step3-details-scrim]), consuming the motion tokens.
  */
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, ExternalLink } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type {
   AgendaEntry,
   CrewMemberRow,
   HotelReservationRow,
   ParseResult,
   ParseWarning,
+  PullSheetCase,
+  PullSheetItem,
   RoomRow,
   RunOfShow,
 } from "@/lib/parser/types";
@@ -47,6 +53,8 @@ import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
@@ -56,11 +64,38 @@ import {
   AGENDA_CLIENT_POLL_BUDGET_MS,
   AGENDA_CLIENT_QUEUE_BUDGET_MS,
 } from "@/lib/agenda/constants";
+import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
+import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
 const ROOMS_CAP = 20;
 const HOTELS_CAP = 12;
+// Pack-list cases shown in the review breakdown; mirrors the crew GearSection
+// CASE_CAP (12) so the operator sees the same ceiling the crew page applies.
+const PACK_LIST_CASES_CAP = 12;
+// Items shown per expanded case before a "+K more items" tail. Bounds the
+// expanded height so one fat case (e.g. a 31-item distro case) can't dominate
+// the breakdown column; deep verification continues on the source sheet.
+const PACK_LIST_ITEMS_CAP = 8;
+
+// Per-room equipment-scope fields shown under each room in the review breakdown so
+// the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L) before publishing. We
+// show every NON-EMPTY value as-parsed (sentinels like "TBD"/"-" included) — this is
+// a parse-review surface, not the crew page (which sentinel-hides), so the operator
+// sees exactly what landed. Order mirrors the crew GearSection (A→V→L→Scenic→Other).
+const ROOM_SCOPE_FIELDS: ReadonlyArray<{ label: string; key: keyof RoomRow }> = [
+  { label: "Audio", key: "audio" },
+  { label: "Video", key: "video" },
+  { label: "Lighting", key: "lighting" },
+  { label: "Scenic", key: "scenic" },
+  { label: "Other", key: "other" },
+];
+
+/** A string field that actually parsed to content (non-null, non-whitespace). */
+function hasContent(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
 const SCHEDULE_DAYS_CAP = 14;
 const SCHEDULE_ENTRIES_CAP = 6;
 
@@ -196,8 +231,17 @@ function ScheduleDayRow({
   entries: AgendaEntry[];
 }) {
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? entries : entries.slice(0, SCHEDULE_ENTRIES_CAP);
-  const hidden = entries.length - SCHEDULE_ENTRIES_CAP;
+  // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
+  // SCHEDULE_ENTRIES_CAP; ALWAYS render the synthetic group (strike/load-out)
+  // after it. The "Show all M times" toggle + overflow count are agenda-only —
+  // a same-day load-out is never hidden behind the cap.
+  const agenda = entries.filter((e) => e.kind !== "strike" && e.kind !== "loadout");
+  const synthetic = entries.filter((e) => e.kind === "strike" || e.kind === "loadout");
+  const visibleAgenda = showAll ? agenda : agenda.slice(0, SCHEDULE_ENTRIES_CAP);
+  const hidden = agenda.length - SCHEDULE_ENTRIES_CAP;
+  // Synthetic rows always follow the (capped) agenda rows in the SAME 2-track
+  // grid, so their time/title cells share the agenda rows' column edges.
+  const rows = [...visibleAgenda, ...synthetic];
 
   return (
     <li className="flex flex-col gap-1">
@@ -205,22 +249,32 @@ function ScheduleDayRow({
         {humanizeDate(iso) ?? iso}
       </span>
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
-        {visible.map((e, i) => (
-          <Fragment key={`${iso}-${i}`}>
-            <span
-              data-testid={`wizard-step3-card-${dfid}-sched-time`}
-              className="whitespace-nowrap text-sm tabular-nums text-text-subtle"
-            >
-              {e.start}
-            </span>
-            <span
-              data-testid={`wizard-step3-card-${dfid}-sched-title`}
-              className="text-sm text-text"
-            >
-              {e.title || ""}
-            </span>
-          </Fragment>
-        ))}
+        {rows.map((e, i) => {
+          const isSynthetic = e.kind === "strike" || e.kind === "loadout";
+          return (
+            <Fragment key={`${iso}-${i}`}>
+              <span
+                data-testid={`wizard-step3-card-${dfid}-sched-time`}
+                className="whitespace-nowrap text-sm tabular-nums text-text-subtle"
+              >
+                {e.start}
+              </span>
+              {/* Title cell = the 1fr track. A synthetic entry (strike/load-out)
+                  carries a MUTED tone + a leading hairline rule INSIDE this cell
+                  (§9.3 "muted-title" option — no kind-word badge that would repeat
+                  the title's own leading word), so the two-track alignment holds. */}
+              <span
+                data-testid={`wizard-step3-card-${dfid}-sched-title`}
+                data-entry-kind={isSynthetic ? e.kind : undefined}
+                className={`text-sm ${
+                  isSynthetic ? "border-l border-border pl-2 text-text-subtle" : "text-text"
+                }`}
+              >
+                {e.title || ""}
+              </span>
+            </Fragment>
+          );
+        })}
       </div>
       {hidden > 0 && !showAll ? (
         <button
@@ -229,7 +283,7 @@ function ScheduleDayRow({
           onClick={() => setShowAll(true)}
           className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
-          {`Show all ${entries.length} times`}
+          {`Show all ${agenda.length} times`}
         </button>
       ) : null}
     </li>
@@ -238,11 +292,18 @@ function ScheduleDayRow({
 
 function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
   const dayKeys = Object.keys(ros);
-  const shownDays = dayKeys.slice(0, SCHEDULE_DAYS_CAP);
-  const daysNote = (() => {
-    const extra = dayKeys.length - SCHEDULE_DAYS_CAP;
-    return extra > 0 ? `…and ${extra} more days` : null;
-  })();
+  // Day cap-exemption (spec §9.2): a day whose entries contain a strike/load-out
+  // is ALWAYS rendered (a malformed/long sheet could push the exact admin-only
+  // synthetic day past the cap). shownDays = (first SCHEDULE_DAYS_CAP days) ∪
+  // (every synthetic-bearing day); the "…and N more days" note counts only the
+  // dropped NON-synthetic days.
+  const isSyntheticDay = (iso: string): boolean =>
+    arr(ros[iso]?.entries).some((e) => e.kind === "strike" || e.kind === "loadout");
+  const shownDays = dayKeys.filter((iso, idx) => idx < SCHEDULE_DAYS_CAP || isSyntheticDay(iso));
+  const droppedNonSynthetic = dayKeys.filter(
+    (iso, idx) => idx >= SCHEDULE_DAYS_CAP && !isSyntheticDay(iso),
+  ).length;
+  const daysNote = droppedNonSynthetic > 0 ? `…and ${droppedNonSynthetic} more days` : null;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-schedule`}
@@ -276,12 +337,155 @@ function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
         <p className="text-sm text-text-subtle">No rooms parsed.</p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {shown.map((r, i) => (
-            <li key={`${r.name}-${i}`} className="text-sm text-text">
-              <span className="font-medium text-text-strong">{r.name || "Room"}</span>
-              {r.kind ? <span className="text-text-subtle"> · {r.kind}</span> : null}
+          {shown.map((r, i) => {
+            const scope = ROOM_SCOPE_FIELDS.filter((f) => hasContent(r[f.key]));
+            return (
+              <li key={`${r.name}-${i}`} className="text-sm text-text">
+                <span className="font-medium text-text-strong">{r.name || "Room"}</span>
+                {r.kind ? <span className="text-text-subtle"> · {r.kind}</span> : null}
+                {scope.length > 0 ? (
+                  <ul
+                    data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
+                    className="mt-0.5 flex flex-col gap-0.5 pl-3 text-xs text-text-subtle"
+                  >
+                    {scope.map((f) => (
+                      <li key={f.label} className="wrap-break-word">
+                        <span className="font-medium text-text">{f.label}:</span>{" "}
+                        {r[f.key] as string}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+// Show-level event-detail fields the crew GearSection surfaces — keynote + opening
+// reel — so the operator can verify them at the publish gate. opening_reel is
+// URL-stripped (stripOpeningReelText) for a clean line; values shown as-parsed.
+function EventDetailsBreakdown({
+  dfid,
+  eventDetails,
+}: {
+  dfid: string;
+  eventDetails: Record<string, string> | undefined;
+}) {
+  const ed = eventDetails ?? {};
+  const keynote = ed["keynote_requirements"];
+  const reelRaw = ed["opening_reel"];
+  const reel = hasContent(reelRaw) ? stripOpeningReelText(reelRaw).trim() : "";
+  const fields: { label: string; value: string }[] = [];
+  if (hasContent(keynote)) fields.push({ label: "Keynote", value: keynote.trim() });
+  if (reel.length > 0) fields.push({ label: "Opening reel", value: reel });
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-event-details`}
+      label="Event details"
+      count={fields.length}
+    >
+      {fields.length === 0 ? (
+        <p className="text-sm text-text-subtle">No event details parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {fields.map((f) => (
+            <li key={f.label} className="wrap-break-word text-sm text-text">
+              <span className="font-medium text-text-strong">{f.label}:</span> {f.value}
             </li>
           ))}
+        </ul>
+      )}
+    </BreakdownSection>
+  );
+}
+
+// One parsed PULL-sheet item rendered as the crew GearSection renders it
+// (GearSection.tsx:339-345): `qty × item (cat / subCat)`, with the decorative
+// cat/subCat taxonomy sentinel-guarded (hidden when TBD/N/A/empty) and the qty
+// prefix dropped when null. The item NAME itself is shown as-parsed — this is a
+// review surface, so a garbled name must be visible, not hidden.
+function packItemLabel(item: PullSheetItem): string {
+  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
+  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
+  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
+  const qtyPart = item.qty !== null && item.qty !== undefined ? `${item.qty} × ` : "";
+  // Defensive (§4.6, untyped-on-wire JSONB): the type says `item: string`, but a
+  // malformed row must never render the literal "undefined". A nameless item is
+  // itself a parse signal worth seeing on a review surface, so label it.
+  const name = hasContent(item.item) ? item.item : "(unnamed item)";
+  return `${qtyPart}${name}${taxonomy ? ` (${taxonomy})` : ""}`;
+}
+
+// The parsed PULL-tab pack list (`pr.pullSheet`) — the same data the crew
+// GearSection renders, surfaced here so the operator can verify it parsed at the
+// publish gate. Each case is a native <details>: the COLLAPSED summary is the
+// case label (or "Case N" fallback) + item count; EXPANDING reveals the parsed
+// items (qty × item (cat/subCat)), capped at PACK_LIST_ITEMS_CAP, so the default
+// view stays compact while full crew parity is one click away. Cases are capped
+// at PACK_LIST_CASES_CAP (the crew CASE_CAP). UNGATED — unlike the crew page
+// (which date-gates pack-list visibility via isPackListVisibleToday), a review
+// surface always shows what parsed. A case with zero items renders as a plain
+// non-expandable line.
+function PackListBreakdown({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
+  const shown = cases.slice(0, PACK_LIST_CASES_CAP);
+  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-pack-list`}
+      label="Pack list"
+      count={cases.length}
+    >
+      {cases.length === 0 ? (
+        <p className="text-sm text-text-subtle">No pack list parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {shown.map((c, i) => {
+            const items = arr(c.items);
+            const label = c.caseLabel || `Case ${i + 1}`;
+            const head = (
+              <>
+                <span className="font-medium text-text-strong">{label}</span>
+                <span className="text-text-subtle">
+                  {" "}
+                  · <span className="tabular-nums">{items.length}</span>{" "}
+                  {items.length === 1 ? "item" : "items"}
+                </span>
+              </>
+            );
+            // No items → nothing to expand; render a plain line (the count still
+            // tells the operator the case parsed but is empty).
+            if (items.length === 0) {
+              return (
+                <li key={`${label}-${i}`} className="wrap-break-word text-sm text-text">
+                  {head}
+                </li>
+              );
+            }
+            const shownItems = items.slice(0, PACK_LIST_ITEMS_CAP);
+            const itemsNote = overflowNote(items.length, PACK_LIST_ITEMS_CAP, "items");
+            return (
+              <li key={`${label}-${i}`} className="text-sm text-text">
+                <details data-testid={`wizard-step3-card-${dfid}-pack-case-${i}`}>
+                  <summary className="wrap-break-word cursor-pointer marker:text-text-subtle">
+                    {head}
+                  </summary>
+                  <ul className="mt-0.5 flex flex-col gap-0.5 pl-3 text-xs text-text-subtle">
+                    {shownItems.map((item, j) => (
+                      <li key={`${item.item}-${j}`} className="wrap-break-word">
+                        {packItemLabel(item)}
+                      </li>
+                    ))}
+                    {itemsNote ? <li className="text-text-faint">{itemsNote}</li> : null}
+                  </ul>
+                </details>
+              </li>
+            );
+          })}
         </ul>
       )}
       {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
@@ -614,7 +818,6 @@ export function __resetAgendaThrottleForTests(): void {
   agendaSlotWaiters.length = 0;
 }
 
-
 /** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
 function parseRetryAfterMs(header: string | null): number {
   if (!header) return 5_000;
@@ -928,22 +1131,47 @@ export function AgendaBreakdown({
   );
 }
 
+/**
+ * Task 5b (spec §6.1): the DISTINCT dirty-rescan state. A row demoted by a per-sheet
+ * re-scan (`last_finalize_failure_code === 'RESCAN_REVIEW_REQUIRED'`) cannot be cleared
+ * by the plain publish checkbox (that would silently re-approve a crew change), so the
+ * card suppresses the checkbox and surfaces this warning callout instead: a plain-English
+ * sentence + a link to the reapply page, which has the real per-item choice controls.
+ * Warm warning-bg + full strong border (DESIGN.md §1.2 — warning, not error; never a
+ * side-stripe), paired with an icon + text (color-blind floor §1).
+ */
+function RescanReviewBanner({ dfid, wizardSessionId }: { dfid: string; wizardSessionId: string }) {
+  return (
+    <div
+      data-testid={`wizard-step3-card-${dfid}-rescan-review`}
+      className="flex flex-col gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <p className="text-sm font-medium">
+          This sheet changed since you reviewed it. Review it before publishing.
+        </p>
+      </div>
+      <Link
+        data-testid={`wizard-step3-rescan-review-${dfid}`}
+        href={`/admin/onboarding/staged/${wizardSessionId}/${dfid}`}
+        className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      >
+        Review this sheet
+        <ChevronRight aria-hidden="true" className="size-4" />
+      </Link>
+    </div>
+  );
+}
+
 export function Step3SheetCard({
   row,
   wizardSessionId,
-  expanded: expandedProp,
-  onToggleExpanded,
   checked: checkedProp,
   onToggleChecked,
 }: {
   row: Step3Row;
   wizardSessionId: string;
-  // Optional controlled expand state. When the parent grid supplies these, the
-  // card is part of the single-open accordion (only one open at a time, the open
-  // one spans full width). Omitted → the card self-manages its own expand state
-  // (standalone / test usage stays unchanged).
-  expanded?: boolean | undefined;
-  onToggleExpanded?: (() => void) | undefined;
   // Optional controlled publish-intent (lifted into Step3Review). When the parent
   // supplies `onToggleChecked`, the checkbox is controlled by the shared optimistic
   // state so "Select all" updates this box instantly. Omitted → the checkbox
@@ -953,14 +1181,18 @@ export function Step3SheetCard({
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
-  const [expandedInternal, setExpandedInternal] = useState(false);
-  const isControlled = expandedProp !== undefined;
-  const expanded = isControlled ? expandedProp : expandedInternal;
-  const toggleExpanded = () => {
-    if (isControlled) onToggleExpanded?.();
-    else setExpandedInternal((v) => !v);
-  };
-  const panelId = useId();
+  // Task 5b (spec §6.1): a row demoted by a per-sheet re-scan renders the distinct
+  // "review before publishing" state (banner + reapply link), and its publish checkbox
+  // is suppressed (the checkbox cannot safely clear this code).
+  const isDirtyRescan = row.lastFinalizeFailureCode === RESCAN_REVIEW_REQUIRED;
+  // The details overlay is self-managed per card: "More" opens it, the dialog
+  // closes itself (Escape / scrim / close button). It is a MODAL, so only one is
+  // ever open at a time (the scrim covers the viewport) — no parent accordion
+  // state is needed, and every card stays a uniform cell in the grid.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  // Stable close handler so the dialog's Escape keydown effect (keyed on onClose)
+  // subscribes once per open, not on every parent re-render while it is open.
+  const closeDetails = useCallback(() => setDetailsOpen(false), []);
 
   const titleFallback = row.driveFileName || dfid;
 
@@ -980,6 +1212,14 @@ export function Step3SheetCard({
             </p>
           </div>
         </div>
+        {/* A dirty re-scan routes to the reapply page (the review link is primary, even
+            for a no-details row); otherwise re-scanning is exactly how a no-details row
+            recovers, so the Re-scan button leads the recovery here (spec §9). */}
+        {isDirtyRescan ? (
+          <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
+        ) : (
+          <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+        )}
       </article>
     );
   }
@@ -987,6 +1227,7 @@ export function Step3SheetCard({
   const crewMembers = arr(pr.crewMembers);
   const rooms = arr(pr.rooms);
   const hotels = arr(pr.hotelReservations);
+  const pullSheet = arr(pr.pullSheet);
   const ros: RunOfShow = pr.runOfShow ?? {};
   const warnings = arr(pr.warnings);
   // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
@@ -1015,27 +1256,35 @@ export function Step3SheetCard({
       data-testid={`wizard-step3-card-${dfid}`}
       className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile)"
     >
+      {/* Task 5b: a dirty re-scan demotes the row — the review-before-publishing
+          banner leads the card and the publish checkbox below is suppressed. */}
+      {isDirtyRescan ? <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} /> : null}
       {/* Header row: a reserved leading slot (D3 checkbox lands here) + the
           summary text block. The slot is shrink-0; the block is min-w-0 flex-1
           so a long title truncates instead of overflowing the fixed-width
           list column (§4.4). */}
       <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
         {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
-            long title (min-w-0 flex-1 below) truncates instead of squeezing it. */}
-        <PublishCheckbox
-          // Controlled mode (in the Step3Review grid): the parent owns the
-          // optimistic checked state, so a stable key by dfid keeps the box mounted
-          // and the parent drives it. Uncontrolled mode (standalone): re-seed
-          // (remount) on a server-status flip so a refreshed status takes effect.
-          key={onToggleChecked !== undefined ? dfid : row.status}
-          driveFileId={dfid}
-          wizardSessionId={wizardSessionId}
-          initialChecked={row.status === "applied"}
-          controlledChecked={
-            onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
-          }
-          onToggle={onToggleChecked}
-        />
+            long title (min-w-0 flex-1 below) truncates instead of squeezing it.
+            Task 5b: suppressed for a dirty re-scan row (the checkbox /approve cannot
+            safely clear RESCAN_REVIEW_REQUIRED — recovery flows through the reapply
+            page via the banner above). */}
+        {isDirtyRescan ? null : (
+          <PublishCheckbox
+            // Controlled mode (in the Step3Review grid): the parent owns the
+            // optimistic checked state, so a stable key by dfid keeps the box mounted
+            // and the parent drives it. Uncontrolled mode (standalone): re-seed
+            // (remount) on a server-status flip so a refreshed status takes effect.
+            key={onToggleChecked !== undefined ? dfid : row.status}
+            driveFileId={dfid}
+            wizardSessionId={wizardSessionId}
+            initialChecked={row.status === "applied"}
+            controlledChecked={
+              onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
+            }
+            onToggle={onToggleChecked}
+          />
+        )}
         <div className="min-w-0 flex-1">
           <SheetTitleLink dfid={dfid} title={title} />
           {client ? <p className="truncate text-sm text-text-subtle">{client}</p> : null}
@@ -1141,89 +1390,86 @@ export function Step3SheetCard({
         </div>
       </div>
 
-      {/* Details disclosure — a quiet, left-aligned TEXT toggle (not a boxed,
-          full-width dropdown-styled button). The label + chevron is the affordance
-          (discoverable without hover, PRODUCT.md); hover only adds an underline.
-          ≥44px tap target via min-h-tap-min; self-start so it sizes to its content
-          and sits at the card's left edge instead of stretching full width. */}
+      {/* "More" — a quiet, left-aligned TEXT button that opens the details
+          overlay (<Step3DetailsDialog>: a bottom sheet on mobile, a centered
+          popup on desktop). It replaced the old inline expand toggle, so the
+          card stays a compact summary tile and every grid cell is uniform.
+          `aria-haspopup="dialog"` announces that it opens a modal; the trailing
+          chevron is the persistent (non-hover) "opens more" affordance. ≥44px
+          tap target via min-h-tap-min; self-start so it sizes to its content at
+          the card's left edge instead of stretching full width. */}
       <button
         type="button"
-        data-testid={`wizard-step3-card-${dfid}-expand`}
-        aria-expanded={expanded}
-        aria-controls={panelId}
-        onClick={toggleExpanded}
+        data-testid={`wizard-step3-card-${dfid}-more`}
+        aria-haspopup="dialog"
+        onClick={() => setDetailsOpen(true)}
         className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
-        <span>{expanded ? "Hide details" : "Show details"}</span>
-        <ChevronDown
-          aria-hidden="true"
-          className={`size-4 transition-transform duration-fast ${expanded ? "rotate-180" : ""}`}
-        />
+        <span>More</span>
+        <ChevronRight aria-hidden="true" className="size-4" />
       </button>
 
-      {/* Bounded, height-morphing breakdown region (§4.4/§4.5). overflow-hidden
-          via the [data-step3-breakdown] rule in globals.css keeps the
-          fixed-width column from overflowing during the morph. `inert` while
-          collapsed removes the panel's focusable controls (the "Show all N
-          times" expander) from the tab order + a11y tree — the height:0 morph
-          is NOT display:none, so without `inert` they'd be tabbable +
-          AT-discoverable while hidden (whole-diff R2 HIGH). */}
-      <div
-        id={panelId}
-        data-testid={`wizard-step3-card-${dfid}-breakdown`}
-        data-step3-breakdown=""
-        data-expanded={expanded ? "true" : "false"}
-        inert={!expanded}
-      >
-        {/* Balanced multi-column flow. The expanded card spans the full grid
-            width (the open accordion card is `lg:col-span-2 xl:col-span-3`), so on
-            desktop it has room for 2–3 columns; CSS multi-column balances the
-            variable-height sections into them and fills the horizontal dead space a
-            single column left behind. `break-inside-avoid` keeps each section whole
-            across a column boundary; `mb-6` carries the vertical rhythm `gap` can't
-            provide in column flow (last section drops it). Collapses to one column
-            on mobile/narrow. `wrap-break-word` still bounds any unbreakable token
-            (§4.4). Column count uses named breakpoints (DESIGN.md §6: sm/lg/xl — no
-            `md`), never an arbitrary value (token discipline §10). */}
-        <div
-          data-testid={`wizard-step3-card-${dfid}-breakdown-grid`}
-          className="columns-1 gap-x-8 wrap-break-word pt-1 sm:columns-2 xl:columns-3 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
-        >
-          <CrewBreakdown dfid={dfid} members={crewMembers} />
-          <ScheduleBreakdown dfid={dfid} ros={ros} />
-          <RoomsBreakdown dfid={dfid} rooms={rooms} />
-          <HotelsBreakdown dfid={dfid} hotels={hotels} />
-        </div>
-        {/* Agenda PDF schedule — live-fill card (spec §5.3). Renders nothing when
-            the row has no agenda links; otherwise POSTs to the extract endpoint
-            and fills in the schedule blocks when ready. Keyed on agendaStateKey so
-            a rescan resets the per-row state. */}
-        {arr(row.adminAgendaPreview).length > 0 ? (
-          <div className="mt-6">
-            <AgendaBreakdown
-              driveFileId={dfid}
-              wizardSessionId={wizardSessionId}
-              baseline={arr(row.adminAgendaPreview)}
-              stateKey={row.agendaStateKey ?? dfid}
-            />
-          </div>
-        ) : null}
-        {/* Warnings — pulled OUT of the multi-column data flow into a FULL-WIDTH
-            bordered callout BELOW the rest of the breakdown, so the non-blocking
-            data-quality notes stand apart from the show data instead of competing
-            with it in a column. Warm warning-bg + a full strong border (DESIGN.md
-            §1.2 — warning, not error; full border, never a side-stripe). Gated on
-            warnings so there is no empty box (WarningsBreakdown also returns null
-            when empty). */}
-        {warnings.length > 0 ? (
+      {/* Re-scan this sheet (spec §9): a quiet recovery CTA alongside "More". Suppressed
+          for a dirty re-scan row — its banner above already routes to the reapply page,
+          so a competing Re-scan button would muddy the primary action. */}
+      {isDirtyRescan ? null : (
+        <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+      )}
+
+      {/* The details overlay — mounted ONLY while open, so a closed card carries
+          no breakdown (and none of its focusable "Show all N times" controls) in
+          the DOM at all (absent, not merely `inert`). The breakdown lays its
+          sections out in a balanced column flow — 1 column in the mobile sheet,
+          2 in the desktop popup, both bounded by the dialog width (no longer the
+          grid cell) — with the FULL-WIDTH warnings callout below.
+          `break-inside-avoid` keeps each section whole across a column break;
+          `mb-6` carries the vertical rhythm column flow can't get from `gap`
+          (last section drops it). `wrap-break-word` bounds any unbreakable token
+          (§4.4). Column count uses the named `sm` breakpoint (DESIGN.md §6),
+          which is also the sheet→popup mode boundary, so 1-col tracks the sheet
+          and 2-col tracks the popup. */}
+      {detailsOpen ? (
+        <Step3DetailsDialog dfid={dfid} title={title} onClose={closeDetails}>
           <div
-            data-testid={`wizard-step3-card-${dfid}-warnings-panel`}
-            className="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad"
+            data-testid={`wizard-step3-card-${dfid}-breakdown-grid`}
+            className="columns-1 gap-x-8 wrap-break-word sm:columns-2 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
           >
-            <WarningsBreakdown dfid={dfid} warnings={warnings} />
+            <CrewBreakdown dfid={dfid} members={crewMembers} />
+            <ScheduleBreakdown dfid={dfid} ros={ros} />
+            <RoomsBreakdown dfid={dfid} rooms={rooms} />
+            <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
+            <PackListBreakdown dfid={dfid} cases={pullSheet} />
+            <HotelsBreakdown dfid={dfid} hotels={hotels} />
           </div>
-        ) : null}
-      </div>
+          {/* Agenda PDF schedule — live-fill card (spec §5.3). Renders nothing when
+              the row has no agenda links; otherwise POSTs to the extract endpoint
+              and fills in the schedule blocks when ready. Keyed on agendaStateKey so
+              a rescan resets the per-row state. */}
+          {arr(row.adminAgendaPreview).length > 0 ? (
+            <div className="mt-6">
+              <AgendaBreakdown
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                baseline={arr(row.adminAgendaPreview)}
+                stateKey={row.agendaStateKey ?? dfid}
+              />
+            </div>
+          ) : null}
+          {/* Warnings — pulled OUT of the column flow into a FULL-WIDTH bordered
+              callout BELOW the rest, so the non-blocking data-quality notes stand
+              apart from the show data. Warm warning-bg + a full strong border
+              (DESIGN.md §1.2 — warning, not error; full border, never a
+              side-stripe). Gated on warnings so there is no empty box. */}
+          {warnings.length > 0 ? (
+            <div
+              data-testid={`wizard-step3-card-${dfid}-warnings-panel`}
+              className="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad"
+            >
+              <WarningsBreakdown dfid={dfid} warnings={warnings} />
+            </div>
+          ) : null}
+        </Step3DetailsDialog>
+      ) : null}
     </article>
   );
 }

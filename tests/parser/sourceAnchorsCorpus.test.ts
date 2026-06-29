@@ -332,3 +332,52 @@ describe("Standardized multitab fixture (RPAS-style)", () => {
     expect(anchors.flights).toEqual(anchors.crew);
   });
 });
+
+// ── Task 8 (gear-parser-fidelity): gear_scope region gated on the GEAR date-grid signature ──
+describe("gear_scope region (date-grid-gated whole-tab GEAR anchor)", () => {
+  const GEAR_DATE_GRID_ROWS: unknown[][] = [
+    ["", "", "Rental Dates", "Rental Dates", "Rental Dates"],
+    ["Item", "Item", "21-Mar", "22-Mar", "23-Mar"],
+    ["GENERAL SESSION - GRAND BALLROOM", "GENERAL SESSION - GRAND BALLROOM"],
+    ["DLP DATA PROJECTOR - BARCO", "DLP DATA PROJECTOR - BARCO", "", "", "1"],
+  ];
+  // Rental Dates banner but NO doubled `| Item | Item | <date> |` header → not a grid.
+  const GEAR_NO_HEADER_ROWS: unknown[][] = [
+    ["", "Rental Dates", "Rental Dates"],
+    ["Foo", "Bar"],
+  ];
+
+  it("GEAR tab WITH the date-grid signature → gear_scope anchors to the GEAR tab", () => {
+    const buffer = makeWorkbookBuffer([
+      { name: "INFO", rows: STANDARDIZED_INFO_ROWS },
+      { name: "GEAR", rows: GEAR_DATE_GRID_ROWS },
+    ]);
+    const titleToGid = new Map<string, number>([
+      ["INFO", 0],
+      ["GEAR", 5],
+    ]);
+    const anchors = extractSourceAnchors(buffer, titleToGid);
+    expect(anchors.gear_scope?.title).toBe("GEAR");
+    expect(anchors.gear_scope?.gid).toBe(5);
+  });
+
+  it("GEAR tab with Rental Dates but NO Item/date header → gear_scope undefined", () => {
+    const buffer = makeWorkbookBuffer([
+      { name: "INFO", rows: STANDARDIZED_INFO_ROWS },
+      { name: "GEAR", rows: GEAR_NO_HEADER_ROWS },
+    ]);
+    const titleToGid = new Map<string, number>([
+      ["INFO", 0],
+      ["GEAR", 5],
+    ]);
+    const anchors = extractSourceAnchors(buffer, titleToGid);
+    expect(anchors.gear_scope).toBeUndefined();
+  });
+
+  it("no GEAR tab → gear_scope undefined", () => {
+    const buffer = makeWorkbookBuffer([{ name: "INFO", rows: STANDARDIZED_INFO_ROWS }]);
+    const titleToGid = new Map<string, number>([["INFO", 0]]);
+    const anchors = extractSourceAnchors(buffer, titleToGid);
+    expect(anchors.gear_scope).toBeUndefined();
+  });
+});

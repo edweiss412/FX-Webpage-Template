@@ -49,6 +49,20 @@ export function displayableEntries(entries: AgendaEntry[] | undefined): AgendaEn
   return (entries ?? []).filter(isDisplayableEntry);
 }
 
+/**
+ * Per-viewer schedule entries (D12): displayableEntries minus synthetic load-out
+ * entries (kind:"loadout") when transport is NOT visible to the viewer. Load-out
+ * is transport-gated like the rest of the Transportation tile; strike + SET +
+ * agenda entries are always visible. transportVisible is computed by the caller
+ * (transportTileVisible) and passed in.
+ */
+export function scheduleEntriesForViewer(
+  entries: AgendaEntry[] | undefined,
+  opts: { transportVisible: boolean },
+): AgendaEntry[] {
+  return displayableEntries(entries).filter((e) => e.kind !== "loadout" || opts.transportVisible);
+}
+
 export type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 
 export type AggregateDay = {

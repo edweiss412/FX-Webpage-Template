@@ -229,7 +229,9 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   try {
     const q = await supabase
       .from("pending_syncs")
-      .select("staged_id, drive_file_id, staged_modified_time, parse_result")
+      .select(
+        "staged_id, drive_file_id, staged_modified_time, parse_result, last_finalize_failure_code",
+      )
       .eq("wizard_session_id", wizardSessionId);
     if (q.error) {
       return {
@@ -273,6 +275,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       parseResult: ParseResult | null;
       adminAgendaPreview: AdminAgendaItem[];
       agendaStateKey: string;
+      lastFinalizeFailureCode: string | null;
     }
   >();
   for (const ps of pendingSyncsRows) {
@@ -301,6 +304,8 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       parseResult,
       adminAgendaPreview,
       agendaStateKey,
+      // Task 5b (spec §6.1): the demotion code drives the card's dirty re-scan state.
+      lastFinalizeFailureCode: (ps.last_finalize_failure_code as string | null) ?? null,
     });
   }
 
@@ -328,13 +333,15 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       if (staged) {
         // §7.1: a clean row carries its full ParseResult (may be null if the
         // jsonb was absent/malformed). Title is the back-compat summary field.
-        // Task 11: also carry the baseline (note-only) agenda preview + the
-        // stable agendaStateKey so the card has note-only items immediately.
+        // Task 11: carry the baseline (note-only) agenda preview + the stable
+        // agendaStateKey so the card has note-only items immediately.
+        // Task 5b: thread the demotion code so a dirty re-scan row renders distinctly.
         const withParse: Step3Row = {
           ...base,
           parseResult: staged.parseResult,
           adminAgendaPreview: staged.adminAgendaPreview,
           agendaStateKey: staged.agendaStateKey,
+          lastFinalizeFailureCode: staged.lastFinalizeFailureCode,
         };
         if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
         return withParse;
@@ -357,7 +364,12 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   // (Task B1) uses; a clean `staged` row (unchecked → Held) and `applied`
   // (checked) are NOT blocking. An empty list is finishable.
   const BLOCKING = new Set(["hard_failed", "live_row_conflict", "discard_retryable"]);
-  const finishable = rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status));
+  // A row demoted by a per-sheet re-scan carries a non-null lastFinalizeFailureCode
+  // (e.g. RESCAN_REVIEW_REQUIRED) while its manifest status is the non-blocking
+  // 'staged'. The server final-CAS gate refuses such a row, so the finish button must
+  // also block on it (else the UI enables a finish the server would reject).
+  const finishable =
+    rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status) && !r.lastFinalizeFailureCode);
 
   return { kind: "ok", rows, finishable };
 }

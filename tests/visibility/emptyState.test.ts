@@ -76,6 +76,12 @@ describe("shouldHideGenericOptional", () => {
     expect(shouldHideGenericOptional(" tba ")).toBe(true);
   });
 
+  test("dash placeholders `-` and `—` are hidden (gear-parser-fidelity Task 7)", () => {
+    expect(shouldHideGenericOptional("-")).toBe(true);
+    expect(shouldHideGenericOptional("—")).toBe(true);
+    expect(shouldHideGenericOptional(" - ")).toBe(true);
+  });
+
   test("real content renders (not hidden)", () => {
     expect(shouldHideGenericOptional("House power, 20A")).toBe(false);
     expect(shouldHideGenericOptional("Wi-Fi: FXAV-Show / pw fxav2026")).toBe(false);

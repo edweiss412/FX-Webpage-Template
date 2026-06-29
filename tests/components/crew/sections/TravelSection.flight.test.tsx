@@ -25,29 +25,69 @@ function renderTravel(data: ShowForViewer) {
 }
 
 describe("TravelSection — flight card", () => {
-  it("renders a round-trip as two separate legs (arrival, departure)", () => {
+  it("TECH leg renders EVERY structured field: date label, route, airline, times, conf", () => {
     const flight =
       "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
-    const { getByTestId } = renderTravel(baseData({ viewerFlightInfo: flight }));
-    const card = getByTestId("travel-flight");
-    // Derive expected legs from the data source (anti-tautology), not hardcoded.
-    const legs = flight.split(" | ");
-    expect(legs).toHaveLength(2);
-    const lines = within(card).getAllByTestId("travel-flight-leg");
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toHaveTextContent("EWR-FLL");
-    expect(lines[1]).toHaveTextContent("FLL-EWR");
-    // Not flattened into one run-on line.
-    expect(lines[0]).not.toHaveTextContent("FLL-EWR");
+    // show.dates must yield showYear 2024 so "5/13" → "2024-05-13" (matches TODAY).
+    const { getByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: flight, show: { dates: { travelIn: "2024-05-13" } } as never }),
+    );
+    const segs = within(getByTestId("travel-flight")).getAllByTestId("travel-flight-seg");
+    expect(segs).toHaveLength(2);
+    // Literal visible-field assertions derived from the fixture (catch omitted JSX directly).
+    expect(segs[0]).toHaveTextContent("May 13"); // formatFlightDate("2024-05-13")
+    expect(segs[0]).toHaveTextContent("EWR → FLL");
+    expect(segs[0]).toHaveTextContent("UNITED");
+    expect(segs[0]).toHaveTextContent("11:29am");
+    expect(segs[0]).toHaveTextContent("2:34pm");
+    expect(segs[0]).toHaveTextContent("HQQ79F");
+    expect(segs[1]).toHaveTextContent("JET BLUE");
   });
 
-  it("renders a one-way (no ' | ') as a single leg", () => {
+  it("TRAVEL leg renders date, flightNo, route, times; itinerary confirmation once", () => {
+    const flight =
+      "GEUZAB 3/22 AA3002 LGA - ORD 7:23am - 9:15am | 3/26 AA2723 ORD - LGA 7:23am - 10:30am";
+    const { getByTestId, getAllByText } = renderTravel(
+      baseData({ viewerFlightInfo: flight, show: { dates: { travelIn: "2026-03-22" } } as never }),
+    );
+    const seg0 = within(getByTestId("travel-flight")).getAllByTestId("travel-flight-seg")[0]!;
+    expect(seg0).toHaveTextContent("Mar 22"); // formatFlightDate("2026-03-22")
+    expect(seg0).toHaveTextContent("AA3002");
+    expect(seg0).toHaveTextContent("LGA → ORD");
+    expect(seg0).toHaveTextContent("7:23am");
+    expect(seg0).toHaveTextContent("9:15am");
+    expect(getAllByText(/GEUZAB/).length).toBe(1); // itinerary confirmation shown once
+  });
+
+  it("emphasizes the today/next segment (TODAY = 2024-05-13)", () => {
+    const flight =
+      "EWR-FLL UNITED 5/13 - 11:29am - 2:34pm HQQ79F | FLL-EWR JET BLUE 5/15 - 8:59pm - 11:58pm OSUULZ";
     const { getByTestId } = renderTravel(
-      baseData({ viewerFlightInfo: "EWR-FLL UNITED 5/13 HQQ79F" }),
+      baseData({ viewerFlightInfo: flight, show: { dates: { travelIn: "2024-05-13" } } as never }),
     );
-    expect(within(getByTestId("travel-flight")).getAllByTestId("travel-flight-leg")).toHaveLength(
-      1,
+    expect(getByTestId("flight-next-chip")).toHaveTextContent(/Today/i);
+  });
+
+  it("a no-date leg falls back to a raw line", () => {
+    const { getByTestId } = renderTravel(
+      baseData({ viewerFlightInfo: "UNKNOWN FLIGHT INFO NO DATE" }),
     );
+    const card = getByTestId("travel-flight");
+    expect(within(card).getByTestId("travel-flight-leg")).toHaveTextContent(
+      "UNKNOWN FLIGHT INFO NO DATE",
+    );
+  });
+
+  it("a date-only leg with no flight content shows its raw text, not just the date", () => {
+    const { getByTestId } = renderTravel(
+      baseData({
+        viewerFlightInfo: "3/22 Charter pending",
+        show: { dates: { travelIn: "2026-03-22" } } as never,
+      }),
+    );
+    const card = getByTestId("travel-flight");
+    // Raw operator text preserved (regression guard from the old raw-leg rendering).
+    expect(within(card).getByTestId("travel-flight-leg")).toHaveTextContent("3/22 Charter pending");
   });
 
   it.each([

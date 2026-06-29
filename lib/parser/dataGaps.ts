@@ -121,6 +121,7 @@ export function dataGapClassDetails(
  */
 export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
   "SCHEDULE_TIME_UNPARSED",
+  "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
   "UNKNOWN_ROLE_TOKEN",
   "UNKNOWN_DAY_RESTRICTION",
   "UNKNOWN_FIELD",

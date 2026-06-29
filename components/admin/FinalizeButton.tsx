@@ -37,6 +37,11 @@ import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { AccentButton } from "@/components/shared/AccentButton";
+import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+
+// The one per-row code a re-scan can heal: an outdated Phase-D shadow. Corrupt-payload
+// / archived-show rows keep their existing recovery (re-scan is the wrong tool there).
+const RESCANNABLE_CAS_CODE = "STAGED_PARSE_OUTDATED_AT_PHASE_D";
 
 type PerRowFailure = {
   drive_file_id: string;
@@ -111,7 +116,7 @@ const GENERIC_ERROR =
   "The publish step could not complete. Refresh and try again, or contact the developer if this keeps happening.";
 
 export function FinalizeButton({
-  wizardSessionId: _wizardSessionId,
+  wizardSessionId,
   disabled,
   publishCount,
   uncheckedCleanCount = 0,
@@ -307,6 +312,13 @@ export function FinalizeButton({
                   {lookupDougFacing(row.code) ?? GENERIC_ERROR}
                 </span>
                 <HelpAffordance code={row.code} />
+                {/* An outdated Phase-D shadow self-heals via a re-scan; offer it inline. */}
+                {row.code === RESCANNABLE_CAS_CODE ? (
+                  <RescanSheetButton
+                    driveFileId={row.drive_file_id}
+                    wizardSessionId={wizardSessionId}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>

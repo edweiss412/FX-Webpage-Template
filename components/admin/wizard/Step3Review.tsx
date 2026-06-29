@@ -93,6 +93,10 @@ export type Step3Row = {
   // staged row is rescanned (new staged_modified_time), so the card can reset
   // any per-row agenda UI state on rescan.
   agendaStateKey?: string;
+  // Task 5b (spec §6.1): the pending_syncs demotion code, threaded so the card can
+  // render a dirty re-scan (`RESCAN_REVIEW_REQUIRED`) distinctly — a "review before
+  // publishing" link to the reapply page, with the plain publish checkbox suppressed.
+  lastFinalizeFailureCode?: string | null;
 };
 
 type Step3ReviewProps = {
@@ -325,16 +329,12 @@ function ManifestIgnoreAction({
 function RowItem({
   row,
   wizardSessionId,
-  expanded,
-  onToggleExpanded,
   checked,
   onToggleChecked,
   quiet = false,
 }: {
   row: Step3Row;
   wizardSessionId: string;
-  expanded?: boolean;
-  onToggleExpanded?: () => void;
   // Lifted publish-intent (clean rows only) — forwarded to the card's checkbox so
   // Select-all updates every box through Step3Review's shared optimistic state.
   checked?: boolean;
@@ -368,8 +368,6 @@ function RowItem({
         <Step3SheetCard
           row={row}
           wizardSessionId={wizardSessionId}
-          expanded={expanded}
-          onToggleExpanded={onToggleExpanded}
           checked={checked}
           onToggleChecked={onToggleChecked}
         />
@@ -630,8 +628,14 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   // The publish-participating subset: clean rows that actually have a reviewable
   // preview (and therefore a checkbox). A corrupt/no-details clean row stays in
   // `publishRows` (so it still renders in the grid) but is excluded here, so it is
-  // not counted in "N of M" nor (un)published by Select all.
-  const selectableRows = publishRows.filter(hasReviewablePreview);
+  // not counted in "N of M" nor (un)published by Select all. A row demoted by a
+  // per-sheet re-scan (non-null `lastFinalizeFailureCode`, e.g. RESCAN_REVIEW_REQUIRED)
+  // is likewise excluded: its card suppresses the checkbox and routes to the reapply
+  // page, and the server /approve REFUSES it — so Select-all must not POST for it and
+  // the count must not include it (it stays in `publishRows` to render the review banner).
+  const selectableRows = publishRows.filter(
+    (r) => hasReviewablePreview(r) && !r.lastFinalizeFailureCode,
+  );
   const blockingRows = rows.filter((r) => isBlocking(r.status));
   const blockingCount = blockingRows.length;
   const ignoredRows = rows.filter((r) => r.status === "permanent_ignore");
@@ -639,13 +643,10 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const skippedRows = rows.filter((r) => r.status === "skipped_non_sheet");
   const hasSetAside = ignoredRows.length + deferredRows.length + skippedRows.length > 0;
 
-  // Accordion: at most ONE card's detail open at a time. The open card's CELL spans
-  // the full grid width (lg:col-span-2 xl:col-span-3) while the grid STAYS
-  // multi-column; `grid-flow-row-dense` backfills the gap the wide cell would
-  // otherwise leave, so only the open card goes full-width and the rest keep their
-  // grid positions (previously the whole grid collapsed to one column). null = all
-  // collapsed.
-  const [expandedDfid, setExpandedDfid] = useState<string | null>(null);
+  // Per-card details now open in a self-managed MODAL overlay (the card's "More"
+  // button → <Step3DetailsDialog>), so there is no accordion state here and the
+  // grid never reflows: every cell stays a uniform summary tile. (Previously one
+  // card's cell spanned full-width while open; the modal removes that coupling.)
 
   // Lifted publish-intent: ONE optimistic overlay shared by the header's Select-all,
   // the live count, and every per-card checkbox. `overlay[dfid]` (when present) is
@@ -742,7 +743,16 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
         { method: "POST" },
       );
-      return res.ok;
+      if (!res.ok) return false;
+      // The server returns HTTP 200 with `{ ok: false }` when it SAFELY refuses an
+      // approve (e.g. a row that went dirty between render and click →
+      // RESCAN_REVIEW_REQUIRED): the publish was NOT applied. Treat that as a failure
+      // so flush reverts the optimistic box to server truth instead of leaving it
+      // falsely checked/applied. A success body has no `ok` field (`{ status: ... }`),
+      // so this only catches an explicit refusal. A 200 with no/invalid body is success.
+      const body = (await res.json().catch(() => null)) as { ok?: unknown } | null;
+      if (body !== null && typeof body === "object" && body.ok === false) return false;
+      return true;
     } catch {
       return false;
     }
@@ -939,29 +949,19 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
               its own content height (CSS grid defaults to align-items:stretch, which
               we override so a short card never stretches to match the tallest in its
               row — this repo's Tailwind v4 requires every such dimensional
-              relationship to be stated explicitly). When a card is open, ONLY its
-              cell spans the full width (`lg:col-span-2 xl:col-span-3`); the grid
-              stays multi-column and `grid-flow-row-dense` backfills the gap, so the
-              other cards keep their grid positions instead of all going full-width. */}
+              relationship to be stated explicitly). Every cell is uniform: card
+              details open in a modal overlay (the card's "More" button), so no cell
+              ever spans full-width and the grid never reflows. */}
           {publishRows.length > 0 ? (
             <ul
               data-testid="wizard-step3-card-grid"
-              className="grid grid-flow-row-dense grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
+              className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
             >
               {publishRows.map((row) => (
-                <li
-                  key={row.driveFileId}
-                  className={
-                    expandedDfid === row.driveFileId ? "lg:col-span-2 xl:col-span-3" : undefined
-                  }
-                >
+                <li key={row.driveFileId}>
                   <RowItem
                     row={row}
                     wizardSessionId={wizardSessionId}
-                    expanded={expandedDfid === row.driveFileId}
-                    onToggleExpanded={() =>
-                      setExpandedDfid((cur) => (cur === row.driveFileId ? null : row.driveFileId))
-                    }
                     checked={isChecked(row)}
                     // No `checkboxPending`: per-card boxes are NEVER disabled now (the
                     // "individual selects grey out" complaint). Race-safety comes from

@@ -117,6 +117,10 @@ export type ShowRow = {
     travelOut: string | null;
     loadIn?: string | null; // free-text load-in clock time from the DATES TIME column (set/travel_set rows). §4.4
     setupTime?: string | null; // second clock in the SET-row TIME cell (e.g. "10:00PM SETUP"). §4.2 / D7
+    // PARSE-TRANSIENT: raw SET-row TIME cell, populated by parseDates and consumed by
+    // deriveScheduleBookends; STRIPPED in lib/parser/index.ts before the ShowRow is composed —
+    // never persisted to public.shows.dates nor projected by getShowForViewer. D-SET1.
+    setAgendaRaw?: string | null;
   };
   // per-day work-phase mapping. Each entry maps a calendar date (ISO 'YYYY-MM-DD')
   // to the set of WorkPhases active on that day. Derived by the parser from shows.dates blocks AND
@@ -337,6 +341,7 @@ export type PersistedDiagrams = {
  * "filled" signal: parseAgenda only emits an entry when TITLE is REAL
  * (non-empty AND not a generic sentinel — shouldHideGenericOptional).
  */
+export type AgendaEntryKind = "agenda" | "strike" | "loadout";
 export type AgendaEntry = {
   start: string;
   finish?: string;
@@ -344,6 +349,7 @@ export type AgendaEntry = {
   title: string;
   room?: string;
   av?: string;
+  kind?: AgendaEntryKind; // absent ⇒ "agenda"
 };
 
 export type ScheduleDay = {

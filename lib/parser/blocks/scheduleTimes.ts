@@ -52,6 +52,21 @@ function normClock(
   return `${numericPart}${spacer}${ap.toUpperCase()}`;
 }
 
+/**
+ * First real clock token in `text` (has :MM or AM/PM), returned VERBATIM (the
+ * operator's exact text — we don't reformat crew-facing clock display, spec §7.2);
+ * null if none. (Distinct from the show-day tokenizer's normClock display path.)
+ */
+export function extractFirstClock(text: string): string | null {
+  CLOCK_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CLOCK_RE.exec(text)) !== null) {
+    if (!m[2] && !m[3]) continue; // bare integer, not a clock
+    return m[0].trim(); // verbatim — e.g. "4:30pm", "1PM", "6:00 PM", "8 PM"
+  }
+  return null;
+}
+
 function tokenize(cell: string): Tok[] {
   const toks: Tok[] = [];
   let m: RegExpExecArray | null;

@@ -60,9 +60,11 @@ const COLUMN_WIDTH = 360; // a fixed-width list column at the 390px mobile viewp
 const LONG_TITLE =
   "AcmeCapitalGlobalAssetManagementQuarterlyInvestorSummitStrategyOffsiteWaldorfAstoriaGrandBallroomEdition";
 
-// The card's header-row + breakdown class structure, transcribed verbatim from
-// components/admin/wizard/Step3SheetCard.tsx (§4.4-governed elements). The
-// breakdown is forced visible (data-expanded="true") so its width is measured.
+// The collapsed card's header-row + "More" button class structure, transcribed
+// verbatim from components/admin/wizard/Step3SheetCard.tsx (§4.4-governed
+// elements). The breakdown is no longer a collapsed-card child — it opens in the
+// "More" dialog (a viewport-width overlay verified in step3-grid-layout.spec.ts),
+// so only the summary block + trigger are measured against the fixed column here.
 function cardHtml(dfid: string, title: string): string {
   return `
 <article data-testid="wizard-step3-card-${dfid}" class="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile)">
@@ -79,19 +81,9 @@ function cardHtml(dfid: string, title: string): string {
       </div>
     </div>
   </div>
-  <button type="button" data-testid="wizard-step3-card-${dfid}-expand" aria-expanded="true" class="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong">
-    <span>Hide details</span>
+  <button type="button" data-testid="wizard-step3-card-${dfid}-more" aria-haspopup="dialog" class="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong">
+    <span>More</span>
   </button>
-  <div data-testid="wizard-step3-card-${dfid}-breakdown" data-step3-breakdown="" data-expanded="true">
-    <div class="flex flex-col gap-4 pt-1">
-      <section data-testid="wizard-step3-card-${dfid}-breakdown-crew" class="flex flex-col gap-1.5">
-        <h4 class="text-xs font-semibold uppercase text-text-subtle">Crew <span class="tabular-nums text-text-faint">(12)</span></h4>
-        <ul class="flex flex-col gap-0.5">
-          <li class="break-words text-sm text-text"><span class="font-medium text-text-strong">Crew-Person-With-A-Very-Long-Unbreakable-Display-Name-Token-That-Could-Push-Width</span><span class="text-text-subtle"> · BO-LEAD/GS-A1/CONTENT_CREATION-specialist-role-label-unbroken-token</span></li>
-        </ul>
-      </section>
-    </div>
-  </div>
 </article>`;
 }
 
@@ -184,13 +176,14 @@ for (const dfid of ["normal", "longtitle"] as const) {
     );
 
     // INVARIANT 2: every documented descendant testid stays within the card
-    // box horizontally (no min-w-0/flex-1 collapse failure; no unbounded
-    // breakdown child). This is the core §4.4 assertion — a missing min-w-0 on
-    // the summary block, or an unbounded breakdown, lets a long title/role line
+    // box horizontally (no min-w-0/flex-1 collapse failure). This is the core
+    // §4.4 assertion — a missing min-w-0 on the summary block lets a long title
     // push a child past the card's right edge. `-summary-block` is the inner
     // `min-w-0 flex-1` div whose width is the direct min-w-0 witness: without
-    // min-w-0 it grows to the unbreakable token width and exceeds the card.
-    for (const suffix of ["-summary", "-summary-block", "-breakdown"]) {
+    // min-w-0 it grows to the unbreakable token width and exceeds the card. (The
+    // breakdown is no longer a collapsed-card child — it lives in the "More"
+    // dialog, a viewport-width overlay verified in step3-grid-layout.spec.ts.)
+    for (const suffix of ["-summary", "-summary-block"]) {
       const child = await rect(page, `wizard-step3-card-${dfid}${suffix}`);
       expect(
         child.width,

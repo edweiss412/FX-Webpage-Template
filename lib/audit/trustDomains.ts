@@ -81,6 +81,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
     chain: ["requireAdmin"],
   },
+  // Per-sheet Re-scan (M-rescan): same admin chokepoint as the other onboarding
+  // mutators; handleRescanSheet calls requireAdmin() before parsing the body.
+  { path: "app/api/admin/onboarding/rescan-sheet/route.ts", chain: ["requireAdmin"] },
   {
     path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
     chain: ["requireAdmin"],

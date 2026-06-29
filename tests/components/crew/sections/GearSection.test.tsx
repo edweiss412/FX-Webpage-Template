@@ -149,3 +149,126 @@ test("a pure-URL opening reel with no video renders NO Opening reel card (whole-
   );
   expect(container.querySelector('[data-testid="gear-opening-reel"]')).toBeNull();
 });
+
+test("Scenic + Other scope cards render when populated and auto-omit when empty (spec §3.6)", () => {
+  const data = makeShowForViewer({
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "GS",
+        audio: null,
+        video: null,
+        lighting: null,
+        scenic: "(2) Grey Spandex",
+        other: "(1) Truss Podium",
+      },
+    ],
+  });
+  const { container } = render(
+    <GearSection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  expect(container.querySelector('[data-testid="gear-scope-scenic"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="gear-scope-other"]')).not.toBeNull();
+  // never emphasized (A/V/L-only) — neutral cards:
+  expect(
+    container.querySelector('[data-testid="gear-scope-scenic"]')!.getAttribute("data-emphasis"),
+  ).toBeNull();
+  // all-sentinel scenic/other → both cards omitted:
+  const sentinel = makeShowForViewer({
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "GS",
+        audio: "mic",
+        video: null,
+        lighting: null,
+        scenic: "TBD",
+        other: "-",
+      },
+    ],
+  });
+  const c2 = render(
+    <GearSection
+      data={sentinel}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  ).container;
+  expect(c2.querySelector('[data-testid="gear-scope-scenic"]')).toBeNull();
+  expect(c2.querySelector('[data-testid="gear-scope-other"]')).toBeNull();
+});
+
+test("keynote requirements card renders from event_details (closes the missing-coverage gap)", () => {
+  const data = makeShowForViewer({
+    show: { event_details: { keynote_requirements: "Confidence monitor + clicker" } },
+  });
+  const { container } = render(
+    <GearSection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  const card = container.querySelector('[data-testid="gear-keynote"]');
+  expect(card).not.toBeNull();
+  expect(card!.textContent).toContain("Confidence monitor + clicker");
+  // sentinel keynote → omitted:
+  const tbd = makeShowForViewer({ show: { event_details: { keynote_requirements: "TBD" } } });
+  expect(
+    render(
+      <GearSection
+        data={tbd}
+        viewer={{ kind: "crew", crewMemberId: "c1" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    ).container.querySelector('[data-testid="gear-keynote"]'),
+  ).toBeNull();
+});
+
+test("scope-card source link targets gear_scope (GEAR tab) when present, else rooms/INFO (spec §3.6 / R4-M2)", () => {
+  const base = {
+    rooms: [
+      { id: "r1", kind: "gs" as const, name: "GS", audio: "(1) QU32", video: null, lighting: null },
+    ],
+    driveFileId: "DRIVE123",
+  };
+  // GEAR-derived: gear_scope anchor present → link uses GEAR gid:
+  const withGear = makeShowForViewer({
+    ...base,
+    sourceAnchors: { gear_scope: { title: "GEAR", gid: 99 }, rooms: { title: "INFO", gid: 5 } },
+  });
+  const a1 = render(
+    <GearSection
+      data={withGear}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  ).container.querySelector('[data-testid="gear-scope-audio"] a');
+  expect(a1!.getAttribute("href")).toContain("#gid=99");
+
+  // INFO-inline (no gear_scope anchor) → link uses rooms/INFO gid:
+  const noGear = makeShowForViewer({
+    ...base,
+    sourceAnchors: { rooms: { title: "INFO", gid: 5 } },
+  });
+  const a2 = render(
+    <GearSection
+      data={noGear}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  ).container.querySelector('[data-testid="gear-scope-audio"] a');
+  expect(a2!.getAttribute("href")).toContain("#gid=5");
+});

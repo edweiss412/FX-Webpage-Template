@@ -80,18 +80,19 @@ export function parsePullSheet(markdown: string): PullSheetParseResult {
       }
     }
 
-    // Collect data rows until the table ends
-    const dataRows: string[] = [];
-    while (i < lines.length) {
-      const dataLine = lines[i] ?? "";
-      const dataTrimmed = dataLine.trim();
-      if (!dataTrimmed.startsWith("|")) break;
-      if (isSeparatorRow(dataTrimmed)) break;
-      dataRows.push(dataTrimmed);
-      i++;
-    }
+    // Collect the data rows for this case. Modern exporter pull-sheets interleave the
+    // header with a sub-header + summary-count rows (each its own blank/separator-
+    // bounded block) before the real item rows, so we scan forward — within this
+    // case's region, up to the next PULL SHEET header — for the FIRST contiguous block
+    // that carries a recognizable packed-flag row (TRUE/FALSE in col0 or col4). Block
+    // boundaries are unchanged (blank OR separator), so the legacy raw shape (items
+    // directly under the header, trailing TOTAL-COUNT junk after a blank) is collected
+    // exactly as before. Falls back to the first non-empty block when no packed-flag is
+    // present (legacy unknown-variant shape, pinned by Test 8).
+    const block = collectDataBlock(lines, i);
+    i = block.nextIndex;
 
-    const result = parseDataRows(dataRows, caseLabel, warnings);
+    const result = parseDataRows(block.dataRows, caseLabel, warnings);
     pullSheetCases.push(result);
   }
 
@@ -109,6 +110,71 @@ function isSeparatorRow(trimmed: string): boolean {
   const parts = trimmed.split("|");
   const segments = parts.slice(1, parts.length - 1);
   return segments.length > 0 && segments.every((seg) => /^[\s:|*-]*$/.test(seg));
+}
+
+/**
+ * Locate the item-bearing data block for a pull-sheet case (§6.10, gear-parser-fidelity).
+ *
+ * Scans forward from `start` (just past the header + alignment row). A "block" is a
+ * maximal run of pipe rows bounded by a blank line OR a separator row (identical to the
+ * legacy collection boundary). Returns the FIRST block containing a packed-flag row
+ * (TRUE/FALSE in col0 or col4) — skipping leading sub-header / summary-count blocks the
+ * modern exporter emits. Stops at the next PULL SHEET header so multi-sub-tab sheets keep
+ * one case per header. Falls back to the first non-empty block when no packed flag exists.
+ */
+function collectDataBlock(
+  lines: string[],
+  start: number,
+): { dataRows: string[]; nextIndex: number } {
+  let i = start;
+  let fallback: string[] | null = null;
+  let fallbackEnd = start;
+
+  while (i < lines.length) {
+    // Skip leading blank / non-pipe lines and separator rows.
+    while (i < lines.length) {
+      const t = (lines[i] ?? "").trim();
+      if (!t.startsWith("|")) {
+        i++;
+        continue;
+      }
+      if (isSeparatorRow(t)) {
+        i++;
+        continue;
+      }
+      break;
+    }
+    if (i >= lines.length) break;
+
+    // Stop at the next PULL SHEET header — that belongs to the next case.
+    const firstCells = splitRow((lines[i] ?? "").trim());
+    if (firstCells.length > 0 && firstCells.every((c) => c.toUpperCase().includes("PULL SHEET"))) {
+      break;
+    }
+
+    // Gather one contiguous block (ends at a blank line or separator row).
+    const blockRows: string[] = [];
+    let hasFlag = false;
+    while (i < lines.length) {
+      const t = (lines[i] ?? "").trim();
+      if (!t.startsWith("|")) break;
+      if (isSeparatorRow(t)) break;
+      blockRows.push(t);
+      const cells = splitRow(t);
+      if (PACKED_FLAG_RE.test(cells[0] ?? "") || PACKED_FLAG_RE.test(cells[4] ?? ""))
+        hasFlag = true;
+      i++;
+    }
+
+    if (hasFlag) return { dataRows: blockRows, nextIndex: i };
+    if (fallback === null && blockRows.length > 0) {
+      fallback = blockRows;
+      fallbackEnd = i;
+    }
+  }
+
+  if (fallback) return { dataRows: fallback, nextIndex: fallbackEnd };
+  return { dataRows: [], nextIndex: i };
 }
 
 function skipTableBlock(lines: string[], startIdx: number): number {
@@ -170,10 +236,14 @@ function parseDataRows(
   caseLabel: string,
   warnings: ParseWarning[],
 ): PullSheetCase {
-  // Check for ambiguous format: any row with column count != 5
+  // Check for ambiguous format: any row with TOO FEW columns (< 5). Wide rows (>= 5)
+  // are tolerated — the exporter shape carries 16 columns and the structured path reads
+  // the leading 5 (extractFields cells[0..4]); empty-item summary rows are dropped below
+  // (gear-parser-fidelity Task 5). A row with fewer than 5 columns cannot be mapped to
+  // the [flag, qty, item, sub_cat, cat] layout, so it still triggers the raw fallback.
   const nonFiveColumnRow = dataRows.find((row) => {
     const cells = splitRow(row);
-    return cells.length !== 5;
+    return cells.length < 5;
   });
 
   if (nonFiveColumnRow !== undefined) {

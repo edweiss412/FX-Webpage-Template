@@ -223,7 +223,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
   test("per-section counts move to the expanded breakdown headers (anti-tautology)", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     const days = Object.keys(FIX.runOfShow ?? {}).length;
     // Each breakdown section header renders "<Label> (<count>)"; every count
     // derives from the fixture array length, never a hardcoded numeral.
@@ -257,7 +257,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
       }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     const days = Object.keys(FIX.runOfShow ?? {}).length;
     expect(days).toBe(5);
     expect(FIX.show.dates.showDays.length).toBe(2);
@@ -339,7 +339,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
   // The summary warning row shows ONLY the self-explanatory per-class data-gap
   // chips ("2 unreadable fields"). The generic "N warnings" total chip and the
   // cryptic "+K other" chip were both removed — non-data-gap warnings (info or
-  // non-DQ codes) carry NO summary chip; they live in the "Show details" list.
+  // non-DQ codes) carry NO summary chip; they live in the the "More" details list.
   test("no generic warning-colored total chip in the summary", () => {
     const FIX = parseResult({
       warnings: [{ severity: "warn" as const, code: "FIELD_UNREADABLE", message: "x" }],
@@ -399,7 +399,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-crew-summary`)).toBeNull();
     expect(summary(q).textContent ?? "").not.toContain(FIX.crewMembers[0]!.name);
     // Crew appears only after expanding (the breakdown roster).
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain(
       FIX.crewMembers[0]!.name,
     );
@@ -407,7 +407,10 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 });
 
 describe("Step3SheetCard — title deep link + wrapping", () => {
-  const SHEET_URL = (dfid: string) => `https://docs.google.com/spreadsheets/d/${dfid}/edit`;
+  // The title link is an un-anchored whole-sheet link (no section anchor), so
+  // buildSheetDeepLink pins it to the first tab (`#gid=0`) for a deterministic
+  // landing rather than a gid-less base URL that opens the doc's last-active tab.
+  const SHEET_URL = (dfid: string) => `https://docs.google.com/spreadsheets/d/${dfid}/edit#gid=0`;
 
   test("the show title is a deep link to the SOURCE sheet, opening in a new tab", () => {
     const FIX = parseResult();
@@ -424,16 +427,21 @@ describe("Step3SheetCard — title deep link + wrapping", () => {
     expect(link.querySelector("svg")).not.toBeNull();
   });
 
-  test("'Show details' is a quiet left-aligned disclosure, NOT a boxed full-width dropdown button", () => {
+  test("'More' is a quiet left-aligned button that OPENS A DIALOG, NOT a boxed full-width dropdown", () => {
     const q = render(<Step3SheetCard row={stagedRow(parseResult())} wizardSessionId={WSID} />);
-    const btn = q.getByTestId(`wizard-step3-card-${DFID}-expand`);
-    // Quiet text disclosure: sizes to its content at the card's left edge…
+    const btn = q.getByTestId(`wizard-step3-card-${DFID}-more`);
+    expect(btn.textContent).toContain("More");
+    // Quiet text button: sizes to its content at the card's left edge…
     expect(btn.className).toMatch(/\bself-start\b/);
-    // …not the old boxed, full-width dropdown-styled button (no border, no spread).
+    // …not a boxed, full-width dropdown-styled button (no border, no spread).
     expect(btn.className).not.toMatch(/\bborder\b/);
     expect(btn.className).not.toMatch(/\bjustify-between\b/);
-    // Still a real disclosure with a persistent (non-hover) chevron affordance.
-    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    // It OPENS A MODAL (haspopup=dialog) — so it is not an inline expand toggle:
+    // it carries no aria-expanded, and no dialog exists until it is clicked.
+    expect(btn.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(btn.getAttribute("aria-expanded")).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-details-dialog`)).toBeNull();
+    // Persistent (non-hover) chevron affordance.
     expect(btn.querySelector("svg")).not.toBeNull();
   });
 
@@ -469,7 +477,7 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
       { severity: "warn" as const, code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
-      // a non-data-quality warn → NO summary chip; it lives only in "Show details"
+      // a non-data-quality warn → NO summary chip; it lives only in the "More" details
       { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" },
     ];
     // An applied (checked) row at the publish decision point.
@@ -500,7 +508,7 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
       warnings: [{ severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" }],
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    // No data-gap row and no "+K other" chip — the warning is only in "Show details".
+    // No data-gap row and no "+K other" chip — the warning is only in the "More" details.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
   });
@@ -525,7 +533,7 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     // Apostrophe-agnostic (the component uses a typographic ’): assert the
     // human "couldn't read" sentence is present.
     expect(card(q).textContent).toContain("read the details of this sheet");
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-expand`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-more`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-breakdown`)).toBeNull();
   });
 
@@ -548,7 +556,7 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />,
     );
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     // A 0 is a signal, not hidden: every breakdown header reads "(0)".
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain("(0)");
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`).textContent).toContain("(0)");
@@ -573,8 +581,8 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     const FIX = parseResult({ crewMembers: [], rooms: [], hotelReservations: [], runOfShow: {} });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     // a clean (non-null parseResult) sheet still has an expand toggle
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-expand`)).not.toBeNull();
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-more`)).not.toBeNull();
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain("(0)");
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
       "(0)",
@@ -584,7 +592,7 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
 
 describe("Step3SheetCard — breakdown (§4.3)", () => {
   function expand(q: ReturnType<typeof render>) {
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     return q.getByTestId(`wizard-step3-card-${DFID}-breakdown`);
   }
   // Non-null indexer for the fixtures we build with known length (the project
@@ -726,16 +734,20 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.getByText("Role we didn't recognize")).toBeTruthy();
   });
 
-  test("the collapsed breakdown is `inert` so its focusable controls (Show-all) aren't tabbable while hidden", () => {
+  test("the breakdown is mounted ONLY while the details dialog is open (absent, not merely inert, when closed)", () => {
     // A day with >6 entries means the breakdown contains a focusable "Show all"
-    // button; the collapse is height:0/overflow:hidden (NOT display:none), so
-    // without `inert` that button would stay tab-reachable while hidden.
+    // button; when the dialog is closed the WHOLE breakdown is out of the DOM, so
+    // that control is unreachable by construction (no `inert` bookkeeping needed).
     const FIX = parseResult({ runOfShow: runOfShow(1, 9) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const breakdown = q.getByTestId(`wizard-step3-card-${DFID}-breakdown`);
-    expect(breakdown.hasAttribute("inert")).toBe(true); // collapsed on mount
-    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-expand`));
-    expect(breakdown.hasAttribute("inert")).toBe(false); // operable once expanded
+    // Closed: no breakdown, no dialog, no Show-all control in the DOM at all.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-breakdown`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-details-dialog`)).toBeNull();
+    expect(q.queryByText("Show all 9 times")).toBeNull();
+    // Open: the breakdown mounts inside the dialog; its controls are reachable.
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-breakdown`)).not.toBeNull();
+    expect(q.queryByText("Show all 9 times")).not.toBeNull();
   });
 
   test("schedule outline caps days at 14 and entries per day at 6", () => {
@@ -763,17 +775,19 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(() => expand(q)).not.toThrow();
   });
 
-  // Layout intent (real geometry verified in the e2e harness): the breakdown lays
-  // its sections out as a responsive multi-column flow so the full-width expanded
-  // card uses the horizontal space, not a single narrow column. jsdom can't
-  // compute columns, so this pins the class contract; the browser assertion in
-  // tests/e2e/step3-grid-layout.spec.ts proves >1 column at desktop width.
-  test("breakdown uses a balanced multi-column flow (not a single column) on wider cards", () => {
+  // Layout intent (real geometry verified in the e2e harness): inside the details
+  // dialog the breakdown lays its sections out as a balanced 2-column flow in the
+  // desktop popup (1 column in the mobile sheet), bounded by the dialog width —
+  // not a single narrow column. jsdom can't compute columns, so this pins the
+  // class contract; the browser assertion in tests/e2e/step3-grid-layout.spec.ts
+  // proves >1 column at the popup width.
+  test("breakdown uses a balanced 2-column flow in the popup (1 column in the sheet)", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const grid = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-grid`);
+    // 2 columns at the sm popup width; 1 column in the mobile sheet (default).
     expect(grid.className).toMatch(/\bsm:columns-2\b/);
-    expect(grid.className).toMatch(/\bxl:columns-3\b/);
+    expect(grid.className).toMatch(/\bcolumns-1\b/);
     // Sections stay intact across a column break.
     expect(grid.className).toContain("break-inside-avoid");
     // It is NOT the old single-track flex column.

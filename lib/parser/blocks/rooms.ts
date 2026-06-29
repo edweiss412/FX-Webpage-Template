@@ -31,6 +31,7 @@ import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { classifyGearItem } from "@/lib/parser/gearClassification";
 
 // Mergeable room data fields (everything except kind/name) — used to absorb a same-name
 // breakout into its GS room without dropping any populated value.
@@ -547,6 +548,35 @@ function parseGsRoom(markdown: string): RoomRow | null {
     applyGsLabel(room, label, val);
   }
 
+  // Unlabeled GS continuation rows (empty col0, value in col1) — e.g. east-coast
+  // `| | (2) Lekos for Stage Wash (6) Blizzard LED Uplights |` directly under GS Scenic.
+  // Classify the value: a recognized discipline (lighting here) gets its OWN column
+  // instead of bleeding into the preceding labeled field; an unrecognized value falls
+  // back to appending onto that preceding field (gear-parser-fidelity Task 6). Scoped to
+  // the GS block so DETAILS/AV continuation rows elsewhere are never pulled onto the room.
+  let prevGsCol: GsTextCol | null = null;
+  for (const blockLine of extractGsBlock(markdown).split("\n")) {
+    const t = blockLine.trim();
+    if (!t.startsWith("|")) continue;
+    if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator
+    const cells = splitRow(t);
+    const col0 = clean(cells[0] ?? "");
+    const gsMatch = /^GS\s+(.+)$/i.exec(col0);
+    if (gsMatch) {
+      prevGsCol = gsLabelToColumn(gsMatch[1]!.trim().toLowerCase());
+      continue;
+    }
+    if (col0.length === 0) {
+      const val = presence(clean(cells[1] ?? ""));
+      if (!val) continue;
+      const disc = classifyGearItem(val, null);
+      if (disc !== "other") appendGsValue(room, disc, val);
+      else if (prevGsCol) appendGsValue(room, prevGsCol, val);
+    } else {
+      prevGsCol = null; // a non-GS-labeled row (Digital Signage / next block) ends the run
+    }
+  }
+
   // Digital Signage is a BARE row (no "GS " prefix), so scope it to the GS block.
   // A global match grabs the first "Digital Signage" anywhere in the sheet — e.g.
   // a ~300-char sentence in a DETAILS/AV section — and copies it onto the GS room
@@ -600,6 +630,38 @@ function applyGsLabel(room: RoomRow, label: string, val: string | null): void {
   else if (label === "lighting") room.lighting = val;
   else if (label === "power") room.power = val;
   else if (label === "other") room.other = val;
+}
+
+// The free-text RoomRow columns a GS continuation row may target (all `string | null`).
+type GsTextCol =
+  | "setup"
+  | "set_time"
+  | "show_time"
+  | "strike_time"
+  | "audio"
+  | "video"
+  | "lighting"
+  | "scenic"
+  | "power"
+  | "other";
+
+function gsLabelToColumn(label: string): GsTextCol | null {
+  if (label === "setup") return "setup";
+  if (label === "set time") return "set_time";
+  if (label === "show time") return "show_time";
+  if (label === "strike time") return "strike_time";
+  if (label === "audio") return "audio";
+  if (label === "video") return "video";
+  if (label === "scenic") return "scenic";
+  if (label === "led" || label === "lighting") return "lighting";
+  if (label === "power") return "power";
+  if (label === "other") return "other";
+  return null;
+}
+
+function appendGsValue(room: RoomRow, col: GsTextCol, val: string): void {
+  const existing = room[col];
+  room[col] = existing && existing.length > 0 ? `${existing} ${val}` : val;
 }
 
 // ── Breakout room parser ──────────────────────────────────────────────────────

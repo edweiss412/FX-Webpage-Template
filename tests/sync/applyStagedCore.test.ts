@@ -300,3 +300,53 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
     });
   });
 });
+
+describe("sourceAnchors threading (onboarding deep-link anchors)", () => {
+  const ANCHORS = {
+    schedule: { title: "AGENDA", gid: 1490737099, a1: "A1:X999" },
+    venue: { title: "INFO", gid: 0, a1: "A1:E10" },
+  };
+
+  function runPhase2SpyApplied() {
+    return vi.fn<NonNullable<ApplyStagedCoreDeps["runPhase2"]>>(async () => ({
+      outcome: "applied" as const,
+      showId: "show-anchors",
+    }));
+  }
+
+  test("core forwards sourceAnchors into runPhase2 when provided (wizard first-seen onboarding)", async () => {
+    const tx = spyTx();
+    const runPhase2Spy = runPhase2SpyApplied();
+    await applyStagedCore(
+      tx,
+      coreArgs(tx, {
+        sourceScope: "wizard",
+        show: null,
+        baseModifiedTime: null,
+        auditSource: "onboarding_finalize",
+        sourceAnchors: ANCHORS,
+      }),
+      {
+        runPhase2: runPhase2Spy,
+        insertSyncAudit: vi.fn(async () => null),
+        deleteLivePendingSync: vi.fn(),
+      },
+    );
+    expect(runPhase2Spy).toHaveBeenCalledTimes(1);
+    // Threaded verbatim so applyShowSnapshot's first-seen INSERT writes the real
+    // deep-link anchors (matching the cron path) instead of the {} default.
+    expect(runPhase2Spy.mock.calls[0]![1]).toMatchObject({ sourceAnchors: ANCHORS });
+  });
+
+  test("core OMITS sourceAnchors from runPhase2 when not provided (never an accidental {} that wipes existing anchors)", async () => {
+    const tx = spyTx();
+    const runPhase2Spy = runPhase2SpyApplied();
+    await applyStagedCore(tx, coreArgs(tx), {
+      runPhase2: runPhase2Spy,
+      insertSyncAudit: vi.fn(async () => null),
+      deleteLivePendingSync: vi.fn(),
+    });
+    expect(runPhase2Spy).toHaveBeenCalledTimes(1);
+    expect(runPhase2Spy.mock.calls[0]![1]).not.toHaveProperty("sourceAnchors");
+  });
+});

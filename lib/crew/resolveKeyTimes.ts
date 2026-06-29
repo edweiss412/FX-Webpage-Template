@@ -130,9 +130,16 @@ export function resolveKeyTimes(
     let time: string | null = null;
 
     if (day) {
-      // Rows 1-3: sentinel-guarded candidate loop (showStart > window.start > entries[0].start).
+      // Rows 1-3: sentinel-guarded candidate loop (showStart > window.start >
+      // first NON-synthetic entry's start). Synthetic bookend entries
+      // (kind:"strike"/"loadout", D12) are skipped so a load-out/strike clock
+      // is never mistaken for a show-start anchor.
       // Each candidate is checked via isAbsentTime before becoming ShowAnchor.time.
-      for (const cand of [day.showStart, day.window?.start, day.entries[0]?.start]) {
+      for (const cand of [
+        day.showStart,
+        day.window?.start,
+        day.entries.find((e) => e.kind !== "strike" && e.kind !== "loadout")?.start,
+      ]) {
         if (!isAbsentTime(cand)) {
           time = (cand as string).trim();
           break;

@@ -10,6 +10,8 @@ import {
   summarizeDataGaps,
   dataGapClassDetails,
   DATA_GAP_CLASS_LABELS,
+  operatorActionableWarnings,
+  OPERATOR_ACTIONABLE_ANCHORED,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -101,5 +103,20 @@ describe("dataGapClassDetails — per-class breakdown for the UI surfaces", () =
       expect(label).not.toContain(code);
       expect(label).toMatch(/^[a-z ]+$/); // plain lowercase words only
     }
+  });
+});
+
+describe("SCHEDULE_STRIKE_DATE_OFF_SCHEDULE — operator-actionable surfacing", () => {
+  it("is a member of OPERATOR_ACTIONABLE_ANCHORED and survives the selector", () => {
+    expect(OPERATOR_ACTIONABLE_ANCHORED.has("SCHEDULE_STRIKE_DATE_OFF_SCHEDULE")).toBe(true);
+    const out = operatorActionableWarnings([
+      {
+        severity: "warn",
+        code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE",
+        message: "x",
+        blockRef: { kind: "rooms", iso: "2025-05-20" },
+      },
+    ]);
+    expect(out).toHaveLength(1);
   });
 });

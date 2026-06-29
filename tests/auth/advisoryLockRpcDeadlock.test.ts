@@ -427,6 +427,37 @@ describe("advisory-lock RPC deadlock guard", () => {
         `no DB connection may be held during Drive I/O`,
     ).not.toMatch(/pg_(?:try_)?advisory_xact_lock/i);
   });
+
+  test("per-sheet rescan acquires locks in the global total order finalize: → app_settings FOR UPDATE → show: (no AB-BA vs finalize)", () => {
+    // rescanWizardSheet mutates the same wizard surface as finalize. It MUST grab the
+    // finalize:<session> lock first, then the app_settings FOR UPDATE session re-check, then
+    // the per-show lock — the identical order finalize/finalize-cas + cleanupAbandonedFinalize
+    // use — or a rescan clicked during an in-flight finalize can AB-BA deadlock (spec §8).
+    const source = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/rescanWizardSheet.ts"), "utf8"),
+    );
+    const finalizeAt = source.search(
+      /pg_try_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/,
+    );
+    // The authoritative session re-check is the SOLE `for update` in the file (the pre-lock
+    // app_settings read at the top is deliberately non-locking/advisory). Match the keyword
+    // position directly — a `from public.app_settings … for update` span would start at that
+    // earlier advisory read and mis-order vs the finalize lock.
+    const forUpdateAt = source.search(/\bfor\s+update\b/i);
+    const showAt = source.search(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
+    expect(finalizeAt, "rescan: no finalize: try-lock").toBeGreaterThan(-1);
+    expect(forUpdateAt, "rescan: no app_settings FOR UPDATE re-check").toBeGreaterThan(-1);
+    expect(showAt, "rescan: no show: lock").toBeGreaterThan(-1);
+    expect(finalizeAt, "rescan: finalize: lock must precede app_settings FOR UPDATE").toBeLessThan(
+      forUpdateAt,
+    );
+    expect(forUpdateAt, "rescan: app_settings FOR UPDATE must precede the show: lock").toBeLessThan(
+      showAt,
+    );
+    expect(source, "rescan must use direct SQL locks, no lock-taking RPC boundary").not.toMatch(
+      /\.rpc\(/,
+    );
+  });
 });
 
 describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)", () => {
