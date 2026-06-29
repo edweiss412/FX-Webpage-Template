@@ -205,11 +205,14 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      WHERE expires_at < now() RETURNING owner` — 0 rows = a live lease for this row → `202`.
      Because admissions serialize on the admit key, the next admitter's count sees this
      committed lease, so **no more than K extractions are admitted deployment-wide**
-     (strict, not soft). All `202` paths set `Retry-After` (client polls the full window —
-     round-33 F1) and do NO Drive. The admit lock is held only during the microsecond
-     count+claim — NEVER during the ≤300 s Drive work (released at tx#1 commit). This gives
-     deployment-wide **exactly-one-extraction-per-STAGED-ROW** AND a strict deployment-wide
-     total bound. **Scope note (round-41):** we deliberately do NOT cross-session share — a
+     (strict, not soft). All `202` paths set `Retry-After` and do NO Drive. **The `202`
+     carries a `reason` (Codex round-47 F2):** `at_global_cap` (count `>= K` — this row is
+     QUEUED behind the cap, hasn't started) vs `in_progress` (a live lease for THIS row — its
+     extraction is running). The client budgets these differently (§5.3) so a row queued
+     behind the cap doesn't time out into baseline before its OWN extraction even starts. The
+     admit lock is held only during the microsecond count+claim — NEVER during the ≤300 s
+     Drive work (released at tx#1 commit). This gives deployment-wide
+     **exactly-one-extraction-per-STAGED-ROW** AND a strict deployment-wide total bound. **Scope note (round-41):** we deliberately do NOT cross-session share — a
      concurrent DIFFERENT session for the same `drive_file_id` (only the rare rescan-overlap
      window) extracts its OWN row; whichever session was superseded by the rescan is
      discarded at the lifecycle-guarded persist (tx#2 `0 rows → 409`). At most a brief,
@@ -317,15 +320,28 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      same PDF (round-35 F2); a fileId-first merge could attach a confirmed extraction to the
      WRONG duplicate (or both) BEFORE the render-time ordinal gate, persisting a block for a
      link that was NOT confirmed fresh. Ordinal-first matches the ordinal-keyed
-     `freshByLinkKey`. For each ordinal `i`: set the **recovered `fileId`** (additive — fills
-     in a fileId-less smart-chip link), AND set `extracted` **only if** ordinal `i` is in
-     `confirmedFreshExtractions`. So a link whose
-     chip recovery succeeded but whose **download FAILED** (round-30) still **persists +
-     returns its recovered `fileId`** (→ a valid Open-PDF href on the note item; AND the
-     next retry skips `getAgendaChips` — cache-checks via `getFile` on the now-present
-     fileId, only re-downloading), while remaining **note-only** (no fresh `extracted`).
-     A confirmed-fresh link gets both fileId + `extracted` (block) → warms the cache and
-     carries the agenda to publish.
+     `freshByLinkKey`. For each ordinal `i`, set the **recovered `fileId`** (additive), and
+     resolve `extracted` by a **3-way per-ordinal freshness verdict (Codex round-47 F1 —
+     structural close-out of the freshness vector):** `link.extracted`'s mere PRESENCE in
+     persisted `parse_result` is a FRESHNESS INVARIANT trusted by ALL consumers (admin
+     preview, **crew render**, **publish**), not just the admin `freshByLinkKey` gate:
+     - **FRESH** (ordinal `i` ∈ `confirmedFreshExtractions`: extractorVersion current +
+       `sourceRevision === current PDF rev` + rev stable across download, step 6) → SET the
+       fresh `extracted` (block).
+     - **KNOWN-STALE** (endpoint SUCCESSFULLY read the current PDF `headRevisionId` this call
+       AND the stored `extracted` does NOT match it — old `sourceRevision`/`extractorVersion`
+       — and no fresh extraction was obtained, e.g. download failed / mid-download rev
+       changed) → **CLEAR `extracted` (`undefined`)** so the stale agenda is NOT published or
+       crew-rendered. (An additive-only merge would leave it for finalize + crew to publish
+       even after the admin saw note-only — the bug round-47 F1 names.)
+     - **UNKNOWN** (could NOT read the current PDF rev — `infra_error`/`unavailable` on the
+       PDF `getFile`) → **LEAVE** the existing `extracted` (last-known-good; don't erase on a
+       transient fault — round-25; cron re-confirms). Admin preview still note-only.
+     So a link whose chip recovery succeeded but whose **download FAILED** (round-30) still
+     **persists + returns its recovered `fileId`** (→ a valid Open-PDF href on the note item;
+     next retry skips `getAgendaChips`), while remaining **note-only**; its `extracted` is
+     CLEARED if known-stale, LEFT if unknown. A confirmed-fresh link gets both fileId +
+     `extracted` (block) → warms the cache and carries the agenda to publish.
    - **STRICTLY ADDITIVE to agenda fields — approval-boundary contract (Codex round-43 F1,
      user-approved "keep async fill"):** the merge writes ONLY
      `parse_result.show.agenda_links[i].extracted` and `…agenda_links[i].fileId` for the
@@ -337,11 +353,12 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      (round-22 F2) AND publish what was approved for every reviewed field; the agenda is
      additive enrichment outside line-item approval. (A test asserts every non-agenda
      `parse_result` field is byte-identical before/after a post-approval extraction.)
-   - A request with NO confirmed-fresh extractions never writes a stale `extracted` (a
-     failed/stale refresh NEVER erases an earlier success), but it MAY still persist newly
-     `recoveredFileIds` (additive, fence-validated — warms the row for retries). If nothing
-     changed at all (no recovered fileIds, no fresh extractions) the write is a no-op /
-     skipped. The write ATOMICALLY re-checks lifecycle, the row generation (tx#1, round-27),
+   - A request never writes a NEW stale `extracted`; it clears a KNOWN-STALE one and leaves
+     an UNKNOWN one (the 3-way verdict above). "Never erases an earlier success" (round-25)
+     still holds: a FRESH stored `extracted` (matches the current rev) is never KNOWN-STALE,
+     so a later failed/uncertain request never clears a fresh success. A request may also
+     persist newly `recoveredFileIds` (additive). If nothing changed at all (no recovered
+     fileIds, no fresh sets, no known-stale clears) the write is a no-op / skipped. The write ATOMICALLY re-checks lifecycle, the row generation (tx#1, round-27),
      **AND current lease ownership (Codex round-36 F1)** — if our extraction ran past
      `AGENDA_EXTRACT_LEASE_TTL_MS` and another owner RECLAIMED the lease + persisted a newer
      revision, this (now-expired) owner MUST NOT clobber it. So the UPDATE is conditional on
@@ -422,10 +439,16 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
   Strict-Mode remount / refresh / second tab the VISIBLE request may be a duplicate that
   only ever sees `202`s while a DIFFERENT request owns the extraction. So the client keeps
   polling `202` (honoring the endpoint's `Retry-After` header, with backoff) until it
-  receives the persisted `200`/`409`, bounded by a total **`AGENDA_CLIENT_POLL_BUDGET_MS`
-  ≈ `maxDuration` + margin (~330 000 ms)** — only then → `error`/baseline. (A short fixed
-  5-attempt budget would abandon the live-fill before the owner persists, leaving
-  smart-chip rows note-only/no-href even though extraction succeeds seconds later.) A
+  receives the persisted `200`/`409`. **The two `202` reasons are budgeted separately
+  (Codex round-47 F2):** `in_progress` polling is bounded by `AGENDA_CLIENT_POLL_BUDGET_MS`
+  ≈ `maxDuration` + margin (~330 000 ms) — one extraction window; `at_global_cap` polling
+  (the row is QUEUED behind the deployment-wide cap and hasn't started) does NOT consume that
+  window — it runs under a separate, larger `AGENDA_CLIENT_QUEUE_BUDGET_MS`, and the
+  `in_progress` window timer only STARTS once the row is admitted (first `in_progress`/own
+  extraction). So under a K+N burst a queued row keeps polling through the queue wait, then
+  still renders its eventual `200` instead of falling back to baseline before its extraction
+  began. (A short fixed budget — or one window covering BOTH queue-wait and extraction —
+  would abandon the live-fill before the owner persists.) A
   **`409 { status: "stale" }`** is **terminal → `stale` state (Codex round-38)**, which is
   DISTINCT from `error`: a 409 is the endpoint's POSITIVE signal that the staged parse is no
   longer trustworthy (superseded/finalizing OR **revision/source-scope fence fired** —
@@ -621,6 +644,33 @@ UNCHANGED:** finalize remains a single `show:` holder per `dfid` via the existin
 `defaultWithRowTx` (no NEW holder, no nested re-acquire — the re-select uses the same
 locked tx). `tests/auth/advisoryLockRpcDeadlock.test.ts` is extended only to PIN that the
 re-select adds no second acquisition (the topology is unchanged).
+
+### 5.7 Freshness & TOCTOU contract (comprehensive — structural close-out)
+
+Revision/freshness TOCTOU recurred across review rounds (28/29/31 sheet revision, 37
+source-scope, 39 metadata fidelity, 46 per-PDF revision, 47 persist-invariant). Per the
+same-vector-recurrence rule, this section enumerates EVERY Drive-derived trust datum, its
+fence, and the consuming boundary — the implementation + review audit against THIS full
+table, not one surface at a time. **The governing invariant:** any Drive-derived datum used
+for trust is validated before AND after the work that consumes it, and **a value only
+persists into `parse_result` while it is provably fresh** — so all three consumers (admin
+preview, crew render, publish) can trust the persisted data directly.
+
+| Datum | Read via | Fence (before + after the consuming work) | On stale/unconfirmable |
+|---|---|---|---|
+| Sheet revision | `fetchDriveFileMetadata.modifiedTime` (§5.2 step 4) | `modifiedTime == staged_modified_time` before chip/download AND after, before persist | `409 stale`, no Drive PDF work / no persist |
+| Sheet source-scope | `fetchDriveFileMetadata.parents` (step 4) | `parents.includes(pending_folder_id)` before AND after | `409` out-of-scope, no work / no persist |
+| Smart-chip fileId recovery | `getAgendaChips` (one fenced read, step 4/5) | inside the fenced sheet window; ordinal+label correlation | recovered fileIds persist (fence-validated) even if download later fails |
+| Per-PDF revision | per-link `getFile.headRevisionId` (step 6) | `rev_after === rev_before` across the download/extract | link NOT confirmed-fresh → note-only, block not persisted |
+| Persisted `link.extracted` | the stored value itself | INVARIANT: present ⟹ `extractorVersion` current AND `sourceRevision ===` a confirmed PDF rev; KNOWN-STALE cleared at persist (step 7, round-47 F1) | crew/publish read `extracted` directly and are safe — no separate gate needed |
+| Admin preview block | `freshByLinkKey` (ordinals, §5.4) | render gate: block only for confirmed-fresh-THIS-call ordinals | note-only |
+| Staged-row generation | `staged_id` + `staged_modified_time` (tx#1) | tx#2 persist + finalize re-read both bind to it | `409`/stale, no mutation |
+
+The row that closes the publish/crew hole is **persisted `link.extracted` is a freshness
+invariant** (round-47 F1): because a known-stale `extracted` is CLEARED at persist, finalize
+and crew — which read `link.extracted` directly — never publish/render stale agenda. The
+admin `freshByLinkKey` gate is then a SECOND layer (defends the live preview against a stored
+value that's stale-but-not-yet-cleared, e.g. an UNKNOWN/transient case), not the only one.
 
 ## 6. Guard conditions (every input)
 
@@ -821,14 +871,28 @@ re-select adds no second acquisition (the topology is unchanged).
    (g) **generation-key reset** (round-36 F2): rerender the SAME `driveFileId` with a NEW
    `agendaStateKey` (changed `staged_id`/`staged_modified_time` — a rescan) AFTER a prior
    `ready` result → assert the prior `ready` items are CLEARED (state → `idle`) and the
-   POST RE-FIRES for the new generation (no stale agenda carried across generations).
+   POST RE-FIRES for the new generation (no stale agenda carried across generations); (h)
+   **queued behind the global cap, then admitted** (round-47 F2): the mock returns `202
+   { reason: "at_global_cap" }` for LONGER than one `AGENDA_CLIENT_POLL_BUDGET_MS` window,
+   then `202 { reason: "in_progress" }`, then `200` with items → the card MUST keep polling
+   the whole time (queue budget, fake timers) and render the eventual `ready` blocks — it
+   must NOT fall back to baseline/error while still `at_global_cap` (proving the window timer
+   starts only at admission).
 5. **Boundary-purity guard (`agendaPurityBoundary.test.ts`)** — `agendaAdminPreview.ts`,
    `AgendaScheduleBlock.tsx`, `normalizeAgendaExtraction.ts` import nothing
    `server-only`/`next/headers`/`fs`.
-6. **Crew no-regression (negative)** — crew `ScheduleSection` still renders exactly one
-   `AgendaScheduleBlock` per high-conf link; no new `runOfShow` write path exists; the
-   onboarding `defaultDriveClient` is **unchanged** (still `getFile`+`listFolder` only —
-   asserts the scan gained no PDF work).
+6. **Crew no-regression + stale-extracted gate (negative)** — crew `ScheduleSection` still
+   renders exactly one `AgendaScheduleBlock` per high-conf link; no new `runOfShow` write
+   path exists; the onboarding `defaultDriveClient` is **unchanged** (still
+   `getFile`+`listFolder` only — asserts the scan gained no PDF work). **Plus the persist
+   freshness invariant at the crew/publish boundary** (round-47 F1): given a staged row whose
+   link has an OLD-revision `extracted`, run a refresh where the current PDF rev is KNOWN
+   (getFile succeeds) but the download FAILS / mid-download rev changes → assert the endpoint
+   **CLEARS the stale `extracted`** in `parse_result`, so (a) finalize/publish carries NO
+   stale agenda and (b) crew `AgendaScheduleBlock` renders nothing for that link (not the
+   stale block). Contrast: an UNKNOWN case (getFile `infra_error`) LEAVES the `extracted`
+   (last-known-good). Assert against the persisted `parse_result` + a crew render of it, NOT
+   only the admin preview.
 7. **Finalize/extract race (`tests/.../finalizeAgendaRace.test.ts`)** — round-34, BOTH
    apply paths: finalize `selectFinishableCleanRows` reads the row's `parse_result` (no
    agenda) FIRST; the extractor then persists the agenda under the `show:` lock; finalize
@@ -907,7 +971,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a brief `show:`||dfid holder (tx#2) + a brief global `agenda-extract-admit` holder (tx#1, never during Drive); finalize re-select adds no new holder |
 | `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
 | `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
@@ -941,6 +1005,16 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
   PDF's `headRevisionId` STABLE across the download, a per-PDF before+after fence — round-46);
   a refresh-failed OR mid-download-edited extraction is note-only and never persisted as a
   fresh block (round-24 F1 + round-46).
+- Persisted `link.extracted` is a FRESHNESS INVARIANT (round-47 F1, structural close-out —
+  §5.7): present ⟹ provably fresh; a KNOWN-STALE `extracted` (current PDF rev readable AND
+  ≠ stored `sourceRevision`/version, no fresh extraction) is CLEARED at persist so crew
+  render + publish — which read `link.extracted` directly — never expose stale agenda; an
+  UNKNOWN (transient infra_error) is LEFT (last-known-good, round-25). The full per-datum
+  fence table is §5.7.
+- Global-cap queueing (round-47 F2): the `202` carries `reason` (`at_global_cap` vs
+  `in_progress`); the client's one-window `AGENDA_CLIENT_POLL_BUDGET_MS` timer starts only at
+  admission, with a larger `AGENDA_CLIENT_QUEUE_BUDGET_MS` for the queue wait — so a row
+  queued behind the cap still renders its eventual `200`.
 - Persist integrity: tx#2 **rereads + merges only confirmed-fresh results** into the
   current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches
   **ordinal-first** (`i ↔ i` — the in-memory and reread links are the same generation's
