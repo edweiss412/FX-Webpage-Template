@@ -614,19 +614,6 @@ export function __resetAgendaThrottleForTests(): void {
   agendaSlotWaiters.length = 0;
 }
 
-/**
- * Test-only seam: captures `currentKeyRef.current` in the layout-effect phase
- * (after commit, before passive effects) so the g3 regression test can observe
- * whether line 761's render-time write fired before the second render pass read
- * it. Passive effects (line 768) update the same ref to the new key in both
- * branches — but after the commit — so the value reflects only the render-time
- * update. Only reading the ref here (outside render, inside layout effect)
- * avoids the react-hooks/refs rule.
- */
-let _debugCurrentKeyAtLayout: string | undefined;
-export function __getDebugCurrentKeyAtLayout(): string | undefined {
-  return _debugCurrentKeyAtLayout;
-}
 
 /** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
 function parseRetryAfterMs(header: string | null): number {
@@ -741,11 +728,20 @@ export function AgendaBreakdown({
   wizardSessionId,
   baseline,
   stateKey,
+  onLiveKeyLayout,
 }: {
   driveFileId: string;
   wizardSessionId: string;
   baseline: AdminAgendaItem[];
   stateKey: string;
+  /**
+   * Test-only observability seam (production never passes it): receives
+   * `currentKeyRef.current` in the LAYOUT-effect phase — after commit, before
+   * passive effects — which is the only window that reflects ONLY the
+   * render-time live-key write (the generation-race fix) and not the later
+   * passive-effect write. Per-instance (no shared module state).
+   */
+  onLiveKeyLayout?: (liveKey: string) => void;
 }) {
   const [state, setState] = useState<AgendaState>(() => (baseline.length > 0 ? "loading" : "idle"));
   const [items, setItems] = useState<AdminAgendaItem[]>(baseline);
@@ -871,13 +867,14 @@ export function AgendaBreakdown({
     };
   }, [stateKey, driveFileId, wizardSessionId]);
 
-  // Test seam: capture currentKeyRef.current in the layout phase so the g3
-  // regression can observe the render-time fix (line 761) without reading the
-  // ref during render. Layout effects fire after DOM mutations but before
-  // passive effects, making this the only window that distinguishes line 761
-  // (render-time write) from the passive-effect write at line 768.
+  // Test-only observability (no-op in production — `onLiveKeyLayout` is never
+  // passed): report the live generation key in the layout phase so the g3
+  // regression can observe the render-time fix without reading the ref during
+  // render. Layout effects fire after DOM mutations but before passive effects,
+  // the only window that distinguishes the render-time live-key write from the
+  // passive-effect write.
   useLayoutEffect(() => {
-    _debugCurrentKeyAtLayout = currentKeyRef.current;
+    onLiveKeyLayout?.(currentKeyRef.current);
   });
 
   // §4.6 guard: no agenda links → no breakdown at all (and the effect above

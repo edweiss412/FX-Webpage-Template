@@ -19,7 +19,6 @@ import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
   AgendaBreakdown,
-  __getDebugCurrentKeyAtLayout,
   __resetAgendaThrottleForTests,
 } from "@/components/admin/wizard/Step3SheetCard";
 
@@ -336,26 +335,29 @@ describe("AgendaBreakdown — 5-state machine", () => {
   //   value. The passive-effect write at line 768 also sets this, but fires AFTER
   //   the commit — too late to distinguish from the fix in passive-effect-level tests.
   //
-  // Primary discriminator: __getDebugCurrentKeyAtLayout() (Step3SheetCard.tsx).
-  //   A useLayoutEffect inside AgendaBreakdown captures currentKeyRef.current after
-  //   each commit (layout phase: after DOM mutations, before passive effects). The
-  //   layout effect fires with the value as of the SECOND render pass:
-  //     WITH fix (line 761):  first pass sets currentKeyRef.current="gen-B" →
-  //                           second pass sees "gen-B" → layout effect records "gen-B" ✓
-  //     WITHOUT fix:          ref unchanged ("gen-A") after first pass →
-  //                           second pass sees "gen-A" → layout effect records "gen-A" ✗
-  //   After passive effects (line 768 sets ref="gen-B" in both branches), no re-render
-  //   fires, so __getDebugCurrentKeyAtLayout() stays at the layout-phase snapshot.
+  // Primary discriminator: the per-instance `onLiveKeyLayout` test seam.
+  //   AgendaBreakdown's useLayoutEffect reports currentKeyRef.current after each
+  //   commit (layout phase: after DOM mutations, before passive effects). The
+  //   reported value reflects the SECOND render pass:
+  //     WITH fix:     render-time block sets currentKeyRef.current="gen-B" on the
+  //                   first pass → layout phase reports "gen-B" ✓
+  //     WITHOUT fix:  ref stays "gen-A" until the passive effect (too late) →
+  //                   layout phase reports "gen-A" ✗
+  //   The passive-effect write sets the ref to "gen-B" in BOTH branches, but it
+  //   fires AFTER the layout phase, so it can't mask the discriminator.
   //
-  //   flushSync (DiscreteEventPriority / sync lanes) commits the render AND runs layout
-  //   effects AND passive effects all synchronously before returning (commitRootImpl →
-  //   commitLayoutEffects → flushSpawnedWork → flushPendingEffects). The layout effect
-  //   captures the value BEFORE passive effects overwrite it, giving the discriminator.
+  //   flushSync (sync lanes) commits the render AND runs layout effects AND passive
+  //   effects synchronously before returning (commitRootImpl → commitLayoutEffects →
+  //   flushSpawnedWork → flushPendingEffects). `onLiveKeyLayout` captures the value
+  //   in the layout phase, BEFORE passive effects overwrite it — the discriminator.
   //
   // Secondary check: genAJsonSpy (both branches: cancelled=true → live()=false → dropped).
   test("(g3) gen-A resolving after gen-B render-time reset is dropped (render-time ref update)", async () => {
     const dA = defer<Response>();
     const dB = defer<Response>();
+    // Per-instance layout-phase live-key capture (no shared module state).
+    const layoutKeys: string[] = [];
+    const onLiveKeyLayout = (k: string) => layoutKeys.push(k);
 
     const genABody = { items: READY_ITEMS };
     const genAResponse = new Response(JSON.stringify(genABody), {
@@ -367,7 +369,7 @@ describe("AgendaBreakdown — 5-state machine", () => {
 
     fetchMock.mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
 
-    const view = renderCard({ stateKey: "gen-A" });
+    const view = renderCard({ stateKey: "gen-A", onLiveKeyLayout });
     await flush(); // gen-A in flight; currentKeyRef.current = "gen-A"
 
     await act(async () => {
@@ -384,14 +386,15 @@ describe("AgendaBreakdown — 5-state machine", () => {
             wizardSessionId={WIZARD_SESSION_ID}
             baseline={BASELINE}
             stateKey="gen-B"
+            onLiveKeyLayout={onLiveKeyLayout}
           />,
         );
       });
 
-      // PRIMARY DISCRIMINATOR: layout-effect snapshot captured before passive effects
-      // (line 768) overwrote the ref. After passive effects, ref="gen-B" in both
-      // branches, but __getDebugCurrentKeyAtLayout() retains the layout-phase value.
-      expect(__getDebugCurrentKeyAtLayout()).toBe("gen-B");
+      // PRIMARY DISCRIMINATOR: the layout-phase live-key reported via onLiveKeyLayout,
+      // captured BEFORE the passive effect overwrote the ref. The most-recent layout
+      // report is the gen-B commit's value: "gen-B" with the fix, "gen-A" without.
+      expect(layoutKeys.at(-1)).toBe("gen-B");
 
       dA.resolve(genAResponse);
       for (let i = 0; i < 8; i++) await Promise.resolve();
