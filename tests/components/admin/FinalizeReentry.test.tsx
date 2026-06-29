@@ -128,6 +128,48 @@ describe("ResumeFinalizeButton", () => {
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
+  test("race-row list: shows display_name, drops the id from the label, falls back to the id when display_name is absent", async () => {
+    const TITLE = "Consultants Roundtable";
+    const TITLE_ID = "1AbC_opaque_id";
+    const FALLBACK_ID = "2Xyz_fallback_id";
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({
+        status: "all_batches_complete",
+        wizard_session_id: SESSION_ID,
+        remaining_count: 0,
+        unresolved_manifest_count: 1,
+        per_row: [
+          {
+            drive_file_id: TITLE_ID,
+            wizard_session_id: SESSION_ID,
+            code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+            re_apply_url: `/admin/onboarding/staged/${SESSION_ID}/${TITLE_ID}`,
+            display_name: TITLE,
+          },
+          {
+            drive_file_id: FALLBACK_ID,
+            wizard_session_id: SESSION_ID,
+            code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+            re_apply_url: `/admin/onboarding/staged/${SESSION_ID}/${FALLBACK_ID}`,
+            // NO display_name key (exactOptionalPropertyTypes rejects a present `undefined`).
+          },
+        ],
+      }),
+    );
+    const { getByTestId, getByText } = render(<ResumeFinalizeButton sessionId={SESSION_ID} />);
+    await act(async () => {
+      fireEvent.click(getByTestId("resume-finalize-button"));
+    });
+    await waitFor(() => expect(getByTestId("resume-finalize-race-row")).toBeTruthy());
+    expect(getByText(TITLE)).toBeTruthy();
+    const list = getByTestId("resume-finalize-race-row").cloneNode(true) as HTMLElement;
+    list
+      .querySelectorAll("[data-testid*='reapply'], [data-testid*='rescan']")
+      .forEach((n) => n.remove());
+    expect(list.textContent ?? "").not.toContain(TITLE_ID);
+    expect(getByText(FALLBACK_ID)).toBeTruthy();
+  });
+
   test("on 409 WIZARD_FINALIZE_CHECKPOINT_MISSING renders Doug-facing copy", async () => {
     fetchMock.mockResolvedValue(
       mockJsonResponse({ ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" }, { status: 409 }),

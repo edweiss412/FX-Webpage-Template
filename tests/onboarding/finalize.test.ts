@@ -487,7 +487,10 @@ describe("POST /api/admin/onboarding/finalize", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toMatchObject({
+    const body = (await json(response)) as {
+      per_row: Array<{ drive_file_id: string; code: string; display_name?: string }>;
+    };
+    expect(body).toMatchObject({
       per_row: [
         {
           drive_file_id: "first-seen-1",
@@ -495,10 +498,49 @@ describe("POST /api/admin/onboarding/finalize", () => {
         },
       ],
     });
+    // The blocked row carries the parsed show title — derived from the pending() builder, which
+    // sets parse_result.show.title to `Show ${driveFileId}` (NOT hardcoded).
+    const FS1_TITLE = `Show first-seen-1`;
+    const failed = body.per_row.find((r) => r.drive_file_id === "first-seen-1")!;
+    expect(failed.code).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(failed.display_name).toBe(FS1_TITLE);
     expect(db.demoted).toEqual([
       { driveFileId: "first-seen-1", code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" },
     ]);
     expect(db.firstSeenApplied).toEqual([]);
+  });
+
+  // Empty show title → helper returns null → the choke point omits display_name entirely (not a
+  // present `undefined`, per exactOptionalPropertyTypes) → the client falls back to the id.
+  test("blocker per_row OMITS display_name when the parsed show title is empty", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [
+      pending("first-seen-1", {
+        staged_modified_time: new Date("2026-05-09T03:44:06.040Z") as unknown as string,
+        parse_result: parseResult(""),
+      }),
+    ];
+
+    const response = await handleOnboardingFinalize(
+      request(),
+      deps(db, {
+        fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
+          driveFileId,
+          name: `${driveFileId}.xlsx`,
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-09T03:45:00.000Z", // a real edit → revision race blocks the row
+          parents: ["folder-1"],
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await json(response)) as {
+      per_row: Array<{ drive_file_id: string; code: string; display_name?: string }>;
+    };
+    const failed = body.per_row.find((r) => r.drive_file_id === "first-seen-1")!;
+    expect(failed.code).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(failed).not.toHaveProperty("display_name");
   });
 
   test("processes one batch: first-seen rows apply as unpublished drafts and existing rows stage shadow changes", async () => {

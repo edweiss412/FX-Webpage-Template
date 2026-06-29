@@ -30,7 +30,15 @@ const LOW = (): AgendaExtraction => ({
   extractorVersion: EXTRACTOR_VERSION,
 });
 
-const noSp = (t: string) => t.replace(/\s+/g, "");
+// Strip whitespace AND normalize period/lowercase meridiems ("7:30 a.m." → "7:30am",
+// "p.m" → "pm") so the clock predicates + parseClockPart (all routed through noSp)
+// recognize the "a.m./p.m." agenda format. Without this, a sheet whose agenda PDF uses
+// "7:30 a.m." parses to 0 time anchors → 0 sessions → low confidence → the admin card
+// shows "No schedule detected" for a perfectly readable schedule (II - RIA Central 2025).
+// Only period-containing meridiems are rewritten (bare "am"/"pm" already match), and the
+// result is used only for clock detection/parsing — the displayed time is rebuilt via
+// fmtClock, so output stays in the canonical "7:30 AM" form.
+const noSp = (t: string) => t.replace(/\s+/g, "").replace(/([ap])\.m\.?/gi, "$1m");
 const clockRange = (t: string) =>
   /^\d{1,2}:?\d{0,2}(AM|PM)?[–—-]\d{1,2}:?\d{0,2}(AM|PM)?$/i.test(noSp(t));
 const clockSingle = (t: string) => /^\d{1,2}:\d{2}(AM|PM)?$/i.test(noSp(t));
@@ -125,7 +133,29 @@ type Pdfjs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let pdfjsModulePromise: Promise<Pdfjs> | null = null;
 function loadPdfjs(): Promise<Pdfjs> {
   ensurePdfGlobals();
-  pdfjsModulePromise ??= import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjsModulePromise ??= (async () => {
+    // Register pdfjs's worker on the MAIN THREAD before loading the API. pdfjs runs
+    // getDocument through a worker; with no real Web Worker (Node) it falls back to a
+    // "fake worker" that does `await import(GlobalWorkerOptions.workerSrc)` where
+    // workerSrc defaults to the RELATIVE "./pdf.worker.mjs". On the Vercel serverless
+    // bundle that relative specifier resolves to a chunk path that does not exist
+    // (`/var/task/.next/server/chunks/pdf.worker.mjs`) → pdfjs throws "Setting up fake
+    // worker failed", which extractAgendaSchedule's catch swallowed to a 0-session
+    // low-confidence result → the admin card rendered "No schedule detected" for PDFs
+    // that parse perfectly locally (where the relative path happens to resolve).
+    //
+    // Fix: pre-populate `globalThis.pdfjsWorker.WorkerMessageHandler` (read by pdfjs's
+    // `#mainThreadWorkerMessageHandler`), so the fake-worker path uses it DIRECTLY and
+    // never performs the failing dynamic import. The import below uses a STATIC package
+    // specifier, which Next bundles into a resolvable chunk — unlike pdfjs's internal
+    // `import(workerSrc)` over a runtime variable, which the bundler cannot trace. Lazy
+    // and AFTER ensurePdfGlobals() because the worker module also references DOMMatrix
+    // at evaluation time. (CI/local were green because the worker resolved from
+    // node_modules on disk — the failure is bundling-specific; see the serverless test.)
+    const workerModule = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    (globalThis as Record<string, unknown>).pdfjsWorker = workerModule;
+    return import("pdfjs-dist/legacy/build/pdf.mjs");
+  })();
   return pdfjsModulePromise;
 }
 
@@ -138,7 +168,14 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       useSystemFonts: true,
     }).promise;
 
-    if (doc.numPages > AGENDA_MAX_PAGES) return LOW();
+    if (doc.numPages > AGENDA_MAX_PAGES) {
+      console.warn("[agenda-extract] too-many-pages", {
+        bytes: pdfBytes.byteLength,
+        numPages: doc.numPages,
+        max: AGENDA_MAX_PAGES,
+      });
+      return LOW();
+    }
 
     // ── 1. Lines: group text items by rounded Y, dominant (font,size). ──
     const L: Line[] = [];
@@ -469,7 +506,23 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       const startTok = tok.split(/[–—-]/)[0] ?? "";
       const sp = parseClockPart(startTok);
       const hasExplicit = /AM|PM/i.test(tok);
-      if (sp && !hasExplicit && sp.h >= 7 && sp.h <= 11) ambiguousFirst = true;
+      if (sp && !hasExplicit && sp.h >= 7 && sp.h <= 11) {
+        // §4.4 ambiguity is REAL only when the opener's day never crosses into the
+        // afternoon. A bare 7–11 open whose own day later resolves a session to PM
+        // (startMin ≥ 720 = noon) is demonstrably a daytime schedule progressing
+        // AM→PM — the order-aware fill FLIPS those later sessions to PM precisely to
+        // stay monotonic, which only happens for a morning-opening day. A genuine
+        // bare-evening run (all-PM, mis-seeded AM) stays entirely < noon and remains
+        // ambiguous → still gated. This relaxation is monotonic: it can only turn an
+        // ambiguous open into a corroborated one, never the reverse, so existing
+        // high-confidence fixtures are unaffected. (II - Retirement Plan Advisor
+        // Summit 2026 opens "7:45" bare and runs to ~5:40 PM.)
+        const firstDay = first.day ?? "?";
+        const dayCrossesToPM = resolved.some(
+          (s) => (s.day ?? "?") === firstDay && (s.startMin ?? -1) >= 720,
+        );
+        if (!dayCrossesToPM) ambiguousFirst = true;
+      }
     }
 
     const high =
@@ -480,8 +533,30 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       monoOK &&
       !ambiguousFirst;
 
-    if (!high)
+    if (!high) {
+      // Observability (agenda serverless-extraction gap): a low-confidence result renders
+      // note-only ("No schedule detected in this PDF"), indistinguishable from a genuinely
+      // scheduleless PDF without this breadcrumb. `bytes` correlates with the
+      // "[agenda-enrich] download" line that carries the fileId.
+      console.warn("[agenda-extract] low-confidence", {
+        bytes: pdfBytes.byteLength,
+        numPages: doc.numPages,
+        lineCount: lines.length,
+        sessions: n,
+        pTimeAnchor: Number(pTimeAnchor.toFixed(3)),
+        pTitle: Number(pTitle.toFixed(3)),
+        pRoom: Number(pRoom.toFixed(3)),
+        monoOK,
+        ambiguousFirst,
+        thresholds: {
+          minSessions: AGENDA_CONFIDENCE.minSessions,
+          minTimeAnchorParsePct: AGENDA_CONFIDENCE.minTimeAnchorParsePct,
+          minTitlePct: AGENDA_CONFIDENCE.minTitlePct,
+          minRoomPct: AGENDA_CONFIDENCE.minRoomPct,
+        },
+      });
       return { confidence: "low", corrections, days: [], extractorVersion: EXTRACTOR_VERSION };
+    }
 
     // ── 7. Group into AgendaDay[] in document order. ──
     const days: AgendaDay[] = [];
@@ -503,8 +578,20 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       }
     }
 
+    console.log("[agenda-extract] high", {
+      bytes: pdfBytes.byteLength,
+      numPages: doc.numPages,
+      days: days.length,
+      sessions: n,
+    });
     return { confidence: "high", corrections, days, extractorVersion: EXTRACTOR_VERSION };
-  } catch {
+  } catch (err) {
+    // Previously swallowed silently — the #1 reason a serverless extraction failure
+    // was indistinguishable from "no schedule" in production.
+    console.error("[agenda-extract] pdfjs threw", {
+      bytes: pdfBytes.byteLength,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    });
     return LOW();
   }
 }

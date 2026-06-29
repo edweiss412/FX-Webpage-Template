@@ -156,6 +156,13 @@ export async function enrichAgenda(
         fileMeta = await driveClient.getFile(link.fileId);
       } catch (error) {
         const status = driveErrorStatus(error);
+        console.warn("[agenda-enrich] getFile threw", {
+          fileId: link.fileId,
+          ordinal: i,
+          status,
+          verdict: status === 404 || status === 400 ? "known_stale" : "unknown",
+          error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        });
         if (status === 404 || status === 400) {
           warnings.push(
             warn(
@@ -222,6 +229,13 @@ export async function enrichAgenda(
         link.fileId,
         signal !== undefined ? { signal } : undefined,
       );
+      console.log("[agenda-enrich] download", {
+        fileId: link.fileId,
+        ordinal: i,
+        kind: download.kind,
+        bytes: download.kind === "bytes" ? download.bytes.byteLength : null,
+        currentRev: typeof currentRev === "string" ? currentRev.slice(0, 12) : currentRev,
+      });
       if (download.kind === "infra_error") {
         // STRUCTURAL INVARIANT (Codex whole-diff R6 re-analysis): reaching the
         // download path PROVES the stored extraction is stale-by-revision — getFile
@@ -294,6 +308,18 @@ export async function enrichAgenda(
         typeof payload.sourceRevision === "string" &&
         revAfter === payload.sourceRevision;
 
+      console.log("[agenda-enrich] extracted", {
+        fileId: link.fileId,
+        ordinal: i,
+        bytes: download.bytes.byteLength,
+        currentRev: typeof currentRev === "string" ? currentRev.slice(0, 12) : currentRev,
+        revAfter: typeof revAfter === "string" ? revAfter.slice(0, 12) : revAfter,
+        revStable,
+        confidence: extraction.confidence,
+        sessions: extraction.days.reduce((t, d) => t + d.sessions.length, 0),
+        verdict: revStable ? "fresh" : "known_stale",
+      });
+
       if (revStable) {
         // Mutate link.extracted for backward compat: cron/scan callers read it.
         link.extracted = payload;
@@ -340,9 +366,14 @@ export async function enrichAgenda(
         });
       }
     }
-  } catch {
+  } catch (err) {
     // Best-effort: never break the scan. A getFile/extract throw leaves the link
     // as-is; prior `extracted` payloads are preserved (we mutate after the reads).
+    // Logged (previously swallowed) so an unexpected throw is diagnosable.
+    console.error("[agenda-enrich] threw (link left as-is)", {
+      spreadsheetId,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    });
   }
 
   return { perLink };

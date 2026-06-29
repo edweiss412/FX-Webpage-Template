@@ -27,7 +27,7 @@ const RESCANNABLE_CAS_CODE = "STAGED_PARSE_OUTDATED_AT_PHASE_D";
 // for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
 // errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row })).
 // OK rows ride along in the array and are filtered before rendering.
-type CasPerRowEntry = { drive_file_id: string; code: string };
+type CasPerRowEntry = { drive_file_id: string; code: string; display_name?: string };
 
 type FinalizeCasResponse =
   | {
@@ -118,7 +118,7 @@ export function RunFinalCASButton({ sessionId }: Props) {
           <ul className="flex flex-col gap-2">
             {state.rows.map((row) => (
               <li key={row.drive_file_id} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">{row.drive_file_id}</span>
+                <span className="font-medium">{row.display_name ?? row.drive_file_id}</span>
                 <span className="text-text-subtle">
                   {lookupDougFacing(row.code) ?? GENERIC_ERROR}
                 </span>
