@@ -164,9 +164,12 @@ New route `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileI
 The expensive extraction must not hold (a) the canonical `show:` advisory lock — it
 would block finalize/publish — NOR (b) ANY postgres.js transaction/connection — an
 advisory-xact-lock-scoped tx held for ≤300 s per show would exhaust the postgres pool.
-So the request uses **two SHORT transactions with no DB held in between**, with a
-**durable DB extraction lease** (cross-instance dedupe — Codex round-32) claimed in tx#1
-and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
+So the request uses **THREE SHORT DB windows with no DB held in between** (round-19/21):
+**tx#1a** (admit lock + lease claim only, commits → releases the admit lock), **tx#1b**
+(separate, NO admit lock: staged read + lifecycle + generation + folder), **tx#2** (brief
+`show:` lock: persist + lease release). The **durable DB extraction lease** (cross-instance
+dedupe — Codex round-32) is claimed in tx#1a and released in tx#2, plus a cheap **in-memory
+fast-path** (per-instance):
 
 1. **Auth** — `requireAdminIdentity()` (`@/lib/auth/requireAdmin`); reject otherwise.
 2. **In-memory fast-path (NO DB) — OWNERSHIP-scoped `try/finally` (Codex round-28 F2 +
@@ -174,12 +177,12 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
    obvious same-instance duplicates; the **durable lease (step 3) is the cross-instance
    authority**. Flags `ownsInFlight`/`acquiredSlot` default `false`. Check the
    per-`(wiz,dfid)` in-flight set (the staged-row identity — matches the durable lease key,
-   round-41): present → `202 { status: "in_progress" }` immediately (a sibling request for
+   round-41): present → `202 { status: "pending", reason: "in_progress" }` immediately (a sibling request for
    THIS row IS extracting; `ownsInFlight`/`acquiredSlot` stay `false`). Else insert the key
    (`ownsInFlight = true`) + try a process-wide semaphore slot
    `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (module-level counter; secondary per-instance
    CPU/Drive-quota bound) — got one → `acquiredSlot = true`; **none free → `202
-   { status: "queued" }`** (Codex round-48 F2 — NOT `in_progress`: this row's extraction has
+   { status: "pending", reason: "queued" }`** (Codex round-48 F2 — NOT `in_progress`: this row's extraction has
    NOT started, it's queued behind the LOCAL cap; the client budgets `queued` like the
    global-cap queue, NOT the one-window timer, so it can't time out before admission). A
    **`finally`** releases ONLY
@@ -216,20 +219,21 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      accumulated dead rows; (3) **CHECK THIS row's live lease BEFORE the global cap (round-10
      — so a same-row duplicate at FULL cap is `in_progress`, not `queued`):** `SELECT 1 FROM
      public.agenda_extract_leases WHERE wizard_session_id = $1 AND drive_file_id = $2 AND
-     expires_at > now()` → if found → `202 { reason: "in_progress" }`; (4) else `SELECT
+     expires_at > now()` → if found → `202 { status: "pending", reason: "in_progress" }`; (4) else `SELECT
      count(*) FROM public.agenda_extract_leases` (all remaining are live post-GC) — if `>=
-     AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → `202 { reason: "queued" }`; (5) else claim
+     AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → `202 { status: "pending", reason: "queued" }`; (5) else claim
      the per-row lease `INSERT … ON CONFLICT (wizard_session_id, drive_file_id) DO UPDATE …
      WHERE expires_at < now() RETURNING owner` — 0 rows = a live lease for this row (race)
-     → `202 { reason: "in_progress" }`; 1 row → claimed.
+     → `202 { status: "pending", reason: "in_progress" }`; 1 row → claimed.
      Because admissions serialize on the admit key, the next admitter's count sees this
      committed lease, so **no more than K extractions are admitted deployment-wide**
-     (strict, not soft). All `202` paths set `Retry-After` and do NO Drive. **The `202`
-     carries a `reason` (Codex round-47 F2 + round-48 F2):** `queued` (count `>= K` —
-     QUEUED behind the global cap, hasn't started; SAME reason the local-cap path returns,
-     step 2) vs `in_progress` (a live lease for THIS row — its extraction is running). The
-     client budgets these differently (§5.3) so a row queued (local OR global cap) doesn't
-     time out into baseline before its OWN extraction even starts. The
+     (strict, not soft). All `202` paths set `Retry-After` and do NO Drive. **CANONICAL
+     `202` SHAPE (round-21 — ONE shape everywhere, in-memory AND lease paths, route AND
+     client):** `202 { status: "pending", reason: "in_progress" | "queued" }`; the client
+     budgets ONLY from `reason`. `reason` is `queued` (count `>= K` OR the local-cap fast-path
+     — QUEUED, hasn't started) vs `in_progress` (a live lease/in-flight for THIS row — its
+     extraction is running). The client budgets these differently (§5.3) so a row queued
+     (local OR global cap) doesn't time out into baseline before its OWN extraction starts. The
      admit lock is held only during the microsecond GC+count+claim — NEVER during the staged
      read (tx#1b) NOR the ≤300 s Drive work (released at **tx#1a** commit, round-19). This
      gives deployment-wide **exactly-one-extraction-per-STAGED-ROW** AND a strict
@@ -464,7 +468,7 @@ path; the per-item Open-PDF anchor appears only once the endpoint validates it.
   `idle` and re-fires** the POST. Throttled to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight
   across rows.
   The endpoint cache-hits cheaply when already fresh, so this is fast. A
-  **`202 { status: "in_progress" }`** response (another request holds the durable lease)
+  **`202 { status: "pending", reason: "in_progress" }`** response (another request holds the durable lease)
   keeps the row in `loading` and retries — but the poll budget is **tied to the
   extraction window, NOT a short fixed attempt count (Codex round-33 F1)**: the durable
   lease holder can legitimately run for nearly the full `maxDuration = 300 s`, and under a
@@ -800,7 +804,7 @@ by this change.
    in-memory state stores** (simulating two serverless instances — distinct in-flight
    sets/semaphores) → only ONE claims the `agenda_extract_leases` row + extracts; the
    other's `INSERT … ON CONFLICT (wizard_session_id, drive_file_id) … WHERE expires_at <
-   now()` affects 0 rows → `202 in_progress`, **no second extraction** (assert
+   now()` affects 0 rows → `202 { status: "pending", reason: "in_progress" }`, **no second extraction** (assert
    `downloadFileBytes` runs once across both); (d-x) **different-session = independent row**
    (round-41 scope): session B (a NEW wizard session, same `drive_file_id`, different
    `wizard_session_id`) claims its OWN lease row and extracts ITS staged row; if a rescan
@@ -956,7 +960,7 @@ by this change.
    POST RE-FIRES for the new generation (no stale agenda carried across generations); (h)
    **queued (local OR global cap), then admitted** (round-47/48 F2): the mock returns `202
    { reason: "queued" }` for LONGER than one `AGENDA_CLIENT_POLL_BUDGET_MS` window — run it
-   BOTH for the global-cap and the local-cap path — then `202 { reason: "in_progress" }`,
+   BOTH for the global-cap and the local-cap path — then `202 { status: "pending", reason: "in_progress" }`,
    then `200` with items → the card MUST keep polling the whole time (queue budget, fake
    timers) and render the eventual `ready` blocks — it must NOT fall back to baseline/error
    while still `queued` (proving the one-window timer starts only at admission).
@@ -1084,8 +1088,8 @@ there.)
 - Architecture: **async-decouple** — scan stays fast (no PDF work); a per-show
   extract endpoint fills the card live; "parsing agenda…" placeholder → preview on
   resolve (user-approved pivot, round 16).
-- Endpoint boundary: **two SHORT txns, NO DB connection held during Drive** (Codex
-  round-23/24 F2) — tx#1a (admit lock + lease claim, commits before any read — round-19),
+- Endpoint boundary: **THREE SHORT txns, NO DB connection held during Drive** (Codex
+  round-23/24 F2 + round-19) — tx#1a (admit lock + lease claim, commits before any read),
   tx#1b (separate, NO admit lock: staged read + lifecycle + generation), extract with no DB held, tx#2
   brief `show:` lock + atomic conditional persist. **Dedupe + cap are DB-backed (round-32
   pivot — supersedes the original in-memory-only design):** the durable
@@ -1149,7 +1153,7 @@ there.)
   move-OUT-of-folder without an edit → `409 stale`/out-of-scope, mirroring finalize's
   `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` (round-28/29/31/37/39).
 - Concurrency: a **durable `agenda_extract_leases` row keyed by
-  `(wizard_session_id, drive_file_id)`** — the STAGED-ROW identity (claimed in tx#1,
+  `(wizard_session_id, drive_file_id)`** — the STAGED-ROW identity (claimed in tx#1a,
   released owner-scoped in tx#2, TTL-recovered) — gives **deployment-wide per-staged-row
   dedupe + bound** across instances (round-32; this is the real amplification vector —
   tabs/refreshes/admins on the same staged row). A `drive_file_id`-only key was tried
