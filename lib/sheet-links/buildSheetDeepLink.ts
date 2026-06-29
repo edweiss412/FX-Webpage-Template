@@ -12,7 +12,14 @@ export function buildSheetDeepLink(
 ): string | null {
   if (!driveFileId) return null; // null OR empty string → omit
   const base = `https://docs.google.com/spreadsheets/d/${driveFileId}/edit`;
-  if (!anchor || !isAllowed(anchor.title) || typeof anchor.gid !== "number") return base;
+  // No usable section anchor → pin to the first tab (`#gid=0`) rather than
+  // returning a gid-less base URL. A base URL with no `#gid=` opens the
+  // document's LAST-ACTIVE tab (whatever the operator left open — for the FXAV
+  // sheets that is frequently GEAR), so a section's "In sheet" link would
+  // silently land on the wrong tab. `#gid=0` is the deterministic first sheet
+  // (INFO in the FXAV templates); if a sheet happens to have no gid 0, Google
+  // Sheets ignores the fragment and opens its default — never worse than before.
+  if (!anchor || !isAllowed(anchor.title) || typeof anchor.gid !== "number") return `${base}#gid=0`;
   let url = `${base}#gid=${anchor.gid}`; // gid===0 emitted literally
   if (anchor.a1) url += `&range=${encodeURIComponent(anchor.a1)}`;
   return url;

@@ -407,7 +407,10 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 });
 
 describe("Step3SheetCard — title deep link + wrapping", () => {
-  const SHEET_URL = (dfid: string) => `https://docs.google.com/spreadsheets/d/${dfid}/edit`;
+  // The title link is an un-anchored whole-sheet link (no section anchor), so
+  // buildSheetDeepLink pins it to the first tab (`#gid=0`) for a deterministic
+  // landing rather than a gid-less base URL that opens the doc's last-active tab.
+  const SHEET_URL = (dfid: string) => `https://docs.google.com/spreadsheets/d/${dfid}/edit#gid=0`;
 
   test("the show title is a deep link to the SOURCE sheet, opening in a new tab", () => {
     const FIX = parseResult();
