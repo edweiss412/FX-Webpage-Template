@@ -409,6 +409,21 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?query_hash=eq.postgrest-dml-lockdown-test-no-such-row",
   },
+  {
+    // Agenda PDF extract leases: written ONLY by the agenda-pdf extraction
+    // service-role path. No PostgREST access of any kind (SELECT too).
+    table: "agenda_extract_leases",
+    closed_at: "supabase/migrations/20260629000001_agenda_extract_leases.sql:14",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      wizard_session_id: "00000000-0000-0000-0000-000000000001",
+      drive_file_id: "lockdown-test",
+      owner: "postgrest-dml-lockdown-test",
+      expires_at: "2026-01-01T00:00:00Z",
+    },
+    rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
 ] as const;
 
 // =============================================================================
