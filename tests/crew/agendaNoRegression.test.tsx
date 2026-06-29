@@ -17,8 +17,9 @@
  *       crew renders NO block for that link.
  *   A4  UNKNOWN-left (extracted: prior high-conf block): crew renders the block
  *       unchanged.
- *   A5  Legacy: an existing published extraction with extractorVersion: 1 is
- *       UNAFFECTED by this feature (no version bump; EXTRACTOR_VERSION still 1).
+ *   A5  Render path is version-agnostic: a stored older-version (extractorVersion: 1)
+ *       extraction still normalizes and renders after the EXTRACTOR_VERSION 1→2 bump
+ *       (the bump invalidates re-extraction CACHES, it does not gate rendering).
  *
  * Anti-tautology:
  *   - Session counts are DERIVED from the fixture, not hardcoded.
