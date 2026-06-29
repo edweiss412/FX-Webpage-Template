@@ -72,6 +72,8 @@ Result: GEAR lunch `{breakout, name "BALLROOM C", token BALLROOM C}` matches INF
 
 **Guard conditions:** a GEAR room with no INFO counterpart still appends (unchanged). All-null GEAR rooms still skipped (index.ts:353). Non-lunch rooms are entirely unaffected — both the kind-align and the `GRAND` strip live inside the `^LUNCH` branch, so a non-lunch `GRAND FOYER`/`FOYER` pair keeps distinct tokens and never merges. The lunch `GRAND` strip only removes a leading `GRAND ` token; names like `GRANDVIEW` are unaffected (`\s+` boundary).
 
+**Collision-safety note (vs the Fix-4 dimension-match concern).** Unlike the standalone dimension-row match, this merge is NOT a collision surface: it keys on the full `(kind, gearNameToken)` and the GEAR lunch room's stripped token `BALLROOM C` can only match an INFO room **of kind `breakout` named `BALLROOM C`** — which is uniquely the lunch room itself (two distinct breakout rooms cannot share the name `BALLROOM C`). `result.find` returning the first match is pre-existing behavior unchanged by this fix, and `fill-don't-clobber` means even a hypothetical mis-match only fills currently-null gear columns. So no new `GRAND X`/`X` false-merge is introduced here (the kind-equality requirement, preserved per R8-H1, is exactly what prevents it).
+
 **Re-stage note:** changes the consultants room key-set → one-time MI-7b re-stage (Resolved Decision 4). Other shows with GEAR `LUNCH`/`GRAND`-prefixed rooms may also re-stage once.
 
 ---
@@ -116,10 +118,13 @@ New exported helper `extractIntakeDimensionRow(col0): { nameToken, dimensions, f
 
 New helper `backfillRoomDimensionsFromIntake(rooms, markdown)` run in `index.ts` after `mergeGearIntoRooms`:
 - For each table row, call `extractIntakeDimensionRow(col0)`; skip on `null`.
-- Match to a parsed room by `gearNameToken(room.name) === nameToken`. GS room name `GRAND BALLROOM A/B` → token `GRAND BALLROOM A/B`; intake name `BALLROOM A/B` → token `BALLROOM A/B`. **These differ** (the intake row omits `GRAND`). Resolve by matching on the gear-token *with the lunch-style `GRAND` tolerance applied to BOTH sides of THIS dimension match only* — i.e., compare `stripGrand(gearNameToken(room.name)) === stripGrand(nameToken)` where `stripGrand` is a local `s => s.replace(/^GRAND\s+/i,"")`. This keeps the global `gearNameToken` untouched (no merge-key change) while letting the intake row find `GRAND BALLROOM A/B`.
+- **Match the room with a two-stage, collision-safe lookup (round-3 fix, Codex spec-R3):**
+  1. **Exact first** — find all rooms where `gearNameToken(room.name) === nameToken`. If exactly one → use it. (Multiple exact = same-named rooms, a pre-existing duplicate; first wins is acceptable since they share a name.)
+  2. **GRAND-tolerant fallback ONLY if no exact match** — find all rooms where `stripGrand(gearNameToken(room.name)) === stripGrand(nameToken)` (local `stripGrand = s => s.replace(/^GRAND\s+/i,"")`). Use it **only when it yields exactly ONE candidate**. If it yields zero or **two or more** candidates → **skip the backfill** (do NOT first-wins; an ambiguous `GRAND X`/`X` pair must not silently corrupt the wrong room).
+  - GS case: intake `BALLROOM A/B` has no exact room (`GRAND BALLROOM A/B`), the fallback finds exactly one (`GRAND BALLROOM A/B`) → fills it. A show with both `GRAND BALLROOM A/B` and `BALLROOM A/B`: exact stage matches the literal `BALLROOM A/B` room → no ambiguity. A show with two distinct `GRAND X` and `X` rooms and an intake row for a third stripped-equal name → ≥2 fallback candidates → skip. The global `gearNameToken` and merge key stay untouched.
 - **Fill-don't-clobber:** set `room.dimensions`/`room.floor` only when currently `null`.
 
-**Guard conditions:** no `ROOM DIMENSIONS:` row → no-op. No matching room → skip (no phantom room created — this only back-fills existing rooms). Room already has dims/floor → untouched. Multiple matches → first wins (deterministic by document order). Malformed row (marker present, no dim token) → `null`.
+**Guard conditions:** no `ROOM DIMENSIONS:` row → no-op. No matching room → skip (no phantom room created — this only back-fills existing rooms). Room already has dims/floor → untouched. Exact match multiple → first wins (same-named dup). GRAND-tolerant fallback ambiguous (≥2) → **skip, no backfill** (collision-safe). Malformed row (marker present, no dim token) → `null`.
 
 **Consumer:** none yet (Resolved Decision 5) — verified by a parser unit test, render deferred to `BL-ROOM-DETAIL-UNRENDERED`.
 
@@ -165,6 +170,7 @@ Each fix lands as its own commit: failing test → minimal impl → green → co
 4. **GS dims** — two layers:
    a. **Dedicated extractor unit** (`extractIntakeDimensionRow`): feed the exact consultants intake row string → assert `{ nameToken: "BALLROOM A/B", dimensions: contains "82' x 63' x 14'", floor: "8th Floor" }`. Negative: a row with no `ROOM DIMENSIONS:` marker → `null`; marker but no dim token → `null`. (This catches the splitRoomHeader mis-parse class directly, not only via `parseSheet`.)
    b. **End-to-end** (`parseSheet`): assert the GS room `dimensions` contains `82' x 63' x 14'` and `floor` contains `8th Floor`. Negative: remove the `ROOM DIMENSIONS:` row from an inline fixture → GS dims stay null. Negative-regression: break the extractor's name-token match → GS dims revert to null.
+   c. **Dimension-match collision negative (Codex spec-R3):** inline fixture with TWO distinct rooms that strip-equal (e.g. `GRAND BALLROOM A/B` and another `BALLROOM A/B` of a different room, neither an exact match for the intake name, OR two rooms both stripping to the same token) + a standalone `ROOM DIMENSIONS:` row for that ambiguous token → assert the backfill **skips** (neither room's `dimensions` is set) rather than first-wins. Plus: a fixture with both `GRAND BALLROOM A/B` and a literal `BALLROOM A/B` room + an intake row for `BALLROOM A/B` → assert dims land on the **exact** `BALLROOM A/B` room, not the `GRAND` one.
 5. **Title banner** (`tests/parser/...`): exact assertions — consultants → `AII/III - Consultants Roundtable 2025`; fintech/fixed-income/rpas → proper-cased banners (not uppercase). Unchanged assertions: east-coast, ria, redefining-fi titles equal their current values (snapshot the current value first, assert preserved). Generic guards (parseSheet.test.ts:44/54) still pass. Negative: revert priority #0 → consultants title reverts to uppercase.
 6. **Meta-test** (`_metaKnownSectionsRegistry`): `DRESS` registered (passes with the registry as-is).
 
