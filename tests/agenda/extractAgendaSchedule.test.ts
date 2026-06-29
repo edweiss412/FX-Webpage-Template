@@ -27,6 +27,21 @@ test("PCF: 12:25 AM lunch typo auto-corrected to PM + drift flagged", async () =
   expect(lunch?.drift).toMatch(/source: 12:25 AM/);
   expect(x.corrections).toBeGreaterThanOrEqual(1);
 });
+test("RIA: 'a.m./p.m.' meridiem format (period-delimited times) parses high", async () => {
+  // II - RIA Central 2025 formats times as "7:30 a.m." (lowercase, periods). Before the
+  // noSp meridiem-normalization, these matched neither clockSingle nor clockRange → 0 time
+  // anchors → 0 sessions → low confidence → admin card "No schedule detected" for a fully
+  // readable schedule. Concrete failure mode this pins: reverting the noSp fix drops this
+  // back to confidence:"low" with empty days. Time assertion derives from the fixture
+  // ("7:30 a.m." → canonical "7:30 AM" via fmtClock), not a hardcoded ladder value.
+  const x = await extractAgendaSchedule(bytes("ria.pdf"));
+  expect(x.confidence).toBe("high");
+  expect(x.days.length).toBeGreaterThanOrEqual(2);
+  const sessions = x.days.flatMap((d) => d.sessions);
+  expect(sessions.length).toBeGreaterThanOrEqual(5);
+  // The period/lowercase "7:30 a.m." is recognized and rendered in canonical form.
+  expect(sessions.some((s) => s.time.startsWith("7:30 AM"))).toBe(true);
+});
 test("garbage / non-agenda PDF → low confidence", async () => {
   // a tiny non-agenda PDF fixture (or empty Uint8Array) → defensively low
   const x = await extractAgendaSchedule(new Uint8Array([0]));

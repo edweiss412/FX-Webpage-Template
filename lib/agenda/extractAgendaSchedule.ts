@@ -30,7 +30,15 @@ const LOW = (): AgendaExtraction => ({
   extractorVersion: EXTRACTOR_VERSION,
 });
 
-const noSp = (t: string) => t.replace(/\s+/g, "");
+// Strip whitespace AND normalize period/lowercase meridiems ("7:30 a.m." → "7:30am",
+// "p.m" → "pm") so the clock predicates + parseClockPart (all routed through noSp)
+// recognize the "a.m./p.m." agenda format. Without this, a sheet whose agenda PDF uses
+// "7:30 a.m." parses to 0 time anchors → 0 sessions → low confidence → the admin card
+// shows "No schedule detected" for a perfectly readable schedule (II - RIA Central 2025).
+// Only period-containing meridiems are rewritten (bare "am"/"pm" already match), and the
+// result is used only for clock detection/parsing — the displayed time is rebuilt via
+// fmtClock, so output stays in the canonical "7:30 AM" form.
+const noSp = (t: string) => t.replace(/\s+/g, "").replace(/([ap])\.m\.?/gi, "$1m");
 const clockRange = (t: string) =>
   /^\d{1,2}:?\d{0,2}(AM|PM)?[–—-]\d{1,2}:?\d{0,2}(AM|PM)?$/i.test(noSp(t));
 const clockSingle = (t: string) => /^\d{1,2}:\d{2}(AM|PM)?$/i.test(noSp(t));
