@@ -119,7 +119,7 @@ emitting.
                        └───────────────┬──────────────────────────┘
                                        │ persist (error|warn|coded-info)
                                        ▼
-       service-role INSERT  →  public.app_events  (revoke all; insert+select; RLS on)
+       service-role INSERT  →  public.app_events  (revoke all anon/auth; service_role ALL; append-only by guard; RLS on)
                                        ▲
    awaited handler ─ runWithRequestContext({requestId}, handler) ─ seeds ALS
    streamed/deferred handler ─ explicit log.*({requestId}) ─ ALS-independent
@@ -243,9 +243,12 @@ create index if not exists app_events_code_idx         on public.app_events (cod
 
 -- Lockdown (AGENTS.md cross-cutting #1 / BL-ADMIN-POSTGREST-DML-LOCKDOWN), geocode_cache pattern:
 revoke all on table public.app_events from public, anon, authenticated;
--- append-only: grant INSERT + SELECT only (NO update/delete) so even service_role
--- cannot mutate-in-place; the prune deletes via a SECURITY DEFINER owner function.
-grant insert, select on table public.app_events to service_role;
+-- service_role retains ALL DML — REQUIRED by postgrest-dml-lockdown Layer 1
+-- (`tests/db/postgrest-dml-lockdown.test.ts:437-472` asserts service_role
+-- DELETE/INSERT/SELECT/UPDATE all = true for every registered table).
+-- Append-only is therefore enforced STRUCTURALLY (writer guard + sole prune
+-- delete), not at the grant layer.
+grant all privileges on table public.app_events to service_role;
 alter table public.app_events enable row level security; -- no policy; service_role bypasses RLS
 ```
 
@@ -259,14 +262,21 @@ alter table public.app_events enable row level security; -- no policy; service_r
   service-role server component (admin-gated at the route), exactly like other
   admin data — not via PostgREST+RLS. This mirrors `geocode_cache` and keeps the
   posture maximally locked.
-- **Append-only enforced at the grant layer:** `service_role` gets only
-  `insert, select` (not `all`), so the persist path can write + Phase 2 can read,
-  but no role can `update`/`delete` rows; the lone sanctioned delete is
-  `prune_app_events` (§5.3), a SECURITY DEFINER function running as its owner.
+- **Append-only enforced STRUCTURALLY** (not at the grant layer — Layer 1 mandates
+  `service_role` retains all DML, §5.2 SQL comment): the writer guard
+  (`tests/log/_metaAppEventsWriter.test.ts`) rejects any `.update`/`.delete`/`.upsert`
+  on `app_events` in `app/`/`lib/`/`scripts/`, and the **only** sanctioned delete is
+  `prune_app_events` (§5.3) inside the migration. (`service_role` *could* delete via
+  raw SQL like any service-role-writable table; the guard is the realistic defense,
+  matching how every RPC-gated table here is protected.)
 - **Register in `tests/db/postgrest-dml-lockdown.test.ts` `RPC_GATED_TABLES`**
-  (`:135`), mirroring the `geocode_cache` row (`:403-411`): `closed_at` cites the
-  exact `revoke all` line in the new migration; `selectAnon`/`selectAuthenticated`
-  blocked; `postBody`/`rowFilter` per the harness. Layer-4 orphan reconciliation
+  (`:135`), mirroring the `show_share_tokens` row (`:175-184`, the no-PostgREST-SELECT
+  variant): `table:'app_events'`, `closed_at` cites the exact `revoke all` line in
+  the new migration, `selectAnon:false`, `selectAuthenticated:false`,
+  `postBody:{ level:'info', source:'lockdown-test', message:'x' }`,
+  `rowFilter:'?source=eq.no-such-row'`. Layer 1 (`:437-472`) checks the grant
+  posture (service_role ALL; anon/auth DML+SELECT false); Layers 2+3 probe
+  anon/authenticated POST/PATCH/DELETE → 403/401; Layer 4 orphan reconciliation
   (`:715-818`) forces the registry row + REVOKE in the same commit.
 
 **Persist sink** (`lib/log/persist.ts`):
@@ -541,11 +551,10 @@ Each task: failing test → minimal impl → passing test → commit
    `Error.message`) → `[email-redacted]`. Failure caught: a persist error masking
    the caller's error; a raw email reaching the persisted payload.
 5. **migration `app_events`** — apply locally; assert table/columns/indexes/CHECK
-   exist; `revoke all` from anon/authenticated present; `service_role` has
-   `insert, select` but **not** `delete`/`update` (append-only at grant layer); RLS
-   enabled; `prune_app_events` deletes only rows older than `retain`; cron job
-   registered. Regen `pnpm gen:schema-manifest`, commit manifest, apply to
-   validation surgically (validation-schema-parity 3-layer gate).
+   exist; `revoke all` from anon/authenticated present; `service_role` retains ALL
+   DML (Layer-1 posture); RLS enabled; `prune_app_events` deletes only rows older
+   than `retain`; cron job registered. Regen `pnpm gen:schema-manifest`, commit
+   manifest, apply to validation surgically (validation-schema-parity 3-layer gate).
 6. **postgrest-dml-lockdown registry** — add `app_events` row; Layers 1–4 pass
    (anon/authenticated POST/PATCH/DELETE → 403/401 PG 42501; orphan reconciliation
    green). Failure caught: table-direct writes bypassing the chokepoint.
@@ -641,9 +650,11 @@ its geocode tap but is **not** correlation-seeded — deferred `after()`, §5.4.
    have no `request_id` column; threading the id into them is deferred (their
    writers can read `getRequestContext()` cheaply in a later phase). The Phase-1
    success claim is scoped accordingly.
-9. **Append-only enforced by grant + guard, not just convention** — `service_role`
-   gets `insert, select` only (no delete/update); the prune deletes via a SECURITY
-   DEFINER owner; a structural guard rejects any update/delete/upsert/second writer.
+9. **Append-only enforced structurally, not grant-level** — `service_role` must
+   retain ALL DML (the `postgrest-dml-lockdown` Layer-1 contract asserts it for
+   every registered table, `:437-472`), so grant-level append-only isn't available;
+   the writer guard (`_metaAppEventsWriter`) rejects any update/delete/upsert/second
+   writer, and `prune_app_events` is the sole sanctioned delete.
 10. **Logger owns sanitization (JSON-safe + email redaction)** — field-name grep
     can't stop emails in `error.message`/`stack` or odd context keys; `sanitizeContext`
     redacts recursively before console + persist, and also guarantees the insert
@@ -671,8 +682,10 @@ its geocode tap but is **not** correlation-seeded — deferred `after()`, §5.4.
 - **`drive/webhook` not correlation-seeded:** intentional — deferred `after()`
   boundary; ALS won't reach the deep geocode emit and explicit threading is later
   scope. Cited: §5.4.
-- **`grant insert, select` (not `all`) to `service_role`:** intentional append-only
-  enforcement; prune deletes via SECURITY DEFINER. Cited: §5.2, §13.9.
+- **`service_role` keeps ALL DML; append-only is structural:** required by
+  `postgrest-dml-lockdown` Layer 1 (`:437-472` asserts service_role retains all DML
+  for every registered table). The writer guard + sole-prune-delete carry
+  append-only. Cited: §5.2, §13.9.
 - **Persist destructures `{ error }` not `{ data, error }`:** compliant — it
   consumes `error` (never bare `data`) and carries the `// not-subject-to-meta:`
   best-effort-sink waiver. Cited: §5.2.
