@@ -724,3 +724,47 @@ describe("extract-agenda — lease release on every exit", () => {
     await pool`DELETE FROM public.agenda_extract_leases WHERE drive_file_id = ${dfid}`;
   });
 });
+
+// ─── pre-extraction DB faults → uniform typed 500 (Codex whole-diff R4) ──────
+// invariant 9: a DB fault in the post-auth, pre-extraction path (tx#1a lease claim
+// or tx#1b staged read) must surface as the route's uniform `{ status: "error" }`
+// 500 (logged), NOT a bare framework 500. Proven by the outer catch boundary.
+describe("extract-agenda — pre-extraction DB faults", () => {
+  test("tx#1a (lease claim) throws → 500 { status: error }, not a bare framework 500", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-tx1a-throw";
+    const sqlThrows = {
+      begin: vi.fn(async () => {
+        throw new Error("connection lost"); // tx#1a sql.begin fault
+      }),
+    } as unknown as NonNullable<ExtractAgendaDeps["sql"]>;
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ sql: sqlThrows }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+  });
+
+  test("tx#1b (staged read) throws after a successful claim → 500 { status: error }", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-tx1b-throw";
+    let begins = 0;
+    const sqlClaimThenThrow = {
+      begin: vi.fn(async () => {
+        begins += 1;
+        if (begins === 1) return { ok: true }; // tx#1a claim "succeeds"
+        throw new Error("connection lost"); // tx#1b (+ finally release) fault
+      }),
+    } as unknown as NonNullable<ExtractAgendaDeps["sql"]>;
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ sql: sqlClaimThenThrow }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+    expect(begins).toBeGreaterThanOrEqual(2); // tx#1a + tx#1b both attempted
+  });
+});

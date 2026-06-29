@@ -415,6 +415,17 @@ export async function handleExtractAgenda(
       console.error("[extract-agenda] unexpected error in extract/merge region:", extractErr);
       return NextResponse.json({ status: "error" }, { status: 500 });
     }
+  } catch (preExtractErr) {
+    // Catch-all typed boundary for the PRE-extraction post-auth path (Codex
+    // whole-diff R4 — same-vector close): tx#1a (claimExtractLease / admit lock),
+    // tx#1b (pending_syncs + app_settings staged read), and any other throw before
+    // the inner extract-region try. A DB fault here (schema drift, connection loss,
+    // bad migration) must surface as the uniform `{ status: "error" }` 500 — logged
+    // and classified — NOT a bare framework 500 (invariant 9). The `finally` below
+    // still releases the lease (if claimed) + the in-memory slot. Together with the
+    // inner extract-region catch, EVERY post-auth throw path returns the typed 500.
+    console.error("[extract-agenda] unexpected error before extraction:", preExtractErr);
+    return NextResponse.json({ status: "error" }, { status: 500 });
   } finally {
     // Lease-release boundary (round-1): every post-claim early exit
     // (before/after-fence 409, enrichAgenda throw, tx#2-stale 409, timeout) that
