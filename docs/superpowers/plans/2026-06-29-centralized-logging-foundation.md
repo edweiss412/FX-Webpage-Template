@@ -805,7 +805,12 @@ describe("app_events schema", () => {
   });
 
   test("level CHECK accepts info/warn/error and rejects debug", async () => {
-    await sql`insert into public.app_events (level, source, message) values ('info','t','m')`;
+    for (const level of ["info", "warn", "error"]) {
+      await sql`insert into public.app_events (level, source, message) values (${level}, 't', ${level})`;
+    }
+    const accepted = await sql<{ level: string }[]>`
+      select level from public.app_events where source = 't' order by level`;
+    expect(accepted.map((r) => r.level)).toEqual(["error", "info", "warn"]);
     await expect(
       sql`insert into public.app_events (level, source, message) values ('debug','t','m')`,
     ).rejects.toThrow();
@@ -1271,7 +1276,7 @@ git commit --no-verify -m "feat(auth): tap infra producers to emit; require emis
   | report `readCrewRoleFlags` catch (`:78-84`) | error | `ADMIN_SESSION_LOOKUP_FAILED` | `api/report` |
   | scan catch (`:265-266`) | error | — | `admin/onboarding/scan` (explicit `requestId` in Task 13) |
 
-- [ ] **Step 1: Write the failing test** — two behavioral cases (geocode, cron — both have clean injection points) + two structural source-assertions (report, scan — their fault is reachable only through the full route handler; the source-assertion deterministically catches tap removal, which is the real failure mode):
+- [ ] **Step 1: Write the failing test** — one behavioral case (geocode — clean injection point, proves the runtime emission path) + three structural source-assertions (cron, report, scan — their fault is reachable only through heavy DI / a full route handler; the order-locked source-assertion deterministically catches tap removal, the real failure mode; the info+persist→persisted threshold is already unit-proven in Task 4):
 
 ```ts
 // tests/log/nonAuthTaps.test.ts
@@ -1296,19 +1301,14 @@ describe("geocode cache emits warn on infra fault (behavioral)", () => {
   });
 });
 
-describe("cron CONCURRENT_SYNC_SKIPPED emits persisted info (behavioral)", () => {
-  test("missingShow lock contention → info/CONCURRENT_SYNC_SKIPPED persist; no sync_log row", async () => {
-    const recs = capture();
-    const { runScheduledCronSync } = await import("@/lib/sync/runScheduledCronSync");
-    const logSync = vi.fn();
-    await runScheduledCronSync({
-      listFolder: async () => [],
-      listLiveShows: async () => [{ driveFileId: "df-1", showId: "s-1", wizardSessionId: null } as never],
-      withShowLock: async () => ({ skipped: "CONCURRENT_SYNC_SKIPPED" }) as never,
-      logSync,
-    } as never);
-    expect(recs.some((r) => r.level === "info" && r.code === "CONCURRENT_SYNC_SKIPPED" && r.source === "cron/sync")).toBe(true);
-    expect(logSync).not.toHaveBeenCalled();
+describe("cron CONCURRENT_SYNC_SKIPPED tap present (structural — full cron DI is heavy)", () => {
+  test("missingShows skip branch logs persisted info/cron/sync/CONCURRENT_SYNC_SKIPPED", () => {
+    const src = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8").replace(/\s+/g, " ");
+    // order-locked to the tap object literal (source → code → … → persist:true),
+    // [^}]* stays within the object so unrelated statements can't satisfy it.
+    expect(src).toMatch(
+      /log\.info\([^}]*source:\s*["']cron\/sync["'][^}]*code:\s*["']CONCURRENT_SYNC_SKIPPED["'][^}]*persist:\s*true/,
+    );
   });
 });
 
@@ -1326,7 +1326,7 @@ describe("report + scan taps present (structural — fault reachable only via fu
 });
 ```
 
-> The cron DI shape (`listFolder`/`listLiveShows`/`withShowLock`/`logSync`) mirrors `runScheduledCronSync`'s existing deps (`:2769-2786`). If a field name differs in the live signature, adapt — the contract is "emission fired AND `logSync` was not called for the skip." `vi.resetModules()` in `afterEach` stops the per-test `vi.doMock` from leaking through the module cache.
+> Only the geocode case uses runtime injection (`vi.doMock` + dynamic import); `vi.resetModules()` in `afterEach` stops that mock from leaking through the module cache. The cron/report/scan cases are pure source-assertions (no module load), so they need no mocking. The cron regex is order-locked to the tap object literal written in Step 4, so it fails if the tap is removed or its `persist:true`/`code` is dropped.
 
 - [ ] **Step 2: Run — verify it fails**
 
