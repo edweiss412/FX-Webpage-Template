@@ -156,37 +156,47 @@ New route `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileI
 **No DB connection is held during Drive/PDF work (Codex round-23 F2 + round-24 F2).**
 The expensive extraction must not hold (a) the canonical `show:` advisory lock — it
 would block finalize/publish — NOR (b) ANY postgres.js transaction/connection — an
-advisory-xact-lock-scoped tx held for ≤300 s per show, across many shows/tabs/admins
-(client throttling is per-browser only), would exhaust the postgres pool and starve
-finalize/scan. So the request uses **two SHORT transactions with no DB held in between**,
-plus an **in-memory process-wide concurrency cap** (no DB) for resource bounding and
-best-effort same-instance dedupe:
+advisory-xact-lock-scoped tx held for ≤300 s per show would exhaust the postgres pool.
+So the request uses **two SHORT transactions with no DB held in between**, with a
+**durable DB extraction lease** (cross-instance dedupe — Codex round-32) claimed in tx#1
+and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
 
 1. **Auth** — `requireAdminIdentity()` (`@/lib/auth/requireAdmin`); reject otherwise.
-2. **Concurrency slot (in-memory, NO DB) — OWNERSHIP-scoped `try/finally` (Codex round-28
-   F2 + round-29 F2).** Two explicit ownership flags, `ownsInFlight` and `acquiredSlot`,
-   both default `false`. FIRST check the per-`(wiz,dfid)` in-flight set: if already present
-   → return `202 { status: "in_progress" }` immediately, **`ownsInFlight = false`,
-   `acquiredSlot = false`** (this request never inserted the key nor took a slot). Else
-   insert the key (`ownsInFlight = true`) and try to acquire a process-wide semaphore slot
-   `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (module-level counter; bounds CPU/Drive-quota per
-   warm instance) — got one → `acquiredSlot = true`; none free → `202 in_progress`. A
-   **`finally`** releases ONLY owned resources: `if (acquiredSlot) releaseSlot();
-   if (ownsInFlight) deleteInFlightKey();` — so a **duplicate `202` NEVER deletes the
-   owner's in-flight marker or the owner's slot** (otherwise a 3rd request could start a
-   2nd concurrent extraction, defeating dedupe under Strict-Mode/refresh/multi-tab). This
-   runs on ALL exits (success, missing row, tx error, extraction throw, revision/lifecycle
-   `409`, tx#2 stale, duplicate `202`), so no slot/marker can leak (a leak would shrink
-   capacity until instance restart). Cross-instance simultaneous duplicates are rare, ≤ a
-   couple PDFs, cheap once cached — accepted, never a held DB connection.
-3. **SHORT tx #1 — read + lifecycle pre-check + capture row GENERATION** — open a tx,
-   `SELECT staged_id, staged_modified_time, parse_result (+ lifecycle cols) from
-   public.pending_syncs where wizard_session_id = $1 and drive_file_id = $2`, evaluate the
-   lifecycle guard, **capture the row generation `(staged_id, staged_modified_time)`** for
-   the tx#2 guard (Codex round-27), then **COMMIT/close (release the connection)**. Missing
-   row → `200 { items: [] }`. STALE (superseded session OR finalize-consumed/in-progress;
-   **approved/applied rows are NOT stale** — round-22 F2) → `409 { status: "stale" }`
-   (release slot, no Drive). NO `show:` lock here.
+2. **In-memory fast-path (NO DB) — OWNERSHIP-scoped `try/finally` (Codex round-28 F2 +
+   round-29 F2).** A cheap per-instance optimization that avoids even hitting the DB for
+   obvious same-instance duplicates; the **durable lease (step 3) is the cross-instance
+   authority**. Flags `ownsInFlight`/`acquiredSlot` default `false`. Check the per-`(wiz,
+   dfid)` in-flight set: present → `202 { status: "in_progress" }` immediately
+   (`ownsInFlight`/`acquiredSlot` stay `false`). Else insert the key (`ownsInFlight =
+   true`) + try a process-wide semaphore slot `AGENDA_MAX_CONCURRENT_EXTRACTIONS`
+   (module-level counter; secondary per-instance CPU/Drive-quota bound) — got one →
+   `acquiredSlot = true`; none free → `202 in_progress`. A **`finally`** releases ONLY
+   owned resources (`if (acquiredSlot) releaseSlot(); if (ownsInFlight) deleteInFlightKey()`)
+   — a duplicate `202` NEVER deletes the owner's marker/slot. Runs on ALL exits, so nothing
+   leaks.
+3. **SHORT tx #1 — claim durable lease + read + lifecycle + capture GENERATION** — open a
+   tx and:
+   - **Claim the durable extraction lease (Codex round-32):** atomically
+     `INSERT INTO public.agenda_extract_leases (wizard_session_id, drive_file_id, owner,
+     expires_at) VALUES ($1, $2, $owner, now() + AGENDA_EXTRACT_LEASE_TTL) ON CONFLICT
+     (wizard_session_id, drive_file_id) DO UPDATE SET owner = EXCLUDED.owner, expires_at =
+     EXCLUDED.expires_at WHERE public.agenda_extract_leases.expires_at < now() RETURNING
+     owner` — succeeds iff there was NO live lease (insert) or the prior lease had EXPIRED
+     (TTL backstop for a crashed extractor). **0 rows = a LIVE lease held by another
+     request anywhere in the deployment** → `202 { status: "in_progress" }` (no Drive). This
+     is the cross-instance dedupe + per-show bound the in-memory cap alone could not give:
+     exactly one extraction per show proceeds across ALL instances. `$owner` is a
+     per-request token. TTL `AGENDA_EXTRACT_LEASE_TTL_MS` ≈ `maxDuration` + margin
+     (~330 000 ms) so a dead holder's lease auto-expires.
+   - **Read + lifecycle + generation:** `SELECT staged_id, staged_modified_time,
+     parse_result (+ lifecycle cols) from public.pending_syncs where wizard_session_id = $1
+     and drive_file_id = $2`; evaluate the lifecycle guard; **capture `(staged_id,
+     staged_modified_time)`** for the tx#2 generation guard (round-27).
+   - **COMMIT/close (release the connection).** Missing row → `200 { items: [] }`. STALE
+     (superseded session OR finalize-consumed/in-progress; **approved/applied rows are NOT
+     stale** — round-22 F2) → `409 { status: "stale" }`. (On any of these non-extracting
+     exits the lease we just claimed is released — see the `finally`, step 7.) NO `show:`
+     lock here.
 4. **TOP-LEVEL sheet-revision fence — gates ALL fileId trust, before AND after Drive
    (Codex round-28 F1 + round-29 F1 + round-31)** — the ENTIRE staged parse (links,
    ordinals, and any previously-recovered `fileId`s) is valid ONLY for the sheet revision
@@ -268,23 +278,34 @@ best-effort same-instance dedupe:
      staged_id` (`$1` = MERGED result; `$4/$5` = the tx#1 generation; does NOT exclude
      `approval_payload IS NOT NULL`; pass the object, NOT `JSON.stringify`). **0 rows**
      (row superseded / finalize-consumed / **regenerated by a rescan**) → discard, `409
-     stale`. **1 row** → commit (releases `show:`). Then **build + return `200 { items }`**
-     via
+     stale`. **1 row** → the SAME tx#2 also **releases the durable lease** (owner-scoped:
+     `DELETE FROM public.agenda_extract_leases WHERE wizard_session_id = $2 and
+     drive_file_id = $3 AND owner = $owner` — only if WE still own it, so a TTL-expired-
+     then-reclaimed lease isn't deleted out from under a new owner) → commit (releases
+     `show:`). Then **build + return `200 { items }`** via
      `buildAdminAgendaPreview(mergedLinks, { freshByLinkKey })` — where `freshByLinkKey`
      is keyed by the (now-present) recovered `fileId`s of the confirmed-fresh links.
 
+**Durable lease `finally` (Codex round-32).** A `finally` releases the lease on EVERY
+exit AFTER a successful claim (owner-scoped `DELETE … WHERE owner = $owner`): the
+non-extracting tx#1 exits (missing row, `409 stale`), an extraction throw, a revision-
+fence `409`, AND the success path if tx#2's release somehow didn't run. (The TTL is the
+backstop if even the `finally` release fails — a crashed instance's lease auto-expires at
+`AGENDA_EXTRACT_LEASE_TTL_MS`.) The `202` paths (in-memory dup, or a LIVE durable lease held
+by another request) claimed NOTHING → release nothing.
+
 **Pool-safety + publish-safety + dedupe:** a DB connection is held ONLY during the two
-short txns (read pre-check; brief `show:` persist) — NEVER during the ≤300 s Drive/PDF
-work — so previews across many shows/tabs/admins cannot exhaust the postgres pool or
-starve finalize/scan. The `show:` lock is held only for the millisecond persist `UPDATE`,
-so a finalize racing the extraction either consumes the row first (→ our conditional
-`UPDATE` hits 0 rows → `409`, discarded) or runs just after our brief `UPDATE`.
-Concurrent work is bounded by the in-memory `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per
-instance, no DB) + the per-browser `AGENDA_CLIENT_CONCURRENCY`; repeated POSTs are cheap
-(cache → cheap `getFile`, no download). Best-effort same-instance dedupe coalesces
-duplicate POSTs; cross-instance simultaneous duplicates are rare + cheap + cached.
-**Publishing is never gated on a best-effort preview; no DB connection is held during
-external I/O; stale refresh-failed extractions render note-only, never a stale block.**
+short txns (claim+read; brief `show:` persist+release) — NEVER during the ≤300 s Drive/PDF
+work — so previews cannot exhaust the postgres pool or starve finalize/scan. The `show:`
+lock is held only for the millisecond persist `UPDATE`, so a finalize racing the
+extraction either consumes the row first (→ our conditional `UPDATE` hits 0 rows → `409`,
+discarded) or runs just after. **Deployment-wide, exactly ONE extraction per show runs at
+a time** (the durable `agenda_extract_leases` row — cross-instance, TTL-recovered), with
+the in-memory `AGENDA_MAX_CONCURRENT_EXTRACTIONS` as a per-instance aggregate guard and
+`AGENDA_CLIENT_CONCURRENCY` per browser; repeated POSTs are cheap (cache → `getFile`, no
+download). **Publishing is never gated on a best-effort preview; no DB connection is held
+during external I/O; stale refresh-failed extractions render note-only, never a stale
+block.**
 
 ### 5.3 Client orchestration + live fill-in (UI; Opus + impeccable invariant 8)
 
@@ -476,9 +497,18 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    (`headRevisionId`+`EXTRACTOR_VERSION` match) → items with **zero `downloadFileBytes`
    and zero `getAgendaChips`** (the expensive ops), while the cheap per-link `getFile`
    metadata read IS allowed (needed to read the current revision) — assert the download
-   spies are 0, NOT that all Drive is 0; (d) **dedupe**: bypass the client throttle —
-   two concurrent same-instance POSTs for the same show → the second is coalesced by the
-   in-memory in-flight set → `202 in_progress`, no duplicate extraction; (e) **stale
+   spies are 0, NOT that all Drive is 0; (d) **dedupe — durable + cross-instance** (round-32):
+   two concurrent POSTs for the same show from **independent in-memory state stores**
+   (simulating two serverless instances — distinct in-flight sets/semaphores) → only ONE
+   claims the `agenda_extract_leases` row + extracts; the other's `INSERT … ON CONFLICT …
+   WHERE expires_at < now()` affects 0 rows → `202 in_progress`, **no second extraction**
+   (assert `downloadFileBytes` runs once across both); (d2) **lease TTL recovery**: a
+   stale lease with `expires_at < now()` (crashed prior holder) → the next POST's claim
+   succeeds (ON CONFLICT update) and extracts; (d3) **owner-scoped release**: tx#2 deletes
+   the lease only when `owner` matches — a lease reclaimed by a new owner after TTL expiry
+   is NOT deleted by the old request's `finally`; (d4) **lease released on every exit**:
+   after success, `409 stale`, revision-`409`, and extraction-throw, assert no live
+   `agenda_extract_leases` row remains for the row; (e) **stale
    guard — pre-check** (round-19 F2): a **superseded-session OR finalize-consumed** row
    in tx#1 → `409 stale`, **zero Drive calls, no write**; (e2) **atomic persist-time
    race** (round-20 F2): row passes tx#1, extraction runs, session superseded BEFORE tx#2
@@ -566,8 +596,14 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 
 ## 9. Meta-test inventory
 
-- **Supabase call-boundary** (invariant 9): the endpoint's `pending_syncs` READ + WRITE
-  are **raw postgres.js** inside the sync-pipeline `tx` (Codex
+This milestone **EXTENDS** two structural meta-tests: `tests/db/postgrest-dml-lockdown.test.ts`
+(new `agenda_extract_leases` registry row — round-32) and
+`tests/auth/advisoryLockRpcDeadlock.test.ts` (endpoint as a brief single-holder of `show:`).
+It creates no new meta-test.
+
+- **Supabase call-boundary** (invariant 9): the endpoint's `pending_syncs` +
+  `agenda_extract_leases` READ/WRITE are **raw postgres.js** inside the sync-pipeline `tx`
+  (Codex
   round-19 F1) — they are NOT Supabase/PostgREST calls, so they are governed by the
   `SyncPipelineTx` pattern (the existing sync-pipeline error contract), not the Supabase
   call-boundary registry. The Drive reads (`downloadFileBytes`/`getAgendaChips`) ARE
@@ -581,25 +617,34 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   endpoint is a brief `show:` persist holder and holds NO DB lock/connection during the
   Drive/PDF window. Document the existing `show:` holders (approve/apply/discard staged
   routes + sync pipeline) and confirm the endpoint adds no second layer.
-- **PostgREST DML lockdown:** the `pending_syncs.parse_result` write is a **privileged
-  raw postgres.js UPDATE** through the sync-pipeline `tx` (the same connection the
-  approve/apply routes mutate staged rows with) — NOT a PostgREST
-  `from('pending_syncs').update`. `pending_syncs` INSERT/UPDATE/DELETE are already
-  REVOKEd from `authenticated`/`anon` (`20260601000000_b2_show_lifecycle.sql`), so the
-  lockdown intent (no client-role DML) is satisfied; confirm `pending_syncs` has a
-  registry row in `tests/db/postgrest-dml-lockdown.test.ts` (add if absent). No NEW
-  table, no migration.
+- **PostgREST DML lockdown (extended for the NEW lease table — round-32):** the
+  `pending_syncs.parse_result` write is a **privileged raw postgres.js UPDATE** through the
+  sync-pipeline `tx` — NOT a PostgREST `from('pending_syncs').update`; `pending_syncs` DML
+  is already REVOKEd (`20260601000000_b2_show_lifecycle.sql`). The **new
+  `public.agenda_extract_leases` table** is likewise mutated ONLY by the endpoint's raw
+  postgres.js (claim/release), so its migration MUST `REVOKE INSERT, UPDATE, DELETE … FROM
+  anon, authenticated` (and `SELECT` too — no client read need), and a **registry row is
+  added to `tests/db/postgrest-dml-lockdown.test.ts`** (the `describe.each` registry +
+  orphan reconciliation — see the class-wide pattern). Confirm `pending_syncs`'s row is
+  present too.
+- **Migration discipline (round-32):** the `agenda_extract_leases` migration is a NEW
+  table → the migration lands with (1) local apply + TDD, (2) `pnpm gen:schema-manifest`
+  regenerated + committed, (3) surgical apply to the validation project
+  (`vzakgrxqwcalbmagufjh`) — the `validation-schema-parity` gate asserts validation ⊇
+  manifest. Idempotent DDL (`create table if not exists`, `REVOKE` is idempotent).
 - No catalog change (§3).
 
 ## 10. Files touched
 
 | File | Change |
 |---|---|
-| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory concurrency slot (`AGENDA_MAX_CONCURRENT_EXTRACTIONS`) + same-instance in-flight dedupe (→`202`) → **SHORT tx#1** SELECT `pending_syncs.parse_result` + lifecycle pre-check (superseded/finalize-consumed → `409`; approved OK) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → **SHORT tx#2** brief `show:` lock + atomic lifecycle-conditional `UPDATE … RETURNING` (0 rows → `409`) → `buildAdminAgendaPreview` → `200 { items }`. No DB held during Drive; raw postgres.js |
+| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** claim durable `agenda_extract_leases` (live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation → top-level **revision fence** → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
+| `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id …, drive_file_id text, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))`; `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links in `freshByLinkKey` (default empty ⇒ note-only; round-25 F2); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`, `AGENDA_MAX_CONCURRENT_EXTRACTIONS`; bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`, `AGENDA_MAX_CONCURRENT_EXTRACTIONS`, `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
-| `tests/db/postgrest-dml-lockdown.test.ts` | ensure `pending_syncs` DML lockdown covered (registry row if absent) |
+| `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
+| `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param**; **expose per-link confirmed-fresh + just-fetched `headRevisionId`** (round-24 F1) so the endpoint can positively gate blocks (not rely on preserve-on-error side-effects) |
@@ -645,9 +690,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   EVERY attempt; a post-scan sheet edit (incl. one between a download-failed recovery and
   its retry) → `409 stale`, never a different PDF on the old parse (round-28 F1 +
   round-29 F1 + round-31).
-- Concurrency-slot lifecycle: ownership-scoped (`ownsInFlight`/`acquiredSlot`) `try/finally`
-  release on EVERY exit; a duplicate `202` consumes no slot AND never deletes the owner's
-  in-flight marker (no leak, no dedupe defeat — round-28 F2 + round-29 F2).
+- Concurrency: a **durable `agenda_extract_leases` row** (claimed in tx#1, released
+  owner-scoped in tx#2, TTL-recovered) gives **deployment-wide per-show dedupe + bound**
+  (cross-instance — round-32), with the in-memory ownership-scoped (`ownsInFlight`/
+  `acquiredSlot`) fast-path + `AGENDA_MAX_CONCURRENT_EXTRACTIONS` as a per-instance
+  secondary guard (round-28/29 F2). NO DB connection held during Drive. Adds a migration
+  (REVOKE + manifest + validation apply); blast radius now includes one new RPC-gated table.
 - fileId vs extraction persistence split: tx#2 merges `recoveredFileIds` (every fenced
   ordinal+label match — persisted even when the PDF download FAILS, giving the note a
   valid Open-PDF href + warming the row so retries skip `getAgendaChips`) SEPARATELY from
