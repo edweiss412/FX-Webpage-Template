@@ -200,12 +200,17 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      leaks a slot on crash). But a bare count-then-insert is RACEABLE under READ COMMITTED
      (many burst admitters all read `n < K` before any commits — the exact tabs/refreshes/
      instances burst this endpoint exists to survive). So admission is **SERIALIZED by a
-     brief global advisory lock**, held ONLY for the count+claim inside tx#1 (released at
+     brief global advisory lock**, held ONLY for the GC+count+claim inside tx#1 (released at
      tx#1 commit, BEFORE any Drive work): (1) `pg_advisory_xact_lock(hashtext('agenda-extract-admit'))`;
-     (2) `SELECT count(*) FROM public.agenda_extract_leases WHERE expires_at > now()` — if
-     `>= AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → NO claim → `202`; (3) else claim the
-     per-row lease `INSERT … ON CONFLICT (wizard_session_id, drive_file_id) DO UPDATE …
-     WHERE expires_at < now() RETURNING owner` — 0 rows = a live lease for this row → `202`.
+     (2) **GC expired rows (Codex round-52):** `DELETE FROM public.agenda_extract_leases
+     WHERE expires_at <= now()` — reclaims crash/hard-kill rows whose owner never released;
+     under the admit lock this is serialized (no concurrent-delete race) and keeps the table
+     BOUNDED (≈ live extractions only), so the count never degrades into an unbounded scan of
+     accumulated dead rows; (3) `SELECT count(*) FROM public.agenda_extract_leases` (all
+     remaining are live post-GC) — if `>= AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → NO
+     claim → `202`; (4) else claim the per-row lease `INSERT … ON CONFLICT
+     (wizard_session_id, drive_file_id) DO UPDATE … WHERE expires_at < now() RETURNING owner`
+     — 0 rows = a live lease for this row → `202`.
      Because admissions serialize on the admit key, the next admitter's count sees this
      committed lease, so **no more than K extractions are admitted deployment-wide**
      (strict, not soft). All `202` paths set `Retry-After` and do NO Drive. **The `202`
@@ -791,9 +796,13 @@ by this change.
    (the `agenda-extract-admit` lock serializes admission, so the count is never raced — this
    must FAIL on a bare count-then-insert, catching the oversubscription race, NOT just a
    sequential K-then-(K+1) case); a lease release/expiry then admits a waiting one;
-   (d2) **lease TTL recovery**: a
+   (d2) **lease TTL recovery + GC**: a
    stale lease with `expires_at < now()` (crashed prior holder) → the next POST's claim
-   succeeds (ON CONFLICT update) and extracts; (d3) **owner-scoped release**: tx#2 deletes
+   succeeds (ON CONFLICT update) and extracts; AND (round-52) seed MANY expired crash leases
+   (`expires_at <= now()`, never released) → the next admission's `DELETE … WHERE expires_at
+   <= now()` GCs them, the live count does NOT include them (so they don't falsely hit the
+   cap), and the table returns to ≈live-only (assert row count after admission ≈ live, not
+   the seeded pile — admission never depends on an unbounded scan); (d3) **owner-scoped release**: tx#2 deletes
    the lease only when `owner` matches — a lease reclaimed by a new owner after TTL expiry
    is NOT deleted by the old request's `finally`; (d4) **lease released on every exit**:
    after success, `409 stale`, revision-`409`, and extraction-throw, assert no live
@@ -1027,7 +1036,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | File | Change |
 |---|---|
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** brief `agenda-extract-admit` advisory lock → strict global-cap count + claim durable `agenda_extract_leases` (at cap OR live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation + `app_settings.pending_folder_id` → top-level **revision + source-scope fence** via `fetchDriveFileMetadata` (`modifiedTime == staged_modified_time` + `parents.includes(pending_folder_id)`) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
-| `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
+| `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); **`create index if not exists agenda_extract_leases_expires_at_idx on public.agenda_extract_leases (expires_at)`** (round-52 — the GC `DELETE … WHERE expires_at <= now()` + live count); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string>; validatedHrefs?: boolean })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `href` emitted ONLY when `validatedHrefs` (endpoint, post-fence — round-50; baseline href always null); `capExtractionForAdmin`, `agendaPdfHref` |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000), `AGENDA_PDF_DEADLINE_MS` + `AGENDA_EXTRACT_DEADLINE_MS` (~250 000, `< maxDuration` — total-time deadlines, round-48 F1); **`EXTRACTOR_VERSION` stays `1`** (NOT bumped — round-49; `DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
@@ -1121,12 +1130,14 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
   result-sharing is deferred (BACKLOG). In-memory ownership-scoped fast-path (same
   `(wiz,dfid)` key) + `AGENDA_MAX_CONCURRENT_EXTRACTIONS` per-instance hard cap. NO
   DB connection held during Drive. Adds a migration (REVOKE + manifest + validation apply).
-- Deployment-wide cap (round-43 F2 + round-45, user-approved): a **STRICT** DB-backed
-  global bound — admission (live-lease COUNT < `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` +
-  per-row lease claim) is SERIALIZED by a brief `agenda-extract-admit` advisory lock in
-  tx#1 (released before any Drive), so a burst of distinct-row requests can't race the count
-  past K. Self-heals via lease TTL (vs a raw counter that leaks on crash). Tested with a
-  concurrent K+N distinct-row oversubscription case (must fail on a bare count-then-insert).
+- Deployment-wide cap (round-43 F2 + round-45 + round-52, user-approved): a **STRICT**
+  DB-backed global bound — admission (**GC expired** → live-lease COUNT <
+  `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → per-row lease claim) is SERIALIZED by a brief
+  `agenda-extract-admit` advisory lock in tx#1 (released before any Drive), so a burst can't
+  race the count past K. Under the lock, expired rows are `DELETE`d before the count (round-52)
+  — crash/hard-kill leases self-heal AND the table stays bounded (≈ live only; `expires_at`
+  index), so the count never degrades into an unbounded scan. Tested with concurrent K+N
+  oversubscription + a many-expired-crash-leases GC case.
 - Approval boundary (round-43 F1, user-approved "keep async fill"): approved rows still
   extract (round-22 F2) and the agenda carries to publish; the tx#2 merge is **strictly
   additive** to `agenda_links[].extracted`/`fileId` and NEVER touches any operator-reviewed
