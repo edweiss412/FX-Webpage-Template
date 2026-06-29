@@ -104,19 +104,25 @@ export async function enrichAgenda(
         signal !== undefined ? { signal } : undefined,
       );
       if (chips.kind === "infra_error") {
-        // Couldn't read the sheet — leave links unenriched and retry next sync.
-        // NOT a count-mismatch, NOT AGENDA_PDF_UNREADABLE (invariant 9).
-        return { perLink: [] };
-      }
-      const rows = chips.rows;
-      for (let i = 0; i < cap; i++) {
-        const link = links[i]!;
-        const row = rows[i];
-        // Per-ordinal label-matched recovery: mismatch at i → silently skip
-        // (never a wrong bind, no warning — this is safe by construction).
-        if (!link.fileId && row && row.chipFileId && labelsAlign(link.label, row.label)) {
-          link.fileId = row.chipFileId;
-          recoveredFileIds.set(i, row.chipFileId);
+        // Couldn't read the INFO tab → recover NO fileIds this pass. Do NOT abort
+        // the whole enrichment (Codex whole-diff R3): the chip read only serves the
+        // fileId-LESS links (smart-chip recovery). On failure those links simply stay
+        // unrecovered and are skipped in the per-link loop below — but every link that
+        // ALREADY has a fileId still runs its own getFile revision check, so a
+        // transient chip-read failure can't suppress stale detection (and stale
+        // clearing) for an unrelated, already-bound PDF. NOT AGENDA_PDF_UNREADABLE
+        // (invariant 9 — surfaced as the absence of recovery, not a swallowed fault).
+      } else {
+        const rows = chips.rows;
+        for (let i = 0; i < cap; i++) {
+          const link = links[i]!;
+          const row = rows[i];
+          // Per-ordinal label-matched recovery: mismatch at i → silently skip
+          // (never a wrong bind, no warning — this is safe by construction).
+          if (!link.fileId && row && row.chipFileId && labelsAlign(link.label, row.label)) {
+            link.fileId = row.chipFileId;
+            recoveredFileIds.set(i, row.chipFileId);
+          }
         }
       }
     }

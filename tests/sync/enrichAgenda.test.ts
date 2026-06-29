@@ -225,6 +225,34 @@ describe("enrichAgenda — getAgendaChips infra_error", () => {
     expect(result.warnings).toEqual([]);
     expect(downloadFileBytes).not.toHaveBeenCalled();
   });
+
+  test("a chip read failure does NOT suppress stale detection for an already-fileId link (Codex whole-diff R3)", async () => {
+    // Mixed sheet: ordinal 0 is fileId-LESS (would need smart-chip recovery, so it
+    // triggers getAgendaChips, which infra_errors); ordinal 1 ALREADY has a fileId
+    // with a STALE stored extracted. The chip failure must NOT abort the whole pass:
+    // ordinal 1 must still run its own getFile revision check and be marked
+    // known_stale so the endpoint clears its stale schedule (instead of letting it
+    // survive into publish).
+    const result = makeResult([
+      { label: "AGENDA LINK - RFI" }, // fileId-LESS → needs chips
+      {
+        label: "AGENDA LINK - PCF",
+        fileId: "F2",
+        extracted: highExtraction({ sourceRevision: "rev-OLD" }), // stale vs current rev-F2
+      },
+    ]);
+    const client = makeClient({
+      getAgendaChips: async () => ({ kind: "infra_error" }), // INFO-tab read fails
+      getFile: async (id) => meta(id), // F2 → headRevisionId "rev-F2" (readable, differs)
+      downloadFileBytes: async () => ({ kind: "infra_error" }), // not fresh
+    });
+    const report = await enrichAgenda(result, client, "sheet-1");
+    // The pass is NOT globally aborted (would be `[]` with the bug).
+    const v = report.perLink.find((p) => p.ordinal === 1);
+    expect(v?.verdict).toBe("known_stale");
+    // ordinal 0 stayed fileId-less (unrecovered) and produced no verdict — fine.
+    expect(report.perLink.some((p) => p.ordinal === 0)).toBe(false);
+  });
 });
 
 describe("enrichAgenda — getAgendaChips gating", () => {
