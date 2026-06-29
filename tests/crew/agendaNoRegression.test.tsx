@@ -213,22 +213,24 @@ describe("A4 — UNKNOWN-left: prior high-conf extraction renders unchanged", ()
   });
 });
 
-// ── A5: legacy extractorVersion: 1 is unaffected ──────────────────────────
-describe("A5 — legacy: extractorVersion 1 unchanged; no bump from this feature", () => {
-  // The async extraction feature deliberately keeps EXTRACTOR_VERSION at 1
-  // (plan round-49: NOT bumped). An existing show published before this feature
-  // continues to render exactly as before.
+// ── A5: render path is version-agnostic; a bump does not drop stored schedules ──
+describe("A5 — render is version-agnostic; a bump improves shows on next sync, never drops them", () => {
+  // EXTRACTOR_VERSION was bumped v1→v2 (2026-06-29) to invalidate stale v1 CACHES so the
+  // serverless pdfjs-worker fix (#184), the a.m./p.m. meridiem parse (#185), and the bare-
+  // morning AM→PM ambiguous-first relaxation (#186) re-extract on the next cron sync /
+  // admin dialog-open.
   //
-  // Failure mode: EXTRACTOR_VERSION is bumped, causing previously-extracted shows
-  // to fail the normalizeAgendaExtraction round-trip and lose their schedule blocks.
-  test("EXTRACTOR_VERSION is still 1 (feature did not bump it)", () => {
-    // This complements tests/agenda/constants.test.ts which pins the same value.
-    // The explicit reference here ensures the no-regression suite catches a bump
-    // even if the constants test is moved or renamed.
-    expect(EXTRACTOR_VERSION).toBe(1);
+  // The render path is INTENTIONALLY version-agnostic: normalizeAgendaExtraction validates
+  // `typeof extractorVersion === "number"` only (it does NOT compare to EXTRACTOR_VERSION),
+  // and buildAdminAgendaPreview never reads the version to gate a block. So an already-
+  // published show keeps rendering its STORED (older-version) extraction until re-extraction
+  // replaces it — a bump improves shows on their next sync, it never drops their schedule.
+  // The pin below tracks the current value so an UNINTENDED bump is still caught.
+  test("EXTRACTOR_VERSION pin (currently 2; complements tests/agenda/constants.test.ts)", () => {
+    expect(EXTRACTOR_VERSION).toBe(2);
   });
 
-  test("extraction with extractorVersion: 1 normalizes and renders correctly", () => {
+  test("a stored older-version (extractorVersion: 1) extraction still normalizes and renders", () => {
     // A typical extraction as stored before the feature was shipped.
     const legacyExtraction: AgendaExtraction = {
       confidence: "high",

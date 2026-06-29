@@ -17,7 +17,10 @@ import {
   type ExtractAgendaDeps,
 } from "@/app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route";
 import { createInMemorySlotStore } from "@/lib/agenda/extractAgendaLease";
-import { AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS } from "@/lib/agenda/constants";
+import {
+  AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS,
+  EXTRACTOR_VERSION,
+} from "@/lib/agenda/constants";
 import type { EnrichAgendaReport } from "@/lib/sync/enrichAgenda";
 import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
 import type { AgendaExtraction } from "@/lib/agenda/types";
@@ -39,7 +42,9 @@ const VALID_EXTRACTION: AgendaExtraction = {
     },
   ],
   sourceRevision: "rev-1",
-  extractorVersion: 1,
+  // The "stored current" payload for the cache-hit test — must match EXTRACTOR_VERSION so a
+  // version bump doesn't turn the intended cache HIT into a re-extract.
+  extractorVersion: EXTRACTOR_VERSION,
 };
 
 // A DIFFERENT valid payload to prove "persist only from the report, never from a

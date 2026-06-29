@@ -7,8 +7,17 @@ export const AGENDA_CONFIDENCE = {
 } as const;
 /** §4.3.2 end-repair plausibility cap (minutes). Longest real session ~80min. */
 export const AGENDA_MAX_SESSION_MIN = 240;
-/** Bumped on ANY extraction/inference/repair/gate logic change; part of the §4.5.2 cache key. */
-export const EXTRACTOR_VERSION = 1;
+/**
+ * Bumped on ANY extraction/inference/repair/gate logic change; part of the §4.5.2 cache key.
+ *
+ * v1 → v2 (2026-06-29): invalidate every cached v1 extraction so the serverless pdfjs-worker
+ * fix (#184), the `a.m./p.m.` meridiem parse (#185), and the bare-morning AM→PM ambiguous-first
+ * relaxation (#186) re-extract on the next cron sync / admin dialog-open. The crew/admin RENDER
+ * path is version-agnostic (`normalizeAgendaExtraction` accepts any numeric `extractorVersion`),
+ * so already-published shows keep rendering their stored extraction until re-extraction replaces
+ * it — no interim regression; a v1 show simply improves on its next sync.
+ */
+export const EXTRACTOR_VERSION = 2;
 
 export const AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024;
 export const AGENDA_MAX_PAGES = 80;
