@@ -9,11 +9,11 @@ test("agenda constants are the spec single-source values", () => {
     minRoomPct: 0.75,
   });
   expect(C.AGENDA_MAX_SESSION_MIN).toBe(240);
-  expect(C.EXTRACTOR_VERSION).toBe(1);
+  expect(C.EXTRACTOR_VERSION).toBe(2);
 });
 
 test("agenda async-decouple constants are defined with sane magnitudes", () => {
-  expect(C.EXTRACTOR_VERSION).toBe(1); // round-49: NOT bumped
+  expect(C.EXTRACTOR_VERSION).toBe(2); // v1→v2 (2026-06-29): bumped to invalidate stale caches (#184/#185/#186)
   expect(C.AGENDA_PDF_MAX_BYTES).toBe(25 * 1024 * 1024);
   expect(C.AGENDA_MAX_PAGES).toBe(80);
   expect(C.AGENDA_MAX_PDFS_PER_SHEET).toBe(6);
