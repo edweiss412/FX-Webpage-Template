@@ -512,3 +512,92 @@ describe("Step3Review — set-aside sections (ignored / deferred / skipped, out 
     expect(queryByTestId("wizard-step3-skipped")).toBeNull();
   });
 });
+
+describe("Step3SheetCard — gear review (per-room scope + event details)", () => {
+  const GEAR_PR = {
+    show: {
+      title: "RPAS Central 2026",
+      dates: {},
+      venue: {},
+      event_details: {
+        keynote_requirements: "TBD",
+        opening_reel: "YES - https://drive.google.com/file/d/abc/view",
+      },
+    },
+    crewMembers: [],
+    hotelReservations: [],
+    warnings: [],
+    rooms: [
+      {
+        kind: "gs",
+        name: "GRAND BALLROOM",
+        audio: "(1) QU32 (17) Tabletop Mics",
+        video: "(2) Barco Projectors",
+        lighting: "(2) LED Lekos",
+        scenic: "(2) Grey Spandex",
+        other: "(1) Truss Podium",
+      },
+      {
+        kind: "additional",
+        name: "EMPTY ROOM",
+        audio: null,
+        video: null,
+        lighting: null,
+        scenic: null,
+        other: null,
+      },
+    ],
+  } as unknown as ParseResult;
+  const GEAR_ROW: Step3Row = {
+    driveFileId: "drive-gear-1",
+    driveFileName: "RPAS.gsheet",
+    status: "staged",
+    stagedShowTitle: "RPAS Central 2026",
+    parseResult: GEAR_PR,
+  };
+
+  test("each room shows its non-empty A/V/L/scenic/other scope; an empty room shows none", () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-1-more"));
+    const scope = getByTestId("wizard-step3-card-drive-gear-1-room-0-scope");
+    const t = scope.textContent ?? "";
+    for (const label of ["Audio:", "Video:", "Lighting:", "Scenic:", "Other:"])
+      expect(t).toContain(label);
+    expect(t).toContain("(1) QU32 (17) Tabletop Mics"); // value rendered, not just the label
+    expect(t).toContain("(2) Barco Projectors");
+    // index-1 room has all-null scope → no scope sub-list at all
+    expect(queryByTestId("wizard-step3-card-drive-gear-1-room-1-scope")).toBeNull();
+  });
+
+  test("event-details breakdown shows keynote + URL-stripped opening reel (no Drive URL leak)", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-1-more"));
+    const ed =
+      getByTestId("wizard-step3-card-drive-gear-1-breakdown-event-details").textContent ?? "";
+    expect(ed).toContain("Keynote:");
+    expect(ed).toContain("TBD"); // shown as-parsed (review surface, not sentinel-hidden like the crew page)
+    expect(ed).toContain("Opening reel:");
+    expect(ed).toContain("YES");
+    expect(ed).not.toContain("https://"); // stripOpeningReelText removed the URL
+    expect(ed).not.toContain("drive.google.com");
+  });
+
+  test("event-details breakdown reads 'No event details parsed.' when absent", () => {
+    const noEd = {
+      ...GEAR_PR,
+      show: { ...(GEAR_PR as unknown as { show: object }).show, event_details: {} },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-gear-2", parseResult: noEd };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-2-more"));
+    expect(
+      getByTestId("wizard-step3-card-drive-gear-2-breakdown-event-details").textContent,
+    ).toContain("No event details parsed.");
+  });
+});
