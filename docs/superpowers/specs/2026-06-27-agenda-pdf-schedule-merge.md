@@ -163,12 +163,19 @@ plus an **in-memory process-wide concurrency cap** (no DB) for resource bounding
 best-effort same-instance dedupe:
 
 1. **Auth** — `requireAdminIdentity()` (`@/lib/auth/requireAdmin`); reject otherwise.
-2. **Concurrency slot (in-memory, NO DB)** — acquire a process-wide semaphore slot
-   `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (a module-level counter; bounds CPU/Drive-quota
-   per warm instance) + a per-`(wiz,dfid)` in-flight set (coalesces same-instance
-   duplicate POSTs → `202 { status: "in_progress" }`). Cross-instance simultaneous
-   duplicates are rare, ≤ a couple PDFs, and the cache (step 4/persist) makes the
-   second cheap — accepted, never a held DB connection.
+2. **Concurrency slot (in-memory, NO DB) — `try/finally` release on EVERY exit path
+   (Codex round-28 F2).** FIRST check the per-`(wiz,dfid)` in-flight set: if already
+   in-flight → return `202 { status: "in_progress" }` **without consuming a global slot**
+   (so duplicates never reduce capacity). Else add to the in-flight set and acquire a
+   process-wide semaphore slot `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (a module-level
+   counter; bounds CPU/Drive-quota per warm instance); if no slot is free → `202
+   in_progress` (client retries). The slot + in-flight entry are released in a
+   **`finally`** that runs on ALL exits — success, missing row, tx read error, extraction
+   throw, revision-mismatch/lifecycle `409`, tx#2 stale, and the duplicate-`202` path — so
+   a leaked slot can never permanently shrink instance capacity. (A leak would otherwise
+   make all agenda previews fail until the instance restarts.) Cross-instance simultaneous
+   duplicates are rare, ≤ a couple PDFs, and the cache makes the second cheap — accepted,
+   never a held DB connection.
 3. **SHORT tx #1 — read + lifecycle pre-check + capture row GENERATION** — open a tx,
    `SELECT staged_id, staged_modified_time, parse_result (+ lifecycle cols) from
    public.pending_syncs where wizard_session_id = $1 and drive_file_id = $2`, evaluate the
@@ -177,7 +184,18 @@ best-effort same-instance dedupe:
    row → `200 { items: [] }`. STALE (superseded session OR finalize-consumed/in-progress;
    **approved/applied rows are NOT stale** — round-22 F2) → `409 { status: "stale" }`
    (release slot, no Drive). NO `show:` lock here.
-4. **Extract (NO DB connection held)** — `enrichAgenda(parseResult,
+4. **Sheet-revision fence around chip recovery (Codex round-28 F1)** — when any link
+   lacks a `fileId` (smart-chips), the `fileId` is recovered from the LIVE sheet via
+   `getAgendaChips(spreadsheetId)`; the ordinal+label correlation is only valid for the
+   sheet revision the staged parse was derived from. So BEFORE and AFTER `getAgendaChips`,
+   fetch the spreadsheet's current revision token (`getSpreadsheetRevisionId` /
+   `getFile(spreadsheetId).modifiedTime`) and require it to equal the staged row's
+   `staged_modified_time` (captured in tx#1). If it differs at either check — Doug edited
+   the sheet after scan but before extraction — the chip ordinals may map to a DIFFERENT
+   PDF, so **abort with `409 stale`** (no recovery, no extraction, no persist); the
+   operator re-scans to restage current data. (Mirrors the sync pipeline's
+   modifiedTime/headRevisionId TOCTOU fence.)
+5. **Extract (NO DB connection held)** — `enrichAgenda(parseResult,
    defaultAgendaDriveClient(), driveFileId)` (production `downloadFileBytes` +
    `getAgendaChips`, `runScheduledCronSync.ts:1665-1666`; §5.5 caps bound a pathological
    show). `enrichAgenda`'s built-in per-link cache (`getFile` metadata → skip download
@@ -188,7 +206,7 @@ best-effort same-instance dedupe:
    `parseAgendaLinks` stores filename/url text, no `fileId`; recovered by `getAgendaChips`)
    ALWAYS forces extraction (round-22 F1: a "fileId-bearing-only" gate is vacuously true
    for a zero-fileId staged parse). **No DB connection is open during any of this.**
-5. **POSITIVE per-link freshness (Codex round-24 F1)** — do NOT trust `enrichAgenda`
+6. **POSITIVE per-link freshness (Codex round-24 F1)** — do NOT trust `enrichAgenda`
    side-effects as freshness proof: on a `downloadFileBytes` `infra_error` (or its
    catch-all), `enrichAgenda` PRESERVES the prior `link.extracted`, so a stale v1 /
    old-revision high-confidence extraction would otherwise be rendered + persisted as a
@@ -200,7 +218,7 @@ best-effort same-instance dedupe:
    that failed to refresh → **note-only** (`block: null`) and its stale `extracted` is
    NOT written back as if fresh. (Plan: extend `enrichAgenda`/the wrapper to return
    per-link confirmed-fresh + revision, rather than relying on mutation side-effects.)
-6. **SHORT tx #2 — brief `show:` lock + REREAD-MERGE-conditional persist (Codex round-25
+7. **SHORT tx #2 — brief `show:` lock + REREAD-MERGE-conditional persist (Codex round-25
    F1)** — open a new tx, acquire the canonical `show:` lock
    (`pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`, blocking, held only for
    this quick write — finalize waits at most ms, never the extraction window). Do NOT
@@ -332,7 +350,7 @@ Rules (all server-side, derived from earlier review rounds):
   **defaults to empty** → no blocks. So freshness is never inferred from `link.extracted`
   side-effects: `fetchStep3Data` passes NO `freshByLinkKey` (→ baseline, all note-only),
   and the endpoint passes the set of links it POSITIVELY confirmed fresh THIS call (per
-  §5.2 step 5: `extractorVersion === EXTRACTOR_VERSION` AND `sourceRevision === the
+  §5.2 step 6: `extractorVersion === EXTRACTOR_VERSION` AND `sourceRevision === the
   `headRevisionId` `getFile` returned this call`). A stored v1 / old-revision / refresh-
   failed link is NOT in the set → note-only, always. (This replaces the earlier
   `baseline` flag — the empty default IS the baseline behavior.)
@@ -474,8 +492,15 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    during extraction a rescan DELETES + RECREATES the `(drive_file_id, wizard_session_id)`
    row with a NEW `staged_id` → tx#2 `WHERE … AND staged_id = $4 AND staged_modified_time
    = $5` affects **0 rows** → `409 stale`, the NEW scan's `parse_result` is NOT mutated by
-   the old extraction; (f) missing row → `200 { items: [] }`; (g) infra fault on read →
-   typed error from the `tx` path.
+   the old extraction; (m) **sheet-revision fence** (round-28 F1): the spreadsheet's
+   current revision differs from the staged `staged_modified_time` (Doug edited the sheet
+   after scan) at the before- or after-`getAgendaChips` check → `409 stale`, **no
+   recovery/extraction/persist** (assert `parse_result` unchanged); (n) **slot release on
+   EVERY exit path** (round-28 F2): assert the in-memory concurrency slot + in-flight entry
+   are released after success, missing-row, tx read error, extraction throw, revision/
+   lifecycle `409`, tx#2 stale, AND the duplicate-`202` path (which must NOT consume a
+   slot) — drive each exit and assert the slot count returns to baseline; (f) missing row
+   → `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
@@ -582,6 +607,13 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 - Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
   links (no `fileId`) get none from the pure baseline (the endpoint result carries
   recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
+- Chip-recovery revision fence: smart-chip `fileId` recovery is bound to the staged sheet
+  revision (current spreadsheet revision must equal `staged_modified_time` before+after
+  `getAgendaChips`) — a post-scan sheet edit → `409 stale`, never attaching a different
+  PDF to the old parse (round-28 F1).
+- Concurrency-slot lifecycle: in-memory slot + in-flight set released in a `try/finally`
+  on EVERY exit path; duplicates `202` without consuming a slot (no leak/starve — round-28
+  F2).
 - Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
   finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
   review rows until finalize consumes them, and persistence carries the agenda to
