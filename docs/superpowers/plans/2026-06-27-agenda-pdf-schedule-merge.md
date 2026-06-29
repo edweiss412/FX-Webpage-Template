@@ -240,17 +240,20 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 **Files:**
 - Modify: `lib/drive/agendaDrive.ts` (`downloadFileBytes` ~53–117, `getAgendaChips` ~76)
-- Test: `tests/drive/agendaDrive.test.ts`
+- Modify: `lib/sync/enrichWithDrivePins.ts` (the shared `DriveClient` interface, `downloadFileBytes?` ~:102, `getAgendaChips?` ~:115) — add the optional `{ signal?, deadlineMs? }` arg so callers thread cancellation through the SHARED boundary (round-7 plan finding)
+- Modify: `lib/sync/mocks/mockDriveClient.ts` (match the new signature)
+- Test: `tests/drive/agendaDrive.test.ts`; `tests/sync/driveClientImplCompleteness.test.ts` (the existing completeness meta-test must still pass — it pins every concrete client implements the interface)
 
 **Interfaces:**
 - Consumes: `AGENDA_PDF_MAX_BYTES`, `AGENDA_PDF_DEADLINE_MS`, `DRIVE_ASSET_STALL_TIMEOUT_MS` (existing), `createStallGuard` (`lib/drive/stallGuard.ts`).
-- Produces: `downloadFileBytes(fileId, opts?: { signal?: AbortSignal; deadlineMs?: number })` returning `{ kind: "bytes", bytes } | { kind: "unavailable" } | { kind: "infra_error" }`.
+- Produces: `downloadFileBytes(fileId, opts?: { signal?: AbortSignal; deadlineMs?: number })` returning `{ kind: "bytes", bytes } | { kind: "unavailable" } | { kind: "infra_error" }`; the `DriveClient` interface `downloadFileBytes?`/`getAgendaChips?` signatures gain the optional `opts` arg (backward-compatible — existing callers omit it).
 
 - [ ] **Step 1: Write failing tests** (spec §8 test 3) — byte cap (`cap+1` stream → `unavailable`), stall guard (idle abort; slow-but-progressing → no false abort), and **slow-drip total deadline** (chunk just before each idle timeout, under the byte cap, exceeds `deadlineMs` → aborted → `infra_error`; assert resources released). Use Vitest fake timers + a mock Node stream emitting controlled chunks. (Reuse the existing stall-guard test fixtures.)
 
 - [ ] **Step 2: Run** → FAIL.
 
-- [ ] **Step 3: Implement** — wire `readBoundedNodeStream(stream, AGENDA_PDF_MAX_BYTES, { onChunk })` for the byte cap; `createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)` for idle (full wiring per spec §5.5: `signal`→`files.get({responseType:'stream',signal,retry:false})`, abort→`stream.destroy`, `reset` on `onChunk`, `clear` in `finally`, `timedOut()`→`infra_error`); AND a SEPARATE total-time `AbortController` armed with `deadlineMs ?? AGENDA_PDF_DEADLINE_MS` that is NOT reset on chunk, composed into the same `signal` (use `AbortSignal.any([stallGuard.signal, deadline.signal, opts.signal].filter(Boolean))`). On the deadline firing → `{ kind: "infra_error" }`. For `getAgendaChips`: keep the existing `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry.
+- [ ] **Step 3: Implement** — wire `readBoundedNodeStream(stream, AGENDA_PDF_MAX_BYTES, { onChunk })` for the byte cap; `createStallGuard(DRIVE_ASSET_STALL_TIMEOUT_MS)` for idle (full wiring per spec §5.5: `signal`→`files.get({responseType:'stream',signal,retry:false})`, abort→`stream.destroy`, `reset` on `onChunk`, `clear` in `finally`, `timedOut()`→`infra_error`); AND a SEPARATE total-time `AbortController` armed with `deadlineMs ?? AGENDA_PDF_DEADLINE_MS` that is NOT reset on chunk, composed into the same `signal` (use `AbortSignal.any([stallGuard.signal, deadline.signal, opts?.signal].filter(Boolean))`). On the deadline firing → `{ kind: "infra_error" }`. For `getAgendaChips`: keep the existing `DRIVE_FILES_GET_TIMEOUT_MS` + transient retry, accept-but-may-ignore the optional `opts`.
+  - **Update the shared `DriveClient` interface** (`enrichWithDrivePins.ts:102/115`): `downloadFileBytes?: (fileId: string, opts?: { signal?: AbortSignal; deadlineMs?: number }) => Promise<…>` (and `getAgendaChips?` likewise) — keep the arg OPTIONAL so existing callers (scan/cron) compile unchanged. Update `lib/sync/mocks/mockDriveClient.ts` to the new signature. Run `pnpm vitest run tests/sync/driveClientImplCompleteness.test.ts` → still PASS (every concrete client conforms). Run `pnpm tsc --noEmit` → clean.
 
 - [ ] **Step 4: Run** → PASS.
 
@@ -354,9 +357,9 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 - Modify: `tests/auth/advisoryLockRpcDeadlock.test.ts`
 
 **Interfaces:**
-- Consumes: the endpoint (Task 9) + finalize (Task 12).
+- Consumes: the endpoint (Task 9). **(Round-7 plan finding: this task pins the ENDPOINT topology only — the finalize topology pin lives in Task 12, AFTER the finalize change exists, so the guard is never run against unchanged finalize code.)**
 
-- [ ] **Step 1: Extend the meta-test** to PIN: the endpoint holds `agenda-extract-admit` ONLY in tx#1 and `show:`||dfid ONLY in tx#2 (separate txns; single-holder each; no nesting; no advisory lock during the Drive window); finalize's §5.6 re-select adds NO new `show:` acquisition (reuses `defaultWithRowTx`). Follow the file's existing pin pattern (regex over the route source for `pg_(try_)?advisory_xact_lock` + lock-order assertions).
+- [ ] **Step 1: Extend the meta-test** to PIN the ENDPOINT topology: it holds `agenda-extract-admit` ONLY in tx#1 and `show:`||dfid ONLY in tx#2 (separate txns; single-holder each; no nesting; NO advisory lock during the Drive window). Follow the file's existing pin pattern (regex over the route source for `pg_(try_)?advisory_xact_lock` + lock-order assertions). Do NOT assert anything about finalize here.
 
 - [ ] **Step 2: Run** — `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts` → PASS.
 
@@ -393,6 +396,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 **Files:**
 - Modify: `app/api/admin/onboarding/finalize/route.ts` (first-seen ~823–828; existing-show shadow ~771 / `stageExistingShowShadow` ~525–568)
+- Modify: `tests/auth/advisoryLockRpcDeadlock.test.ts` (finalize no-new-holder pin — step 5)
 - Test: `tests/app/admin/finalizeAgendaRace.test.ts`
 
 **Interfaces:**
@@ -406,7 +410,11 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 
 - [ ] **Step 4: Run** → PASS.
 
-- [ ] **Step 5: Commit** — `git commit -am "fix(admin): finalize re-reads parse_result generation-scoped under the per-row show lock (publish-safety)"`
+- [ ] **Step 5: Pin the finalize advisory-lock topology** (round-7 plan finding — invariant 2, AFTER the change exists) — extend `tests/auth/advisoryLockRpcDeadlock.test.ts` to assert the §5.6 re-select adds NO new `show:` acquisition (finalize reuses the existing `defaultWithRowTx` `pg_advisory_xact_lock('show:'||$1)` at `:164`; the re-`SELECT` runs inside that SAME locked tx; `adoptShowLockHeld` only asserts). Run → PASS. **Negative-regression:** temporarily add a second `pg_advisory_xact_lock('show:'...)` around the re-select → the meta-test must FAIL (catches a duplicate/nested holder P0); revert.
+
+- [ ] **Step 6: Run the full advisory-lock + finalize suites** — `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts tests/app/admin/finalizeAgendaRace.test.ts` → PASS.
+
+- [ ] **Step 7: Commit** — `git commit -am "fix(admin): finalize re-reads parse_result generation-scoped under the per-row show lock (publish-safety) + advisory-lock pin"`
 
 ---
 
