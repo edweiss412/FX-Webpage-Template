@@ -168,21 +168,27 @@ as **raw SQL through that same `tx`/`SyncPipelineTx`** — no Supabase/PostgREST
 3. **SELECT** `parse_result` (+ lifecycle columns) `from public.pending_syncs where
    wizard_session_id = $1 and drive_file_id = $2` via `tx` (raw postgres.js). Missing
    row → `200 { items: [] }` (client keeps baseline).
-4. **Lifecycle guard (Codex round-19 F2)** — BEFORE any Drive work, verify the row is
-   still extractable: `wizard_session_id` is the **currently-active** pending wizard
-   session AND the row is NOT already approved / finalizing / consumed (the same
-   active-session + approval-state predicate the wizard/finalize flow uses — exact
-   columns pinned in the plan: e.g. `approval_payload IS NULL`, no finalize-in-progress
-   marker, session-supersession check). If STALE → release immediately (no Drive work,
-   no write) and return a **terminal** `409 { status: "stale" }`; the client stops
-   retrying and shows the baseline note (§5.3). This prevents an old Step-3 tab from
-   holding the `show:` lock for up to 300 s, doing Drive work, and persisting agenda to
-   a row a superseding session / finalize no longer owns.
-5. **Cache short-circuit** — if every fileId-bearing `agenda_link` already has
-   `extracted` with a matching `headRevisionId` + current `EXTRACTOR_VERSION`
-   (`enrichAgenda.ts:115-121`) → skip all Drive work, build preview from stored
-   `extracted`, return `200 { items }`. Dominant repeat path (re-view, refresh,
-   multi-tab after the first run).
+4. **Lifecycle guard (Codex round-19 F2 + round-22 F2)** — BEFORE any Drive work, verify
+   the row is still extractable. **Extractable = `wizard_session_id` is the currently-
+   active pending wizard session AND the row is NOT finalize-consumed / finalize-in-
+   progress / superseded.** An **approved/applied** row (`approval_payload IS NOT NULL`)
+   is **still extractable** (round-22 F2): Step-3 rows stay visible review rows until
+   finalize consumes them, and persistence must carry the agenda to publish — so
+   approving (incl. "Select all") before extraction finishes must NOT block it. Only a
+   superseded session or a finalize-consumed/in-progress row is stale (exact columns
+   pinned in the plan: session-supersession check + finalize markers; NOT
+   `approval_payload`). If STALE → release immediately (no Drive work, no write) →
+   terminal `409 { status: "stale" }`; client stops retrying, shows the baseline note.
+5. **Cache short-circuit (Codex round-22 F1)** — `cacheHit = links.length > 0 &&
+   links.every(l => l.fileId && l.extracted?.sourceRevision === <fresh headRevisionId>
+   && l.extracted?.extractorVersion === EXTRACTOR_VERSION)` — i.e. EVERY agenda link
+   must have BOTH a `fileId` AND a fresh `extracted`. **Any link lacking a `fileId`
+   forces extraction** — critical for this feature's target shows, whose links are
+   **smart-chips** that `parseAgendaLinks` stored with only filename/url text and NO
+   `fileId` (the `fileId` is recovered by `getAgendaChips`). A "fileId-bearing-only"
+   gate would be vacuously true for a zero-fileId staged parse and skip extraction
+   forever. On `cacheHit` → build preview from stored `extracted`, zero Drive calls
+   (dominant repeat path). Else → step 6.
 6. **Extract** — else `enrichAgenda(parseResult, defaultAgendaDriveClient(),
    driveFileId)` (production `downloadFileBytes` + `getAgendaChips`,
    `runScheduledCronSync.ts:1665-1666`; ≤ a couple PDFs ⇒ well within 300 s; §5.5 caps
@@ -195,16 +201,17 @@ as **raw SQL through that same `tx`/`SyncPipelineTx`** — no Supabase/PostgREST
    transition is proven to hold this same `show:` lock for the whole window (the spec
    does not assume that). So the lifecycle predicate is re-checked ATOMICALLY in the
    write itself: `update public.pending_syncs set parse_result = $1::jsonb where
-   wizard_session_id = $2 and drive_file_id = $3 AND <active-session predicate> AND
-   <not approved/finalizing predicate> returning staged_id` via `tx`, passing the
+   wizard_session_id = $2 and drive_file_id = $3 AND <active-session, not-superseded>
+   AND <not finalize-consumed/in-progress> returning staged_id` via `tx`, passing the
    updated object (NOT `JSON.stringify` — postgres.js serializes the `$1::jsonb` param
-   itself; double-encoding is a known footgun). **If 0 rows updated** (the row was
-   superseded/finalized/deleted mid-extraction) → the extraction is discarded (harmless,
-   not persisted) and the endpoint returns terminal `409 { status: "stale" }`. **If 1
-   row** → build + return `200 { items }`. The write is privileged postgres.js (the
-   sync-pipeline connection), so the PostgREST `pending_syncs` DML REVOKE
-   (`20260601000000_b2_show_lifecycle.sql`) is satisfied (no PostgREST write). Commit
-   releases the advisory lock. (The same predicate columns back the step-4 fast-exit.)
+   itself; double-encoding is a known footgun). The predicate matches step 4 — it does
+   NOT exclude `approval_payload IS NOT NULL` (approved/applied rows still extract,
+   round-22 F2). **If 0 rows updated** (the row was superseded / finalize-consumed mid-
+   extraction) → extraction discarded (harmless, not persisted) → terminal `409
+   { status: "stale" }`. **If 1 row** → build + return `200 { items }`. The write is
+   privileged postgres.js (the sync-pipeline connection), so the PostgREST
+   `pending_syncs` DML REVOKE (`20260601000000_b2_show_lifecycle.sql`) is satisfied.
+   Commit releases the advisory lock.
 
 **Dedupe + cache:** concurrent same-show POSTs → first holds the lock + extracts +
 persists; others get `202 in_progress` and on retry cache-hit (step 5). Different shows
@@ -396,12 +403,17 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    `downloadFileBytes`/`getAgendaChips` = 0); (d) **dedupe**: bypass the client throttle —
    two concurrent POSTs for the same show → the second's `try_lock` fails → `202
    in_progress`, **no** duplicate extraction (Drive calls happen once); (e) **stale
-   guard — pre-work** (round-19 F2): row already superseded/approved/finalizing at step
-   4 → `409 stale`, **zero Drive calls, no write**; (e2) **stale — atomic persist-time
+   guard — pre-work** (round-19 F2): a **superseded-session OR finalize-consumed** row
+   at step 4 → `409 stale`, **zero Drive calls, no write**; (e2) **atomic persist-time
    race** (round-20 F2): row passes step-4, extraction runs, session superseded BEFORE
-   the write → the conditional `UPDATE … WHERE … AND <active> RETURNING` affects **0
-   rows** → `409 stale`, `parse_result` **unchanged** (assert); (f) missing staged row
-   → `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
+   the write → conditional `UPDATE … WHERE … AND <active> RETURNING` affects **0 rows**
+   → `409 stale`, `parse_result` **unchanged**; (e3) **approved row STILL extracts**
+   (round-22 F2): `approval_payload IS NOT NULL` + active + not finalized → extracts +
+   persists + `200 { items }` (NOT 409); (h) **target smart-chip shape** (round-22 F1):
+   staged links with **zero `fileId`s** + **no `extracted`** (filename/url text only, as
+   `parseAgendaLinks` yields for smart-chips) → the endpoint **calls `getAgendaChips` +
+   `downloadFileBytes`** (cache NOT vacuously hit) and returns blocks; (f) missing staged
+   row → `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
@@ -490,10 +502,16 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   on `show:`||dfid) — raw `tx` SELECT + UPDATE of `pending_syncs`, NO Supabase for it**
   (Codex round-19 F1); cache-on-revision + persist; concurrent same-show → `202
   in_progress`; re-view cache-hit; publish carries the agenda forward.
-- Lifecycle guard (Codex round-19 F2 + round-20 F2): a pre-work check fast-exits stale
-  rows, AND the lifecycle predicate is re-checked ATOMICALLY in the persist
-  `UPDATE … WHERE … AND <active> RETURNING` (0 rows → `409 stale`, nothing persisted) —
-  so a supersession/finalize racing the ≤300 s extraction can't write to a consumed row.
+- Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
+  finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
+  review rows until finalize consumes them, and persistence carries the agenda to
+  publish). A pre-work check fast-exits stale rows; the predicate is re-checked
+  ATOMICALLY in the persist `UPDATE … WHERE … AND <active> RETURNING` (0 rows → `409
+  stale`, nothing persisted) — racing supersession/finalize can't write a consumed row.
+- Cache predicate (Codex round-22 F1): cache-hit requires EVERY agenda link to have BOTH
+  a `fileId` AND a fresh `extracted` — any link missing a `fileId` (the target
+  smart-chip shape, recovered only by `getAgendaChips`) FORCES extraction, so a
+  zero-fileId staged parse can never vacuously skip and stay note-only.
 - Baseline freshness (Codex round-20 F1): `fetchStep3Data`'s baseline is ALWAYS
   note-only (`{ baseline: true }`); blocks come ONLY from the endpoint, which
   freshness-gates on `EXTRACTOR_VERSION` (bumped to 2) + `headRevisionId` via
