@@ -609,7 +609,7 @@ the real corpus (rfi 538 KB/10 pp, pcf 495 KB/7 pp, ≤2 PDFs/show):
 | Per-PDF download size | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` streamed via `readBoundedNodeStream(stream, cap, { onChunk })` | `ByteLimitExceededError` → `{ kind: "unavailable" }` → `AGENDA_PDF_UNREADABLE` |
 | Per-PDF download stall (IDLE) | `DRIVE_ASSET_STALL_TIMEOUT_MS` (existing) | `createStallGuard` on the stream (`stallGuard.ts:13-22` FULL wiring: `signal`→`files.get(params,{responseType:'stream',signal,retry:false})`, abort→`stream.destroy`, `reset` on `onChunk`, `clear` in `finally`, `timedOut()`→`infra_error`) | idle stall → `infra_error` |
 | Per-PDF TOTAL wall-clock (slow-drip) | `AGENDA_PDF_DEADLINE_MS` (new — Codex round-48 F1) | a per-PDF `AbortController` armed with a TOTAL-time deadline (NOT reset on chunk) wired into the SAME `signal` as the stall guard | total-time exceeded → abort the download/extract → `infra_error` (note-only) — bounds a slow-drip that emits a tiny chunk before each idle timeout to evade the stall guard |
-| Endpoint TOTAL wall-clock | `AGENDA_EXTRACT_DEADLINE_MS` (new — Codex round-48 F1; `< maxDuration = 300 s`, e.g. ~250 s) | the route races the whole extract against this deadline via an `AbortSignal`; on fire it ACTIVELY aborts in-flight Drive/PDF work and unwinds through the `finally` | returns a typed note-only/`infra` result + **releases the lease + in-memory slot + in-flight in-process** BEFORE the platform's 300 s hard-kill (which would skip the `finally` → leak the warm-instance in-memory slot, no TTL) |
+| Endpoint TOTAL wall-clock | `AGENDA_EXTRACT_DEADLINE_MS` (new — Codex round-48 F1; `< maxDuration = 300 s`, e.g. ~250 s) | the route races the whole extract against this deadline (`Promise.race`); on fire it ABORTS the controller, **then AWAITS the extraction promise's settlement BEFORE releasing capacity** (round-18 — a losing `Promise.race` branch is NOT killed; releasing the lease/slot while the work still runs would let a retry double-admit and breach the cap), returns **`504 { status: "timeout" }`**, and unwinds through the `finally` | **Cooperative case** (production Drive deps reject on abort → settle promptly): `504` returned, THEN the `finally` releases the lease + in-memory slot/in-flight. **Non-cooperative case** (a dep that never settles): the lease/slot stay HELD until the platform's 300 s hard-kill (no premature release → no double-admission), recovered by lease TTL-GC. (Matches §5.2 / the plan's `q-stuck` test — NOT an immediate release on timer fire.) |
 | `getAgendaChips` call timeout | `DRIVE_FILES_GET_TIMEOUT_MS` (existing) + transient retry (per `sheetGids.ts`) | `getAgendaChips` | timeout → `infra_error` |
 | Per-PDF page count | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` early `LOW()` when `doc.numPages > cap` (before the page loop) | low-confidence → note |
 | PDFs extracted per show | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap skip; surfaced via the card note (no warning) |
@@ -1108,12 +1108,14 @@ there.)
   stale-by-version and (since crew renders `extracted` directly and "crew unchanged" forbids
   a crew gate) blank legacy crew agenda or force a migration. Endpoint writes only staged
   rows (no prior extraction); published freshness stays cron's job → legacy data untouched.
-- Total-time deadline + active cancellation (round-48 F1): per-PDF (`AGENDA_PDF_DEADLINE_MS`)
-  and endpoint (`AGENDA_EXTRACT_DEADLINE_MS`, `< maxDuration`) TOTAL-time deadlines via an
-  `AbortSignal` bound a slow-drip download that evades the idle stall guard; on fire they
-  abort in-flight Drive/PDF work and unwind through the `finally` (releasing lease + in-memory
-  slot in-process) BEFORE the 300 s platform hard-kill — which would skip cleanup and leak
-  the warm-instance in-memory slot.
+- Total-time deadline + active cancellation (round-48 F1 + round-18): per-PDF
+  (`AGENDA_PDF_DEADLINE_MS`) and endpoint (`AGENDA_EXTRACT_DEADLINE_MS`, `< maxDuration`)
+  TOTAL-time deadlines via an `AbortSignal` bound a slow-drip download that evades the idle
+  stall guard. On the endpoint deadline: abort, then **AWAIT extraction settlement BEFORE
+  releasing capacity** (round-18 — never release the lease/slot while the work may still run,
+  or a retry double-admits), return `504`. Cooperative deps settle promptly (then `finally`
+  releases); a non-cooperative dep holds the lease until the 300 s hard-kill, recovered by
+  lease TTL-GC (the documented residual).
 - Persist integrity: tx#2 **rereads + merges only confirmed-fresh results** into the
   current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches
   **ordinal-first** (`i ↔ i` — the in-memory and reread links are the same generation's
