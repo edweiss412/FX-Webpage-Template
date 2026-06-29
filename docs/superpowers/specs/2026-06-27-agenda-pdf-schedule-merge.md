@@ -233,23 +233,30 @@ best-effort same-instance dedupe:
    overwrite the whole `parse_result` with the tx#1 snapshot — that would lose any change
    (another extractor's success, or other staged edits) made during the no-DB extraction
    window, and a LATER stale extraction could erase a newer one. Instead: **REREAD** the
-   CURRENT `parse_result`, and **MERGE ONLY the positively-confirmed-fresh results** into
-   it — touching nothing else.
+   CURRENT `parse_result` and **MERGE two SEPARATE, fence-validated inputs (Codex round-30):**
+   - **`recoveredFileIds`** — the `fileId`s recovered from the SINGLE FENCED chip read
+     (§5.2 step 4), for EVERY ordinal+label match, **regardless of whether the PDF
+     download/extraction succeeded**. These are bound to the staged sheet revision, so
+     persisting them is safe.
+   - **`confirmedFreshExtractions`** — the `extracted` payloads ONLY for links positively
+     confirmed fresh (§5.2 step 6).
    - **Merge KEY handles the target smart-chip shape (Codex round-26):** the current row's
-     links may have NO `fileId` (smart-chips — the `fileId` is RECOVERED by `getAgendaChips`
-     into the in-memory link DURING extraction). Matching by `fileId` alone would find no
-     key on the current (fileId-less) row → the recovered extraction could never persist
-     (RFI/PCF would stay note-only forever, cache never warms, publish carries nothing).
-     So the merge matches each in-memory link to a current link by the SAME contract
-     `enrichAgenda` recovery uses: by `fileId` when the current link has one, else by the
-     **ordinal + label chip-correlation** (document-order 1:1, label-aligned — the
-     `getAgendaChips` ordinal contract). For each confirmed-fresh match, set BOTH the
-     **recovered `fileId` AND the fresh `extracted`** on the current link (additive — for
-     a fileId-less link this fills in the `fileId`; never clobbers other fields). This
-     warms the cache (the persisted row now has `fileId` + fresh `extracted` → the next
-     request cache-hits) and carries the agenda to publish.
-   - A request with NO confirmed-fresh links merges nothing (a failed/stale refresh NEVER
-     erases an earlier success). The write ATOMICALLY re-checks lifecycle **AND the row
+     links may have NO `fileId` (smart-chips — recovered during extraction). Match each
+     in-memory link to a current link by `fileId` when present, else by the **ordinal +
+     label chip-correlation** (the `getAgendaChips` ordinal contract). For each match,
+     set the **recovered `fileId`** (additive — fills in a fileId-less link), AND set
+     `extracted` **only if** the link is in `confirmedFreshExtractions`. So a link whose
+     chip recovery succeeded but whose **download FAILED** (round-30) still **persists +
+     returns its recovered `fileId`** (→ a valid Open-PDF href on the note item; AND the
+     next retry skips `getAgendaChips` — cache-checks via `getFile` on the now-present
+     fileId, only re-downloading), while remaining **note-only** (no fresh `extracted`).
+     A confirmed-fresh link gets both fileId + `extracted` (block) → warms the cache and
+     carries the agenda to publish. Never clobbers other fields.
+   - A request with NO confirmed-fresh extractions never writes a stale `extracted` (a
+     failed/stale refresh NEVER erases an earlier success), but it MAY still persist newly
+     `recoveredFileIds` (additive, fence-validated — warms the row for retries). If nothing
+     changed at all (no recovered fileIds, no fresh extractions) the write is a no-op /
+     skipped. The write ATOMICALLY re-checks lifecycle **AND the row
      generation captured in tx#1 (Codex round-27)** — so a same-session RESCAN that
      deleted+recreated the `(drive_file_id, wizard_session_id)` row with a new `staged_id`
      during the extraction window does NOT receive our stale extraction: `update
@@ -511,8 +518,15 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    does NOT delete the OWNER's in-flight key** (assert the owner's key is still present
    after the duplicate returns, and a THIRD concurrent request still gets `202` with NO
    extraction while the owner runs) — proving `ownsInFlight`/`acquiredSlot` release only
-   owned resources; (f) missing row
-   → `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
+   owned resources; (o) **fileId recovery persists even when download FAILS** (round-30):
+   a smart-chip link whose fenced `getAgendaChips` recovers a `fileId` but whose
+   `downloadFileBytes` returns `infra_error`/`unavailable` → the returned item is
+   **note-only WITH a valid Open-PDF href** (from the recovered fileId), the staged row
+   **persists the recovered `fileId`** (NOT a fresh `extracted`/block), and a SECOND call
+   then skips `getAgendaChips` (cache-checks via `getFile` on the now-present fileId) —
+   asserting `recoveredFileIds` persist independently of `confirmedFreshExtractions`;
+   (f) missing row → `200 { items: [] }`; (g) infra fault on read → typed error from the
+   `tx` path.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
@@ -626,6 +640,10 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 - Concurrency-slot lifecycle: ownership-scoped (`ownsInFlight`/`acquiredSlot`) `try/finally`
   release on EVERY exit; a duplicate `202` consumes no slot AND never deletes the owner's
   in-flight marker (no leak, no dedupe defeat — round-28 F2 + round-29 F2).
+- fileId vs extraction persistence split: tx#2 merges `recoveredFileIds` (every fenced
+  ordinal+label match — persisted even when the PDF download FAILS, giving the note a
+  valid Open-PDF href + warming the row so retries skip `getAgendaChips`) SEPARATELY from
+  `confirmedFreshExtractions` (blocks only for fresh links) — round-30.
 - Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
   finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
   review rows until finalize consumes them, and persistence carries the agenda to
