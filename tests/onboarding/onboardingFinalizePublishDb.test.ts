@@ -34,6 +34,13 @@ const DERIVED_BASE_SLUG = "2026-05-finalize-publish-db-fixture";
 const STAGED_INSTANT = "2026-05-09T03:44:06.040Z";
 const TITLE = "Finalize Publish DB Fixture";
 
+// Deterministic deep-link anchors injected via the fetchOnboardingSourceAnchors dep (no Drive I/O
+// in tests). gid 0 (venue/INFO) is deliberately included to pin that 0 round-trips through jsonb.
+const KNOWN_ANCHORS = {
+  schedule: { title: "AGENDA", gid: 1490737099, a1: "A1:X999" },
+  venue: { title: "INFO", gid: 0, a1: "A1:E10" },
+};
+
 // A realistic ParseResult — client_contact is a NON-NULL OBJECT specifically so
 // the publish-path WRITE (shows.client_contact = $::jsonb) is exercised: before
 // the fix that column too was double-encoded into a string scalar.
@@ -284,6 +291,62 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
         [DRIVE_FILE_ID],
       );
       expect(first<{ n: number }>(auditRows).n).toBe(1);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "first-seen finalize persists the computed source_anchors on the created show (deep-link fix)",
+    async () => {
+      await writeViaRealWriter(PARSE_RESULT);
+      await approveStagedRow();
+
+      const response = await handleOnboardingFinalize(
+        new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
+        { ...finalizeDeps(), fetchOnboardingSourceAnchors: async () => KNOWN_ANCHORS },
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { per_row: Array<{ code: string }> };
+      expect(body.per_row[0]?.code).toBe("OK");
+
+      // The created show carries the anchors the dep computed — NOT the {} default that makes
+      // "In sheet" deep links open the wrong tab. Asserted against the DATA SOURCE (the dep's
+      // return), not derived from the route, so a no-op implementation cannot pass by accident.
+      const rows = await sql!.unsafe(
+        `select source_anchors from public.shows where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      expect(rows.length).toBe(1);
+      expect(first<{ source_anchors: unknown }>(rows).source_anchors).toEqual(KNOWN_ANCHORS);
+    },
+  );
+
+  test.skipIf(!dbUp)(
+    "best-effort: a source-anchor computation failure does NOT block materialization (show created, anchors {})",
+    async () => {
+      await writeViaRealWriter(PARSE_RESULT);
+      await approveStagedRow();
+
+      const response = await handleOnboardingFinalize(
+        new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
+        {
+          ...finalizeDeps(),
+          fetchOnboardingSourceAnchors: async () => {
+            throw new Error("drive boom");
+          },
+        },
+      );
+      // The Drive failure is swallowed (best-effort) — the show still materializes; anchors stay {}
+      // and the #gid=0 fallback keeps the link safe until the next full sync / backfill.
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { per_row: Array<{ code: string }> };
+      expect(body.per_row[0]?.code).toBe("OK");
+
+      const rows = await sql!.unsafe(
+        `select source_anchors from public.shows where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      expect(rows.length).toBe(1);
+      expect(first<{ source_anchors: unknown }>(rows).source_anchors).toEqual({});
     },
   );
 

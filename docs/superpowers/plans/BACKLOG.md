@@ -25,6 +25,12 @@ Promotion is a real decision — same gate as any other milestone (brainstorming
 
 ## Open backlog (not yet promoted)
 
+### BL-ONBOARDING-CAS-SOURCE-ANCHORS — Compute source_anchors on the existing-show finalize-cas apply
+
+**Origin:** PR #179 (2026-06-28) wired `source_anchors` computation into the FIRST-SEEN onboarding materialization (`handleOnboardingFinalize` → `processApprovedRow` → `applyStagedCore`) so freshly-onboarded shows get correct "In sheet" deep-link anchors immediately, matching the cron path. The EXISTING-SHOW re-onboard path (`finalize-cas` shadow apply → `applyShadow` → `applyStagedCore`) has the same gap: it never computes/threads `source_anchors`, so a re-onboarded existing show is not refreshed at apply time.
+
+**Why backlog (not deferred):** lower-impact — existing shows already carry anchors from prior cron syncs, and the cron re-populates on the next sheet edit; the `#gid=0` fallback (PR #178) keeps any missing-anchor "In sheet" link safe in the meantime. The fix is symmetric to PR #179: compute anchors **pre-lock** in `finalize-cas`'s apply path and thread the `sourceAnchors` arg into its `applyStagedCore` call (the `ApplyStagedCoreArgs.sourceAnchors` field + the `runPhase2` → `applyShowSnapshot` plumbing already exist; only the compute + the call-site spread are missing). No migration. Pick up if existing-show re-onboard deep-link fidelity becomes a real need. Flagged by the cross-model (Codex) review of PR #179.
+
 ### BL-OPS-LOG — Structured operator-log sink + producer wiring
 
 **Origin:** Consolidates four DEFERRED entries from the FXAV crew-pages plan that all blocked on the same nonexistent infrastructure: M5-D9 (OAuth callback structured operator-log), M5-D10 (Redeem-link structured operator-log), M5-D11 (Sign-out teardown structured operator-log), M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR durable notification via Sentry + admin-visible banner).
