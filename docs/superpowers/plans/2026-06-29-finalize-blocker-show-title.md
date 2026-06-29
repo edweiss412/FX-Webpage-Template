@@ -139,11 +139,10 @@ git commit --no-verify -m "feat(onboarding): parsedShowTitle helper for blocker-
 - Consumes: `parsedShowTitle` (Task 1); `parseShadowPayloadForApply` (already imported, `finalize-cas/route.ts:6`).
 - Produces: `per_row[i].display_name?: string` on blocked Phase-D rows.
 
-- [ ] **Step 1: Write the failing test** — extend `finalizeCasFullApply.db.test.ts`. This file already drives a 409 with a blocked `drive-cas-3` row whose shadow payload is `makeParse("Cas Three Live", …)` (L436) and asserts its `code` (L463). Add a `display_name` assertion immediately after that `code` assertion, deriving the expected from the SAME title constant the seed used (do not retype the literal — hoist it to a `const CAS3_TITLE = "Cas Three Live"` used both in the `makeParse(...)` seed call and the assertion). Extend the `PerRow` type (L195) with `display_name?: string`.
+- [ ] **Step 1: Write the failing test** — extend the existing test `"(b) equality preflight REPLACES the <= gate"` in `finalizeCasFullApply.db.test.ts` (~L386-410). It already drives a 409 where `rows[0]` is the blocked `drive-cas-2` row and asserts `rows[0]!.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D")` (L408). This is a **parse-OK** blocker (its shadow payload `makeParse("Cas Two", …)` parses cleanly — unlike `drive-cas-3`, which is `STAGED_REVIEW_ITEMS_CORRUPT` and would correctly yield `display_name: undefined`). The shadow payload's `show.title` is the FIRST arg to `makeParse` (= `"Cas Two"`, NOT the `seedLiveShow` title `"Cas Two Live"`). Hoist that title to a `const CAS2_SHADOW_TITLE = "Cas Two"` used both in the `makeParse(CAS2_SHADOW_TITLE, …)` call and the assertion. Add `display_name?: string` to the `PerRow` type (L281: `type PerRow = { drive_file_id: string; code: string; disposition?: string }`). Add immediately after the L408 `code` assertion:
 
 ```ts
-// after the existing: expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D");
-expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!.display_name).toBe(CAS3_TITLE);
+expect(rows[0]!.display_name).toBe(CAS2_SHADOW_TITLE);
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -298,17 +297,27 @@ git commit --no-verify -m "feat(onboarding): finalize Phase-B blocker rows carry
 **Interfaces:**
 - Consumes: the `display_name?: string` wire field from Tasks 2-3.
 
-- [ ] **Step 1: Write the failing tests** — for EACH of the three component test files, add two cases. Render the blocked-row state from a per-row fixture with a distinct id + title, e.g. `{ drive_file_id: "1AbC_opaque_id", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D", display_name: "Consultants Roundtable" }` (use the entry shape each component expects — `PerRowFailure` for FinalizeButton race_row / ResumeFinalizeButton, `CasPerRowEntry` for the cas_per_row lists). Assertions:
+- [ ] **Step 1: Write the failing tests** — cover all **four** render sites (FinalizeButton has TWO lists). Each gets a title case + a fallback case:
+  - `tests/components/admin/FinalizeButton.test.tsx` — **both** the `wizard-finalize-race-row` list (Phase B `PerRowFailure`, render L281) **and** the `wizard-finalize-cas-per-row` list (Phase D `CasPerRowEntry`, render L310). Drive each via the existing test's `fetch` mock: a `/finalize` response with `per_row: [PerRowFailure fixture]` and an `all_batches_complete` that routes to the race-row render; a `/finalize-cas` 409 with `per_row: [CasPerRowEntry fixture]` for the cas list.
+  - `tests/components/admin/RunFinalCASButton.test.tsx` — the `cas_per_row` list (render L121).
+  - `tests/components/admin/FinalizeReentry.test.tsx` — the `ResumeFinalizeButton` `race_row` list (render L136).
+
+  Use a distinct opaque id + title per fixture, e.g. `{ drive_file_id: "1AbC_opaque_id", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D", display_name: "Consultants Roundtable" }` (entry shape per component). Assertions:
 
 ```ts
 // (1) the title is shown as the row label
 expect(screen.getByText("Consultants Roundtable")).toBeInTheDocument();
 
-// (2) the raw id is NOT the row label — clone the list, strip the id-bearing
-// reapply / RescanSheetButton subtree (its data-testid + driveFileId still hold the id),
-// then assert the id text is absent from what remains.
-const list = container.querySelector("ul")!.cloneNode(true) as HTMLElement;
-list.querySelectorAll("[data-testid*='reapply'], [data-testid*='rescan']").forEach((n) => n.remove());
+// (2) the raw id is NOT the row label — scope to THIS list by its container
+// test-id (a component may render two lists), clone it, strip the id-bearing
+// reapply / RescanSheetButton subtrees (their data-testid + driveFileId still
+// hold the id), then assert the id text is absent from what remains.
+// listTestId = "wizard-finalize-race-row" | "wizard-finalize-cas-per-row" |
+//   "resume-finalize-..." | the RunFinalCAS list container — per the site under test.
+const list = screen.getByTestId(listTestId).cloneNode(true) as HTMLElement;
+list
+  .querySelectorAll("[data-testid*='reapply'], [data-testid*='rescan']")
+  .forEach((n) => n.remove());
 expect(list.textContent).not.toContain("1AbC_opaque_id");
 
 // (3) fallback: a fixture with display_name omitted shows the id
@@ -366,9 +375,10 @@ Expected: no assertion on an empty-title `name`. If one exists, update it to exp
 - [ ] **Step 3: Full local verification** (CI-equivalent, serialized DB tests):
 
 ```bash
+FILES="app/api/admin/onboarding/finalize/route.ts app/api/admin/onboarding/finalize-cas/route.ts lib/onboarding/blockerDisplayName.ts components/admin/FinalizeButton.tsx components/admin/RunFinalCASButton.tsx components/admin/ResumeFinalizeButton.tsx tests/onboarding/blockerDisplayName.test.ts tests/onboarding/finalizeCasFullApply.db.test.ts tests/onboarding/finalize.test.ts tests/components/admin/FinalizeButton.test.tsx tests/components/admin/RunFinalCASButton.test.tsx tests/components/admin/FinalizeReentry.test.tsx"
 npx tsc --noEmit
-npx eslint app/api/admin/onboarding/finalize/route.ts app/api/admin/onboarding/finalize-cas/route.ts lib/onboarding/blockerDisplayName.ts components/admin/FinalizeButton.tsx components/admin/RunFinalCASButton.tsx components/admin/ResumeFinalizeButton.tsx
-npx prettier --check <the same files>
+npx eslint $FILES
+npx prettier --check $FILES
 VITEST_EXCLUDE_ENV_BOUND=1 npx vitest run
 ```
 Expected: tsc/eslint/prettier clean; suite green except pre-existing local-DB-pollution failures (`validation-schema-parity` / drive-keyed audit re: `agenda_extract_leases` — confirm via "no committed migration creates it", not introduced here).
