@@ -40,6 +40,8 @@ import type {
   HotelReservationRow,
   ParseResult,
   ParseWarning,
+  PullSheetCase,
+  PullSheetItem,
   RoomRow,
   RunOfShow,
 } from "@/lib/parser/types";
@@ -50,6 +52,7 @@ import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
@@ -58,6 +61,13 @@ import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog
 const CREW_CAP = 30;
 const ROOMS_CAP = 20;
 const HOTELS_CAP = 12;
+// Pack-list cases shown in the review breakdown; mirrors the crew GearSection
+// CASE_CAP (12) so the operator sees the same ceiling the crew page applies.
+const PACK_LIST_CASES_CAP = 12;
+// Items shown per expanded case before a "+K more items" tail. Bounds the
+// expanded height so one fat case (e.g. a 31-item distro case) can't dominate
+// the breakdown column; deep verification continues on the source sheet.
+const PACK_LIST_ITEMS_CAP = 8;
 
 // Per-room equipment-scope fields shown under each room in the review breakdown so
 // the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L) before publishing. We
@@ -384,6 +394,91 @@ function EventDetailsBreakdown({
   );
 }
 
+// One parsed PULL-sheet item rendered as the crew GearSection renders it
+// (GearSection.tsx:339-345): `qty × item (cat / subCat)`, with the decorative
+// cat/subCat taxonomy sentinel-guarded (hidden when TBD/N/A/empty) and the qty
+// prefix dropped when null. The item NAME itself is shown as-parsed — this is a
+// review surface, so a garbled name must be visible, not hidden.
+function packItemLabel(item: PullSheetItem): string {
+  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
+  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
+  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
+  const qtyPart = item.qty !== null && item.qty !== undefined ? `${item.qty} × ` : "";
+  return `${qtyPart}${item.item}${taxonomy ? ` (${taxonomy})` : ""}`;
+}
+
+// The parsed PULL-tab pack list (`pr.pullSheet`) — the same data the crew
+// GearSection renders, surfaced here so the operator can verify it parsed at the
+// publish gate. Each case is a native <details>: the COLLAPSED summary is the
+// case label (or "Case N" fallback) + item count; EXPANDING reveals the parsed
+// items (qty × item (cat/subCat)), capped at PACK_LIST_ITEMS_CAP, so the default
+// view stays compact while full crew parity is one click away. Cases are capped
+// at PACK_LIST_CASES_CAP (the crew CASE_CAP). UNGATED — unlike the crew page
+// (which date-gates pack-list visibility via isPackListVisibleToday), a review
+// surface always shows what parsed. A case with zero items renders as a plain
+// non-expandable line.
+function PackListBreakdown({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
+  const shown = cases.slice(0, PACK_LIST_CASES_CAP);
+  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-pack-list`}
+      label="Pack list"
+      count={cases.length}
+    >
+      {cases.length === 0 ? (
+        <p className="text-sm text-text-subtle">No pack list parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {shown.map((c, i) => {
+            const items = arr(c.items);
+            const label = c.caseLabel || `Case ${i + 1}`;
+            const head = (
+              <>
+                <span className="font-medium text-text-strong">{label}</span>
+                <span className="text-text-subtle">
+                  {" "}
+                  · <span className="tabular-nums">{items.length}</span>{" "}
+                  {items.length === 1 ? "item" : "items"}
+                </span>
+              </>
+            );
+            // No items → nothing to expand; render a plain line (the count still
+            // tells the operator the case parsed but is empty).
+            if (items.length === 0) {
+              return (
+                <li key={`${label}-${i}`} className="wrap-break-word text-sm text-text">
+                  {head}
+                </li>
+              );
+            }
+            const shownItems = items.slice(0, PACK_LIST_ITEMS_CAP);
+            const itemsNote = overflowNote(items.length, PACK_LIST_ITEMS_CAP, "items");
+            return (
+              <li key={`${label}-${i}`} className="text-sm text-text">
+                <details data-testid={`wizard-step3-card-${dfid}-pack-case-${i}`}>
+                  <summary className="wrap-break-word cursor-pointer marker:text-text-subtle">
+                    {head}
+                  </summary>
+                  <ul className="mt-0.5 flex flex-col gap-0.5 pl-3 text-xs text-text-subtle">
+                    {shownItems.map((item, j) => (
+                      <li key={`${item.item}-${j}`} className="wrap-break-word">
+                        {packItemLabel(item)}
+                      </li>
+                    ))}
+                    {itemsNote ? <li className="text-text-faint">{itemsNote}</li> : null}
+                  </ul>
+                </details>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
 function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
@@ -698,6 +793,7 @@ export function Step3SheetCard({
   const crewMembers = arr(pr.crewMembers);
   const rooms = arr(pr.rooms);
   const hotels = arr(pr.hotelReservations);
+  const pullSheet = arr(pr.pullSheet);
   const ros: RunOfShow = pr.runOfShow ?? {};
   const warnings = arr(pr.warnings);
   // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
@@ -893,6 +989,7 @@ export function Step3SheetCard({
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
             <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
+            <PackListBreakdown dfid={dfid} cases={pullSheet} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
           </div>
           {/* Warnings — pulled OUT of the column flow into a FULL-WIDTH bordered

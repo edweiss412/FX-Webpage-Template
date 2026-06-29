@@ -601,3 +601,119 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     ).toContain("No event details parsed.");
   });
 });
+
+describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {
+  function caseRow(caseLabel: string, itemCount: number) {
+    return { caseLabel, items: Array.from({ length: itemCount }, (_, k) => ({ item: `i${k}` })) };
+  }
+  function packPr(cases: ReturnType<typeof caseRow>[]) {
+    return {
+      show: { title: "Pack Show", dates: {}, venue: {}, event_details: {} },
+      crewMembers: [],
+      hotelReservations: [],
+      warnings: [],
+      rooms: [],
+      pullSheet: cases,
+    } as unknown as ParseResult;
+  }
+  function openPack(dfid: string, pr: ParseResult) {
+    const r = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[
+          {
+            driveFileId: dfid,
+            driveFileName: "P.gsheet",
+            status: "staged",
+            stagedShowTitle: "Pack Show",
+            parseResult: pr,
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(r.getByTestId(`wizard-step3-card-${dfid}-more`));
+    return r;
+  }
+
+  test("renders each case with its label + item count (plural/singular), blank label → 'Case N'", () => {
+    const cases = [caseRow("Audio Rack A", 3), caseRow("", 1)]; // blank label = index-1 → "Case 2"
+    const { getByTestId } = openPack("pack-1", packPr(cases));
+    const t = getByTestId("wizard-step3-card-pack-1-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("Audio Rack A");
+    expect(t).toContain(`${cases[0]!.items.length} items`); // 3 items — derived, plural
+    expect(t).toContain("Case 2"); // blank caseLabel fallback at index 1
+    expect(t).toContain(`${cases[1]!.items.length} item`); // 1 item — singular
+    // Anti-tautology for the singular branch: an always-plural mutation would
+    // render "1 items", which substring-passes `toContain("1 item")`. Pin it.
+    // (Fixture counts are 3 and 1, so no multi-digit "…1 items" can appear.)
+    expect(t).not.toContain("1 items");
+    // count badge in the section header equals the number of cases
+    expect(t).toContain(`(${cases.length})`);
+  });
+
+  test("caps at 12 cases and appends an overflow note for the remainder", () => {
+    const CASES = Array.from({ length: 14 }, (_, i) => caseRow(`Case L${i}`, 2));
+    const { getByTestId } = openPack("pack-2", packPr(CASES));
+    const t = getByTestId("wizard-step3-card-pack-2-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain(`(${CASES.length})`); // header count is the FULL total, not the cap
+    expect(t).toContain("Case L0"); // first shown
+    expect(t).toContain("Case L11"); // 12th shown (index 11)
+    expect(t).not.toContain("Case L12"); // 13th NOT shown (beyond cap)
+    expect(t).toContain(`…and ${CASES.length - 12} more cases`); // overflow note, derived
+  });
+
+  test("empty pull sheet reads 'No pack list parsed.'", () => {
+    const { getByTestId } = openPack("pack-3", packPr([]));
+    expect(getByTestId("wizard-step3-card-pack-3-breakdown-pack-list").textContent).toContain(
+      "No pack list parsed.",
+    );
+  });
+
+  test("expanding a case reveals its items as 'qty × item (cat / subCat)', taxonomy sentinel-guarded", () => {
+    const richCase = {
+      caseLabel: "Audio Rack",
+      items: [
+        { qty: 2, cat: "Audio", subCat: "RF", item: "Shure ULXD4" },
+        { qty: null, cat: null, subCat: null, item: "Handheld Capsule" }, // no qty prefix, no taxonomy
+        { qty: 4, cat: "TBD", subCat: "N/A", item: "DI Box" }, // sentinel taxonomy → hidden
+      ],
+    };
+    const pr = packPr([richCase] as unknown as ReturnType<typeof caseRow>[]);
+    const { getByTestId } = openPack("pack-4", pr);
+    // <details> content is in the DOM even while collapsed, so textContent sees it.
+    const t = getByTestId("wizard-step3-card-pack-4-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("2 × Shure ULXD4 (Audio / RF)"); // qty + full taxonomy
+    expect(t).toContain("Handheld Capsule"); // qty null → no "× " prefix
+    expect(t).not.toContain("× Handheld Capsule"); // assert the prefix is truly absent
+    expect(t).toContain("4 × DI Box"); // qty kept
+    expect(t).not.toContain("(TBD"); // sentinel cat hidden → no taxonomy parens
+    expect(t).not.toContain("N/A"); // sentinel subCat hidden
+    // the case is expandable (has items) → a <details> testid exists
+    expect(getByTestId("wizard-step3-card-pack-4-pack-case-0").tagName.toLowerCase()).toBe(
+      "details",
+    );
+  });
+
+  test("caps items per case at 8 with a '+K more items' tail", () => {
+    const items = Array.from({ length: 10 }, (_, k) => ({ item: `WIDGET-${k}` }));
+    const pr = packPr([{ caseLabel: "Big Case", items }] as unknown as ReturnType<
+      typeof caseRow
+    >[]);
+    const { getByTestId } = openPack("pack-5", pr);
+    const t = getByTestId("wizard-step3-card-pack-5-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("WIDGET-0"); // first shown
+    expect(t).toContain("WIDGET-7"); // 8th shown (index 7)
+    expect(t).not.toContain("WIDGET-8"); // 9th beyond the item cap
+    expect(t).toContain(`…and ${items.length - 8} more items`); // overflow tail, derived
+  });
+
+  test("a zero-item case renders a plain non-expandable line (no <details>), no crash on missing items", () => {
+    // items omitted entirely → arr(c.items) coerces to [] (untyped-JSONB guard).
+    const pr = packPr([{ caseLabel: "Empty Case" }] as unknown as ReturnType<typeof caseRow>[]);
+    const { getByTestId, queryByTestId } = openPack("pack-6", pr);
+    const t = getByTestId("wizard-step3-card-pack-6-breakdown-pack-list").textContent ?? "";
+    expect(t).toContain("Empty Case");
+    expect(t).toContain("0 items"); // count still renders; no throw
+    expect(queryByTestId("wizard-step3-card-pack-6-pack-case-0")).toBeNull(); // not expandable
+  });
+});
