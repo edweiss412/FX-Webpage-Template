@@ -163,19 +163,22 @@ plus an **in-memory process-wide concurrency cap** (no DB) for resource bounding
 best-effort same-instance dedupe:
 
 1. **Auth** — `requireAdminIdentity()` (`@/lib/auth/requireAdmin`); reject otherwise.
-2. **Concurrency slot (in-memory, NO DB) — `try/finally` release on EVERY exit path
-   (Codex round-28 F2).** FIRST check the per-`(wiz,dfid)` in-flight set: if already
-   in-flight → return `202 { status: "in_progress" }` **without consuming a global slot**
-   (so duplicates never reduce capacity). Else add to the in-flight set and acquire a
-   process-wide semaphore slot `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (a module-level
-   counter; bounds CPU/Drive-quota per warm instance); if no slot is free → `202
-   in_progress` (client retries). The slot + in-flight entry are released in a
-   **`finally`** that runs on ALL exits — success, missing row, tx read error, extraction
-   throw, revision-mismatch/lifecycle `409`, tx#2 stale, and the duplicate-`202` path — so
-   a leaked slot can never permanently shrink instance capacity. (A leak would otherwise
-   make all agenda previews fail until the instance restarts.) Cross-instance simultaneous
-   duplicates are rare, ≤ a couple PDFs, and the cache makes the second cheap — accepted,
-   never a held DB connection.
+2. **Concurrency slot (in-memory, NO DB) — OWNERSHIP-scoped `try/finally` (Codex round-28
+   F2 + round-29 F2).** Two explicit ownership flags, `ownsInFlight` and `acquiredSlot`,
+   both default `false`. FIRST check the per-`(wiz,dfid)` in-flight set: if already present
+   → return `202 { status: "in_progress" }` immediately, **`ownsInFlight = false`,
+   `acquiredSlot = false`** (this request never inserted the key nor took a slot). Else
+   insert the key (`ownsInFlight = true`) and try to acquire a process-wide semaphore slot
+   `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (module-level counter; bounds CPU/Drive-quota per
+   warm instance) — got one → `acquiredSlot = true`; none free → `202 in_progress`. A
+   **`finally`** releases ONLY owned resources: `if (acquiredSlot) releaseSlot();
+   if (ownsInFlight) deleteInFlightKey();` — so a **duplicate `202` NEVER deletes the
+   owner's in-flight marker or the owner's slot** (otherwise a 3rd request could start a
+   2nd concurrent extraction, defeating dedupe under Strict-Mode/refresh/multi-tab). This
+   runs on ALL exits (success, missing row, tx error, extraction throw, revision/lifecycle
+   `409`, tx#2 stale, duplicate `202`), so no slot/marker can leak (a leak would shrink
+   capacity until instance restart). Cross-instance simultaneous duplicates are rare, ≤ a
+   couple PDFs, cheap once cached — accepted, never a held DB connection.
 3. **SHORT tx #1 — read + lifecycle pre-check + capture row GENERATION** — open a tx,
    `SELECT staged_id, staged_modified_time, parse_result (+ lifecycle cols) from
    public.pending_syncs where wizard_session_id = $1 and drive_file_id = $2`, evaluate the
@@ -184,21 +187,26 @@ best-effort same-instance dedupe:
    row → `200 { items: [] }`. STALE (superseded session OR finalize-consumed/in-progress;
    **approved/applied rows are NOT stale** — round-22 F2) → `409 { status: "stale" }`
    (release slot, no Drive). NO `show:` lock here.
-4. **Sheet-revision fence around chip recovery (Codex round-28 F1)** — when any link
-   lacks a `fileId` (smart-chips), the `fileId` is recovered from the LIVE sheet via
-   `getAgendaChips(spreadsheetId)`; the ordinal+label correlation is only valid for the
-   sheet revision the staged parse was derived from. So BEFORE and AFTER `getAgendaChips`,
-   fetch the spreadsheet's current revision token (`getSpreadsheetRevisionId` /
-   `getFile(spreadsheetId).modifiedTime`) and require it to equal the staged row's
-   `staged_modified_time` (captured in tx#1). If it differs at either check — Doug edited
-   the sheet after scan but before extraction — the chip ordinals may map to a DIFFERENT
-   PDF, so **abort with `409 stale`** (no recovery, no extraction, no persist); the
-   operator re-scans to restage current data. (Mirrors the sync pipeline's
-   modifiedTime/headRevisionId TOCTOU fence.)
-5. **Extract (NO DB connection held)** — `enrichAgenda(parseResult,
-   defaultAgendaDriveClient(), driveFileId)` (production `downloadFileBytes` +
-   `getAgendaChips`, `runScheduledCronSync.ts:1665-1666`; §5.5 caps bound a pathological
-   show). `enrichAgenda`'s built-in per-link cache (`getFile` metadata → skip download
+4. **Exactly ONE fenced chip read (Codex round-28 F1 + round-29 F1)** — smart-chip
+   `fileId` recovery reads the LIVE sheet via `getAgendaChips(spreadsheetId)`, and the
+   ordinal+label correlation is only valid for the sheet revision the staged parse was
+   derived from. But `enrichAgenda` performs its OWN internal `getAgendaChips` when any
+   link lacks `fileId` (`enrichAgenda.ts:66-68`) — so the endpoint must NOT do a second,
+   separate chip read (a sheet edit between two reads reopens the corruption). Instead,
+   the endpoint passes `enrichAgenda` a driveClient whose **`getAgendaChips` is a FENCED
+   WRAPPER**: it reads the spreadsheet's current revision token (`getSpreadsheetRevisionId`
+   / `getFile(spreadsheetId).modifiedTime`) immediately before AND after the underlying
+   `getAgendaChips`, requires both to equal the staged row's `staged_modified_time`
+   (captured in tx#1), and on any mismatch returns a stale signal (e.g.
+   `{ kind: "infra_error" }` + an out-of-band stale flag, or throws a `StaleRevisionError`).
+   `enrichAgenda` thus makes **exactly one** chip read, and it is fenced. On the stale
+   signal the endpoint aborts with **`409 stale`** (no fileId recovery, no extraction
+   persisted) — the operator re-scans. (Mirrors the sync pipeline's
+   modifiedTime/headRevisionId TOCTOU fence; no second unfenced read can occur.)
+5. **Extract (NO DB connection held)** — `enrichAgenda(parseResult, fencedDriveClient,
+   driveFileId)` (production `downloadFileBytes` + the **fenced** `getAgendaChips`
+   wrapper, `runScheduledCronSync.ts:1665-1666`; §5.5 caps bound a pathological show).
+   `enrichAgenda`'s built-in per-link cache (`getFile` metadata → skip download
    when the stored `extracted` matches `headRevisionId` + `EXTRACTOR_VERSION`) means a
    **cached** show costs only cheap `getFile`s, **zero `downloadFileBytes`/`getAgendaChips`**
    (round-23 F1: "cache hit" ≠ zero Drive — freshness needs the current revision, which
@@ -492,14 +500,18 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    during extraction a rescan DELETES + RECREATES the `(drive_file_id, wizard_session_id)`
    row with a NEW `staged_id` → tx#2 `WHERE … AND staged_id = $4 AND staged_modified_time
    = $5` affects **0 rows** → `409 stale`, the NEW scan's `parse_result` is NOT mutated by
-   the old extraction; (m) **sheet-revision fence** (round-28 F1): the spreadsheet's
-   current revision differs from the staged `staged_modified_time` (Doug edited the sheet
-   after scan) at the before- or after-`getAgendaChips` check → `409 stale`, **no
-   recovery/extraction/persist** (assert `parse_result` unchanged); (n) **slot release on
-   EVERY exit path** (round-28 F2): assert the in-memory concurrency slot + in-flight entry
-   are released after success, missing-row, tx read error, extraction throw, revision/
-   lifecycle `409`, tx#2 stale, AND the duplicate-`202` path (which must NOT consume a
-   slot) — drive each exit and assert the slot count returns to baseline; (f) missing row
+   the old extraction; (m) **exactly one fenced chip read** (round-28 F1 + round-29 F1): assert `enrichAgenda`
+   receives the FENCED `getAgendaChips` wrapper and the endpoint makes **no second,
+   separate** chip read (spy: total `getAgendaChips` invocations ≤ 1); a spreadsheet
+   revision differing from `staged_modified_time` at the before- OR after-check → `409
+   stale`, **no recovery/extraction/persist** (`parse_result` unchanged); (n) **ownership-
+   scoped slot/in-flight lifecycle** (round-28 F2 + round-29 F2): drive each exit
+   (success, missing-row, tx error, extraction throw, revision/lifecycle `409`, tx#2
+   stale) → assert slot count + in-flight set return to baseline; AND a **duplicate `202`
+   does NOT delete the OWNER's in-flight key** (assert the owner's key is still present
+   after the duplicate returns, and a THIRD concurrent request still gets `202` with NO
+   extraction while the owner runs) — proving `ownsInFlight`/`acquiredSlot` release only
+   owned resources; (f) missing row
    → `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
@@ -607,13 +619,13 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 - Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
   links (no `fileId`) get none from the pure baseline (the endpoint result carries
   recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
-- Chip-recovery revision fence: smart-chip `fileId` recovery is bound to the staged sheet
-  revision (current spreadsheet revision must equal `staged_modified_time` before+after
-  `getAgendaChips`) — a post-scan sheet edit → `409 stale`, never attaching a different
-  PDF to the old parse (round-28 F1).
-- Concurrency-slot lifecycle: in-memory slot + in-flight set released in a `try/finally`
-  on EVERY exit path; duplicates `202` without consuming a slot (no leak/starve — round-28
-  F2).
+- Chip-recovery revision fence: **exactly ONE chip read**, via a FENCED `getAgendaChips`
+  wrapper injected into the driveClient `enrichAgenda` uses (revision == `staged_modified_time`
+  before+after); a post-scan sheet edit → `409 stale`, never a second unfenced read, never
+  a different PDF on the old parse (round-28 F1 + round-29 F1).
+- Concurrency-slot lifecycle: ownership-scoped (`ownsInFlight`/`acquiredSlot`) `try/finally`
+  release on EVERY exit; a duplicate `202` consumes no slot AND never deletes the owner's
+  in-flight marker (no leak, no dedupe defeat — round-28 F2 + round-29 F2).
 - Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
   finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
   review rows until finalize consumes them, and persistence carries the agenda to
