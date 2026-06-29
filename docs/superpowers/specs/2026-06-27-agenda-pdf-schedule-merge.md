@@ -186,8 +186,13 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
    owned resources (`if (acquiredSlot) releaseSlot(); if (ownsInFlight) deleteInFlightKey()`)
    — a duplicate `202` NEVER deletes the owner's marker/slot. Runs on ALL exits, so nothing
    leaks.
-3. **SHORT tx #1 — claim durable lease + read + lifecycle + capture GENERATION** — open a
-   tx and:
+3. **TWO short txns before Drive — tx#1a (admit+claim) THEN tx#1b (read) — round-18/19: the
+   `agenda-extract-admit` lock must NOT span the staged-row read.** Because `pg_advisory_xact_lock`
+   is transaction-scoped, the admit lock is held for the WHOLE tx it lives in; putting the
+   `pending_syncs`/`app_settings` reads in that same tx would serialize EVERY deployment-wide
+   admission behind those reads under DB slowness. So the lease claim is its OWN short tx that
+   COMMITS (releasing the admit lock) BEFORE the staged read:
+   - **tx#1a — claim durable lease (admit lock held ONLY here, microseconds):**
    - **Claim the durable extraction lease — keyed by `(wizard_session_id, drive_file_id)`,
      the STAGED-ROW identity (Codex round-32 + round-41):** the dedup unit is the staged
      ROW, because tx#2 persists the result to exactly that `(wiz, dfid)` `pending_syncs`
@@ -225,9 +230,10 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      step 2) vs `in_progress` (a live lease for THIS row — its extraction is running). The
      client budgets these differently (§5.3) so a row queued (local OR global cap) doesn't
      time out into baseline before its OWN extraction even starts. The
-     admit lock is held only during the microsecond count+claim — NEVER during the ≤300 s
-     Drive work (released at tx#1 commit). This gives deployment-wide
-     **exactly-one-extraction-per-STAGED-ROW** AND a strict deployment-wide total bound. **Scope note (round-41):** we deliberately do NOT cross-session share — a
+     admit lock is held only during the microsecond GC+count+claim — NEVER during the staged
+     read (tx#1b) NOR the ≤300 s Drive work (released at **tx#1a** commit, round-19). This
+     gives deployment-wide **exactly-one-extraction-per-STAGED-ROW** AND a strict
+     deployment-wide total bound. **Scope note (round-41):** we deliberately do NOT cross-session share — a
      concurrent DIFFERENT session for the same `drive_file_id` (only the rare rescan-overlap
      window) extracts its OWN row; whichever session was superseded by the rescan is
      discarded at the lifecycle-guarded persist (tx#2 `0 rows → 409`). At most a brief,
@@ -237,12 +243,14 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      the sessions have different staged generations, so sharing is not straightforwardly
      correct. `$owner` is a per-request token. TTL `AGENDA_EXTRACT_LEASE_TTL_MS` ≈
      `maxDuration` + margin (~330 000 ms) so a dead holder's lease auto-expires.
-   - **Read + lifecycle + generation + folder scope:** `SELECT staged_id,
-     staged_modified_time, parse_result (+ lifecycle cols) from public.pending_syncs where
-     wizard_session_id = $1 and drive_file_id = $2`; ALSO `SELECT pending_folder_id from
+   - **tx#1b — read + lifecycle + generation + folder scope (SEPARATE tx, NO admit lock —
+     round-19):** after tx#1a committed (admit lock released), open a fresh short tx: `SELECT
+     staged_id, staged_modified_time, parse_result (+ lifecycle cols) from public.pending_syncs
+     where wizard_session_id = $1 and drive_file_id = $2`; ALSO `SELECT pending_folder_id from
      public.app_settings where id = 'default'` (for the source-scope fence — round-37);
      evaluate the lifecycle guard; **capture `(staged_id, staged_modified_time)`** for the
-     tx#2 generation guard (round-27) and `pending_folder_id` for step 4.
+     tx#2 generation guard (round-27) and `pending_folder_id` for step 4. (The lease is
+     already held from tx#1a, so dedup holds across the tx#1a→tx#1b gap.)
    - **COMMIT/close (release the connection).** Missing row → `200 { items: [] }`. STALE
      (superseded session OR finalize-consumed/in-progress; **approved/applied rows are NOT
      stale** — round-22 F2) → `409 { status: "stale" }`. (On any of these non-extracting
