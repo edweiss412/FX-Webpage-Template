@@ -254,7 +254,20 @@ export async function enrichAgenda(
         continue;
       }
 
-      // Extract + build the payload (sourceRevision stamped here, not by the extractor).
+      // VERDICT vs RENDERING are ORTHOGONAL axes (Codex whole-diff R7 — structural
+      // defense; do NOT gate the verdict on confidence). The PerLinkVerdict
+      // (fresh/known_stale/unknown) reflects only REVISION/VERSION CURRENCY — "is this
+      // extraction the current result for the PDF's revision?" — per plan Task 6. A
+      // LOW-confidence extraction of a CURRENT, stable revision is correctly "fresh":
+      // extraction is deterministic, so re-running it would yield the same low-conf
+      // result; caching it (and skipping re-extraction until the revision OR
+      // EXTRACTOR_VERSION changes — the cache-invalidation triggers) is correct and
+      // efficient, NOT a preserved "unusable state". CONFIDENCE governs RENDERING, not
+      // the verdict: buildAdminAgendaPreview emits a schedule BLOCK only for a
+      // high-confidence normalized extraction, so a fresh low-conf link renders
+      // note-only, and the data-quality warning below ("no readable sessions") informs
+      // the operator. Gating the verdict on confidence would break plan Task 6 + the
+      // cache contract (round-12) and is intentionally NOT done.
       const extraction = await extractAgendaSchedule(download.bytes);
       const payload: AgendaExtraction = {
         ...extraction,

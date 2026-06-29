@@ -333,6 +333,34 @@ describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-d
   });
 });
 
+describe("enrichAgenda — verdict vs rendering orthogonality (Codex whole-diff R7)", () => {
+  // STRUCTURAL DEFENSE: the verdict reflects REVISION CURRENCY, not confidence. A
+  // low-confidence extraction of a current, stable revision is "fresh" (cached;
+  // deterministic re-extraction won't improve it). Confidence governs RENDERING
+  // (buildAdminAgendaPreview emits a BLOCK only for high-conf) + the data-quality
+  // warning — NOT the verdict. A future change making low-conf → known_stale would
+  // break plan Task 6 + the cache contract; this test pins the ratified behavior.
+  test("low-confidence extraction on a STABLE revision → fresh (NOT known_stale), cached + warned", async () => {
+    extractMock.mockResolvedValue({
+      confidence: "low",
+      corrections: 0,
+      days: [], // no readable sessions → note-only rendering, but still a CURRENT result
+      extractorVersion: EXTRACTOR_VERSION,
+    });
+    const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F-LOW" }]);
+    // getFile returns a stable rev before AND after (PDF unchanged during extract).
+    const client = makeClient({ getFile: async (id) => meta(id) });
+    const report = await enrichAgenda(result, client, "s");
+    const v = report.perLink.find((p) => p.ordinal === 0);
+    expect(v?.verdict).toBe("fresh"); // revision-current, regardless of confidence
+    expect(v?.verdict === "fresh" && v.extraction.confidence).toBe("low");
+    // Cached for the deterministic re-extraction skip (link.extracted set).
+    expect(result.show.agenda_links[0]!.extracted?.confidence).toBe("low");
+    // Operator is informed the PDF produced no readable sessions.
+    expect(result.warnings.some((w) => /no readable sessions/i.test(w.message))).toBe(true);
+  });
+});
+
 describe("enrichAgenda — metadata gate + cache", () => {
   test("non-PDF mime → AGENDA_PDF_UNREADABLE, no download", async () => {
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F1" }]);
