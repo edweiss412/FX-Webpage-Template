@@ -318,7 +318,9 @@ describe("extract-agenda — fences", () => {
     const enrich = vi.fn(async () => {
       // Mutate the configured folder DURING the no-DB Drive window.
       await pool`UPDATE public.app_settings SET pending_folder_id = 'xa-folder-CHANGED' WHERE id = 'default'`;
-      return { perLink: [{ ordinal: 0, verdict: "fresh", extraction: VALID_EXTRACTION }] } as EnrichAgendaReport;
+      return {
+        perLink: [{ ordinal: 0, verdict: "fresh", extraction: VALID_EXTRACTION }],
+      } as EnrichAgendaReport;
     });
     const res = await handleExtractAgenda(
       new Request("http://x"),
@@ -427,7 +429,9 @@ describe("extract-agenda — connection-lifetime (three windows)", () => {
     >;
     (instrumented as { begin: unknown }).begin = (fn: (tx: unknown) => Promise<unknown>) => {
       beginCount++;
-      return (sqlMax1 as unknown as { begin: (f: (tx: unknown) => Promise<unknown>) => Promise<unknown> }).begin(fn);
+      return (
+        sqlMax1 as unknown as { begin: (f: (tx: unknown) => Promise<unknown>) => Promise<unknown> }
+      ).begin(fn);
     };
 
     let freeDuringDrive: "row" | "blocked" | "error" = "error";
@@ -530,6 +534,32 @@ describe("extract-agenda — deadline race", () => {
     expect(retry.status).toBe(202);
     expect(await retry.json()).toEqual({ status: "pending", reason: "in_progress" });
 
+    // FIX 3 — distinct-row burst: the stuck lease counts toward the global cap.
+    // Insert K-1 filler leases so total live = K (stuck lease + K-1 fillers).
+    // A new distinct-(wiz,dfid) claim must get 202 queued (cap full).
+    const fillerIds = Array.from({ length: K - 1 }, (_, i) => `xa-qs-filler-${i}`);
+    for (const fid of fillerIds) await insertLiveLease(fid);
+
+    const wiz2 = randomUUID();
+    const dfid2 = "xa-qs-distinct";
+    // queued is returned at the tx#1a cap-check, before any staged-row lookup,
+    // so no pending_syncs seed is needed for dfid2.
+    const capRes = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz2, dfid2),
+      baseDeps({
+        slotStore: createInMemorySlotStore(),
+        fetchMeta: metaSpy(STAGED_ISO, [FOLDER]),
+      }),
+    );
+    expect(capRes.status).toBe(202);
+    expect(await capRes.json()).toEqual({ status: "pending", reason: "queued" });
+
+    // Cleanup fillers before teardown (afterEach covers xa-% but explicit is clearer).
+    for (const fid of fillerIds) {
+      await pool`DELETE FROM public.agenda_extract_leases WHERE drive_file_id = ${fid}`;
+    }
+
     // Let handler 1 settle so it returns + releases (teardown).
     settle({ perLink: [] });
     const res1 = await p1;
@@ -614,22 +644,25 @@ describe("extract-agenda — durable lease dedup (two separate slot stores)", ()
 // ─── (p / d5) lease released on every post-claim exit ──────────────────────────
 
 describe("extract-agenda — lease release on every exit", () => {
-  test("p: enrichAgenda throw → 504-or-500 path releases the lease immediately", async () => {
+  test("p: enrichAgenda throw → typed 500 AGENDA_EXTRACT_FAILED + lease released immediately", async () => {
     const wiz = randomUUID();
     const dfid = "xa-p-throw";
     await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
     const enrich = vi.fn(async () => {
       throw new Error("boom");
     });
-    await handleExtractAgenda(
+    const res = await handleExtractAgenda(
       new Request("http://x"),
       ctx(wiz, dfid),
       baseDeps({
         fetchMeta: metaSpy(STAGED_ISO, [FOLDER]),
         enrichAgenda: enrich as unknown as NonNullable<ExtractAgendaDeps["enrichAgenda"]>,
       }),
-    ).catch(() => {});
-    // Whatever the response, the durable lease must NOT linger.
+    );
+    // Invariant 9: unexpected throws must be discriminable typed 500, not bare framework 500.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ code: "AGENDA_EXTRACT_FAILED" });
+    // The outer finally must still fire and release the durable lease.
     expect(await liveLeaseCount(dfid)).toBe(0);
   });
 
@@ -643,7 +676,9 @@ describe("extract-agenda — lease release on every exit", () => {
       await pool`DELETE FROM public.agenda_extract_leases WHERE drive_file_id = ${dfid}`;
       await pool`INSERT INTO public.agenda_extract_leases (wizard_session_id, drive_file_id, owner, expires_at)
                  VALUES (${wiz}::uuid, ${dfid}, 'owner-B', now() + '5 minutes'::interval)`;
-      return { perLink: [{ ordinal: 0, verdict: "fresh", extraction: VALID_EXTRACTION }] } as EnrichAgendaReport;
+      return {
+        perLink: [{ ordinal: 0, verdict: "fresh", extraction: VALID_EXTRACTION }],
+      } as EnrichAgendaReport;
     });
     const res = await handleExtractAgenda(
       new Request("http://x"),

@@ -138,10 +138,7 @@ function fencePasses(
 ): boolean {
   // revisionTimesMatch (NOT strict ===): staged_modified_time is a postgres.js Date,
   // meta.modifiedTime is an ISO string — same instant must compare equal (round-25).
-  const revOk = revisionTimesMatch(
-    meta.modifiedTime,
-    stagedModifiedTime as string | Date | null,
-  );
+  const revOk = revisionTimesMatch(meta.modifiedTime, stagedModifiedTime as string | Date | null);
   const scopeOk = pendingFolderId !== null && meta.parents.includes(pendingFolderId);
   return revOk && scopeOk;
 }
@@ -287,75 +284,82 @@ export async function handleExtractAgenda(
       return staleResponse(); // 409, NO Drive download
     }
 
-    // ── extract with the deadline race (no DB connection held). ──
-    const controller = new AbortController();
-    const extractionPromise = enrichAgenda(
-      read.parseResult as unknown as ParseResult,
-      driveClient,
-      driveFileId,
-      { signal: controller.signal },
-    ).then((report) => ({ kind: "report" as const, report }));
-
-    const deadline = makeDeadline(deadlineMs);
-    let outcome: { kind: "report"; report: EnrichAgendaReport } | { kind: "timed_out" };
+    // ── extract/merge region — inner try catches unexpected throws as typed 500
+    // (invariant 9: infra faults must be discriminable). The catch is INSIDE the
+    // outer try whose finally releases the lease + slot, so release still fires
+    // on this path. The 504 timeout branch returns from inside this inner try
+    // (never reaching the catch); auth 403/500 and before-fence 409s are above
+    // this block and are unchanged.
     try {
-      outcome = await Promise.race([
-        extractionPromise,
-        deadline.promise.then(() => ({ kind: "timed_out" as const })),
-      ]);
-    } finally {
-      deadline.cancel();
-    }
+      // ── extract with the deadline race (no DB connection held). ──
+      const controller = new AbortController();
+      const extractionPromise = enrichAgenda(
+        read.parseResult as unknown as ParseResult,
+        driveClient,
+        driveFileId,
+        { signal: controller.signal },
+      ).then((report) => ({ kind: "report" as const, report }));
 
-    if (outcome.kind === "timed_out") {
-      // Abort, then AWAIT settlement BEFORE the finally releases capacity
-      // (round-12): never release the lease/slot while the extraction may still be
-      // running, or a retry could claim a 2nd lease and breach the cap. Production
-      // Drive deps reject on abort and settle promptly. SKIP tx#2 entirely (no
-      // report.perLink deref). The row stays note-only; agenda lands via cron.
-      controller.abort();
-      await extractionPromise.catch(() => {});
-      return NextResponse.json({ status: "timeout" }, { status: 504 });
-    }
-
-    const report = outcome.report;
-
-    // ── after-fence part 1 (Drive metadata re-fetch, NO DB held). ──
-    const afterMeta = await fetchMeta(driveFileId);
-
-    // ── tx#2 — after-fence current-folder re-read folds in here (round-26: keeps
-    // exactly THREE DB windows). Then show-lock → reread → merge → atomic persist
-    // → owner-scoped lease release, ALL in this one tx. ──
-    type PersistResult = { kind: "stale" } | { kind: "ok"; merged: ParseResultLike };
-    const persist: PersistResult = await sql.begin(async (tx) => {
-      // FIRST DB op: re-read the CURRENT pending_folder_id (do NOT reuse tx#1b's
-      // value, round-17) and complete the after-fence BEFORE the show lock.
-      const settingsRows = await tx<{ pending_folder_id: string | null }>`
-        SELECT pending_folder_id FROM public.app_settings WHERE id = 'default'
-      `;
-      const currentFolder = settingsRows[0]?.pending_folder_id ?? null;
-      if (!fencePasses(afterMeta, read.stagedModifiedTime, currentFolder)) {
-        // Roll back: NO persist, NO show lock acquired (revision OR current-scope).
-        return { kind: "stale" };
+      const deadline = makeDeadline(deadlineMs);
+      let outcome: { kind: "report"; report: EnrichAgendaReport } | { kind: "timed_out" };
+      try {
+        outcome = await Promise.race([
+          extractionPromise,
+          deadline.promise.then(() => ({ kind: "timed_out" as const })),
+        ]);
+      } finally {
+        deadline.cancel();
       }
 
-      // Per-show advisory lock (canonical hashtext→bigint form; round-15).
-      await tx`SELECT pg_advisory_xact_lock(hashtext('show:' || ${driveFileId}))`;
+      if (outcome.kind === "timed_out") {
+        // Abort, then AWAIT settlement BEFORE the finally releases capacity
+        // (round-12): never release the lease/slot while the extraction may still be
+        // running, or a retry could claim a 2nd lease and breach the cap. Production
+        // Drive deps reject on abort and settle promptly. SKIP tx#2 entirely (no
+        // report.perLink deref). The row stays note-only; agenda lands via cron.
+        controller.abort();
+        await extractionPromise.catch(() => {});
+        return NextResponse.json({ status: "timeout" }, { status: 504 });
+      }
 
-      // REREAD the current parse_result under the lock.
-      const curRows = await tx<{ parse_result: ParseResultLike }>`
+      const report = outcome.report;
+
+      // ── after-fence part 1 (Drive metadata re-fetch, NO DB held). ──
+      const afterMeta = await fetchMeta(driveFileId);
+
+      // ── tx#2 — after-fence current-folder re-read folds in here (round-26: keeps
+      // exactly THREE DB windows). Then show-lock → reread → merge → atomic persist
+      // → owner-scoped lease release, ALL in this one tx. ──
+      type PersistResult = { kind: "stale" } | { kind: "ok"; merged: ParseResultLike };
+      const persist: PersistResult = await sql.begin(async (tx) => {
+        // FIRST DB op: re-read the CURRENT pending_folder_id (do NOT reuse tx#1b's
+        // value, round-17) and complete the after-fence BEFORE the show lock.
+        const settingsRows = await tx<{ pending_folder_id: string | null }>`
+        SELECT pending_folder_id FROM public.app_settings WHERE id = 'default'
+      `;
+        const currentFolder = settingsRows[0]?.pending_folder_id ?? null;
+        if (!fencePasses(afterMeta, read.stagedModifiedTime, currentFolder)) {
+          // Roll back: NO persist, NO show lock acquired (revision OR current-scope).
+          return { kind: "stale" };
+        }
+
+        // Per-show advisory lock (canonical hashtext→bigint form; round-15).
+        await tx`SELECT pg_advisory_xact_lock(hashtext('show:' || ${driveFileId}))`;
+
+        // REREAD the current parse_result under the lock.
+        const curRows = await tx<{ parse_result: ParseResultLike }>`
         SELECT parse_result FROM public.pending_syncs
          WHERE wizard_session_id = ${wizardSessionId}::uuid
            AND drive_file_id = ${driveFileId}
       `;
-      if (curRows.length === 0) return { kind: "stale" };
+        if (curRows.length === 0) return { kind: "stale" };
 
-      const merged = mergeReportIntoParseResult(curRows[0]!.parse_result, report);
+        const merged = mergeReportIntoParseResult(curRows[0]!.parse_result, report);
 
-      // Atomic generation-fenced + active + lease-owner-scoped UPDATE. 0 rows →
-      // staged row replaced (rescan), session superseded, or lease expired and was
-      // reclaimed by another owner (d5 clobber prevention) → 409, no overwrite.
-      const updated = await tx<{ ok: boolean }>`
+        // Atomic generation-fenced + active + lease-owner-scoped UPDATE. 0 rows →
+        // staged row replaced (rescan), session superseded, or lease expired and was
+        // reclaimed by another owner (d5 clobber prevention) → 409, no overwrite.
+        const updated = await tx<{ ok: boolean }>`
         UPDATE public.pending_syncs
            SET parse_result = ${merged as unknown as object}::jsonb
          WHERE wizard_session_id = ${wizardSessionId}::uuid
@@ -376,26 +380,34 @@ export async function handleExtractAgenda(
            )
         RETURNING true AS ok
       `;
-      if (updated.length === 0) return { kind: "stale" };
+        if (updated.length === 0) return { kind: "stale" };
 
-      // Owner-scoped lease release in the SAME tx#2.
-      await releaseExtractLease(tx, { wizardSessionId, driveFileId, owner });
-      return { kind: "ok", merged };
-    });
+        // Owner-scoped lease release in the SAME tx#2.
+        await releaseExtractLease(tx, { wizardSessionId, driveFileId, owner });
+        return { kind: "ok", merged };
+      });
 
-    if (persist.kind === "stale") {
-      return staleResponse(); // 409 — lease NOT released in tx; finally releases it.
+      if (persist.kind === "stale") {
+        return staleResponse(); // 409 — lease NOT released in tx; finally releases it.
+      }
+
+      // tx#2 committed the owner-scoped release.
+      leaseReleased = true;
+
+      const freshByLinkKey = new Set(
+        report.perLink.filter((v) => v.verdict === "fresh").map((v) => v.ordinal),
+      );
+      const links = (persist.merged.show?.agenda_links ?? []) as AgendaLinkRecord[];
+      const items = buildAdminAgendaPreview(links, { freshByLinkKey, validatedHrefs: true });
+      return itemsResponse(items);
+    } catch (extractErr) {
+      // Unexpected throw from the extract/after-fence/merge region. Log for ops
+      // (mirrors how finalize/route.ts surfaces infra faults), return a typed 500
+      // so callers can discriminate this from auth/fence/timeout responses.
+      // The outer finally still fires after this return and releases the lease + slot.
+      console.error("[extract-agenda] unexpected error in extract/merge region:", extractErr);
+      return NextResponse.json({ code: "AGENDA_EXTRACT_FAILED" }, { status: 500 });
     }
-
-    // tx#2 committed the owner-scoped release.
-    leaseReleased = true;
-
-    const freshByLinkKey = new Set(
-      report.perLink.filter((v) => v.verdict === "fresh").map((v) => v.ordinal),
-    );
-    const links = (persist.merged.show?.agenda_links ?? []) as AgendaLinkRecord[];
-    const items = buildAdminAgendaPreview(links, { freshByLinkKey, validatedHrefs: true });
-    return itemsResponse(items);
   } finally {
     // Lease-release boundary (round-1): every post-claim early exit
     // (before/after-fence 409, enrichAgenda throw, tx#2-stale 409, timeout) that
