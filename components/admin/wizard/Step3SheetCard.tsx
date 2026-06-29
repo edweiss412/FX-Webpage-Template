@@ -58,6 +58,7 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
+import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -829,11 +830,14 @@ export function Step3SheetCard({
             </p>
           </div>
         </div>
-        {/* Task 5b: even a no-details row can be demoted by a dirty re-scan — surface
-            the reapply link (the no-details path has no publish checkbox to suppress). */}
+        {/* A dirty re-scan routes to the reapply page (the review link is primary, even
+            for a no-details row); otherwise re-scanning is exactly how a no-details row
+            recovers, so the Re-scan button leads the recovery here (spec §9). */}
         {isDirtyRescan ? (
           <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
-        ) : null}
+        ) : (
+          <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+        )}
       </article>
     );
   }
@@ -1022,6 +1026,13 @@ export function Step3SheetCard({
         <span>More</span>
         <ChevronRight aria-hidden="true" className="size-4" />
       </button>
+
+      {/* Re-scan this sheet (spec §9): a quiet recovery CTA alongside "More". Suppressed
+          for a dirty re-scan row — its banner above already routes to the reapply page,
+          so a competing Re-scan button would muddy the primary action. */}
+      {isDirtyRescan ? null : (
+        <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+      )}
 
       {/* The details overlay — mounted ONLY while open, so a closed card carries
           no breakdown (and none of its focusable "Show all N times" controls) in
