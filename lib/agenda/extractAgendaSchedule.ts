@@ -138,7 +138,14 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       useSystemFonts: true,
     }).promise;
 
-    if (doc.numPages > AGENDA_MAX_PAGES) return LOW();
+    if (doc.numPages > AGENDA_MAX_PAGES) {
+      console.warn("[agenda-extract] too-many-pages", {
+        bytes: pdfBytes.byteLength,
+        numPages: doc.numPages,
+        max: AGENDA_MAX_PAGES,
+      });
+      return LOW();
+    }
 
     // ── 1. Lines: group text items by rounded Y, dominant (font,size). ──
     const L: Line[] = [];
@@ -480,8 +487,30 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       monoOK &&
       !ambiguousFirst;
 
-    if (!high)
+    if (!high) {
+      // Observability (agenda serverless-extraction gap): a low-confidence result renders
+      // note-only ("No schedule detected in this PDF"), indistinguishable from a genuinely
+      // scheduleless PDF without this breadcrumb. `bytes` correlates with the
+      // "[agenda-enrich] download" line that carries the fileId.
+      console.warn("[agenda-extract] low-confidence", {
+        bytes: pdfBytes.byteLength,
+        numPages: doc.numPages,
+        lineCount: lines.length,
+        sessions: n,
+        pTimeAnchor: Number(pTimeAnchor.toFixed(3)),
+        pTitle: Number(pTitle.toFixed(3)),
+        pRoom: Number(pRoom.toFixed(3)),
+        monoOK,
+        ambiguousFirst,
+        thresholds: {
+          minSessions: AGENDA_CONFIDENCE.minSessions,
+          minTimeAnchorParsePct: AGENDA_CONFIDENCE.minTimeAnchorParsePct,
+          minTitlePct: AGENDA_CONFIDENCE.minTitlePct,
+          minRoomPct: AGENDA_CONFIDENCE.minRoomPct,
+        },
+      });
       return { confidence: "low", corrections, days: [], extractorVersion: EXTRACTOR_VERSION };
+    }
 
     // ── 7. Group into AgendaDay[] in document order. ──
     const days: AgendaDay[] = [];
@@ -503,8 +532,20 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       }
     }
 
+    console.log("[agenda-extract] high", {
+      bytes: pdfBytes.byteLength,
+      numPages: doc.numPages,
+      days: days.length,
+      sessions: n,
+    });
     return { confidence: "high", corrections, days, extractorVersion: EXTRACTOR_VERSION };
-  } catch {
+  } catch (err) {
+    // Previously swallowed silently — the #1 reason a serverless extraction failure
+    // was indistinguishable from "no schedule" in production.
+    console.error("[agenda-extract] pdfjs threw", {
+      bytes: pdfBytes.byteLength,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    });
     return LOW();
   }
 }
