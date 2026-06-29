@@ -326,4 +326,21 @@ describe("finalize approval-decision race (§8)", () => {
     expect(db.firstSeenApplied).toHaveLength(1);
     expect(db.provenanceApproved).toEqual([true]); // locked-checked publish, not stale-unchecked Held
   });
+
+  // 8.4 — guard-behavior unit test (forced; §3.2 documents no current writer reaches
+  // this at the same generation). A non-finishable locked row must SKIP, not Hold.
+  test("8.4 non-finishable locked row → skip (no publish, no Held, demote)", async () => {
+    const db = new FakeDb({
+      outer: CHECKED,
+      reread: { ...UNCHECKED, last_finalize_failure_code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" },
+      existingShows: new Set(),
+    });
+    const res = await handleOnboardingFinalize(request(), deps(db));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { per_row: { code: string }[] };
+    expect(body.per_row[0]?.code).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(db.demoted.map((d) => d.code)).toContain("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(db.stagedShadowParams).toHaveLength(0);
+    expect(db.firstSeenApplied).toHaveLength(0);
+  });
 });

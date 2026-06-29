@@ -820,6 +820,30 @@ async function processApprovedRow(input: {
     wizard_reviewer_choices: coerceJsonbArray(rereadRow.wizard_reviewer_choices),
   };
 
+  // Finishable re-validation (spec §3.2): re-check the approval-column part of the
+  // selectFinishableCleanRows predicate against the LOCKED row. Forward-defense — not
+  // reachable today (approve sets failure_code=null; unapprove never writes it; rescan
+  // changes the generation → 0-row path above; finalize is self-serialized). If a future
+  // same-generation writer ever leaves a non-finishable locked row, SKIP it (back to
+  // review) rather than fall through to the unchecked branch and create a Held show for a
+  // row that carries a failure code. Reuses the existing per-row stale code (no new §12.4).
+  const lockedFinishable =
+    coercedRow.wizard_approved === true || coercedRow.last_finalize_failure_code == null;
+  if (!lockedFinishable) {
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+    );
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
   // Version gate (spec §3.0, relocated here from before the re-read so it keys on the
   // LOCKED wizard_approved + version, not the stale select-time values). Only checked
   // rows carry real choices + version; an unchecked row has version=null and must NOT be
