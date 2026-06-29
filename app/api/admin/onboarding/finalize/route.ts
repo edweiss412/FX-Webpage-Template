@@ -548,7 +548,16 @@ async function stageExistingShowShadow(
                'staged_id', $5::uuid,
                'reviewer_choices', $6::jsonb,
                'triggered_review_items', $8::jsonb,
-               'base_modified_time', $9::timestamptz
+               -- F1: a file that was FIRST-SEEN at scan time (no shows row → pending base NULL,
+               -- the correct first-seen contract) can gain a live show out-of-band before Phase B
+               -- (cron first-seen auto-publish — runScheduledCronSync.insertFirstSeenShow). Carrying
+               -- the stale NULL base into the existing-show shadow makes Phase D's equality preflight
+               -- (finalize-cas applyShadow → revisionTimesMatch) refuse every such row against the now
+               -- non-null live watermark, blocking final publish though nothing changed. Coalesce to
+               -- the live watermark read in THIS INSERT…SELECT (under the per-show advisory lock the
+               -- route already holds) — a no-op when the pending base is non-null (genuine staleness
+               -- still refuses), mirroring the scan-time coalesce in upsertLivePendingSync.
+               'base_modified_time', coalesce($9::timestamptz, s.last_seen_modified_time)
              ),
              $7, $10::timestamptz
         from public.shows s
