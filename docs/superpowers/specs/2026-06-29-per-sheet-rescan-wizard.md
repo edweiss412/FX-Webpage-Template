@@ -2,10 +2,10 @@
 
 - **Date:** 2026-06-29
 - **Slug:** `per-sheet-rescan-wizard`
-- **Status:** Draft — round 2 (autonomous-ship; user spec/plan review gates waived per AGENTS.md)
+- **Status:** APPROVED by Codex adversarial review (4 rounds; autonomous-ship; user spec/plan review gates waived per AGENTS.md)
 - **Owner:** Opus / Claude Code (UI surfaces are Opus-only per ROUTING.md)
 - **Master spec:** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`
-- **Revision note:** Round 2 integrates Codex adversarial-review round-1 findings (lock coordination with the finalize session lock; clean-rule via direct `runInvariants` diff since the onboarding scan is blinded; dirty rescans must *truly* block finalize via the demote shape; posted `wizardSessionId` stale-tab guard; Flow-B hard-fail postconditions; count-based data-gap rule; citation fixes).
+- **Revision history:** R1 (7 findings, 2 CRITICAL) → finalize-session lock coordination; clean-rule via direct `runInvariants` diff (the onboarding scan is blinded); dirty rescans truly block finalize via the demote shape; posted `wizardSessionId` stale-tab guard; Flow-B hard-fail postconditions; count-based data-gap rule. R2 (3) → Flow-B clean approval-payload CHECK; `cas_per_row` button scope + fail-closed shadow read; concrete hard-fail code. R3 (2 HIGH) → prior-state capture UNDER the lock (TOCTOU vs approve/unapprove); pre-lock folder-scope guard. R4 → APPROVE (2 LOW advisories folded in: the preliminary settings read is named in §5.2; this header).
 
 ---
 
@@ -78,7 +78,9 @@ rescanWizardSheet(driveFileId, wizardSessionId, deps)
 
 ### 5.2 Step 1 — pre-lock Drive read + folder-scope guard (side-effect-free)
 
-Fetch the file's current Drive metadata for `driveFileId` (id, name, mimeType, modifiedTime, parents) as `retrySingleFile` does (`lib/sync/retrySingleFile.ts:232`).
+First, a **preliminary NON-mutating read** of `app_settings` supplies `pending_folder_id` (for the guard + the Drive read) and `pending_wizard_session_id` (an early cheap check that the posted `wizardSessionId` matches — fail fast). This read is **advisory only**; the **authoritative** session re-check is the `... FOR UPDATE` read in §5.3 step ii, under the lock (round-4 LOW-1). Only the *mutations* move under the lock; the Drive fetch + export stays here, pre-lock.
+
+Then fetch the file's current Drive metadata for `driveFileId` (id, name, mimeType, modifiedTime, parents) as `retrySingleFile` does (`lib/sync/retrySingleFile.ts:232`).
 
 - **Folder-scope guard (round-3 finding 2):** require `metadata.parents` to contain the active `pending_folder_id`. If the sheet was **moved out** of the setup folder, return typed `out_of_scope` → `{ status:"needs_attention", code:"STAGED_PARSE_SOURCE_OUT_OF_SCOPE" }` (the cataloged code finalize already uses for this, `catalog.ts:388`); **NO mutation.** This mirrors `retrySingleFile`'s out-of-folder refusal (`retrySingleFile.ts:232-234`) and finalize's out-of-scope demotion (`finalize/route.ts:700-708`) — a re-scan-by-ID must not re-stage a file a full folder scan would exclude. Applies to BOTH Flow A and Flow B.
 - Then `prepared = await prepareOnboardingFiles(folderId, { ...deps, listFolder: async () => [metadata] })` (`lib/sync/runOnboardingScan.ts:907`; `listFolder` injection `:147`). Returns one `PreparedOnboardingFile`.
