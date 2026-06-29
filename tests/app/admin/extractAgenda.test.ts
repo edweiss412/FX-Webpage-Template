@@ -425,7 +425,7 @@ describe("extract-agenda — cache hit", () => {
   test("c: stored extracted current on rev+version → READY block, zero download/chips", async () => {
     const wiz = randomUUID();
     const dfid = "xa-cache";
-    // link.extracted.sourceRevision === current headRevisionId ('rev-1') + version 1.
+    // link.extracted.sourceRevision === current headRevisionId ('rev-1') + version === EXTRACTOR_VERSION.
     const original = parseFixture([{ label: "A", fileId: "file-a", extracted: VALID_EXTRACTION }]);
     await seedActive(wiz, dfid, FOLDER, original);
     const drive = makeDriveClient("rev-1");
