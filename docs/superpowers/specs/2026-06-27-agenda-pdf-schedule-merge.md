@@ -133,15 +133,14 @@ untouched. (This reverts every inline-extraction change from the earlier drafts.
 `buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` (§5.4) with **NO `freshByLinkKey`**
 — pure, no Drive calls, so **every baseline item is NOTE-ONLY** (the empty-default
 `freshByLinkKey` ⇒ no blocks; round-20 F1 / round-25 F2). It carries `label` + `badge`
-+ a **best-effort `href`**: present when `agendaPdfHref` can resolve it (a `/d/`-URL
-`fileId` or an `http(s)` `url`), but **`null` for the target smart-chip links**, whose
-staged value is filename text with NO `fileId` (recovered only by `getAgendaChips`, a
-Drive call the pure baseline cannot make — Codex round-25 F3). For those, the loading/
-error note shows **no Open-PDF anchor**; the card's **existing source-sheet deep link**
-(per-card, already present) is the universal PDF-recovery path. Once the endpoint runs,
-its returned items DO carry recovered `href`s (the endpoint recovers `fileId`s via
-`getAgendaChips` even when the PDF download fails), so the Open-PDF link appears in
-`ready`/note states. `adminAgendaPreview.length` IS the agenda-link count; empty
++ **`href: null` — the baseline NEVER carries an Open-PDF href (Codex round-50)**: a staged
+`fileId`/`url` captured at scan is not proof the sheet is still unchanged/in-scope, and the
+pure baseline cannot run the Drive revision/source-scope fence. So Open-PDF anchors come
+ONLY from the endpoint's `200` response (fence-validated, §5.2 step 4) — the card's
+**existing per-card source-sheet deep link** is the universal pre-validation recovery path
+(loading/stale/error). Once the endpoint runs, its returned items carry validated `href`s
+(it recovers `fileId`s via `getAgendaChips` AND passed the fence), so the Open-PDF link
+appears in the `ready` state. `adminAgendaPreview.length` IS the agenda-link count; empty
 `agenda_links` → no Agenda breakdown. **Blocks ONLY ever come from the extract endpoint
 (§5.2), the single freshness-gated source**; the client always fetches it (the endpoint
 cache-hits cheaply when already fresh — §5.2 step 5 — so an already-extracted show fills
@@ -417,10 +416,15 @@ block.**
 
 `Step3Review`/`Step3SheetCard` are `"use client"`. Each row arrives with the
 server-built **baseline** `adminAgendaPreview` (note-only items; §5.1). The card NEVER
-computes hrefs — it renders `AdminAgendaItem`s the SERVER built (baseline or endpoint
-result). Hrefs are **best-effort**: present for resolvable links; for smart-chip links
-(no `fileId`) the baseline href is `null` and the **card's existing per-card source-sheet
-deep link** is the PDF-recovery path until the endpoint returns recovered hrefs (§5.1).
+computes hrefs — it renders `AdminAgendaItem`s the SERVER built. **An Open-PDF anchor is
+rendered ONLY in the `ready` state (Codex round-50):** the only fence-validated hrefs come
+from a SUCCESSFUL endpoint `200` (whose precheck confirmed the sheet is still current +
+in-scope, §5.2 step 4). **Baseline hrefs are ALWAYS `null`** — a staged `fileId`/`url`
+captured at scan is NOT proof the sheet is still unchanged/in-scope, so the card must not
+expose it before the fence passes (absence of a `409` is NOT evidence the fence passed).
+In `loading`/`stale`/`error`, the **card's existing per-card source-sheet deep link** (which
+opens the operator's own sheet — always a safe navigation target) is the universal recovery
+path; the per-item Open-PDF anchor appears only once the endpoint validates it.
 
 - `adminAgendaPreview.length === 0` → **no Agenda breakdown** (omitted).
 - Else, per row, a state machine over the extract fetch: `idle → loading →
@@ -455,29 +459,25 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
   then still renders its eventual `200` instead of falling back to baseline before its
   extraction began. (A short fixed budget — or one window covering BOTH queue-wait and extraction —
   would abandon the live-fill before the owner persists.) A
-  **`409 { status: "stale" }`** is **terminal → `stale` state (Codex round-38)**, which is
-  DISTINCT from `error`: a 409 is the endpoint's POSITIVE signal that the staged parse is no
-  longer trustworthy (superseded/finalizing OR **revision/source-scope fence fired** —
-  §5.2 step 4). So the card must NOT render the baseline's Open-PDF hrefs (which come from
-  the now-untrusted staged `parse_result` — a stale/out-of-scope PDF link would otherwise
-  survive the backend fence at the UI). A network/5xx → `error` (the fetch failed but no
-  fence fired; the staged data is still trusted) → baseline WITH hrefs.
-- The `AgendaBreakdown` renders the EFFECTIVE items per state, with a state-driven
-  affordance:
-  - `loading` → render the baseline note items PLUS a calm **"Parsing agenda… (N PDF{s})"**
-    eyebrow/skeleton (`N = adminAgendaPreview.length`); each baseline item still shows its
-    "Open PDF" anchor (the row is still trusted while parsing).
-  - `ready` → render `resultItems` (§5.4): block → `AgendaScheduleBlock` + overflow note;
-    note item → muted note + "Open PDF". (Endpoint items carry recovered hrefs even for
-    smart-chips.)
-  - `stale` (terminal `409`) → render **SANITIZED note-only items: every href forced to
-    `null`, NO Open-PDF anchor, NO block** — a muted "agenda source changed — re-scan"
-    note. The agenda lands via cron post-publish (§3). This is the trust-boundary fix: a
-    fence-failed row exposes NO PDF link from the stale/out-of-scope parse.
-  - `error` (request rejected/network/5xx, no 409) → render the **baseline** items (muted
-    "couldn't auto-read — open the PDF" note + the server-validated "Open PDF" anchor).
-    The agenda is not lost — cron extracts it post-publish (§3). Hrefs come from the
-    baseline `AdminAgendaItem`, so the fallback is safe with NO client href logic.
+  **`409 { status: "stale" }`** is **terminal → `stale` state (Codex round-38)**: a 409 is
+  the endpoint's POSITIVE signal that the staged parse is no longer trustworthy
+  (superseded/finalizing OR revision/source-scope fence fired — §5.2 step 4) → sanitized
+  note-only. A network/5xx → `error` (the fence never ran to completion).
+- **Open-PDF anchors render ONLY in `ready` (Codex round-50): hrefs come ONLY from the
+  endpoint's `200` (fence-validated).** The `AgendaBreakdown` renders the EFFECTIVE items
+  per state:
+  - `loading` → baseline note items (label/badge) PLUS a calm **"Parsing agenda… (N PDF{s})"**
+    eyebrow/skeleton (`N = adminAgendaPreview.length`); **NO per-item Open-PDF anchor** (the
+    fence hasn't passed); the card's source-sheet link is the recovery path.
+  - `ready` (endpoint `200`) → render `resultItems` (§5.4): block → `AgendaScheduleBlock` +
+    overflow note; note item → muted note + **"Open PDF"** (these hrefs are fence-validated —
+    the precheck confirmed the sheet is current + in-scope; recovered even for smart-chips).
+  - `stale` (terminal `409`) → **SANITIZED note-only, NO anchor, NO block** — a muted
+    "agenda source changed — re-scan" note; the agenda lands via cron post-publish (§3).
+  - `error` (network/5xx, no successful fence) → **note-only, NO Open-PDF anchor** (the
+    fence never confirmed the link — round-50; a stale/out-of-scope baseline href must not
+    leak) + the **source-sheet recovery link**. The agenda is not lost — cron extracts it
+    post-publish (§3). The card NEVER computes/render an href the server didn't validate.
 - Strict-mode/double-render safe (idempotent endpoint + per-row in-flight guard). A
   closed tab simply means un-fired rows aren't previewed during THIS review (re-open
   re-fires; publish → cron). No work is dropped.
@@ -506,19 +506,22 @@ through `lib/messages/lookup.ts` (invariant 5 N/A).
 
 ### 5.4 Server-computed `adminAgendaPreview` (shared render shape)
 
-`buildAdminAgendaPreview(links): AdminAgendaItem[]` (new `lib/agenda/agendaAdminPreview.ts`,
+`buildAdminAgendaPreview(links, opts?): AdminAgendaItem[]` (new `lib/agenda/agendaAdminPreview.ts`,
 server-pure, unit-testable) is the SINGLE place agenda display logic lives; the client
 card is pure presentation over its output. It is called in BOTH server locations: by
-`fetchStep3Data` over the not-yet-extracted staged links (→ the note-only baseline with
-validated hrefs, §5.1) AND by the extract endpoint over the freshly-`extracted` links
-(→ the upgraded items with `block`s, §5.2). Same function, same shape — the only
-difference is whether `link.extracted` is populated.
+`fetchStep3Data` over the not-yet-extracted staged links (→ the **note-only, href-LESS**
+baseline, §5.1) AND by the extract endpoint over the freshly-`extracted` links (→ the
+upgraded items with `block`s + validated hrefs, §5.2). Same function, same shape. The
+endpoint passes **`opts.validatedHrefs: true`** (it ran the Drive revision/source-scope
+fence — §5.2 step 4); the baseline OMITS it, so **baseline `href` is ALWAYS `null` (Codex
+round-50)** — an Open-PDF anchor is emitted ONLY after the fence positively validated the
+link, never best-effort.
 
 ```ts
 type AdminAgendaItem = {
   label: string;            // agendaDisplayLabel(link.label) ?? link.label, coerced
   badge: string | null;     // per-doc badge when >1 link, else null
-  href: string | null;      // agendaPdfHref(link) — validated
+  href: string | null;      // agendaPdfHref(link) when opts.validatedHrefs (endpoint), else null
   block: { extraction: AgendaExtraction; droppedSessions: number;
            droppedDays: number; droppedTracks: number } | null; // null → note item
 };
@@ -528,7 +531,7 @@ Rules (all server-side, derived from earlier review rounds):
 
 - **Freshness is an EXPLICIT REQUIRED input, keyed PER-LINK, default NOT-fresh (Codex
   round-24 F1 + round-25 F2 + round-35):** the signature is `buildAdminAgendaPreview(links,
-  opts?: { freshByLinkKey?: Set<string> })`. A `block` is produced for a link ONLY when its
+  opts?: { freshByLinkKey?: Set<string>; validatedHrefs?: boolean })`. A `block` is produced for a link ONLY when its
   **per-link key** is present in `freshByLinkKey` AND it is renderable (below). The key is
   the link's **ordinal** (its index in the `agenda_links` array) — NOT its `fileId`:
   `fileId` alone is **not unique** when two agenda rows point at the SAME Drive PDF, so a
@@ -557,7 +560,9 @@ Rules (all server-side, derived from earlier review rounds):
   0`. `dropped*` ride as SIBLINGS of `extraction` (not inside it — `normalizeAgendaExtraction`
   would strip fields placed inside `AgendaExtraction`). Cap the items array at
   `AGENDA_MAX_PDFS_PER_SHEET` with a trailing "+N more agenda PDFs" note item.
-- **Open-PDF href validation (`agendaPdfHref`):** `link.fileId` (non-empty string) →
+- **Open-PDF href emitted ONLY when `opts.validatedHrefs` (Codex round-50):** without it
+  (baseline), `href` is `null` for EVERY item. With it (the endpoint, post-fence),
+  `agendaPdfHref(link)`: `link.fileId` (non-empty string) →
   `https://drive.google.com/file/d/${fileId}/view`; else `link.url` ONLY when
   `typeof url === "string" && /^https?:\/\//i.test(url)` (parser stores arbitrary
   filename text in `url`, `lib/parser/index.ts:253-255`); else `null` (note text only,
@@ -881,18 +886,19 @@ by this change.
    bounded BELOW `maxDuration`, not just idle time.
 4. **Card live fill-in (RTL, `tests/components/admin/...`)** — given a SERVER-built
    baseline `adminAgendaPreview` (note-only items), pure-presentation + per-row fetch
-   state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)" eyebrow; (b) `ready`
+   state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)" eyebrow, **NO per-item
+   Open-PDF anchor** (round-50: the fence hasn't passed; even a baseline item with a
+   `fileId` shows NO anchor — assert no Open-PDF link in `loading`); (b) `ready`
    (mock fetch resolves with upgraded items) → two `agenda-schedule` blocks (+ overflow
-   notes); (c) **`error` (mock fetch REJECTS / network/5xx, NO 409) → baseline items render**:
-   a `fileId`/http item shows a SAFE "Open PDF" anchor (round-17, server-validated, no
-   client href logic), while a **smart-chip item (no `fileId`) shows the note with NO
-   anchor** and the breakdown still renders (round-25 F3 — the per-card source-sheet link is
-   the recovery path; the card never invents an href); (c2) **`409` stale/out-of-scope →
-   SANITIZED note, NO anchor** (round-38): the mock returns `409 { status: "stale" }` for a
-   row whose baseline has a `fileId`/http item WITH an href → the card MUST render the row
-   note-only with **NO Open-PDF anchor** (every href suppressed) and NO block — assert the
-   stale baseline PDF link does NOT appear (the UI honors the backend trust fence), DISTINCT
-   from the `error` case which DOES keep the baseline anchor; (d) empty baseline → no
+   notes) WITH validated "Open PDF" anchors (the ONLY state with anchors); (c) **`error`
+   (mock fetch REJECTS / network/5xx, NO 409) → note-only, NO Open-PDF anchor** (round-50:
+   the fence never confirmed the link — a stale/out-of-scope baseline href must not leak);
+   assert NO anchor renders, the breakdown still shows the note, and the card's source-sheet
+   recovery link is present; (c2) **`409` stale/out-of-scope → SANITIZED note, NO anchor**
+   (round-38): `409 { status: "stale" }` → note-only, NO Open-PDF anchor, NO block; (c3)
+   **anchors ONLY in `ready`** (round-50): parametrize loading/error/stale all asserting
+   ZERO Open-PDF anchors, and `ready` the only state rendering them — proving href exposure
+   is gated by positive fence validation, not absence-of-409; (d) empty baseline → no
    breakdown; (e) **always-fetch /
    no stale-baseline bypass** (Codex round-20 F1 + round-21): a nonempty baseline ALWAYS
    triggers the POST — even if a (hypothetical, contract-violating) baseline item arrived
@@ -1013,7 +1019,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** brief `agenda-extract-admit` advisory lock → strict global-cap count + claim durable `agenda_extract_leases` (at cap OR live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation + `app_settings.pending_folder_id` → top-level **revision + source-scope fence** via `fetchDriveFileMetadata` (`modifiedTime == staged_modified_time` + `parents.includes(pending_folder_id)`) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
-| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
+| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string>; validatedHrefs?: boolean })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `href` emitted ONLY when `validatedHrefs` (endpoint, post-fence — round-50; baseline href always null); `capExtractionForAdmin`, `agendaPdfHref` |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000), `AGENDA_PDF_DEADLINE_MS` + `AGENDA_EXTRACT_DEADLINE_MS` (~250 000, `< maxDuration` — total-time deadlines, round-48 F1); **`EXTRACTOR_VERSION` stays `1`** (NOT bumped — round-49; `DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a brief `show:`||dfid holder (tx#2) + a brief global `agenda-extract-admit` holder (tx#1, never during Drive); finalize re-select adds no new holder |
 | `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
@@ -1080,9 +1086,10 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
   carries the agenda (round-26). tx#2 also binds to the **row generation**
   (`staged_id` + `staged_modified_time` captured in tx#1) so a same-session rescan that
   regenerates the row during extraction can't receive the old extraction (round-27).
-- Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
-  links (no `fileId`) get none from the pure baseline (the endpoint result carries
-  recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
+- Hrefs: **fence-validated only** (round-25 F3 → tightened round-50) — an Open-PDF anchor is
+  emitted ONLY by the endpoint's `200` (`opts.validatedHrefs`, after the Drive
+  revision/source-scope fence); the baseline emits NO href. The per-card source-sheet deep
+  link is the universal pre-validation recovery (loading/stale/error).
 - Revision + source-scope fence: a **TOP-LEVEL precheck** via `fetchDriveFileMetadata`
   (returns `parents` + `modifiedTime`; NOT the sync `getFile` which strips `parents`) —
   requires `metadata.modifiedTime == staged_modified_time` (a TIMESTAMP compare, NOT
@@ -1126,11 +1133,12 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 - Client state key (round-36 F2): per-row fetch state + the POST effect are keyed by the
   server-stamped `agendaStateKey` (`wizardSessionId:staged_id:staged_modified_time`), NOT
   `driveFileId` alone — a rescan/new generation resets state + re-fetches (no stale UI).
-- `409` is a DISTINCT sanitized UI state (round-38): a terminal `409` (lifecycle OR
-  revision/source-scope fence) → `stale` state rendering note-only with ALL hrefs
-  suppressed (no Open-PDF anchor, no block), so a fence-failed row never exposes a
-  stale/out-of-scope PDF link at the UI; a network/5xx `error` (no fence fired) keeps the
-  trusted baseline hrefs.
+- Open-PDF anchors render ONLY after positive fence validation (round-38 + round-50): hrefs
+  come ONLY from the endpoint's `200` (`opts.validatedHrefs`, post revision/source-scope
+  fence). Baseline `href` is ALWAYS `null`. `loading`/`stale`(409)/`error`(network/5xx) →
+  note-only, NO Open-PDF anchor (absence of a 409 is NOT evidence the fence passed) — the
+  card's source-sheet deep link is the universal recovery. Closes the loading + error
+  baseline-href leak round-38 left open.
 - Publish-safety: finalize **re-reads `parse_result` inside its already-`show:`-locked
   per-row tx** (`defaultWithRowTx:164`) before apply/shadow-stage on BOTH paths
   (round-34/35) — the extractor's tx#2 persist alone is not enough because finalize reads
