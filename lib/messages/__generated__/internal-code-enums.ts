@@ -38,6 +38,9 @@ export const INTERNAL_CODE_ENUMS = {
   COLUMN_HEADER_AUTOCORRECTED: {
     source: "parse_warnings.code"
   },
+  CONCURRENT_FINALIZE_IN_FLIGHT: {
+    source: "pending_ingestions.last_error_code"
+  },
   CONCURRENT_SYNC_SKIPPED: {
     source: "pending_ingestions.last_error_code"
   },
@@ -214,6 +217,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   STAGE_WORD_AUTOCORRECTED: {
     source: "parse_warnings.code"
+  },
+  STAGED_PARSE_FAILED: {
+    source: "pending_ingestions.last_error_code"
   },
   STAGED_PARSE_OUTDATED: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
