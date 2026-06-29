@@ -25,7 +25,7 @@ describe("logger", () => {
       actorHash: "h1",
       extra: "ctx",
     });
-    const { record } = calls[0];
+    const { record } = calls[0]!;
     expect(record).toMatchObject({
       level: "error",
       message: "kaboom",
@@ -41,7 +41,7 @@ describe("logger", () => {
   test("serializes + redacts fields.error into context.error", async () => {
     const calls = capture();
     await log.error("boom", { source: "s", error: new Error("mail eve@corp.io now") });
-    const err = calls[0].record.context.error as { message: string };
+    const err = calls[0]!.record.context.error as { message: string };
     expect(err.message).toBe("mail [email-redacted] now");
   });
 
@@ -69,10 +69,10 @@ describe("logger", () => {
       await log.warn("x", { source: "s" });
       await log.warn("y", { source: "s", requestId: "explicit", showId: "explicit-show" });
     });
-    expect(calls[0].record.requestId).toBe("req-7");
-    expect(calls[0].record.showId).toBe("show-als");
-    expect(calls[1].record.requestId).toBe("explicit");
-    expect(calls[1].record.showId).toBe("explicit-show");
+    expect(calls[0]!.record.requestId).toBe("req-7");
+    expect(calls[0]!.record.showId).toBe("show-als");
+    expect(calls[1]!.record.requestId).toBe("explicit");
+    expect(calls[1]!.record.showId).toBe("explicit-show");
   });
 
   test("default sink writes to console even with no ALS", async () => {

@@ -30,7 +30,7 @@ describe("sanitizeContext", () => {
     const { context } = sanitizeContext("m", {
       fn: () => 1,
       u: undefined,
-      big: 10n,
+      big: BigInt(10),
       nan: Number.NaN,
       keep: "ok",
     });
