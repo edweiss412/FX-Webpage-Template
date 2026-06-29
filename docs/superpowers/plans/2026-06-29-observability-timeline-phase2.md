@@ -254,10 +254,10 @@ describe("CRON_JOBS parity with pg-cron registry", () => {
 
 - [ ] **Step 2: Verify the pg-cron-jobs.json shape** — Read the file first; if the top-level key is not `jobs` or names live elsewhere, adjust the parse (`raw.jobs` vs an array) to match. Run: `pnpm vitest run tests/cron/cronJobsParity.test.ts` — expect FAIL first (parse mismatch or assertion), then adjust the parse to the real shape until it PASSES. Do NOT change `PAIRING` to make it pass; fix only the JSON read.
 
-- [ ] **Step 3: Run test to verify it passes**
+- [ ] **Step 3: Run test to verify it passes, then PROVE it catches drift (negative-control, invariant 1)**
 
 Run: `pnpm vitest run tests/cron/cronJobsParity.test.ts`
-Expected: PASS.
+Expected: PASS. Then demonstrate the guard bites: temporarily delete one entry from `CRON_JOBS` in `lib/cron/runSummary.ts`, re-run → FAIL (count/mapping mismatch); revert. (Negative-control satisfies the fail-first discipline for this structural guard test.)
 
 - [ ] **Step 4: Commit**
 
@@ -515,7 +515,7 @@ export async function runCronRoute(
       counts: outcome.summary.counts, detail: outcome.summary.detail,
     };
     try {
-      // LITERAL dispatch (never log[level]) so stripLogEmissionCalls strips it.
+      // LITERAL dispatch (never computed member access) so stripLogEmissionCalls strips it.
       if (outcome.summary.outcome === "infra") await log.error(`cron ${jobName} run`, fields);
       else if (outcome.summary.outcome === "partial") await log.warn(`cron ${jobName} run`, fields);
       else await log.info(`cron ${jobName} run`, fields);
@@ -690,10 +690,10 @@ describe("CRON_RUN_SUMMARY never leaks into the §12.4 internal-code-enum manife
 });
 ```
 
-- [ ] **Step 2: Run to verify it passes NOW** (it must already pass — the wrapper emits inside literal `log.*()` and the const module is keyword-clean)
+- [ ] **Step 2: Run to verify it passes NOW, then PROVE it catches a leak (negative-control, invariant 1)**
 
 Run: `pnpm vitest run tests/cross-cutting/cron-run-summary-scanner-safety.test.ts`
-Expected: PASS. **If it FAILS**, the wrapper/route used a non-literal `log` dispatch or `runSummary.ts` gained a forbidden keyword — fix the source (Task 1/4/5), do not weaken the test.
+Expected: PASS (the wrapper emits inside literal `log.*()` and the const module is keyword-clean). **If it FAILS now**, the wrapper/route used a non-literal `log` dispatch or `runSummary.ts` gained a forbidden keyword — fix the source (Task 1/4/5), do not weaken the test. Then demonstrate the guard bites: temporarily add the comment `// admin_alert` to `lib/cron/runSummary.ts` (which makes `extract-internal-code-enums.ts`'s admin-alerts pass extract `CRON_RUN_SUMMARY` from the `export const`), re-run → FAIL; revert.
 
 - [ ] **Step 3: Prove the generators are byte-stable**
 
@@ -757,10 +757,15 @@ describe("parseAppEventFilters", () => {
     expect(parseAppEventFilters(sp({ q: "   " })).q).toBeUndefined();
     expect(parseAppEventFilters(sp({ q: "  hello  " })).q).toBe("hello");
   });
-  test("cursor accepted only with ISO occurredAt + UUID id", () => {
+  test("cursor accepted only with ISO-shaped occurredAt + UUID id", () => {
     const good = parseAppEventFilters(sp({ cursorAt: "2026-06-29T00:00:00.000Z", cursorId: UUID }));
     expect(good.cursor).toEqual({ occurredAt: "2026-06-29T00:00:00.000Z", id: UUID });
-    expect(parseAppEventFilters(sp({ cursorAt: "nope", cursorId: UUID })).cursor == null).toBe(true);
+    // accepts PostgREST-style microseconds + +00:00 offset (the DB's own format)
+    expect(parseAppEventFilters(sp({ cursorAt: "2026-06-29T00:00:00.123456+00:00", cursorId: UUID })).cursor).toBeTruthy();
+    // rejects Date.parse-able-but-not-a-timestamp junk
+    for (const bad of ["nope", "2026", "now", "June 29 2026"]) {
+      expect(parseAppEventFilters(sp({ cursorAt: bad, cursorId: UUID })).cursor == null).toBe(true);
+    }
   });
   test("escapeIlike escapes %, _ and backslash", () => {
     expect(escapeIlike("a%b_c\\d")).toBe("a\\%b\\_c\\\\d");
@@ -808,6 +813,10 @@ export type LoadCronHealthResult =
   | { kind: "infra_error"; message: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// ISO-8601 timestamp shape — rejects Date.parse-able junk ("2026", "now", "June 29 2026")
+// while accepting BOTH canonical JS (…Z) and PostgREST (…+00:00, microseconds) forms,
+// so we must NOT use a strict toISOString() round-trip (it would reject the DB's own format).
+const ISO_TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
 const LEVELS: AppEventLevel[] = ["info", "warn", "error"];
 
 export function escapeIlike(q: string): string {
@@ -846,7 +855,7 @@ export function parseAppEventFilters(sp: SP): AppEventFilters {
   f.sinceHours = since === "1h" ? 1 : since === "7d" ? 168 : since === "all" ? null : since === "24h" ? 24 : 24;
 
   const cAt = get(sp, "cursorAt"); const cId = get(sp, "cursorId");
-  if (cAt && cId && UUID_RE.test(cId) && !Number.isNaN(Date.parse(cAt))) {
+  if (cAt && cId && UUID_RE.test(cId) && ISO_TS_RE.test(cAt) && !Number.isNaN(Date.parse(cAt))) {
     f.cursor = { occurredAt: cAt, id: cId };
   }
   return f;
@@ -1117,6 +1126,12 @@ describe("loadCronHealth", () => {
     expect(sync.outcome).toBeNull();
     expect(sync.level).toBe("warn");
   });
+  test("returned {error} on a read → infra_error 'returned error' (distinct from threw)", async () => {
+    const load = await withClient(mockClient({}, { error: { message: "boom" } }));
+    const r = await load();
+    expect(r).toMatchObject({ kind: "infra_error" });
+    expect((r as { message: string }).message).toMatch(/returned error/);
+  });
   test("thrown → infra_error /app_events.*threw/", async () => {
     const load = await withClient(mockClient({}, { throwOnFrom: true }));
     const r = await load();
@@ -1156,9 +1171,16 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult> {
           .limit(1),
       ),
     );
+    // Distinguish a RETURNED {error} from a THROWN error (invariant 9): a returned
+    // error on any of the 9 reads → infra_error("…returned error"); a genuine throw
+    // (network reset, construction fault) funnels to the catch → "…threw".
+    const returned = results.find((r) => (r as { error?: unknown }).error);
+    if (returned) {
+      void log.error("app_events read returned error", { source: "admin.loadCronHealth", error: (returned as { error: unknown }).error });
+      return { kind: "infra_error", message: "app_events read returned error" };
+    }
     const jobs: CronHealthRow[] = CRON_JOBS.map((job, i) => {
-      const { data, error } = results[i] as { data: Array<Record<string, unknown>> | null; error: unknown };
-      if (error) throw error; // funnel to the catch → one infra_error for the whole header
+      const data = (results[i] as { data: Array<Record<string, unknown>> | null }).data;
       const r = data?.[0];
       if (!r) {
         return { ...job, lastRunAt: null, outcome: null, level: null, counts: null };
@@ -1600,11 +1622,19 @@ const base: AppEventRow = {
 };
 
 describe("EventRow", () => {
-  test("expands to show the FULL untruncated message and context", () => {
+  test("collapsed: ContextDetail not mounted; expand mounts it with FULL message + drive id", () => {
+    // Non-tautological: the collapsed toggle button holds the (CSS-truncated) full text too,
+    // so assert the ContextDetail element MOUNTS on expand, not mere text presence.
     render(<EventRow event={base} now={now} />);
+    expect(screen.queryByTestId("event-full-message")).toBeNull();
     fireEvent.click(screen.getByTestId("event-row-toggle-e1"));
-    expect(screen.getByText(longMsg)).toBeInTheDocument(); // full message present after expand
-    expect(screen.getByText(/df-1/)).toBeInTheDocument(); // drive_file_id in detail
+    expect(screen.getByTestId("event-full-message")).toHaveTextContent(longMsg);
+    expect(screen.getByText(/df-1/)).toBeInTheDocument();
+  });
+  test("show/request links are NOT nested inside the toggle button (valid interactive nesting)", () => {
+    render(<EventRow event={{ ...base, showId: "00000000-0000-0000-0000-0000000000ab", showTitle: "RPAS" }} now={now} />);
+    const toggle = screen.getByTestId("event-row-toggle-e1");
+    expect(toggle.querySelector("a")).toBeNull(); // no <a> inside the <button>
   });
   test("request chip links to ?requestId=<id>&since=all", () => {
     render(<EventRow event={base} now={now} />);
@@ -1656,6 +1686,7 @@ export function ContextDetail({ event }: { event: AppEventRow }) {
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { CRON_RUN_SUMMARY } from "@/lib/cron/runSummary";
 import type { AppEventRow } from "@/lib/admin/observabilityTypes";
@@ -1665,6 +1696,7 @@ import { CronRunSummaryCard } from "./CronRunSummaryCard";
 
 export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
   const [open, setOpen] = useState(false);
+  const reduce = useReducedMotion();
   const isSummary = event.code === CRON_RUN_SUMMARY;
   return (
     <li className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad">
@@ -1674,22 +1706,26 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
           {isSummary ? (
             <CronRunSummaryCard event={event} />
           ) : (
-            <button
-              type="button"
-              data-testid={`event-row-toggle-${event.id}`}
-              onClick={() => setOpen((v) => !v)}
-              className="block w-full text-left"
-              aria-expanded={open}
-            >
-              <span className="block truncate text-sm text-text">{event.message}</span>
-              <span className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-subtle">
+            <>
+              {/* The toggle button contains ONLY the message — no nested interactive elements. */}
+              <button
+                type="button"
+                data-testid={`event-row-toggle-${event.id}`}
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+                className="block w-full truncate text-left text-sm text-text"
+              >
+                {event.message}
+              </button>
+              {/* Metadata row — SIBLING of the button (links must not nest inside a button). */}
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-subtle">
                 <span className="font-medium">{event.source}</span>
                 {event.code && <span className="rounded-pill bg-surface-sunken px-1.5">{event.code}</span>}
                 {event.showId && (
                   <Link href={`/admin/show/${event.showId}`} className="underline">{event.showTitle ?? event.showId}</Link>
                 )}
-              </span>
-            </button>
+              </div>
+            </>
           )}
         </div>
         <span className="shrink-0 text-xs text-text-faint">{formatRelative(event.occurredAt, now)}</span>
@@ -1703,7 +1739,22 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
           </Link>
         )}
       </div>
-      {open && !isSummary && <ContextDetail event={event} />}
+      {/* The ONE animated transition in this surface (spec §7): height disclosure,
+          220ms ease-out-quart, instant under prefers-reduced-motion (useReducedMotion → 0). */}
+      <AnimatePresence initial={false}>
+        {open && !isSummary && (
+          <motion.div
+            key="detail"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: reduce ? 0 : 0.22, ease: [0.25, 1, 0.5, 1] }}
+            style={{ overflow: "hidden" }}
+          >
+            <ContextDetail event={event} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </li>
   );
 }
@@ -1737,8 +1788,16 @@ git commit --no-verify -m "feat(observability): EventRow + ContextDetail (full m
 
 ```tsx
 // tests/components/observability/eventFilters.test.tsx
-import { describe, expect, test } from "vitest";
-import { buildFilterHref } from "@/components/admin/observability/EventFilters";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+
+const push = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+  useSearchParams: () => new URLSearchParams("level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001"),
+}));
+
+import { EventFilters, buildFilterHref } from "@/components/admin/observability/EventFilters";
 
 describe("buildFilterHref drops cursor on every mutation", () => {
   test("changing a filter removes cursorAt/cursorId", () => {
@@ -1755,6 +1814,31 @@ describe("buildFilterHref drops cursor on every mutation", () => {
     const out = new URLSearchParams(buildFilterHref(cur, { source: null }).split("?")[1]);
     expect(out.get("source")).toBeNull();
     expect(out.get("since")).toBe("7d");
+  });
+});
+
+describe("EventFilters surface (spec §6.2 / AC2)", () => {
+  beforeEach(() => push.mockClear());
+  test("renders level + since + source/code/show/request + message inputs", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    for (const id of ["filter-source", "filter-code", "filter-showId", "filter-requestId", "filter-q"]) {
+      expect(screen.getByTestId(id)).toBeInTheDocument();
+    }
+  });
+  test("changing the source filter navigates and DROPS the cursor", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    const input = screen.getByTestId("filter-source") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "cron.sync" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(push).toHaveBeenCalledTimes(1);
+    const href = push.mock.calls[0][0] as string;
+    expect(href).toContain("source=cron.sync");
+    expect(href).not.toContain("cursorAt");
+    expect(href).not.toContain("cursorId");
+  });
+  test("requestId mode shows the 'Showing one request' chip", () => {
+    render(<EventFilters filters={{ requestId: "req-9", sinceHours: null }} />);
+    expect(screen.getByText(/Showing one request/)).toBeInTheDocument();
   });
 });
 ```
@@ -1823,8 +1907,18 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         <option value="7d">Last 7 days</option>
         <option value="all">All</option>
       </select>
+      {(["source", "code", "showId", "requestId"] as const).map((key) => (
+        <input
+          key={key} type="text"
+          data-testid={`filter-${key}`}
+          placeholder={key === "showId" ? "show id…" : key === "requestId" ? "request id…" : `${key}…`}
+          defaultValue={(filters[key] as string | undefined) ?? ""}
+          className="rounded border border-border bg-surface px-2 py-1"
+          onKeyDown={(e) => { if (e.key === "Enter") go({ [key]: (e.target as HTMLInputElement).value || null }); }}
+        />
+      ))}
       <input
-        type="search" placeholder="Search message…" defaultValue={filters.q ?? ""}
+        type="search" placeholder="Search message…" defaultValue={filters.q ?? ""} data-testid="filter-q"
         className="rounded border border-border bg-surface px-2 py-1"
         onKeyDown={(e) => { if (e.key === "Enter") go({ q: (e.target as HTMLInputElement).value || null }); }}
       />
@@ -1900,6 +1994,26 @@ describe("AutoRefreshControl", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     expect(refresh).not.toHaveBeenCalled();
   });
+  test("toggling OFF then ON fires an immediate refresh on the ON transition (§6.3)", () => {
+    render(<AutoRefreshControl />);
+    fireEvent.click(screen.getByTestId("autorefresh-toggle")); // ON→OFF (no refresh)
+    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("autorefresh-toggle")); // OFF→ON → immediate refresh
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+  test("manual refresh shows the 'Updated …s ago' indicator", () => {
+    render(<AutoRefreshControl />);
+    expect(screen.queryByTestId("autorefresh-updated")).toBeNull();
+    fireEvent.click(screen.getByTestId("autorefresh-manual"));
+    expect(screen.getByTestId("autorefresh-updated")).toBeInTheDocument();
+  });
+  test("persisted OFF: initial localStorage=off → no tick, toggle shows off", () => {
+    localStorage.setItem("fxav.observability.autorefresh", "off");
+    render(<AutoRefreshControl />);
+    vi.advanceTimersByTime(40_000);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.getByTestId("autorefresh-toggle").getAttribute("aria-pressed")).toBe("false");
+  });
 });
 ```
 
@@ -1913,7 +2027,7 @@ Expected: FAIL — module not found.
 ```tsx
 // components/admin/observability/AutoRefreshControl.tsx
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export const AUTO_REFRESH_MS = 20_000;
@@ -1925,37 +2039,48 @@ export function AutoRefreshControl() {
   const [on, setOn] = useState(true); // SSR + first paint = ON
   const onRef = useRef(on);
   onRef.current = on;
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<number | null>(null);
+  const [, force] = useState(0); // re-render the relative "Updated …s ago" label
+
+  const doRefresh = useCallback(() => {
+    setLastRefreshedAt(Date.now());
+    router.refresh();
+  }, [router]);
 
   // Reconcile from localStorage after mount (avoid hydration mismatch).
   useEffect(() => {
     try { if (localStorage.getItem(KEY) === "off") setOn(false); } catch { /* ignore */ }
   }, []);
 
-  // Interval — scroll-gated, only fires when ON and near the top.
+  // Interval — scroll-gated, only fires when ON, visible, and near the top.
   useEffect(() => {
     if (!on) return;
     const tick = () => {
-      if (onRef.current && document.visibilityState !== "hidden" && window.scrollY <= AUTO_REFRESH_TOP_PX) {
-        router.refresh();
-      }
+      if (onRef.current && document.visibilityState !== "hidden" && window.scrollY <= AUTO_REFRESH_TOP_PX) doRefresh();
     };
     const id = window.setInterval(tick, AUTO_REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [on, router]);
+  }, [on, doRefresh]);
 
   // Visibility resume — only when ON.
   useEffect(() => {
-    const onVis = () => { if (onRef.current && document.visibilityState === "visible") router.refresh(); };
+    const onVis = () => { if (onRef.current && document.visibilityState === "visible") doRefresh(); };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [router]);
+  }, [doRefresh]);
+
+  // Tick the relative label once per second while a timestamp exists.
+  useEffect(() => {
+    if (lastRefreshedAt == null) return;
+    const id = window.setInterval(() => force((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [lastRefreshedAt]);
 
   const toggle = () => {
-    setOn((v) => {
-      const next = !v;
-      try { localStorage.setItem(KEY, next ? "on" : "off"); } catch { /* ignore */ }
-      return next;
-    });
+    const next = !onRef.current;
+    try { localStorage.setItem(KEY, next ? "on" : "off"); } catch { /* ignore */ }
+    setOn(next);
+    if (next) doRefresh(); // OFF→ON fires an immediate refresh (spec §6.3)
   };
 
   return (
@@ -1964,7 +2089,12 @@ export function AutoRefreshControl() {
         className={`rounded-pill px-2 py-0.5 ${on ? "bg-accent text-accent-text" : "bg-surface-sunken"}`}>
         Auto-refresh {on ? "on" : "off"}
       </button>
-      <button type="button" data-testid="autorefresh-manual" onClick={() => router.refresh()} className="underline">Refresh</button>
+      <button type="button" data-testid="autorefresh-manual" onClick={doRefresh} className="underline">Refresh</button>
+      {lastRefreshedAt != null && (
+        <span data-testid="autorefresh-updated">
+          Updated {Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000))}s ago
+        </span>
+      )}
     </div>
   );
 }
@@ -2344,33 +2474,42 @@ import type { AppEventRow } from "@/lib/admin/observabilityTypes";
 
 const DIR = join(__dirname, "..", "..", "..", "components/admin/observability");
 const read = (f: string) => readFileSync(join(DIR, f), "utf8");
+const INSTANT = ["CronHealthHeader.tsx", "EventTimeline.tsx", "EventFilters.tsx", "CronRunSummaryCard.tsx"];
 const now = new Date("2026-06-29T12:00:00.000Z");
 const ev: AppEventRow = { id: "x", occurredAt: "2026-06-29T11:00:00.000Z", level: "info", source: "s", message: "m", code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: { a: 1 }, showTitle: null };
 
-describe("transition inventory", () => {
-  test("no AnimatePresence / framer enter-exit in the observability surface (instant by design)", () => {
-    for (const f of ["CronHealthHeader.tsx", "EventTimeline.tsx", "EventFilters.tsx", "EventRow.tsx", "CronRunSummaryCard.tsx"]) {
+describe("transition inventory (spec §7)", () => {
+  test("EventRow is the ONE animated transition: a height disclosure with reduced-motion handling", () => {
+    const src = read("EventRow.tsx");
+    expect(src).toContain("AnimatePresence");
+    expect(src).toMatch(/height:\s*["']?auto/);   // height disclosure (220ms)
+    expect(src).toContain("useReducedMotion");     // instant under reduced-motion
+  });
+  test("every OTHER observability component is instant — no AnimatePresence / motion / exit", () => {
+    for (const f of INSTANT) {
       const src = read(f);
-      expect(src).not.toContain("AnimatePresence");
-      expect(src).not.toMatch(/\bexit=\{/);
+      expect(src, `${f} should be instant`).not.toContain("AnimatePresence");
+      expect(src, `${f} should be instant`).not.toContain("motion.");
+      expect(src, `${f} should be instant`).not.toMatch(/\bexit=\{/);
     }
   });
-  test("EventRow expand/collapse toggles ContextDetail (the one interactive transition)", () => {
+  test("EventRow expand mounts ContextDetail and flips aria-expanded (the one interactive transition)", () => {
     render(<EventRow event={ev} now={now} />);
+    const toggle = screen.getByTestId("event-row-toggle-x");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByTestId("event-full-message")).toBeNull();
-    fireEvent.click(screen.getByTestId("event-row-toggle-x"));
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("event-row-toggle-x"));
-    expect(screen.queryByTestId("event-full-message")).toBeNull();
     cleanup();
   });
 });
 ```
 
-- [ ] **Step 2: Run to verify it passes** (it should, given the components are instant by design)
+- [ ] **Step 2: Run to verify it passes, then PROVE it catches a violation (TDD negative-control per invariant 1)**
 
 Run: `pnpm vitest run tests/components/observability/transitionAudit.test.tsx`
-Expected: PASS. If it fails because a component imported `AnimatePresence`, remove it (the spec mandates instant transitions on this polling surface).
+Expected: PASS. Then demonstrate the guard bites: temporarily add `import { AnimatePresence } from "framer-motion";` to `CronHealthHeader.tsx`, re-run → the "instant" test must FAIL; revert. And temporarily remove `useReducedMotion` from `EventRow.tsx`, re-run → the EventRow test must FAIL; revert. (Negative-control satisfies the fail-first discipline for a structural guard test; `feedback_negative_regression_verification`.)
 
 - [ ] **Step 3: Commit**
 
