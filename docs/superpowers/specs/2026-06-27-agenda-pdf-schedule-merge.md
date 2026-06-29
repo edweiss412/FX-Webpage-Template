@@ -272,11 +272,13 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
    — round-37), NO Drive PDF work (no `getAgendaChips`/`downloadFileBytes`), NO trust of any
    staged/recovered fileId, no write (this is the round-31 fix too: a retry that would
    otherwise skip `getAgendaChips` and download a now-stale recovered fileId is caught
-   here). **AFTER** extraction, before persist (step 7), **re-call `fetchDriveFileMetadata`**
-   and require BOTH `modifiedTime` STILL equals `staged_modified_time` AND
-   `parents.includes(pending_folder_id)` STILL holds — catching a sheet edit OR a
-   move-out-of-folder DURING the ≤300 s window. Either mismatch → `409 stale`, no persist;
-   the operator re-scans. (Mirrors the sync pipeline's modifiedTime TOCTOU fence + finalize's
+   here). **AFTER** extraction, before persist (step 7), **re-call `fetchDriveFileMetadata`
+   AND re-read the CURRENT `app_settings.pending_folder_id` (round-17 — do NOT reuse the
+   tx#1 value)** and require BOTH `modifiedTime` STILL equals `staged_modified_time` AND
+   `parents.includes(<current pending_folder_id>)` STILL holds — catching a sheet edit, a
+   move-out-of-folder, OR a **change to the configured onboarding folder** DURING the ≤300 s
+   window (matching finalize, which reads current settings at processing time). Either
+   mismatch → `409 stale`, no persist; the operator re-scans. (Mirrors the sync pipeline's modifiedTime TOCTOU fence + finalize's
    source-scope guard.) Because the precheck already
    gated everything, `enrichAgenda`'s single internal `getAgendaChips` (`enrichAgenda.ts:66-68`)
    runs within the fenced window — and the after-check covers any edit landing during it.
