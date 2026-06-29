@@ -285,13 +285,16 @@ fast-path** (per-instance):
    — round-37), NO Drive PDF work (no `getAgendaChips`/`downloadFileBytes`), NO trust of any
    staged/recovered fileId, no write (this is the round-31 fix too: a retry that would
    otherwise skip `getAgendaChips` and download a now-stale recovered fileId is caught
-   here). **AFTER** extraction, before persist (step 7), **re-call `fetchDriveFileMetadata`
-   AND re-read the CURRENT `app_settings.pending_folder_id` (round-17 — do NOT reuse the
-   tx#1b value)** and require BOTH `modifiedTime` STILL equals `staged_modified_time` AND
-   `parents.includes(<current pending_folder_id>)` STILL holds — catching a sheet edit, a
-   move-out-of-folder, OR a **change to the configured onboarding folder** DURING the ≤300 s
-   window (matching finalize, which reads current settings at processing time). Either
-   mismatch → `409 stale`, no persist; the operator re-scans. (Mirrors the sync pipeline's modifiedTime TOCTOU fence + finalize's
+   here). **AFTER** extraction, before persist: **re-call `fetchDriveFileMetadata`** (a Drive
+   call, NO DB connection held), then at the START of tx#2 (step 7 — before the `show:` lock,
+   round-26: this keeps exactly THREE DB windows; the after-fence's DB read is folded into
+   tx#2, NOT a fourth tx) **re-read the CURRENT `app_settings.pending_folder_id` (round-17 —
+   do NOT reuse the tx#1b value)** and require BOTH `revisionTimesMatch(reFetched.modifiedTime,
+   staged_modified_time)` AND `reFetched.parents.includes(<current pending_folder_id>)` STILL
+   hold — catching a sheet edit, a move-out-of-folder, OR a **change to the configured
+   onboarding folder** DURING the ≤300 s window (matching finalize, which reads current
+   settings at processing time). Either mismatch → roll back tx#2 (no `show:` lock, no
+   persist), `409 stale`; the operator re-scans. (Mirrors the sync pipeline's modifiedTime TOCTOU fence + finalize's
    source-scope guard.) Because the precheck already
    gated everything, `enrichAgenda`'s single internal `getAgendaChips` (`enrichAgenda.ts:66-68`)
    runs within the fenced window — and the after-check covers any edit landing during it.
@@ -326,10 +329,13 @@ fast-path** (per-instance):
    this call; a link that failed to refresh OR changed mid-download → **note-only**
    (`block: null`), its `extracted` NOT written as fresh. (Plan: extend `enrichAgenda`/the
    wrapper to return per-link confirmed-fresh + stable revision, not mutation side-effects.)
-7. **SHORT tx #2 — brief `show:` lock + REREAD-MERGE-conditional persist (Codex round-25
-   F1)** — open a new tx, acquire the canonical `show:` lock
-   (`pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`, blocking, held only for
-   this quick write — finalize waits at most ms, never the extraction window). Do NOT
+7. **SHORT tx #2 — after-fence folder re-read → brief `show:` lock → REREAD-MERGE-conditional
+   persist (Codex round-25 F1 + round-26)** — open a new tx and FIRST run the after-fence's
+   DB read: re-`SELECT app_settings.pending_folder_id` (current) and complete the after-fence
+   (revision via the re-fetched metadata from step 4 + scope via its `parents` vs this current
+   folder); mismatch → roll back, `409 stale`, NO `show:` lock acquired. Else acquire the
+   canonical `show:` lock (`pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`,
+   blocking, held only for this quick write — finalize waits at most ms, never the extraction window). Do NOT
    overwrite the whole `parse_result` with the tx#1b snapshot — that would lose any change
    (another extractor's success, or other staged edits) made during the no-DB extraction
    window, and a LATER stale extraction could erase a newer one. Instead: **REREAD** the
