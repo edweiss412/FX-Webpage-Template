@@ -29,7 +29,7 @@
  * height-morph + reduced-motion handling live in app/globals.css
  * (`[data-step3-breakdown]`), consuming --duration-normal.
  */
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, ExternalLink } from "lucide-react";
 import type {
@@ -614,6 +614,20 @@ export function __resetAgendaThrottleForTests(): void {
   agendaSlotWaiters.length = 0;
 }
 
+/**
+ * Test-only seam: captures `currentKeyRef.current` in the layout-effect phase
+ * (after commit, before passive effects) so the g3 regression test can observe
+ * whether line 761's render-time write fired before the second render pass read
+ * it. Passive effects (line 768) update the same ref to the new key in both
+ * branches — but after the commit — so the value reflects only the render-time
+ * update. Only reading the ref here (outside render, inside layout effect)
+ * avoids the react-hooks/refs rule.
+ */
+let _debugCurrentKeyAtLayout: string | undefined;
+export function __getDebugCurrentKeyAtLayout(): string | undefined {
+  return _debugCurrentKeyAtLayout;
+}
+
 /** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
 function parseRetryAfterMs(header: string | null): number {
   if (!header) return 5_000;
@@ -699,9 +713,7 @@ function AgendaItemRow({
           role="status"
           aria-live="polite"
           data-testid="agenda-note"
-          className={
-            state === "error" ? "text-sm text-warning-text" : "text-sm text-text-subtle"
-          }
+          className={state === "error" ? "text-sm text-warning-text" : "text-sm text-text-subtle"}
         >
           {agendaItemNote(state)}
         </p>
@@ -758,6 +770,11 @@ export function AgendaBreakdown({
     setTrackedKey(stateKey);
     setState(baseline.length > 0 ? "loading" : "idle");
     setItems(baseline);
+    // Intentional render-time ref update (react-hooks/refs disable below):
+    // the effect also sets this (line 785), but passive-effect flush is too
+    // late for the live() guard in a concurrent generation window.
+    // eslint-disable-next-line react-hooks/refs
+    currentKeyRef.current = stateKey;
   }
 
   useEffect(() => {
@@ -853,6 +870,15 @@ export function AgendaBreakdown({
       controller.abort();
     };
   }, [stateKey, driveFileId, wizardSessionId]);
+
+  // Test seam: capture currentKeyRef.current in the layout phase so the g3
+  // regression can observe the render-time fix (line 761) without reading the
+  // ref during render. Layout effects fire after DOM mutations but before
+  // passive effects, making this the only window that distinguishes line 761
+  // (render-time write) from the passive-effect write at line 768.
+  useLayoutEffect(() => {
+    _debugCurrentKeyAtLayout = currentKeyRef.current;
+  });
 
   // §4.6 guard: no agenda links → no breakdown at all (and the effect above
   // never POSTs).

@@ -332,6 +332,35 @@ describe("extract-agenda — fences", () => {
     expect(after?.show.agenda_links[0]?.extracted).toBeUndefined(); // unchanged
     expect(await liveLeaseCount(dfid)).toBe(0); // lease released on exit
   });
+
+  test("m-throw: before-fence fetchMeta throw → typed 500 { status: error }, NO extraction, lease released", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-m-throw";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
+    const enrich = vi.fn(async () => ({ perLink: [] }) as EnrichAgendaReport);
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({
+        // Throw on the first (before-fence) fetchMeta call. Without the fix,
+        // fetchMeta is OUTSIDE the inner try, so the throw escapes the outer try
+        // (no catch block) and handleExtractAgenda rejects — the test fails because
+        // `res` is never assigned. With the fix, fetchMeta is INSIDE the inner try
+        // whose catch returns NextResponse.json({ status: "error" }, { status: 500 }).
+        fetchMeta: vi.fn(async () => {
+          throw new Error("Drive API fault");
+        }),
+        enrichAgenda: enrich,
+      }),
+    );
+    // Inner catch must return a uniform typed 500, NOT a bare framework rejection/500.
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+    // The throw happened before enrichAgenda could be called.
+    expect(enrich).not.toHaveBeenCalled();
+    // The outer finally must release the durable lease even when the inner catch returns.
+    expect(await liveLeaseCount(dfid)).toBe(0);
+  });
 });
 
 // ─── (b/k/j-from-report/o) persist ─────────────────────────────────────────────

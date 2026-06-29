@@ -14,10 +14,12 @@
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, render, within } from "@testing-library/react";
+import { flushSync } from "react-dom";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
   AgendaBreakdown,
+  __getDebugCurrentKeyAtLayout,
   __resetAgendaThrottleForTests,
 } from "@/components/admin/wizard/Step3SheetCard";
 
@@ -320,6 +322,89 @@ describe("AgendaBreakdown — 5-state machine", () => {
     expect(s.queryByTestId("agenda-schedule")).toBeNull(); // A's items NOT rendered
     expect(s.queryAllByTestId("agenda-open-pdf")).toHaveLength(0);
     expect(s.getByText(/Parsing agenda/i)).toBeTruthy(); // B still loading (untouched)
+  });
+
+  // (g3) render-time ref update: after the render-time reset block fires for gen-B,
+  // currentKeyRef.current must already equal "gen-B" so that a concurrent gen-A
+  // resolution that checks live() sees the updated key and drops itself.
+  //
+  // Mechanism (Step3SheetCard.tsx render-time block, lines 757–762):
+  //   When stateKey changes, the component's render-time block fires on the FIRST
+  //   render pass and calls setTrackedKey/setState/setItems (causing a second pass).
+  //   Line 761 (`currentKeyRef.current = stateKey`) also updates the ref on that
+  //   first pass, so the SECOND render pass (derived-state re-render) sees the new
+  //   value. The passive-effect write at line 768 also sets this, but fires AFTER
+  //   the commit — too late to distinguish from the fix in passive-effect-level tests.
+  //
+  // Primary discriminator: __getDebugCurrentKeyAtLayout() (Step3SheetCard.tsx).
+  //   A useLayoutEffect inside AgendaBreakdown captures currentKeyRef.current after
+  //   each commit (layout phase: after DOM mutations, before passive effects). The
+  //   layout effect fires with the value as of the SECOND render pass:
+  //     WITH fix (line 761):  first pass sets currentKeyRef.current="gen-B" →
+  //                           second pass sees "gen-B" → layout effect records "gen-B" ✓
+  //     WITHOUT fix:          ref unchanged ("gen-A") after first pass →
+  //                           second pass sees "gen-A" → layout effect records "gen-A" ✗
+  //   After passive effects (line 768 sets ref="gen-B" in both branches), no re-render
+  //   fires, so __getDebugCurrentKeyAtLayout() stays at the layout-phase snapshot.
+  //
+  //   flushSync (DiscreteEventPriority / sync lanes) commits the render AND runs layout
+  //   effects AND passive effects all synchronously before returning (commitRootImpl →
+  //   commitLayoutEffects → flushSpawnedWork → flushPendingEffects). The layout effect
+  //   captures the value BEFORE passive effects overwrite it, giving the discriminator.
+  //
+  // Secondary check: genAJsonSpy (both branches: cancelled=true → live()=false → dropped).
+  test("(g3) gen-A resolving after gen-B render-time reset is dropped (render-time ref update)", async () => {
+    const dA = defer<Response>();
+    const dB = defer<Response>();
+
+    const genABody = { items: READY_ITEMS };
+    const genAResponse = new Response(JSON.stringify(genABody), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const genAJsonSpy = vi.fn().mockResolvedValue(genABody);
+    genAResponse.json = genAJsonSpy;
+
+    fetchMock.mockReturnValueOnce(dA.promise).mockReturnValueOnce(dB.promise);
+
+    const view = renderCard({ stateKey: "gen-A" });
+    await flush(); // gen-A in flight; currentKeyRef.current = "gen-A"
+
+    await act(async () => {
+      // flushSync commits gen-B's render SYNCHRONOUSLY (DiscreteEventPriority, sync lanes).
+      // Sequence inside flushSync: render → commitLayoutEffects (useLayoutEffect fires) →
+      // flushSpawnedWork → flushPendingEffects (passive effects, cancelled=true for gen-A).
+      // The render-time block (first pass) fires before layout effects:
+      //   WITH fix (line 761):  currentKeyRef.current = "gen-B" → layout records "gen-B"
+      //   WITHOUT fix:          currentKeyRef.current stays "gen-A" → layout records "gen-A"
+      flushSync(() => {
+        view.rerender(
+          <AgendaBreakdown
+            driveFileId={DFID}
+            wizardSessionId={WIZARD_SESSION_ID}
+            baseline={BASELINE}
+            stateKey="gen-B"
+          />,
+        );
+      });
+
+      // PRIMARY DISCRIMINATOR: layout-effect snapshot captured before passive effects
+      // (line 768) overwrote the ref. After passive effects, ref="gen-B" in both
+      // branches, but __getDebugCurrentKeyAtLayout() retains the layout-phase value.
+      expect(__getDebugCurrentKeyAtLayout()).toBe("gen-B");
+
+      dA.resolve(genAResponse);
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+    });
+
+    // Secondary: gen-A aborted+cancelled → json() never called.
+    expect(genAJsonSpy).not.toHaveBeenCalled();
+
+    // gen-B remains in loading state (dB still pending).
+    const s = within(section());
+    expect(s.queryByTestId("agenda-schedule")).toBeNull();
+    expect(s.queryAllByTestId("agenda-open-pdf")).toHaveLength(0);
+    expect(s.getByText(/Parsing agenda/i)).toBeTruthy();
   });
 
   // (h) queued past one window then admitted → 200.

@@ -278,19 +278,21 @@ export async function handleExtractAgenda(
     if (read.kind === "missing") return itemsResponse([]); // 200 { items: [] }
     if (read.kind === "superseded") return staleResponse(); // 409 stale
 
-    // ── before-fence (Drive metadata, NO DB connection held). ──
-    const beforeMeta = await fetchMeta(driveFileId);
-    if (!fencePasses(beforeMeta, read.stagedModifiedTime, read.pendingFolderId)) {
-      return staleResponse(); // 409, NO Drive download
-    }
-
-    // ── extract/merge region — inner try catches unexpected throws as typed 500
-    // (invariant 9: infra faults must be discriminable). The catch is INSIDE the
-    // outer try whose finally releases the lease + slot, so release still fires
-    // on this path. The 504 timeout branch returns from inside this inner try
-    // (never reaching the catch); auth 403/500 and before-fence 409s are above
-    // this block and are unchanged.
+    // ── before-fence + extract/merge region — inner try catches unexpected throws
+    // as a typed 500 { status: "error" } (invariant 9: infra faults must be
+    // discriminable). The catch is INSIDE the outer try whose finally releases the
+    // lease + slot, so release still fires on this path. The before-fence Drive
+    // metadata read is INSIDE this try (Codex whole-diff R1): a fetchMeta
+    // timeout/5xx/auth fault now returns the uniform JSON 500 instead of a bare
+    // framework 500. The 504 timeout branch + the 409 fence-mismatch return from
+    // inside this try (never reaching the catch); auth 403/500 are above and unchanged.
     try {
+      // ── before-fence (Drive metadata, NO DB connection held). ──
+      const beforeMeta = await fetchMeta(driveFileId);
+      if (!fencePasses(beforeMeta, read.stagedModifiedTime, read.pendingFolderId)) {
+        return staleResponse(); // 409, NO Drive download
+      }
+
       // ── extract with the deadline race (no DB connection held). ──
       const controller = new AbortController();
       const extractionPromise = enrichAgenda(
