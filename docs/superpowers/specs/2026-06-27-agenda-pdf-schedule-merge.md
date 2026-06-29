@@ -206,11 +206,15 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      WHERE expires_at <= now()` — reclaims crash/hard-kill rows whose owner never released;
      under the admit lock this is serialized (no concurrent-delete race) and keeps the table
      BOUNDED (≈ live extractions only), so the count never degrades into an unbounded scan of
-     accumulated dead rows; (3) `SELECT count(*) FROM public.agenda_extract_leases` (all
-     remaining are live post-GC) — if `>= AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → NO
-     claim → `202`; (4) else claim the per-row lease `INSERT … ON CONFLICT
-     (wizard_session_id, drive_file_id) DO UPDATE … WHERE expires_at < now() RETURNING owner`
-     — 0 rows = a live lease for this row → `202`.
+     accumulated dead rows; (3) **CHECK THIS row's live lease BEFORE the global cap (round-10
+     — so a same-row duplicate at FULL cap is `in_progress`, not `queued`):** `SELECT 1 FROM
+     public.agenda_extract_leases WHERE wizard_session_id = $1 AND drive_file_id = $2 AND
+     expires_at > now()` → if found → `202 { reason: "in_progress" }`; (4) else `SELECT
+     count(*) FROM public.agenda_extract_leases` (all remaining are live post-GC) — if `>=
+     AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` → `202 { reason: "queued" }`; (5) else claim
+     the per-row lease `INSERT … ON CONFLICT (wizard_session_id, drive_file_id) DO UPDATE …
+     WHERE expires_at < now() RETURNING owner` — 0 rows = a live lease for this row (race)
+     → `202 { reason: "in_progress" }`; 1 row → claimed.
      Because admissions serialize on the admit key, the next admitter's count sees this
      committed lease, so **no more than K extractions are admitted deployment-wide**
      (strict, not soft). All `202` paths set `Retry-After` and do NO Drive. **The `202`
