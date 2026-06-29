@@ -186,13 +186,31 @@ export async function GET(request: NextRequest): Promise<Response> {
 | jobName | result type (cited) | `infra` when | `partial` when | else `ok`; `counts` |
 |---|---|---|---|---|
 | `sync` | `RunScheduledCronSyncResult` (`lib/sync/runScheduledCronSync.ts:334-343`) | `summary?.outcome === "parse_error"` (`SYNC_INFRA_ERROR`) | `failed > 0` OR `maintenanceFaults?.syncCronHeartbeat === "infra_error"` | `{ processed, applied, staged, skipped, failed }` — see §4.4 |
-| `notify.realtime`/`notify.digest` | `NotifyRunResult` (`lib/notify/runNotify.ts:52-55`; `DeliverySummary` `:46-50`) | `delivery.kind === "infra_error"` OR any `maintenance[].result.kind === "infra_error"` | no infra, but `delivery.toggleFaults?.length` OR any `maintenance[].result.toggleFaults?.length` (mirrors the route's `statusFor` 500 logic, `app/api/cron/notify/route.ts:27-34`) | `{ sent: delivery.kind==="ok" ? delivery.sent : 0, maintenanceSteps: maintenance.length }` |
-| `asset-recovery` | `AssetRecoveryCronResult.processed[].result: AssetRecoveryResult` (`lib/sync/assetRecovery.ts:102-117`) | any `result.outcome === "infra_error"` | any `result.outcome === "partial_failure"` or `"bytes_exceeded"` | `{ processed, recovered, partial, failed }` (recovered = `recovered`/`restage_required`/`no_op`) |
+| `notify.realtime`/`notify.digest` | `NotifyRunResult` (`lib/notify/runNotify.ts:52-55`; `DeliverySummary` `:46-50`) | `delivery.kind === "infra_error"` OR any `maintenance[].result.kind === "infra_error"` OR any `toggleFaults?.length` (delivery or maintenance) | — (none; see note) | `{ sent: delivery.kind==="ok" ? delivery.sent : 0, maintenanceSteps: maintenance.length }` |
+| `asset-recovery` | `AssetRecoveryCronResult.processed[].result: AssetRecoveryResult` (full union `lib/sync/assetRecovery.ts:102-115`) | any `outcome === "infra_error"` | any `outcome === "partial_failure"` or `"bytes_exceeded"` | exhaustive map below |
 | `report-reaper` | route returns `{ deleted }` or its own catch (`app/api/cron/report-reaper/route.ts:120-127`, `ReportReaperInfraError :15`) | `ReportReaperInfraError` caught → route returns its existing 500 AND reports `outcome:"infra"` to the wrapper | — | `{ deleted }` |
 | `refresh-watch` | `{ refreshed: string[] }` (`lib/drive/watch.ts:413-429`) | — (result exposes no failure channel; internal failures are not surfaced — noted, not assumed) | — | `{ refreshed: refreshed.length }` |
 | `gc-watch` | `{ stopped: string[] }` (`lib/drive/watch.ts:432-438`) | — (no failure channel) | — | `{ stopped: stopped.length }` |
 | `diagram-gc` | `DiagramGcResult` (`lib/sync/diagramGc.ts:44-47`) | — (no failure channel) | — | `{ orphanBlobsDeleted, pendingPrefixesDeleted, promotedRowsDeleted }` |
 | `keepalive` | `{ ok: true }` | — | — | none |
+
+**notify — `toggleFaults` are `infra`, not `partial`.** A `toggleFault` means a notify toggle getter could not be read (an infra read failure, fail-closed) and the route's `statusFor` already returns a **500-class** scheduler fault for it (`app/api/cron/notify/route.ts:27-34`). To stay consistent with that HTTP semantics, the summarizer classifies any `toggleFaults` as `infra` (→`log.error`). notify therefore has only `infra`/`ok` — no `partial` state.
+
+**asset-recovery — exhaustive `AssetRecoveryResult` → severity/count map** (all 9 literals, `lib/sync/assetRecovery.ts:102-115`; TS-exhaustive `switch`):
+
+| outcome literal | severity contribution | count bucket |
+|---|---|---|
+| `recovered` | ok | `recovered` |
+| `restage_required` | ok | `recovered` (progress; will finish next pass) |
+| `no_op` | ok | `recovered` (nothing to do) |
+| `skipped` (`CONCURRENT_SYNC_SKIPPED`) | ok | `skipped` |
+| `revision_drift` (`ASSET_RECOVERY_REVISION_DRIFT`) | ok | `skipped` (benign race; retried later) |
+| `drift_cooldown` (`ASSET_RECOVERY_DRIFT_COOLDOWN`) | ok | `skipped` (benign backoff) |
+| `partial_failure` | **partial** | `failed` |
+| `bytes_exceeded` (`ASSET_RECOVERY_BYTES_EXCEEDED`) | **partial** | `failed` |
+| `infra_error` (`SYNC_INFRA_ERROR`) | **infra** | `failed` |
+
+Run `outcome`: `infra` if any item `infra_error`; else `partial` if any `partial_failure`/`bytes_exceeded`; else `ok`. `counts = { processed: processed.length, recovered, skipped, failed }`.
 
 ### 4.4 `summarizeSync` — `lib/cron/summarizeSync.ts` (NEW)
 
@@ -215,7 +233,7 @@ Guard conditions: empty `processed` (no files) with no summary/faults → `ok`, 
 
 ## 5. Read path
 
-Both loaders are server-only, use `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79-93`; reads `SUPABASE_SECRET_KEY` ?? `SUPABASE_SERVICE_ROLE_KEY`), destructure `{ data, error }`, and return a discriminated union matching the established loader convention (`{ kind: "ok"; … } | { kind: "infra_error"; message: string }`, cf. `lib/admin/loadIgnoredSheets.ts:27-29`). Per the admin infra-contract (§9.2): the **client construction + every query builder + every await are inside one `try { … } catch`**; a returned `{ error }` OR a thrown error both yield `{ kind:"infra_error", message }`, and the thrown-path message names the table + `"threw"` (e.g. `"app_events read threw"`, `"shows embed threw"`). The raw error is `log.error`'d via `lib/log` (not returned to the UI).
+Both loaders are server-only, use `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79-93`; reads `SUPABASE_SECRET_KEY` ?? `SUPABASE_SERVICE_ROLE_KEY`), destructure `{ data, error }`, and return a discriminated union matching the established loader convention (`{ kind: "ok"; … } | { kind: "infra_error"; message: string }`, cf. `lib/admin/loadIgnoredSheets.ts:27-29`). Per the admin infra-contract (§9.2): the **client construction + every query builder + every await are inside one `try { … } catch`**; a returned `{ error }` OR a thrown error both yield `{ kind:"infra_error", message }`, and the thrown-path message names the table + `"threw"` (e.g. `"app_events read threw"`). The raw error is `log.error`'d via `lib/log` (not returned to the UI).
 
 > **Deliberate departure (preempt, §11):** existing loaders use the cookie-bound `createSupabaseServerClient()`. `app_events` is `revoke all ... from authenticated`, so a cookie-bound (anon/authenticated) client **cannot read it** — the service-role client is **required**, not a shortcut. It runs only server-side inside an admin-gated RSC (page + layout both call `requireAdminIdentity`), mirroring the service-role read posture the Phase 1 spec prescribed ("Phase 2's admin UI reads via a service-role server component (admin-gated at the route)"). This bypasses RLS by design; it is never reachable by a non-admin or by the browser.
 
@@ -245,7 +263,7 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
 
 - **Ordering + pagination:** `order("occurred_at", desc).order("id", desc)`, `limit(PAGE_SIZE + 1)` where `PAGE_SIZE = 100`. Keyset cursor on `(occurred_at, id)`: `.or("occurred_at.lt.<c>,and(occurred_at.eq.<c>,id.lt.<id>)")`. Fetch N+1; `hasMore = rows.length > PAGE_SIZE`; trim to `PAGE_SIZE`; `nextCursor` = last kept row's `(occurredAt, id)`.
 - **Filters → PostgREST:** `levels` → `.in("level", …)`; `source` → `.eq`; `code` → `.eq("code", code)` (constant `CRON_RUN_SUMMARY` may be passed by ref — never a `code:` property literal, so no scanner match); `showId`/`requestId` → `.eq`; `sinceHours` → `.gte("occurred_at", isoSince)`; `q` → `.ilike("message", \`%${escaped}%\`)`.
-- **Show title join:** `select("…, shows(title)")` (FK embed; `shows.title` is `text not null`, `supabase/migrations/20260501000000_initial_public_schema.sql:7`) OR a second `shows` lookup keyed by the distinct `show_id`s; embed preferred. `showTitle` null when `show_id` null or show deleted.
+- **Show title join — single FK embed (committed, not a second query):** `select("…, shows(title)")` — the `app_events.show_id → shows(id)` FK makes the embed resolvable; `shows.title` is `text not null` (`supabase/migrations/20260501000000_initial_public_schema.sql:7`). `showTitle` is `null` when `show_id` is null or the show was deleted. Because this is ONE PostgREST query (not a separate `from("shows")` call), an embed failure surfaces through the `app_events` query and is covered by the meta-test's `/app_events.*threw/` branch — there is **no** separate `from("shows")` throw path, so §9.2 does **not** require a `/shows.*threw/` test.
 - **Guards (all URL params are untrusted; validate before building the query):**
   - empty filters → last 24h, newest 100.
   - `levels` — drop members not in {info,warn,error}; empty after filtering → no level filter.
@@ -270,9 +288,10 @@ export type LoadCronHealthResult =
 export async function loadCronHealth(): Promise<LoadCronHealthResult>;
 ```
 
-- Query: `app_events` where `code = CRON_RUN_SUMMARY` and `occurred_at >= now()-interval '24h'`, `order occurred_at desc`, `limit 200`. Reduce in JS to the most-recent row per `source` (no PostgREST `DISTINCT ON`). Map each `CRON_JOBS` entry to its latest summary (matched by `source === \`cron.${jobName}\``); jobs with no recent summary → `lastRunAt: null, outcome: null` ("no run seen").
-- `outcome` is read from `context.outcome`; `level` from the row's `level`. `counts` from `context.counts`.
-- Guard: a malformed/missing `context.outcome` → `outcome: null`, render falls back to the row's `level` for the status dot.
+- **Per-job latest query (NOT a single capped scan).** A single `order occurred_at desc limit N` across all jobs is unsafe — `sync` + `notify.realtime` alone emit ~576 rows/day, so a healthy daily job's last run can fall outside any fixed N and render as "no run seen." Instead, issue **one `limit(1)` query per `CRON_JOBS` entry** (9 total): `eq("code", CRON_RUN_SUMMARY).eq("source", \`cron.${jobName}\`).order("occurred_at", desc).limit(1)`, run with `await Promise.all([...])` **inside the loader's single try/catch** (the admin meta-test recognizes the `await Promise.all([...])` builder form). Each returns that job's genuine latest run within retention, regardless of other jobs' volume. No time-window cap — a job whose latest run is days old shows that (a real staleness signal), not "no run seen."
+- Each query rides the `(code, occurred_at desc) where code is not null` partial index; the `source` equality is a cheap post-filter on the already-narrow `CRON_RUN_SUMMARY` slice (low-volume; §3).
+- `outcome` is read from `context.outcome`; `level` from the row's `level`; `counts` from `context.counts` (the §4.2.1 schema).
+- Guards: a job with zero `CRON_RUN_SUMMARY` rows → `lastRunAt: null, outcome: null` ("no run seen"). A malformed/missing `context.outcome` → `outcome: null`, render falls back to the row's `level` for the status dot.
 
 ---
 
@@ -281,7 +300,12 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult>;
 ### 6.1 Route + registries
 
 - `app/admin/observability/page.tsx` (NEW) — server component, `export const dynamic = "force-dynamic"`, first line `await requireAdminIdentity()` (defense-in-depth; layout also gates at `layer:"layout"`, `app/admin/layout.tsx:57`). Parses `searchParams` into `AppEventFilters`, calls `loadCronHealth()` and `loadAppEvents(filters)` **independently** (one failing degrades only its section), renders header + filters + timeline inside the auto-refresh client wrapper. Mounts automatically inside the layout's `<PageTransition>`.
-- `components/admin/nav/navConfig.ts` (EDIT) — extend `NavItem["id"]` union with `"observability"`; add `{ id:"observability", label:"Activity", short:"Activity", href:"/admin/observability", Icon: Activity }` to `NAV` (lucide `Activity` icon, verified present in `lucide-react`); add an `inObservability` branch to `isNavItemActive` and include it in the dashboard fall-through exclusion list (`:54-70`). Adding the entry auto-renders in both the desktop bar (`AdminNav.tsx:76-95`) and mobile tabs (`:112-154`).
+- `components/admin/nav/navConfig.ts` (EDIT) — **Activity is a desktop-nav destination + a mobile entry from Settings (NOT a 6th mobile bottom tab).** Why: the mobile bottom bar currently renders all 5 `NAV` items, and `NAV.length > OVERFLOW_THRESHOLD (=5)` would flip on an inert `<span>More</span>` placeholder (`AdminNav.tsx:155-162`) that does not actually overflow anything — a 6th item would yield 6 cramped tabs + a dead More. Finishing the overflow menu is out of scope; instead:
+  - Add `desktopOnly?: true` to `NavItem` (the exact mirror of the existing `mobileOnly?: true`, `navConfig.ts:10-11`): "Excluded from the mobile bottom tab bar."
+  - Extend `NavItem["id"]` union with `"observability"`; add `{ id:"observability", label:"Activity", short:"Activity", href:"/admin/observability", Icon: Activity, desktopOnly: true }` (lucide `Activity`, verified present).
+  - Add an `inObservability` branch to `isNavItemActive` and include it in the dashboard fall-through exclusion (`:57-69`).
+- `components/admin/nav/AdminNav.tsx` (EDIT) — the mobile `.map` filters out `desktopOnly` (mirror of the desktop bar's `!item.mobileOnly` filter, `:77`), and `overflow` is computed from the **mobile-visible** count (`NAV.filter((i) => !i.desktopOnly).length`, not raw `NAV.length`) so the inert More never renders. Result: the mobile bottom bar is byte-for-byte the existing 5 tabs (zero change); the desktop top bar gains "Activity" (5 inline items: Dashboard / Unpublished / Ignored / Settings / Activity — `attention` is `mobileOnly`).
+- `app/admin/settings/page.tsx` (EDIT) — add a labeled link/row to `/admin/observability` ("Activity — app event log & cron health") so the desktop-only nav item stays reachable on mobile (Settings IS a mobile bottom tab). Settings is not a captured screenshot route, so no baseline impact.
 - `lib/audit/trustDomains.ts` (EDIT) — add `{ path: "app/admin/observability/page.tsx", chain: ["requireAdmin"] }` to `PROTECTED_ROUTES` (the auth-chain audit requires every admin page route to be registered, `:29-51`).
 
 ### 6.2 Components (all NEW, under `components/admin/observability/`)
@@ -361,7 +385,7 @@ The plan adds a **layout-dimensions** task: a real-browser (Playwright / chrome-
 - **Transition-audit** task (per the writing-plans transition rule): enumerate every `AnimatePresence`/ternary/conditional in the new components and assert each has the §7 treatment, incl. the two compound cases.
 
 ### 9.2 EXTENDS / TOUCHES
-- **`tests/admin/_metaInfraContract.test.ts` (EXTEND — mandatory).** `loadAppEvents` and `loadCronHealth` are new `lib/admin` Supabase-touching loaders → each gets an `infraRegistry` row (`helper`, `path`, `contract`) AND a behavioral `describe` block. Per the existing contract (`tests/admin/_metaInfraContract.test.ts:23-37, 164-305`): (a) the **grep-shape** test requires every supabase-derived await AND every `supabase.from(...)` builder-assignment line to sit inside a `try { … } catch`; (b) behavioral tests assert **service-role construction throw → `{ kind:"infra_error" }`** and **per-`from()`-table throw → `{ kind:"infra_error", message }` with a table-specific message matching `/app_events.*threw/` (and `/shows.*threw/` for the embed)**. So both loaders MUST: wrap construction+builder+await in try/catch, return `{ kind:"infra_error", message }` on both the returned-`{error}` and thrown paths, and put the table name + "threw" in the thrown message. This is the §9.3 sibling for the *admin* contract — distinct from the *auth* one.
+- **`tests/admin/_metaInfraContract.test.ts` (EXTEND — mandatory).** `loadAppEvents` and `loadCronHealth` are new `lib/admin` Supabase-touching loaders → each gets an `infraRegistry` row (`helper`, `path`, `contract`) AND a behavioral `describe` block. Per the existing contract (`tests/admin/_metaInfraContract.test.ts:23-37, 164-305`): (a) the **grep-shape** test requires every supabase-derived await AND every `supabase.from(...)` builder-assignment line to sit inside a `try { … } catch`; (b) behavioral tests assert **service-role construction throw → `{ kind:"infra_error" }`** and **`from("app_events")` throw → `{ kind:"infra_error", message }` with a message matching `/app_events.*threw/`**. (The `shows(title)` FK embed is part of the single `app_events` query, NOT a separate `from("shows")` call, so there is no `/shows.*threw/` branch to cover — §5.1.) `loadCronHealth`'s `Promise.all` of 9 `app_events` `limit(1)` queries is likewise covered by the `from("app_events")` throw test. So both loaders MUST: wrap construction+builder+await(s) in one try/catch, return `{ kind:"infra_error", message }` on both the returned-`{error}` and thrown paths, and put `app_events` + "threw" in the thrown message. This is the §9.3 sibling for the *admin* contract — distinct from the *auth* one.
 - `components/admin/nav/navConfig.ts`, `lib/audit/trustDomains.ts` — registry edits (§6.1). The auth-chain audit (`lib/audit/authChain.ts`) re-validates after the `PROTECTED_ROUTES` edit.
 
 ### 9.3 Verified clear (no row needed)
@@ -384,14 +408,15 @@ Unit suite (sharded), `x1`-catalog-parity, `x2` internal-code-enums (proven byte
 
 ### 10.2 Runs and must pass
 - The full unit/component suite (new tests).
-- `screenshots-drift.yml` — **fires on this PR** (path filter includes `app/**`, `components/**`, `lib/audit/**`, `lib/admin/**`, `lib/messages/**`).
+- `screenshots-drift.yml` — **fires on this PR** (path filter includes `app/**`, `components/**`, `lib/audit/**`, `lib/admin/**`, `lib/messages/**`). It must stay **green** — see §10.3.
 
-### 10.3 Screenshot-baseline regeneration (mandatory, real-CI-green)
-Adding the "Activity" nav item changes the `AdminNav` rendered inside the **already-captured** baselines for `/admin` and `/admin/needs-attention` (manifest routes that render the admin layout). `screenshots-drift.yml` re-captures and `git diff --exit-code public/help/screenshots/` → it will FAIL on stale baselines. Per the byte-comparison-CI discipline (baselines must be regenerated in the canonical native-amd64 env, never a dev/arm64 host):
+### 10.3 Screenshot baselines — expected NO regen (verify, don't predeclare)
+The capture script screenshots the manifest entry's `captureSelector` **element**, not the page/nav shell (`scripts/help-screenshots.ts:168` → `page.locator(entry.captureSelector).first().screenshot(...)`). Every manifest selector clips **page-content** elements — `[data-testid=admin-dashboard]`, `[data-testid=dashboard-inbox-col]`, `[data-testid=admin-needs-attention-page]`, `[data-testid=admin-preview-banner]`, `[data-testid=crew-shell]` (`scripts/help-screenshots.manifest.ts:51-117`). The admin **top nav** and **mobile bottom tab bar** are *siblings* of those captured elements, never inside the clip. Therefore:
+- Adding "Activity" to the **desktop** nav changes no captured pixels (the nav is outside every clip).
+- The **mobile bottom bar is unchanged anyway** (§6.1 — Activity is `desktopOnly`).
+- `/admin/observability` is **not** added to the manifest (N8), so it is never captured.
 
-> After the nav edit lands on the branch, dispatch `screenshots-regen.yml` (`gh workflow run screenshots-regen.yml --ref feat/observability-timeline-phase2`). It re-captures on the native-amd64 runner with the pinned Playwright image and commits the regenerated `public/help/screenshots/` back to the branch. Then `screenshots-drift` passes on the PR.
-
-The plan enumerates the exact baseline files that change (determined by inspecting the diff after the nav edit) and treats the regen dispatch as a discrete close-out step. We do **not** capture locally (arm64 host → byte drift).
+**Expectation: no baseline changes; `screenshots-drift` stays green with zero regen.** Rather than predeclaring drift, the plan's close-out runs the drift capture and, only IF an unexpected diff appears in `public/help/screenshots/`, regenerates via `screenshots-regen.yml` (`workflow_dispatch`, native-amd64 runner, pinned Playwright image — never a local arm64 capture) and commits the result. The default path commits nothing.
 
 ### 10.4 New route is NOT added to the help-screenshots manifest
 `/admin/observability` gets no `help-screenshots.manifest.ts` entry (N8) — the manifest is an explicit allow-list, so the new route is simply never captured. This avoids creating a new byte-comparison baseline surface for the diagnostics page itself.
@@ -419,7 +444,7 @@ The plan enumerates the exact baseline files that change (determined by inspecti
 - AC6. Every cron route, when run (authorized), emits exactly one `CRON_RUN_SUMMARY` `app_events` row with the correct `source`, severity, duration, and counts; a 401 emits none; a throw emits an error summary and re-throws.
 - AC7. Auto-refresh polls every 20s by default, is toggleable (persisted), pauses when the tab is hidden, and a soft refresh preserves expanded rows, focus, and scroll position; manual Refresh works regardless of the toggle.
 - AC8. `extractInternalCodeEnums()` output contains no `CRON_RUN_SUMMARY`; `gen:internal-code-enums` stays byte-identical; `CRON_JOBS` parity test passes.
-- AC9. `screenshots-drift` is green on the PR (baselines regenerated via `screenshots-regen` after the nav edit).
+- AC9. `screenshots-drift` is green on the PR with **no baseline change** — the nav is outside every captured selector, and the mobile bar is unchanged (Activity is `desktopOnly`). Regen only if an unexpected diff appears (§10.3).
 - AC10. Impeccable v3 critique + audit pass on the UI diff (HIGH/CRITICAL fixed or `DEFERRED.md`'d).
 
 ---
@@ -429,7 +454,7 @@ The plan enumerates the exact baseline files that change (determined by inspecti
 **Write path:** `lib/cron/runSummary.ts` (const + types + `CRON_JOBS`), `lib/cron/withCronRunSummary.ts` (`runCronRoute`), `lib/cron/summarizeSync.ts`; edits to the 8 cron `route.ts` files.
 **Read path:** `lib/admin/loadAppEvents.ts`, `lib/admin/loadCronHealth.ts` (+ shared `AppEventRow`/`AppEventFilters` types, colocated or in `lib/admin/observabilityTypes.ts`).
 **UI:** `app/admin/observability/page.tsx`; `components/admin/observability/{CronHealthHeader,EventLevelBadge,EventTimeline,EventRow,CronRunSummaryCard,ContextDetail,EventFilters,AutoRefreshControl}.tsx`.
-**Registries:** `components/admin/nav/navConfig.ts`, `lib/audit/trustDomains.ts`.
+**Registries / nav:** `components/admin/nav/navConfig.ts` (`desktopOnly` flag + `observability` entry), `components/admin/nav/AdminNav.tsx` (mobile `desktopOnly` filter + mobile-visible overflow count), `app/admin/settings/page.tsx` (mobile entry link), `lib/audit/trustDomains.ts` (`PROTECTED_ROUTES` row).
 **Tests:** as enumerated in §9.1.
 **Close-out:** impeccable dual-gate; `screenshots-regen` dispatch; whole-diff Codex review.
 
