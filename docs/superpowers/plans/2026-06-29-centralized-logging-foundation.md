@@ -1047,6 +1047,8 @@ git commit --no-verify -m "test(db): register app_events in postgrest-dml-lockdo
 **Interfaces:**
 - Consumes: `lib/log/persist.ts` (the sole writer), `lib/log/logger.ts` (must call `sanitizeContext`).
 
+> **TDD note (structural meta-test):** this guard pins an invariant that Tasks 4–5 ALREADY satisfy (persist.ts is the sole writer; logger calls sanitizeContext) — exactly like the repo's existing `tests/db/postgrest-dml-lockdown.test.ts` and `tests/auth/_metaInfraContract.test.ts`, which are introduced over already-true invariants. For this class, the RED phase is NOT "no implementation yet" — it is the **mandatory negative-regression in Step 3** (mutate the code to violate the invariant, prove the guard fails). Per AGENTS.md, meta-tests are a recognized task category; the negative-regression is the failing-test proof.
+
 - [ ] **Step 1: Write the test (the structural guard IS the deliverable)**
 
 ```ts
@@ -1095,12 +1097,25 @@ describe("app_events writer guard (append-only)", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [ ] **Step 2: Run the guard — expect PASS (already-true invariant)**
 
 Run: `pnpm vitest run tests/log/_metaAppEventsWriter.test.ts`
-Expected: PASS (3 tests). (Negative-regression check: temporarily add a `.delete("app_events")` call somewhere under `lib/` and confirm test 1 fails; then remove it.)
+Expected: PASS (3 tests). The invariant already holds after Tasks 4–5; this is the structural-meta-test pattern, not a missed RED.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Negative-regression — PROVE the guard bites (the RED-equivalent, mandatory)**
+
+Mutate each invariant in turn and confirm the matching test FAILS, then revert:
+1. In `lib/log/persist.ts`, change `.from("app_events").insert(...)` → `.from("app_events").upsert(...)`. Run the guard → test 1 FAILS (op `upsert` ≠ `insert`). Revert.
+2. Add a throwaway line to a scratch file under `lib/` (e.g. a comment-free `await c.from("app_events").delete();` in `lib/log/persist.ts`). Run → test 1 FAILS (second op / file). Revert.
+3. In `lib/log/logger.ts`, comment out the `sanitizeContext(` call. Run → test 3 FAILS. Revert.
+
+```bash
+git checkout -- lib/log/persist.ts lib/log/logger.ts   # ensure all mutations reverted
+pnpm vitest run tests/log/_metaAppEventsWriter.test.ts  # back to PASS
+```
+Expected: each mutation FAILS the guard; after revert, PASS. This proves the guard catches the real failure modes (second writer, in-place mutation, removed redaction).
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/log/_metaAppEventsWriter.test.ts
