@@ -380,10 +380,12 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      public.agenda_extract_leases WHERE wizard_session_id = $2 and drive_file_id = $3 AND
      owner = $owner` — only if WE still own it, so a reclaimed lease isn't deleted out from
      under the new owner) → commit (releases `show:`). Then **build + return `200 { items }`** via
-     `buildAdminAgendaPreview(mergedLinks, { freshByLinkKey })` — where `freshByLinkKey`
-     is the set of **ordinals** (indices in `mergedLinks`) of the confirmed-fresh links
-     (per-link, NOT `fileId` — round-35 F2: a shared `fileId` across duplicate links must
-     not bless a stale duplicate).
+     `buildAdminAgendaPreview(mergedLinks, { freshByLinkKey, validatedHrefs: true })`
+     (**`validatedHrefs: true`** because this path passed the sheet revision/source-scope
+     fence — round-50/51; without it ready-state items would get `href: null`) — where
+     `freshByLinkKey` is the set of **ordinals** (indices in `mergedLinks`) of the
+     confirmed-fresh links (per-link, NOT `fileId` — round-35 F2: a shared `fileId` across
+     duplicate links must not bless a stale duplicate).
 
 **Durable lease `finally` (Codex round-32).** A `finally` releases the lease on EVERY
 exit AFTER a successful claim (owner-scoped `DELETE … WHERE owner = $owner`): the
@@ -487,9 +489,10 @@ only reachable transitions follow the fetch lifecycle (`idle → loading → {re
 error}`) plus a generation-key reset (any state → `idle` when `agendaStateKey` changes —
 round-36 F2); `ready`/`stale`/`error` are otherwise terminal per row. Enumerated:
 `idle → loading` (fire POST; replace nothing → skeleton), `loading → ready`
-(crossfade placeholder→blocks), `loading → stale` (replace placeholder with the SANITIZED
-no-href note — round-38), `loading → error` (replace placeholder with the baseline
-"couldn't auto-read" note WITH href), `{ready|stale|error} → idle` (generation reset:
+(crossfade placeholder→blocks WITH validated anchors), `loading → stale` (replace
+placeholder with the SANITIZED no-href note — round-38), `loading → error` (replace
+placeholder with the "couldn't auto-read" note — **NO Open-PDF anchor**, round-50/51),
+`{ready|stale|error} → idle` (generation reset:
 clear items, re-fire — round-36 F2). Unreachable/instant (no animation): `idle→ready`,
 `idle→stale`, `idle→error` (always pass through `loading`); `ready↔stale`, `ready↔error`,
 `stale↔error` (terminal — only reachable via an `→idle` reset then a fresh fetch). No
@@ -714,7 +717,8 @@ by this change.
 - `agenda_links` empty / missing / non-array → baseline `adminAgendaPreview = []` → no
   Agenda breakdown.
 - staged row missing/corrupt at the endpoint → `{ items: [] }`.
-- extract endpoint request fails (network/500) → client `error` state → note + Open PDF.
+- extract endpoint request fails (network/500) → client `error` state → note-only, **NO
+  Open-PDF anchor** (the fence never confirmed the link — round-50/51); source-sheet recovery.
 - `extracted` low-confidence / malformed / zero-day → `block = null` → note item.
 - per-link `label`/`fileId`/`url` wrong type → string-coerced in `buildAdminAgendaPreview`.
 - `url` is non-http text (filename) → no anchor.
@@ -737,8 +741,12 @@ by this change.
    (a) two high-conf links → two blocks, RFI/PCF badges, titles derived from
    `fixtures/agenda/*.pdf` extraction (anti-tautology: derive from extraction, not
    hardcoded); (b) low-conf → note; (c) malformed → note; (d) high-conf zero-day →
-   note; (e) no extracted + `fileId` → note + Drive href; (f) `url="https://…"` → href;
+   note; **(href cases assume `validatedHrefs: true` — the endpoint mode; round-50/51):**
+   (e) no extracted + `fileId` → note + Drive href; (f) `url="https://…"` → href;
    (g) `url="Program.pdf"` → NO anchor; (h) `url="javascript:…"`/relative → NO anchor;
+   **(h2) `validatedHrefs` GATE:** the SAME `fileId`/http link with **NO `validatedHrefs`
+   (baseline mode)** → `href: null` (no anchor), vs WITH `validatedHrefs: true` → href
+   present — proving baseline never emits an href and only the fence-validated endpoint does;
    (i) `agenda_links` undefined/non-array → `[]`; (j) > `AGENDA_MAX_PDFS_PER_SHEET`
    links → capped + "+N more agenda PDFs"; (k) 18-session extraction → 8 + overflow
    `dropped*`; (l) > `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks in one kept session →
@@ -755,9 +763,11 @@ by this change.
    the key is per-link ordinal, not the shared `fileId`).
 2. **Extract endpoint (`tests/app/admin/...extractAgenda.test.ts`)** — (a) auth required
    (unauth → rejected); (b) staged `parse_result` w/ chip-based links + agenda client
-   over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks AND the updated
-   `parse_result` is **persisted** by a raw `tx` UPDATE on `pending_syncs` inside the
-   locked transaction (assert via the pipeline-tx test seam, not Supabase); (c) **cache
+   over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks **AND each returned
+   item carries a non-null validated `href`** (the route passed `validatedHrefs: true` after
+   the fence — round-50/51) AND the updated `parse_result` is **persisted** by a raw `tx`
+   UPDATE on `pending_syncs` inside the locked transaction (assert via the pipeline-tx test
+   seam, not Supabase); (c) **cache
    short-circuit** (round-23 F1): a second call when `extracted` is already fresh
    (`headRevisionId`+`EXTRACTOR_VERSION` match) → items with **zero `downloadFileBytes`
    and zero `getAgendaChips`** (the expensive ops), while the cheap per-link `getFile`
@@ -1027,7 +1037,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param**; **expose per-link confirmed-fresh + just-fetched `headRevisionId`** (round-24 F1); **per-PDF before+after `headRevisionId` stability check** (round-46: re-`getFile` after download; `rev_after !== rev_before` → not fresh) so the endpoint can positively gate blocks (not rely on preserve-on-error side-effects) |
-| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row — **omit `freshByLinkKey`** (default empty ⇒ **note-only**; round-25 F2), pure, best-effort hrefs, never blocks |
+| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row — **omit `freshByLinkKey` AND `validatedHrefs`** (default ⇒ **note-only, `href: null`**; round-25 F2 / round-50), pure, never blocks; also stamp `agendaStateKey` |
 | Step-3 row type | add `adminAgendaPreview: AdminAgendaItem[]` to `Step3Row` (always present; empty → no breakdown); new `AdminAgendaItem` type |
 | `components/admin/wizard/Step3SheetCard.tsx` + `Step3Review.tsx` | new client `AgendaBreakdown` + per-row extract-fetch state machine (throttled), "parsing…" placeholder, live replace; pure presentation over `AdminAgendaItem` |
 | tests (per §8) | new + extended |
