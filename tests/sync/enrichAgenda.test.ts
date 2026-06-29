@@ -23,6 +23,7 @@ import type { DriveClient, DriveFileMeta } from "@/lib/sync/enrichWithDrivePins"
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { ParseResult } from "@/lib/parser/types";
 import { EXTRACTOR_VERSION, AGENDA_MAX_PDFS_PER_SHEET } from "@/lib/agenda/constants";
+import { driveErrorStatus, DriveFetchError } from "@/lib/drive/fetch";
 
 type AgendaLink = { label: string; fileId?: string; url?: string; extracted?: AgendaExtraction };
 
@@ -263,6 +264,63 @@ describe("enrichAgenda — getAgendaChips gating", () => {
     await enrichAgenda(result, client, "sheet-1");
     expect(getAgendaChips).not.toHaveBeenCalled();
     expect(result.show.agenda_links[0]!.extracted?.confidence).toBe("high");
+  });
+});
+
+describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-diff R5)", () => {
+  // Anti-tautology: the classification uses the SHARED driveErrorStatus helper, so
+  // pin that it extracts the status from the real error shapes the production
+  // getFile (fetchDriveFileMetadata) propagates — a DriveFetchError AND a raw gaxios
+  // { response: { status } } — not a test-only `status` field.
+  test("driveErrorStatus classifies the real Drive error shapes", () => {
+    expect(driveErrorStatus(new DriveFetchError("gone", 404))).toBe(404);
+    expect(driveErrorStatus({ response: { status: 403 } })).toBe(403);
+    expect(driveErrorStatus(new DriveFetchError("server", 503))).toBe(503);
+    expect(driveErrorStatus({ code: "ETIMEDOUT" })).toBe(504); // transient
+    expect(driveErrorStatus(new Error("???"))).toBeNull(); // unclassifiable → transient-safe
+  });
+
+  test("permanent getFile 404 (deleted PDF) → known_stale (clears the stale extracted)", async () => {
+    const result = makeResult([
+      {
+        label: "AGENDA LINK - RFI",
+        fileId: "F-DELETED",
+        extracted: highExtraction({ sourceRevision: "rev-OLD" }),
+      },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("not found", 404);
+      },
+    });
+    const report = await enrichAgenda(result, client, "s");
+    expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("known_stale");
+  });
+
+  test("permanent getFile 403 (permissioned away) → known_stale", async () => {
+    const result = makeResult([
+      { label: "AGENDA LINK - RFI", fileId: "F-403", extracted: highExtraction() },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw { response: { status: 403 } }; // raw gaxios shape
+      },
+    });
+    const report = await enrichAgenda(result, client, "s");
+    expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("known_stale");
+  });
+
+  test("transient getFile 503 → unknown (leave-existing safe, NOT cleared)", async () => {
+    const result = makeResult([
+      { label: "AGENDA LINK - RFI", fileId: "F-503", extracted: highExtraction() },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("server error", 503);
+      },
+    });
+    const report = await enrichAgenda(result, client, "s");
+    expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("unknown");
   });
 });
 

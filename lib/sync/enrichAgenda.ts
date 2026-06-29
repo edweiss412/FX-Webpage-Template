@@ -38,6 +38,7 @@ import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
 import { EXTRACTOR_VERSION, AGENDA_MAX_PDFS_PER_SHEET } from "@/lib/agenda/constants";
+import { driveErrorStatus } from "@/lib/drive/fetch";
 
 function warn(code: string, message: string): ParseWarning {
   return { severity: "warn", code, message };
@@ -136,17 +137,38 @@ export async function enrichAgenda(
 
       const recoveredFileId = recoveredFileIds.get(i);
 
-      // getFile for current rev — an infra fault (throw) means the revision is
-      // not readable: leave-existing is safe → "unknown".
+      // getFile for current rev. Classify the failure by HTTP status (Codex
+      // whole-diff R5): a PERMANENT failure — 404 (deleted), 403 (permissioned
+      // away), 400 (invalid fileId) — means the agenda PDF is GONE, so the stored
+      // extraction is definitively stale and must be CLEARED ("known_stale");
+      // otherwise a deleted PDF's schedule would survive every pass (admin AND cron
+      // both 404 → never self-heal). A TRANSIENT failure (5xx/429/timeout, or an
+      // unclassifiable error) leaves the current rev simply unreadable THIS pass →
+      // leave-existing is safe ("unknown"); the next sync re-checks.
       let fileMeta: Awaited<ReturnType<typeof driveClient.getFile>>;
       try {
         fileMeta = await driveClient.getFile(link.fileId);
-      } catch {
-        perLink.push({
-          ordinal: i,
-          ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
-          verdict: "unknown",
-        });
+      } catch (error) {
+        const status = driveErrorStatus(error);
+        if (status === 404 || status === 403 || status === 400) {
+          warnings.push(
+            warn(
+              "AGENDA_PDF_UNREADABLE",
+              `Agenda link "${link.label}" doesn't point at a readable PDF, so crew see the embed only.`,
+            ),
+          );
+          perLink.push({
+            ordinal: i,
+            ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+            verdict: "known_stale",
+          });
+        } else {
+          perLink.push({
+            ordinal: i,
+            ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
+            verdict: "unknown",
+          });
+        }
         continue;
       }
 
