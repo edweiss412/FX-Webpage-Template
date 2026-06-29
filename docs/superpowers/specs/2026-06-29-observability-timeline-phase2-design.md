@@ -78,7 +78,9 @@ The timeline is a **technical diagnostics surface** for the developer/operator w
 | `actor_hash` | text | **yes** | expand detail |
 | `context` | jsonb (email-redacted, default `'{}'`) | no | expand detail (KeyValue grid + raw JSON); run-summary counts |
 
-Indexes (all verified, `:17-21`): `occurred_at desc`; `request_id where not null`; `(show_id, occurred_at desc)`; `(level, occurred_at desc)`; `(code, occurred_at desc) where not null`. Every Phase 2 query rides one of these.
+Indexes (all verified, `:17-21`): `occurred_at desc`; `request_id where not null`; `(show_id, occurred_at desc)`; `(level, occurred_at desc)`; `(code, occurred_at desc) where not null`. **There is NO index on `source` or `message`.** Index coverage by query:
+- The default and common filters — recent-by-time, by `level`, by `code`, by `show_id`, by `request_id` — ride a Phase-1 index; the keyset ordering is always `occurred_at desc` (the leading index).
+- The `source` exact-match filter and the `message` ILIKE (`q`) are **un-indexed post-filters applied within the `occurred_at`-ordered, time-bounded slice**. This is acceptable because `app_events` is a **low-volume infra-event table** by design — Phase 1 persists only `error`/`warn` (always) + `info` with a `code`/`persist`; `debug` and bare `info` never persist — under a hard **60-day retention cap** (`app_events_prune`). Even the widest query (`sinceHours = null` = all retained) scans at most 60 days of a sparse table, ordered+limited by the `occurred_at` index. No unbounded growth is possible. If volume ever grows materially, adding a `source`/trigram index is a follow-up (no migration this phase, N4).
 
 **PII posture:** the UI displays already-sanitized stored data (Phase 1 redacts emails in message/context/error.stack at write, `lib/log/sanitize.ts`). Phase 2 performs no new join that re-introduces PII beyond what admin pages already show (show title via `show_id`). The expandable `context` may contain whatever a log call put there (already redacted of emails); this is acceptable on an admin-gated diagnostics tool and is not a new exposure relative to Phase 1's persisted data. The page does not surface raw emails.
 
@@ -116,7 +118,7 @@ export const CRON_JOBS: readonly CronJobSpec[] = [
 ];
 ```
 
-A parity test (§9.1) asserts `CRON_JOBS` covers exactly the 9 `fxav_cron_%` jobs in `pg-cron-jobs.json` via an **explicit `jobName ↔ fxav_cron_<name>` pairing table** (not a naive transform — it bridges hyphen↔underscore and the `notify` route's `realtime`/`digest` split), so the display list cannot silently drift from the real cron set.
+A parity test (§9.1) asserts `CRON_JOBS` covers exactly the 9 `fxav_cron_%` jobs in the canonical registry `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json` (there is no root `pg-cron-jobs.json`) via an **explicit `jobName ↔ fxav_cron_<name>` pairing table** (not a naive transform — it bridges hyphen↔underscore and the `notify` route's `realtime`/`digest` split), so the display list cannot silently drift from the real cron set.
 
 ### 4.2 The wrapper — `lib/cron/withCronRunSummary.ts` (NEW)
 
@@ -137,7 +139,27 @@ Behavior:
   - `summary.outcome === "partial"` → `log.warn`
   - `summary.outcome === "infra"` → `log.error`
   - handler threw → `log.error`, `context.outcome = "threw"`
-- **Emit shape (literal dispatch — REQUIRED).** `stripLogEmissionCalls` only strips literal `log.error(`/`log.warn(`/`log.info(`/`log.debug(` (sticky regex `lib/messages/__internal__/stripLogEmissionCalls.ts:20-21`); it does **not** recognize computed `log[level](...)`). The wrapper therefore dispatches via an explicit `if/else` over the three literal methods, passing `code: CRON_RUN_SUMMARY` (constant reference, never the string literal), `source: \`cron.${jobName}\``, `durationMs`, `outcome`, and `...summary.counts/detail` as context. Because the emission is inside a literal `log.*(...)` call, all three §12.4 scanners strip it regardless.
+- **Emit shape (literal dispatch — REQUIRED).** `stripLogEmissionCalls` only strips literal `log.error(`/`log.warn(`/`log.info(`/`log.debug(` (sticky regex `lib/messages/__internal__/stripLogEmissionCalls.ts:20-21`); it does **not** recognize computed `log[level](...)`). The wrapper therefore dispatches via an explicit `if/else` over the three literal methods, passing exactly the §4.2.1 fields with `code: CRON_RUN_SUMMARY` (constant reference, never the string literal). Because the emission is inside a literal `log.*(...)` call, all three §12.4 scanners strip it regardless.
+
+### 4.2.1 Persisted run-summary row — exact schema (single source of truth)
+
+The wrapper calls (literal method per severity):
+
+```ts
+log.info("cron <jobName> run", {
+  source: `cron.${jobName}`,   // → app_events.source column
+  code: CRON_RUN_SUMMARY,       // → app_events.code column (constant ref)
+  // every remaining key lands in app_events.context (jsonb), per Phase 1
+  // logger semantics (named LogFields → columns; the rest → context):
+  jobName,                      // e.g. "sync", "notify.realtime"
+  outcome,                      // "ok" | "partial" | "infra" | "threw"
+  durationMs,                   // integer
+  counts,                       // Record<string, number> | undefined
+  detail,                       // Record<string, unknown> | undefined
+});
+```
+
+So the persisted **`context` is exactly** `{ jobName, outcome, durationMs, counts?, detail? }` (`counts` nested under the `counts` key — NOT spread to context top level). Every reader uses this exact shape: `loadCronHealth` reads `context.outcome`/`context.counts`/`context.durationMs` (§5.2); `CronRunSummaryCard` reads `context.counts` + `context.durationMs` (§6.2). `message` is always the human string `"cron <jobName> run"`. This block is the single source of truth for the run-summary row; §4.3/§4.4/§5.2/§6.2 reference it rather than restating it.
 - **`await` the emit.** `log.*` returns a Promise (async persist; `lib/log/logger.ts:88-93`). The wrapper awaits it before returning the response so the row lands before the serverless function can freeze.
 - **Observability never breaks the cron.** `log.*` is already best-effort (Phase 1 persist degrades to console, never throws). The wrapper additionally guards the emit so a logging fault cannot alter the cron's response or its re-throw.
 
@@ -157,20 +179,20 @@ export async function GET(request: NextRequest): Promise<Response> {
 }
 ```
 
-`sync` additionally drops its existing inline `runWithRequestContext` wrapper (the wrapper now owns context; idempotent either way). Per-route summarizer (verified result shapes, cron-routes survey):
+`sync` additionally drops its existing inline `runWithRequestContext` wrapper (the wrapper now owns context; idempotent either way). The notify route reads `?job=` (`app/api/cron/notify/route.ts:40`), passes `notify.realtime`/`notify.digest` to the wrapper, and keeps its unknown-`job`→400 branch (`:46`) **outside** the wrapper (like the 401 — no summary for a 400).
 
-| jobName | route | summarizer → outcome/counts |
-|---|---|---|
-| `sync` | `/api/cron/sync` | `summarizeSync` (§4.4) — rich |
-| `keepalive` | `/api/cron/keepalive` | `{ outcome: "ok" }` (no counts) |
-| `notify.realtime` / `notify.digest` | `/api/cron/notify?job=realtime\|digest` | from `NotifyRunResult.delivery.kind` + `toggleFaults` → `ok`/`partial`; counts from delivery |
-| `refresh-watch` | `/api/cron/refresh-watch` | `{ outcome:"ok", counts:{ refreshed } }` |
-| `gc-watch` | `/api/cron/gc-watch` | `{ outcome:"ok", counts:{ stopped } }` |
-| `asset-recovery` | `/api/cron/asset-recovery` | `{ outcome:"ok", counts:{ processed } }` |
-| `diagram-gc` | `/api/cron/diagram-gc` | `{ outcome:"ok", counts: <numeric top-level fields of the spread result> }` (plan pins exact keys after reading the route; fallback `{ outcome:"ok" }` if the result exposes no numeric field) |
-| `report-reaper` | `/api/cron/report-reaper` | `{ outcome:"ok", counts:{ deleted } }` (its `ReportReaperInfraError` catch maps to `partial`) |
+**Classification rule (binds every summarizer):** map the route's REAL result/failure signals to `outcome` — `infra` (→`log.error`) if the route surfaces an infra-class signal; `partial` (→`log.warn`) if it surfaces a per-item or degraded failure; `ok` (→`log.info`) otherwise. Each summarizer is derived from the cited result type; an outcome literal not in the type is impossible (TS-exhaustive). Where a result type exposes no failure channel, that is stated, not assumed.
 
-The notify route reads `?job=` (`app/api/cron/notify/route.ts:40`) and passes `notify.realtime` / `notify.digest` to the wrapper.
+| jobName | result type (cited) | `infra` when | `partial` when | else `ok`; `counts` |
+|---|---|---|---|---|
+| `sync` | `RunScheduledCronSyncResult` (`lib/sync/runScheduledCronSync.ts:334-343`) | `summary?.outcome === "parse_error"` (`SYNC_INFRA_ERROR`) | `failed > 0` OR `maintenanceFaults?.syncCronHeartbeat === "infra_error"` | `{ processed, applied, staged, skipped, failed }` — see §4.4 |
+| `notify.realtime`/`notify.digest` | `NotifyRunResult` (`lib/notify/runNotify.ts:52-55`; `DeliverySummary` `:46-50`) | `delivery.kind === "infra_error"` OR any `maintenance[].result.kind === "infra_error"` | no infra, but `delivery.toggleFaults?.length` OR any `maintenance[].result.toggleFaults?.length` (mirrors the route's `statusFor` 500 logic, `app/api/cron/notify/route.ts:27-34`) | `{ sent: delivery.kind==="ok" ? delivery.sent : 0, maintenanceSteps: maintenance.length }` |
+| `asset-recovery` | `AssetRecoveryCronResult.processed[].result: AssetRecoveryResult` (`lib/sync/assetRecovery.ts:102-117`) | any `result.outcome === "infra_error"` | any `result.outcome === "partial_failure"` or `"bytes_exceeded"` | `{ processed, recovered, partial, failed }` (recovered = `recovered`/`restage_required`/`no_op`) |
+| `report-reaper` | route returns `{ deleted }` or its own catch (`app/api/cron/report-reaper/route.ts:120-127`, `ReportReaperInfraError :15`) | `ReportReaperInfraError` caught → route returns its existing 500 AND reports `outcome:"infra"` to the wrapper | — | `{ deleted }` |
+| `refresh-watch` | `{ refreshed: string[] }` (`lib/drive/watch.ts:413-429`) | — (result exposes no failure channel; internal failures are not surfaced — noted, not assumed) | — | `{ refreshed: refreshed.length }` |
+| `gc-watch` | `{ stopped: string[] }` (`lib/drive/watch.ts:432-438`) | — (no failure channel) | — | `{ stopped: stopped.length }` |
+| `diagram-gc` | `DiagramGcResult` (`lib/sync/diagramGc.ts:44-47`) | — (no failure channel) | — | `{ orphanBlobsDeleted, pendingPrefixesDeleted, promotedRowsDeleted }` |
+| `keepalive` | `{ ok: true }` | — | — | none |
 
 ### 4.4 `summarizeSync` — `lib/cron/summarizeSync.ts` (NEW)
 
@@ -193,7 +215,7 @@ Guard conditions: empty `processed` (no files) with no summary/faults → `ok`, 
 
 ## 5. Read path
 
-Both loaders are server-only, use `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79-93`; reads `SUPABASE_SECRET_KEY` ?? `SUPABASE_SERVICE_ROLE_KEY`), destructure `{ data, error }`, and return a discriminated union matching the established loader convention (`{ kind: "ok"; … } | { kind: "infra_error"; message: string }`, cf. `lib/admin/loadIgnoredSheets.ts:27-29`).
+Both loaders are server-only, use `createSupabaseServiceRoleClient()` (`lib/supabase/server.ts:79-93`; reads `SUPABASE_SECRET_KEY` ?? `SUPABASE_SERVICE_ROLE_KEY`), destructure `{ data, error }`, and return a discriminated union matching the established loader convention (`{ kind: "ok"; … } | { kind: "infra_error"; message: string }`, cf. `lib/admin/loadIgnoredSheets.ts:27-29`). Per the admin infra-contract (§9.2): the **client construction + every query builder + every await are inside one `try { … } catch`**; a returned `{ error }` OR a thrown error both yield `{ kind:"infra_error", message }`, and the thrown-path message names the table + `"threw"` (e.g. `"app_events read threw"`, `"shows embed threw"`). The raw error is `log.error`'d via `lib/log` (not returned to the UI).
 
 > **Deliberate departure (preempt, §11):** existing loaders use the cookie-bound `createSupabaseServerClient()`. `app_events` is `revoke all ... from authenticated`, so a cookie-bound (anon/authenticated) client **cannot read it** — the service-role client is **required**, not a shortcut. It runs only server-side inside an admin-gated RSC (page + layout both call `requireAdminIdentity`), mirroring the service-role read posture the Phase 1 spec prescribed ("Phase 2's admin UI reads via a service-role server component (admin-gated at the route)"). This bypasses RLS by design; it is never reachable by a non-admin or by the browser.
 
@@ -224,7 +246,14 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
 - **Ordering + pagination:** `order("occurred_at", desc).order("id", desc)`, `limit(PAGE_SIZE + 1)` where `PAGE_SIZE = 100`. Keyset cursor on `(occurred_at, id)`: `.or("occurred_at.lt.<c>,and(occurred_at.eq.<c>,id.lt.<id>)")`. Fetch N+1; `hasMore = rows.length > PAGE_SIZE`; trim to `PAGE_SIZE`; `nextCursor` = last kept row's `(occurredAt, id)`.
 - **Filters → PostgREST:** `levels` → `.in("level", …)`; `source` → `.eq`; `code` → `.eq("code", code)` (constant `CRON_RUN_SUMMARY` may be passed by ref — never a `code:` property literal, so no scanner match); `showId`/`requestId` → `.eq`; `sinceHours` → `.gte("occurred_at", isoSince)`; `q` → `.ilike("message", \`%${escaped}%\`)`.
 - **Show title join:** `select("…, shows(title)")` (FK embed; `shows.title` is `text not null`, `supabase/migrations/20260501000000_initial_public_schema.sql:7`) OR a second `shows` lookup keyed by the distinct `show_id`s; embed preferred. `showTitle` null when `show_id` null or show deleted.
-- **Guards:** empty filters → last 24h, newest 100. `q` is trimmed; empty/whitespace `q` is ignored. `sinceHours` outside {1,24,168,null} → coerce to 24. Unknown `levels` members dropped. `cursor` with bad shape → treated as no cursor (page 1).
+- **Guards (all URL params are untrusted; validate before building the query):**
+  - empty filters → last 24h, newest 100.
+  - `levels` — drop members not in {info,warn,error}; empty after filtering → no level filter.
+  - `sinceHours` — coerce to 24 if not in {1,24,168,null}.
+  - `showId` — must match the UUID regex; otherwise drop the filter (an invalid UUID would make PostgREST 400 → an avoidable `infra_error`). Same for `cursor.id`.
+  - `requestId`, `source`, `code` — trim; drop if empty; **cap at 200 chars** (drop if longer; an oversized exact-match filter is meaningless and a waste).
+  - `q` — trim; ignore if empty/whitespace; cap at 200 chars; **escape ILIKE metacharacters** so user input is matched literally: backslash-escape `\`, `%`, and `_` before wrapping in `%…%` (`q.replace(/[\\%_]/g, (c) => "\\" + c)`), and rely on PostgREST/`.ilike` parameterization (no string interpolation into SQL).
+  - `cursor` — accept only when `cursor.occurredAt` parses as an ISO timestamp AND `cursor.id` matches the UUID regex; any other shape/value → treated as no cursor (page 1).
 - **Infra contract:** any `{ error }` from Supabase → `{ kind: "infra_error", message }` (message is a short non-PII string; the raw error is `log.error`'d via `lib/log`, not returned).
 
 ### 5.2 `lib/admin/loadCronHealth.ts` — header query
@@ -326,18 +355,20 @@ The plan adds a **layout-dimensions** task: a real-browser (Playwright / chrome-
 
 ### 9.1 CREATES
 - `tests/cross-cutting/cron-run-summary-scanner-safety.test.ts` — calls `extractInternalCodeEnums()` and asserts the output object has **no** key `CRON_RUN_SUMMARY` (pins that the run-summary code never leaks into the §12.4 internal-code-enum manifest). Also asserts `pnpm gen:internal-code-enums` leaves `lib/messages/__generated__/internal-code-enums.ts` byte-identical (the Phase 1 proof technique).
-- `tests/cron/cronJobsParity.test.ts` — asserts `CRON_JOBS` (display registry) maps 1:1 onto the 9 `fxav_cron_%` jobs in `pg-cron-jobs.json` (guards header/cron drift).
+- `tests/cron/cronJobsParity.test.ts` — asserts `CRON_JOBS` (display registry) maps 1:1 onto the 9 `fxav_cron_%` jobs in `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json` (read that exact path) via the explicit pairing table (guards header/cron drift).
 - Unit tests: `summarizeSync` (outcome mapping incl. infra/partial/ok + empty + heartbeat fault), `runCronRoute` (ALS idempotent reuse vs establish; HTTP passthrough on success; emit-then-rethrow on throw; literal-method dispatch; level mapping; awaited emit), `loadAppEvents` (filter→PostgREST translation, keyset pagination `hasMore`/`nextCursor`, guards for bad cursor/levels/q, `infra_error` path), `loadCronHealth` (latest-per-source reduction, "no run seen", malformed context guard).
 - Component tests: `EventLevelBadge`/health mapping, `EventRow` expand + run-summary-card branch + request chip link, `EventFilters` URL writes, `AutoRefreshControl` (interval arm/disarm, visibility pause, localStorage default-ON, cleanup), `EventTimeline` empty/cap/infra states.
 - **Transition-audit** task (per the writing-plans transition rule): enumerate every `AnimatePresence`/ternary/conditional in the new components and assert each has the §7 treatment, incl. the two compound cases.
 
 ### 9.2 EXTENDS / TOUCHES
+- **`tests/admin/_metaInfraContract.test.ts` (EXTEND — mandatory).** `loadAppEvents` and `loadCronHealth` are new `lib/admin` Supabase-touching loaders → each gets an `infraRegistry` row (`helper`, `path`, `contract`) AND a behavioral `describe` block. Per the existing contract (`tests/admin/_metaInfraContract.test.ts:23-37, 164-305`): (a) the **grep-shape** test requires every supabase-derived await AND every `supabase.from(...)` builder-assignment line to sit inside a `try { … } catch`; (b) behavioral tests assert **service-role construction throw → `{ kind:"infra_error" }`** and **per-`from()`-table throw → `{ kind:"infra_error", message }` with a table-specific message matching `/app_events.*threw/` (and `/shows.*threw/` for the embed)**. So both loaders MUST: wrap construction+builder+await in try/catch, return `{ kind:"infra_error", message }` on both the returned-`{error}` and thrown paths, and put the table name + "threw" in the thrown message. This is the §9.3 sibling for the *admin* contract — distinct from the *auth* one.
 - `components/admin/nav/navConfig.ts`, `lib/audit/trustDomains.ts` — registry edits (§6.1). The auth-chain audit (`lib/audit/authChain.ts`) re-validates after the `PROTECTED_ROUTES` edit.
 
 ### 9.3 Verified clear (no row needed)
 - `tests/log/_metaAppEventsWriter.test.ts` — guards **writes** (`from("app_events").insert|update|delete|upsert`); the UI only `.select()`s (read) and the wrapper writes via `lib/log` → `lib/log/persist.ts` (still the sole writer). **Safe.**
-- `tests/auth/_metaInfraContract.test.ts` — registers **auth helpers**; the cron wrapper is not an auth helper and changes no Supabase call-boundary semantics. **No row.**
-- `tests/cross-cutting/pg-cron-coverage.test.ts` + `pg-cron-jobs.json` — Phase 2 adds **no** pg-cron job; the run-summary is a log emission. **Unchanged.**
+- `tests/auth/_metaInfraContract.test.ts` — registers **auth helpers** only; the cron wrapper is not an auth helper and changes no Supabase call-boundary semantics. **No row.** (The *admin* infra-contract meta-test IS extended for the two loaders — §9.2.)
+- The cron wrapper itself touches **no** Supabase client (it only calls `log.*`, whose persist path is already the registered sole writer). **No infra-contract row for the wrapper.**
+- `tests/cross-cutting/pg-cron-coverage.test.ts` + `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-26-pg-cron-pivot/pg-cron-jobs.json` — Phase 2 adds **no** pg-cron job; the run-summary is a log emission. **Unchanged.**
 - `tests/messages/_metaAdminAlertCatalog.test.ts`, `catalog.test.ts`, `codes.test.ts` — `CRON_RUN_SUMMARY` is an `app_events` code, never an `admin_alerts` code, emitted only inside literal `log.*()` (stripped). **No catalog entry; no §12.4 touch.**
 - `tests/db/postgrest-dml-lockdown.test.ts`, `validation-schema-parity` — **no new/changed migration**; `app_events` row already registered in Phase 1. **Unchanged.** (No validation-project apply needed this milestone.)
 
