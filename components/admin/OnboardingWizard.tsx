@@ -228,7 +228,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   try {
     const q = await supabase
       .from("pending_syncs")
-      .select("staged_id, drive_file_id, parse_result")
+      .select("staged_id, drive_file_id, parse_result, last_finalize_failure_code")
       .eq("wizard_session_id", wizardSessionId);
     if (q.error) {
       return {
@@ -266,7 +266,12 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 
   const stagedByDfid = new Map<
     string,
-    { stagedId: string; title: string | null; parseResult: ParseResult | null }
+    {
+      stagedId: string;
+      title: string | null;
+      parseResult: ParseResult | null;
+      lastFinalizeFailureCode: string | null;
+    }
   >();
   for (const ps of pendingSyncsRows) {
     const driveFileId = ps.drive_file_id as string;
@@ -281,6 +286,8 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       stagedId: ps.staged_id as string,
       title: parseResult?.show?.title ?? null,
       parseResult,
+      // Task 5b (spec §6.1): the demotion code drives the card's dirty re-scan state.
+      lastFinalizeFailureCode: (ps.last_finalize_failure_code as string | null) ?? null,
     });
   }
 
@@ -308,7 +315,12 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       if (staged) {
         // §7.1: a clean row carries its full ParseResult (may be null if the
         // jsonb was absent/malformed). Title is the back-compat summary field.
-        const withParse: Step3Row = { ...base, parseResult: staged.parseResult };
+        // Task 5b: thread the demotion code so a dirty re-scan row renders distinctly.
+        const withParse: Step3Row = {
+          ...base,
+          parseResult: staged.parseResult,
+          lastFinalizeFailureCode: staged.lastFinalizeFailureCode,
+        };
         if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
         return withParse;
       }

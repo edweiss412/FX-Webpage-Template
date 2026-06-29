@@ -82,6 +82,10 @@ export type Step3Row = {
   // summary + breakdown from this). A staged row carries its `ParseResult`;
   // non-staged rows have `null`. Coerced from untyped jsonb in fetchStep3Data.
   parseResult?: ParseResult | null;
+  // Task 5b (spec §6.1): the pending_syncs demotion code, threaded so the card can
+  // render a dirty re-scan (`RESCAN_REVIEW_REQUIRED`) distinctly — a "review before
+  // publishing" link to the reapply page, with the plain publish checkbox suppressed.
+  lastFinalizeFailureCode?: string | null;
 };
 
 type Step3ReviewProps = {
