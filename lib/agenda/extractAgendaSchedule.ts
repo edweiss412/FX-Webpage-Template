@@ -506,7 +506,23 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       const startTok = tok.split(/[–—-]/)[0] ?? "";
       const sp = parseClockPart(startTok);
       const hasExplicit = /AM|PM/i.test(tok);
-      if (sp && !hasExplicit && sp.h >= 7 && sp.h <= 11) ambiguousFirst = true;
+      if (sp && !hasExplicit && sp.h >= 7 && sp.h <= 11) {
+        // §4.4 ambiguity is REAL only when the opener's day never crosses into the
+        // afternoon. A bare 7–11 open whose own day later resolves a session to PM
+        // (startMin ≥ 720 = noon) is demonstrably a daytime schedule progressing
+        // AM→PM — the order-aware fill FLIPS those later sessions to PM precisely to
+        // stay monotonic, which only happens for a morning-opening day. A genuine
+        // bare-evening run (all-PM, mis-seeded AM) stays entirely < noon and remains
+        // ambiguous → still gated. This relaxation is monotonic: it can only turn an
+        // ambiguous open into a corroborated one, never the reverse, so existing
+        // high-confidence fixtures are unaffected. (II - Retirement Plan Advisor
+        // Summit 2026 opens "7:45" bare and runs to ~5:40 PM.)
+        const firstDay = first.day ?? "?";
+        const dayCrossesToPM = resolved.some(
+          (s) => (s.day ?? "?") === firstDay && (s.startMin ?? -1) >= 720,
+        );
+        if (!dayCrossesToPM) ambiguousFirst = true;
+      }
     }
 
     const high =

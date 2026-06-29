@@ -42,6 +42,22 @@ test("RIA: 'a.m./p.m.' meridiem format (period-delimited times) parses high", as
   // The period/lowercase "7:30 a.m." is recognized and rendered in canonical form.
   expect(sessions.some((s) => s.time.startsWith("7:30 AM"))).toBe(true);
 });
+test("RPS: bare-morning opener whose day crosses AM→PM is NOT ambiguous-first (parses high)", async () => {
+  // II - Retirement Plan Advisor Summit 2026 opens "7:45" (bare, hour 7) and runs to
+  // ~5:40 PM. Pre-relaxation, the §4.4 ambiguous-first guard gated ANY bare 7–11 opener
+  // to low — so this real, fully-readable schedule (24 sessions, every other metric
+  // passing) rendered "No schedule detected". The relaxation accepts it because the
+  // opener's day later resolves sessions to PM (AM→PM crossover proves a daytime
+  // schedule). Concrete failure mode pinned: reverting the dayCrossesToPM check drops
+  // this back to confidence:low. Assertions derive from the fixture (first "7:45 AM",
+  // presence of a PM session), not hardcoded counts.
+  const x = await extractAgendaSchedule(bytes("rps.pdf"));
+  expect(x.confidence).toBe("high");
+  const sessions = x.days.flatMap((d) => d.sessions);
+  expect(sessions.length).toBeGreaterThanOrEqual(5);
+  expect(sessions[0]?.time.startsWith("7:45 AM")).toBe(true); // bare opener seeded AM
+  expect(sessions.some((s) => / PM$/.test(s.time))).toBe(true); // day crosses into PM
+});
 test("garbage / non-agenda PDF → low confidence", async () => {
   // a tiny non-agenda PDF fixture (or empty Uint8Array) → defensively low
   const x = await extractAgendaSchedule(new Uint8Array([0]));
