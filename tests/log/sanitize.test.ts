@@ -5,7 +5,9 @@ import { redactEmails, sanitizeContext } from "@/lib/log/sanitize";
 describe("redactEmails", () => {
   test("redacts emails anywhere in a string", () => {
     expect(redactEmails("contact alice@example.com now")).toBe("contact [email-redacted] now");
-    expect(redactEmails("a@b.co and c.d+x@sub.example.org")).toBe("[email-redacted] and [email-redacted]");
+    expect(redactEmails("a@b.co and c.d+x@sub.example.org")).toBe(
+      "[email-redacted] and [email-redacted]",
+    );
   });
   test("leaves non-emails alone", () => {
     expect(redactEmails("no address here @ all")).toBe("no address here @ all");

@@ -48,7 +48,10 @@ export function sanitizeContext(
   const seen = new WeakSet<object>();
   const sanitized = sanitizeValue(context, seen);
   const safeContext =
-    sanitized !== DROP && sanitized !== null && typeof sanitized === "object" && !Array.isArray(sanitized)
+    sanitized !== DROP &&
+    sanitized !== null &&
+    typeof sanitized === "object" &&
+    !Array.isArray(sanitized)
       ? (sanitized as Record<string, unknown>)
       : {};
   return { message: redactEmails(message), context: safeContext };

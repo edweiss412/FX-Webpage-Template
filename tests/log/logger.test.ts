@@ -95,7 +95,10 @@ describe("logger", () => {
     // service-role insert in a unit test.
     const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
     await log.debug("boom", { source: "auth/x", code: "C" });
-    expect(spy).toHaveBeenCalledWith("[auth/x] boom", expect.objectContaining({ code: "C", level: "debug" }));
+    expect(spy).toHaveBeenCalledWith(
+      "[auth/x] boom",
+      expect.objectContaining({ code: "C", level: "debug" }),
+    );
     spy.mockRestore();
   });
 });

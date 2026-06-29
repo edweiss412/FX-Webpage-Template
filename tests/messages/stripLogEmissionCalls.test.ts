@@ -32,7 +32,7 @@ describe("stripLogEmissionCalls", () => {
 
   test("a template literal with \${} inside the log call is handled", () => {
     const src =
-      "log.error(`oops ${foo({ a: 1 })} done`, { source: \"s\", code: \"LOG_TPL\" }); const y = { code: \"ALSO_KEPT\" };";
+      'log.error(`oops ${foo({ a: 1 })} done`, { source: "s", code: "LOG_TPL" }); const y = { code: "ALSO_KEPT" };';
     expect(codes(src)).toEqual(["ALSO_KEPT"]);
   });
 

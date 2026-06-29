@@ -2,8 +2,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import postgres from "postgres";
 
 const url =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const sql = postgres(url, { max: 1 });
 afterAll(async () => {
   await sql.end();
@@ -62,7 +61,9 @@ describe("app_events schema", () => {
     await sql`insert into public.app_events (level, source, message, occurred_at)
               values ('info','prune-test','old', now() - interval '90 days'),
                      ('info','prune-test','new', now())`;
-    const deleted = await sql<{ n: number }[]>`select public.prune_app_events(interval '60 days') as n`;
+    const deleted = await sql<
+      { n: number }[]
+    >`select public.prune_app_events(interval '60 days') as n`;
     expect(Number(deleted[0]!.n)).toBeGreaterThanOrEqual(1);
     const remaining = await sql<{ message: string }[]>`
       select message from public.app_events where source = 'prune-test'`;
