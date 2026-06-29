@@ -464,4 +464,55 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
       ).toHaveLength(acquisitions);
     }
   });
+
+  test(
+    "finalize §5.6 re-select topology: parse_result re-read runs under the existing show: lock " +
+      "with zero new acquisitions (Task 12, publish-safety)",
+    () => {
+      // Spec §5.6 / Task 12: inside defaultWithRowTx (which already holds
+      // pg_advisory_xact_lock(hashtext('show:' || $1)) at line ~164), processApprovedRow
+      // re-SELECTs parse_result from pending_syncs generation-scoped before apply.
+      // This re-read captures any agenda extraction that completed between
+      // selectFinishableCleanRows (outer tx, no show: lock) and the per-row tx.
+      //
+      // Invariant: the re-SELECT must be INSIDE the locked tx window and must NOT add a
+      // new pg_advisory_xact_lock — that would create a nested holder (deadlock class, M5 R20).
+      //
+      // Negative-regression verification (manual, performed during Task 12 authoring):
+      // Temporarily adding `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`
+      // immediately before the re-SELECT raised the `toHaveLength(1)` count to 2,
+      // causing the topology test above to FAIL.  After reverting, it passes at 1.
+      // This confirms the structural guard is load-bearing.
+      const FINALIZE = "app/api/admin/onboarding/finalize/route.ts";
+      const src = stripComments(readFileSync(join(ROOT, FINALIZE), "utf8"));
+
+      // (1) The generation-scoped re-SELECT pattern must be present (all four WHERE keys).
+      expect(
+        src,
+        `${FINALIZE}: §5.6 re-SELECT (wizard_session_id + drive_file_id + staged_id + ` +
+          `staged_modified_time) not found — Task 12 re-read was removed or renamed`,
+      ).toMatch(
+        /select parse_result from public\.pending_syncs[\s\S]*?where[\s\S]*?wizard_session_id[\s\S]*?drive_file_id[\s\S]*?staged_id[\s\S]*?staged_modified_time/i,
+      );
+
+      // (2) Acquisition count must remain at exactly 1 (single-holder rule). A second
+      // pg_advisory_xact_lock anywhere in the file is a nested-holder deadlock risk.
+      const acquisitions =
+        src.match(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/g) ?? [];
+      expect(
+        acquisitions,
+        `${FINALIZE}: §5.6 re-SELECT block must NOT add a new advisory-lock acquisition — ` +
+          `acquisition count must stay at 1 (defaultWithRowTx is the single holder)`,
+      ).toHaveLength(1);
+
+      // (3) Drive-light: the re-SELECT block must not contain any Drive call pattern.
+      // Finalize reads parse_result from the DB only; per-PDF Drive revalidation is
+      // delegated to cron (spec §5.7 temporal-scope).
+      expect(
+        src,
+        `${FINALIZE}: Drive call found near the §5.6 re-SELECT block; ` +
+          `finalize must not make per-PDF Drive calls during apply`,
+      ).not.toMatch(/getFile|downloadFileBytes/i);
+    },
+  );
 });
