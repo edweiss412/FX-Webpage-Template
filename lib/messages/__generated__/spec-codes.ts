@@ -932,6 +932,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → wait or text Doug",
     "helpfulContext": null,
   },
+  "RESCAN_REVIEW_REQUIRED": {
+    "crewFacing": null,
+    "dougFacing": "This sheet changed and needs your review before publishing.",
+    "followUp": "Doug → re-review this sheet in setup, then publish",
+    "helpfulContext": "A re-scan of this sheet surfaced a change that needs a decision (for example a crew email, name, or roster change), so setup is holding it out of the publish batch until you re-review and re-approve it from the reapply page.",
+  },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
     "dougFacing": "A crew member's role flags changed. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",

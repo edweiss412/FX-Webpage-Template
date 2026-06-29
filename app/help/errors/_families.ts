@@ -32,6 +32,7 @@ export const FAMILIES: Family[] = [
       "CLEANUP",
       "CONCURRENT",
       "FINALIZE",
+      "RESCAN",
     ],
   },
   {

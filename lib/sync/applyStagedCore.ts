@@ -101,7 +101,7 @@ export const ASSET_REVIEW_INVARIANTS = new Set<TriggeredReviewItem["invariant"]>
   "REEL_DRIFT_PENDING",
 ]);
 
-function allowedActions(item: TriggeredReviewItem): Set<ReviewerChoice["action"]> {
+export function allowedActions(item: TriggeredReviewItem): Set<ReviewerChoice["action"]> {
   if (ASSET_REVIEW_INVARIANTS.has(item.invariant)) return new Set(["apply"]);
   if (item.invariant === "MI-12") return new Set(["rename", "reject"]);
   if (item.invariant === "MI-13" || item.invariant === "MI-14") {

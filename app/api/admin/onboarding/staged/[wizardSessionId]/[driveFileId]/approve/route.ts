@@ -3,6 +3,7 @@ import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 
 // Task D3 (spec §7.2 "Write (check)"): approve is the LIGHTWEIGHT durable
 // publish-intent write — the symmetric inverse of C3's un-approve. It sets
@@ -78,17 +79,21 @@ function errorResponse(status: number, code: string): Response {
 // apply-all is the only allowed action (mirrors finalize's synthesizeDefaultChoices).
 type ReviewerChoice = { item_id: string; action: "apply" };
 
-// Read the target row's triggered_review_items under the active-session guard so a
-// superseded session is observed BEFORE any mutation. Returns null when the row is
-// not visible (superseded / missing); throws on corrupt items (fail-closed).
-async function readReviewItemsForActiveSession(
+// Read the target row's triggered_review_items + last_finalize_failure_code under the
+// active-session guard so a superseded session is observed BEFORE any mutation. Returns
+// null when the row is not visible (superseded / missing); throws on corrupt items
+// (fail-closed). The failure code drives the targeted dirty-rescan guard below.
+async function readPendingForActiveSession(
   tx: WizardApproveRouteTx,
   wizardSessionId: string,
   driveFileId: string,
-): Promise<ReviewerChoice[] | null> {
-  const row = await tx.queryOne<{ triggered_review_items: unknown } | null>(
+): Promise<{ reviewerChoices: ReviewerChoice[]; lastFinalizeFailureCode: string | null } | null> {
+  const row = await tx.queryOne<{
+    triggered_review_items: unknown;
+    last_finalize_failure_code: string | null;
+  } | null>(
     `
-      select ps.triggered_review_items
+      select ps.triggered_review_items, ps.last_finalize_failure_code
         from public.pending_syncs ps
        where ps.drive_file_id = $1
          and ps.wizard_session_id = $2::uuid
@@ -106,7 +111,10 @@ async function readReviewItemsForActiveSession(
     // Corrupt review gate → fail closed (do not approve an uninterpretable gate).
     throw new Error("wizard approve: corrupt triggered_review_items — refusing approval");
   }
-  return parsed.items.map((item) => ({ item_id: item.id, action: "apply" as const }));
+  return {
+    reviewerChoices: parsed.items.map((item) => ({ item_id: item.id, action: "apply" as const })),
+    lastFinalizeFailureCode: row.last_finalize_failure_code ?? null,
+  };
 }
 
 // Set wizard_approved + approve provenance + synthesized choices, guarded on the
@@ -207,22 +215,29 @@ export async function handleWizardStagedApprove(
   try {
     const { wizardSessionId, driveFileId } = await context.params;
     return await deps.withRowTx(driveFileId, async (tx) => {
-      // Read review items under the active-session guard FIRST. A null result means
-      // the session was superseded (or the row is gone) — refuse before mutating.
-      const reviewerChoices = await readReviewItemsForActiveSession(
-        tx,
-        wizardSessionId,
-        driveFileId,
-      );
-      if (reviewerChoices === null) {
+      // Read review items + the demotion code under the active-session guard FIRST. A
+      // null result means the session was superseded (or the row is gone) — refuse
+      // before mutating.
+      const pending = await readPendingForActiveSession(tx, wizardSessionId, driveFileId);
+      if (pending === null) {
         return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+      }
+      // Targeted dirty-rescan guard (spec §6.1): a row demoted by a per-sheet re-scan
+      // carries RESCAN_REVIEW_REQUIRED. The plain checkbox /approve clears the code and
+      // synthesizes an apply-all, which would SILENTLY re-approve a crew-identity change
+      // (MI-11) or write an invalid apply-all for a multi-action MI-12/13/14 (→ 500 at
+      // finalize). Refuse here — HTTP 200 + the cataloged code, ZERO mutation — and let
+      // the card route Doug to the reapply page, which exposes the real per-item choice
+      // controls. EVERY other demotion code keeps the one-click checkbox recovery.
+      if (pending.lastFinalizeFailureCode === RESCAN_REVIEW_REQUIRED) {
+        return errorResponse(200, RESCAN_REVIEW_REQUIRED);
       }
       const approved = await approvePendingSync(
         tx,
         wizardSessionId,
         driveFileId,
         approverEmail,
-        reviewerChoices,
+        pending.reviewerChoices,
       );
       if (!approved) {
         // Superseded between the read and the write — no mutation ran; safe refusal.

@@ -32,8 +32,10 @@
  * / [data-step3-details-scrim]), consuming the motion tokens.
  */
 import { Fragment, useCallback, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronRight, ExternalLink } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type {
   AgendaEntry,
   CrewMemberRow,
@@ -56,6 +58,7 @@ import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
+import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
 // ── §4.3 caps (single source of truth) ──
 const CREW_CAP = 30;
@@ -746,6 +749,39 @@ function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
   );
 }
 
+/**
+ * Task 5b (spec §6.1): the DISTINCT dirty-rescan state. A row demoted by a per-sheet
+ * re-scan (`last_finalize_failure_code === 'RESCAN_REVIEW_REQUIRED'`) cannot be cleared
+ * by the plain publish checkbox (that would silently re-approve a crew change), so the
+ * card suppresses the checkbox and surfaces this warning callout instead: a plain-English
+ * sentence + a link to the reapply page, which has the real per-item choice controls.
+ * Warm warning-bg + full strong border (DESIGN.md §1.2 — warning, not error; never a
+ * side-stripe), paired with an icon + text (color-blind floor §1).
+ */
+function RescanReviewBanner({ dfid, wizardSessionId }: { dfid: string; wizardSessionId: string }) {
+  return (
+    <div
+      data-testid={`wizard-step3-card-${dfid}-rescan-review`}
+      className="flex flex-col gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+    >
+      <div className="flex items-start gap-2">
+        <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <p className="text-sm font-medium">
+          This sheet changed since you reviewed it. Review it before publishing.
+        </p>
+      </div>
+      <Link
+        data-testid={`wizard-step3-rescan-review-${dfid}`}
+        href={`/admin/onboarding/staged/${wizardSessionId}/${dfid}`}
+        className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      >
+        Review this sheet
+        <ChevronRight aria-hidden="true" className="size-4" />
+      </Link>
+    </div>
+  );
+}
+
 export function Step3SheetCard({
   row,
   wizardSessionId,
@@ -763,6 +799,10 @@ export function Step3SheetCard({
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
+  // Task 5b (spec §6.1): a row demoted by a per-sheet re-scan renders the distinct
+  // "review before publishing" state (banner + reapply link), and its publish checkbox
+  // is suppressed (the checkbox cannot safely clear this code).
+  const isDirtyRescan = row.lastFinalizeFailureCode === RESCAN_REVIEW_REQUIRED;
   // The details overlay is self-managed per card: "More" opens it, the dialog
   // closes itself (Escape / scrim / close button). It is a MODAL, so only one is
   // ever open at a time (the scrim covers the viewport) — no parent accordion
@@ -790,6 +830,14 @@ export function Step3SheetCard({
             </p>
           </div>
         </div>
+        {/* A dirty re-scan routes to the reapply page (the review link is primary, even
+            for a no-details row); otherwise re-scanning is exactly how a no-details row
+            recovers, so the Re-scan button leads the recovery here (spec §9). */}
+        {isDirtyRescan ? (
+          <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
+        ) : (
+          <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+        )}
       </article>
     );
   }
@@ -826,27 +874,35 @@ export function Step3SheetCard({
       data-testid={`wizard-step3-card-${dfid}`}
       className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile)"
     >
+      {/* Task 5b: a dirty re-scan demotes the row — the review-before-publishing
+          banner leads the card and the publish checkbox below is suppressed. */}
+      {isDirtyRescan ? <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} /> : null}
       {/* Header row: a reserved leading slot (D3 checkbox lands here) + the
           summary text block. The slot is shrink-0; the block is min-w-0 flex-1
           so a long title truncates instead of overflowing the fixed-width
           list column (§4.4). */}
       <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
         {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
-            long title (min-w-0 flex-1 below) truncates instead of squeezing it. */}
-        <PublishCheckbox
-          // Controlled mode (in the Step3Review grid): the parent owns the
-          // optimistic checked state, so a stable key by dfid keeps the box mounted
-          // and the parent drives it. Uncontrolled mode (standalone): re-seed
-          // (remount) on a server-status flip so a refreshed status takes effect.
-          key={onToggleChecked !== undefined ? dfid : row.status}
-          driveFileId={dfid}
-          wizardSessionId={wizardSessionId}
-          initialChecked={row.status === "applied"}
-          controlledChecked={
-            onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
-          }
-          onToggle={onToggleChecked}
-        />
+            long title (min-w-0 flex-1 below) truncates instead of squeezing it.
+            Task 5b: suppressed for a dirty re-scan row (the checkbox /approve cannot
+            safely clear RESCAN_REVIEW_REQUIRED — recovery flows through the reapply
+            page via the banner above). */}
+        {isDirtyRescan ? null : (
+          <PublishCheckbox
+            // Controlled mode (in the Step3Review grid): the parent owns the
+            // optimistic checked state, so a stable key by dfid keeps the box mounted
+            // and the parent drives it. Uncontrolled mode (standalone): re-seed
+            // (remount) on a server-status flip so a refreshed status takes effect.
+            key={onToggleChecked !== undefined ? dfid : row.status}
+            driveFileId={dfid}
+            wizardSessionId={wizardSessionId}
+            initialChecked={row.status === "applied"}
+            controlledChecked={
+              onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
+            }
+            onToggle={onToggleChecked}
+          />
+        )}
         <div className="min-w-0 flex-1">
           <SheetTitleLink dfid={dfid} title={title} />
           {client ? <p className="truncate text-sm text-text-subtle">{client}</p> : null}
@@ -970,6 +1026,13 @@ export function Step3SheetCard({
         <span>More</span>
         <ChevronRight aria-hidden="true" className="size-4" />
       </button>
+
+      {/* Re-scan this sheet (spec §9): a quiet recovery CTA alongside "More". Suppressed
+          for a dirty re-scan row — its banner above already routes to the reapply page,
+          so a competing Re-scan button would muddy the primary action. */}
+      {isDirtyRescan ? null : (
+        <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+      )}
 
       {/* The details overlay — mounted ONLY while open, so a closed card carries
           no breakdown (and none of its focusable "Show all N times" controls) in

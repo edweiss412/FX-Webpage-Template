@@ -8,6 +8,7 @@ import {
 import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch, STAGED_REVIEW_ITEMS_CORRUPT } from "@/lib/sync/applyStaged";
@@ -427,6 +428,7 @@ async function demotePending(
     | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
     | typeof WIZARD_SESSION_SUPERSEDED
     | typeof STAGED_REVIEW_ITEMS_CORRUPT
+    | typeof RESCAN_REVIEW_REQUIRED
     | "DRIVE_FETCH_FAILED",
 ): Promise<void> {
   await tx.query<{ demoted: boolean }>(
