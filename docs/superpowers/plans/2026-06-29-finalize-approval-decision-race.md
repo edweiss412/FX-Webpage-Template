@@ -52,7 +52,7 @@
 - Modify: `tests/auth/advisoryLockRpcDeadlock.test.ts:520-527`
 
 **Interfaces:**
-- Produces: `PendingFinalizeRow` now carries `last_finalize_failure_code: string | null`. `rereadRow` (and therefore `coercedRow`) carries all six decision columns from the locked re-read. The 4-branch logic STILL reads `row.*` (unchanged) — behavior is identical this task; this is pure plumbing so later tasks can re-point to `coercedRow`.
+- Produces: `PendingFinalizeRow` now carries `last_finalize_failure_code?: string | null`. `rereadRow` (and therefore `coercedRow`) carries all six decision columns from the locked re-read. The 4-branch *conditionals* still read `row.wizard_approved` (unchanged this task). **Behavior is identical in the no-race case** (locked == outer). NOTE: two helpers already receive `coercedRow` — `stageExistingShowShadow(…, coercedRow, …)` (`:850`) and `requireApprovedByEmail(coercedRow)` (`:893`) — so under the *exact* concurrent race, Task 1 alone partially shifts the approver-email/shadow payload to locked values before Task 2 re-points the branch conditions. This does not leave the suite red (the existing tests configure locked == outer) and Task 2 completes the fix; it is called out only so the "no behavior change" label is precise.
 
 - [ ] **Step 1: Widen the re-read SELECT + `rereadRow` in the route**
 
