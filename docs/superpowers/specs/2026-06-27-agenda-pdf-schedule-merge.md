@@ -206,18 +206,31 @@ best-effort same-instance dedupe:
    overwrite the whole `parse_result` with the tx#1 snapshot — that would lose any change
    (another extractor's success, or other staged edits) made during the no-DB extraction
    window, and a LATER stale extraction could erase a newer one. Instead: **REREAD** the
-   CURRENT `parse_result`, and **MERGE ONLY the positively-confirmed-fresh `extracted`
-   payloads** (per §5.2 step 5, matched to the current row's `agenda_links` by `fileId`)
-   into it — touching nothing else. A request with NO confirmed-fresh links merges
-   nothing (so a failed/stale refresh NEVER erases an earlier success). The write
-   ATOMICALLY re-checks lifecycle: `update public.pending_syncs set parse_result =
-   $1::jsonb where wizard_session_id = $2 and drive_file_id = $3 AND <active-session,
-   not-superseded> AND <not finalize-consumed/in-progress> returning staged_id` (where
-   `$1` is the MERGED result; predicate matches step 3, does NOT exclude
-   `approval_payload IS NOT NULL`; pass the object, NOT `JSON.stringify`). **0 rows**
-   (superseded/finalize-consumed during extraction) → discard, `409 stale`. **1 row** →
-   commit (releases `show:`). Then **build + return `200 { items }`** via
-   `buildAdminAgendaPreview(currentLinks, { freshByLinkKey })` over the merged links.
+   CURRENT `parse_result`, and **MERGE ONLY the positively-confirmed-fresh results** into
+   it — touching nothing else.
+   - **Merge KEY handles the target smart-chip shape (Codex round-26):** the current row's
+     links may have NO `fileId` (smart-chips — the `fileId` is RECOVERED by `getAgendaChips`
+     into the in-memory link DURING extraction). Matching by `fileId` alone would find no
+     key on the current (fileId-less) row → the recovered extraction could never persist
+     (RFI/PCF would stay note-only forever, cache never warms, publish carries nothing).
+     So the merge matches each in-memory link to a current link by the SAME contract
+     `enrichAgenda` recovery uses: by `fileId` when the current link has one, else by the
+     **ordinal + label chip-correlation** (document-order 1:1, label-aligned — the
+     `getAgendaChips` ordinal contract). For each confirmed-fresh match, set BOTH the
+     **recovered `fileId` AND the fresh `extracted`** on the current link (additive — for
+     a fileId-less link this fills in the `fileId`; never clobbers other fields). This
+     warms the cache (the persisted row now has `fileId` + fresh `extracted` → the next
+     request cache-hits) and carries the agenda to publish.
+   - A request with NO confirmed-fresh links merges nothing (a failed/stale refresh NEVER
+     erases an earlier success). The write ATOMICALLY re-checks lifecycle: `update
+     public.pending_syncs set parse_result = $1::jsonb where wizard_session_id = $2 and
+     drive_file_id = $3 AND <active-session, not-superseded> AND <not
+     finalize-consumed/in-progress> returning staged_id` (`$1` = MERGED result; predicate
+     matches step 3, does NOT exclude `approval_payload IS NOT NULL`; pass the object,
+     NOT `JSON.stringify`). **0 rows** → discard, `409 stale`. **1 row** → commit
+     (releases `show:`). Then **build + return `200 { items }`** via
+     `buildAdminAgendaPreview(mergedLinks, { freshByLinkKey })` — where `freshByLinkKey`
+     is keyed by the (now-present) recovered `fileId`s of the confirmed-fresh links.
 
 **Pool-safety + publish-safety + dedupe:** a DB connection is held ONLY during the two
 short txns (read pre-check; brief `show:` persist) — NEVER during the ≤300 s Drive/PDF
@@ -431,9 +444,13 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    → conditional `UPDATE … WHERE … AND <active> RETURNING` affects **0 rows** → `409
    stale`, `parse_result` **unchanged**; (e3) **approved row STILL extracts** (round-22
    F2): `approval_payload IS NOT NULL` + active + not finalized → extracts, persists,
-   `200` (NOT 409); (h) **target smart-chip shape** (round-22 F1): links with **zero
-   `fileId`s** + **no `extracted`** → endpoint **calls `getAgendaChips` +
-   `downloadFileBytes`** (cache NOT vacuously hit) → blocks; (i) **stale refresh →
+   `200` (NOT 409); (h) **target smart-chip shape end-to-end** (round-22 F1 + round-26): a staged row with
+   links having **zero `fileId`s** + **no `extracted`** → endpoint calls `getAgendaChips`
+   (recover fileId) + `downloadFileBytes` → tx#2 merges by **ordinal+label** (no fileId to
+   match on) and persists BOTH the recovered `fileId` AND fresh `extracted` → returns
+   blocks; then assert a **SECOND** request **cache-hits** (the persisted row now has
+   `fileId` + fresh `extracted` → zero `downloadFileBytes`/`getAgendaChips`), proving the
+   recovered fileId was persisted and the cache warmed; (i) **stale refresh →
    note-only, not persisted-as-fresh** (round-24 F1): a stored high-confidence `extracted`
    with old `extractorVersion` (v1) OR old `sourceRevision`, AND the refresh
    `downloadFileBytes` returns `infra_error` → the returned item is **note-only**
@@ -543,9 +560,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   round-25 F2) = links **positively confirmed fresh this call** (current
   `EXTRACTOR_VERSION` + current `headRevisionId`); a refresh-failed stale extraction is
   note-only and never persisted as a fresh block (round-24 F1).
-- Persist integrity: tx#2 **rereads + merges only confirmed-fresh `extracted` by
-  `fileId`** into the current `parse_result` (never a whole-blob clobber), so a slower
-  stale/failed extractor can't erase a newer success or other staged edits (round-25 F1).
+- Persist integrity: tx#2 **rereads + merges only confirmed-fresh results** into the
+  current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches by
+  `fileId` when present, else by the **ordinal+label chip-correlation** (so the target
+  fileId-less smart-chip links can be matched), and persists **both the recovered `fileId`
+  AND the fresh `extracted`** — warming the cache so the next request cache-hits and
+  publish carries the agenda (round-26).
 - Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
   links (no `fileId`) get none from the pure baseline (the endpoint result carries
   recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
