@@ -125,7 +125,29 @@ type Pdfjs = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 let pdfjsModulePromise: Promise<Pdfjs> | null = null;
 function loadPdfjs(): Promise<Pdfjs> {
   ensurePdfGlobals();
-  pdfjsModulePromise ??= import("pdfjs-dist/legacy/build/pdf.mjs");
+  pdfjsModulePromise ??= (async () => {
+    // Register pdfjs's worker on the MAIN THREAD before loading the API. pdfjs runs
+    // getDocument through a worker; with no real Web Worker (Node) it falls back to a
+    // "fake worker" that does `await import(GlobalWorkerOptions.workerSrc)` where
+    // workerSrc defaults to the RELATIVE "./pdf.worker.mjs". On the Vercel serverless
+    // bundle that relative specifier resolves to a chunk path that does not exist
+    // (`/var/task/.next/server/chunks/pdf.worker.mjs`) → pdfjs throws "Setting up fake
+    // worker failed", which extractAgendaSchedule's catch swallowed to a 0-session
+    // low-confidence result → the admin card rendered "No schedule detected" for PDFs
+    // that parse perfectly locally (where the relative path happens to resolve).
+    //
+    // Fix: pre-populate `globalThis.pdfjsWorker.WorkerMessageHandler` (read by pdfjs's
+    // `#mainThreadWorkerMessageHandler`), so the fake-worker path uses it DIRECTLY and
+    // never performs the failing dynamic import. The import below uses a STATIC package
+    // specifier, which Next bundles into a resolvable chunk — unlike pdfjs's internal
+    // `import(workerSrc)` over a runtime variable, which the bundler cannot trace. Lazy
+    // and AFTER ensurePdfGlobals() because the worker module also references DOMMatrix
+    // at evaluation time. (CI/local were green because the worker resolved from
+    // node_modules on disk — the failure is bundling-specific; see the serverless test.)
+    const workerModule = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    (globalThis as Record<string, unknown>).pdfjsWorker = workerModule;
+    return import("pdfjs-dist/legacy/build/pdf.mjs");
+  })();
   return pdfjsModulePromise;
 }
 
