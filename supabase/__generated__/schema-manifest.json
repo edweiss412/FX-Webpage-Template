@@ -28,6 +28,19 @@
     "owner",
     "wizard_session_id"
   ],
+  "app_events": [
+    "actor_hash",
+    "code",
+    "context",
+    "drive_file_id",
+    "id",
+    "level",
+    "message",
+    "occurred_at",
+    "request_id",
+    "show_id",
+    "source"
+  ],
   "app_settings": [
     "active_signing_key_id",
     "alert_on_auto_publish",
