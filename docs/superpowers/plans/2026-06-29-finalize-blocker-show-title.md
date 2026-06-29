@@ -148,13 +148,15 @@ expect(rows[0]!.display_name).toBe(CAS2_SHADOW_TITLE);
 Also cover the spec's **parse-failure** case (display_name absent): in the existing test `"(c) corrupt/missing items payload is REFUSED per-row…"` (~L431), where `drive-cas-3` blocks with `STAGED_REVIEW_ITEMS_CORRUPT` (assertion at L463-465), add — this row's payload is not cleanly parse-OK, so the route must NOT bake in a name (the client falls back to the id):
 
 ```ts
-expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!.display_name).toBeUndefined();
+expect(rows.find((r) => r.drive_file_id === "drive-cas-3")!).not.toHaveProperty("display_name");
 ```
+
+(`not.toHaveProperty` — not `toBeUndefined()` — because the contract is the property is **absent**, per `exactOptionalPropertyTypes`; `toBeUndefined()` would also pass a buggy present-`undefined`.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `npx vitest run --fileParallelism=false tests/onboarding/finalizeCasFullApply.db.test.ts`
-Expected: the `drive-cas-2` `display_name` assertion FAILS (`undefined`, route does not set it yet). The `drive-cas-3` `toBeUndefined()` passes already — it guards against a future impl baking the id in; its fail-first proof is the Step-5 revert (an impl that set `display_name: result.drive_file_id` would make it red).
+Expected: the `drive-cas-2` `display_name` assertion FAILS (absent, route does not set it yet). The `drive-cas-3` `not.toHaveProperty` passes already — it guards against a future impl baking the id in; its fail-first proof is the Step-5 revert (an impl that set `display_name: result.drive_file_id` would make it red).
 
 - [ ] **Step 3: Write minimal implementation** — three edits in `finalize-cas/route.ts`:
 
@@ -229,7 +231,7 @@ git commit --no-verify -m "feat(onboarding): finalize-cas blocker rows carry dis
 - Consumes: `parsedShowTitle` (Task 1); `row.parse_result` (`PendingFinalizeRow`, L100).
 - Produces: `per_row[i].display_name?: string` on blocked Phase-B rows.
 
-- [ ] **Step 1: Write the failing test** — `finalize.test.ts` already asserts a per_row entry with `code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE"` (L476-479) for the mocked approved row `first-seen-1`. The mock's approved row builder (around L320-345) seeds `parse_result`; ensure its `parse_result.show.title` is a known value (hoist `const FS1_TITLE = "First Seen One"` and set it in the fixture's `parse_result.show.title`), then assert:
+- [ ] **Step 1: Write the failing test** — `finalize.test.ts` already asserts a per_row entry with `code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE"` (L476-479) for the mocked approved row `first-seen-1`. The mocked approved row's `parse_result` is built by the local `parseResult(title)` helper (L41-44, shape `{ show: { title, … }, … }`) and the row at L335 uses `parseResult(\`Show ${driveFileId}\`)` — so for `first-seen-1` the title is already `"Show first-seen-1"`. Derive the expected from that builder (do not retype the literal — e.g. `const FS1_TITLE = \`Show first-seen-1\`` matching the L335 template), then assert:
 
 ```ts
 const failed = body.per_row.find((r: { drive_file_id: string }) => r.drive_file_id === "first-seen-1");
@@ -237,7 +239,7 @@ expect(failed.code).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
 expect(failed.display_name).toBe(FS1_TITLE);
 ```
 
-If the existing mock row does not include `parse_result.show.title`, add it to the fixture builder (the route reads `row.parse_result`). Also add a second case: a mocked approved row whose `parse_result.show.title` is `""` blocks with a failure code and its per_row entry has `display_name === undefined` (empty title → helper returns null → omitted).
+Also add a second case: a mocked approved row built with an EMPTY show title (call `parseResult("")` for that row, or set `parse_result.show.title = ""`) that blocks with a failure code; assert its per_row entry has **no** `display_name` property — `expect(failed).not.toHaveProperty("display_name")` (empty title → helper returns null → property omitted, not `undefined`-valued).
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -267,10 +269,15 @@ Expected: FAIL — `display_name` undefined on the failure entry.
 (b) Enrich at the single `perRow.push` collection point (L1068). Replace `perRow.push(result);` with:
 
 ```ts
-        // exactOptionalPropertyTypes (tsconfig.json): add display_name ONLY when a title
-        // exists; otherwise push the bare result (no present `undefined`).
-        const displayTitle = result.code === OK_CODE ? null : parsedShowTitle(row.parse_result);
-        perRow.push(displayTitle ? { ...result, display_name: displayTitle } : result);
+        // Narrow `result` to the failure variant BEFORE spreading (a bare ternary leaves
+        // `result` as the full union — the OK variant has no display_name, so
+        // {...okVariant, display_name} is not assignable under exactOptionalPropertyTypes).
+        if (result.code === OK_CODE) {
+          perRow.push(result);
+        } else {
+          const displayTitle = parsedShowTitle(row.parse_result);
+          perRow.push(displayTitle ? { ...result, display_name: displayTitle } : result);
+        }
 ```
 
 Add the import (after L11 `import type { ParseResult … }`):
@@ -326,8 +333,10 @@ list
   .forEach((n) => n.remove());
 expect(list.textContent).not.toContain("1AbC_opaque_id");
 
-// (3) fallback: a fixture with display_name omitted shows the id
-// (render a second fixture { …, display_name: undefined } and assert getByText("1AbC_opaque_id"))
+// (3) fallback: a fixture that OMITS display_name shows the id
+// (render a second fixture { drive_file_id: "1AbC_opaque_id", code } — NO display_name key,
+//  since exactOptionalPropertyTypes rejects a present `undefined` — and assert
+//  getByText("1AbC_opaque_id"))
 ```
 
 Drive each component into its blocked state the way its existing tests do (mock `fetch` to return `{ ok: false, code, per_row: [fixture] }` and trigger the publish/resume action; mirror the existing `FinalizeButton.test.tsx` / `FinalizeReentry.test.tsx` setup).

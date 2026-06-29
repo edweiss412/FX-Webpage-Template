@@ -15,7 +15,7 @@ Every row in the publish-blocker lists labels its sheet by the opaque Drive file
 
 ## Goal
 
-Each blocked row labels its sheet by the parsed show title (`ParseResult.show.title`, `lib/parser/types.ts:349`), falling back to the raw `drive_file_id` only when no title is derivable (a sheet that failed to parse, or a legacy-ambiguous manifest row). The raw id is dropped from display in the common case; it survives only as the React `key` and the `RescanSheetButton driveFileId` prop.
+Each blocked row labels its sheet by the parsed show title (`ParseResult.show` is `ShowRow`, `lib/parser/types.ts:391`; `ShowRow.title: string`, `lib/parser/types.ts:97`), falling back to the raw `drive_file_id` only when no title is derivable (a sheet that failed to parse, or a legacy-ambiguous manifest row). The raw id is dropped from display in the common case; it survives only as the React `key` and the `RescanSheetButton driveFileId` prop.
 
 ## Design
 
@@ -67,14 +67,19 @@ Both routes import it. It is also reused in `finalize-cas/route.ts`'s existing `
 **`finalize/route.ts` (Phase B):** the only collection point is `perRow.push(result)` at **L1068**, inside `for (const row of approvedRows)` (L1017). Every `PerRowResult` — from `processApprovedRow` (failure returns L710/L723/L733/L748/L797/L897 + OK) and from the loop-level `FirstSeenProvenanceRaceError` catch (L1062) — flows through it. Replace with:
 
 ```ts
-perRow.push(
-  result.code === OK_CODE
-    ? result
-    : { ...result, display_name: parsedShowTitle(row.parse_result) ?? undefined },
-);
+if (result.code === OK_CODE) {
+  perRow.push(result);
+} else {
+  // `result` is now narrowed to the failure variant, so the spread is assignable.
+  // exactOptionalPropertyTypes (tsconfig.json): add display_name ONLY when a title
+  // exists — never a present `undefined`. No title → push the bare failure result
+  // (the client falls back to the id).
+  const title = parsedShowTitle(row.parse_result);
+  perRow.push(title ? { ...result, display_name: title } : result);
+}
 ```
 
-`row` is the `PendingFinalizeRow` (`parse_result: ParseResult`, L100); `parsedShowTitle` guards the legacy-corrupt-jsonb case without throwing. `PerRowResult`'s failure variant (L115, carries `re_apply_url` L131) gains `display_name?: string`.
+`row` is the `PendingFinalizeRow` (`parse_result: ParseResult`, L100); `parsedShowTitle` guards the legacy-corrupt-jsonb case without throwing. `PerRowResult`'s failure variant (L115, carries `re_apply_url` L131) gains `display_name?: string`. The `if/else` narrows `result` before the spread (a bare ternary would leave `result` as the full union — the OK variant has no `display_name`, so `{...okVariant, display_name}` is not assignable under `exactOptionalPropertyTypes`).
 
 **`finalize-cas/route.ts` (Phase D):** the only collection point is the `shadowResults.push(...)` loop at **L713-L717** (`for (const row of await readShadowRows(...))`). Re-parse the shadow payload only on the blocked path (the error path; OK rows skip it):
 
@@ -82,12 +87,11 @@ perRow.push(
 const r = await deps.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
   applyShadow(rowTx, pipelineTx, row, affectedShowIds),
 );
-if (r.code === "OK") { shadowResults.push(r); continue; }
+if (r.code === "OK") { shadowResults.push(r); continue; }  // `r` now narrowed to the failure variant
 const parsed = parseShadowPayloadForApply(row.payload); // lib/onboarding/shadowPayload.ts:75
-shadowResults.push({
-  ...r,
-  display_name: parsed.ok ? parsedShowTitle(parsed.parseResult) ?? undefined : undefined,
-});
+const title = parsed.ok ? parsedShowTitle(parsed.parseResult) : null;
+// exactOptionalPropertyTypes: add display_name only when a title exists; else push the bare result.
+shadowResults.push(title ? { ...r, display_name: title } : r);
 ```
 
 `ShadowApplyResult` (L55) gains `display_name?: string`. `shadowResults` flows into `per_row` at L720/L737 unchanged. The legacy-ambiguous literal (`ONBOARDING_LEGACY_ROW_AMBIGUOUS`, L703) is a **separate** `per_row` producer that does not pass through this loop and keeps emitting `{drive_file_id, code}` (no title is derivable there — see Out of scope); its rows fall back to the id on the client.
@@ -137,9 +141,9 @@ TDD per task. Every test states the failure mode it catches; values derive from 
 
 1. **Helper unit (`tests/onboarding/blockerDisplayName.test.ts`):** `parsedShowTitle` returns the title for (a) a real `ParseResult` object and (b) a **double-encoded** JSON string of a valid parse (`JSON.stringify({show:{title:"X"}})` → `"X"`); returns `null` for `{show:{}}` / `{show:{title:""}}` / `{show:{title:"  "}}` / a non-JSON string / `null` / `undefined` — and **never throws** on any of them. Catches: a corrupt failure-path row throwing instead of degrading; legacy double-encoded rows needlessly falling back to the id.
 2. **finalize-cas route (real DB):** a shadow row that blocks with `STAGED_PARSE_OUTDATED_AT_PHASE_D` returns `per_row[i].display_name === <the fixture's parsed show.title>` (read the expected value from the seeded `payload`, not a literal). Catches: blocked rows ship without the title.
-3. **finalize-cas parse-failure:** a shadow row whose `payload` is unparseable blocks and its `per_row` entry has `display_name === undefined` (→ client will show the id). Catches: the blocked path throwing on re-parse, or emitting a bogus name.
+3. **finalize-cas parse-failure:** a shadow row whose `payload` is unparseable/corrupt blocks and its `per_row` entry has **no** `display_name` property — assert `not.toHaveProperty("display_name")` (the property is omitted, not `undefined`-valued), so the client falls back to the id. Catches: the blocked path throwing on re-parse, or baking the id/a bogus name into the property.
 4. **finalize route (Phase B):** asserted in the **mocked** `tests/onboarding/finalize.test.ts` (the purpose-built fake-DB harness that already drives a `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` per_row failure, L476) — it controls the approved fixture's `parse_result.show.title` exactly and forces the failure code, which a real-DB Phase B failure (a genuine revision race) cannot do deterministically. The choke-point enrichment is thin glue over the helper (which carries the title-derivation logic under its own unit test, item 1). Assert the blocked per_row carries `display_name === <the fixture title>`; a second fixture with an empty `show.title` asserts `display_name` is **absent** (`exactOptionalPropertyTypes` — the property is omitted, not `undefined`-valued). Catches: the second/third blocker list left on the raw id; the choke-point enrichment missing a branch.
-5. **Component (all THREE):** for `FinalizeButton`, `RunFinalCASButton`, and `ResumeFinalizeButton`, render the blocked list from a per-row fixture with `display_name: "Some Show Title"` + a distinct `drive_file_id`; assert the title is shown and the `drive_file_id` is **not** present as the row label (clone-and-strip the `RescanSheetButton`/reapply subtree — whose `data-testid`/`driveFileId` still contain the id — before the negative assertion so it can't be satisfied by a sibling). A second fixture with `display_name: undefined` asserts the row falls back to showing the `drive_file_id`. Catches: id still rendered; fallback broken; a component left unconverted.
+5. **Component (all THREE):** for `FinalizeButton`, `RunFinalCASButton`, and `ResumeFinalizeButton`, render the blocked list from a per-row fixture with `display_name: "Some Show Title"` + a distinct `drive_file_id`; assert the title is shown and the `drive_file_id` is **not** present as the row label (clone-and-strip the `RescanSheetButton`/reapply subtree — whose `data-testid`/`driveFileId` still contain the id — before the negative assertion so it can't be satisfied by a sibling). A second fixture that **omits** `display_name` entirely (not `display_name: undefined` — `exactOptionalPropertyTypes` rejects a present `undefined` on a typed fixture) asserts the row falls back to showing the `drive_file_id`. Catches: id still rendered; fallback broken; a component left unconverted.
 6. **No-empty-title-regression:** grep the existing finalize-cas tests for any assertion on `syntheticFileMeta`'s `name` with an empty-string title; confirm none exists (the helper's empty→id change is safe). State the grep in the plan.
 7. **Negative-regression:** for each route test, confirm the assertion fails if the choke-point enrichment is reverted (mutate to push the bare `result` → test red).
 
