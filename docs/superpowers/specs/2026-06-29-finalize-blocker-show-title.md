@@ -39,10 +39,24 @@ import type { ParseResult } from "@/lib/parser/types";
 // to null rather than surface a JsonbCoercionError/TypeError. Empty/whitespace
 // titles collapse to null so they never reach the wire.
 export function parsedShowTitle(pr: ParseResult | unknown): string | null {
-  const title = (pr as { show?: { title?: unknown } } | null | undefined)?.show?.title;
+  // A legacy row may store parse_result double-encoded (a JSON string of the object) —
+  // asParseResult (lib/db/coerceJsonbObject.ts:133) decodes that shape, so a title is
+  // derivable. Decode a string defensively (never throw on the failure path); anything
+  // unparseable/corrupt collapses to null → the row falls back to the id.
+  let obj: unknown = pr;
+  if (typeof obj === "string") {
+    try {
+      obj = JSON.parse(obj);
+    } catch {
+      return null;
+    }
+  }
+  const title = (obj as { show?: { title?: unknown } } | null | undefined)?.show?.title;
   return typeof title === "string" && title.trim() !== "" ? title : null;
 }
 ```
+
+This addresses the spec round-2 MEDIUM advisory (double-encoded Phase B rows now yield a title instead of falling back to the id), without pulling in the throwing `asParseResult` on the error path.
 
 Both routes import it. It is also reused in `finalize-cas/route.ts`'s existing `syntheticFileMeta` (L334), replacing `parsed.parseResult.show.title ?? row.drive_file_id` with `parsedShowTitle(parsed.parseResult) ?? row.drive_file_id` (only behaviour change: an empty-string title now falls back to the id instead of rendering `""` — an improvement; §Testing item 6 pins no existing test asserts the empty-title case).
 
@@ -121,7 +135,7 @@ The `<li key={…drive_file_id}>` keys, the `data-testid={…-reapply-${…drive
 
 TDD per task. Every test states the failure mode it catches; values derive from fixtures, never hardcoded (anti-tautology).
 
-1. **Helper unit (`tests/onboarding/blockerDisplayName.test.ts`):** `parsedShowTitle` returns the title for a real `ParseResult`, `null` for `{show:{}}` / `{show:{title:""}}` / `{show:{title:"  "}}` / a double-encoded string / `null` / `undefined` — and **never throws** on any of them. Catches: a corrupt failure-path row throwing instead of degrading.
+1. **Helper unit (`tests/onboarding/blockerDisplayName.test.ts`):** `parsedShowTitle` returns the title for (a) a real `ParseResult` object and (b) a **double-encoded** JSON string of a valid parse (`JSON.stringify({show:{title:"X"}})` → `"X"`); returns `null` for `{show:{}}` / `{show:{title:""}}` / `{show:{title:"  "}}` / a non-JSON string / `null` / `undefined` — and **never throws** on any of them. Catches: a corrupt failure-path row throwing instead of degrading; legacy double-encoded rows needlessly falling back to the id.
 2. **finalize-cas route (real DB):** a shadow row that blocks with `STAGED_PARSE_OUTDATED_AT_PHASE_D` returns `per_row[i].display_name === <the fixture's parsed show.title>` (read the expected value from the seeded `payload`, not a literal). Catches: blocked rows ship without the title.
 3. **finalize-cas parse-failure:** a shadow row whose `payload` is unparseable blocks and its `per_row` entry has `display_name === undefined` (→ client will show the id). Catches: the blocked path throwing on re-parse, or emitting a bogus name.
 4. **finalize route (Phase B, real DB):** a Phase B per-row failure carries `display_name === <fixture parse_result.show.title>`, asserted on a failure code reached at the choke point (e.g. a revision-race or superseded row). Catches: the second/third blocker list left on the raw id; the choke-point enrichment missing a branch.
