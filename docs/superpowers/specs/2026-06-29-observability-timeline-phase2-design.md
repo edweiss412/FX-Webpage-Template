@@ -29,7 +29,7 @@ The timeline is a **technical diagnostics surface** for the developer/operator w
 
 ### Goals
 - G1. Admin-gated page that lists `app_events` newest-first, filterable by level, source, code, show, request_id, time window, and free-text message search.
-- G2. Request correlation: click a `request_id` to see every event from that request, in order.
+- G2. Request correlation: click a `request_id` to see that request's events (newest-first, 100/page with load-older), with no time-window omission (`since=all`).
 - G3. Expandable per-event detail (full `context` JSON, `drive_file_id`, `actor_hash`, absolute timestamp).
 - G4. Cron-health header: latest run status + relative time + headline counts for each of the 9 jobs; a job with no recent run reads "no run seen."
 - G5. Per-run cron run-summary emitted by a generic wrapper across all 9 jobs, with run-health-derived severity (clean→info, item-failures→warn, threw/infra→error).
@@ -104,19 +104,21 @@ export type CronRunSummary = {
 
 // Display registry for the health header. One row per LOGICAL job (notify splits in two).
 // `jobName` is the source-suffix: app_events.source === `cron.${jobName}`.
-// `staleAfterMs` ≈ 3× the cron cadence (≥2 consecutive missed runs) → drives the
-// "is this job actually firing?" staleness signal (§6.2 effectiveCronStatus).
+// `staleAfterMs` flags a job that has missed ≥2 consecutive runs (≈3× cadence for
+// ≤hourly jobs; daily jobs use 2× = 48h so a single late run isn't flagged, two
+// missed are) → the "is this job actually firing?" signal (§6.2 effectiveCronStatus).
+// Every value below is ≥ 2× its cadence (the ≥2-missed-runs floor); none is < 2×.
 export type CronJobSpec = { jobName: string; label: string; cadence: string; staleAfterMs: number };
 export const CRON_JOBS: readonly CronJobSpec[] = [
-  { jobName: "sync", label: "Sync", cadence: "every 5 min", staleAfterMs: 20 * 60_000 },
+  { jobName: "sync", label: "Sync", cadence: "every 5 min", staleAfterMs: 20 * 60_000 },        // 4× (15m=3×)
   { jobName: "notify.realtime", label: "Notify · realtime", cadence: "every 5 min", staleAfterMs: 20 * 60_000 },
-  { jobName: "notify.digest", label: "Notify · digest", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
+  { jobName: "notify.digest", label: "Notify · digest", cadence: "hourly", staleAfterMs: 3 * 3_600_000 }, // 3×
   { jobName: "refresh-watch", label: "Refresh watch", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
   { jobName: "gc-watch", label: "GC watch", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
-  { jobName: "asset-recovery", label: "Asset recovery", cadence: "every 15 min", staleAfterMs: 45 * 60_000 },
+  { jobName: "asset-recovery", label: "Asset recovery", cadence: "every 15 min", staleAfterMs: 45 * 60_000 }, // 3×
   { jobName: "diagram-gc", label: "Diagram GC", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
-  { jobName: "report-reaper", label: "Report reaper", cadence: "daily", staleAfterMs: 30 * 3_600_000 },
-  { jobName: "keepalive", label: "Keepalive", cadence: "daily", staleAfterMs: 30 * 3_600_000 },
+  { jobName: "report-reaper", label: "Report reaper", cadence: "daily", staleAfterMs: 48 * 3_600_000 }, // 2× (2 missed)
+  { jobName: "keepalive", label: "Keepalive", cadence: "daily", staleAfterMs: 48 * 3_600_000 },
 ];
 ```
 
@@ -253,7 +255,7 @@ export type AppEventRow = {
 export type AppEventFilters = {
   levels?: Array<"info"|"warn"|"error">; source?: string; code?: string;
   showId?: string; requestId?: string;
-  sinceHours?: 1 | 24 | 168 | null; // null = all within retention; default 24
+  sinceHours?: 1 | 24 | 168 | null; // parsed from URL `since` ∈ {1h,24h,7d,all}; absent→24; "all"→null (all within retention)
   q?: string; // message ILIKE
   cursor?: { occurredAt: string; id: string } | null; // keyset
 };
@@ -269,7 +271,7 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
 - **Guards (all URL params are untrusted; validate before building the query):**
   - empty filters → last 24h, newest 100.
   - `levels` — drop members not in {info,warn,error}; empty after filtering → no level filter.
-  - `sinceHours` — coerce to 24 if not in {1,24,168,null}.
+  - time window — the URL carries an explicit `since` token (NOT a raw hour count) so "all" is representable and distinct from the default: `since=1h|24h|7d|all` → `sinceHours = 1|24|168|null`; **`since` absent → 24h** (default); any other value → 24h. `since=all` (`sinceHours=null`) applies no `occurred_at` lower bound. This is what lets the request-correlation URL (`?requestId=<id>&since=all`) mean "all retained," unambiguously different from the bare default.
   - `showId` — must match the UUID regex; otherwise drop the filter (an invalid UUID would make PostgREST 400 → an avoidable `infra_error`). Same for `cursor.id`.
   - `requestId`, `source`, `code` — trim; drop if empty; **cap at 200 chars** (drop if longer; an oversized exact-match filter is meaningless and a waste).
   - `q` — trim; ignore if empty/whitespace; cap at 200 chars; **escape ILIKE metacharacters** so user input is matched literally: backslash-escape `\`, `%`, and `_` before wrapping in `%…%` (`q.replace(/[\\%_]/g, (c) => "\\" + c)`), and rely on PostgREST/`.ilike` parameterization (no string interpolation into SQL).
@@ -322,7 +324,7 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult>;
   No red token exists (app avoids red/green per DESIGN.md color-blind floor); the dot is always paired with a text label that disambiguates same-color states (e.g. "Stale" vs "Failed" both use `warn`). `effectiveCronStatus` is a pure function unit-tested for every branch (incl. stale-over-ok, no-row, malformed).
 - `EventLevelBadge.tsx` — dot+label badge for a row's `level`, mirroring `ChangeFeedBadge.tsx` structure (literal class strings for the Tailwind v4 content scan; defensive fallback for out-of-set). `info→idle/subtle "Info"`, `warn→review/amber "Warn"`, `error→warn/strong-amber "Error"`. Never color-only.
 - `EventTimeline.tsx` — server-rendered `<ul>` of rows; cap disclosure when `hasMore` ("Showing the 100 most recent matching events. Refine filters or load older."); `EmptyState` (`components/atoms/EmptyState.tsx`) when empty; degraded panel when the loader returned `infra_error`. A "Load older" affordance advances the keyset cursor via a `searchParams` `cursor` (link/button, not infinite scroll).
-- `EventRow.tsx` (client — owns expand state) — collapsed: relative timestamp (`ChangeFeedTime`-style), `EventLevelBadge`, `source`, `message` (truncated to one line, display-only), a `code` chip, a show link when `showTitle`/`showId` set, a `request_id` chip. **The request chip enters correlation mode**: it navigates to `?requestId=<id>` ONLY — dropping `cursor` and every other filter (`levels`/`source`/`code`/`showId`/`q`) AND setting `sinceHours=null` (all-within-retention), so the view shows *every* event for that request regardless of the prior window/filters (§6.4). Expanded: `ContextDetail`. A `CRON_RUN_SUMMARY` row renders `CronRunSummaryCard` instead of the generic body.
+- `EventRow.tsx` (client — owns expand state) — collapsed: relative timestamp (`ChangeFeedTime`-style), `EventLevelBadge`, `source`, `message` (truncated to one line, display-only), a `code` chip, a show link when `showTitle`/`showId` set, a `request_id` chip. **The request chip enters correlation mode**: it navigates to `?requestId=<id>&since=all` ONLY — dropping `cursor` and every other filter (`levels`/`source`/`code`/`showId`/`q`). `since=all` removes the time bound so older events are not omitted. The correlation view uses the **same newest-first ordering and 100/page keyset pagination** as the default timeline (just filtered to the one `request_id`, riding the `request_id` index); a request with >100 persisted events shows the cap disclosure + "Load older" (rare — only error/warn/coded-info persist). Expanded: `ContextDetail`. A `CRON_RUN_SUMMARY` row renders `CronRunSummaryCard` instead of the generic body.
 - `CronRunSummaryCard.tsx` — rich inline render of a run-summary, **fully guarded against malformed/free-form `context`** (old or hand-written `CRON_RUN_SUMMARY` rows may have any shape): job label from `context.jobName` if a string else the raw `source` (and if `source` isn't a known `cron.*` job, show it verbatim); outcome badge from `context.outcome` if in the literal set else "unknown"; duration only when `context.durationMs` is a finite number; counts grid only when `context.counts` is a plain object with numeric values (non-object/empty → omit the grid, never crash). Uses `KeyValue` (`components/atoms/KeyValue.tsx`).
 - `ContextDetail.tsx` — renders the **full untruncated `message`** first (the collapsed row truncates for layout only; full fidelity is the audience contract, §0.1), then a `KeyValue` grid for `drive_file_id`, `actor_hash`, absolute `occurred_at`, `request_id`; plus a `<pre>` of pretty-printed `context` (empty `{}` → "no additional context"). Email-redaction already applied at write.
 - `EventFilters.tsx` (client — URL-driven) — level toggles, source/code/show/request inputs, time-window preset (1h/24h/7d/all), text search. Writes to `searchParams` (shareable/bookmarkable); `force-dynamic` re-queries. **Every filter mutation drops `cursor`** (a retained keyset cursor from a prior filter set would skip the newest matches — so any change to `levels`/`source`/`code`/`showId`/`requestId`/`sinceHours`/`q` rewrites `searchParams` WITHOUT `cursor`, returning to page 1). A "Clear filters" reset. When `requestId` is set, a "Showing one request" chip with a one-click clear (returns to the default timeline).
@@ -343,7 +345,7 @@ A client component wrapping the page body. Behavior:
 
 ### 6.4 Mode boundaries
 - **Auto-refresh ON vs OFF** — only difference is whether the interval is armed; identical layout.
-- **Default timeline vs request-correlation view** — entering correlation mode (clicking a request chip) navigates to `?requestId=<id>` ONLY, clearing every other filter + `cursor` and setting `sinceHours=null`; the filter bar shows a "Showing one request" chip; the timeline shows *all* of that request's events (no time-window omission). Clearing returns to the default 24h timeline.
+- **Default timeline vs request-correlation view** — entering correlation mode (clicking a request chip) navigates to `?requestId=<id>&since=all` ONLY, clearing every other filter + `cursor`; the filter bar shows a "Showing one request" chip; the timeline shows that request's events newest-first, paginated 100/page (no time-window omission). Clearing returns to the default 24h timeline.
 - **Generic row vs run-summary row** — a row renders `CronRunSummaryCard` iff `event.code === CRON_RUN_SUMMARY` (constant ref); otherwise the generic body. Mutually exclusive.
 - **Loaded vs empty vs infra-error** (timeline) and **loaded vs infra-error** (header) — independent per section.
 
@@ -367,6 +369,11 @@ States and pairs (each gets an explicit treatment; this is a diagnostics list UI
 | Loaded → infra-error (either section) | Instant swap to degraded panel |
 | Compound: auto-refresh fires while a row is expanded | Soft refresh preserves expand state (client-held); the expanded row stays open; if that row is still in the result set its content updates in place; if it dropped out of the window, it's simply gone (no error) |
 | Compound: auto-refresh fires while a filter input is focused | Focus is preserved (filters are URL-driven; the input is a controlled client field that does not remount on `router.refresh()`); no lost keystrokes |
+| Cron-health card status change across polls — any pair among {`no run seen`, `stale`, `ok`, `partial`, `failed`, malformed} (6 states → all 15 pairs) | **Instant — no animation.** A 20s-polling diagnostics surface must not animate status dots on every tick; the dot/label swap in place. |
+| Header / timeline section: loaded ↔ infra-error (either section) | Instant swap to/from the degraded panel — no animation |
+| Request-correlation mode ↔ default timeline | Instant — a `searchParams` navigation re-renders the list; no crossfade |
+
+**Completeness declaration:** the ONLY animated transition in this surface is the per-row expand/collapse disclosure (220ms, reduced-motion-instant). Every other state change — cron-health status swaps, level/code/show/level filter changes, mode switches, empty/populated/infra swaps, auto-refresh ticks — is **instant by design** (no `AnimatePresence`, no enter/exit), because a frequently-polling diagnostics list that animated on each update would be distracting and harm scannability.
 
 ---
 
@@ -374,7 +381,7 @@ States and pairs (each gets an explicit treatment; this is a diagnostics list UI
 
 | Parent | Child | Invariant | Guarantee |
 |---|---|---|---|
-| `CronHealthHeader` card grid (per wrap row) | each health card | equal height within a row | grid `auto-rows-fr` (or `items-stretch` + card `h-full`) — stated explicitly because `.flex`/`.grid` do not stretch by default |
+| `CronHealthHeader` card grid (`data-testid=cron-health-grid`, per wrap row) | each health card (`data-testid=cron-health-card`) | equal height within a row | the grid uses `grid auto-rows-fr` (the single chosen mechanism — NOT a flex+`items-stretch` alternative); cards carry no fixed height. Stated explicitly because `.grid` rows do not equalize by default |
 | Health card | `StatusIndicator` dot | dot vertically centered against the label baseline row | `inline-flex items-center gap-2` on the dot+label pair (matches `StatusIndicator.tsx:32-48`) |
 | `EventRow` (flex) | `EventLevelBadge` + content column | badge top-aligned with the first text line, content column fills remaining width | row `flex items-start gap-3`; content `min-w-0 flex-1` (truncation needs `min-w-0`) |
 | `EventRow` content | truncated `message` | single-line truncate without overflowing the row | `truncate` on a `min-w-0` flex child |
@@ -448,10 +455,10 @@ The capture script screenshots the manifest entry's `captureSelector` **element*
 
 - AC1. `/admin/observability` renders for an admin (gated at layout + page), 404/redirect for non-admin (existing layout behavior).
 - AC2. Timeline lists `app_events` newest-first, 100/page, with working level/source/code/show/request/time/text filters reflected in `searchParams`; cap disclosure when `hasMore`; `EmptyState` when none; degraded panel on `infra_error`.
-- AC3. Clicking a `request_id` chip shows exactly that request's events (all of them — prior filters, cursor, and time window cleared, `sinceHours=null`) with a "Showing one request" chip and one-click clear. Changing any filter resets pagination (`cursor` dropped).
+- AC3. Clicking a `request_id` chip navigates to `?requestId=<id>&since=all` (prior filters + cursor cleared; no time-window omission), showing that request's events newest-first, paginated 100/page (load older for >100), with a "Showing one request" chip and one-click clear. Changing any filter resets pagination (`cursor` dropped).
 - AC4. A row expands to show the **full untruncated `message`** + `context` JSON + `drive_file_id` + `actor_hash` + absolute time; `CRON_RUN_SUMMARY` rows render the rich counts card, guarding malformed `counts`/`durationMs`/`jobName`.
 - AC5. Cron-health header shows all 9 jobs; each shows its effective status (dot+label) + relative time + counts: `ok`/`partial`/`failed` from the latest run, **`stale` when `now − lastRunAt > staleAfterMs` (overriding a stale "ok")**, `no run seen` when there is no row, and a malformed-summary row (row present, no parseable outcome) renders distinctly from no-row.
-- AC6. Every cron route, when run (authorized), emits exactly one `CRON_RUN_SUMMARY` `app_events` row with the correct `source`, severity, duration, and counts; a 401 emits none; a throw emits an error summary and re-throws.
+- AC6. Every authorized cron run makes **exactly one** `CRON_RUN_SUMMARY` emit attempt with the correct `source`, severity, duration, and counts — which persists exactly one `app_events` row **when persistence succeeds**. Logging is best-effort: a persistence fault degrades to console and **never** alters the cron's response or re-throw (non-interference is chosen over durability, §4.2.1). A 401/400 emits none; a handler throw emits one error-summary attempt and re-throws.
 - AC7. Auto-refresh polls every 20s by default, is toggleable (persisted), pauses when the tab is hidden, and a soft refresh preserves expanded rows, focus, and scroll position; manual Refresh works regardless of the toggle.
 - AC8. `extractInternalCodeEnums()` output contains no `CRON_RUN_SUMMARY`; `gen:internal-code-enums` stays byte-identical; `CRON_JOBS` parity test passes.
 - AC9. `screenshots-drift` is green on the PR with **no baseline change** — the nav is outside every captured selector, and the mobile bar is unchanged (Activity is `desktopOnly`). Regen only if an unexpected diff appears (§10.3).
@@ -466,7 +473,7 @@ The capture script screenshots the manifest entry's `captureSelector` **element*
 **UI:** `app/admin/observability/page.tsx`; `components/admin/observability/{CronHealthHeader,EventLevelBadge,EventTimeline,EventRow,CronRunSummaryCard,ContextDetail,EventFilters,AutoRefreshControl}.tsx`.
 **Registries / nav:** `components/admin/nav/navConfig.ts` (`desktopOnly` flag + `observability` entry), `components/admin/nav/AdminNav.tsx` (mobile `desktopOnly` filter + mobile-visible overflow count), `app/admin/settings/page.tsx` (mobile entry link), `lib/audit/trustDomains.ts` (`PROTECTED_ROUTES` row).
 **Tests:** as enumerated in §9.1.
-**Close-out:** impeccable dual-gate; `screenshots-regen` dispatch; whole-diff Codex review.
+**Close-out:** impeccable dual-gate; run `screenshots-drift` and dispatch `screenshots-regen` **only if** an unexpected baseline diff appears (expected: none — §10.3); whole-diff Codex review.
 
 ---
 
