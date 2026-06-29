@@ -297,30 +297,39 @@ describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-d
     expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("known_stale");
   });
 
-  test("permanent getFile 403 (permissioned away) → known_stale", async () => {
+  // getFile 403 is AMBIGUOUS (ACL permission OR Drive rateLimitExceeded /
+  // userRateLimitExceeded quota throttle — Codex whole-diff R6). We must NOT clear a
+  // valid schedule on a throttle, so 403 → unknown (leave-existing), never known_stale.
+  test("ambiguous getFile 403 (ACL or rate-limit) → unknown, NOT cleared", async () => {
     const result = makeResult([
       { label: "AGENDA LINK - RFI", fileId: "F-403", extracted: highExtraction() },
     ]);
     const client = makeClient({
       getFile: async () => {
-        throw { response: { status: 403 } }; // raw gaxios shape
-      },
-    });
-    const report = await enrichAgenda(result, client, "s");
-    expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("known_stale");
-  });
-
-  test("transient getFile 503 → unknown (leave-existing safe, NOT cleared)", async () => {
-    const result = makeResult([
-      { label: "AGENDA LINK - RFI", fileId: "F-503", extracted: highExtraction() },
-    ]);
-    const client = makeClient({
-      getFile: async () => {
-        throw new DriveFetchError("server error", 503);
+        throw { response: { status: 403 } }; // raw gaxios shape (reason-agnostic)
       },
     });
     const report = await enrichAgenda(result, client, "s");
     expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("unknown");
+  });
+
+  test("transient getFile 429 / 503 / timeout → unknown (leave-existing safe, NOT cleared)", async () => {
+    for (const thrown of [
+      { response: { status: 429 } }, // userRateLimitExceeded throttle
+      new DriveFetchError("server error", 503),
+      { code: "ETIMEDOUT" }, // driveErrorStatus → 504 (transient)
+    ]) {
+      const result = makeResult([
+        { label: "AGENDA LINK - RFI", fileId: "F-T", extracted: highExtraction() },
+      ]);
+      const client = makeClient({
+        getFile: async () => {
+          throw thrown;
+        },
+      });
+      const report = await enrichAgenda(result, client, "s");
+      expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("unknown");
+    }
   });
 });
 

@@ -137,20 +137,26 @@ export async function enrichAgenda(
 
       const recoveredFileId = recoveredFileIds.get(i);
 
-      // getFile for current rev. Classify the failure by HTTP status (Codex
-      // whole-diff R5): a PERMANENT failure — 404 (deleted), 403 (permissioned
-      // away), 400 (invalid fileId) — means the agenda PDF is GONE, so the stored
-      // extraction is definitively stale and must be CLEARED ("known_stale");
-      // otherwise a deleted PDF's schedule would survive every pass (admin AND cron
-      // both 404 → never self-heal). A TRANSIENT failure (5xx/429/timeout, or an
-      // unclassifiable error) leaves the current rev simply unreadable THIS pass →
-      // leave-existing is safe ("unknown"); the next sync re-checks.
+      // getFile for current rev. When getFile FAILS we have NO currentRev, so we
+      // cannot prove the stored extraction is stale — unlike the download/extract
+      // paths below, which are only reached AFTER a successful getFile whose
+      // currentRev failed the cache check (i.e. the stored is provably stale-by-rev).
+      // So this catch CLEARS ("known_stale") ONLY on DEFINITIVE-GONE proof —
+      // 404 (notFound) / 400 (invalid fileId) — where the file no longer exists and
+      // the stored schedule is orphaned. Everything else is AMBIGUOUS or TRANSIENT
+      // and must LEAVE-existing ("unknown"): a 403 is ambiguous (ACL OR Drive
+      // `rateLimitExceeded`/`userRateLimitExceeded` quota throttles — Codex whole-diff
+      // R6), and 429/5xx/timeout are transient. NEVER destroy a valid schedule on a
+      // throttle/ambiguous fault — the next sync re-checks (and a genuinely
+      // permissioned-away file's stale schedule is a far milder outcome than wrongly
+      // clearing a valid one, which cron would not self-heal). Drive 403 error-reason
+      // taxonomy: https://developers.google.com/workspace/drive/api/guides/handle-errors
       let fileMeta: Awaited<ReturnType<typeof driveClient.getFile>>;
       try {
         fileMeta = await driveClient.getFile(link.fileId);
       } catch (error) {
         const status = driveErrorStatus(error);
-        if (status === 404 || status === 403 || status === 400) {
+        if (status === 404 || status === 400) {
           warnings.push(
             warn(
               "AGENDA_PDF_UNREADABLE",
@@ -217,8 +223,15 @@ export async function enrichAgenda(
         signal !== undefined ? { signal } : undefined,
       );
       if (download.kind === "infra_error") {
-        // Transient — keep any prior extracted, no note, retry next sync.
-        // Rev was readable but download failed → "known_stale".
+        // STRUCTURAL INVARIANT (Codex whole-diff R6 re-analysis): reaching the
+        // download path PROVES the stored extraction is stale-by-revision — getFile
+        // SUCCEEDED and returned a currentRev that FAILED the cache check above
+        // (stored.sourceRevision !== currentRev). So clearing here is sound REGARDLESS
+        // of why the download failed (transient throttle, stall, 5xx): the stored
+        // schedule is for a superseded revision and must not publish. (Contrast the
+        // getFile-FAILURE catch above, which lacks a currentRev and so clears only on
+        // definitive-gone 404/400.) If there is no stored extraction, known_stale
+        // clears nothing — harmless.
         perLink.push({
           ordinal: i,
           ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
