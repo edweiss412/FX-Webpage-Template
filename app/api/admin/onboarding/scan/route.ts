@@ -13,6 +13,7 @@ import {
   type ScanProgressEvent,
   type ScanStreamMessage,
 } from "@/lib/onboarding/scanProgress";
+import { log } from "@/lib/log";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -263,6 +264,7 @@ export async function handleOnboardingScan(
           }),
         });
       } catch {
+        void log.error("onboarding scan failed", { source: "admin/onboarding/scan" });
         emit({ type: "result", body: { ok: false, code: null } });
       } finally {
         try {

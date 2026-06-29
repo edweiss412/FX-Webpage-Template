@@ -10,6 +10,7 @@ import {
   type SubmitReportResult,
 } from "@/lib/reports/submit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -76,6 +77,10 @@ async function readCrewRoleFlags(
       roleFlags: data.role_flags.filter((flag): flag is string => typeof flag === "string"),
     };
   } catch {
+    void log.error("crew role flags read failed", {
+      source: "api/report",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return {
       ok: false,
       status: 500,
