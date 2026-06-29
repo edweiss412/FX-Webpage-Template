@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
-import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
+import {
+  fetchDriveFileMetadata as defaultFetchDriveFileMetadata,
+  fetchSheetMarkdownWithBinding,
+} from "@/lib/drive/fetch";
+import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
@@ -47,6 +53,9 @@ export type FinalizeRouteDeps = {
     fn: (tx: FinalizeRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
   ) => Promise<R>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  // Computes the section deep-link anchors for a sheet (XLSX bytes + tab gids → extractSourceAnchors),
+  // mirroring the cron path. Injectable so tests can supply a deterministic map without Drive I/O.
+  fetchOnboardingSourceAnchors?: (driveFileId: string) => Promise<Record<string, SourceAnchor>>;
   batchCap?: number;
 };
 
@@ -177,12 +186,26 @@ async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   return await requireAdminIdentity();
 }
 
+// Compute section deep-link anchors the same way the cron path does
+// (runScheduledCronSync ~2444): XLSX bytes + tab title→gid map → extractSourceAnchors. Called
+// PRE-LOCK in the finalize loop, so this Drive export never runs while the per-show advisory lock
+// is held.
+async function defaultFetchOnboardingSourceAnchors(
+  driveFileId: string,
+): Promise<Record<string, SourceAnchor>> {
+  const { bytes } = await fetchSheetMarkdownWithBinding(driveFileId);
+  const titleToGid = await fetchSheetTitleToGid(driveFileId);
+  return extractSourceAnchors(bytes, titleToGid);
+}
+
 function depsWithDefaults(deps: FinalizeRouteDeps) {
   return {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
     withTx: deps.withTx ?? defaultWithTx,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? defaultFetchDriveFileMetadata,
+    fetchOnboardingSourceAnchors:
+      deps.fetchOnboardingSourceAnchors ?? defaultFetchOnboardingSourceAnchors,
     batchCap: deps.batchCap ?? BATCH_CAP,
   };
 }
@@ -666,6 +689,10 @@ async function processApprovedRow(input: {
   // The existing-show branch only STAGES into shows_pending_changes (no rendered crew-DATA write
   // until finalize-cas Phase D), so it does not collect an id here.
   appliedShowIds: Set<string>;
+  // Section deep-link anchors computed PRE-LOCK by the caller (best-effort; undefined when the
+  // Drive read failed). Consumed ONLY by the first-seen branch's applyStagedCore call so the
+  // created show persists shows.source_anchors instead of the {} default.
+  sourceAnchors?: Record<string, SourceAnchor>;
 }): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
 
@@ -853,6 +880,10 @@ async function processApprovedRow(input: {
     // R59-1/R60-1: threaded ApplyStagedCoreArgs → Phase2Args → applyShowSnapshot → the
     // first-seen INSERT writes shows.wizard_created_session_id in the SAME statement.
     wizardCreatedSessionId: wizardSessionId,
+    // Deep-link anchors (computed pre-lock) → the first-seen INSERT writes shows.source_anchors so
+    // "In sheet" links resolve to the right tab immediately, matching the cron path. Omitted (never
+    // {}) on a Drive failure so the apply still succeeds (the #gid=0 fallback keeps links safe).
+    ...(input.sourceAnchors !== undefined ? { sourceAnchors: input.sourceAnchors } : {}),
   });
 
   if (core.outcome === "stale_write") {
@@ -984,6 +1015,22 @@ export async function handleOnboardingFinalize(
 
       const perRow: PerRowResult[] = [];
       for (const row of approvedRows) {
+        // Compute deep-link source anchors PRE-LOCK (before withRowTx takes the per-show advisory
+        // lock) — mirrors the cron path, which fetches/computes anchors in its prepare phase, not
+        // under the lock. Best-effort: a Drive failure must NEVER block materialization, so on error
+        // we apply with anchors omitted (the #gid=0 fallback keeps "In sheet" safe and the next full
+        // sync / backfill fills them in). Computed for every approved row; only the first-seen branch
+        // of processApprovedRow consumes it (existing-show rows ignore it).
+        let sourceAnchors: Record<string, SourceAnchor> | undefined;
+        try {
+          sourceAnchors = await runtime.fetchOnboardingSourceAnchors(row.drive_file_id);
+        } catch (error) {
+          console.warn(
+            `onboarding finalize: source-anchor computation failed for ${row.drive_file_id}; applying without anchors`,
+            error,
+          );
+          sourceAnchors = undefined;
+        }
         let result: PerRowResult;
         try {
           result = await runtime.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
@@ -995,6 +1042,7 @@ export async function handleOnboardingFinalize(
               fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
               finalizerEmail,
               appliedShowIds,
+              ...(sourceAnchors !== undefined ? { sourceAnchors } : {}),
             }),
           );
         } catch (error) {

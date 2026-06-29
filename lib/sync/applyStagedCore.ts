@@ -429,6 +429,12 @@ export type ApplyStagedCoreArgs = {
   wizardCreatedSessionId?: string;
   // R30-1: wizard Phase B only — first-seen INSERT writes published=false.
   firstSeenPublished?: false;
+  // Deep-link source-region anchors computed from the sheet's XLSX bytes (cron path:
+  // runScheduledCronSync.ts ~2444). Optional — forwarded to runPhase2 → applyShowSnapshot so the
+  // onboarding apply persists shows.source_anchors instead of leaving the {} default (which makes
+  // "In sheet" deep links fall back to the wrong tab). Omitted (not {}) when the caller could not
+  // compute them, so the applyShowSnapshot UPDATE arm's coalesce never wipes existing anchors.
+  sourceAnchors?: Phase2Args["sourceAnchors"];
 };
 
 export type ApplyStagedCoreResult =
@@ -527,6 +533,7 @@ export async function applyStagedCore(
     ...(args.autoPublishFirstSeen ? { autoPublishFirstSeen: args.autoPublishFirstSeen } : {}),
     ...(args.firstSeenPublished === false ? { firstSeenPublished: args.firstSeenPublished } : {}),
     ...(args.wizardCreatedSessionId ? { wizardCreatedSessionId: args.wizardCreatedSessionId } : {}),
+    ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
     verifyReelOnApply: false,
     ...(args.mi11Items.length > 0 ? { mi11Items: args.mi11Items } : {}),
     // NOTE (deviation from the plan's literal `feedItems.length > 0` spread): the live feed
