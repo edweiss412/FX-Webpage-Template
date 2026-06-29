@@ -172,7 +172,7 @@ No demote is needed for either; the rows stay finishable and are simply re-drive
 
 Per AGENTS.md, declare which structural meta-tests this change creates/extends:
 
-- **Advisory-lock topology** (`tests/auth/advisoryLockRpcDeadlock.test.ts`): **unchanged** — no new lock holder (the re-read rides the existing `show:` lock). Declared, not edited.
+- **Advisory-lock topology** (`tests/auth/advisoryLockRpcDeadlock.test.ts:499-548`): **EXTENDED (one regex widening)**. No new lock holder — assertions (2) "exactly one `pg_advisory_xact_lock(hashtext('show:'||$1))`" (`:531-537`) and (3) "no `getFile`/`downloadFileBytes` near the re-SELECT" (`:542-546`) stay and still pass (we add neither). BUT assertion (1)'s regex (`:525-527`) is `/select parse_result from public\.pending_syncs[\s\S]*?where…/i`, which requires `parse_result` to be immediately followed by `from`. The widened SELECT (`select parse_result, wizard_approved, … from …`) **breaks that match** → the regex must be widened to `/select parse_result[\s\S]*?from public\.pending_syncs[\s\S]*?where[\s\S]*?wizard_session_id[\s\S]*?drive_file_id[\s\S]*?staged_id[\s\S]*?staged_modified_time/i` (tolerate the inserted column list; the four WHERE keys are still asserted). This is a **mechanical** test edit, not a topology change.
 - **Supabase call-boundary** (`tests/auth/_metaInfraContract.test.ts`): **N/A** — the re-read is a raw `tx.query` inside the existing finalize tx adapter (not a Supabase client call); no new helper subject to the `{data,error}` contract.
 - **Catalog completeness** (`tests/messages/catalog.test.ts`): **N/A** — no new error code.
 - **No new meta-test created.** The race is pinned by a behavioral test (§8), which is the appropriate guard for a logic change of this shape.
@@ -209,5 +209,6 @@ Each test derives its expected outcome from the configured re-read values, never
 - **`tests/app/admin/finalizeAgendaRace.test.ts`** — update the fake-DB re-read handler at `:232` (matches `select parse_result from public.pending_syncs where wizard_session_id`) so it still matches the **widened** SELECT and returns the new decision columns. Without this, the widened SQL falls through to `FakeRaceDb`'s "unhandled SQL" throw and the existing agenda-race tests break.
 - **`tests/onboarding/finalize.test.ts`** — update the re-read handler(s) at `:255` and `:286` (same prefix-match break).
 - **`tests/onboarding/finalizeRevalidate.test.ts`** — update the re-read handler at `:209` (same prefix-match break).
+- **`tests/auth/advisoryLockRpcDeadlock.test.ts`** — widen assertion (1)'s re-SELECT regex at `:525-527` to tolerate the inserted column list (§6); assertions (2)/(3) unchanged and still pass.
 
-No `supabase/` (no schema change — `last_finalize_failure_code` already exists on the table), no `lib/messages/` (no new code), no `DESIGN.md`, no UI. The three existing-test updates are **mechanical handler-string widening**, not behavior changes; each existing assertion stays as-is.
+No `supabase/` (no schema change — `last_finalize_failure_code` already exists on the table), no `lib/messages/` (no new code), no `DESIGN.md`, no UI. The four existing-test updates are **mechanical string/regex widening**, not behavior changes; each existing assertion's intent stays as-is.
