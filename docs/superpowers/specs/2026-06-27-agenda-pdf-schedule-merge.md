@@ -301,12 +301,19 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      persisting them is safe.
    - **`confirmedFreshExtractions`** — the `extracted` payloads ONLY for links positively
      confirmed fresh (§5.2 step 6).
-   - **Merge KEY handles the target smart-chip shape (Codex round-26):** the current row's
-     links may have NO `fileId` (smart-chips — recovered during extraction). Match each
-     in-memory link to a current link by `fileId` when present, else by the **ordinal +
-     label chip-correlation** (the `getAgendaChips` ordinal contract). For each match,
-     set the **recovered `fileId`** (additive — fills in a fileId-less link), AND set
-     `extracted` **only if** the link is in `confirmedFreshExtractions`. So a link whose
+   - **Merge KEY is ORDINAL-FIRST (Codex round-26 + round-44):** the in-memory
+     (post-extraction) links and the tx#2-reread current links are the SAME generation's
+     `agenda_links` array in document order — the generation guard (`staged_id` +
+     `staged_modified_time`) guarantees the array is unchanged, and `enrichAgenda` fills
+     `extracted`/`fileId` per index without reordering. So match **by ordinal `i` ↔ `i`**,
+     with `label` (and `fileId` when both present) as a SANITY CHECK only — NEVER as the
+     sole identifier. `fileId` is **not unique** across duplicate links pointing at the
+     same PDF (round-35 F2); a fileId-first merge could attach a confirmed extraction to the
+     WRONG duplicate (or both) BEFORE the render-time ordinal gate, persisting a block for a
+     link that was NOT confirmed fresh. Ordinal-first matches the ordinal-keyed
+     `freshByLinkKey`. For each ordinal `i`: set the **recovered `fileId`** (additive — fills
+     in a fileId-less smart-chip link), AND set `extracted` **only if** ordinal `i` is in
+     `confirmedFreshExtractions`. So a link whose
      chip recovery succeeded but whose **download FAILED** (round-30) still **persists +
      returns its recovered `fileId`** (→ a valid Open-PDF href on the note item; AND the
      next retry skips `getAgendaChips` — cache-checks via `getFile` on the now-present
@@ -719,7 +726,12 @@ re-select adds no second acquisition (the topology is unchanged).
    `extracted`; meanwhile a slower request B (whose refresh FAILED, no fresh links)
    reaches tx#2 LAST → its merge adds nothing → assert link X's fresh `extracted` is
    **still present** (B did not clobber A); also a write to an unrelated `parse_result`
-   field in the gap survives (merge touches only fresh `extracted`); (l) **same-session
+   field in the gap survives (merge touches only fresh `extracted`); (k2) **ordinal-first
+   merge, duplicate fileId** (round-44): a staged row with TWO links sharing the SAME
+   `fileId`, where ordinal 0 is confirmed fresh and ordinal 1 refresh-FAILS → tx#2 persists
+   `extracted` ONLY on the ordinal-0 link; the ordinal-1 duplicate keeps NO fresh
+   `extracted` (assert by ordinal, not fileId — a fileId-keyed merge would wrongly tag one
+   or both); only ordinal 0 renders a block; (l) **same-session
    rescan generation race** (round-27): tx#1 captures `(staged_id, staged_modified_time)`;
    during extraction a rescan DELETES + RECREATES the `(drive_file_id, wizard_session_id)`
    row with a NEW `staged_id` → tx#2 `WHERE … AND staged_id = $4 AND staged_modified_time
@@ -907,11 +919,13 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
   refresh-failed stale extraction is note-only and never persisted as a fresh block
   (round-24 F1).
 - Persist integrity: tx#2 **rereads + merges only confirmed-fresh results** into the
-  current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches by
-  `fileId` when present, else by the **ordinal+label chip-correlation** (so the target
-  fileId-less smart-chip links can be matched), and persists **both the recovered `fileId`
-  AND the fresh `extracted`** — warming the cache so the next request cache-hits and
-  publish carries the agenda (round-26). tx#2 also binds to the **row generation**
+  current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches
+  **ordinal-first** (`i ↔ i` — the in-memory and reread links are the same generation's
+  `agenda_links` in order, guaranteed by the generation guard; `label`/`fileId` are sanity
+  checks only, never the sole key — round-44, since `fileId` isn't unique across duplicate
+  links), and persists **both the recovered `fileId` AND the fresh `extracted`** (only for
+  confirmed-fresh ordinals) — warming the cache so the next request cache-hits and publish
+  carries the agenda (round-26). tx#2 also binds to the **row generation**
   (`staged_id` + `staged_modified_time` captured in tx#1) so a same-session rescan that
   regenerates the row during extraction can't receive the old extraction (round-27).
 - Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
