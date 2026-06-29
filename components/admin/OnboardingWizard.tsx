@@ -39,6 +39,7 @@ import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import type { ParseResult } from "@/lib/parser/types";
+import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
@@ -228,7 +229,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   try {
     const q = await supabase
       .from("pending_syncs")
-      .select("staged_id, drive_file_id, parse_result")
+      .select("staged_id, drive_file_id, staged_modified_time, parse_result")
       .eq("wizard_session_id", wizardSessionId);
     if (q.error) {
       return {
@@ -266,7 +267,13 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 
   const stagedByDfid = new Map<
     string,
-    { stagedId: string; title: string | null; parseResult: ParseResult | null }
+    {
+      stagedId: string;
+      title: string | null;
+      parseResult: ParseResult | null;
+      adminAgendaPreview: AdminAgendaItem[];
+      agendaStateKey: string;
+    }
   >();
   for (const ps of pendingSyncsRows) {
     const driveFileId = ps.drive_file_id as string;
@@ -277,10 +284,23 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const rawParse = ps.parse_result;
     const parseResult =
       rawParse !== null && typeof rawParse === "object" ? (rawParse as ParseResult) : null;
+    const stagedId = ps.staged_id as string;
+    const stagedModifiedTime = (ps.staged_modified_time as string | null) ?? null;
+    // Task 11: baseline (note-only) agenda preview. Build with NO opts → every
+    // item is note-only (`block: null`, `href: null`). A null/absent agenda_links
+    // (partial/malformed jsonb) guards to `[]`.
+    const agendaLinks = parseResult?.show?.agenda_links;
+    const adminAgendaPreview = Array.isArray(agendaLinks)
+      ? buildAdminAgendaPreview(agendaLinks)
+      : [];
+    // Task 11: stable identity that changes when the staged row is rescanned.
+    const agendaStateKey = `${wizardSessionId}:${stagedId}:${stagedModifiedTime}`;
     stagedByDfid.set(driveFileId, {
-      stagedId: ps.staged_id as string,
+      stagedId,
       title: parseResult?.show?.title ?? null,
       parseResult,
+      adminAgendaPreview,
+      agendaStateKey,
     });
   }
 
@@ -308,7 +328,14 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       if (staged) {
         // §7.1: a clean row carries its full ParseResult (may be null if the
         // jsonb was absent/malformed). Title is the back-compat summary field.
-        const withParse: Step3Row = { ...base, parseResult: staged.parseResult };
+        // Task 11: also carry the baseline (note-only) agenda preview + the
+        // stable agendaStateKey so the card has note-only items immediately.
+        const withParse: Step3Row = {
+          ...base,
+          parseResult: staged.parseResult,
+          adminAgendaPreview: staged.adminAgendaPreview,
+          agendaStateKey: staged.agendaStateKey,
+        };
         if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
         return withParse;
       }

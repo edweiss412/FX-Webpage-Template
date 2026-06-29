@@ -46,6 +46,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import type { ParseResult } from "@/lib/parser/types";
+import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -82,6 +83,16 @@ export type Step3Row = {
   // summary + breakdown from this). A staged row carries its `ParseResult`;
   // non-staged rows have `null`. Coerced from untyped jsonb in fetchStep3Data.
   parseResult?: ParseResult | null;
+  // Task 11: baseline (note-only) agenda preview built from `show.agenda_links`
+  // with NO freshness/href opts → every item has `block: null` and `href: null`.
+  // The card (next task) renders these immediately; a fresh sync layer may later
+  // populate blocks/hrefs. Empty (or no agenda_links) → `[]`.
+  adminAgendaPreview?: AdminAgendaItem[];
+  // Task 11: stable identity for the staged row's agenda state —
+  // `${wizardSessionId}:${staged_id}:${staged_modified_time}`. Changes when the
+  // staged row is rescanned (new staged_modified_time), so the card can reset
+  // any per-row agenda UI state on rescan.
+  agendaStateKey?: string;
 };
 
 type Step3ReviewProps = {
