@@ -15,7 +15,7 @@ This spec fixes data fidelity at the parse layer for shipped, consumer-backed su
 
 2. **The generic "Additional rooms" card is intentional and stays.** rooms.ts:158-167 deliberately surfaces the client-intake-form prose (`Additional Room Name(s)` / `Additional Room Setup`) as a single `Additional rooms` card carrying `notes`/`setup`, "so the real 'which rooms / no AV needed' signal stays visible behind a clean label" — the crew Today section renders it. It only *looks* empty in the **Step-3 modal** because the modal doesn't render room `notes`/`setup`; that is the M2 review-modal gap (`BL-REVIEW-MODAL-COMPLETENESS`), **not** a parser bug. We do **not** suppress this card. (The audit's "phantom Additional rooms" framing is superseded by reading the code.)
 
-3. **The `mergeGearIntoRooms` `(kind, name-token)` match key is preserved — NOT relaxed to token-only.** index.ts:341-348 documents a prior review decision (R8-H1): "NOT by name token alone … an `additional` and a `breakout` can share a token." Relaxing to token-only would relitigate that and risk false merges. The lunch-room duplication is a *same-room, mismatched-kind* problem (INFO `breakout` vs GEAR `additional`), fixed by **aligning the GEAR lunch kind to `breakout`** + a symmetric **token normalization**, keeping the `(kind, token)` key intact.
+3. **The `mergeGearIntoRooms` `(kind, name-token)` match key is preserved — NOT relaxed to token-only.** index.ts:341-348 documents a prior review decision (R8-H1): "NOT by name token alone … an `additional` and a `breakout` can share a token." Relaxing to token-only would relitigate that and risk false merges. The lunch-room duplication is a *same-room, mismatched-kind+name* problem (INFO `breakout`/`BALLROOM C` vs GEAR `additional`/`GRAND BALLROOM C`), fixed by **aligning the GEAR lunch kind to `breakout`** AND **dropping the leading `GRAND` qualifier from the GEAR lunch room name (scoped to the lunch branch only)** — the shared `gearNameToken` is left untouched (no global `GRAND` strip), keeping the `(kind, token)` key intact and avoiding any cross-room `GRAND X`/`X` collision (Codex spec-R1 finding 2).
 
 4. **The lunch-room dedup changes the consultants room key-set, which triggers a one-time MI-7b re-stage on next sync.** invariants.ts:337 keys room preservation on `${kind}::${name}`; removing the duplicate `additional::GRAND BALLROOM C` room is a room-set change → MI-7b re-stages affected already-staged shows exactly once. This is the documented, intended MI-7b behavior (parser changes re-stage once), not a regression.
 
@@ -56,16 +56,16 @@ Wire into `index.ts` orchestrator after `parseEventDetails`: `const dress = pars
 
 **Bug.** For the lunch room, INFO produces `{kind:"breakout", name:"BALLROOM C"}` (rooms.ts:718-727 `lunchRe` → `buildEmptyRoom("breakout", …)`) while GEAR produces `{kind:"additional", name:"GRAND BALLROOM C"}` (gear.ts:92-102 `newRoom` defaults non-GS/non-BO to `additional`; `ROOM_PREFIX_RE` strips `LUNCH SESSION -` but leaves `GRAND BALLROOM C`). `mergeGearIntoRooms` (index.ts:355) needs `r.kind === g.kind && gearNameToken(r.name) === gearNameToken(g.name)`; the lunch room misses on **both** (kind: breakout≠additional; token: `BALLROOM C`≠`GRAND BALLROOM C`, since `gearNameToken`/`ROOM_NAME_PREFIX_RE` at index.ts:326-336 don't strip `GRAND`). The unmatched GEAR room is appended → two cards (INFO card has times, GEAR card has gear). Confirmed: `parseSheet()` → 9 rooms; one is the split.
 
-**Design — two narrow changes, both preserving the `(kind, token)` key:**
+**Design — two narrow changes scoped to the GEAR lunch room only, both preserving the `(kind, token)` key:**
 
 1. **Align GEAR lunch kind** — gear.ts `newRoom` (after the BREAKOUT branch at gear.ts:96): add `else if (/^LUNCH\b/.test(upper)) kind = "breakout";`. This matches INFO's `lunchRe` choice (`buildEmptyRoom("breakout", …)`), so both lunch rooms share `kind:"breakout"`.
-2. **Normalize `GRAND`** — in `gearNameToken` (index.ts:328-336), after stripping `ROOM_NAME_PREFIX_RE`, also strip a leading `GRAND ` qualifier: `.replace(/^GRAND\s+/i, "")`. Symmetric and safe: GS rooms are `GRAND BALLROOM A/B` on **both** INFO and GEAR sides, so both still normalize to `BALLROOM A/B` and continue to match (no GS regression). Lunch: INFO `BALLROOM C` and GEAR `GRAND BALLROOM C` both → `BALLROOM C` → match.
+2. **Drop the `GRAND` qualifier from the GEAR lunch room NAME (lunch-scoped, not global)** — in gear.ts `newRoom`, in the same LUNCH branch, after `ROOM_PREFIX_RE` strips `LUNCH SESSION -`, also strip a leading `GRAND ` from the lunch room's name: `name = name.replace(/^GRAND\s+/i, "")`. So `LUNCH SESSION - GRAND BALLROOM C` → `GRAND BALLROOM C` → `BALLROOM C`, matching INFO's `BALLROOM C`. **The shared `gearNameToken` (index.ts:328-336) is NOT modified** — there is no global `GRAND` strip, so non-lunch rooms named `GRAND X` and `X` never collide (Codex spec-R1 finding 2). GS rooms are unaffected: both INFO and GEAR carry `GRAND BALLROOM A/B`, whose tokens already match, so GS continues to merge with no change.
 
-Result: GEAR lunch `{breakout, token BALLROOM C}` matches INFO lunch `{breakout, token BALLROOM C}` → gear merges onto the INFO room (fill-don't-clobber, index.ts:357-360). No duplicate. The `(kind, token)` key is unchanged → R8-H1 protection intact.
+Result: GEAR lunch `{breakout, name "BALLROOM C", token BALLROOM C}` matches INFO lunch `{breakout, "BALLROOM C", token BALLROOM C}` → gear merges onto the INFO room (fill-don't-clobber, index.ts:357-360). No duplicate. The `(kind, token)` key and `gearNameToken` are unchanged → R8-H1 protection intact, no cross-room collision surface. (If a GEAR lunch room has *no* INFO counterpart, it appends with the `GRAND`-stripped name — a cosmetic, INFO-consistent naming, not data loss.)
 
 **Out of scope (per Resolved Decision 2):** the `Additional rooms` card and the `FOYER` gear-only room (real gear at fixture:181) are correct and untouched. After this fix the consultants room count goes 9 → 8.
 
-**Guard conditions:** a GEAR room with no INFO counterpart still appends (unchanged). All-null GEAR rooms still skipped (index.ts:353). Non-lunch additional rooms unaffected (the new branch only matches `^LUNCH`). The `GRAND` strip only removes a leading `GRAND ` token; names like `GRANDVIEW` are unaffected (`\s+` boundary).
+**Guard conditions:** a GEAR room with no INFO counterpart still appends (unchanged). All-null GEAR rooms still skipped (index.ts:353). Non-lunch rooms are entirely unaffected — both the kind-align and the `GRAND` strip live inside the `^LUNCH` branch, so a non-lunch `GRAND FOYER`/`FOYER` pair keeps distinct tokens and never merges. The lunch `GRAND` strip only removes a leading `GRAND ` token; names like `GRANDVIEW` are unaffected (`\s+` boundary).
 
 **Re-stage note:** changes the consultants room key-set → one-time MI-7b re-stage (Resolved Decision 4). Other shows with GEAR `LUNCH`/`GRAND`-prefixed rooms may also re-stage once.
 
@@ -101,15 +101,20 @@ Stop the #0 scan at the first non-separator table row (don't scan deep). Keep pr
 
 **Bug.** The GS room header `GENERAL SESSION - GRAND BALLROOM A/B` (fixture:143) carries no dimensions, so `splitRoomHeader` leaves `room.dimensions = null`. The dims live in a standalone client-intake row (fixture:253): `BALLROOM A/B - 8th Floor ROOM DIMENSIONS: TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'`, which matches no room header → GS dims dropped.
 
-**Design.** New helper `backfillRoomDimensionsFromIntake(rooms, markdown)` run in `index.ts` after `mergeGearIntoRooms`:
-- Scan for table rows whose col0 contains `ROOM DIMENSIONS:` (case-insensitive).
-- For each, run the existing `splitRoomHeader(col0, "gs")` extraction (rooms.ts:905) to pull `{name, dimensions, floor}` (it already parses `TOTAL:`/`A/B:`/`8th Floor`).
-- Match to a parsed room by `gearNameToken(room.name) === gearNameToken(extractedName)` (reuse the same normalization as the merge, incl. the new `GRAND` strip → both `BALLROOM A/B`).
+**Design.** A **dedicated extractor** for standalone intake dimension rows (NOT `splitRoomHeader`, which is built for room *headers* and mis-parses this shape — verified: `splitRoomHeader("BALLROOM A/B - 8th Floor ROOM DIMENSIONS: TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'", "gs")` yields `name="BALLROOM A/B - ROOM :"`, which would never match the GS room token → silent no-op; Codex spec-R1 finding 1).
+
+New exported helper `extractIntakeDimensionRow(col0): { nameToken, dimensions, floor } | null` in rooms.ts:
+- Match the row shape `^<NAME> (?:- )?<Nth> Floor ROOM DIMENSIONS:\s*<dims>$` (case-insensitive), or more robustly: split on `ROOM DIMENSIONS:` — the left side is `<NAME> - <floor>`, the right side is the dims.
+- From the left side: extract `floor` via the existing `\b\d+\s*(?:st|nd|rd|th)\s+floor\b` regex, then the remaining text (minus a trailing ` - ` separator) is the room name → derive `nameToken = gearNameToken(name)`.
+- From the right side: `dimensions` = the trimmed text after `ROOM DIMENSIONS:` (e.g., `TOTAL: 82' x 94' x 14' A/B: 82' x 63' x 14'`).
+- Return `null` if no `ROOM DIMENSIONS:` marker or no dims token (`\d+\s*'\s*x`) present.
+
+New helper `backfillRoomDimensionsFromIntake(rooms, markdown)` run in `index.ts` after `mergeGearIntoRooms`:
+- For each table row, call `extractIntakeDimensionRow(col0)`; skip on `null`.
+- Match to a parsed room by `gearNameToken(room.name) === nameToken`. GS room name `GRAND BALLROOM A/B` → token `GRAND BALLROOM A/B`; intake name `BALLROOM A/B` → token `BALLROOM A/B`. **These differ** (the intake row omits `GRAND`). Resolve by matching on the gear-token *with the lunch-style `GRAND` tolerance applied to BOTH sides of THIS dimension match only* — i.e., compare `stripGrand(gearNameToken(room.name)) === stripGrand(nameToken)` where `stripGrand` is a local `s => s.replace(/^GRAND\s+/i,"")`. This keeps the global `gearNameToken` untouched (no merge-key change) while letting the intake row find `GRAND BALLROOM A/B`.
 - **Fill-don't-clobber:** set `room.dimensions`/`room.floor` only when currently `null`.
 
-`splitRoomHeader` is currently `function`-scoped in rooms.ts; export it (or a thin `extractRoomDimsRow` wrapper) for the helper. Prefer exporting `splitRoomHeader` (already pure) to avoid duplicating the dim/floor regex.
-
-**Guard conditions:** no `ROOM DIMENSIONS:` row → no-op. No matching room → skip (no phantom room created — this only back-fills existing rooms). Room already has dims → untouched. Multiple matches → first wins (deterministic by document order).
+**Guard conditions:** no `ROOM DIMENSIONS:` row → no-op. No matching room → skip (no phantom room created — this only back-fills existing rooms). Room already has dims/floor → untouched. Multiple matches → first wins (deterministic by document order). Malformed row (marker present, no dim token) → `null`.
 
 **Consumer:** none yet (Resolved Decision 5) — verified by a parser unit test, render deferred to `BL-ROOM-DETAIL-UNRENDERED`.
 
@@ -120,7 +125,7 @@ Stop the #0 scan at the first non-separator table row (don't scan deep). Keep pr
 | field | storage | write path(s) | read path(s) | effect |
 |---|---|---|---|---|
 | `event_details.dress_code` | `ShowRow.event_details` | NEW `parseDress` (authoritative) + existing in-DETAILS alias | TodaySection.tsx:297 (existing) | crew "Dress code" card now populates |
-| `room.dimensions` (GS) | `RoomRow.dimensions` | NEW `backfillRoomDimensionsFromIntake` + existing `splitRoomHeader` | none yet (render deferred, `BL-ROOM-DETAIL-UNRENDERED`) | consistent capture; future per-room dims UI |
+| `room.dimensions` (GS) | `RoomRow.dimensions` | NEW `backfillRoomDimensionsFromIntake` + NEW `extractIntakeDimensionRow` | none yet (render deferred, `BL-ROOM-DETAIL-UNRENDERED`) | consistent capture; future per-room dims UI |
 | `room.kind` (GEAR lunch) | `RoomRow.kind` | gear.ts `newRoom` (NEW lunch branch) | `mergeGearIntoRooms` key; room render by kind | lunch gear merges onto INFO lunch room |
 | `show.title` | `ShowRow.title` | `extractTitleFromMarkdown` (NEW priority #0) | crew header, review-modal link (existing) | proper-cased banner title |
 
@@ -151,8 +156,10 @@ Each fix lands as its own commit: failing test → minimal impl → green → co
 
 1. **parseDress unit** (`dress.ts` + new `tests/parser/dress.test.ts`): inline fixture with a DRESS block (header + continuation) **before** a DETAILS header → assert `event_details.dress_code === "Set/Strike: …\nShow: …"` (both lines, labels retained). Negative: no DRESS block → `dress_code` absent. Idempotency: DRESS-inside-DETAILS single row → same value, no duplication. Concrete failure caught: the slice-after-DETAILS drop (today returns `undefined`).
 2. **Dress on real fixture** (`parseSheet`/`exporterFixtures`): assert `parseSheet(consultants).show.event_details.dress_code` contains both `Set/Strike` and `Show`. Negative-regression: mutate `parseDress` to return only the header row → test fails (proves it captures continuations).
-3. **Lunch dedup** (`tests/parser/...`): assert `parseSheet(consultants).rooms` has exactly one `BALLROOM C`-token room with `kind:"breakout"` carrying **both** the INFO times and the GEAR audio gear; assert no `GRAND BALLROOM C` separate room; assert total room count 9→8; assert GS and FOYER unchanged. Negative-regression: revert the gear-kind branch → two lunch rooms reappear.
-4. **GS dims** (`tests/parser/...`): assert the GS room `dimensions` is populated (contains `82' x 63' x 14'`) and `floor` contains `8th Floor`. Derived from fixture, not hardcoded beyond the literal dim string present in the source. Negative: no `ROOM DIMENSIONS:` row → GS dims stay null.
+3. **Lunch dedup** (`tests/parser/...`): assert `parseSheet(consultants).rooms` has exactly one `BALLROOM C`-token room with `kind:"breakout"` carrying **both** the INFO times and the GEAR audio gear; assert no separate `GRAND BALLROOM C` room; assert total room count 9→8; assert GS and FOYER unchanged. **Collision negative test (Codex spec-R1 finding 2):** an inline fixture with a GEAR `additional` room `GRAND FOYER` and an INFO `additional` room `FOYER` (or any non-lunch `GRAND X`/`X` same-kind pair) → assert they do **not** merge (two distinct rooms remain), proving the `GRAND` strip is lunch-scoped and `gearNameToken` is unchanged. Negative-regression: revert the gear-kind branch → two lunch rooms reappear.
+4. **GS dims** — two layers:
+   a. **Dedicated extractor unit** (`extractIntakeDimensionRow`): feed the exact consultants intake row string → assert `{ nameToken: "BALLROOM A/B", dimensions: contains "82' x 63' x 14'", floor: "8th Floor" }`. Negative: a row with no `ROOM DIMENSIONS:` marker → `null`; marker but no dim token → `null`. (This catches the splitRoomHeader mis-parse class directly, not only via `parseSheet`.)
+   b. **End-to-end** (`parseSheet`): assert the GS room `dimensions` contains `82' x 63' x 14'` and `floor` contains `8th Floor`. Negative: remove the `ROOM DIMENSIONS:` row from an inline fixture → GS dims stay null. Negative-regression: break the extractor's name-token match → GS dims revert to null.
 5. **Title banner** (`tests/parser/...`): exact assertions — consultants → `AII/III - Consultants Roundtable 2025`; fintech/fixed-income/rpas → proper-cased banners (not uppercase). Unchanged assertions: east-coast, ria, redefining-fi titles equal their current values (snapshot the current value first, assert preserved). Generic guards (parseSheet.test.ts:44/54) still pass. Negative: revert priority #0 → consultants title reverts to uppercase.
 6. **Meta-test** (`_metaKnownSectionsRegistry`): `DRESS` registered (passes with the registry as-is).
 

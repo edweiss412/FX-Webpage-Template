@@ -21,9 +21,11 @@
 
 The INFO `DRESS` block (`Set/Strike: Black Pants, Black Polo…` / `Show: Black Pants, Black Long Sleeve…`) is never captured. `parseEventDetails` slices markdown starting at the `DETAILS` header (`lib/parser/blocks/event.ts:135`); the DRESS block sits **before** that header, so the `dress`/`attire`→`dress_code` aliases (`event.ts:97-100`) never fire. `crew.ts:34` uses `"DRESS"` only as a *terminator*, never a capture. No `parseDress` exists anywhere. Verified by running the parser: `parseEventDetails(...).dress_code === undefined` on both fixture families. Consumer `TodaySection.tsx:297-299,467` therefore renders the dress card as `null`. **Systemic** — DRESS-before-DETAILS is the standard exporter template, so this affects every show.
 
-### 🔴 H2 — Room gear-merge mismatch duplicates the lunch room + emits phantom cards (FIDELITY BUG) → `BL-ROOM-GEAR-MERGE-DEDUP`
+### 🔴 H2 — Room gear-merge mismatch duplicates the lunch room (FIDELITY BUG) → `BL-ROOM-GEAR-MERGE-DEDUP`
 
-`mergeGearIntoRooms` (`lib/parser/index.ts:355`) matches a GEAR room to an INFO room only when **both** `kind` *and* a normalized name token are equal. For the lunch room: INFO = `breakout` / `"BALLROOM C"`; GEAR = `additional` / `"GRAND BALLROOM C"` (the token normalizer at `index.ts:328-336` strips `LUNCH SESSION` but not `GRAND`). Double miss → the room becomes **two cards** (set/show/strike times on one, A/V gear on the other). Plus `parseAdditionalRoomFields` (`rooms.ts:152-169`) emits a generic empty **"Additional rooms"** card, and GEAR's **"FOYER"** is appended unmatched. Verified by running `parseSheet()` → exactly 9 rooms, matching the screenshot. No dedup pass exists; both the review modal (`Step3SheetCard.tsx:327-368`) and crew `GearSection.tsx:155-158` render the array verbatim.
+`mergeGearIntoRooms` (`lib/parser/index.ts:355`) matches a GEAR room to an INFO room only when **both** `kind` *and* a normalized name token are equal. For the lunch room: INFO = `breakout` / `"BALLROOM C"`; GEAR = `additional` / `"GRAND BALLROOM C"` (the token normalizer at `index.ts:328-336` strips `LUNCH SESSION` but not `GRAND`). Double miss → the room becomes **two cards** (set/show/strike times on one, A/V gear on the other). Verified by running `parseSheet()` → 9 rooms, matching the screenshot; the lunch room is the only genuine duplicate.
+
+**Resolution (refined while writing the spec — supersedes the initial "phantom cards" read):** the generic **"Additional rooms"** card (`rooms.ts:158-167`) and the GEAR **"FOYER"** card are **intentional and correct** — "Additional rooms" deliberately surfaces client-intake prose as `notes`/`setup` behind a clean label (the crew Today section renders it), and FOYER carries real gear. They only *look* empty in the Step-3 modal because the modal doesn't render room `notes`/`setup` — that is the **M2 review-modal gap (`BL-REVIEW-MODAL-COMPLETENESS`)**, not a parser bug. The parser fix is the lunch-room dedup ONLY (align the GEAR lunch kind to `breakout` + strip the leading `GRAND` from the GEAR lunch name, both scoped to the `^LUNCH` branch; the `(kind, name-token)` merge key and shared `gearNameToken` are preserved per R8-H1 — no token-only relax, no global `GRAND` strip). See `docs/superpowers/specs/2026-06-29-parser-info-tab-fidelity-design.md`.
 
 ### 🔴 H3 — Technical DETAILS block is mostly invisible (PARSED-NOT-RENDERED) → `BL-EVENT-DETAILS-UNRENDERED`
 
@@ -114,7 +116,7 @@ The modal body is exactly 6 BreakdownSections + Agenda + Warnings (`Step3SheetCa
 | R-BO1..4 | Breakouts (Delaware/Lasalle/Walton/State B) | yes | yes | partial | M1 — name+gear only; setup/floor/times unrendered |
 | R-LUNCH | Lunch Room / Ballroom C | partial | yes | partial | **H2 — duplicated**; setup/dims/times unrendered |
 | R-SUBFIELDS | Per-room dims/floor/setup/times | partial | no | partial | M1 (dims = parse drop; rest = render gap) |
-| R-GEAR | Per-room A/V/L/Scenic gear | partial | yes | yes | OK except H2 merge miss → phantom rooms |
+| R-GEAR | Per-room A/V/L/Scenic gear | partial | yes | yes | OK except H2 lunch-room merge miss (Additional-rooms + FOYER cards are intentional) |
 
 ---
 
