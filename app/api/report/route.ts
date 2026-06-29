@@ -10,7 +10,7 @@ import {
   type SubmitReportResult,
 } from "@/lib/reports/submit";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { log } from "@/lib/log";
+import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -203,5 +203,7 @@ export async function handleReport(
 }
 
 export async function POST(req: Request): Promise<Response> {
-  return handleReport(req);
+  return runWithRequestContext({ requestId: deriveRequestId(req.headers) }, async () => {
+    return handleReport(req);
+  });
 }
