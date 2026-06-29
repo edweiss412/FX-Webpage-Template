@@ -346,7 +346,7 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
 
 - `adminAgendaPreview.length === 0` → **no Agenda breakdown** (omitted).
 - Else, per row, a state machine over the extract fetch: `idle → loading →
-  ready(items) | error`. The client ALWAYS fires the POST (the endpoint is the sole
+  ready(items) | stale | error`. The client ALWAYS fires the POST (the endpoint is the sole
   freshness-gated block source; baseline blocks never exist) in a `useEffect` keyed on the
   **server-provided `agendaStateKey` — NOT `driveFileId` alone (Codex round-36 F2)**.
   `fetchStep3Data` stamps each `Step3Row` with `agendaStateKey = `
@@ -370,20 +370,26 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
   ≈ `maxDuration` + margin (~330 000 ms)** — only then → `error`/baseline. (A short fixed
   5-attempt budget would abandon the live-fill before the owner persists, leaving
   smart-chip rows note-only/no-href even though extraction succeeds seconds later.) A
-  **`409 { status: "stale" }`** (lifecycle guard — superseded session / finalizing row) is
-  **terminal**: stop polling, render the baseline note (any agenda lands via cron
-  post-publish). A network/5xx → `error` → baseline.
-- The `AgendaBreakdown` renders the EFFECTIVE items = `state === "ready" &&
-  resultItems.length ? resultItems : baselineItems` (preferring the endpoint result,
-  whose items carry recovered hrefs even for smart-chips; falling back to baseline on a
-  hard fetch failure — where a smart-chip item may have no anchor, covered by the
-  source-sheet link), with a state-driven affordance:
+  **`409 { status: "stale" }`** is **terminal → `stale` state (Codex round-38)**, which is
+  DISTINCT from `error`: a 409 is the endpoint's POSITIVE signal that the staged parse is no
+  longer trustworthy (superseded/finalizing OR **revision/source-scope fence fired** —
+  §5.2 step 4). So the card must NOT render the baseline's Open-PDF hrefs (which come from
+  the now-untrusted staged `parse_result` — a stale/out-of-scope PDF link would otherwise
+  survive the backend fence at the UI). A network/5xx → `error` (the fetch failed but no
+  fence fired; the staged data is still trusted) → baseline WITH hrefs.
+- The `AgendaBreakdown` renders the EFFECTIVE items per state, with a state-driven
+  affordance:
   - `loading` → render the baseline note items PLUS a calm **"Parsing agenda… (N PDF{s})"**
     eyebrow/skeleton (`N = adminAgendaPreview.length`); each baseline item still shows its
-    "Open PDF" anchor.
+    "Open PDF" anchor (the row is still trusted while parsing).
   - `ready` → render `resultItems` (§5.4): block → `AgendaScheduleBlock` + overflow note;
-    note item → muted note + "Open PDF".
-  - `error` (request rejected/non-2xx) → render the **baseline** items (muted
+    note item → muted note + "Open PDF". (Endpoint items carry recovered hrefs even for
+    smart-chips.)
+  - `stale` (terminal `409`) → render **SANITIZED note-only items: every href forced to
+    `null`, NO Open-PDF anchor, NO block** — a muted "agenda source changed — re-scan"
+    note. The agenda lands via cron post-publish (§3). This is the trust-boundary fix: a
+    fence-failed row exposes NO PDF link from the stale/out-of-scope parse.
+  - `error` (request rejected/network/5xx, no 409) → render the **baseline** items (muted
     "couldn't auto-read — open the PDF" note + the server-validated "Open PDF" anchor).
     The agenda is not lost — cron extracts it post-publish (§3). Hrefs come from the
     baseline `AdminAgendaItem`, so the fallback is safe with NO client href logic.
@@ -391,10 +397,19 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
   closed tab simply means un-fired rows aren't previewed during THIS review (re-open
   re-fires; publish → cron). No work is dropped.
 
-**Transition inventory (this component's states):** `idle/loading → ready`
-(crossfade/replace placeholder with content), `idle/loading → error` (replace with
-note), `ready`/`error` are terminal per row. No compound transitions (each row is
-independent; the toggle is the card's existing expand/collapse — unchanged).
+**Transition inventory (5 states: `idle`, `loading`, `ready`, `stale`, `error`).** The
+only reachable transitions follow the fetch lifecycle (`idle → loading → {ready | stale |
+error}`) plus a generation-key reset (any state → `idle` when `agendaStateKey` changes —
+round-36 F2); `ready`/`stale`/`error` are otherwise terminal per row. Enumerated:
+`idle → loading` (fire POST; replace nothing → skeleton), `loading → ready`
+(crossfade placeholder→blocks), `loading → stale` (replace placeholder with the SANITIZED
+no-href note — round-38), `loading → error` (replace placeholder with the baseline
+"couldn't auto-read" note WITH href), `{ready|stale|error} → idle` (generation reset:
+clear items, re-fire — round-36 F2). Unreachable/instant (no animation): `idle→ready`,
+`idle→stale`, `idle→error` (always pass through `loading`); `ready↔stale`, `ready↔error`,
+`stale↔error` (terminal — only reachable via an `→idle` reset then a fresh fetch). No
+compound transitions: each row is independent; the card's expand/collapse toggle is
+unchanged.
 
 **Dimensional invariants:** `AgendaScheduleBlock` already declares its own
 (`AgendaScheduleBlock.tsx:30-37`). The placeholder + breakdown wrapper are flow content
@@ -679,11 +694,17 @@ re-select adds no second acquisition (the topology is unchanged).
    baseline `adminAgendaPreview` (note-only items), pure-presentation + per-row fetch
    state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)" eyebrow; (b) `ready`
    (mock fetch resolves with upgraded items) → two `agenda-schedule` blocks (+ overflow
-   notes); (c) **`error` (mock fetch REJECTS) → baseline items render**: a `fileId`/http
-   item shows a SAFE "Open PDF" anchor (round-17, server-validated, no client href
-   logic), while a **smart-chip item (no `fileId`) shows the note with NO anchor** and
-   the breakdown still renders (round-25 F3 — the per-card source-sheet link is the
-   recovery path; the card never invents an href); (d) empty baseline → no breakdown; (e) **always-fetch /
+   notes); (c) **`error` (mock fetch REJECTS / network/5xx, NO 409) → baseline items render**:
+   a `fileId`/http item shows a SAFE "Open PDF" anchor (round-17, server-validated, no
+   client href logic), while a **smart-chip item (no `fileId`) shows the note with NO
+   anchor** and the breakdown still renders (round-25 F3 — the per-card source-sheet link is
+   the recovery path; the card never invents an href); (c2) **`409` stale/out-of-scope →
+   SANITIZED note, NO anchor** (round-38): the mock returns `409 { status: "stale" }` for a
+   row whose baseline has a `fileId`/http item WITH an href → the card MUST render the row
+   note-only with **NO Open-PDF anchor** (every href suppressed) and NO block — assert the
+   stale baseline PDF link does NOT appear (the UI honors the backend trust fence), DISTINCT
+   from the `error` case which DOES keep the baseline anchor; (d) empty baseline → no
+   breakdown; (e) **always-fetch /
    no stale-baseline bypass** (Codex round-20 F1 + round-21): a nonempty baseline ALWAYS
    triggers the POST — even if a (hypothetical, contract-violating) baseline item arrived
    with a populated `block`, the card MUST still fire the fetch and MUST NOT render that
@@ -841,6 +862,11 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
 - Client state key (round-36 F2): per-row fetch state + the POST effect are keyed by the
   server-stamped `agendaStateKey` (`wizardSessionId:staged_id:staged_modified_time`), NOT
   `driveFileId` alone — a rescan/new generation resets state + re-fetches (no stale UI).
+- `409` is a DISTINCT sanitized UI state (round-38): a terminal `409` (lifecycle OR
+  revision/source-scope fence) → `stale` state rendering note-only with ALL hrefs
+  suppressed (no Open-PDF anchor, no block), so a fence-failed row never exposes a
+  stale/out-of-scope PDF link at the UI; a network/5xx `error` (no fence fired) keeps the
+  trusted baseline hrefs.
 - Publish-safety: finalize **re-reads `parse_result` inside its already-`show:`-locked
   per-row tx** (`defaultWithRowTx:164`) before apply/shadow-stage on BOTH paths
   (round-34/35) — the extractor's tx#2 persist alone is not enough because finalize reads
