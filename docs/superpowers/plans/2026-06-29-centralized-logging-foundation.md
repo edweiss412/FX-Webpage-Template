@@ -36,13 +36,15 @@
 
 **New — DB + tests:**
 - `supabase/migrations/20260629000002_app_events.sql`
-- `tests/log/{serializeError,sanitize,requestContext,logger,persist,correlation,_metaAppEventsWriter}.test.ts`
+- `tests/log/{serializeError,sanitize,requestContext,logger,persist,appEventsSchema,callbackUsesSerializeError,nonAuthTaps,correlationSeeding,_metaAppEventsWriter}.test.ts`
+- (Auth-producer emission is asserted inside the extended `tests/auth/_metaInfraContract.test.ts` — no separate auth-tap test file.)
 
 **Modified:**
 - `app/auth/callback/route.ts` — replace local `errorLogValue` with `serializeError`.
-- Taps: `lib/auth/requireAdmin.ts`, `lib/auth/isAdminSession.ts`, `lib/auth/validateGoogleIdentity.ts`, `lib/auth/validateGoogleSession.ts`, `lib/data/adminEmails.ts`, `lib/geocoding/cache.ts`, `lib/sync/runScheduledCronSync.ts`, `app/api/admin/onboarding/scan/route.ts`, `app/api/report/route.ts`.
-- Correlation seeding: `app/api/cron/sync/route.ts`, `app/api/report/route.ts`, `app/api/admin/sync/[slug]/route.ts`, `app/api/admin/staged/[fileId]/apply/route.ts`, `app/api/auth/picker-bootstrap/route.ts` (ALS); `app/api/admin/onboarding/scan/route.ts` (explicit capture).
-- Meta-tests: `tests/auth/_metaInfraContract.test.ts`, `tests/db/postgrest-dml-lockdown.test.ts`.
+- Auth taps: `lib/auth/requireAdmin.ts`, `lib/auth/isAdminSession.ts`, `lib/auth/validateGoogleIdentity.ts`, `lib/auth/validateGoogleSession.ts`, `lib/data/adminEmails.ts` (Task 11).
+- Non-auth taps: `lib/geocoding/cache.ts`, `lib/sync/runScheduledCronSync.ts`, `app/api/admin/onboarding/scan/route.ts`, `app/api/report/route.ts` (Task 12).
+- Correlation seeding: `app/api/cron/sync/route.ts`, `app/api/report/route.ts`, `app/api/admin/sync/[slug]/route.ts`, `app/api/admin/staged/[fileId]/apply/route.ts`, `app/api/auth/picker-bootstrap/route.ts` (ALS); `app/api/admin/onboarding/scan/route.ts` (explicit capture) (Task 13).
+- Meta-tests: `tests/auth/_metaInfraContract.test.ts` (emission), `tests/db/postgrest-dml-lockdown.test.ts` (registry).
 - `supabase/__generated__/schema-manifest.json` (regen).
 
 ---
@@ -962,6 +964,14 @@ psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
 ```
 Expected: applies cleanly (idempotent). If validation creds are unavailable in this environment, record the step as pending and let the CI `validation-schema-parity` Layer 2 job confirm/flag.
 
+- [ ] **Step 3b: Run the real validation-schema-parity gate (all 3 layers)**
+
+```bash
+# Layer 1 is DB-free; Layers 2/3 need TEST_DATABASE_URL pointed at the validation project.
+pnpm test:audit:validation-schema-parity
+```
+Expected: PASS — Layer 1 (manifest freshness) green from Step 1's regen; Layer 2 (validation ⊇ manifest) green once Step 3 applied `app_events` to validation. If `TEST_DATABASE_URL` is unset locally, Layer 2/3 skip locally and the **CI** `validation-schema-parity` job is the gate — do NOT mark this task done until that CI job is green (real-CI-green is a separate close-out gate, AGENTS.md).
+
 - [ ] **Step 4: Commit the regenerated manifest**
 
 ```bash
@@ -1143,123 +1153,36 @@ git commit --no-verify -m "refactor(auth): use shared serializeError in callback
 
 ---
 
-### Task 11: tap the five auth infra producers
+### Task 11: Tap auth infra producers + require emission in `_metaInfraContract`
+
+One TDD cycle: the emission assertions added to the meta-test are the failing test; the producer taps make them pass. No separate placeholder test file.
 
 **Files:**
-- Modify: `lib/auth/requireAdmin.ts`, `lib/auth/isAdminSession.ts`, `lib/auth/validateGoogleIdentity.ts`, `lib/auth/validateGoogleSession.ts`, `lib/data/adminEmails.ts`
-- Test: emission is pinned by Task 12's meta-test; this task adds a focused per-producer emission test.
+- Modify: `tests/auth/_metaInfraContract.test.ts` (capturing sink + per-producer emission assertions + coverage-derived set-equality)
+- Modify: `lib/auth/isAdminSession.ts`, `lib/auth/requireAdmin.ts`, `lib/auth/validateGoogleIdentity.ts`, `lib/auth/validateGoogleSession.ts`, `lib/data/adminEmails.ts`
 
 **Interfaces:**
-- Consumes: `log` from `@/lib/log`.
-- Emission contract (each producer logs at the fault point, leaving the typed return/throw unchanged):
+- Consumes: `log` (`@/lib/log`), `setLogSink`/`resetLogSink`, `LogRecord` (`@/lib/log/types`); the file's existing `infraMock` (`:62-93`) + behavioral describes (`:328-538`).
+- Emission contract (level `error`; the `error` field is **omitted** so the tap has no in-scope-variable dependency):
 
-  | Producer | level | code | source |
+  | Producer (INFRA_PRODUCERS) | tap location | source | code |
   | --- | --- | --- | --- |
-  | `requireAdmin` (before each `throw new AdminInfraError`) | error | `ADMIN_SESSION_LOOKUP_FAILED` | `auth/requireAdmin` |
-  | `isAdminSession` (each `infra_error` return) | error | `ADMIN_SESSION_LOOKUP_FAILED` | `auth/isAdminSession` |
-  | `validateGoogleIdentity` (each `status:500` return) | error | `ADMIN_SESSION_LOOKUP_FAILED` | `auth/validateGoogleIdentity` |
-  | `validateGoogleSession` (each `status:500` return only; 403 arms unchanged) | error | (the arm's `code`) | `auth/validateGoogleSession` |
-  | `adminEmails` (before each `throw new AdminEmailsInfraError`) | error | `ADMIN_EMAILS_INFRA` | `data/adminEmails` |
+  | `isAdminSession` | before each `infra_error` return (`:34,44,55`) | `auth/isAdminSession` | `ADMIN_SESSION_LOOKUP_FAILED` |
+  | `requireAdmin` | before each prod `throw new AdminInfraError` (`:165,180,190,213,225,230`; NOT the test hooks `:126,283`) | `auth/requireAdmin` | `ADMIN_SESSION_LOOKUP_FAILED` |
+  | `requireAdminIdentity` | none — shares `requireAdmin`'s `AdminInfraError` throw core; its emission assertion checks the same `auth/requireAdmin` record | `auth/requireAdmin` | `ADMIN_SESSION_LOOKUP_FAILED` |
+  | `validateGoogleIdentity` | before each `status:500` return (`:50-54,78-82`) | `auth/validateGoogleIdentity` | `ADMIN_SESSION_LOOKUP_FAILED` |
+  | `validateGoogleSession` | before each `status:500` return ONLY (`:68-72,87-91,103-107`; NOT 403 arms) | `auth/validateGoogleSession` | `ADMIN_SESSION_LOOKUP_FAILED` |
+  | `adminEmails` | in `wrapInfra`'s `catch (err)` (`:271-279`), first statement — single funnel for all `AdminEmailsInfraError` paths | `data/adminEmails` | `ADMIN_EMAILS_INFRA` |
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the failing emission assertions to `tests/auth/_metaInfraContract.test.ts`**
+
+Near the top of the test module, add the canonical producer list, the coverage set, the capturing sink, the helper, and the coverage check:
 
 ```ts
-// tests/log/authProducerTaps.test.ts
-import { afterEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeEach } from "vitest";
 import { resetLogSink, setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 
-// NOTE: reuse the same Supabase mock pattern as tests/auth/_metaInfraContract.test.ts.
-// This focused test asserts that the producer EMITS; the meta-test (Task 12) pins the set.
-function capture(): LogRecord[] {
-  const recs: LogRecord[] = [];
-  setLogSink((r) => { recs.push(r); });
-  return recs;
-}
-afterEach(() => resetLogSink());
-
-describe("auth producer emission (focused)", () => {
-  test("isAdminSession infra_error path emits error/ADMIN_SESSION_LOOKUP_FAILED", async () => {
-    // Arrange the existing infra-fault injection (construction throw) used by the meta-test,
-    // then assert both the typed result AND the emission.
-    // (Wire the same vi.mock('@/lib/supabase/server', ...) as _metaInfraContract.test.ts.)
-    const recs = capture();
-    // ... trigger isAdminSession with throwOnConstruct ...
-    // const result = await isAdminSession(new Request("http://x"));
-    // expect(result).toEqual({ ok: false, reason: "infra_error" });
-    expect(recs.some((r) => r.level === "error" && r.code === "ADMIN_SESSION_LOOKUP_FAILED" && r.source === "auth/isAdminSession")).toBe(true);
-  });
-});
-```
-
-> The full mock wiring duplicates `_metaInfraContract.test.ts`'s `infraMock`. Prefer to implement the emission assertions directly in Task 12 (the meta-test) and keep this focused file minimal, OR copy the `vi.hoisted(() => ({ throwOnConstruct, ... }))` + `vi.mock("@/lib/supabase/server", ...)` block from `tests/auth/_metaInfraContract.test.ts:62-162`. Either way, the producer source edits below are what make it pass.
-
-- [ ] **Step 2: Edit `lib/auth/isAdminSession.ts`** — add `import { log } from "@/lib/log";` and, immediately before each `return { ok: false, reason: "infra_error" }` (`:34,44,55`), insert:
-
-```ts
-    void log.error("admin session lookup failed", {
-      source: "auth/isAdminSession",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
-```
-
-(`void` because these helpers are not all `await`-friendly at every branch; the console write is synchronous and persist is best-effort. Where the enclosing function is already `async`, prefer `await log.error(...)`.)
-
-- [ ] **Step 3: Edit `lib/auth/requireAdmin.ts`** — add the import and, before each production `throw new AdminInfraError(msg)` (`:165,180,190,213,225,230` — NOT the test-only hooks `:126,283`), insert:
-
-```ts
-    await log.error("admin gate infra failure", {
-      source: "auth/requireAdmin",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-      error: <the caught error variable in scope, e.g. `err`>,
-    });
-```
-
-- [ ] **Step 4: Edit `lib/auth/validateGoogleIdentity.ts`** (before each `status:500` return `:50-54,78-82`) and `lib/auth/validateGoogleSession.ts` (before each `status:500` return `:68-72,87-91,103-107` only) — insert the analogous `await log.error("...", { source: "auth/validateGoogleIdentity" | "auth/validateGoogleSession", code: <the arm's code>, error })`. **Do not** touch the 403 arms.
-
-- [ ] **Step 5: Edit `lib/data/adminEmails.ts`** — add the import and, before each `throw new AdminEmailsInfraError(msg)` throw site, insert:
-
-```ts
-    await log.error("admin emails infra failure", {
-      source: "data/adminEmails",
-      code: "ADMIN_EMAILS_INFRA",
-      error,
-    });
-```
-
-- [ ] **Step 6: Run tests** (focused + the producers' existing tests)
-
-```bash
-pnpm vitest run tests/log/authProducerTaps.test.ts tests/auth
-```
-Expected: PASS — typed shapes unchanged AND emission asserted.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add lib/auth/isAdminSession.ts lib/auth/requireAdmin.ts lib/auth/validateGoogleIdentity.ts lib/auth/validateGoogleSession.ts lib/data/adminEmails.ts tests/log/authProducerTaps.test.ts
-git commit --no-verify -m "feat(auth): tap infra producers to emit structured logs"
-```
-
----
-
-### Task 12: extend `_metaInfraContract` to require emission
-
-**Files:**
-- Modify: `tests/auth/_metaInfraContract.test.ts`
-
-**Interfaces:**
-- Consumes: the file's existing `infraMock` (`:62-93`) and behavioral describes (`:328-538`); `setLogSink`/`resetLogSink` from `@/lib/log`.
-- Produces: a shared `INFRA_PRODUCERS` constant + an `INFRA_EMISSION_PRODUCERS` set-equality test; per-producer emission assertions.
-
-- [ ] **Step 1: Add the shared producer constant + set-equality test (failing first)**
-
-Near the top of the describe block, add:
-
-```ts
-// The infra producers pinned by this file's behavioral describes. Emission
-// (Phase-1 logging) MUST cover exactly this set — a producer added to the
-// typed-shape contract without an emission assertion fails the set-equality test.
 const INFRA_PRODUCERS = [
   "isAdminSession",
   "validateGoogleIdentity",
@@ -1269,92 +1192,99 @@ const INFRA_PRODUCERS = [
   "adminEmails",
 ] as const;
 
-const INFRA_EMISSION_PRODUCERS = new Set<string>([
-  "isAdminSession",
-  "validateGoogleIdentity",
-  "validateGoogleSession",
-  "requireAdmin",
-  "requireAdminIdentity",
-  "adminEmails",
-]);
-
-test("every infra producer has an emission assertion (set-equality)", () => {
-  expect([...INFRA_EMISSION_PRODUCERS].sort()).toEqual([...INFRA_PRODUCERS].sort());
-});
-```
-
-- [ ] **Step 2: Install a capturing sink and add emission assertions inside each behavioral describe**
-
-Add to the file's lifecycle hooks:
-
-```ts
-import { resetLogSink, setLogSink } from "@/lib/log";
-import type { LogRecord } from "@/lib/log/types";
-
+const coveredProducers = new Set<string>();
 let emitted: LogRecord[] = [];
+
 beforeEach(() => {
   emitted = [];
   setLogSink((r) => { emitted.push(r); });
 });
 afterEach(() => resetLogSink());
+
+function assertEmits(producer: string, source: string, code: string) {
+  coveredProducers.add(producer); // coverage recorded even if the assertion below fails
+  expect(
+    emitted.some((r) => r.level === "error" && r.source === source && r.code === code),
+    `${producer} did not emit error/${source}/${code}`,
+  ).toBe(true);
+}
+
+// Coverage is DERIVED from the assertEmits calls that actually ran — NOT a
+// hand-copied duplicate of INFRA_PRODUCERS. A producer added to INFRA_PRODUCERS
+// without an assertEmits call, or a removed tap, breaks this set-equality.
+afterAll(() => {
+  expect([...coveredProducers].sort()).toEqual([...INFRA_PRODUCERS].sort());
+});
 ```
 
-Then in each behavioral test that triggers an infra fault, after the existing typed-shape assertion add (with the per-producer `source`/`code` from Task 11's table), e.g. for `isAdminSession`:
+Then, inside the EXISTING behavioral test for each producer, after its typed-shape assertion, add the matching `assertEmits(...)`. Example for `isAdminSession` "construction throw" (`:336-341`):
 
 ```ts
-expect(
-  emitted.some((r) => r.level === "error" && r.source === "auth/isAdminSession" && r.code === "ADMIN_SESSION_LOOKUP_FAILED"),
-).toBe(true);
+expect(result).toEqual({ ok: false, reason: "infra_error" });
+assertEmits("isAdminSession", "auth/isAdminSession", "ADMIN_SESSION_LOOKUP_FAILED");
 ```
 
-Cover at least one fault path per producer in `INFRA_PRODUCERS` (skip the existing no-op `isAdminSession` rpc-throw test at `:343-360`; use its `throwOnConstruct`/`throwOnGetUser` siblings).
+Add the analogous call in the `validateGoogleIdentity` (500 path), `validateGoogleSession` (500 path), `requireAdmin`, `requireAdminIdentity`, and `lib/data/adminEmails` behavioral tests. `requireAdmin` and `requireAdminIdentity` both assert `("…","auth/requireAdmin","ADMIN_SESSION_LOOKUP_FAILED")`.
 
-- [ ] **Step 3: Run the meta-test**
+- [ ] **Step 2: Run — verify RED**
+
+Run: `pnpm vitest run tests/auth/_metaInfraContract.test.ts`
+Expected: FAIL — producers do not emit yet (each `assertEmits` `.some(...)` is `false`).
+
+- [ ] **Step 3: Add the taps.** For each producer add `import { log } from "@/lib/log";` and insert before the relevant return/throw:
+
+- `isAdminSession` (before `:34,44,55` returns): `await log.error("admin session lookup failed", { source: "auth/isAdminSession", code: "ADMIN_SESSION_LOOKUP_FAILED" });`
+- `requireAdmin` (before each prod `throw new AdminInfraError(...)`): `await log.error("admin gate infra failure", { source: "auth/requireAdmin", code: "ADMIN_SESSION_LOOKUP_FAILED" });`
+- `validateGoogleIdentity` (before each `status:500` return): `await log.error("google identity validation failed", { source: "auth/validateGoogleIdentity", code: "ADMIN_SESSION_LOOKUP_FAILED" });`
+- `validateGoogleSession` (before each `status:500` return ONLY): `await log.error("google session validation failed", { source: "auth/validateGoogleSession", code: "ADMIN_SESSION_LOOKUP_FAILED" });`
+- `adminEmails` (first line of `wrapInfra`'s `catch (err) {` at `:271-279`): `await log.error("admin emails infra failure", { source: "data/adminEmails", code: "ADMIN_EMAILS_INFRA" });`
+
+No `error` field — emission needs only level/source/code; this avoids any variable-name coupling. `requireAdminIdentity` needs no tap (it shares `requireAdmin`'s throw core).
+
+- [ ] **Step 4: Run — verify GREEN**
+
+Run: `pnpm vitest run tests/auth/_metaInfraContract.test.ts`
+Expected: PASS — every producer emits; set-equality holds.
+Negative-regression: delete the `isAdminSession` tap → its `assertEmits` fails → restore it.
+
+- [ ] **Step 5: Commit**
 
 ```bash
-pnpm vitest run tests/auth/_metaInfraContract.test.ts
-```
-Expected: PASS — set-equality holds and every producer emits. (Negative-regression: remove one producer's `log.error` from Task 11 and confirm its emission assertion fails.)
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add tests/auth/_metaInfraContract.test.ts
-git commit --no-verify -m "test(auth): require infra producers to emit logs (set-equality)"
+git add lib/auth/isAdminSession.ts lib/auth/requireAdmin.ts lib/auth/validateGoogleIdentity.ts lib/auth/validateGoogleSession.ts lib/data/adminEmails.ts tests/auth/_metaInfraContract.test.ts
+git commit --no-verify -m "feat(auth): tap infra producers to emit; require emission in meta-test"
 ```
 
 ---
 
-### Task 13: tap the non-auth silent fault sites
+### Task 12: Tap the non-auth silent fault sites
 
 **Files:**
-- Modify: `lib/geocoding/cache.ts`, `lib/sync/runScheduledCronSync.ts`, `app/api/admin/onboarding/scan/route.ts`, `app/api/report/route.ts`
+- Modify: `lib/geocoding/cache.ts`, `lib/sync/runScheduledCronSync.ts`, `app/api/report/route.ts`, `app/api/admin/onboarding/scan/route.ts`
 - Test: `tests/log/nonAuthTaps.test.ts`
 
-**Interfaces:**
-- Consumes: `log` from `@/lib/log`.
+**Interfaces:** (each tap leaves the existing typed return/throw unchanged)
 
   | Site | level | code | source |
   | --- | --- | --- | --- |
-  | `lib/geocoding/cache.ts` (4 `catch{}` `:41-43,54-56,71-73,89-91`) | warn | — | `geocoding/cache` |
-  | `runScheduledCronSync.ts` `missingShows` skip (`:2789-2795`) | info | `CONCURRENT_SYNC_SKIPPED` (with `persist: true`) | `cron/sync` |
-  | `app/api/admin/onboarding/scan/route.ts` catch (`:265-266`) | error | — | `admin/onboarding/scan` (explicit `requestId`, Task 14) |
-  | `app/api/report/route.ts` `readCrewRoleFlags` catch (`:78-84`) | error | `ADMIN_SESSION_LOOKUP_FAILED` | `api/report` |
+  | geocode cache 4 `catch{}` (`:41-43,54-56,71-73,89-91`) | warn | — | `geocoding/cache` |
+  | cron `missingShows` skip (`:2789-2795`) | info (`persist:true`) | `CONCURRENT_SYNC_SKIPPED` | `cron/sync` |
+  | report `readCrewRoleFlags` catch (`:78-84`) | error | `ADMIN_SESSION_LOOKUP_FAILED` | `api/report` |
+  | scan catch (`:265-266`) | error | — | `admin/onboarding/scan` (explicit `requestId` in Task 13) |
 
-- [ ] **Step 1: Write the failing test** (capturing sink; assert each site emits its record on its fault path)
+- [ ] **Step 1: Write the failing test** — two behavioral cases (geocode, cron — both have clean injection points) + two structural source-assertions (report, scan — their fault is reachable only through the full route handler; the source-assertion deterministically catches tap removal, which is the real failure mode):
 
 ```ts
-// tests/log/nonAuthTaps.test.ts — one describe per site, using each module's existing fault injection.
-// Example shape for geocode cache (mock createSupabaseServiceRoleClient to throw):
+// tests/log/nonAuthTaps.test.ts
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { resetLogSink, setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 
 function capture(): LogRecord[] { const r: LogRecord[] = []; setLogSink((x) => r.push(x)); return r; }
-afterEach(() => { resetLogSink(); vi.restoreAllMocks(); });
+afterEach(() => { resetLogSink(); vi.resetModules(); vi.restoreAllMocks(); });
 
-describe("geocode cache emits on infra fault", () => {
-  test("readGeocodeCache construction throw → warn/geocoding/cache", async () => {
+describe("geocode cache emits warn on infra fault (behavioral)", () => {
+  test("construction throw → {kind:'infra_error'} AND warn/geocoding/cache", async () => {
     vi.doMock("@/lib/supabase/server", () => ({
       createSupabaseServiceRoleClient: () => { throw new Error("down"); },
     }));
@@ -1365,22 +1295,51 @@ describe("geocode cache emits on infra fault", () => {
     expect(recs.some((r) => r.level === "warn" && r.source === "geocoding/cache")).toBe(true);
   });
 });
-// Add analogous describes for the cron CONCURRENT_SYNC_SKIPPED branch (assert info + code + persist),
-// the report readCrewRoleFlags catch (assert error + ADMIN_SESSION_LOOKUP_FAILED), and the scan catch.
+
+describe("cron CONCURRENT_SYNC_SKIPPED emits persisted info (behavioral)", () => {
+  test("missingShow lock contention → info/CONCURRENT_SYNC_SKIPPED persist; no sync_log row", async () => {
+    const recs = capture();
+    const { runScheduledCronSync } = await import("@/lib/sync/runScheduledCronSync");
+    const logSync = vi.fn();
+    await runScheduledCronSync({
+      listFolder: async () => [],
+      listLiveShows: async () => [{ driveFileId: "df-1", showId: "s-1", wizardSessionId: null } as never],
+      withShowLock: async () => ({ skipped: "CONCURRENT_SYNC_SKIPPED" }) as never,
+      logSync,
+    } as never);
+    expect(recs.some((r) => r.level === "info" && r.code === "CONCURRENT_SYNC_SKIPPED" && r.source === "cron/sync")).toBe(true);
+    expect(logSync).not.toHaveBeenCalled();
+  });
+});
+
+describe("report + scan taps present (structural — fault reachable only via full route)", () => {
+  test("report readCrewRoleFlags catch logs api/report + ADMIN_SESSION_LOOKUP_FAILED", () => {
+    const src = readFileSync("app/api/report/route.ts", "utf8").replace(/\s+/g, " ");
+    expect(src).toMatch(/source:\s*["']api\/report["']/);
+    expect(src).toMatch(/log\.(error|warn)\(/);
+    expect(src).toMatch(/code:\s*["']ADMIN_SESSION_LOOKUP_FAILED["']/);
+  });
+  test("onboarding scan catch logs source admin/onboarding/scan", () => {
+    const src = readFileSync("app/api/admin/onboarding/scan/route.ts", "utf8").replace(/\s+/g, " ");
+    expect(src).toMatch(/log\.error\([^)]*source:\s*["']admin\/onboarding\/scan["']/);
+  });
+});
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+> The cron DI shape (`listFolder`/`listLiveShows`/`withShowLock`/`logSync`) mirrors `runScheduledCronSync`'s existing deps (`:2769-2786`). If a field name differs in the live signature, adapt — the contract is "emission fired AND `logSync` was not called for the skip." `vi.resetModules()` in `afterEach` stops the per-test `vi.doMock` from leaking through the module cache.
+
+- [ ] **Step 2: Run — verify it fails**
 
 Run: `pnpm vitest run tests/log/nonAuthTaps.test.ts`
-Expected: FAIL — no emission yet.
+Expected: FAIL — no taps yet.
 
-- [ ] **Step 3: Edit `lib/geocoding/cache.ts`** — add `import { log } from "@/lib/log";` and inside each of the four `} catch {` blocks (before `return { kind: "infra_error" }`):
+- [ ] **Step 3: Edit `lib/geocoding/cache.ts`** — add `import { log } from "@/lib/log";`, and inside each of the four `} catch {` blocks before `return { kind: "infra_error" }`:
 
 ```ts
       void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
 ```
 
-- [ ] **Step 4: Edit `lib/sync/runScheduledCronSync.ts`** — in the `missingShows` loop's `if ("skipped" in result) { ... }` branch (`:2789-2795`), before `continue;`:
+- [ ] **Step 4: Edit `lib/sync/runScheduledCronSync.ts`** — add `import { log } from "@/lib/log";`, and in the `missingShows` loop's `if ("skipped" in result) {` branch (`:2789-2795`) before `continue;`:
 
 ```ts
       await log.info("missing-show sync skipped on lock contention", {
@@ -1391,9 +1350,7 @@ Expected: FAIL — no emission yet.
       });
 ```
 
-(Add `import { log } from "@/lib/log";` at top.)
-
-- [ ] **Step 5: Edit `app/api/report/route.ts`** — in `readCrewRoleFlags`'s bare `} catch {` (`:78`), before the `return`:
+- [ ] **Step 5: Edit `app/api/report/route.ts`** — add `import { log } from "@/lib/log";`, in `readCrewRoleFlags`'s bare `} catch {` (`:78`) before the return:
 
 ```ts
     void log.error("crew role flags read failed", {
@@ -1402,20 +1359,18 @@ Expected: FAIL — no emission yet.
     });
 ```
 
-- [ ] **Step 6: Edit `app/api/admin/onboarding/scan/route.ts`** — in the `} catch {` (`:265`), before `emit({ type: "result", body: { ok: false, code: null } })`:
+- [ ] **Step 6: Edit `app/api/admin/onboarding/scan/route.ts`** — add `import { log } from "@/lib/log";`, in the `} catch {` (`:265`) before `emit({ type: "result", body: { ok: false, code: null } })`:
 
 ```ts
-        log.error("onboarding scan failed", { source: "admin/onboarding/scan", requestId: scanRequestId });
+        void log.error("onboarding scan failed", { source: "admin/onboarding/scan" });
 ```
 
-(`scanRequestId` is defined in Task 14; until then use `log.error("onboarding scan failed", { source: "admin/onboarding/scan" })` and add `requestId` in Task 14.)
+(Task 13 adds `requestId: scanRequestId` to this call.)
 
-- [ ] **Step 7: Run tests to verify pass**
+- [ ] **Step 7: Run — verify GREEN**
 
-```bash
-pnpm vitest run tests/log/nonAuthTaps.test.ts tests/sync tests/api 2>/dev/null || pnpm vitest run tests/log/nonAuthTaps.test.ts
-```
-Expected: PASS — each site emits; existing typed behavior unchanged.
+Run: `pnpm vitest run tests/log/nonAuthTaps.test.ts`
+Expected: PASS (4 describes).
 
 - [ ] **Step 8: Commit**
 
@@ -1426,136 +1381,123 @@ git commit --no-verify -m "feat(sync): tap non-auth silent fault sites to emit l
 
 ---
 
-### Task 14: correlation seeding + end-to-end correlation tests
+### Task 13: Correlation seeding (ALS wrap + explicit capture)
 
 **Files:**
-- Modify: `app/api/cron/sync/route.ts`, `app/api/report/route.ts`, `app/api/admin/sync/[slug]/route.ts`, `app/api/admin/staged/[fileId]/apply/route.ts`, `app/api/auth/picker-bootstrap/route.ts` (ALS wrap); `app/api/admin/onboarding/scan/route.ts` (explicit capture)
-- Test: `tests/log/correlation.test.ts`
+- Modify: `app/api/cron/sync/route.ts`, `app/api/report/route.ts`, `app/api/admin/sync/[slug]/route.ts`, `app/api/admin/staged/[fileId]/apply/route.ts`, `app/api/auth/picker-bootstrap/route.ts` (ALS); `app/api/admin/onboarding/scan/route.ts` (explicit capture)
+- Test: `tests/log/correlationSeeding.test.ts`
 
-**Interfaces:**
-- Consumes: `runWithRequestContext`, `deriveRequestId` from `@/lib/log`.
+**Interfaces:** Consumes `runWithRequestContext`, `deriveRequestId` (`@/lib/log`).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing structural test (RED driver — fails until routes are wrapped)**
 
 ```ts
-// tests/log/correlation.test.ts
-import { afterEach, describe, expect, test } from "vitest";
-import { deriveRequestId, getRequestContext, runWithRequestContext } from "@/lib/log";
+// tests/log/correlationSeeding.test.ts
+import { readFileSync } from "node:fs";
+import { describe, expect, test } from "vitest";
 
-// (a) ALS-wrapped handler pattern: a request's x-vercel-id is visible to logs emitted within.
-describe("correlation", () => {
-  test("ALS wrap exposes deriveRequestId to inner logs", async () => {
-    const headers = new Headers({ "x-vercel-id": "iad1::corr-1" });
-    let seen: string | null | undefined;
-    await runWithRequestContext({ requestId: deriveRequestId(headers) }, async () => {
-      await Promise.resolve();
-      seen = getRequestContext()?.requestId;
-    });
-    expect(seen).toBe("iad1::corr-1");
+const ALS_HANDLERS = [
+  "app/api/cron/sync/route.ts",
+  "app/api/report/route.ts",
+  "app/api/admin/sync/[slug]/route.ts",
+  "app/api/admin/staged/[fileId]/apply/route.ts",
+  "app/api/auth/picker-bootstrap/route.ts",
+];
+
+describe("correlation seeding", () => {
+  test.each(ALS_HANDLERS)("%s wraps handler in runWithRequestContext + deriveRequestId", (file) => {
+    const src = readFileSync(file, "utf8");
+    expect(src, `${file} must wrap its handler`).toMatch(/runWithRequestContext\(/);
+    expect(src, `${file} must derive a request id`).toMatch(/deriveRequestId\(/);
   });
 
-  test("explicit-capture survives a detached async boundary (stream/after simulation)", async () => {
-    const headers = new Headers({ "x-vercel-id": "iad1::corr-2" });
-    const captured = deriveRequestId(headers); // captured in handler scope
-    // simulate a callback that runs OUTSIDE any ALS scope
-    const runDetached = (fn: () => void) => Promise.resolve().then(fn);
-    let emittedRequestId: string | undefined;
-    await runDetached(() => { emittedRequestId = captured; });
-    expect(emittedRequestId).toBe("iad1::corr-2");
-    expect(getRequestContext()).toBeUndefined(); // proves no ALS in the detached scope
+  test("onboarding scan uses an explicit captured requestId", () => {
+    const src = readFileSync("app/api/admin/onboarding/scan/route.ts", "utf8");
+    expect(src).toMatch(/const scanRequestId = deriveRequestId\(/);
+    expect(src).toMatch(/requestId:\s*scanRequestId/);
   });
 });
 ```
 
-> A full route-level integration test (issuing a real request and reading the `app_events` row) is valuable but heavyweight; this unit-level test proves the two mechanisms. If the suite already has a route harness for `api/report`, add an integration assertion there that a known `x-vercel-id` lands in the persisted `request_id`.
+- [ ] **Step 2: Run — verify RED**
 
-- [ ] **Step 2: Run test to verify it fails/passes** (the helpers already exist from Task 3, so this test PASSES immediately — it documents the contract the seeding must honor)
+Run: `pnpm vitest run tests/log/correlationSeeding.test.ts`
+Expected: FAIL — no handler wraps yet.
 
-Run: `pnpm vitest run tests/log/correlation.test.ts`
-Expected: PASS.
-
-- [ ] **Step 3: Wrap the 5 awaited handlers in ALS.** For each of `app/api/cron/sync/route.ts`, `app/api/report/route.ts`, `app/api/admin/sync/[slug]/route.ts`, `app/api/admin/staged/[fileId]/apply/route.ts`, `app/api/auth/picker-bootstrap/route.ts`: import `{ deriveRequestId, runWithRequestContext } from "@/lib/log"`, and wrap the handler body:
+- [ ] **Step 3: Wrap the 5 awaited handlers.** For each, add `import { deriveRequestId, runWithRequestContext } from "@/lib/log";` and wrap the WHOLE handler body, preserving the exact signature and return type:
 
 ```ts
-export async function POST(request: Request /* or NextRequest */, ctx?: unknown) {
+export async function POST(request: Request, ctx: { params: Promise<{ slug: string }> }) {
   return runWithRequestContext({ requestId: deriveRequestId(request.headers) }, async () => {
-    /* existing handler body unchanged */
+    /* …existing body, unchanged… */
   });
 }
 ```
 
-(Match each route's existing signature — `GET`/`POST`, `Request`/`NextRequest`, and any 2nd arg like `{ params }`. Preserve the return type.)
+Read each route's real export first and match it: `cron/sync` and `picker-bootstrap` may be `GET`/`POST` with one `request` arg; the admin routes take a 2nd `{ params }` arg. Keep the body's existing request variable name. (If a handler reads the request body, ensure the wrap is inside the same function so `request` is still in scope — it is, since we wrap the body, not replace the signature.)
 
-- [ ] **Step 4: Add explicit capture to the scan route.** In `app/api/admin/onboarding/scan/route.ts`, near the top of the handler (before the stream is constructed), add:
+- [ ] **Step 4: Explicit capture in the scan route.** In `app/api/admin/onboarding/scan/route.ts` add `import { deriveRequestId } from "@/lib/log";`, and near the top of the handler (before the `ReadableStream` is constructed) add:
 
 ```ts
   const scanRequestId = deriveRequestId(request.headers);
 ```
 
-and ensure the Task-13 scan tap uses `{ source: "admin/onboarding/scan", requestId: scanRequestId }`.
+Change the Task-12 scan tap to: `void log.error("onboarding scan failed", { source: "admin/onboarding/scan", requestId: scanRequestId });`
 
-- [ ] **Step 5: Run the affected route tests + correlation test**
+- [ ] **Step 5: Run — verify GREEN**
+
+Run: `pnpm vitest run tests/log/correlationSeeding.test.ts`
+Expected: PASS (6 cases).
+
+- [ ] **Step 6: Run the affected route + sync tests to confirm behavior unchanged**
+
+Run: `pnpm vitest run tests/api tests/auth tests/sync tests/log`
+Expected: PASS (or the identical pre-existing failure set as the merge-base — verify any failure is pre-existing, not introduced).
+
+- [ ] **Step 7: Commit**
 
 ```bash
-pnpm vitest run tests/log/correlation.test.ts tests/api 2>/dev/null || pnpm vitest run tests/log/correlation.test.ts
-```
-Expected: PASS — handlers behave identically; correlation contract holds.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add app/api/cron/sync/route.ts app/api/report/route.ts "app/api/admin/sync/[slug]/route.ts" "app/api/admin/staged/[fileId]/apply/route.ts" app/api/auth/picker-bootstrap/route.ts app/api/admin/onboarding/scan/route.ts tests/log/correlation.test.ts
+git add app/api/cron/sync/route.ts app/api/report/route.ts "app/api/admin/sync/[slug]/route.ts" "app/api/admin/staged/[fileId]/apply/route.ts" app/api/auth/picker-bootstrap/route.ts app/api/admin/onboarding/scan/route.ts tests/log/correlationSeeding.test.ts
 git commit --no-verify -m "feat(log): seed request correlation at handlers (ALS + explicit capture)"
 ```
 
 ---
 
-### Task 15: full-suite verification
+### Task 14: Full-suite verification
 
 **Files:** none (verification only)
 
 - [ ] **Step 1: Typecheck + lint**
 
-```bash
-pnpm tsc --noEmit && pnpm lint
-```
-Expected: clean. (Watch for `exactOptionalPropertyTypes` issues — `LogRecord` fields are definite `| null`, not optional, so the persist mapping never passes `undefined`.)
+Run: `pnpm tsc --noEmit && pnpm lint`
+Expected: clean. Watch `exactOptionalPropertyTypes`: `LogRecord` fields are definite `| null`, so the persist mapping never passes `undefined`.
 
-- [ ] **Step 2: Run the FULL test suite** (per the optional-field shape-sweep lesson: enriching shapes can break exact `toEqual` across families)
+- [ ] **Step 2: Full test suite** (the optional-field shape-sweep lesson: enriching shapes can break exact `toEqual` across families)
 
-```bash
-pnpm test
-```
-Expected: PASS. Investigate any pre-existing-vs-introduced failure at the merge-base if unsure.
+Run: `pnpm test`
+Expected: PASS. If anything fails, confirm pre-existing vs introduced at the merge-base before proceeding.
 
 - [ ] **Step 3: Confirm no advisory-lock topology change**
 
-```bash
-pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts
-```
+Run: `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts`
 Expected: PASS, unchanged.
 
-- [ ] **Step 4: Commit any final fixes**, otherwise proceed to whole-diff review.
+- [ ] **Step 4: Commit any final fixes;** otherwise proceed to whole-diff review.
 
 ---
 
-### Task 16: Self-review
+### Task 15: Self-review
 
-Run the writing-plans self-review checklist against this plan and the spec:
-1. **Spec coverage** — every spec §5/§9 item maps to a task (logger, sanitize, requestContext, persist, migration, manifest, lockdown registry, writer guard, callback swap, auth taps, emission meta, non-auth taps, correlation). ✓
-2. **Placeholder scan** — no TBD/TODO; every code step has code. (Task 11/13 producer edits cite exact insertion points + the emission table.)
-3. **Type consistency** — `LogFields`/`LogRecord`/`Sink`/`log.*` names match across tasks; `persistAppEvent`, `sanitizeContext`, `runWithRequestContext`, `deriveRequestId` consistent.
-
-Fix any gaps inline.
+Run the writing-plans self-review checklist (spec coverage, placeholder scan, type consistency). Fix inline.
 
 ---
 
-### Task 17: Adversarial review (cross-model)
+### Task 16: Adversarial review (cross-model)
 
 Invoke the `adversarial-review` skill (Codex) on this plan. Iterate to APPROVE (no round budget per AGENTS.md autonomous-ship). Do NOT proceed to execution handoff until APPROVED.
 
 ---
 
-### Task 18: Execution handoff
+### Task 17: Execution handoff
 
 After adversarial APPROVE, execute via subagent-driven-development (fresh subagent per task, two-stage review) or inline executing-plans.
