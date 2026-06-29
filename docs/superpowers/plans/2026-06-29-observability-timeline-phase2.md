@@ -964,9 +964,9 @@ describe("loadAppEvents", () => {
     expect((client.__calls).some((c) => c.method === "limit" && c.args[0] === 101)).toBe(true);
   });
 
-  test("default applies 24h occurred_at lower bound; since=all omits it", async () => {
+  test("EMPTY filters {} default to a 24h occurred_at lower bound; since=all omits it", async () => {
     const c1 = mockClient(mk(1)); const load1 = await withClient(c1);
-    await load1({ sinceHours: 24 });
+    await load1({}); // empty → 24h default (spec §5.1), applied INSIDE the loader (not only the parser)
     expect(c1.__calls.some((c) => c.method === "gte" && c.args[0] === "occurred_at")).toBe(true);
     const c2 = mockClient(mk(1)); const load2 = await withClient(c2);
     await load2({ sinceHours: null });
@@ -1048,8 +1048,10 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
     if (filters.code) query = query.eq("code", filters.code);
     if (filters.showId) query = query.eq("show_id", filters.showId);
     if (filters.requestId) query = query.eq("request_id", filters.requestId);
-    if (filters.sinceHours != null) {
-      const since = new Date(Date.now() - filters.sinceHours * 3_600_000).toISOString();
+    // Empty filters default to last 24h (spec §5.1): undefined → 24h; null → all (no bound).
+    const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
+    if (sinceHours != null) {
+      const since = new Date(Date.now() - sinceHours * 3_600_000).toISOString();
       query = query.gte("occurred_at", since);
     }
     if (filters.q) query = query.ilike("message", `%${escapeIlike(filters.q)}%`);
@@ -1216,17 +1218,18 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult> {
           .limit(1),
       ),
     );
-    // Distinguish a RETURNED {error} from a THROWN error (invariant 9): a returned
-    // error on any of the 9 reads → infra_error("…returned error"); a genuine throw
-    // (network reset, construction fault) funnels to the catch → "…threw".
-    const returned = results.find((r) => (r as { error?: unknown }).error);
-    if (returned) {
-      void log.error("app_events read returned error", { source: "admin.loadCronHealth", error: (returned as { error: unknown }).error });
-      return { kind: "infra_error", message: "app_events read returned error" };
+    // Supabase call-boundary (invariant 9): destructure { data, error } per result.
+    // A RETURNED {error} on any of the 9 reads → distinct infra_error("…returned error");
+    // a genuine THROW (network reset, construction fault) funnels to the catch → "…threw".
+    for (const { error } of results) {
+      if (error) {
+        void log.error("app_events read returned error", { source: "admin.loadCronHealth", error });
+        return { kind: "infra_error", message: "app_events read returned error" };
+      }
     }
     const jobs: CronHealthRow[] = CRON_JOBS.map((job, i) => {
-      const data = (results[i] as { data: Array<Record<string, unknown>> | null }).data;
-      const r = data?.[0];
+      const { data } = results[i];
+      const r = (data as Array<Record<string, unknown>> | null)?.[0];
       if (!r) {
         return { ...job, lastRunAt: null, outcome: null, level: null, counts: null };
       }
@@ -1896,6 +1899,18 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     expect(href).toContain("since=7d");
     expect(href).not.toContain("cursorAt");
   });
+  test("typed-but-uncommitted text survives an auto-refresh re-render with SAME filters (§7 compound)", () => {
+    const { rerender } = render(<EventFilters filters={{ sinceHours: 24 }} />);
+    const input = screen.getByTestId("filter-source") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "cron.partial-typing" } });
+    rerender(<EventFilters filters={{ sinceHours: 24 }} />); // simulates router.refresh() — same committed filters
+    expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe("cron.partial-typing");
+  });
+  test("an external committed-filter change re-syncs the displayed value (no stale default)", () => {
+    const { rerender } = render(<EventFilters filters={{ sinceHours: 24 }} />);
+    rerender(<EventFilters filters={{ source: "cron.sync", sinceHours: 24 }} />);
+    expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe("cron.sync");
+  });
   test("requestId mode shows the 'Showing one request' chip", () => {
     render(<EventFilters filters={{ requestId: "req-9", sinceHours: null }} />);
     expect(screen.getByText(/Showing one request/)).toBeInTheDocument();
@@ -1913,10 +1928,30 @@ Expected: FAIL — module not found.
 ```tsx
 // components/admin/observability/EventFilters.tsx
 "use client";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppEventFilters } from "@/lib/admin/observabilityTypes";
 
 const BASE = "/admin/observability";
+
+// Controlled text filter: local state mirrors the committed filter value but is NOT reset
+// by an auto-refresh re-render (the `committed` dep is unchanged), so focus + in-progress
+// keystrokes survive (spec §7 compound). An external change (Clear / another filter) changes
+// `committed` → the effect re-syncs the displayed value (no stale defaults).
+function FilterTextInput({ name, committed, placeholder, onCommit }: {
+  name: string; committed: string; placeholder: string; onCommit: (v: string | null) => void;
+}) {
+  const [value, setValue] = useState(committed);
+  useEffect(() => { setValue(committed); }, [committed]);
+  return (
+    <input
+      type="text" data-testid={`filter-${name}`} placeholder={placeholder} value={value}
+      className="rounded border border-border bg-surface px-2 py-1"
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => { if (e.key === "Enter") onCommit(value || null); }}
+    />
+  );
+}
 
 export function buildFilterHref(current: URLSearchParams, patch: Record<string, string | null>): string {
   const next = new URLSearchParams(current);
@@ -1968,20 +2003,14 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         <option value="all">All</option>
       </select>
       {(["source", "code", "showId", "requestId"] as const).map((key) => (
-        <input
-          key={key} type="text"
-          data-testid={`filter-${key}`}
+        <FilterTextInput
+          key={key} name={key}
+          committed={(filters[key] as string | undefined) ?? ""}
           placeholder={key === "showId" ? "show id…" : key === "requestId" ? "request id…" : `${key}…`}
-          defaultValue={(filters[key] as string | undefined) ?? ""}
-          className="rounded border border-border bg-surface px-2 py-1"
-          onKeyDown={(e) => { if (e.key === "Enter") go({ [key]: (e.target as HTMLInputElement).value || null }); }}
+          onCommit={(v) => go({ [key]: v })}
         />
       ))}
-      <input
-        type="search" placeholder="Search message…" defaultValue={filters.q ?? ""} data-testid="filter-q"
-        className="rounded border border-border bg-surface px-2 py-1"
-        onKeyDown={(e) => { if (e.key === "Enter") go({ q: (e.target as HTMLInputElement).value || null }); }}
-      />
+      <FilterTextInput name="q" committed={filters.q ?? ""} placeholder="Search message…" onCommit={(v) => go({ q: v })} />
       <button type="button" className="underline" onClick={() => router.push(BASE)}>Clear filters</button>
     </div>
   );
@@ -2543,7 +2572,7 @@ import type { AppEventRow } from "@/lib/admin/observabilityTypes";
 
 const DIR = join(__dirname, "..", "..", "..", "components/admin/observability");
 const read = (f: string) => readFileSync(join(DIR, f), "utf8");
-const INSTANT = ["CronHealthHeader.tsx", "EventTimeline.tsx", "EventFilters.tsx", "CronRunSummaryCard.tsx"];
+const INSTANT = ["CronHealthHeader.tsx", "EventTimeline.tsx", "EventFilters.tsx", "CronRunSummaryCard.tsx", "AutoRefreshControl.tsx"];
 const now = new Date("2026-06-29T12:00:00.000Z");
 const ev: AppEventRow = { id: "x", occurredAt: "2026-06-29T11:00:00.000Z", level: "info", source: "s", message: "m", code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: { a: 1 }, showTitle: null };
 
@@ -2569,6 +2598,15 @@ describe("transition inventory (spec §7)", () => {
     expect(screen.queryByTestId("event-full-message")).toBeNull();
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
+    cleanup();
+  });
+  test("compound: an expanded EventRow survives a re-render (auto-refresh poll) — stays open", () => {
+    // open state is client-local (useState), so a soft router.refresh() re-render keeps it expanded.
+    const { rerender } = render(<EventRow event={ev} now={now} />);
+    fireEvent.click(screen.getByTestId("event-row-toggle-x"));
+    expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
+    rerender(<EventRow event={ev} now={new Date(now.getTime() + 20_000)} />); // new now, same event
     expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
     cleanup();
   });
