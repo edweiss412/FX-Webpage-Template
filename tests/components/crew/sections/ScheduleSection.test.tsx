@@ -114,7 +114,7 @@ test("today-pin uses show timezone, not UTC date", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Task 4 §6 — right column "Daily call times" card + one-sided collapse.
+// Task 4 §6 — right column "Crew Schedule" card + one-sided collapse.
 //
 // resolveKeyTimes derives anchors from dates.loadIn OR the selected room's
 // set_time/show_time/strike_time (lib/crew/resolveKeyTimes.ts:53-67). The
@@ -130,7 +130,7 @@ function withRooms(
 // This pre-existing suite has no afterEach(cleanup), so global RTL queries
 // (getByText/queryByText) see EVERY mounted tree, not just the current render.
 // All assertions below are therefore scoped to the render-local `container`.
-test("anchors present → right column renders a 'Daily call times' SectionCard wrapping the key-times", () => {
+test("anchors present → right column renders a 'Crew Schedule' SectionCard wrapping the key-times", () => {
   const { container } = render(
     <ScheduleSection
       data={withRooms([
@@ -148,13 +148,13 @@ test("anchors present → right column renders a 'Daily call times' SectionCard 
       showId={SHOW_ID}
     />,
   );
-  // The right column is a SectionCard (data-testid="section-card") titled "Daily call times".
+  // The right column is a SectionCard (data-testid="section-card") titled "Crew Schedule".
   const timesColumn = container.querySelector('[data-schedule-column="times"]')!;
   expect(timesColumn).not.toBeNull();
   const card = timesColumn.querySelector('[data-testid="section-card"]')!;
   expect(card).not.toBeNull();
   const titleNode = card.querySelector('[data-slot="section-card-title"]');
-  expect(titleNode?.textContent).toContain("Daily call times");
+  expect(titleNode?.textContent).toContain("Crew Schedule");
   // Mock `.card-head .ico` parity: the card carries its leading glyph.
   expect(card.querySelector('[data-slot="section-card-icon"] svg')).not.toBeNull();
   // The key-times strip lives INSIDE the card, with its present anchors.
@@ -164,7 +164,7 @@ test("anchors present → right column renders a 'Daily call times' SectionCard 
   // Layout is the 2-track split-wide grid when the right column has content.
   const grid = container.querySelector('[data-testid="schedule-grid"]')!;
   expect(grid.className).toContain("grid-cols-[1.6fr_1fr]");
-  // The "Daily call times" text comes from the SectionCard title, not loose prose.
+  // The "Crew Schedule" text comes from the SectionCard title, not loose prose.
   expect(titleNode!.closest('[data-slot="section-card-title"]')).not.toBeNull();
 });
 
@@ -177,9 +177,9 @@ test("all anchors absent + no rooms error → NO card AND the grid collapses to 
       showId={SHOW_ID}
     />,
   );
-  // No empty "Daily call times" shell (scoped to THIS render's container).
+  // No empty "Crew Schedule" shell (scoped to THIS render's container).
   expect(container.querySelector('[data-slot="section-card-title"]')).toBeNull();
-  expect(container.textContent).not.toContain("Daily call times");
+  expect(container.textContent).not.toContain("Crew Schedule");
   expect(container.querySelector('[data-testid="key-times-strip"]')).toBeNull();
   // The wrapper is NOT the 2-track split grid — it collapses to single full-width.
   const grid = container.querySelector('[data-testid="schedule-grid"]')!;

@@ -307,7 +307,7 @@ function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-schedule`}
-      label="Schedule"
+      label="Crew Schedule"
       count={dayKeys.length}
     >
       {dayKeys.length === 0 ? (

@@ -315,7 +315,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
 
       // (2) Natural height — NOT equal-height. Per the 2026-06-21 owner amendment
       // the split-wide grids use `items-start`, so the shorter column (e.g. the
-      // ~3-row "Daily call times" / ~2-contact "Key contacts" card) takes its
+      // ~3-row "Crew Schedule" / ~2-contact "Key contacts" card) takes its
       // own height instead of stretching to the taller column and leaving dead
       // space. We assert the grid's computed align-items POSITIVELY: a regression
       // that drops `min-[720px]:items-start` would otherwise still pass the ratio
