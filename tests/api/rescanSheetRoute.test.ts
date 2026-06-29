@@ -75,6 +75,24 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
     expect(rescan).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ["a non-UUID string", "not-a-uuid"],
+    ["a numeric-ish string", "12345"],
+    ["a truncated UUID", "11111111-1111-4111-8111"],
+  ])("400 + no rescan when wizardSessionId is %s", async (_label, badSession) => {
+    // Passes the non-empty-string check but is not a UUID — must 400 BEFORE reaching
+    // the core's `::uuid` SQL casts (which would otherwise infra-500). Spec §5.1.
+    const rescan = rescanMock({ status: "updated", needsReview: false, changed: true });
+    const res = await handleRescanSheet(req({ driveFileId: DRIVE, wizardSessionId: badSession }), {
+      rescanWizardSheet: rescan,
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { ok: boolean; error?: unknown };
+    expect(body.ok).toBe(false);
+    expect(typeof body.error).toBe("string");
+    expect(rescan).not.toHaveBeenCalled();
+  });
+
   test("forwards driveFileId, wizardSessionId, and rescanDeps to the core", async () => {
     const rescan = rescanMock({ status: "updated", needsReview: true, changed: false });
     const rescanDeps = { afterDriveRead: () => undefined };

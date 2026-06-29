@@ -15,6 +15,11 @@ import {
  * HTTP 200 (the button reads `{ ok }` + the inline copy); only a malformed body is 400. No raw
  * error codes are rendered here — the button looks them up via the §12.4 catalog (invariant 5).
  */
+// Permissive UUID shape (matches the picker validators, e.g. lib/auth/picker/*). A
+// wizardSessionId that is a non-empty string but not a UUID would otherwise reach the
+// core's `$1::uuid` SQL casts and infra-500; spec §5.1 wants a 400 here instead.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type RescanSheetRouteDeps = {
   /** Injected for tests — defaults to the real orchestration core. */
   rescanWizardSheet?: typeof realRescanWizardSheet;
@@ -66,6 +71,15 @@ export async function handleRescanSheet(
   ) {
     return NextResponse.json(
       { ok: false, error: "Request must include driveFileId and wizardSessionId." },
+      { status: 400 },
+    );
+  }
+  // A non-empty but malformed wizardSessionId must 400 here, not infra-500 at the
+  // core's `::uuid` casts (spec §5.1). Plain 400 message (same shape as above) — NOT
+  // a §12.4 code literal (the AC-X.1 orphan gate forbids new uncataloged code: values).
+  if (!UUID_RE.test(wizardSessionId)) {
+    return NextResponse.json(
+      { ok: false, error: "wizardSessionId must be a valid session id." },
       { status: 400 },
     );
   }
