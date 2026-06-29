@@ -17,22 +17,66 @@
  * if a call's parens are unbalanced (truncated source), it stops stripping and
  * returns the remainder verbatim rather than risk corrupting the scan.
  */
-const LOG_CALL_RE = /\blog\.(?:error|warn|info|debug)\s*\(/g;
+// Sticky (anchored) matcher: a `log.<level>(` token starting exactly at lastIndex.
+const LOG_CALL_AT = /log\.(?:error|warn|info|debug)\s*\(/y;
+
+function isIdentChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
+}
 
 export function stripLogEmissionCalls(source: string): string {
+  // Single lexical pass: copy strings / template literals / comments through
+  // VERBATIM (so a `log.error(` that appears inside one is NOT treated as a call
+  // — which would otherwise let it anchor a bogus strip that swallows a real
+  // `code:` producer in following code). Only in true code context do we detect
+  // `log.<level>(` and skip through its matching `)`.
   let out = "";
-  let cursor = 0;
-  LOG_CALL_RE.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = LOG_CALL_RE.exec(source)) !== null) {
-    const openParen = match.index + match[0].length - 1;
-    const close = matchParen(source, openParen);
-    if (close === -1) break; // unbalanced/truncated — keep the remainder verbatim
-    out += source.slice(cursor, match.index);
-    cursor = close + 1;
-    LOG_CALL_RE.lastIndex = cursor;
+  let i = 0;
+  const n = source.length;
+  while (i < n) {
+    const c = source[i];
+    if (c === '"' || c === "'") {
+      const end = skipQuoted(source, i, c);
+      out += source.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+    if (c === "`") {
+      const end = skipTemplate(source, i);
+      out += source.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "/") {
+      const nl = source.indexOf("\n", i);
+      const end = nl === -1 ? n : nl;
+      out += source.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "*") {
+      const e = source.indexOf("*/", i + 2);
+      const end = e === -1 ? n : e + 2;
+      out += source.slice(i, end);
+      i = end;
+      continue;
+    }
+    // Code context: is there a `log.<level>(` exactly here (with a word boundary)?
+    if (c === "l" && !isIdentChar(source[i - 1])) {
+      LOG_CALL_AT.lastIndex = i;
+      const m = LOG_CALL_AT.exec(source);
+      if (m) {
+        const openParen = i + m[0].length - 1;
+        const close = matchParen(source, openParen);
+        if (close !== -1) {
+          i = close + 1; // drop the whole log.<level>( … ) span
+          continue;
+        }
+      }
+    }
+    out += c;
+    i++;
   }
-  out += source.slice(cursor);
   return out;
 }
 

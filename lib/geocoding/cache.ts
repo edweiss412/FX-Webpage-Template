@@ -50,7 +50,10 @@ export async function readGeocodeCache(queryHash: string): Promise<GeocodeCacheR
       .eq("query_hash", queryHash)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
+      return { kind: "infra_error" };
+    }
     if (!data) return { kind: "miss" };
     return { kind: "hit", city: (data as { city: string | null }).city ?? null };
   } catch {
@@ -88,7 +91,10 @@ export async function writeGeocodeCache(args: {
       },
       { onConflict: "query_hash" },
     );
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
+      return { kind: "infra_error" };
+    }
     return { kind: "ok" };
   } catch {
     void log.warn("geocode cache infra fault", { source: "geocoding/cache" });

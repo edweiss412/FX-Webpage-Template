@@ -1,18 +1,22 @@
 // tests/log/nonAuthTaps.test.ts
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { resetLogSink, setLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 
-function capture(): LogRecord[] {
+// Import setLogSink DYNAMICALLY (not statically): vi.resetModules() between tests
+// gives each dynamically-imported producer a fresh @/lib/log instance, so the sink
+// must be set on that SAME post-reset instance — a static import would set it on a
+// stale instance the producer no longer shares. Call AFTER vi.doMock, BEFORE
+// importing the producer under test.
+async function capture(): Promise<LogRecord[]> {
   const r: LogRecord[] = [];
+  const { setLogSink } = await import("@/lib/log");
   setLogSink((x) => {
     r.push(x);
   });
   return r;
 }
 afterEach(() => {
-  resetLogSink();
   vi.resetModules();
   vi.restoreAllMocks();
 });
@@ -24,9 +28,51 @@ describe("geocode cache emits warn on infra fault (behavioral)", () => {
         throw new Error("down");
       },
     }));
-    const recs = capture();
+    const recs = await capture();
     const { readGeocodeCache } = await import("@/lib/geocoding/cache");
     const result = await readGeocodeCache("anytown");
+    expect(result).toEqual({ kind: "infra_error" });
+    expect(recs.some((r) => r.level === "warn" && r.source === "geocoding/cache")).toBe(true);
+  });
+
+  // Returned-error arms (the COMMON Supabase failure mode) must ALSO emit, not
+  // just the thrown/constructor paths (whole-diff review HIGH finding).
+  test("read returned-error → {kind:'infra_error'} AND warn/geocoding/cache", async () => {
+    vi.doMock("@/lib/supabase/server", () => ({
+      createSupabaseServiceRoleClient: () => ({
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              gt: () => ({
+                maybeSingle: async () => ({ data: null, error: { message: "boom" } }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }));
+    const recs = await capture();
+    const { readGeocodeCache } = await import("@/lib/geocoding/cache");
+    expect(await readGeocodeCache("anytown")).toEqual({ kind: "infra_error" });
+    expect(recs.some((r) => r.level === "warn" && r.source === "geocoding/cache")).toBe(true);
+  });
+
+  test("write returned-error → {kind:'infra_error'} AND warn/geocoding/cache", async () => {
+    vi.doMock("@/lib/supabase/server", () => ({
+      createSupabaseServiceRoleClient: () => ({
+        from: () => ({
+          upsert: async () => ({ error: { message: "boom" } }),
+        }),
+      }),
+    }));
+    const recs = await capture();
+    const { writeGeocodeCache } = await import("@/lib/geocoding/cache");
+    const result = await writeGeocodeCache({
+      queryHash: "h",
+      venueName: "v",
+      venueAddress: "a",
+      city: "c",
+    });
     expect(result).toEqual({ kind: "infra_error" });
     expect(recs.some((r) => r.level === "warn" && r.source === "geocoding/cache")).toBe(true);
   });

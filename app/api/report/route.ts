@@ -65,6 +65,10 @@ async function readCrewRoleFlags(
       .maybeSingle()) as { data: { role_flags: unknown } | null; error: unknown };
 
     if (error || !data || !Array.isArray(data.role_flags)) {
+      void log.error("crew role flags read failed", {
+        source: "api/report",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
       return {
         ok: false,
         status: 500,

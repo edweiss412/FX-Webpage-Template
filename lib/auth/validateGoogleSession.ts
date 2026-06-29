@@ -141,6 +141,10 @@ export async function validateGoogleSession(
       .eq("show_id", context.showId)
       .eq("email", email)) as { data: CrewMemberEmailRow[] | null; error: unknown };
     if (result.error) {
+      await log.error("google session validation failed", {
+        source: "auth/validateGoogleSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
       return {
         kind: "terminal_failure",
         status: 500,
@@ -149,6 +153,10 @@ export async function validateGoogleSession(
     }
     crewRows = result.data;
   } catch {
+    await log.error("google session validation failed", {
+      source: "auth/validateGoogleSession",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return {
       kind: "terminal_failure",
       status: 500,
@@ -172,6 +180,10 @@ export async function validateGoogleSession(
         crewMemberIds: rows.map((row) => row.id),
       });
     } catch {
+      await log.error("google session validation failed", {
+        source: "auth/validateGoogleSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
       return {
         kind: "terminal_failure",
         status: 500,

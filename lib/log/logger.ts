@@ -39,8 +39,10 @@ function buildRecord(level: LogLevel, message: string, fields: LogFields): LogRe
     message: cleanMessage,
     source: fields.source,
     code: fields.code ?? null,
-    requestId: fields.requestId ?? ctx?.requestId ?? null,
-    showId: fields.showId ?? ctx?.showId ?? null,
+    // Explicit-field precedence: an explicit `null` (caller says "no correlation")
+    // overrides the ambient ALS value; only `undefined`/absent falls through to ALS.
+    requestId: fields.requestId !== undefined ? fields.requestId : (ctx?.requestId ?? null),
+    showId: fields.showId !== undefined ? fields.showId : (ctx?.showId ?? null),
     driveFileId: fields.driveFileId ?? null,
     actorHash: fields.actorHash ?? null,
     context: cleanContext,

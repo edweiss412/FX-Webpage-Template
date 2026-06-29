@@ -75,6 +75,21 @@ describe("logger", () => {
     expect(calls[1]!.record.showId).toBe("explicit-show");
   });
 
+  test("explicit null overrides ALS; omission falls through to ALS", async () => {
+    const calls = capture();
+    await runWithRequestContext({ requestId: "req-als", showId: "show-als" }, async () => {
+      await log.warn("a", { source: "s", requestId: null, showId: null });
+      await log.warn("b", { source: "s" }); // omitted → inherits ALS
+    });
+    // explicit null = "no correlation" → wins over ALS
+    expect(calls[0]!.record.requestId).toBeNull();
+    expect(calls[0]!.record.showId).toBeNull();
+    // omitted = "not provided" → inherits ALS (exactOptionalPropertyTypes forbids
+    // passing `undefined` explicitly, so omission is the only fall-through path)
+    expect(calls[1]!.record.requestId).toBe("req-als");
+    expect(calls[1]!.record.showId).toBe("show-als");
+  });
+
   test("default sink writes to console even with no ALS", async () => {
     // Use debug (never persists) so the default sink does NOT attempt a real
     // service-role insert in a unit test.

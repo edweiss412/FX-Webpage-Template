@@ -57,4 +57,37 @@ describe("stripLogEmissionCalls", () => {
     const src = `log.error("m", { source: "s", code: "OUTER", extra: build({ code: "INNER" }) }); keep({ code: "SURVIVOR" });`;
     expect(codes(src)).toEqual(["SURVIVOR"]);
   });
+
+  // Lexer-awareness: a `log.error(` token inside a comment or string MUST NOT
+  // anchor a strip that swallows a following real producer (else a real
+  // user-facing code escapes the §12.4 gates — a security/UX regression).
+  test("log.error( inside a // line comment does not swallow a following real producer", () => {
+    const src = [
+      "// historical note: log.error( was here without a close paren",
+      'return jsonError(res, { code: "REAL_PRODUCER" });',
+    ].join("\n");
+    expect(codes(src)).toEqual(["REAL_PRODUCER"]);
+  });
+
+  test("log.error( inside a block comment does not swallow a following real producer", () => {
+    const src = [
+      "/* TODO: log.error( something (unbalanced */",
+      'jsonError(res, { code: "BLOCK_REAL" });',
+    ].join("\n");
+    expect(codes(src)).toEqual(["BLOCK_REAL"]);
+  });
+
+  test("log.error( inside a string literal does not desync the scan", () => {
+    const src = 'const s = "log.error("; jsonError(res, { code: "STR_REAL" });';
+    expect(codes(src)).toEqual(["STR_REAL"]);
+  });
+
+  test("a real log.error AND a comment-embedded one: real stripped, following producer kept", () => {
+    const src = [
+      'log.warn("real", { source: "s", code: "LOG_ONLY" });',
+      "// log.error( in a comment",
+      'jsonError(res, { code: "AFTER" });',
+    ].join("\n");
+    expect(codes(src)).toEqual(["AFTER"]);
+  });
 });
