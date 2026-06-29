@@ -97,10 +97,16 @@ export const mockDriveClient: DriveClient = {
     // forces restage-only recovery per the EmbeddedImageStub contract.
     return null;
   },
-  async getAgendaChips(spreadsheetId: string): Promise<AgendaChipsResult> {
+  async getAgendaChips(
+    spreadsheetId: string,
+    _opts?: { signal?: AbortSignal; deadlineMs?: number },
+  ): Promise<AgendaChipsResult> {
     return AGENDA_CHIP_FIXTURES[spreadsheetId] ?? DEFAULT_AGENDA_CHIPS;
   },
-  async downloadFileBytes(fileId: string): Promise<DownloadFileBytesResult> {
+  async downloadFileBytes(
+    fileId: string,
+    _opts?: { signal?: AbortSignal; deadlineMs?: number },
+  ): Promise<DownloadFileBytesResult> {
     return DOWNLOAD_FIXTURES[fileId] ?? { kind: "bytes", bytes: DEFAULT_AGENDA_PDF_BYTES };
   },
 };
