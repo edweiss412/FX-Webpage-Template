@@ -6,6 +6,7 @@ import {
   parseShadowPayloadForApply,
   type ParsedShadowPayloadForApply,
 } from "@/lib/onboarding/shadowPayload";
+import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
@@ -67,6 +68,7 @@ type ShadowApplyResult =
         | "STAGED_REVIEW_ITEMS_CORRUPT"
         | "STAGED_PARSE_RESULT_CORRUPT"
         | typeof SHOW_ARCHIVED_IMMUTABLE;
+      display_name?: string;
     };
 
 type FinalizeCasResult =
@@ -331,7 +333,7 @@ function syntheticFileMeta(
 ): DriveListedFile {
   return {
     driveFileId: row.drive_file_id,
-    name: parsed.parseResult.show.title ?? row.drive_file_id,
+    name: parsedShowTitle(parsed.parseResult) ?? row.drive_file_id,
     mimeType: "application/vnd.google-apps.spreadsheet",
     modifiedTime: parsed.stagedModifiedTime,
     parents: [],
@@ -709,11 +711,19 @@ async function runFinalizeCas(
 
   const shadowResults: ShadowApplyResult[] = [];
   for (const row of await readShadowRows(tx, wizardSessionId)) {
-    shadowResults.push(
-      await deps.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
-        applyShadow(rowTx, pipelineTx, row, affectedShowIds),
-      ),
+    const result = await deps.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
+      applyShadow(rowTx, pipelineTx, row, affectedShowIds),
     );
+    if (result.code === "OK") {
+      shadowResults.push(result);
+      continue;
+    }
+    const parsed = parseShadowPayloadForApply(row.payload);
+    const title = parsed.ok ? parsedShowTitle(parsed.parseResult) : null;
+    // exactOptionalPropertyTypes (tsconfig.json): `display_name?: string` rejects a
+    // present `undefined`, so ADD the property only when a real title exists; a blocked
+    // row without a title is pushed WITHOUT it (the client falls back to the id).
+    shadowResults.push(title ? { ...result, display_name: title } : result);
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
   if (blocked.length > 0) {
