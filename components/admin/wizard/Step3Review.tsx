@@ -617,8 +617,14 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   // The publish-participating subset: clean rows that actually have a reviewable
   // preview (and therefore a checkbox). A corrupt/no-details clean row stays in
   // `publishRows` (so it still renders in the grid) but is excluded here, so it is
-  // not counted in "N of M" nor (un)published by Select all.
-  const selectableRows = publishRows.filter(hasReviewablePreview);
+  // not counted in "N of M" nor (un)published by Select all. A row demoted by a
+  // per-sheet re-scan (non-null `lastFinalizeFailureCode`, e.g. RESCAN_REVIEW_REQUIRED)
+  // is likewise excluded: its card suppresses the checkbox and routes to the reapply
+  // page, and the server /approve REFUSES it — so Select-all must not POST for it and
+  // the count must not include it (it stays in `publishRows` to render the review banner).
+  const selectableRows = publishRows.filter(
+    (r) => hasReviewablePreview(r) && !r.lastFinalizeFailureCode,
+  );
   const blockingRows = rows.filter((r) => isBlocking(r.status));
   const blockingCount = blockingRows.length;
   const ignoredRows = rows.filter((r) => r.status === "permanent_ignore");
@@ -726,7 +732,16 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
         { method: "POST" },
       );
-      return res.ok;
+      if (!res.ok) return false;
+      // The server returns HTTP 200 with `{ ok: false }` when it SAFELY refuses an
+      // approve (e.g. a row that went dirty between render and click →
+      // RESCAN_REVIEW_REQUIRED): the publish was NOT applied. Treat that as a failure
+      // so flush reverts the optimistic box to server truth instead of leaving it
+      // falsely checked/applied. A success body has no `ok` field (`{ status: ... }`),
+      // so this only catches an explicit refusal. A 200 with no/invalid body is success.
+      const body = (await res.json().catch(() => null)) as { ok?: unknown } | null;
+      if (body !== null && typeof body === "object" && body.ok === false) return false;
+      return true;
     } catch {
       return false;
     }

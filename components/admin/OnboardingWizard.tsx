@@ -342,7 +342,12 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   // (Task B1) uses; a clean `staged` row (unchecked → Held) and `applied`
   // (checked) are NOT blocking. An empty list is finishable.
   const BLOCKING = new Set(["hard_failed", "live_row_conflict", "discard_retryable"]);
-  const finishable = rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status));
+  // A row demoted by a per-sheet re-scan carries a non-null lastFinalizeFailureCode
+  // (e.g. RESCAN_REVIEW_REQUIRED) while its manifest status is the non-blocking
+  // 'staged'. The server final-CAS gate refuses such a row, so the finish button must
+  // also block on it (else the UI enables a finish the server would reject).
+  const finishable =
+    rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status) && !r.lastFinalizeFailureCode);
 
   return { kind: "ok", rows, finishable };
 }
