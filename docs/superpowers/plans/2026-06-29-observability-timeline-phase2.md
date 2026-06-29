@@ -793,6 +793,12 @@ describe("parseAppEventFilters", () => {
     expect(parseAppEventFilters(sp({ q: "   " })).q).toBeUndefined();
     expect(parseAppEventFilters(sp({ q: "  hello  " })).q).toBe("hello");
   });
+  test("source/code/requestId pass through (requestId must survive parse for AC3 correlation)", () => {
+    const f = parseAppEventFilters(sp({ source: "cron.sync", code: "CRON_RUN_SUMMARY", requestId: "req-9" }));
+    expect(f.source).toBe("cron.sync");
+    expect(f.code).toBe("CRON_RUN_SUMMARY");
+    expect(f.requestId).toBe("req-9");
+  });
   test("cursor accepted only with ISO-shaped occurredAt + UUID id", () => {
     const good = parseAppEventFilters(sp({ cursorAt: "2026-06-29T00:00:00.000Z", cursorId: UUID }));
     expect(good.cursor).toEqual({ occurredAt: "2026-06-29T00:00:00.000Z", id: UUID });
@@ -975,9 +981,13 @@ describe("loadAppEvents", () => {
 
   test("levels/source/code/showId/requestId/q produce the matching builder calls", async () => {
     const c = mockClient(mk(0)); const load = await withClient(c);
-    await load({ levels: ["warn", "error"], source: "cron.sync", code: "CRON_RUN_SUMMARY", q: "5%x" });
+    await load({ levels: ["warn", "error"], source: "cron.sync", code: "CRON_RUN_SUMMARY",
+      showId: "00000000-0000-0000-0000-000000000001", requestId: "req-9", q: "5%x" });
     expect(c.__calls.some((x) => x.method === "in" && x.args[0] === "level")).toBe(true);
     expect(c.__calls.some((x) => x.method === "eq" && x.args[0] === "source")).toBe(true);
+    expect(c.__calls.some((x) => x.method === "eq" && x.args[0] === "code")).toBe(true);
+    expect(c.__calls.some((x) => x.method === "eq" && x.args[0] === "show_id" && x.args[1] === "00000000-0000-0000-0000-000000000001")).toBe(true);
+    expect(c.__calls.some((x) => x.method === "eq" && x.args[0] === "request_id" && x.args[1] === "req-9")).toBe(true);
     // q is escaped + wrapped
     expect(c.__calls.some((x) => x.method === "ilike" && String(x.args[1]).includes("5\\%x"))).toBe(true);
   });
@@ -2053,7 +2063,11 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { AutoRefreshControl } from "@/components/admin/observability/AutoRefreshControl";
 
-beforeEach(() => { vi.useFakeTimers(); refresh.mockClear(); localStorage.clear(); Object.defineProperty(window, "scrollY", { value: 0, writable: true, configurable: true }); });
+beforeEach(() => {
+  vi.useFakeTimers(); refresh.mockClear(); localStorage.clear();
+  Object.defineProperty(window, "scrollY", { value: 0, writable: true, configurable: true });
+  Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); // reset per test
+});
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("AutoRefreshControl", () => {
@@ -2102,6 +2116,24 @@ describe("AutoRefreshControl", () => {
     vi.advanceTimersByTime(40_000);
     expect(refresh).not.toHaveBeenCalled();
     expect(screen.getByTestId("autorefresh-toggle").getAttribute("aria-pressed")).toBe("false");
+  });
+  test("hidden tab: tick is SKIPPED even when ON", () => {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    render(<AutoRefreshControl />);
+    vi.advanceTimersByTime(20_000);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+  test("hidden→visible fires one immediate refresh when ON", () => {
+    render(<AutoRefreshControl />); // ON
+    document.dispatchEvent(new Event("visibilitychange")); // visibilityState is 'visible' (beforeEach)
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+  test("unmount clears the interval + visibility listener (no refresh after unmount)", () => {
+    const { unmount } = render(<AutoRefreshControl />);
+    unmount();
+    vi.advanceTimersByTime(60_000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 ```
@@ -2192,7 +2224,7 @@ export function AutoRefreshControl() {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/components/observability/autoRefreshControl.test.tsx`
-Expected: PASS (7 tests).
+Expected: PASS (10 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2329,13 +2361,15 @@ export default async function ObservabilityPage({ searchParams }: { searchParams
 
 ```tsx
 // tests/app/admin/observabilityPage.test.tsx
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: async () => ({ email: "a@b.c" }) }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:00:00.000Z") }));
 
 describe("ObservabilityPage", () => {
+  beforeEach(() => vi.resetModules());
+
   test("renders header + timeline; cron-health infra degrades only that section", async () => {
     vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth: async () => ({ kind: "infra_error", message: "x" }) }));
     vi.doMock("@/lib/admin/loadAppEvents", () => ({ loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }) }));
@@ -2344,6 +2378,15 @@ describe("ObservabilityPage", () => {
     expect(screen.getByText("Activity")).toBeInTheDocument();
     expect(screen.getByTestId("cron-health-degraded")).toBeInTheDocument();
     expect(screen.getByText(/No events/i)).toBeInTheDocument(); // timeline still rendered
+  });
+
+  test("passes parsed request-correlation filters into loadAppEvents (AC3: requestId + sinceHours null)", async () => {
+    const loadAppEvents = vi.fn(async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }));
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth: async () => ({ kind: "ok", jobs: [] }) }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({ loadAppEvents }));
+    const { default: Page } = await import("@/app/admin/observability/page");
+    render(await Page({ searchParams: Promise.resolve({ requestId: "req-9", since: "all" }) }));
+    expect(loadAppEvents).toHaveBeenCalledWith(expect.objectContaining({ requestId: "req-9", sinceHours: null }));
   });
 });
 ```
@@ -2402,6 +2445,8 @@ describe("navConfig with Activity (desktopOnly)", () => {
 ```ts
 // tests/admin/observabilityRouteAudit.test.ts
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PROTECTED_ROUTES } from "@/lib/audit/trustDomains";
 
 describe("observability route is auth-chain registered", () => {
@@ -2409,6 +2454,13 @@ describe("observability route is auth-chain registered", () => {
     const row = PROTECTED_ROUTES.find((r) => r.path === "app/admin/observability/page.tsx");
     expect(row).toBeTruthy();
     expect(row!.chain).toContain("requireAdmin");
+  });
+  test("settings page links to /admin/observability (the ONLY mobile route into desktopOnly Activity)", () => {
+    // Activity is desktopOnly (absent from mobile bottom tabs), so the Settings link is the
+    // mobile reachability path — guard against it being omitted or mislinked.
+    const src = readFileSync(join(__dirname, "..", "..", "app/admin/settings/page.tsx"), "utf8");
+    expect(src).toContain("/admin/observability");
+    expect(src).toMatch(/Activity/);
   });
 });
 ```
