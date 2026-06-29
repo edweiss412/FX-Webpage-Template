@@ -111,6 +111,10 @@ type PendingFinalizeRow = {
   wizard_approved_at: string | Date | null;
   triggered_review_items: unknown;
   base_modified_time: string | Date | null;
+  // Re-read under the show: lock for the finishable re-validation (spec §3.2). NOT
+  // selected by selectFinishableCleanRows (which uses it only in its WHERE) — optional
+  // because the outer-select rows omit it; the widened locked re-read always sets it.
+  last_finalize_failure_code?: string | null;
 };
 
 type PerRowResult =
@@ -698,24 +702,6 @@ async function processApprovedRow(input: {
 }): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
 
-  // Task B2: the reviewer-choices version is a CHECKED-row contract — only checked rows carry
-  // real choices + version=1. An UNCHECKED row has version=null (the wizard never recorded
-  // choices); it must NOT be demoted for that. Enforce the version only for checked rows.
-  if (row.wizard_approved && row.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION) {
-    await demotePending(
-      tx,
-      wizardSessionId,
-      row.drive_file_id,
-      WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
-    );
-    return {
-      drive_file_id: row.drive_file_id,
-      wizard_session_id: wizardSessionId,
-      code: WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
-      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
-    };
-  }
-
   let metadata: DriveListedFile;
   try {
     metadata = await input.fetchDriveFileMetadata(row.drive_file_id);
@@ -766,8 +752,26 @@ async function processApprovedRow(input: {
   // modified_time) returns 0 rows → stale demote, no publish.
   // Drive-light: finalize does NO per-PDF Drive call here — spec §5.7 temporal-scope
   // delegates post-publish re-validation to the cron path.
-  const freshRead = await tx.query<{ parse_result: ParseResult }>(
-    `select parse_result from public.pending_syncs
+  // Widened to the FULL decision row (spec §3.1): approve/unapprove change the
+  // approval columns WITHOUT bumping staged_modified_time, so the generation-scoped
+  // re-read must re-fetch them to drive the 4-branch from LOCKED values, not the
+  // stale select-time columns. last_finalize_failure_code is re-read for the
+  // finishable re-validation (§3.2). parse_result stays first (greppable prefix).
+  const freshRead = await tx.query<{
+    parse_result: ParseResult;
+    wizard_approved: boolean;
+    wizard_reviewer_choices: unknown[];
+    wizard_reviewer_choices_version: number | null;
+    wizard_approved_by_email: string | null;
+    wizard_approved_at: string | Date | null;
+    last_finalize_failure_code: string | null;
+  }>(
+    `select parse_result,
+            wizard_approved,
+            wizard_reviewer_choices, wizard_reviewer_choices_version,
+            wizard_approved_by_email, wizard_approved_at,
+            last_finalize_failure_code
+       from public.pending_syncs
       where wizard_session_id = $1::uuid
         and drive_file_id = $2
         and staged_id = $3::uuid
@@ -788,9 +792,16 @@ async function processApprovedRow(input: {
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
   }
+  const locked = freshRead.rows[0]!;
   const rereadRow: PendingFinalizeRow = {
     ...row,
-    parse_result: freshRead.rows[0]!.parse_result,
+    parse_result: locked.parse_result,
+    wizard_approved: locked.wizard_approved,
+    wizard_reviewer_choices: locked.wizard_reviewer_choices,
+    wizard_reviewer_choices_version: locked.wizard_reviewer_choices_version,
+    wizard_approved_by_email: locked.wizard_approved_by_email,
+    wizard_approved_at: locked.wizard_approved_at,
+    last_finalize_failure_code: locked.last_finalize_failure_code,
   };
 
   // `parse_result` is jsonb read via postgres.js. A legacy row written by the
@@ -808,6 +819,52 @@ async function processApprovedRow(input: {
     parse_result: asParseResult(rereadRow.parse_result),
     wizard_reviewer_choices: coerceJsonbArray(rereadRow.wizard_reviewer_choices),
   };
+
+  // Finishable re-validation (spec §3.2): re-check the approval-column part of the
+  // selectFinishableCleanRows predicate against the LOCKED row. Forward-defense — not
+  // reachable today (approve sets failure_code=null; unapprove never writes it; rescan
+  // changes the generation → 0-row path above; finalize is self-serialized). If a future
+  // same-generation writer ever leaves a non-finishable locked row, SKIP it (back to
+  // review) rather than fall through to the unchecked branch and create a Held show for a
+  // row that carries a failure code. Reuses the existing per-row stale code (no new §12.4).
+  const lockedFinishable =
+    coercedRow.wizard_approved === true || coercedRow.last_finalize_failure_code == null;
+  if (!lockedFinishable) {
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+    );
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
+  // Version gate (spec §3.0, relocated here from before the re-read so it keys on the
+  // LOCKED wizard_approved + version, not the stale select-time values). Only checked
+  // rows carry real choices + version; an unchecked row has version=null and must NOT be
+  // demoted for that.
+  if (
+    coercedRow.wizard_approved &&
+    coercedRow.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION
+  ) {
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
+    );
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
 
   // F1 Task 1.4: parsed for BOTH branches — the existing-show shadow copies the DECODED items
   // array into its payload (never the raw column value), and the first-seen core consumes it.
@@ -843,7 +900,7 @@ async function processApprovedRow(input: {
   }
 
   if (await showExists(tx, row.drive_file_id)) {
-    if (row.wizard_approved) {
+    if (coercedRow.wizard_approved) {
       // existing-show + CHECKED: unchanged — stage the shadow for the Phase D apply. publish_intent
       // is N/A to the first-seen flip (this row never creates a show) but stamp it true for
       // consistency with the manifest's checked/unchecked contract.
@@ -889,13 +946,13 @@ async function processApprovedRow(input: {
     throw new Error("approved onboarding row is missing staged_modified_time");
   }
 
-  const appliedByEmail = row.wizard_approved
+  const appliedByEmail = coercedRow.wizard_approved
     ? requireApprovedByEmail(coercedRow) // approving admin
     : input.finalizerEmail; // unchecked: the finalizer (no approver on the row)
-  const appliedAt = row.wizard_approved
-    ? normalizeTimestamptz(row.wizard_approved_at) // Apply-click instant
+  const appliedAt = coercedRow.wizard_approved
+    ? normalizeTimestamptz(coercedRow.wizard_approved_at) // Apply-click instant
     : new Date().toISOString(); // unchecked: finish instant (wizard_approved_at is null)
-  const reviewerChoices = row.wizard_approved
+  const reviewerChoices = coercedRow.wizard_approved
     ? (coercedRow.wizard_reviewer_choices as ReviewerChoice[])
     : synthesizeDefaultChoices(parsedItems.items); // unchecked: apply-all over the sentinel(s)
 
@@ -959,7 +1016,7 @@ async function processApprovedRow(input: {
     wizardSessionId,
     row.drive_file_id,
     core.showId,
-    row.wizard_approved,
+    coercedRow.wizard_approved,
   );
   await deleteApprovedPending(tx, wizardSessionId, row);
   // nav-perf tag-caching (Task 6): record the created show for the POST-COMMIT revalidate. Added

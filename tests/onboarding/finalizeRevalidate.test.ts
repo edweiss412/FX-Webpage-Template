@@ -206,7 +206,7 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     // re-SELECT parse_result under the row's already-held show: lock, pinned by
     // (wizard_session_id, drive_file_id, staged_id, staged_modified_time). Returns the
     // current row's parse_result; 0 rows on a generation mismatch → finalize stale path.
-    if (n.startsWith("select parse_result from public.pending_syncs where wizard_session_id")) {
+    if (n.startsWith("select parse_result, wizard_approved")) {
       const row = this.approved.find(
         (r) =>
           r.drive_file_id === params[1] &&
@@ -214,7 +214,20 @@ class FakeFinalizeDb implements FinalizeRouteTx {
           r.staged_modified_time === params[3],
       );
       return row
-        ? { rows: [{ parse_result: row.parse_result } as T], rowCount: 1 }
+        ? {
+            rows: [
+              {
+                parse_result: row.parse_result,
+                wizard_approved: row.wizard_approved,
+                wizard_reviewer_choices: row.wizard_reviewer_choices,
+                wizard_reviewer_choices_version: row.wizard_reviewer_choices_version,
+                wizard_approved_by_email: row.wizard_approved_by_email,
+                wizard_approved_at: row.wizard_approved_at,
+                last_finalize_failure_code: row.last_finalize_failure_code ?? null,
+              } as T,
+            ],
+            rowCount: 1,
+          }
         : { rows: [], rowCount: 0 };
     }
     throw new Error(`Unhandled SQL in finalize fake: ${n}`);
