@@ -191,17 +191,27 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      admins hitting the SAME staged row. (A `drive_file_id`-only lease would serialize a
      rescan/new session against the old one but hand it NO result — different rows — so it
      would wait the full window then re-extract anyway: round-41. We DON'T cross-session
-     share; see the scope note below.) Atomically
-     `INSERT INTO public.agenda_extract_leases (wizard_session_id, drive_file_id, owner,
-     expires_at) VALUES ($wiz, $dfid, $owner, now() + AGENDA_EXTRACT_LEASE_TTL_MS) ON
-     CONFLICT (wizard_session_id, drive_file_id) DO UPDATE SET owner = EXCLUDED.owner,
-     expires_at = EXCLUDED.expires_at WHERE public.agenda_extract_leases.expires_at < now()
-     RETURNING owner` — succeeds iff NO live lease (insert) or the prior had EXPIRED (TTL
-     backstop). **0 rows = a LIVE lease held by another request for this staged row (any
-     instance)** → `202 { status: "in_progress" }` **with a `Retry-After` header**
-     (client polls the full window — round-33 F1; all `202` paths set `Retry-After`) (no
-     Drive). This gives deployment-wide **exactly-one-extraction-per-STAGED-ROW** across
-     instances. **Scope note (round-41):** we deliberately do NOT cross-session share — a
+     share; see the scope note below.) The claim ALSO enforces a **DEPLOYMENT-WIDE concurrency
+     cap (Codex round-43 F2, user-approved)** by counting the live leases — the lease rows
+     ARE the active extractions, and they self-heal via TTL (a raw counter table would leak
+     a slot on a crashed instance). One atomic statement gates on BOTH the global cap AND
+     the per-row lease:
+     `WITH live AS (SELECT count(*) AS n FROM public.agenda_extract_leases WHERE expires_at
+     > now()) INSERT INTO public.agenda_extract_leases (wizard_session_id, drive_file_id,
+     owner, expires_at) SELECT $wiz, $dfid, $owner, now() + AGENDA_EXTRACT_LEASE_TTL_MS FROM
+     live WHERE live.n < AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS ON CONFLICT
+     (wizard_session_id, drive_file_id) DO UPDATE SET owner = EXCLUDED.owner, expires_at =
+     EXCLUDED.expires_at WHERE public.agenda_extract_leases.expires_at < now() RETURNING
+     owner` — claims iff (live lease count < global cap) AND (no live lease for this row OR
+     it EXPIRED). **0 rows = at the global cap OR a live lease for this staged row** → `202
+     { status: "in_progress" }` **with a `Retry-After` header** (client polls the full
+     window — round-33 F1; all `202` paths set `Retry-After`) (no Drive). This gives
+     deployment-wide **exactly-one-extraction-per-STAGED-ROW** AND a deployment-wide total
+     bound across instances. (The count-and-insert is a soft cap — under microsecond-
+     simultaneous admits across instances it may transiently allow cap + a few, bounded by
+     the number of concurrent admitters; negligible at admin-onboarding scale, and the
+     per-instance `AGENDA_MAX_CONCURRENT_EXTRACTIONS` is the hard complement. A strict cap
+     would add a brief admission advisory lock in tx#1 — deferred unless load demands it.) **Scope note (round-41):** we deliberately do NOT cross-session share — a
      concurrent DIFFERENT session for the same `drive_file_id` (only the rare rescan-overlap
      window) extracts its OWN row; whichever session was superseded by the rescan is
      discarded at the lifecycle-guarded persist (tx#2 `0 rows → 409`). At most a brief,
@@ -302,7 +312,18 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      next retry skips `getAgendaChips` — cache-checks via `getFile` on the now-present
      fileId, only re-downloading), while remaining **note-only** (no fresh `extracted`).
      A confirmed-fresh link gets both fileId + `extracted` (block) → warms the cache and
-     carries the agenda to publish. Never clobbers other fields.
+     carries the agenda to publish.
+   - **STRICTLY ADDITIVE to agenda fields — approval-boundary contract (Codex round-43 F1,
+     user-approved "keep async fill"):** the merge writes ONLY
+     `parse_result.show.agenda_links[i].extracted` and `…agenda_links[i].fileId` for the
+     matched links — it NEVER touches any other `parse_result` field (rooms, schedule,
+     crew, venue, hotels, transport, gear, …). So an extraction completing AFTER the
+     operator approved a row enriches ONLY the agenda (best-effort derived PDF schedule
+     data the operator opted into via the "parsing agenda…" UX), and can NEVER alter the
+     operator-REVIEWED content. This is the ratified contract — approved rows still extract
+     (round-22 F2) AND publish what was approved for every reviewed field; the agenda is
+     additive enrichment outside line-item approval. (A test asserts every non-agenda
+     `parse_result` field is byte-identical before/after a post-approval extraction.)
    - A request with NO confirmed-fresh extractions never writes a stale `extracted` (a
      failed/stale refresh NEVER erases an earlier success), but it MAY still persist newly
      `recoveredFileIds` (additive, fence-validated — warms the row for retries). If nothing
@@ -652,8 +673,12 @@ re-select adds no second acquisition (the topology is unchanged).
    `wizard_session_id`) claims its OWN lease row and extracts ITS staged row; if a rescan
    superseded session A, A's in-flight extraction → tx#2 `0 rows` (lifecycle) → `409`
    discarded — assert B's row gets its agenda and A does not clobber it (NOT a cross-session
-   result handoff — we accept B re-extracts its own generation); (d2) **lease TTL
-   recovery**: a
+   result handoff — we accept B re-extracts its own generation); (d-g) **deployment-wide
+   cap** (round-43 F2): with `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS = K`, K DISTINCT
+   staged rows extracting concurrently (independent in-memory stores → distinct sessions/
+   instances) hold K live leases; the (K+1)-th DISTINCT row's claim CTE sees `live.n = K`
+   → `WHERE live.n < K` false → 0 rows → `202`, **no (K+1)-th `downloadFileBytes`** until a
+   lease releases/expires; (d2) **lease TTL recovery**: a
    stale lease with `expires_at < now()` (crashed prior holder) → the next POST's claim
    succeeds (ON CONFLICT update) and extracts; (d3) **owner-scoped release**: tx#2 deletes
    the lease only when `owner` matches — a lease reclaimed by a new owner after TTL expiry
@@ -671,7 +696,11 @@ re-select adds no second acquisition (the topology is unchanged).
    → conditional `UPDATE … WHERE … AND <active> RETURNING` affects **0 rows** → `409
    stale`, `parse_result` **unchanged**; (e3) **approved row STILL extracts** (round-22
    F2): `approval_payload IS NOT NULL` + active + not finalized → extracts, persists,
-   `200` (NOT 409); (h) **target smart-chip shape end-to-end** (round-22 F1 + round-26): a staged row with
+   `200` (NOT 409); (e3b) **post-approval merge is STRICTLY ADDITIVE** (round-43 F1): an
+   APPROVED row with non-trivial non-agenda `parse_result` content (rooms/schedule/crew/
+   venue/…) → after a post-approval extraction, assert EVERY non-agenda field is
+   BYTE-IDENTICAL (deep-equal) and ONLY `agenda_links[i].extracted`/`fileId` changed —
+   proving the agenda enrichment never mutates operator-reviewed content; (h) **target smart-chip shape end-to-end** (round-22 F1 + round-26): a staged row with
    links having **zero `fileId`s** + **no `extracted`** → endpoint calls `getAgendaChips`
    (recover fileId) + `downloadFileBytes` → tx#2 merges by **ordinal+label** (no fileId to
    match on) and persists BOTH the recovered `fileId` AND fresh `extracted` → returns
@@ -844,7 +873,7 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_MAX_CONCURRENT_EXTRACTIONS`, `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
 | `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
 | `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
@@ -907,8 +936,18 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
   session re-extracts anyway. A concurrent DIFFERENT session for the same Drive file (rare
   rescan-overlap) extracts its own row, bounded + self-limited by supersession; cross-session
   result-sharing is deferred (BACKLOG). In-memory ownership-scoped fast-path (same
-  `(wiz,dfid)` key) + `AGENDA_MAX_CONCURRENT_EXTRACTIONS` per-instance secondary guard. NO
+  `(wiz,dfid)` key) + `AGENDA_MAX_CONCURRENT_EXTRACTIONS` per-instance hard cap. NO
   DB connection held during Drive. Adds a migration (REVOKE + manifest + validation apply).
+- Deployment-wide cap (round-43 F2, user-approved): the lease-claim CTE also gates on a
+  live-lease COUNT < `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` — a DB-backed global bound
+  that self-heals via lease TTL (vs a raw counter that leaks on crash). Soft under
+  microsecond-simultaneous admits; per-instance cap is the hard complement.
+- Approval boundary (round-43 F1, user-approved "keep async fill"): approved rows still
+  extract (round-22 F2) and the agenda carries to publish; the tx#2 merge is **strictly
+  additive** to `agenda_links[].extracted`/`fileId` and NEVER touches any operator-reviewed
+  `parse_result` field. The agenda is best-effort derived PDF data the operator opted into
+  via the "parsing agenda…" UX, outside line-item approval. **DO NOT RELITIGATE** — ratified
+  by the user; cite this row.
 - fileId vs extraction persistence split: tx#2 merges `recoveredFileIds` (every fenced
   ordinal+label match — persisted even when the PDF download FAILS, giving the note a
   valid Open-PDF href + warming the row so retries skip `getAgendaChips`) SEPARATELY from
