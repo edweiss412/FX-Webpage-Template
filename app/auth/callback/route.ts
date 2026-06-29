@@ -7,6 +7,7 @@ import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { messageFor } from "@/lib/messages/lookup";
+import { serializeError } from "@/lib/log/serializeError";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
@@ -74,12 +75,6 @@ type ClaimOauthIdentityResult = {
   }>;
 };
 
-function errorLogValue(error: unknown): unknown {
-  return error instanceof Error
-    ? { name: error.name, message: error.message, stack: error.stack }
-    : String(error);
-}
-
 async function stampOauthClaim(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
 ): Promise<void> {
@@ -87,7 +82,7 @@ async function stampOauthClaim(
     const { data: userResult, error: getUserError } = await supabase.auth.getUser();
     if (getUserError) {
       console.error("[auth/callback] getUser returned error", {
-        error: errorLogValue(getUserError),
+        error: serializeError(getUserError),
       });
       return;
     }
@@ -102,7 +97,7 @@ async function stampOauthClaim(
     if (rpcError) {
       console.error("[auth/callback] claim_oauth_identity returned error", {
         emailHash: hashForLog(canonicalEmail),
-        error: errorLogValue(rpcError),
+        error: serializeError(rpcError),
       });
       return;
     }
@@ -133,7 +128,7 @@ async function stampOauthClaim(
       }
     }
   } catch (err) {
-    console.error("[auth/callback] claim-stamp threw", { error: errorLogValue(err) });
+    console.error("[auth/callback] claim-stamp threw", { error: serializeError(err) });
     try {
       await upsertAdminAlert({
         showId: null,
