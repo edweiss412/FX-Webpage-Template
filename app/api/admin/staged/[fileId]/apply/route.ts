@@ -4,6 +4,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
 import { promoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
+import { deriveRequestId, runWithRequestContext } from "@/lib/log";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -88,115 +89,117 @@ function scheduleAfterResponse(task: () => Promise<unknown>): void {
 }
 
 export async function POST(request: NextRequest, context: RouteContext): Promise<Response> {
-  try {
-    await requireAdmin();
-  } catch (error) {
-    if (error instanceof AdminInfraError) {
-      return NextResponse.json(
-        { ok: false, error: "ADMIN_SESSION_LOOKUP_FAILED" },
-        { status: 500 },
-      );
+  return runWithRequestContext({ requestId: deriveRequestId(request.headers) }, async () => {
+    try {
+      await requireAdmin();
+    } catch (error) {
+      if (error instanceof AdminInfraError) {
+        return NextResponse.json(
+          { ok: false, error: "ADMIN_SESSION_LOOKUP_FAILED" },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({ ok: false, error: "ADMIN_FORBIDDEN" }, { status: 403 });
     }
-    return NextResponse.json({ ok: false, error: "ADMIN_FORBIDDEN" }, { status: 403 });
-  }
-  const { fileId } = await context.params;
+    const { fileId } = await context.params;
 
-  let body: ApplyRequestBody;
-  try {
-    body = (await request.json()) as ApplyRequestBody;
-  } catch {
-    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
-  }
-  if (!body || typeof body !== "object") {
-    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
-  }
+    let body: ApplyRequestBody;
+    try {
+      body = (await request.json()) as ApplyRequestBody;
+    } catch {
+      return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+    }
+    if (!body || typeof body !== "object") {
+      return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+    }
 
-  if (
-    (body.source_scope !== "live" && body.source_scope !== "wizard") ||
-    typeof body.staged_id !== "string" ||
-    !isUuid(body.staged_id)
-  ) {
-    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
-  }
-  if (
-    body.source_scope === "wizard" &&
-    (typeof body.wizard_session_id !== "string" || !isUuid(body.wizard_session_id))
-  ) {
-    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
-  }
-  const choices = Array.isArray(body.choices) ? body.choices : [];
-  if (!choices.every(isReviewerChoice)) {
-    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
-  }
+    if (
+      (body.source_scope !== "live" && body.source_scope !== "wizard") ||
+      typeof body.staged_id !== "string" ||
+      !isUuid(body.staged_id)
+    ) {
+      return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+    }
+    if (
+      body.source_scope === "wizard" &&
+      (typeof body.wizard_session_id !== "string" || !isUuid(body.wizard_session_id))
+    ) {
+      return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+    }
+    const choices = Array.isArray(body.choices) ? body.choices : [];
+    if (!choices.every(isReviewerChoice)) {
+      return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+    }
 
-  const admin = await readAdminEmail();
-  if (admin.kind === "infra_error") {
-    return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });
-  }
+    const admin = await readAdminEmail();
+    if (admin.kind === "infra_error") {
+      return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });
+    }
 
-  const result = await applyStaged(
-    body.source_scope === "wizard"
-      ? {
-          driveFileId: fileId,
-          sourceScope: "wizard",
-          wizardSessionId: (body.wizard_session_id as string).toLowerCase(),
-          stagedId: body.staged_id.toLowerCase(),
-          reviewerChoices: choices,
-          appliedByEmail: admin.email,
-        }
-      : {
-          driveFileId: fileId,
-          sourceScope: "live",
-          stagedId: body.staged_id.toLowerCase(),
-          reviewerChoices: choices,
-          appliedByEmail: admin.email,
-        },
-  );
-  if ("skipped" in result) {
-    return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
-  }
-  if (result.outcome === "applied") {
-    if (result.snapshotRevisionId) {
-      scheduleAfterResponse(
-        async () =>
-          await promoteSnapshotUpload(result.snapshotRevisionId!).catch((error) => {
-            console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
-          }),
-      );
+    const result = await applyStaged(
+      body.source_scope === "wizard"
+        ? {
+            driveFileId: fileId,
+            sourceScope: "wizard",
+            wizardSessionId: (body.wizard_session_id as string).toLowerCase(),
+            stagedId: body.staged_id.toLowerCase(),
+            reviewerChoices: choices,
+            appliedByEmail: admin.email,
+          }
+        : {
+            driveFileId: fileId,
+            sourceScope: "live",
+            stagedId: body.staged_id.toLowerCase(),
+            reviewerChoices: choices,
+            appliedByEmail: admin.email,
+          },
+    );
+    if ("skipped" in result) {
+      return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
+    }
+    if (result.outcome === "applied") {
+      if (result.snapshotRevisionId) {
+        scheduleAfterResponse(
+          async () =>
+            await promoteSnapshotUpload(result.snapshotRevisionId!).catch((error) => {
+              console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
+            }),
+        );
+        return NextResponse.json(
+          {
+            ok: true,
+            status: "apply_committed_pending_promote",
+            apply_id: result.snapshotRevisionId,
+            snapshot_revision_id: result.snapshotRevisionId,
+          },
+          { status: 202 },
+        );
+      }
       return NextResponse.json(
         {
           ok: true,
-          status: "apply_committed_pending_promote",
-          apply_id: result.snapshotRevisionId,
-          snapshot_revision_id: result.snapshotRevisionId,
+          status: "applied",
+          result,
         },
-        { status: 202 },
+        { status: 200 },
       );
     }
+    if (result.outcome === "wizard_applied") {
+      return NextResponse.json(
+        {
+          ok: true,
+          status: "applied",
+          result,
+        },
+        { status: 200 },
+      );
+    }
+    if (result.outcome === "discarded") {
+      return NextResponse.json({ ok: true, result });
+    }
     return NextResponse.json(
-      {
-        ok: true,
-        status: "applied",
-        result,
-      },
-      { status: 200 },
+      { ok: false, error: result.code },
+      { status: statusForCode(result.code) },
     );
-  }
-  if (result.outcome === "wizard_applied") {
-    return NextResponse.json(
-      {
-        ok: true,
-        status: "applied",
-        result,
-      },
-      { status: 200 },
-    );
-  }
-  if (result.outcome === "discarded") {
-    return NextResponse.json({ ok: true, result });
-  }
-  return NextResponse.json(
-    { ok: false, error: result.code },
-    { status: statusForCode(result.code) },
-  );
+  });
 }

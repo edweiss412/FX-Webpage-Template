@@ -24,6 +24,7 @@
  */
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 /** Typed infra fault — caller maps to a 500-class response or admin_alert. */
 export class AdminEmailsInfraError extends Error {
@@ -272,6 +273,10 @@ async function wrapInfra<T>(label: string, op: () => Promise<T>): Promise<T> {
   try {
     return await op();
   } catch (err) {
+    await log.error("admin emails infra failure", {
+      source: "data/adminEmails",
+      code: "ADMIN_EMAILS_INFRA",
+    });
     if (err instanceof AdminEmailsInfraError) throw err;
     throw new AdminEmailsInfraError(
       `${label}: ${err instanceof Error ? err.message : String(err)}`,

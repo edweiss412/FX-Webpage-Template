@@ -1,6 +1,7 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
+import { log } from "@/lib/log";
 
 export type GoogleIdentityViewer = {
   kind: "crew";
@@ -47,6 +48,10 @@ export async function validateGoogleIdentity(
       }
       // Infra fault — getUser() failed on the wire. Don't masquerade
       // as "no user."
+      await log.error("google identity validation failed", {
+        source: "auth/validateGoogleIdentity",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
       return {
         kind: "terminal_failure",
         status: 500,
@@ -75,6 +80,10 @@ export async function validateGoogleIdentity(
     // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY
     // are missing or the cookie store is unavailable — infra config
     // failure, not an auth signal.
+    await log.error("google identity validation failed", {
+      source: "auth/validateGoogleIdentity",
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     return {
       kind: "terminal_failure",
       status: 500,

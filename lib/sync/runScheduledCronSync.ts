@@ -14,6 +14,7 @@ import {
   type HeartbeatWriteResult,
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
 import { runInvariants } from "@/lib/parser/invariants";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
@@ -2787,6 +2788,12 @@ export async function runScheduledCronSync(
       markMissingShow_unlocked(lockedTx, show),
     );
     if ("skipped" in result) {
+      await log.info("missing-show sync skipped on lock contention", {
+        source: "cron/sync",
+        code: "CONCURRENT_SYNC_SKIPPED",
+        driveFileId: show.driveFileId,
+        persist: true,
+      });
       processed.push({
         driveFileId: show.driveFileId,
         result,

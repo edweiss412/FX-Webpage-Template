@@ -55,9 +55,36 @@
  *     - "I refactored an existing helper's error handling and accidentally
  *       collapsed infra → benign" — the existing row in this file fails.
  */
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { resetLogSink, setLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
+
+// Task 11 (centralized logging): the infra producers below MUST emit a
+// structured error log when they hit their infra-fault arm. Coverage is
+// DERIVED from the assertEmits calls that actually ran — a producer added to
+// INFRA_PRODUCERS without a matching assertEmits, or a removed tap, breaks the
+// afterAll set-equality.
+const INFRA_PRODUCERS = [
+  "isAdminSession",
+  "validateGoogleIdentity",
+  "validateGoogleSession",
+  "requireAdmin",
+  "requireAdminIdentity",
+  "adminEmails",
+] as const;
+
+const coveredProducers = new Set<string>();
+let emitted: LogRecord[] = [];
+
+function assertEmits(producer: string, source: string, code: string) {
+  coveredProducers.add(producer); // coverage recorded even if the assertion below fails
+  expect(
+    emitted.some((r) => r.level === "error" && r.source === source && r.code === code),
+    `${producer} did not emit error/${source}/${code}`,
+  ).toBe(true);
+}
 
 const infraMock = vi.hoisted(() => ({
   // When `throwOnConstruct` is true, createSupabaseServerClient throws.
@@ -170,6 +197,21 @@ beforeEach(() => {
   infraMock.throwOnGetClaims = false;
   infraMock.getClaimsResult = null;
   infraMock.rpcResultByFn = null;
+});
+
+beforeEach(() => {
+  emitted = [];
+  setLogSink((r) => {
+    emitted.push(r);
+  });
+});
+afterEach(() => resetLogSink());
+
+// Coverage is DERIVED from the assertEmits calls that actually ran — NOT a
+// hand-copied duplicate of INFRA_PRODUCERS. A producer added to INFRA_PRODUCERS
+// without an assertEmits call, or a removed tap, breaks this set-equality.
+afterAll(() => {
+  expect([...coveredProducers].sort()).toEqual([...INFRA_PRODUCERS].sort());
 });
 
 const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
@@ -338,6 +380,7 @@ describe("META infra-failure contract", () => {
       const { isAdminSession } = await import("@/lib/auth/isAdminSession");
       const result = await isAdminSession(new Request("http://meta.test"));
       expect(result).toEqual({ ok: false, reason: "infra_error" });
+      assertEmits("isAdminSession", "auth/isAdminSession", "ADMIN_SESSION_LOOKUP_FAILED");
     });
 
     test("rpc throw → { ok: false, reason: 'infra_error' }", async () => {
@@ -369,6 +412,11 @@ describe("META infra-failure contract", () => {
         kind: "terminal_failure",
         status: 500,
       });
+      assertEmits(
+        "validateGoogleIdentity",
+        "auth/validateGoogleIdentity",
+        "ADMIN_SESSION_LOOKUP_FAILED",
+      );
     });
 
     test("server-client construction throw → terminal_failure 500", async () => {
@@ -393,6 +441,11 @@ describe("META infra-failure contract", () => {
         kind: "terminal_failure",
         status: 500,
       });
+      assertEmits(
+        "validateGoogleSession",
+        "auth/validateGoogleSession",
+        "ADMIN_SESSION_LOOKUP_FAILED",
+      );
     });
 
     test("getUser throw → terminal_failure 500", async () => {
@@ -420,6 +473,7 @@ describe("META infra-failure contract", () => {
       infraMock.throwOnConstruct = true;
       const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+      assertEmits("requireAdmin", "auth/requireAdmin", "ADMIN_SESSION_LOOKUP_FAILED");
     });
 
     test("getClaims throw → AdminInfraError", async () => {
@@ -479,6 +533,7 @@ describe("META infra-failure contract", () => {
       infraMock.throwOnConstruct = true;
       const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+      assertEmits("requireAdminIdentity", "auth/requireAdmin", "ADMIN_SESSION_LOOKUP_FAILED");
     });
 
     test("getClaims throw → AdminInfraError", async () => {
@@ -514,6 +569,7 @@ describe("META infra-failure contract", () => {
       infraMock.throwOnConstruct = true;
       const { listAdminEmails, AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
       await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
+      assertEmits("adminEmails", "data/adminEmails", "ADMIN_EMAILS_INFRA");
     });
 
     test("addAdminEmail: from() throw → AdminEmailsInfraError", async () => {

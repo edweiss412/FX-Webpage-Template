@@ -12,6 +12,7 @@
  */
 import { createHash } from "node:crypto";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 const TABLE = "geocode_cache";
 /** ~30 days — honors Google's geocoding caching window. */
@@ -39,6 +40,7 @@ export async function readGeocodeCache(queryHash: string): Promise<GeocodeCacheR
   try {
     supabase = createSupabaseServiceRoleClient();
   } catch {
+    void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
     return { kind: "infra_error" };
   }
   try {
@@ -48,10 +50,14 @@ export async function readGeocodeCache(queryHash: string): Promise<GeocodeCacheR
       .eq("query_hash", queryHash)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
+      return { kind: "infra_error" };
+    }
     if (!data) return { kind: "miss" };
     return { kind: "hit", city: (data as { city: string | null }).city ?? null };
   } catch {
+    void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
     return { kind: "infra_error" };
   }
 }
@@ -69,6 +75,7 @@ export async function writeGeocodeCache(args: {
   try {
     supabase = createSupabaseServiceRoleClient();
   } catch {
+    void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
     return { kind: "infra_error" };
   }
   try {
@@ -84,9 +91,13 @@ export async function writeGeocodeCache(args: {
       },
       { onConflict: "query_hash" },
     );
-    if (error) return { kind: "infra_error" };
+    if (error) {
+      void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
+      return { kind: "infra_error" };
+    }
     return { kind: "ok" };
   } catch {
+    void log.warn("geocode cache infra fault", { source: "geocoding/cache" });
     return { kind: "infra_error" };
   }
 }

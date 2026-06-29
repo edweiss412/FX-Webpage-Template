@@ -13,6 +13,7 @@ import {
   type ScanProgressEvent,
   type ScanStreamMessage,
 } from "@/lib/onboarding/scanProgress";
+import { deriveRequestId, log } from "@/lib/log";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -201,6 +202,7 @@ export async function handleOnboardingScan(
   deps: ScanRouteDeps = {},
 ): Promise<Response> {
   const runtime = depsWithDefaults(deps);
+  const scanRequestId = deriveRequestId(request.headers);
   let admin: { email: string };
   try {
     admin = await runtime.requireAdminIdentity();
@@ -263,6 +265,10 @@ export async function handleOnboardingScan(
           }),
         });
       } catch {
+        void log.error("onboarding scan failed", {
+          source: "admin/onboarding/scan",
+          requestId: scanRequestId,
+        });
         emit({ type: "result", body: { ok: false, code: null } });
       } finally {
         try {

@@ -183,6 +183,22 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     rowFilter: "?show_id=eq.00000000-0000-0000-0000-000000000000",
   },
   {
+    // Phase-1 logging: append-only event log. Writes flow ONLY through the
+    // lib/log service-role insert; anon/authenticated have zero access.
+    // Append-only is enforced structurally (tests/log/_metaAppEventsWriter.test.ts),
+    // NOT at the grant layer — service_role retains ALL DML per Layer 1.
+    table: "app_events",
+    closed_at: "supabase/migrations/20260629000002_app_events.sql:28",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      level: "info",
+      source: "postgrest-dml-lockdown-test",
+      message: "lockdown-test",
+    },
+    rowFilter: "?source=eq.postgrest-dml-lockdown-test-no-such-row",
+  },
+  {
     table: "admin_emails",
     closed_at: "supabase/migrations/20260514000000_admin_emails_runtime_mutable.sql:97",
     selectAnon: false,

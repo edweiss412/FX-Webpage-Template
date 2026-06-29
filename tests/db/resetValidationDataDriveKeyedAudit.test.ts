@@ -83,6 +83,16 @@ const DRIVE_KEYED_REGISTRY: Record<string, Disposition> = {
     reason:
       "ephemeral extraction lease (~330s TTL, GC'd on every claim, owner-released at persist); self-clears via expires_at, not persistent show data, so a validation reset need not truncate it",
   },
+  // Phase-1 centralized logging: operational server-event log, NOT per-show
+  // fixture data. drive_file_id is an optional forensic breadcrumb (plain text,
+  // no FK); show_id is ON DELETE SET NULL by design ("logs outlive shows"), so
+  // `delete from public.shows` already NULLs the only show linkage. Self-bounds
+  // via the 60-day prune_app_events cron, so a validation reset need not truncate it.
+  app_events: {
+    kind: "preserve",
+    reason:
+      "operational event log (60-day prune cron, show_id ON DELETE SET NULL by design); not persistent per-show fixture data, so a validation reset need not truncate it",
+  },
 };
 
 /** Is `table` an ON DELETE CASCADE FK child of public.shows? */
