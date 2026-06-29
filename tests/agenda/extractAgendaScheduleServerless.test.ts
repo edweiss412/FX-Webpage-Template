@@ -40,6 +40,20 @@ test("module does not statically import pdfjs (no module-load evaluation)", () =
   expect(src).toMatch(/DOMMatrix/);
 });
 
+test("registers pdfjs's worker on the main thread via a STATIC-specifier lazy import", () => {
+  const src = readFileSync(SRC, "utf8");
+  // The worker module must be pulled in with a STATIC string specifier (Next bundles
+  // it into a resolvable chunk) — NOT a runtime variable, which the bundler cannot
+  // trace. This is the load-bearing difference from pdfjs's own internal
+  // `import(GlobalWorkerOptions.workerSrc)` over a variable, which resolved a relative
+  // "./pdf.worker.mjs" to a non-existent Lambda chunk → "Setting up fake worker failed"
+  // → swallowed to a 0-session low-confidence result → admin card "No schedule detected".
+  expect(src).toMatch(/\bimport\(\s*["']pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs["']\s*\)/);
+  // ...and the worker module must be assigned to globalThis.pdfjsWorker, which pdfjs's
+  // `#mainThreadWorkerMessageHandler` reads to skip the failing dynamic import entirely.
+  expect(src).toMatch(/globalThis[^\n]*\.pdfjsWorker\b|["']pdfjsWorker["']\s*\]/);
+});
+
 const g = globalThis as Record<string, unknown>;
 const PDF_GLOBALS = ["DOMMatrix", "ImageData", "Path2D"] as const;
 const saved: Record<string, unknown> = {};
@@ -50,11 +64,14 @@ beforeAll(() => {
     delete g[k];
   }
 });
+const savedPdfjsWorker = g.pdfjsWorker;
 afterAll(() => {
   for (const k of PDF_GLOBALS) {
     if (saved[k] === undefined) delete g[k];
     else g[k] = saved[k];
   }
+  if (savedPdfjsWorker === undefined) delete g.pdfjsWorker;
+  else g.pdfjsWorker = savedPdfjsWorker;
 });
 
 test("extracts with no global DOMMatrix, via the in-module polyfill (Vercel serverless regression)", async () => {
@@ -77,4 +94,14 @@ test("extracts with no global DOMMatrix, via the in-module polyfill (Vercel serv
   // stub has none of the native prototype methods (e.g. multiplySelf).
   expect(typeof g.DOMMatrix).toBe("function");
   expect("multiplySelf" in (g.DOMMatrix as { prototype: object }).prototype).toBe(false);
+
+  // Worker-on-main-thread guarantee (Vercel "Setting up fake worker failed" regression):
+  // extraction registered pdfjs's WorkerMessageHandler on globalThis.pdfjsWorker, which is
+  // the exact value pdfjs's `#mainThreadWorkerMessageHandler` reads to AVOID importing the
+  // bundle-unresolvable "./pdf.worker.mjs". Without this, getDocument throws on Lambda and
+  // every agenda PDF degrades to "No schedule detected". The successful high-confidence
+  // parse above already proves the worker path ran — this pins the mechanism.
+  expect(typeof (g.pdfjsWorker as { WorkerMessageHandler?: unknown })?.WorkerMessageHandler).toBe(
+    "function",
+  );
 });
