@@ -752,6 +752,45 @@ async function processApprovedRow(input: {
     };
   }
 
+  // §5.6 — generation-scoped re-read of parse_result under the already-held show: lock.
+  // selectFinishableCleanRows (outer tx, no show: lock) ran first; an agenda extraction
+  // that completed between that read and here may have updated parse_result in
+  // pending_syncs under the same show: lock.  Re-reading here — inside defaultWithRowTx
+  // which already holds pg_advisory_xact_lock(hashtext('show:' || drive_file_id)) at
+  // :164 — captures any such update at zero lock-acquisition cost.  No new advisory lock
+  // is acquired; adoptShowLockHeld (below) asserts only.
+  // Generation-scoped: the WHERE pins (wizard_session_id, drive_file_id, staged_id,
+  // staged_modified_time) so a mid-flight rescan that replaced the row (new staged_id or
+  // modified_time) returns 0 rows → stale demote, no publish.
+  // Drive-light: finalize does NO per-PDF Drive call here — spec §5.7 temporal-scope
+  // delegates post-publish re-validation to the cron path.
+  const freshRead = await tx.query<{ parse_result: ParseResult }>(
+    `select parse_result from public.pending_syncs
+      where wizard_session_id = $1::uuid
+        and drive_file_id = $2
+        and staged_id = $3::uuid
+        and staged_modified_time = $4::timestamptz`,
+    [wizardSessionId, row.drive_file_id, row.staged_id, row.staged_modified_time],
+  );
+  if (freshRead.rowCount === 0) {
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+    );
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+  const rereadRow: PendingFinalizeRow = {
+    ...row,
+    parse_result: freshRead.rows[0]!.parse_result,
+  };
+
   // `parse_result` is jsonb read via postgres.js. A legacy row written by the
   // old double-encoding writer comes back as a STRING SCALAR; dereferencing
   // `.show` on it threw an uncaught TypeError → empty 500 (M12 Phase 0.F smoke
@@ -763,9 +802,9 @@ async function processApprovedRow(input: {
   // raw scalar to a `$N::jsonb` audit/shadow param would re-store the corruption
   // permanently. coerceJsonbArray decodes the legacy string-of-array.
   const coercedRow = {
-    ...row,
-    parse_result: asParseResult(row.parse_result),
-    wizard_reviewer_choices: coerceJsonbArray(row.wizard_reviewer_choices),
+    ...rereadRow,
+    parse_result: asParseResult(rereadRow.parse_result),
+    wizard_reviewer_choices: coerceJsonbArray(rereadRow.wizard_reviewer_choices),
   };
 
   // F1 Task 1.4: parsed for BOTH branches — the existing-show shadow copies the DECODED items

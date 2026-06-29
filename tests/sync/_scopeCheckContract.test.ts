@@ -74,6 +74,10 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "lib/sync/holds/mi11GateActions.ts::approveMi11Hold",
     "MI-11 gate F13 two-stage Drive re-check: reads modifiedTime for an AUTHORITATIVE drive_file_id already bound to an existing sync_holds/shows row (resolved server-side, never client-supplied per PF23). This is a staleness re-verification of an already-admitted show, NOT sheet admission by drive_file_id — it never parses/processes the sheet, only compares the modtime inside the lock-taking RPC.",
   ],
+  [
+    "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts::defaultFetchMeta",
+    "raw deps-default wrapper over fetchDriveFileMetadata (mirrors the lib/drive/fetch.ts::fetchDriveFileMetadata exemption). The extract-agenda handler (handleExtractAgenda) DOES scope-check: it verifies metadata.parents.includes(pendingFolderId) via fencePasses() BEFORE any extraction (before-fence) AND again at the start of tx#2 against the re-read CURRENT pending_folder_id (after-fence) before persisting. The parents check lives in fencePasses, not inline in this thin wrapper.",
+  ],
 ]);
 
 function walkTsFiles(dir: string): string[] {

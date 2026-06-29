@@ -90,6 +90,13 @@ const lockHolderRegistry = [
     key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
   },
   {
+    path: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
+    holder: "handleExtractAgenda",
+    layer:
+      "takes the agenda-extract-admit admit lock in tx#1a (lease claim only, released at tx#1a commit), then ONE blocking show lock in tx#2 for the atomic merge-persist; never nested (admit lock released before the show lock; the staged read tx#1b holds no lock)",
+    key: "hashtext('agenda-extract-admit') -> hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/sync/retrySingleFile.ts",
     holder: "retrySingleFile",
     layer:
@@ -426,6 +433,7 @@ describe("M6 advisory-lock single-holder contract", () => {
       .sort();
 
     expect(holders).toEqual([
+      "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
       "app/api/admin/onboarding/finalize-cas/route.ts",
       "app/api/admin/onboarding/finalize/route.ts",
       "lib/sync/lockedPromoteTx.ts",

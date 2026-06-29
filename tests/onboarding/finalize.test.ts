@@ -248,6 +248,19 @@ class FakeFinalizeDb implements FinalizeRouteTx {
       return { rows: [{ id: "audit-1" } as T], rowCount: 1 };
     }
 
+    // §5.6 generation-scoped re-select of parse_result under the per-row show: lock.
+    // Returns the current parse_result for the seeded row (matched by drive_file_id + staged_id).
+    // 0 rows → the stale path in processApprovedRow (staged_id regenerated mid-flight).
+    if (
+      normalized.startsWith("select parse_result from public.pending_syncs where wizard_session_id")
+    ) {
+      const foundRow = this.approved.find(
+        (candidate) => candidate.drive_file_id === params[1] && candidate.staged_id === params[2],
+      );
+      if (!foundRow) return { rows: [], rowCount: 0 };
+      return { rows: [{ parse_result: foundRow.parse_result } as T], rowCount: 1 };
+    }
+
     if (normalized.startsWith("delete from public.pending_syncs")) {
       this.deletedPending.push(params[0] as string);
       this.approved = this.approved.filter((row) => row.drive_file_id !== params[0]);
@@ -270,6 +283,8 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
     if (sql.startsWith("insert into public.wizard_finalize_checkpoints"))
       return "ensure-checkpoint";
+    if (sql.startsWith("select parse_result from public.pending_syncs"))
+      return "reread-parse-result";
     if (sql.startsWith("select ps.drive_file_id, ps.staged_id")) return "select-approved";
     if (sql.startsWith("update public.pending_syncs")) return "demote-pending";
     if (sql.startsWith("insert into public.shows_pending_changes")) return "stage-shadow";

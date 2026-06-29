@@ -31,7 +31,7 @@
  * rise/pop/scrim animation lives in app/globals.css ([data-step3-details-panel]
  * / [data-step3-details-scrim]), consuming the motion tokens.
  */
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
@@ -57,6 +57,13 @@ import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
+import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import {
+  AGENDA_CLIENT_CONCURRENCY,
+  AGENDA_CLIENT_POLL_BUDGET_MS,
+  AGENDA_CLIENT_QUEUE_BUDGET_MS,
+} from "@/lib/agenda/constants";
 import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
@@ -693,7 +700,7 @@ export function PublishCheckbox({
         checked={checked}
         disabled={pending}
         aria-label={
-          checked ? "Publishing this show — uncheck to keep it unpublished" : "Publish this show"
+          checked ? "Publishing this show. Uncheck to keep it unpublished." : "Publish this show"
         }
         onChange={(e) => handleChange(e.currentTarget.checked)}
         className="peer sr-only"
@@ -746,6 +753,381 @@ function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
         className="ml-1 inline-block size-3.5 -translate-y-px align-middle text-text-subtle"
       />
     </a>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Agenda PDF schedule — live-fill card + 5-state machine (spec §5.3).
+ *
+ * The card renders the server-built `AdminAgendaItem[]` (note-only baseline at
+ * first paint), POSTs to the extract endpoint, polls while "Parsing agenda…",
+ * then fills in the schedule blocks (with the server-validated Open-PDF anchors)
+ * when the extraction is ready. It NEVER computes an href itself — it renders
+ * `item.href` only when the server supplied one AND the state is `ready`.
+ *
+ * States (keyed on `stateKey` = the row's `agendaStateKey`):
+ *   idle → loading → { ready | stale | error }
+ * A NEW `stateKey` resets to loading, clears the upgraded items back to the
+ * baseline, and re-fires the POST.
+ *
+ *   - loading: baseline note-only items + "Parsing agenda… (N PDFs)" eyebrow,
+ *     NO Open-PDF anchor.
+ *   - ready (200): `agenda-schedule` blocks (via AgendaScheduleBlock) + overflow
+ *     notes, WITH the server-validated anchors.
+ *   - error (network / 5xx / 504 timeout / 500): note-only, NO anchor, + a
+ *     source-sheet link.
+ *   - stale (409): sanitized note, NO anchor, NO block.
+ *   - Anchors render ONLY in `ready` (loading/error/stale all have zero).
+ *
+ * Late-response suppression (plan round-24): the effect captures the current
+ * `stateKey` into a const + creates an `AbortController`; cleanup `abort()`s the
+ * in-flight fetch on key change, and EVERY resolution checks `capturedKey ===
+ * currentKeyRef.current` before any `setState` — so a late 200/409 from an old
+ * generation is DROPPED and never sets `ready`/`stale` for the new generation.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+type AgendaState = "idle" | "loading" | "ready" | "stale" | "error";
+
+// ── Module-level POST throttle: at most AGENDA_CLIENT_CONCURRENCY in-flight
+// extraction POSTs across every mounted card (spec §5.3). A FIFO of pending
+// grants drains as slots are released. ──
+let agendaActiveSlots = 0;
+const agendaSlotWaiters: Array<() => void> = [];
+
+function acquireAgendaSlot(): Promise<() => void> {
+  return new Promise<() => void>((resolve) => {
+    const grant = () => {
+      agendaActiveSlots++;
+      let released = false;
+      resolve(() => {
+        if (released) return;
+        released = true;
+        agendaActiveSlots--;
+        const next = agendaSlotWaiters.shift();
+        if (next) next();
+      });
+    };
+    if (agendaActiveSlots < AGENDA_CLIENT_CONCURRENCY) grant();
+    else agendaSlotWaiters.push(grant);
+  });
+}
+
+/** Test-only seam: reset the module-level POST throttle between test cases. */
+export function __resetAgendaThrottleForTests(): void {
+  agendaActiveSlots = 0;
+  agendaSlotWaiters.length = 0;
+}
+
+/** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
+function parseRetryAfterMs(header: string | null): number {
+  if (!header) return 5_000;
+  const secs = Number.parseInt(header, 10);
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : 5_000;
+}
+
+/** An abortable delay; resolves immediately if already aborted. */
+function agendaSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+function agendaOverflowNotes(block: NonNullable<AdminAgendaItem["block"]>): string[] {
+  const notes: string[] = [];
+  if (block.droppedSessions > 0) notes.push(`…and ${block.droppedSessions} more sessions`);
+  if (block.droppedDays > 0) notes.push(`…and ${block.droppedDays} more days`);
+  if (block.droppedTracks > 0) notes.push(`…and ${block.droppedTracks} more tracks`);
+  return notes;
+}
+
+/** The per-state note line for a note-only item (never a raw error/status code —
+ * invariant 5). */
+function agendaItemNote(state: AgendaState): string {
+  switch (state) {
+    case "error":
+      return "We couldn’t read this agenda’s schedule.";
+    case "stale":
+      return "This agenda changed since the last scan. Re-scan to refresh.";
+    case "ready":
+      return "No schedule detected in this PDF.";
+    default:
+      return "Reading the schedule…";
+  }
+}
+
+function AgendaItemRow({
+  item,
+  state,
+  index,
+}: {
+  item: AdminAgendaItem;
+  state: AgendaState;
+  index: number;
+}) {
+  const showBlock = state === "ready" && item.block !== null;
+  // Anchors render ONLY in `ready`, and ONLY when the server validated an href.
+  const showAnchor = state === "ready" && !!item.href;
+  return (
+    <li data-testid="agenda-item" className="flex min-w-0 flex-col gap-1.5">
+      {item.badge ? (
+        <span
+          className="text-xs font-semibold uppercase text-text-subtle"
+          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+        >
+          {item.badge}
+        </span>
+      ) : null}
+      {showBlock && item.block ? (
+        <>
+          <AgendaScheduleBlock extraction={item.block.extraction} label={null} />
+          {agendaOverflowNotes(item.block).map((note) => (
+            <p key={note} className="text-xs text-text-subtle">
+              {note}
+            </p>
+          ))}
+        </>
+      ) : (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="agenda-note"
+          className={state === "error" ? "text-sm text-warning-text" : "text-sm text-text-subtle"}
+        >
+          {agendaItemNote(state)}
+        </p>
+      )}
+      {showAnchor && item.href ? (
+        <a
+          data-testid="agenda-open-pdf"
+          href={item.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Open PDF <span aria-hidden="true">↗</span>
+        </a>
+      ) : (
+        // Keep the index referenced so the key is stable + lint-clean.
+        <span hidden data-agenda-index={index} />
+      )}
+    </li>
+  );
+}
+
+export function AgendaBreakdown({
+  driveFileId,
+  wizardSessionId,
+  baseline,
+  stateKey,
+  onLiveKeyLayout,
+}: {
+  driveFileId: string;
+  wizardSessionId: string;
+  baseline: AdminAgendaItem[];
+  stateKey: string;
+  /**
+   * Test-only observability seam (production never passes it): receives
+   * `currentKeyRef.current` in the LAYOUT-effect phase — after commit, before
+   * passive effects — which is the only window that reflects ONLY the
+   * render-time live-key write (the generation-race fix) and not the later
+   * passive-effect write. Per-instance (no shared module state).
+   */
+  onLiveKeyLayout?: (liveKey: string) => void;
+}) {
+  const [state, setState] = useState<AgendaState>(() => (baseline.length > 0 ? "loading" : "idle"));
+  const [items, setItems] = useState<AdminAgendaItem[]>(baseline);
+  // A ref tracking the LIVE generation key — every late resolution checks the
+  // captured key against this before any setState (round-24 suppression).
+  const currentKeyRef = useRef<string>(stateKey);
+  // The latest baseline read inside the keyed effect WITHOUT making the effect
+  // re-run on every parent render (the parent rebuilds the array each render).
+  // Updated in its own effect so the keyed effect (declared after) sees the
+  // current generation's baseline; the generation itself is keyed on `stateKey`.
+  const baselineRef = useRef<AdminAgendaItem[]>(baseline);
+  useEffect(() => {
+    baselineRef.current = baseline;
+  }, [baseline]);
+
+  // Generation reset — adjust state during render when `stateKey` changes (the
+  // React "reset state on prop change" pattern). Clears any prior `ready` items
+  // back to the baseline note-only and returns to loading; the keyed effect
+  // below then re-fires the POST for the new generation.
+  const [trackedKey, setTrackedKey] = useState<string>(stateKey);
+  if (stateKey !== trackedKey) {
+    setTrackedKey(stateKey);
+    setState(baseline.length > 0 ? "loading" : "idle");
+    setItems(baseline);
+    // Intentional render-time ref update (react-hooks/refs disable below):
+    // the effect also sets this (line 785), but passive-effect flush is too
+    // late for the live() guard in a concurrent generation window.
+    // eslint-disable-next-line react-hooks/refs
+    currentKeyRef.current = stateKey;
+  }
+
+  useEffect(() => {
+    if (baselineRef.current.length === 0) return;
+
+    const capturedKey = stateKey;
+    currentKeyRef.current = stateKey;
+    const controller = new AbortController();
+    let cancelled = false;
+    const live = () => !cancelled && capturedKey === currentKeyRef.current;
+
+    void (async () => {
+      const release = await acquireAgendaSlot();
+      try {
+        if (!live()) return;
+        const startedAt = Date.now();
+        let admittedAt: number | null = null;
+
+        // Poll loop — 200 ready / 409 stale / 202 retry / everything else error.
+        for (;;) {
+          if (!live()) return;
+          let res: Response;
+          try {
+            res = await fetch(
+              `/api/admin/onboarding/extract-agenda/${wizardSessionId}/${driveFileId}`,
+              { method: "POST", signal: controller.signal },
+            );
+          } catch {
+            if (!live()) return;
+            setState("error");
+            return;
+          }
+          if (!live()) return;
+
+          if (res.status === 200) {
+            let body: { items?: AdminAgendaItem[] } = {};
+            try {
+              body = (await res.json()) as { items?: AdminAgendaItem[] };
+            } catch {
+              /* malformed 200 → fall back to baseline note-only */
+            }
+            if (!live()) return;
+            setItems(Array.isArray(body.items) ? body.items : baselineRef.current);
+            setState("ready");
+            return;
+          }
+
+          if (res.status === 409) {
+            if (!live()) return;
+            setState("stale");
+            return;
+          }
+
+          if (res.status === 202) {
+            let body: { reason?: "in_progress" | "queued" } = {};
+            try {
+              body = (await res.json()) as { reason?: "in_progress" | "queued" };
+            } catch {
+              /* default to in_progress budget below */
+            }
+            if (!live()) return;
+            const reason = body.reason === "queued" ? "queued" : "in_progress";
+            const now = Date.now();
+            // Reason-aware budgets: in_progress window starts at admission; the
+            // queued window starts when the first poll was issued.
+            let deadline: number;
+            if (reason === "in_progress") {
+              if (admittedAt === null) admittedAt = now;
+              deadline = admittedAt + AGENDA_CLIENT_POLL_BUDGET_MS;
+            } else {
+              deadline = startedAt + AGENDA_CLIENT_QUEUE_BUDGET_MS;
+            }
+            if (now >= deadline) {
+              setState("error");
+              return;
+            }
+            await agendaSleep(parseRetryAfterMs(res.headers.get("Retry-After")), controller.signal);
+            continue;
+          }
+
+          // 504 timeout, 500, 403, and any other non-2xx → error.
+          if (!live()) return;
+          setState("error");
+          return;
+        }
+      } finally {
+        release();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [stateKey, driveFileId, wizardSessionId]);
+
+  // Test-only observability (no-op in production — `onLiveKeyLayout` is never
+  // passed): report the live generation key in the layout phase so the g3
+  // regression can observe the render-time fix without reading the ref during
+  // render. Layout effects fire after DOM mutations but before passive effects,
+  // the only window that distinguishes the render-time live-key write from the
+  // passive-effect write.
+  useLayoutEffect(() => {
+    onLiveKeyLayout?.(currentKeyRef.current);
+  });
+
+  // §4.6 guard: no agenda links → no breakdown at all (and the effect above
+  // never POSTs).
+  if (baseline.length === 0) return null;
+
+  const sourceHref = buildSheetDeepLink(driveFileId);
+
+  return (
+    <section
+      data-testid={`wizard-step3-card-${driveFileId}-agenda`}
+      className="flex flex-col gap-2"
+    >
+      {/* Non-heading eyebrow label: the reused AgendaScheduleBlock emits its own
+          <h3> day labels, so a real <h4> here would invert the heading order
+          (h4 > h3). Rendering the section label as a styled <p> keeps the inner
+          <h3> from nesting under a higher-level heading. */}
+      <p
+        className="text-xs font-semibold uppercase text-text-subtle"
+        style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+      >
+        Agenda
+      </p>
+      {state === "loading" ? (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
+          className="text-xs text-text-subtle"
+        >
+          {`Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`}
+        </p>
+      ) : null}
+      <ul className="flex flex-col gap-3">
+        {items.map((item, i) => (
+          <AgendaItemRow key={`${item.label}-${i}`} item={item} state={state} index={i} />
+        ))}
+      </ul>
+      {state === "error" && sourceHref ? (
+        <a
+          data-testid="agenda-source-link"
+          href={sourceHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Open the source sheet <span aria-hidden="true">↗</span>
+        </a>
+      ) : null}
+    </section>
   );
 }
 
@@ -1059,6 +1441,20 @@ export function Step3SheetCard({
             <PackListBreakdown dfid={dfid} cases={pullSheet} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
           </div>
+          {/* Agenda PDF schedule — live-fill card (spec §5.3). Renders nothing when
+              the row has no agenda links; otherwise POSTs to the extract endpoint
+              and fills in the schedule blocks when ready. Keyed on agendaStateKey so
+              a rescan resets the per-row state. */}
+          {arr(row.adminAgendaPreview).length > 0 ? (
+            <div className="mt-6">
+              <AgendaBreakdown
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                baseline={arr(row.adminAgendaPreview)}
+                stateKey={row.agendaStateKey ?? dfid}
+              />
+            </div>
+          ) : null}
           {/* Warnings — pulled OUT of the column flow into a FULL-WIDTH bordered
               callout BELOW the rest, so the non-blocking data-quality notes stand
               apart from the show data. Warm warning-bg + a full strong border

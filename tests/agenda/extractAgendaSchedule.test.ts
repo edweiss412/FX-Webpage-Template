@@ -1,4 +1,4 @@
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
 const bytes = (f: string) => new Uint8Array(readFileSync(`fixtures/agenda/${f}`));
@@ -36,4 +36,19 @@ test("garbage / non-agenda PDF → low confidence", async () => {
 test("output always carries the current extractorVersion", async () => {
   const x = await extractAgendaSchedule(bytes("rfi.pdf"));
   expect(x.extractorVersion).toBe(1);
+});
+test("page cap: >AGENDA_MAX_PAGES → low confidence, no per-page parse, extractorVersion still 1", async () => {
+  const getPage = vi.fn();
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({ promise: Promise.resolve({ numPages: 81, getPage }) }),
+  }));
+  const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+  const x = await extract(new Uint8Array([1, 2, 3]));
+  expect(x.confidence).toBe("low");
+  expect(x.days).toEqual([]);
+  expect(x.extractorVersion).toBe(1);
+  expect(getPage).not.toHaveBeenCalled();
+  vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+  vi.resetModules();
 });

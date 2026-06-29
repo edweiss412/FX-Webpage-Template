@@ -101,6 +101,7 @@ export interface DriveClient {
    */
   downloadFileBytes?: (
     fileId: string,
+    opts?: { signal?: AbortSignal; deadlineMs?: number },
   ) => Promise<
     { kind: "bytes"; bytes: Uint8Array } | { kind: "unavailable" } | { kind: "infra_error" }
   >;
@@ -111,9 +112,13 @@ export interface DriveClient {
    * uri, or `null` for a plain-URL/text value). A Sheets-API fault surfaces as a
    * real union member `{ kind: 'infra_error' }` (invariant 9) so "couldn't read
    * the sheet" can never collapse into "no agenda rows / count mismatch".
+   *
+   * Task 5: `opts` adds optional signal + deadline; backward-compatible (callers
+   * that omit it compile unchanged).
    */
   getAgendaChips?: (
     spreadsheetId: string,
+    opts?: { signal?: AbortSignal; deadlineMs?: number },
   ) => Promise<
     { kind: "rows"; rows: { label: string; chipFileId: string | null }[] } | { kind: "infra_error" }
   >;

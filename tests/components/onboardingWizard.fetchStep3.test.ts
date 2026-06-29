@@ -200,3 +200,74 @@ describe("fetchStep3Data — parse_result threading (§7.1)", () => {
     expect(row?.parseResult ?? null).toBeNull();
   });
 });
+
+describe("fetchStep3Data — baseline adminAgendaPreview + agendaStateKey (Task 11)", () => {
+  // A ParseResult whose show carries one agenda_link with an extraction payload.
+  // The baseline preview is built with NO opts → note-only: block is null and
+  // href is null regardless of the extraction or fileId on the link.
+  const PARSE_WITH_AGENDA = {
+    ...PARSE_RESULT_FIXTURE,
+    show: {
+      title: "II - East Coast Tour",
+      agenda_links: [
+        {
+          label: "Day 1 Agenda",
+          fileId: "file-abc",
+          url: "https://drive.google.com/file/d/file-abc/view",
+          extracted: { confidence: "high", days: [{ date: "2026-04-15", sessions: [] }] },
+        },
+      ],
+    },
+  };
+
+  test("a staged row with agenda_links → note-only preview (block:null, href:null) + agendaStateKey", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        staged_modified_time: "2026-04-30T12:00:00.000Z",
+        parse_result: PARSE_WITH_AGENDA,
+      },
+    ];
+
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const row = result.rows.find((r) => r.driveFileId === "dfid-1");
+    expect(row).toBeDefined();
+    // One link present → one item, note-only.
+    expect(row?.adminAgendaPreview).toHaveLength(1);
+    const item = row?.adminAgendaPreview?.[0];
+    expect(item).toBeDefined();
+    expect(item?.block).toBeNull();
+    expect(item?.href).toBeNull();
+    expect(item?.label).toBe("Day 1 Agenda");
+    // Key derived from the staged_id + staged_modified_time we seeded.
+    expect(row?.agendaStateKey).toBe(`${SESSION_ID}:s-1:2026-04-30T12:00:00.000Z`);
+  });
+
+  test("a staged row with empty agenda_links → adminAgendaPreview: []", async () => {
+    seedManifest([{ drive_file_id: "dfid-2", name: "Two.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-2",
+        drive_file_id: "dfid-2",
+        staged_modified_time: "2026-05-01T00:00:00.000Z",
+        parse_result: { ...PARSE_RESULT_FIXTURE, show: { title: "No Agenda", agenda_links: [] } },
+      },
+    ];
+
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const row = result.rows.find((r) => r.driveFileId === "dfid-2");
+    expect(row).toBeDefined();
+    expect(row?.adminAgendaPreview).toEqual([]);
+    expect(row?.agendaStateKey).toBe(`${SESSION_ID}:s-2:2026-05-01T00:00:00.000Z`);
+  });
+});

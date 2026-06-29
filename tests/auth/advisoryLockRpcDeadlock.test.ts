@@ -342,6 +342,92 @@ describe("advisory-lock RPC deadlock guard", () => {
     }
   });
 
+  test("extract-agenda advisory-lock topology: single admit holder in lease helper, brief show: lock in tx#2, no lock in Drive window (round-14/15/19 plan findings)", () => {
+    const ROUTE =
+      "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts";
+    const HELPER = "lib/agenda/extractAgendaLease.ts";
+
+    const helperSrc = stripComments(readFileSync(join(ROOT, HELPER), "utf8"));
+    const routeSrc = stripComments(readFileSync(join(ROOT, ROUTE), "utf8"));
+
+    // 1. Lease helper: EXACTLY ONE pg_advisory_xact_lock(hashtext('agenda-extract-admit'...))
+    //    and ZERO 'show:' acquisitions (single-holder rule; round-14 — scanning the helper
+    //    separately because a route-only scan cannot prove single-holder for the admit lock).
+    const admitLocks = [
+      ...helperSrc.matchAll(/pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'agenda-extract-admit'/g),
+    ];
+    expect(
+      admitLocks,
+      `${HELPER}: expected exactly 1 'agenda-extract-admit' advisory-lock acquisition; ` +
+        `a second acquisition (here or in the route) breaches the single-holder rule`,
+    ).toHaveLength(1);
+
+    const helperShowLocks = [
+      ...helperSrc.matchAll(/pg_(?:try_)?advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:/g),
+    ];
+    expect(
+      helperShowLocks,
+      `${HELPER}: must contain zero 'show:' advisory-lock acquisitions; ` +
+        `the per-show lock lives exclusively in tx#2 of the route`,
+    ).toHaveLength(0);
+
+    // 2. The tx#1a sql.begin callback (the one containing claimExtractLease) does NOT touch
+    //    pending_syncs or app_settings — the admit lock tx must commit BEFORE the staged
+    //    read tx#1b; spanning them would hold the deployment-wide admit lock across the
+    //    staged read (round-19 plan finding).
+    const firstBeginIdx = routeSrc.indexOf("sql.begin(");
+    const secondBeginIdx = routeSrc.indexOf("sql.begin(", firstBeginIdx + 1);
+    expect(firstBeginIdx, `${ROUTE}: could not find first sql.begin(`).toBeGreaterThan(-1);
+    expect(secondBeginIdx, `${ROUTE}: could not find second sql.begin(`).toBeGreaterThan(-1);
+    const tx1aRegion = routeSrc.slice(firstBeginIdx, secondBeginIdx);
+    expect(tx1aRegion, `${ROUTE}: first sql.begin (tx#1a) must call claimExtractLease`).toMatch(
+      /claimExtractLease/,
+    );
+    expect(
+      tx1aRegion,
+      `${ROUTE}: tx#1a (admit-lock tx) must NOT query pending_syncs; staged read belongs in tx#1b (round-19)`,
+    ).not.toMatch(/pending_syncs/);
+    expect(
+      tx1aRegion,
+      `${ROUTE}: tx#1a (admit-lock tx) must NOT query app_settings; staged read belongs in tx#1b (round-19)`,
+    ).not.toMatch(/app_settings/);
+
+    // 3. Route has EXACTLY ONE pg_advisory_xact_lock(hashtext('show:' || ...)) acquisition
+    //    in the canonical hashtext form (round-15). That single acquisition belongs in tx#2.
+    const routeShowLocks = [
+      ...routeSrc.matchAll(/pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'\s*\|\|/g),
+    ];
+    expect(
+      routeShowLocks,
+      `${ROUTE}: expected exactly 1 per-show advisory-lock acquisition ` +
+        `(pg_advisory_xact_lock(hashtext('show:' || ...))); a new acquisition ` +
+        `requires a topology review (single-holder rule, invariant 2)`,
+    ).toHaveLength(1);
+
+    // 4. NO advisory lock in the Drive window (between tx#1b commit and tx#2 begin).
+    //    The Drive window is the text from the first 'if (read.kind' (immediately after
+    //    tx#1b closes) through to 'const persist' (which opens tx#2's sql.begin).
+    //    Any pg_advisory*_xact_lock here would hold an advisory lock across
+    //    unbounded Drive I/O, violating the spec's three-window boundary (round-19).
+    const driveWindowStart = routeSrc.indexOf("if (read.kind");
+    const tx2Start = routeSrc.indexOf("const persist");
+    expect(
+      driveWindowStart,
+      `${ROUTE}: could not locate Drive-window start marker 'if (read.kind'`,
+    ).toBeGreaterThan(-1);
+    expect(
+      tx2Start,
+      `${ROUTE}: could not locate tx#2 start marker 'const persist'`,
+    ).toBeGreaterThan(-1);
+    expect(driveWindowStart, "Drive-window start must precede tx#2 start").toBeLessThan(tx2Start);
+    const driveWindow = routeSrc.slice(driveWindowStart, tx2Start);
+    expect(
+      driveWindow,
+      `${ROUTE}: advisory lock found in the Drive window (between tx#1b and tx#2); ` +
+        `no DB connection may be held during Drive I/O`,
+    ).not.toMatch(/pg_(?:try_)?advisory_xact_lock/i);
+  });
+
   test("per-sheet rescan acquires locks in the global total order finalize: → app_settings FOR UPDATE → show: (no AB-BA vs finalize)", () => {
     // rescanWizardSheet mutates the same wizard surface as finalize. It MUST grab the
     // finalize:<session> lock first, then the app_settings FOR UPDATE session re-check, then
@@ -409,4 +495,55 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
       ).toHaveLength(acquisitions);
     }
   });
+
+  test(
+    "finalize §5.6 re-select topology: parse_result re-read runs under the existing show: lock " +
+      "with zero new acquisitions (Task 12, publish-safety)",
+    () => {
+      // Spec §5.6 / Task 12: inside defaultWithRowTx (which already holds
+      // pg_advisory_xact_lock(hashtext('show:' || $1)) at line ~164), processApprovedRow
+      // re-SELECTs parse_result from pending_syncs generation-scoped before apply.
+      // This re-read captures any agenda extraction that completed between
+      // selectFinishableCleanRows (outer tx, no show: lock) and the per-row tx.
+      //
+      // Invariant: the re-SELECT must be INSIDE the locked tx window and must NOT add a
+      // new pg_advisory_xact_lock — that would create a nested holder (deadlock class, M5 R20).
+      //
+      // Negative-regression verification (manual, performed during Task 12 authoring):
+      // Temporarily adding `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`
+      // immediately before the re-SELECT raised the `toHaveLength(1)` count to 2,
+      // causing the topology test above to FAIL.  After reverting, it passes at 1.
+      // This confirms the structural guard is load-bearing.
+      const FINALIZE = "app/api/admin/onboarding/finalize/route.ts";
+      const src = stripComments(readFileSync(join(ROOT, FINALIZE), "utf8"));
+
+      // (1) The generation-scoped re-SELECT pattern must be present (all four WHERE keys).
+      expect(
+        src,
+        `${FINALIZE}: §5.6 re-SELECT (wizard_session_id + drive_file_id + staged_id + ` +
+          `staged_modified_time) not found — Task 12 re-read was removed or renamed`,
+      ).toMatch(
+        /select parse_result from public\.pending_syncs[\s\S]*?where[\s\S]*?wizard_session_id[\s\S]*?drive_file_id[\s\S]*?staged_id[\s\S]*?staged_modified_time/i,
+      );
+
+      // (2) Acquisition count must remain at exactly 1 (single-holder rule). A second
+      // pg_advisory_xact_lock anywhere in the file is a nested-holder deadlock risk.
+      const acquisitions =
+        src.match(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/g) ?? [];
+      expect(
+        acquisitions,
+        `${FINALIZE}: §5.6 re-SELECT block must NOT add a new advisory-lock acquisition — ` +
+          `acquisition count must stay at 1 (defaultWithRowTx is the single holder)`,
+      ).toHaveLength(1);
+
+      // (3) Drive-light: the re-SELECT block must not contain any Drive call pattern.
+      // Finalize reads parse_result from the DB only; per-PDF Drive revalidation is
+      // delegated to cron (spec §5.7 temporal-scope).
+      expect(
+        src,
+        `${FINALIZE}: Drive call found near the §5.6 re-SELECT block; ` +
+          `finalize must not make per-PDF Drive calls during apply`,
+      ).not.toMatch(/getFile|downloadFileBytes/i);
+    },
+  );
 });
