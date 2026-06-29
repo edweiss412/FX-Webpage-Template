@@ -350,7 +350,16 @@ describe("enrichAgenda — verdict vs rendering orthogonality (Codex whole-diff 
     const result = makeResult([{ label: "AGENDA LINK - RFI", fileId: "F-LOW" }]);
     // getFile returns a stable rev before AND after (PDF unchanged during extract).
     const client = makeClient({ getFile: async (id) => meta(id) });
-    const report = await enrichAgenda(result, client, "s");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let report: Awaited<ReturnType<typeof enrichAgenda>>;
+    let extractedLog: unknown[] | undefined;
+    try {
+      report = await enrichAgenda(result, client, "s");
+      // Capture BEFORE mockRestore (restore clears mock.calls).
+      extractedLog = log.mock.calls.find((c) => String(c[0]).includes("[agenda-enrich] extracted"));
+    } finally {
+      log.mockRestore();
+    }
     const v = report.perLink.find((p) => p.ordinal === 0);
     expect(v?.verdict).toBe("fresh"); // revision-current, regardless of confidence
     expect(v?.verdict === "fresh" && v.extraction.confidence).toBe("low");
@@ -358,6 +367,10 @@ describe("enrichAgenda — verdict vs rendering orthogonality (Codex whole-diff 
     expect(result.show.agenda_links[0]!.extracted?.confidence).toBe("low");
     // Operator is informed the PDF produced no readable sessions.
     expect(result.warnings.some((w) => /no readable sessions/i.test(w.message))).toBe(true);
+    // Observability breadcrumb: the per-link verdict + confidence is logged so a
+    // low-confidence-but-fresh link (which renders note-only on prod) is diagnosable.
+    expect(extractedLog).toBeDefined();
+    expect(extractedLog![1]).toMatchObject({ verdict: "fresh", confidence: "low" });
   });
 });
 
