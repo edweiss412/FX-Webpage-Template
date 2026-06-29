@@ -30,6 +30,7 @@ type PerRowFailure = {
   wizard_session_id: string;
   code: string;
   re_apply_url: string;
+  display_name?: string;
 };
 
 type PerRowOk = {
@@ -133,7 +134,7 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
           <ul className="flex flex-col gap-2">
             {state.failures.map((failure) => (
               <li key={failure.drive_file_id} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">{failure.drive_file_id}</span>
+                <span className="font-medium">{failure.display_name ?? failure.drive_file_id}</span>
                 <span className="text-text-subtle">
                   {lookupDougFacing(failure.code) ??
                     "This sheet could not be published in the current batch."}

@@ -48,6 +48,7 @@ type PerRowFailure = {
   wizard_session_id: string;
   code: string;
   re_apply_url: string;
+  display_name?: string;
 };
 
 type PerRowOk = {
@@ -70,7 +71,7 @@ type FinalizeBatchResponse = {
 // for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
 // errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row })).
 // OK rows ride along in the array and are filtered before rendering.
-type CasPerRowEntry = { drive_file_id: string; code: string };
+type CasPerRowEntry = { drive_file_id: string; code: string; display_name?: string };
 
 type FinalizeErrorResponse = { ok: false; code: string; per_row?: CasPerRowEntry[] };
 
@@ -278,7 +279,7 @@ export function FinalizeButton({
           <ul className="flex flex-col gap-2">
             {state.failures.map((failure) => (
               <li key={failure.drive_file_id} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">{failure.drive_file_id}</span>
+                <span className="font-medium">{failure.display_name ?? failure.drive_file_id}</span>
                 <span className="text-text-subtle">
                   {lookupDougFacing(failure.code) ??
                     "This sheet could not be published in the current batch."}
@@ -307,7 +308,7 @@ export function FinalizeButton({
           <ul className="flex flex-col gap-2">
             {state.rows.map((row) => (
               <li key={row.drive_file_id} className="flex flex-col gap-1 text-sm">
-                <span className="font-medium">{row.drive_file_id}</span>
+                <span className="font-medium">{row.display_name ?? row.drive_file_id}</span>
                 <span className="text-text-subtle">
                   {lookupDougFacing(row.code) ?? GENERIC_ERROR}
                 </span>

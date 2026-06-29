@@ -164,6 +164,41 @@ describe("RunFinalCASButton", () => {
     expect(queryByTestId("run-final-cas-error")).toBeNull();
   });
 
+  test("cas_per_row list: shows display_name, drops the id from the label, falls back to the id when display_name is absent", async () => {
+    const TITLE = "Consultants Roundtable";
+    const TITLE_ID = "1AbC_opaque_id";
+    const FALLBACK_ID = "2Xyz_fallback_id";
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse(
+        {
+          ok: false,
+          code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+          per_row: [
+            {
+              drive_file_id: TITLE_ID,
+              code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+              display_name: TITLE,
+            },
+            { drive_file_id: FALLBACK_ID, code: "STAGED_PARSE_RESULT_CORRUPT" },
+          ],
+        },
+        { status: 409 },
+      ),
+    );
+    const { getByTestId, getByText } = render(<RunFinalCASButton sessionId={SESSION_ID} />);
+    await act(async () => {
+      fireEvent.click(getByTestId("run-final-cas-button"));
+    });
+    await waitFor(() => expect(getByTestId("run-final-cas-per-row")).toBeTruthy());
+    expect(getByText(TITLE)).toBeTruthy();
+    const list = getByTestId("run-final-cas-per-row").cloneNode(true) as HTMLElement;
+    list
+      .querySelectorAll("[data-testid*='reapply'], [data-testid*='rescan']")
+      .forEach((n) => n.remove());
+    expect(list.textContent ?? "").not.toContain(TITLE_ID);
+    expect(getByText(FALLBACK_ID)).toBeTruthy();
+  });
+
   test("WM-R3: 409 WITHOUT per_row keeps the existing top-level copy path", async () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" }, { status: 409 }),
