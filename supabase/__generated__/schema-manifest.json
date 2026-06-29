@@ -22,6 +22,12 @@
     "revoked_at",
     "revoked_by"
   ],
+  "agenda_extract_leases": [
+    "drive_file_id",
+    "expires_at",
+    "owner",
+    "wizard_session_id"
+  ],
   "app_settings": [
     "active_signing_key_id",
     "alert_on_auto_publish",
