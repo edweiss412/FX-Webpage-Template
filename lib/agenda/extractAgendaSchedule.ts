@@ -13,6 +13,7 @@
  */
 import {
   AGENDA_CONFIDENCE,
+  AGENDA_MAX_PAGES,
   AGENDA_MAX_SESSION_MIN,
   EXTRACTOR_VERSION,
 } from "@/lib/agenda/constants";
@@ -136,6 +137,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       isEvalSupported: false,
       useSystemFonts: true,
     }).promise;
+
+    if (doc.numPages > AGENDA_MAX_PAGES) return LOW();
 
     // ── 1. Lines: group text items by rounded Y, dominant (font,size). ──
     const L: Line[] = [];
