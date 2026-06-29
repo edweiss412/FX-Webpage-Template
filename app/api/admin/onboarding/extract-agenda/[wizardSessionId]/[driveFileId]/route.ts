@@ -401,12 +401,17 @@ export async function handleExtractAgenda(
       const items = buildAdminAgendaPreview(links, { freshByLinkKey, validatedHrefs: true });
       return itemsResponse(items);
     } catch (extractErr) {
-      // Unexpected throw from the extract/after-fence/merge region. Log for ops
-      // (mirrors how finalize/route.ts surfaces infra faults), return a typed 500
-      // so callers can discriminate this from auth/fence/timeout responses.
+      // Unexpected throw from the extract/after-fence/merge region. Log the
+      // underlying fault for ops (mirrors how finalize/route.ts surfaces infra
+      // faults), and return a typed 500 with the SAME `{ status }` discriminator
+      // shape as the sibling non-2xx responses (504 `{ status: "timeout" }`, 409
+      // `{ status: "stale" }`) so the client's error-state mapping is uniform and
+      // we don't mint a user-facing §12.4 catalog code for a purely-internal,
+      // never-rendered server fault (the card shows its generic error copy on any
+      // non-2xx). Discriminability for ops comes from the console.error + HTTP 500.
       // The outer finally still fires after this return and releases the lease + slot.
       console.error("[extract-agenda] unexpected error in extract/merge region:", extractErr);
-      return NextResponse.json({ code: "AGENDA_EXTRACT_FAILED" }, { status: 500 });
+      return NextResponse.json({ status: "error" }, { status: 500 });
     }
   } finally {
     // Lease-release boundary (round-1): every post-claim early exit

@@ -644,7 +644,7 @@ describe("extract-agenda — durable lease dedup (two separate slot stores)", ()
 // ─── (p / d5) lease released on every post-claim exit ──────────────────────────
 
 describe("extract-agenda — lease release on every exit", () => {
-  test("p: enrichAgenda throw → typed 500 AGENDA_EXTRACT_FAILED + lease released immediately", async () => {
+  test("p: enrichAgenda throw → typed 500 { status: error } + lease released immediately", async () => {
     const wiz = randomUUID();
     const dfid = "xa-p-throw";
     await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
@@ -659,9 +659,12 @@ describe("extract-agenda — lease release on every exit", () => {
         enrichAgenda: enrich as unknown as NonNullable<ExtractAgendaDeps["enrichAgenda"]>,
       }),
     );
-    // Invariant 9: unexpected throws must be discriminable typed 500, not bare framework 500.
+    // Invariant 9: unexpected throws must be a discriminable typed 500, not a bare
+    // framework 500. The body mirrors the sibling non-2xx `{ status }` shape
+    // (504 timeout / 409 stale) rather than minting a §12.4 catalog code for a
+    // purely-internal, never-rendered fault.
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ code: "AGENDA_EXTRACT_FAILED" });
+    expect(await res.json()).toEqual({ status: "error" });
     // The outer finally must still fire and release the durable lease.
     expect(await liveLeaseCount(dfid)).toBe(0);
   });
