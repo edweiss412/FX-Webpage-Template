@@ -2598,12 +2598,12 @@ export const MESSAGE_CATALOG = {
     code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
     dougFacing: "This sheet changed after setup reviewed it, so its update is on hold.",
     crewFacing: null,
-    followUp: "Doug → re-run setup review for that sheet before final publish",
+    followUp: "Doug → re-scan the folder in setup, then re-review and publish",
     helpfulContext:
-      "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Re-run this sheet's review to pick up the latest version, then publish.",
+      "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Go back to the scan step and re-scan the folder to pick up the latest version, then review and publish again.",
     title: "This sheet changed during setup",
     longExplanation:
-      "Setup saves the version of each sheet you reviewed and confirms it has not changed before publishing. This sheet was edited after review, so its update is on hold rather than overwriting the newer content. Re-run this sheet's review to pick up the latest version, then finish publishing.",
+      "Setup saves the version of each sheet you reviewed and confirms it has not changed before publishing. This sheet was edited after review, so its update is on hold rather than overwriting the newer content. Go back to the scan step and re-scan the folder to refresh this sheet, then review and publish again.",
     helpHref: "/help/errors#STAGED_PARSE_OUTDATED_AT_PHASE_D",
   },
   STALE_ORPHAN_REPORT: {

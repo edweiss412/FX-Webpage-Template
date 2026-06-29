@@ -1145,8 +1145,8 @@ export const SPEC_CODES = {
   "STAGED_PARSE_OUTDATED_AT_PHASE_D": {
     "crewFacing": null,
     "dougFacing": "This sheet changed after setup reviewed it, so its update is on hold.",
-    "followUp": "Doug → re-run setup review for that sheet before final publish",
-    "helpfulContext": "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Re-run this sheet's review to pick up the latest version, then publish.",
+    "followUp": "Doug → re-scan the folder in setup, then re-review and publish",
+    "helpfulContext": "Setup saves the version of each sheet you reviewed and checks it has not changed before publishing. This sheet looks like it was edited after review, so the update is on hold instead of overwriting the newer version. Go back to the scan step and re-scan the folder to pick up the latest version, then review and publish again.",
   },
   "STAGED_PARSE_RESTAGED_INLINE": {
     "crewFacing": null,
