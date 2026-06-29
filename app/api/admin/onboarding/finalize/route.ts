@@ -702,24 +702,6 @@ async function processApprovedRow(input: {
 }): Promise<PerRowResult> {
   const { row, wizardSessionId, tx } = input;
 
-  // Task B2: the reviewer-choices version is a CHECKED-row contract — only checked rows carry
-  // real choices + version=1. An UNCHECKED row has version=null (the wizard never recorded
-  // choices); it must NOT be demoted for that. Enforce the version only for checked rows.
-  if (row.wizard_approved && row.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION) {
-    await demotePending(
-      tx,
-      wizardSessionId,
-      row.drive_file_id,
-      WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
-    );
-    return {
-      drive_file_id: row.drive_file_id,
-      wizard_session_id: wizardSessionId,
-      code: WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
-      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
-    };
-  }
-
   let metadata: DriveListedFile;
   try {
     metadata = await input.fetchDriveFileMetadata(row.drive_file_id);
@@ -838,6 +820,28 @@ async function processApprovedRow(input: {
     wizard_reviewer_choices: coerceJsonbArray(rereadRow.wizard_reviewer_choices),
   };
 
+  // Version gate (spec §3.0, relocated here from before the re-read so it keys on the
+  // LOCKED wizard_approved + version, not the stale select-time values). Only checked
+  // rows carry real choices + version; an unchecked row has version=null and must NOT be
+  // demoted for that.
+  if (
+    coercedRow.wizard_approved &&
+    coercedRow.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION
+  ) {
+    await demotePending(
+      tx,
+      wizardSessionId,
+      row.drive_file_id,
+      WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
+    );
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
   // F1 Task 1.4: parsed for BOTH branches — the existing-show shadow copies the DECODED items
   // array into its payload (never the raw column value), and the first-seen core consumes it.
   const parsedItems = parseTriggeredReviewItems(row.triggered_review_items);
@@ -872,7 +876,7 @@ async function processApprovedRow(input: {
   }
 
   if (await showExists(tx, row.drive_file_id)) {
-    if (row.wizard_approved) {
+    if (coercedRow.wizard_approved) {
       // existing-show + CHECKED: unchanged — stage the shadow for the Phase D apply. publish_intent
       // is N/A to the first-seen flip (this row never creates a show) but stamp it true for
       // consistency with the manifest's checked/unchecked contract.
@@ -918,13 +922,13 @@ async function processApprovedRow(input: {
     throw new Error("approved onboarding row is missing staged_modified_time");
   }
 
-  const appliedByEmail = row.wizard_approved
+  const appliedByEmail = coercedRow.wizard_approved
     ? requireApprovedByEmail(coercedRow) // approving admin
     : input.finalizerEmail; // unchecked: the finalizer (no approver on the row)
-  const appliedAt = row.wizard_approved
-    ? normalizeTimestamptz(row.wizard_approved_at) // Apply-click instant
+  const appliedAt = coercedRow.wizard_approved
+    ? normalizeTimestamptz(coercedRow.wizard_approved_at) // Apply-click instant
     : new Date().toISOString(); // unchecked: finish instant (wizard_approved_at is null)
-  const reviewerChoices = row.wizard_approved
+  const reviewerChoices = coercedRow.wizard_approved
     ? (coercedRow.wizard_reviewer_choices as ReviewerChoice[])
     : synthesizeDefaultChoices(parsedItems.items); // unchecked: apply-all over the sentinel(s)
 
@@ -988,7 +992,7 @@ async function processApprovedRow(input: {
     wizardSessionId,
     row.drive_file_id,
     core.showId,
-    row.wizard_approved,
+    coercedRow.wizard_approved,
   );
   await deleteApprovedPending(tx, wizardSessionId, row);
   // nav-perf tag-caching (Task 6): record the created show for the POST-COMMIT revalidate. Added
