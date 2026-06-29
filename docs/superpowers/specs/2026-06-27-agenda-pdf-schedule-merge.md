@@ -129,16 +129,19 @@ untouched. (This reverts every inline-extraction change from the earlier drafts.
 
 `fetchStep3Data` (`components/admin/OnboardingWizard.tsx:191`, server) ALWAYS computes a
 **baseline** `adminAgendaPreview: AdminAgendaItem[]` per `Step3Row` by calling
-`buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` (§5.4) on the staged links —
-**pure, no Drive calls**. With no `extracted` yet, every item is **note-only**
-(`block: null`) but carries the server-validated `href` + `label` + `badge`. This is
-the load-bearing fix for the loading/error states (Codex round-17): the card ALWAYS has
-server-validated hrefs available, in every state, without ever computing an href
-client-side. `adminAgendaPreview.length` IS the agenda-link count (no separate field).
-If the staged `parse_result` already carries `extracted` (e.g. a first-seen cron staged
-it earlier), the baseline already includes the populated `block`s — so the card renders
-the full agenda immediately and the client skips the round-trip (an inherent fast-path,
-not a special case). An empty `agenda_links` → empty array → no Agenda breakdown.
+`buildAdminAgendaPreview(arr(pr?.show?.agenda_links), { baseline: true })` (§5.4) — pure,
+no Drive calls. **Every baseline item is NOTE-ONLY (`block: null`)** carrying only the
+server-validated `href` + `label` + `badge` — even if the staged `parse_result` already
+has `extracted` (Codex round-20 F1: the baseline can't verify freshness — it cannot know
+the current Drive `headRevisionId` without a Drive call, and a stored extraction may be a
+stale `EXTRACTOR_VERSION` v1; so it must NOT render blocks). The baseline's sole job is
+to supply **validated hrefs for every state** (loading/error; Codex round-17).
+`adminAgendaPreview.length` IS the agenda-link count. An empty `agenda_links` → empty
+array → no Agenda breakdown. **Blocks ONLY ever come from the extract endpoint (§5.2),
+which is the single freshness-gated source** (version + revision via `enrichAgenda`); the
+client always fetches it (the endpoint cache-hits cheaply when the extraction is already
+fresh — §5.2 step 5 — so an already-extracted show still fills in fast, just via a
+freshness-checked round-trip rather than an unverified baseline block).
 
 ### 5.2 Per-show extract endpoint — advisory-locked, cache-on-revision, persists
 
@@ -186,13 +189,22 @@ as **raw SQL through that same `tx`/`SyncPipelineTx`** — no Supabase/PostgREST
    bound a pathological show). The Drive reads are the ONLY external I/O inside the tx;
    holding the lock during this capped work mirrors the onboarding scan (PR #80, which
    already does Drive work under the per-show lock).
-7. **Persist (raw UPDATE in the same tx)** — `update public.pending_syncs set
-   parse_result = $1::jsonb where wizard_session_id = $2 and drive_file_id = $3` via
-   `tx`, passing the updated object (NOT `JSON.stringify` — postgres.js serializes the
-   `$1::jsonb` param itself; double-encoding is a known footgun). The write is privileged
-   postgres.js (the sync-pipeline connection), so the PostgREST `pending_syncs` DML
-   REVOKE (`20260601000000_b2_show_lifecycle.sql`) is satisfied (no PostgREST write).
-   Build + return `200 { items }`. Commit releases the advisory lock.
+7. **Persist — ATOMIC lifecycle-conditional UPDATE (Codex round-20 F2)** — the pre-work
+   guard (step 4) is only an optimization; a supersession/finalize/cleanup could land
+   AFTER it but before the write (during the ≤300 s extraction) UNLESS every such
+   transition is proven to hold this same `show:` lock for the whole window (the spec
+   does not assume that). So the lifecycle predicate is re-checked ATOMICALLY in the
+   write itself: `update public.pending_syncs set parse_result = $1::jsonb where
+   wizard_session_id = $2 and drive_file_id = $3 AND <active-session predicate> AND
+   <not approved/finalizing predicate> returning staged_id` via `tx`, passing the
+   updated object (NOT `JSON.stringify` — postgres.js serializes the `$1::jsonb` param
+   itself; double-encoding is a known footgun). **If 0 rows updated** (the row was
+   superseded/finalized/deleted mid-extraction) → the extraction is discarded (harmless,
+   not persisted) and the endpoint returns terminal `409 { status: "stale" }`. **If 1
+   row** → build + return `200 { items }`. The write is privileged postgres.js (the
+   sync-pipeline connection), so the PostgREST `pending_syncs` DML REVOKE
+   (`20260601000000_b2_show_lifecycle.sql`) is satisfied (no PostgREST write). Commit
+   releases the advisory lock. (The same predicate columns back the step-4 fast-exit.)
 
 **Dedupe + cache:** concurrent same-show POSTs → first holds the lock + extracts +
 persists; others get `202 in_progress` and on retry cache-hit (step 5). Different shows
@@ -209,10 +221,11 @@ The card NEVER computes hrefs — it always renders `AdminAgendaItem`s the SERVE
 
 - `adminAgendaPreview.length === 0` → **no Agenda breakdown** (omitted).
 - Else, per row, a state machine over the extract fetch: `idle → loading →
-  ready(items) | error`. The client fires the POST in a `useEffect` keyed on
-  `driveFileId` (throttled to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows)
-  UNLESS the baseline already has populated `block`s (already-extracted/cached
-  fast-path → state starts `ready`, no fetch). A **`202 { status: "in_progress" }`**
+  ready(items) | error`. The client ALWAYS fires the POST (the endpoint is the sole
+  freshness-gated block source; baseline blocks never exist) in a `useEffect` keyed on
+  `driveFileId`, throttled to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows.
+  The endpoint cache-hits cheaply when already fresh, so this is fast. A
+  **`202 { status: "in_progress" }`**
   response (another request holds the lock) keeps the row in `loading` and retries
   after a short backoff (≤ `AGENDA_CLIENT_RETRY_LIMIT = 5` attempts, then → `error`/
   baseline). A **`409 { status: "stale" }`** (lifecycle guard — superseded session /
@@ -269,12 +282,21 @@ type AdminAgendaItem = {
 
 Rules (all server-side, derived from earlier review rounds):
 
-- **Renderability predicate, NOT `extracted` truthiness:** `const norm =
+- **`opts.baseline` (Codex round-20 F1):** when called with `{ baseline: true }`
+  (`fetchStep3Data`), `block` is FORCED to `null` for every item — the baseline never
+  renders unverified blocks (it can't confirm `headRevisionId`/`EXTRACTOR_VERSION`
+  freshness without a Drive call). Only the endpoint (which calls it WITHOUT `baseline`
+  on links whose `extracted` was just set by `enrichAgenda` to the current
+  `headRevisionId` + `EXTRACTOR_VERSION`) renders blocks → blocks are always
+  freshness-gated.
+- **Renderability predicate, NOT `extracted` truthiness:** (endpoint path) `const norm =
   normalizeAgendaExtraction(link.extracted); const renderable = !!norm &&
   norm.confidence === "high" && norm.days.length > 0;` (a low/malformed/zero-day
   payload is truthy — `extracted ? block : note` would yield an empty block).
   `renderable` → `block = { extraction: capExtractionForAdmin(norm,…), dropped* }`;
-  else `block = null`.
+  else `block = null`. Freshness (version/revision) is guaranteed UPSTREAM by the
+  endpoint's `enrichAgenda` cache/extract (a stale-version `extracted` would have been
+  re-extracted at step 5/6), so a stored v1 extraction can never reach a rendered block.
 - **Render-size cap (`capExtractionForAdmin`):** keep ≤ `AGENDA_ADMIN_SESSIONS_CAP = 8`
   sessions across days (later days dropped once hit) and ≤
   `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP = 6` tracks per kept session; return the capped
@@ -357,7 +379,13 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    (i) `agenda_links` undefined/non-array → `[]`; (j) > `AGENDA_MAX_PDFS_PER_SHEET`
    links → capped + "+N more agenda PDFs"; (k) 18-session extraction → 8 + overflow
    `dropped*`; (l) > `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks in one kept session →
-   capped + track overflow.
+   capped + track overflow; (m) **`{ baseline: true }` forces note-only** even for a
+   high-confidence `extracted` (Codex round-20 F1: baseline never renders blocks); (n)
+   a stored `extractorVersion: 1` extraction passed WITHOUT `baseline` still yields a
+   block ONLY via the endpoint's fresh-extracted path — assert the predicate alone does
+   not gate version (freshness is the endpoint's `enrichAgenda` job), so the test pins
+   that `fetchStep3Data` uses `baseline: true` (the version-bypass is closed by baseline,
+   not by the predicate).
 2. **Extract endpoint (`tests/app/admin/...extractAgenda.test.ts`)** — (a) auth required
    (unauth → rejected); (b) staged `parse_result` w/ chip-based links + agenda client
    over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks AND the updated
@@ -368,10 +396,12 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    `downloadFileBytes`/`getAgendaChips` = 0); (d) **dedupe**: bypass the client throttle —
    two concurrent POSTs for the same show → the second's `try_lock` fails → `202
    in_progress`, **no** duplicate extraction (Drive calls happen once); (e) **stale
-   lifecycle guard** (Codex round-19 F2): a row whose `wizard_session_id` is superseded
-   OR whose state is approved/finalizing → `409 stale`, **zero Drive calls, no write**
-   (assert the lock is released without extraction); (f) missing staged row → `200
-   { items: [] }`; (g) infra fault on read → typed error from the `tx` path, not silent.
+   guard — pre-work** (round-19 F2): row already superseded/approved/finalizing at step
+   4 → `409 stale`, **zero Drive calls, no write**; (e2) **stale — atomic persist-time
+   race** (round-20 F2): row passes step-4, extraction runs, session superseded BEFORE
+   the write → the conditional `UPDATE … WHERE … AND <active> RETURNING` affects **0
+   rows** → `409 stale`, `parse_result` **unchanged** (assert); (f) missing staged row
+   → `200 { items: [] }`; (g) infra fault on read → typed error from the `tx` path.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
@@ -430,14 +460,14 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 | File | Change |
 |---|---|
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → `withPostgresSyncPipelineLock('show:'||dfid, {tryOnly:true})` (not acquired → `202 in_progress`) → raw `tx` SELECT `pending_syncs.parse_result` → **lifecycle guard** (superseded/finalizing → `409 stale`) → cache short-circuit if `extracted` fresh → else `enrichAgenda(…, defaultAgendaDriveClient())` + raw `tx` UPDATE `pending_syncs` → `buildAdminAgendaPreview` → `200 { items }`. ALL in one postgres.js tx; no Supabase for `pending_syncs` |
-| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview`, `capExtractionForAdmin`, `agendaPdfHref` |
+| `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?)` (`opts.baseline` forces note-only — round-20 F1), `capExtractionForAdmin`, `agendaPdfHref` |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`; bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
 | `tests/db/postgrest-dml-lockdown.test.ts` | ensure `pending_syncs` DML lockdown covered (registry row if absent) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param** (scan apparatus removed) |
-| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build the baseline `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row (pure, note-only + validated hrefs; populated `block`s if `extracted` already present) |
+| `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links), { baseline: true })` per row (pure, **note-only** + validated hrefs — never blocks; round-20 F1) |
 | Step-3 row type | add `adminAgendaPreview: AdminAgendaItem[]` to `Step3Row` (always present; empty → no breakdown); new `AdminAgendaItem` type |
 | `components/admin/wizard/Step3SheetCard.tsx` + `Step3Review.tsx` | new client `AgendaBreakdown` + per-row extract-fetch state machine (throttled), "parsing…" placeholder, live replace; pure presentation over `AdminAgendaItem` |
 | tests (per §8) | new + extended |
@@ -456,10 +486,14 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
   on `show:`||dfid) — raw `tx` SELECT + UPDATE of `pending_syncs`, NO Supabase for it**
   (Codex round-19 F1); cache-on-revision + persist; concurrent same-show → `202
   in_progress`; re-view cache-hit; publish carries the agenda forward.
-- Lifecycle guard (Codex round-19 F2): before any Drive work, verify the
-  `wizardSessionId` is the active pending session and the row isn't approved/finalizing;
-  else `409 stale` (terminal, no extraction/persist) — stale tabs can't hold the lock or
-  write to a superseded/consumed row.
+- Lifecycle guard (Codex round-19 F2 + round-20 F2): a pre-work check fast-exits stale
+  rows, AND the lifecycle predicate is re-checked ATOMICALLY in the persist
+  `UPDATE … WHERE … AND <active> RETURNING` (0 rows → `409 stale`, nothing persisted) —
+  so a supersession/finalize racing the ≤300 s extraction can't write to a consumed row.
+- Baseline freshness (Codex round-20 F1): `fetchStep3Data`'s baseline is ALWAYS
+  note-only (`{ baseline: true }`); blocks come ONLY from the endpoint, which
+  freshness-gates on `EXTRACTOR_VERSION` (bumped to 2) + `headRevisionId` via
+  `enrichAgenda` — a stale v1 cached extraction can never render or skip the refresh.
 - Persistence: endpoint **persists** the extracted agenda to the staged `parse_result`
   (cache + dedupe + publish-carries-forward) via the staged-mutation discipline
   (advisory lock + DML lockdown + Supabase write boundary); cron remains a fallback.
