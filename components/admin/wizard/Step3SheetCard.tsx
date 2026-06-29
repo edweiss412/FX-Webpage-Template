@@ -496,7 +496,7 @@ export function PublishCheckbox({
         checked={checked}
         disabled={pending}
         aria-label={
-          checked ? "Publishing this show — uncheck to keep it unpublished" : "Publish this show"
+          checked ? "Publishing this show. Uncheck to keep it unpublished." : "Publish this show"
         }
         onChange={(e) => handleChange(e.currentTarget.checked)}
         className="peer sr-only"
@@ -655,7 +655,7 @@ function agendaItemNote(state: AgendaState): string {
     case "error":
       return "We couldn’t read this agenda’s schedule.";
     case "stale":
-      return "This agenda changed since the last scan — re-scan to refresh.";
+      return "This agenda changed since the last scan. Re-scan to refresh.";
     case "ready":
       return "No schedule detected in this PDF.";
     default:
@@ -695,7 +695,14 @@ function AgendaItemRow({
           ))}
         </>
       ) : (
-        <p data-testid="agenda-note" className="text-sm text-text-subtle">
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="agenda-note"
+          className={
+            state === "error" ? "text-sm text-warning-text" : "text-sm text-text-subtle"
+          }
+        >
           {agendaItemNote(state)}
         </p>
       )}
@@ -858,14 +865,20 @@ export function AgendaBreakdown({
       data-testid={`wizard-step3-card-${driveFileId}-agenda`}
       className="flex flex-col gap-2"
     >
-      <h4
+      {/* Non-heading eyebrow label: the reused AgendaScheduleBlock emits its own
+          <h3> day labels, so a real <h4> here would invert the heading order
+          (h4 > h3). Rendering the section label as a styled <p> keeps the inner
+          <h3> from nesting under a higher-level heading. */}
+      <p
         className="text-xs font-semibold uppercase text-text-subtle"
         style={{ letterSpacing: "var(--tracking-eyebrow)" }}
       >
         Agenda
-      </h4>
+      </p>
       {state === "loading" ? (
         <p
+          role="status"
+          aria-live="polite"
           data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
           className="text-xs text-text-subtle"
         >
