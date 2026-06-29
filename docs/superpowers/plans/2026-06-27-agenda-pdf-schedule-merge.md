@@ -112,12 +112,38 @@ export const AGENDA_EXTRACT_DEADLINE_MS = 250_000;     // < maxDuration (300s)
 **Files:**
 - Create: `supabase/migrations/<ts>_agenda_extract_leases.sql`
 - Modify: `supabase/__generated__/schema-manifest.json` (regenerated)
-- Test: covered by Task 3 (lockdown) + Task 8 (endpoint); this task's "test" is the apply + manifest gate.
+- Test: `tests/db/agendaExtractLeases.schema.test.ts` (RED-first, this task's own guard)
 
 **Interfaces:**
 - Produces: table `public.agenda_extract_leases (wizard_session_id uuid, drive_file_id text, owner text, expires_at timestamptz, PK(wizard_session_id, drive_file_id))` + `agenda_extract_leases_expires_at_idx`. (Spec §10.)
 
-- [ ] **Step 1: Write the migration** (use the next timestamp in `supabase/migrations/`; idempotent DDL):
+- [ ] **Step 1: Write the FAILING schema test** (TDD invariant — round-6 plan finding) — `tests/db/agendaExtractLeases.schema.test.ts` against `$TEST_DATABASE_URL`:
+
+```ts
+import { test, expect } from "vitest";
+import postgres from "postgres";
+const sql = postgres(process.env.TEST_DATABASE_URL!);
+
+test("agenda_extract_leases exists with PK, expires_at index, and DML revoked from authenticated", async () => {
+  const cols = await sql`select column_name, data_type from information_schema.columns
+    where table_schema='public' and table_name='agenda_extract_leases' order by column_name`;
+  expect(cols.map(c => c.column_name).sort()).toEqual(["drive_file_id","expires_at","owner","wizard_session_id"]);
+  const pk = await sql`select a.attname from pg_index i
+    join pg_attribute a on a.attrelid=i.indrelid and a.attnum=any(i.indkey)
+    where i.indrelid='public.agenda_extract_leases'::regclass and i.indisprimary`;
+  expect(pk.map(r => r.attname).sort()).toEqual(["drive_file_id","wizard_session_id"]);
+  const idx = await sql`select indexname from pg_indexes
+    where schemaname='public' and tablename='agenda_extract_leases' and indexdef ilike '%expires_at%'`;
+  expect(idx.length).toBeGreaterThan(0);
+  const grants = await sql`select privilege_type from information_schema.role_table_grants
+    where table_schema='public' and table_name='agenda_extract_leases' and grantee='authenticated'`;
+  expect(grants.length).toBe(0); // no INSERT/UPDATE/DELETE/SELECT for authenticated
+});
+```
+
+- [ ] **Step 2: Run to verify it FAILS** — `pnpm vitest run tests/db/agendaExtractLeases.schema.test.ts` → FAIL (relation does not exist).
+
+- [ ] **Step 3: Write the migration** (use the next timestamp in `supabase/migrations/`; idempotent DDL):
 
 ```sql
 -- Agenda extract lease: per-staged-row dedupe + deployment-wide cap (live-lease count).
@@ -134,13 +160,15 @@ create index if not exists agenda_extract_leases_expires_at_idx
 revoke insert, update, delete, select on table public.agenda_extract_leases from anon, authenticated;
 ```
 
-- [ ] **Step 2: Apply locally** — `psql "$TEST_DATABASE_URL" -f supabase/migrations/<ts>_agenda_extract_leases.sql` then `supabase db query --linked "notify pgrst, 'reload schema';"` (or the repo's local-apply convention). Verify: `psql "$TEST_DATABASE_URL" -c "\d public.agenda_extract_leases"` shows the table + index.
+- [ ] **Step 4: Apply locally** — `psql "$TEST_DATABASE_URL" -f supabase/migrations/<ts>_agenda_extract_leases.sql` then `supabase db query --linked "notify pgrst, 'reload schema';"` (or the repo's local-apply convention).
 
-- [ ] **Step 3: Regenerate the schema manifest** — `pnpm gen:schema-manifest` then confirm `git diff supabase/__generated__/schema-manifest.json` includes `agenda_extract_leases`.
+- [ ] **Step 5: Run the schema test to verify it PASSES** — `pnpm vitest run tests/db/agendaExtractLeases.schema.test.ts` → PASS (table + PK + index + REVOKE all present).
 
-- [ ] **Step 4: Apply to the validation project** — surgically: `supabase db query --project-ref vzakgrxqwcalbmagufjh "$(cat supabase/migrations/<ts>_agenda_extract_leases.sql)"` (per the repo's validation-apply convention; see AGENTS.md "Every migration must reach the validation project"). Confirm `tests/db/validation-schema-parity.test.ts` will pass (validation ⊇ manifest).
+- [ ] **Step 6: Regenerate the schema manifest** — `pnpm gen:schema-manifest`; confirm `git diff supabase/__generated__/schema-manifest.json` includes `agenda_extract_leases`. (The `validation-schema-parity` Layer-1 tripwire fails if this is skipped.)
 
-- [ ] **Step 5: Commit** — `git add supabase/migrations supabase/__generated__/schema-manifest.json && git commit -m "feat(db): add agenda_extract_leases (RPC-gated, expires_at index)"`
+- [ ] **Step 7: Apply to the validation project** — surgically: `supabase db query --project-ref vzakgrxqwcalbmagufjh "$(cat supabase/migrations/<ts>_agenda_extract_leases.sql)"` (per AGENTS.md "Every migration must reach the validation project"). Confirm `tests/db/validation-schema-parity.test.ts` passes (validation ⊇ manifest).
+
+- [ ] **Step 8: Commit** — `git add supabase/migrations supabase/__generated__/schema-manifest.json tests/db/agendaExtractLeases.schema.test.ts && git commit -m "feat(db): add agenda_extract_leases (RPC-gated, expires_at index) [TDD: schema test]"`
 
 ---
 
@@ -262,11 +290,11 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 - Consumes: `normalizeAgendaExtraction` (`lib/agenda/normalizeAgendaExtraction.ts`), `agendaDisplayLabel` (`lib/agenda/agendaLabel.ts`), caps (Task 1).
 - Produces: `type AdminAgendaItem = { label: string; badge: string | null; href: string | null; block: { extraction: AgendaExtraction; droppedSessions: number; droppedDays: number; droppedTracks: number } | null }`; `buildAdminAgendaPreview(links: AgendaLink[], opts?: { freshByLinkKey?: Set<number>; validatedHrefs?: boolean }): AdminAgendaItem[]`; `capExtractionForAdmin(ext, …)`; `agendaPdfHref(link)`. (Spec §5.4.)
 
-- [ ] **Step 1: Write failing tests** — spec §8 test 1 cases (a)–(n2): two high-conf links → blocks (titles derived from `fixtures/agenda/*.pdf` extraction, NOT hardcoded); low/malformed/zero-day → note; **(m)** no `freshByLinkKey` ⇒ all note-only; **(n)** per-link ordinal gate — only ordinals in `freshByLinkKey` render blocks; stale `extracted` whose ordinal is absent → note-only; `buildAdminAgendaPreview` never reads version/revision to decide a block; **(n2)** duplicate-fileId: two links same `fileId`, ordinal 0 fresh + ordinal 1 absent → only ordinal 0 a block; **(h2)** `validatedHrefs` gate — same `fileId`/http link with NO `validatedHrefs` → `href: null`, WITH `validatedHrefs: true` → href present; href cases (e)–(h) assume `validatedHrefs: true`; cap cases (j)/(k)/(l) → `dropped*` overflow. **Anti-tautology:** derive expected session counts from the fixture extraction, not literals.
+- [ ] **Step 1: Write failing tests** — spec §8 test 1 cases (a)–(n2): two high-conf links → blocks (titles derived from `fixtures/agenda/*.pdf` extraction, NOT hardcoded); low/malformed/zero-day → note; **(m)** no `freshByLinkKey` ⇒ all note-only; **(n)** per-link ordinal gate — only ordinals in `freshByLinkKey` render blocks; stale `extracted` whose ordinal is absent → note-only; `buildAdminAgendaPreview` never reads version/revision to decide a block; **(n2)** duplicate-fileId: two links same `fileId`, ordinal 0 fresh + ordinal 1 absent → only ordinal 0 a block; **(h2)** `validatedHrefs` gate — same `fileId`/http link with NO `validatedHrefs` → `href: null`, WITH `validatedHrefs: true` → **`href === \`https://drive.google.com/file/d/${fileId}/view\`` (assert the EXACT absolute URL, round-6 plan finding, not merely non-null)**; href cases (e)–(h) assume `validatedHrefs: true` and assert exact URLs; cap cases (j)/(k)/(l) → `dropped*` overflow. **Anti-tautology:** derive expected session counts from the fixture extraction, not literals.
 
 - [ ] **Step 2: Run** → FAIL.
 
-- [ ] **Step 3: Implement** per spec §5.4: block iff `opts.freshByLinkKey?.has(ordinal)` AND `normalizeAgendaExtraction(link.extracted)` is `high`/non-empty-days; `capExtractionForAdmin` enforces `AGENDA_ADMIN_SESSIONS_CAP`/`AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` with `dropped*` siblings; `href = opts.validatedHrefs ? agendaPdfHref(link) : null`; `agendaPdfHref`: `fileId`→`/d/.../view`, else http(s) `url`, else null; badge when link count > 1; cap items at `AGENDA_MAX_PDFS_PER_SHEET`. Pure (no `server-only`/`fs`/Drive imports).
+- [ ] **Step 3: Implement** per spec §5.4: block iff `opts.freshByLinkKey?.has(ordinal)` AND `normalizeAgendaExtraction(link.extracted)` is `high`/non-empty-days; `capExtractionForAdmin` enforces `AGENDA_ADMIN_SESSIONS_CAP`/`AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` with `dropped*` siblings; `href = opts.validatedHrefs ? agendaPdfHref(link) : null`; `agendaPdfHref`: a non-empty `fileId` → the EXACT absolute URL `` `https://drive.google.com/file/d/${fileId}/view` `` (round-6 plan finding — NOT an app-relative path), else `link.url` ONLY when `/^https?:\/\//i.test(url)`, else `null`; badge when link count > 1; cap items at `AGENDA_MAX_PDFS_PER_SHEET`. Pure (no `server-only`/`fs`/Drive imports).
 
 - [ ] **Step 4: Run** → PASS.
 
@@ -308,7 +336,7 @@ if (doc.numPages > AGENDA_MAX_PAGES) {
 - Consumes: `requireAdminIdentity` (`@/lib/auth/requireAdmin`, returns `{ email }`), Task 6 `enrichAgenda`, Task 7 `buildAdminAgendaPreview`, Task 8 lease module, `fetchDriveFileMetadata` (`lib/drive/fetch.ts`), `adoptShowLockHeld`/`withShowLock` (`lib/sync/lockedShowTx.ts`), `sql.begin` raw tx (mirror `finalize/route.ts:161`), `agendaDrive` download/chips.
 - Produces: `POST` with `export const maxDuration = 300`; responses `200 { items }` / `202 { status, reason }` (Retry-After) / `409 { status:"stale" }` / `200 { items: [] }`.
 
-- [ ] **Step 1: Write failing tests** — the full spec §8 test 2 catalog: (a) auth; (b) chip-based links over `fixtures/agenda/*.pdf` → `200` blocks + each item carries a validated `href` + persisted via raw `tx` UPDATE; (c) cache short-circuit (zero `downloadFileBytes`/`getAgendaChips`, `getFile` allowed); (e)/(e2)/(e3)/(e3b additive non-agenda byte-identical); (h) smart-chip end-to-end + 2nd-call cache-hit; (i)/(i2) stale-refresh / mid-download rev → not persisted; (j) **no DB CONNECTION held during Drive — connection-lifetime, not just lock** (round-4 plan finding): run the endpoint against a **single-connection pool (`max: 1`)** AND/OR an instrumented `sql.begin` seam that records boundary order; assert the sequence is `tx#1.begin → tx#1.commit → fetchDriveFileMetadata/enrichAgenda (Drive) → tx#2.begin → tx#2.commit` — i.e. **tx#1 COMMITS before any Drive work starts and tx#2 BEGINS only after Drive completes** (a `max:1` pool would DEADLOCK/timeout if tx#1 were held across Drive, so the test passing proves release). Keep the concurrent-`show:`-acquire + concurrent-DB-query assertions as a secondary check. **(j-from-report) persist sources ONLY from the report:** assert tx#2 sets `extracted` ONLY from `verdict:"fresh"` entries' `extraction` payload, never from a preserved/mutated `link.extracted` (mutate the tx#1 link object to a stale value and prove it is NOT persisted); (k)/(k2) reread-merge + ordinal-first duplicate-fileId; (l) rescan generation race; (m)/(m-a/b/c)/(m2) revision + source-scope fence (via `fetchDriveFileMetadata`); (n) ownership-scoped slot; (o) recovered-fileId-persists-on-download-fail; (f)/(g); **(p) lease released IMMEDIATELY on EVERY post-claim early exit** (round-1 plan finding): for each of {before-fence `409`, after-fence `409`, `enrichAgenda` throw, tx#2-stale `409`}, assert NO live `agenda_extract_leases` row remains for `(wiz,dfid)` right after the response (the `finally` ran `releaseExtractLeaseStandalone`), AND a subsequent claim for a DIFFERENT row is NOT falsely `queued` (the cap count doesn't include the released row); **(q) endpoint-level deadline fires + cleanup** (round-3 plan finding): with fake timers, make `enrichAgenda`/Drive work hang past `AGENDA_EXTRACT_DEADLINE_MS` → the route's `AbortController` fires (before the 300 s `maxDuration`) → assert the response is a typed note-only/`infra` result (NOT a platform hard-kill), AND the durable lease row is DELETED, the in-memory slot count returns to baseline, and the in-flight marker is removed — all in the `finally` (assert no leaked same-instance capacity). Use the lease module + a `sql.begin` test seam; mock the DriveClient + `fetchDriveFileMetadata`.
+- [ ] **Step 1: Write failing tests** — the full spec §8 test 2 catalog: (a) auth; (b) chip-based links over `fixtures/agenda/*.pdf` → `200` blocks + each fileId-backed item's `href === \`https://drive.google.com/file/d/${fileId}/view\`` (exact absolute URL, round-6) + persisted via raw `tx` UPDATE; (c) cache short-circuit (zero `downloadFileBytes`/`getAgendaChips`, `getFile` allowed); (e)/(e2)/(e3)/(e3b additive non-agenda byte-identical); (h) smart-chip end-to-end + 2nd-call cache-hit; (i)/(i2) stale-refresh / mid-download rev → not persisted; (j) **no DB CONNECTION held during Drive — connection-lifetime, not just lock** (round-4 plan finding): run the endpoint against a **single-connection pool (`max: 1`)** AND/OR an instrumented `sql.begin` seam that records boundary order; assert the sequence is `tx#1.begin → tx#1.commit → fetchDriveFileMetadata/enrichAgenda (Drive) → tx#2.begin → tx#2.commit` — i.e. **tx#1 COMMITS before any Drive work starts and tx#2 BEGINS only after Drive completes** (a `max:1` pool would DEADLOCK/timeout if tx#1 were held across Drive, so the test passing proves release). Keep the concurrent-`show:`-acquire + concurrent-DB-query assertions as a secondary check. **(j-from-report) persist sources ONLY from the report:** assert tx#2 sets `extracted` ONLY from `verdict:"fresh"` entries' `extraction` payload, never from a preserved/mutated `link.extracted` (mutate the tx#1 link object to a stale value and prove it is NOT persisted); (k)/(k2) reread-merge + ordinal-first duplicate-fileId; (l) rescan generation race; (m)/(m-a/b/c)/(m2) revision + source-scope fence (via `fetchDriveFileMetadata`); (n) ownership-scoped slot; (o) recovered-fileId-persists-on-download-fail; (f)/(g); **(p) lease released IMMEDIATELY on EVERY post-claim early exit** (round-1 plan finding): for each of {before-fence `409`, after-fence `409`, `enrichAgenda` throw, tx#2-stale `409`}, assert NO live `agenda_extract_leases` row remains for `(wiz,dfid)` right after the response (the `finally` ran `releaseExtractLeaseStandalone`), AND a subsequent claim for a DIFFERENT row is NOT falsely `queued` (the cap count doesn't include the released row); **(q) endpoint-level deadline fires + cleanup** (round-3 plan finding): with fake timers, make `enrichAgenda`/Drive work hang past `AGENDA_EXTRACT_DEADLINE_MS` → the route's `AbortController` fires (before the 300 s `maxDuration`) → assert the response is a typed note-only/`infra` result (NOT a platform hard-kill), AND the durable lease row is DELETED, the in-memory slot count returns to baseline, and the in-flight marker is removed — all in the `finally` (assert no leaked same-instance capacity). Use the lease module + a `sql.begin` test seam; mock the DriveClient + `fetchDriveFileMetadata`.
 
 - [ ] **Step 2: Run** → FAIL.
 
