@@ -337,12 +337,14 @@ $$;
 revoke all on function public.prune_app_events(interval) from public, anon, authenticated;
 grant execute on function public.prune_app_events(interval) to service_role;
 
--- idempotent self-scheduling (guarded unschedule so re-apply is safe):
+-- idempotent self-scheduling (guarded unschedule so re-apply is safe;
+-- IF-EXISTS-THEN form per the bootstrap_nonces precedent :33-40):
 do $$ begin
-  perform cron.unschedule('fxav_cron_prune_app_events')
-    where exists (select 1 from cron.job where jobname = 'fxav_cron_prune_app_events');
+  if exists (select 1 from cron.job where jobname = 'fxav_cron_prune_app_events') then
+    perform cron.unschedule('fxav_cron_prune_app_events');
+  end if;
   perform cron.schedule('fxav_cron_prune_app_events', '17 4 * * *',
-    $body$ select public.prune_app_events(); $body$);
+    'select public.prune_app_events();');
 end $$;
 ```
 
