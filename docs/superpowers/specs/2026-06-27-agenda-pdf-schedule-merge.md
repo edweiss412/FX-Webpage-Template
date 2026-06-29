@@ -196,31 +196,42 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      exactly one extraction per show proceeds across ALL instances. `$owner` is a
      per-request token. TTL `AGENDA_EXTRACT_LEASE_TTL_MS` ≈ `maxDuration` + margin
      (~330 000 ms) so a dead holder's lease auto-expires.
-   - **Read + lifecycle + generation:** `SELECT staged_id, staged_modified_time,
-     parse_result (+ lifecycle cols) from public.pending_syncs where wizard_session_id = $1
-     and drive_file_id = $2`; evaluate the lifecycle guard; **capture `(staged_id,
-     staged_modified_time)`** for the tx#2 generation guard (round-27).
+   - **Read + lifecycle + generation + folder scope:** `SELECT staged_id,
+     staged_modified_time, parse_result (+ lifecycle cols) from public.pending_syncs where
+     wizard_session_id = $1 and drive_file_id = $2`; ALSO `SELECT pending_folder_id from
+     public.app_settings where id = 'default'` (for the source-scope fence — round-37);
+     evaluate the lifecycle guard; **capture `(staged_id, staged_modified_time)`** for the
+     tx#2 generation guard (round-27) and `pending_folder_id` for step 4.
    - **COMMIT/close (release the connection).** Missing row → `200 { items: [] }`. STALE
      (superseded session OR finalize-consumed/in-progress; **approved/applied rows are NOT
      stale** — round-22 F2) → `409 { status: "stale" }`. (On any of these non-extracting
      exits the lease we just claimed is released — see the `finally`, step 7.) NO `show:`
      lock here.
-4. **TOP-LEVEL sheet-revision fence — gates ALL fileId trust, before AND after Drive
-   (Codex round-28 F1 + round-29 F1 + round-31)** — the ENTIRE staged parse (links,
-   ordinals, and any previously-recovered `fileId`s) is valid ONLY for the sheet revision
-   it was derived from. So the fence is NOT scoped to `getAgendaChips` — it is a top-level
-   check applied to **every** extraction attempt, whether links are smart-chips (need
-   `getAgendaChips`) OR already fileId-bearing (staged OR a previously-recovered fileId
-   from a download-failed retry). **BEFORE any Drive trust** (chip read OR download): fetch
-   the spreadsheet's current revision token (`getSpreadsheetRevisionId` /
-   `getFile(spreadsheetId).modifiedTime`) and require it to equal the staged row's
-   `staged_modified_time` (captured in tx#1). Mismatch → **`409 stale`**, NO Drive work,
-   NO trust of any staged/recovered fileId (this is the round-31 fix: a retry that would
+4. **TOP-LEVEL sheet-revision + SOURCE-SCOPE fence — gates ALL fileId trust, before AND
+   after Drive (Codex round-28 F1 + round-29 F1 + round-31 + round-37)** — the ENTIRE
+   staged parse (links, ordinals, and any previously-recovered `fileId`s) is valid ONLY for
+   the sheet revision it was derived from AND only while the sheet is still IN the
+   configured onboarding folder. So the fence is NOT scoped to `getAgendaChips` — it is a
+   top-level check applied to **every** extraction attempt, whether links are smart-chips
+   (need `getAgendaChips`) OR already fileId-bearing (staged OR a previously-recovered
+   fileId from a download-failed retry). **BEFORE any Drive trust** (chip read OR download):
+   fetch the spreadsheet's current Drive metadata ONCE (`getFile(spreadsheetId)` → both
+   `modifiedTime`/`headRevisionId` AND `parents`; or `getSpreadsheetRevisionId` + the
+   metadata) and require BOTH: (a) **revision** == the staged row's `staged_modified_time`
+   (captured in tx#1); (b) **source scope** — `parents.includes(pending_folder_id)` (from
+   `app_settings`, tx#1), mirroring finalize's existing guard
+   (`finalize/route.ts:692-697`, `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`). Either fails →
+   **`409 stale`** (revision-stale OR **out-of-scope**: a sheet scanned in-scope then MOVED
+   OUT of the folder WITHOUT a content edit passes a revision-only check — round-37),
+   NO Drive PDF work (no `getAgendaChips`/`downloadFileBytes`), NO trust of any
+   staged/recovered fileId, no write (this is the round-31 fix too: a retry that would
    otherwise skip `getAgendaChips` and download a now-stale recovered fileId is caught
-   here). **AFTER** extraction, before persist (step 7), **re-fetch** the revision and
-   require it STILL equals `staged_modified_time` — catching a sheet edit DURING the
-   ≤300 s window. Either mismatch → `409 stale`, no persist; the operator re-scans.
-   (Mirrors the sync pipeline's modifiedTime TOCTOU fence.) Because the precheck already
+   here). **AFTER** extraction, before persist (step 7), **re-fetch** the metadata and
+   require BOTH the revision STILL equals `staged_modified_time` AND
+   `parents.includes(pending_folder_id)` STILL holds — catching a sheet edit OR a
+   move-out-of-folder DURING the ≤300 s window. Either mismatch → `409 stale`, no persist;
+   the operator re-scans. (Mirrors the sync pipeline's modifiedTime TOCTOU fence + finalize's
+   source-scope guard.) Because the precheck already
    gated everything, `enrichAgenda`'s single internal `getAgendaChips` (`enrichAgenda.ts:66-68`)
    runs within the fenced window — and the after-check covers any edit landing during it.
 5. **Extract (NO DB connection held)** — `enrichAgenda(parseResult,
@@ -637,7 +648,13 @@ re-select adds no second acquisition (the topology is unchanged).
    bearing link (the fence is not scoped to chip reads); **round-31 retry case:** a first
    call persists a recovered `fileId` after a download failure, then the sheet
    `modifiedTime` changes, then a SECOND call MUST return `409 stale` and MUST NOT download
-   the now-stale recovered fileId (assert no `downloadFileBytes` on the stale retry); (n) **ownership-
+   the now-stale recovered fileId (assert no `downloadFileBytes` on the stale retry);
+   (m2) **source-scope fence** (round-37): the staged sheet's current Drive `parents` do
+   NOT include `app_settings.pending_folder_id` (moved out of the onboarding folder, no
+   content edit so revision still matches) at the BEFORE check → `409 stale`/out-of-scope
+   with **zero Drive PDF work** (no `getAgendaChips`/`downloadFileBytes`) and no write; AND
+   moved-out DURING extraction (AFTER check fails) → `409`, no persist (`parse_result`
+   unchanged); (n) **ownership-
    scoped slot/in-flight lifecycle** (round-28 F2 + round-29 F2): drive each exit
    (success, missing-row, tx error, extraction throw, revision/lifecycle `409`, tx#2
    stale) → assert slot count + in-flight set return to baseline; AND a **duplicate `202`
@@ -752,7 +769,7 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
 
 | File | Change |
 |---|---|
-| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** claim durable `agenda_extract_leases` (live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation → top-level **revision fence** → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
+| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** claim durable `agenda_extract_leases` (live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation + `app_settings.pending_folder_id` → top-level **revision + source-scope fence** (`parents.includes(pending_folder_id)`) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id …, drive_file_id text, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))`; `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
@@ -800,12 +817,14 @@ finalize's publish-safety re-select adds NO new `show:` holder — it reuses the
 - Hrefs: **best-effort** — resolvable links get a validated Open-PDF href; smart-chip
   links (no `fileId`) get none from the pure baseline (the endpoint result carries
   recovered hrefs; the per-card source-sheet link is the universal fallback — round-25 F3).
-- Sheet-revision fence: a **TOP-LEVEL precheck** (current spreadsheet revision ==
-  `staged_modified_time`) gating ALL fileId trust — chip recovery AND download of any
-  staged OR previously-recovered fileId — applied before AND after the Drive phase on
-  EVERY attempt; a post-scan sheet edit (incl. one between a download-failed recovery and
-  its retry) → `409 stale`, never a different PDF on the old parse (round-28 F1 +
-  round-29 F1 + round-31).
+- Revision + source-scope fence: a **TOP-LEVEL precheck** (current spreadsheet revision ==
+  `staged_modified_time` AND `parents.includes(pending_folder_id)`) gating ALL fileId
+  trust — chip recovery AND download of any staged OR previously-recovered fileId — applied
+  before AND after the Drive phase on EVERY attempt; a post-scan sheet edit (incl. between a
+  download-failed recovery and its retry) OR a move-OUT-of-folder without an edit →
+  `409 stale`/out-of-scope, never a different/out-of-scope PDF on the old parse, mirroring
+  finalize's `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` (round-28 F1 + round-29 F1 + round-31 +
+  round-37).
 - Concurrency: a **durable `agenda_extract_leases` row** (claimed in tx#1, released
   owner-scoped in tx#2, TTL-recovered) gives **deployment-wide per-show dedupe + bound**
   (cross-instance — round-32), with the in-memory ownership-scoped (`ownsInFlight`/
