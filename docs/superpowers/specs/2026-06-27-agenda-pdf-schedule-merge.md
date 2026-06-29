@@ -173,11 +173,15 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
    obvious same-instance duplicates; the **durable lease (step 3) is the cross-instance
    authority**. Flags `ownsInFlight`/`acquiredSlot` default `false`. Check the
    per-`(wiz,dfid)` in-flight set (the staged-row identity — matches the durable lease key,
-   round-41): present → `202 { status: "in_progress" }` immediately
-   (`ownsInFlight`/`acquiredSlot` stay `false`). Else insert the key (`ownsInFlight =
-   true`) + try a process-wide semaphore slot `AGENDA_MAX_CONCURRENT_EXTRACTIONS`
-   (module-level counter; secondary per-instance CPU/Drive-quota bound) — got one →
-   `acquiredSlot = true`; none free → `202 in_progress`. A **`finally`** releases ONLY
+   round-41): present → `202 { status: "in_progress" }` immediately (a sibling request for
+   THIS row IS extracting; `ownsInFlight`/`acquiredSlot` stay `false`). Else insert the key
+   (`ownsInFlight = true`) + try a process-wide semaphore slot
+   `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (module-level counter; secondary per-instance
+   CPU/Drive-quota bound) — got one → `acquiredSlot = true`; **none free → `202
+   { status: "queued" }`** (Codex round-48 F2 — NOT `in_progress`: this row's extraction has
+   NOT started, it's queued behind the LOCAL cap; the client budgets `queued` like the
+   global-cap queue, NOT the one-window timer, so it can't time out before admission). A
+   **`finally`** releases ONLY
    owned resources (`if (acquiredSlot) releaseSlot(); if (ownsInFlight) deleteInFlightKey()`)
    — a duplicate `202` NEVER deletes the owner's marker/slot. Runs on ALL exits, so nothing
    leaks.
@@ -206,10 +210,11 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
      Because admissions serialize on the admit key, the next admitter's count sees this
      committed lease, so **no more than K extractions are admitted deployment-wide**
      (strict, not soft). All `202` paths set `Retry-After` and do NO Drive. **The `202`
-     carries a `reason` (Codex round-47 F2):** `at_global_cap` (count `>= K` — this row is
-     QUEUED behind the cap, hasn't started) vs `in_progress` (a live lease for THIS row — its
-     extraction is running). The client budgets these differently (§5.3) so a row queued
-     behind the cap doesn't time out into baseline before its OWN extraction even starts. The
+     carries a `reason` (Codex round-47 F2 + round-48 F2):** `queued` (count `>= K` —
+     QUEUED behind the global cap, hasn't started; SAME reason the local-cap path returns,
+     step 2) vs `in_progress` (a live lease for THIS row — its extraction is running). The
+     client budgets these differently (§5.3) so a row queued (local OR global cap) doesn't
+     time out into baseline before its OWN extraction even starts. The
      admit lock is held only during the microsecond count+claim — NEVER during the ≤300 s
      Drive work (released at tx#1 commit). This gives deployment-wide
      **exactly-one-extraction-per-STAGED-ROW** AND a strict deployment-wide total bound. **Scope note (round-41):** we deliberately do NOT cross-session share — a
@@ -440,14 +445,15 @@ deep link** is the PDF-recovery path until the endpoint returns recovered hrefs 
   only ever sees `202`s while a DIFFERENT request owns the extraction. So the client keeps
   polling `202` (honoring the endpoint's `Retry-After` header, with backoff) until it
   receives the persisted `200`/`409`. **The two `202` reasons are budgeted separately
-  (Codex round-47 F2):** `in_progress` polling is bounded by `AGENDA_CLIENT_POLL_BUDGET_MS`
-  ≈ `maxDuration` + margin (~330 000 ms) — one extraction window; `at_global_cap` polling
-  (the row is QUEUED behind the deployment-wide cap and hasn't started) does NOT consume that
-  window — it runs under a separate, larger `AGENDA_CLIENT_QUEUE_BUDGET_MS`, and the
-  `in_progress` window timer only STARTS once the row is admitted (first `in_progress`/own
-  extraction). So under a K+N burst a queued row keeps polling through the queue wait, then
-  still renders its eventual `200` instead of falling back to baseline before its extraction
-  began. (A short fixed budget — or one window covering BOTH queue-wait and extraction —
+  (Codex round-47/48 F2):** `in_progress` polling (a lease holder is extracting THIS row) is
+  bounded by `AGENDA_CLIENT_POLL_BUDGET_MS` ≈ `maxDuration` + margin (~330 000 ms) — one
+  extraction window; **`queued` polling** (the row is QUEUED behind the LOCAL per-instance
+  cap OR the deployment-wide global cap and has NOT started) does NOT consume that window —
+  it runs under a separate, larger `AGENDA_CLIENT_QUEUE_BUDGET_MS`, and the `in_progress`
+  window timer only STARTS once the row is admitted (first `in_progress`/own extraction). So
+  under a K+N burst a queued row (local or global cap) keeps polling through the queue wait,
+  then still renders its eventual `200` instead of falling back to baseline before its
+  extraction began. (A short fixed budget — or one window covering BOTH queue-wait and extraction —
   would abandon the live-fill before the owner persists.) A
   **`409 { status: "stale" }`** is **terminal → `stale` state (Codex round-38)**, which is
   DISTINCT from `error`: a 409 is the endpoint's POSITIVE signal that the staged parse is no
@@ -578,7 +584,9 @@ the real corpus (rfi 538 KB/10 pp, pcf 495 KB/7 pp, ≤2 PDFs/show):
 | Cap | Constant | Where | On exceed |
 |---|---|---|---|
 | Per-PDF download size | `AGENDA_PDF_MAX_BYTES = 25 * 1024 * 1024` | `downloadFileBytes` streamed via `readBoundedNodeStream(stream, cap, { onChunk })` | `ByteLimitExceededError` → `{ kind: "unavailable" }` → `AGENDA_PDF_UNREADABLE` |
-| Per-PDF download stall | `DRIVE_ASSET_STALL_TIMEOUT_MS` (existing) | `createStallGuard` on the stream (`stallGuard.ts:13-22` FULL wiring: `signal`→`files.get(params,{responseType:'stream',signal,retry:false})`, abort→`stream.destroy`, `reset` on `onChunk`, `clear` in `finally`, `timedOut()`→`infra_error`) | idle stall → `infra_error` |
+| Per-PDF download stall (IDLE) | `DRIVE_ASSET_STALL_TIMEOUT_MS` (existing) | `createStallGuard` on the stream (`stallGuard.ts:13-22` FULL wiring: `signal`→`files.get(params,{responseType:'stream',signal,retry:false})`, abort→`stream.destroy`, `reset` on `onChunk`, `clear` in `finally`, `timedOut()`→`infra_error`) | idle stall → `infra_error` |
+| Per-PDF TOTAL wall-clock (slow-drip) | `AGENDA_PDF_DEADLINE_MS` (new — Codex round-48 F1) | a per-PDF `AbortController` armed with a TOTAL-time deadline (NOT reset on chunk) wired into the SAME `signal` as the stall guard | total-time exceeded → abort the download/extract → `infra_error` (note-only) — bounds a slow-drip that emits a tiny chunk before each idle timeout to evade the stall guard |
+| Endpoint TOTAL wall-clock | `AGENDA_EXTRACT_DEADLINE_MS` (new — Codex round-48 F1; `< maxDuration = 300 s`, e.g. ~250 s) | the route races the whole extract against this deadline via an `AbortSignal`; on fire it ACTIVELY aborts in-flight Drive/PDF work and unwinds through the `finally` | returns a typed note-only/`infra` result + **releases the lease + in-memory slot + in-flight in-process** BEFORE the platform's 300 s hard-kill (which would skip the `finally` → leak the warm-instance in-memory slot, no TTL) |
 | `getAgendaChips` call timeout | `DRIVE_FILES_GET_TIMEOUT_MS` (existing) + transient retry (per `sheetGids.ts`) | `getAgendaChips` | timeout → `infra_error` |
 | Per-PDF page count | `AGENDA_MAX_PAGES = 80` | `extractAgendaSchedule` early `LOW()` when `doc.numPages > cap` (before the page loop) | low-confidence → note |
 | PDFs extracted per show | `AGENDA_MAX_PDFS_PER_SHEET = 6` | `enrichAgenda` loop | links beyond the cap skip; surfaced via the card note (no warning) |
@@ -588,9 +596,14 @@ The page-cap guard bumps `EXTRACTOR_VERSION` 1→2 (gate-logic change per
 `tests/agenda/extractAgendaSchedule.test.ts`, `tests/agenda/constants.test.ts`,
 `tests/onboarding/enrichAgendaIntegration.test.ts`). `getFile` already routes through
 the timed metadata fetch (`fetch.ts` `DRIVE_FILES_GET_TIMEOUT_MS`) — unchanged.
-`enrichAgenda` no longer takes any `agendaBudget` param (the scan-level apparatus is
-gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unenriched
-(retry on a later call / cron) — never a permanent drop.
+`enrichAgenda` no longer takes the SCAN-level `agendaBudget`/deadline apparatus (the
+attempts/scan-deadline knobs are gone) — but it DOES accept a thread-in **`AbortSignal`**
+(round-48 F1) so the endpoint's total-time deadline (`AGENDA_EXTRACT_DEADLINE_MS`) and the
+per-PDF deadline (`AGENDA_PDF_DEADLINE_MS`) can ACTIVELY cancel in-flight Drive/PDF work
+(distinct from the old budget param — this is a cancellation signal, not a per-call budget
+count). A `downloadFileBytes`/`getAgendaChips` `infra_error` OR a deadline-abort leaves the
+link unenriched (retry on a later poll / cron) — never a permanent drop, and the `finally`
+always releases owned resources (lease + in-memory slot).
 
 ### 5.6 Finalize re-reads `parse_result` under the `show:` lock (Codex round-34)
 
@@ -839,7 +852,14 @@ value that's stale-but-not-yet-cleared, e.g. an UNKNOWN/transient case), not the
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
    (mock `numPages = cap+1` → low, no per-page parse; `extractorVersion === 2`);
-   per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET + 1` links → first N extracted).
+   per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET + 1` links → first N extracted);
+   **slow-drip TOTAL-time deadline** (round-48 F1): a stream that emits a TINY chunk just
+   BEFORE each idle `DRIVE_ASSET_STALL_TIMEOUT_MS` (so the idle stall guard keeps resetting
+   and never fires, AND it stays under the byte cap) → the per-PDF/endpoint TOTAL-time
+   deadline (`AGENDA_PDF_DEADLINE_MS`/`AGENDA_EXTRACT_DEADLINE_MS`) ABORTS via the
+   `AbortSignal` → `infra_error` (note-only), and the `finally` releases the lease +
+   in-memory slot (assert resources released, fake timers) — proving total wall-clock is
+   bounded BELOW `maxDuration`, not just idle time.
 4. **Card live fill-in (RTL, `tests/components/admin/...`)** — given a SERVER-built
    baseline `adminAgendaPreview` (note-only items), pure-presentation + per-row fetch
    state: (a) `loading` → baseline items + "Parsing agenda… (2 PDFs)" eyebrow; (b) `ready`
@@ -872,12 +892,12 @@ value that's stale-but-not-yet-cleared, e.g. an UNKNOWN/transient case), not the
    `agendaStateKey` (changed `staged_id`/`staged_modified_time` — a rescan) AFTER a prior
    `ready` result → assert the prior `ready` items are CLEARED (state → `idle`) and the
    POST RE-FIRES for the new generation (no stale agenda carried across generations); (h)
-   **queued behind the global cap, then admitted** (round-47 F2): the mock returns `202
-   { reason: "at_global_cap" }` for LONGER than one `AGENDA_CLIENT_POLL_BUDGET_MS` window,
-   then `202 { reason: "in_progress" }`, then `200` with items → the card MUST keep polling
-   the whole time (queue budget, fake timers) and render the eventual `ready` blocks — it
-   must NOT fall back to baseline/error while still `at_global_cap` (proving the window timer
-   starts only at admission).
+   **queued (local OR global cap), then admitted** (round-47/48 F2): the mock returns `202
+   { reason: "queued" }` for LONGER than one `AGENDA_CLIENT_POLL_BUDGET_MS` window — run it
+   BOTH for the global-cap and the local-cap path — then `202 { reason: "in_progress" }`,
+   then `200` with items → the card MUST keep polling the whole time (queue budget, fake
+   timers) and render the eventual `ready` blocks — it must NOT fall back to baseline/error
+   while still `queued` (proving the one-window timer starts only at admission).
 5. **Boundary-purity guard (`agendaPurityBoundary.test.ts`)** — `agendaAdminPreview.ts`,
    `AgendaScheduleBlock.tsx`, `normalizeAgendaExtraction.ts` import nothing
    `server-only`/`next/headers`/`fs`.
@@ -971,7 +991,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_CLIENT_QUEUE_BUDGET_MS` (larger — covers waiting behind the global cap; round-47 F2), `AGENDA_MAX_CONCURRENT_EXTRACTIONS` (per-instance), `AGENDA_GLOBAL_MAX_CONCURRENT_EXTRACTIONS` (deployment-wide, via live-lease count — round-43 F2), `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000), `AGENDA_PDF_DEADLINE_MS` + `AGENDA_EXTRACT_DEADLINE_MS` (~250 000, `< maxDuration` — total-time deadlines, round-48 F1); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a brief `show:`||dfid holder (tx#2) + a brief global `agenda-extract-admit` holder (tx#1, never during Drive); finalize re-select adds no new holder |
 | `tests/db/postgrest-dml-lockdown.test.ts` | add `agenda_extract_leases` registry row (REVOKE all client DML); ensure `pending_syncs` covered |
 | `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
@@ -1011,10 +1031,17 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
   render + publish — which read `link.extracted` directly — never expose stale agenda; an
   UNKNOWN (transient infra_error) is LEFT (last-known-good, round-25). The full per-datum
   fence table is §5.7.
-- Global-cap queueing (round-47 F2): the `202` carries `reason` (`at_global_cap` vs
-  `in_progress`); the client's one-window `AGENDA_CLIENT_POLL_BUDGET_MS` timer starts only at
-  admission, with a larger `AGENDA_CLIENT_QUEUE_BUDGET_MS` for the queue wait — so a row
-  queued behind the cap still renders its eventual `200`.
+- Queue budgeting (round-47/48 F2): the `202` carries `reason` — **`queued`** (behind the
+  LOCAL per-instance cap OR the deployment-wide global cap; not started) vs `in_progress` (a
+  lease holder is extracting THIS row). The client's one-window `AGENDA_CLIENT_POLL_BUDGET_MS`
+  timer starts only at admission; `queued` polling uses a larger `AGENDA_CLIENT_QUEUE_BUDGET_MS`
+  — so a row queued behind EITHER cap still renders its eventual `200`.
+- Total-time deadline + active cancellation (round-48 F1): per-PDF (`AGENDA_PDF_DEADLINE_MS`)
+  and endpoint (`AGENDA_EXTRACT_DEADLINE_MS`, `< maxDuration`) TOTAL-time deadlines via an
+  `AbortSignal` bound a slow-drip download that evades the idle stall guard; on fire they
+  abort in-flight Drive/PDF work and unwind through the `finally` (releasing lease + in-memory
+  slot in-process) BEFORE the 300 s platform hard-kill — which would skip cleanup and leak
+  the warm-instance in-memory slot.
 - Persist integrity: tx#2 **rereads + merges only confirmed-fresh results** into the
   current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches
   **ordinal-first** (`i ↔ i` — the in-memory and reread links are the same generation's
