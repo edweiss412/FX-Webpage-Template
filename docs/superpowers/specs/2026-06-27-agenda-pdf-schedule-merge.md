@@ -301,8 +301,12 @@ short txns (claim+read; brief `show:` persist+release) — NEVER during the ≤3
 work — so previews cannot exhaust the postgres pool or starve finalize/scan. The `show:`
 lock is held only for the millisecond persist `UPDATE`, so a finalize racing the
 extraction either consumes the row first (→ our conditional `UPDATE` hits 0 rows → `409`,
-discarded) or runs just after. **Deployment-wide, exactly ONE extraction per show runs at
-a time** (the durable `agenda_extract_leases` row — cross-instance, TTL-recovered), with
+discarded) or runs just after. **Finalize itself re-reads `parse_result` under the `show:`
+lock before publishing (§5.6, Codex round-34)** — so a finalize that pre-read the row
+before our persist still picks up the extracted agenda (the brief tx#2 `show:` lock is
+necessary but not sufficient on its own; finalize's read-before-lock is the other half).
+**Deployment-wide, exactly ONE extraction per show runs at a time** (the durable
+`agenda_extract_leases` row — cross-instance, TTL-recovered), with
 the in-memory `AGENDA_MAX_CONCURRENT_EXTRACTIONS` as a per-instance aggregate guard and
 `AGENDA_CLIENT_CONCURRENCY` per browser; repeated POSTs are cheap (cache → `getFile`, no
 download). **Publishing is never gated on a best-effort preview; no DB connection is held
@@ -458,6 +462,41 @@ the timed metadata fetch (`fetch.ts` `DRIVE_FILES_GET_TIMEOUT_MS`) — unchanged
 gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unenriched
 (retry on a later call / cron) — never a permanent drop.
 
+### 5.6 Finalize re-reads `parse_result` under the `show:` lock (Codex round-34)
+
+The extractor's tx#2 persist is NOT sufficient for publish-safety on its own. **Finalize
+reads `pending_syncs.parse_result` BEFORE it takes the per-show lock**
+(`selectFinishableCleanRows`, `finalize/route.ts:346-357` + `:943`, reads `ps.parse_result`
+into the in-memory `PendingFinalizeRow`), then consumes that snapshot to apply/stage. So a
+finalize that SELECTed the row, then lost the `show:` lock to the extractor (which persists
+the agenda), can re-acquire the lock and publish/stage the STALE pre-read row — dropping the
+just-extracted agenda even though the card showed a ready preview. The fix (both finalize
+apply paths) is to **re-SELECT `parse_result` for the row UNDER the `show:` lock,
+immediately before consuming it**, and use that fresh value:
+
+- **First-seen apply** (`finalize/route.ts:823-828`): the path already acquires the lock
+  (`adoptShowLockHeld(input.pipelineTx, row.drive_file_id)`). Add a `SELECT parse_result
+  from public.pending_syncs where wizard_session_id = $1 and drive_file_id = $2` AFTER the
+  lock and pass THAT (coerced) to `applyStagedCore` as `parseResult`, instead of the
+  pre-read `coercedRow.parse_result`. (The pre-read `staged_id`/`staged_modified_time`
+  stay the generation guard — the extractor's tx#2 does NOT change them, so the existing
+  `stale_write`/`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` path is unaffected.)
+- **Existing-show shadow** (`finalize/route.ts:771`, `stageExistingShowShadow` at `:525-568`):
+  this path currently takes **no `show:` lock**. Wrap it: acquire `adoptShowLockHeld`
+  first, re-SELECT `parse_result` under it, and stage THAT into the shadow's
+  `parse_result` (`:546`). Because the shadow is the authoritative source for the Phase-D
+  apply (and `pending_syncs` is deleted right after, `:773`), the re-read must happen here.
+
+Once finalize holds `show:<dfid>`, the extractor's tx#2 (which needs the same lock) is
+blocked, so the re-read is the latest committed value AND no extraction can interleave
+during finalize; a later extractor then finds the row finalize-consumed → its tx#2
+predicate hits 0 rows → `409` (discarded). **Advisory-lock topology (invariant 2):** the
+existing-show path GAINS a `show:` holder. It is a single holder per `dfid` (no nested
+re-acquire — that path held no `show:` lock before; `stageExistingShowShadow`'s callees
+take none). Lock order is `finalize:<session>` → `show:<dfid>`; the extractor never takes
+`finalize:`, so no AB-BA. `tests/auth/advisoryLockRpcDeadlock.test.ts` is extended to pin
+the finalize existing-show path as a single `show:` holder.
+
 ## 6. Guard conditions (every input)
 
 - `agenda_links` empty / missing / non-array → baseline `adminAgendaPreview = []` → no
@@ -607,13 +646,24 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    `AgendaScheduleBlock` per high-conf link; no new `runOfShow` write path exists; the
    onboarding `defaultDriveClient` is **unchanged** (still `getFile`+`listFolder` only —
    asserts the scan gained no PDF work).
-7. **Impeccable dual-gate** (critique + audit) on the admin card diff (invariant 8).
+7. **Finalize/extract race (`tests/.../finalizeAgendaRace.test.ts`)** — round-34, BOTH
+   apply paths: finalize `selectFinishableCleanRows` reads the row's `parse_result` (no
+   agenda) FIRST; the extractor then persists the agenda under the `show:` lock; finalize
+   then acquires the `show:` lock and applies. Assert the **published/shadow payload
+   includes the extracted agenda** (first-seen: `applyStagedCore` receives the re-read
+   `parse_result`; existing-show: the staged shadow's `parse_result` carries it) — proving
+   finalize re-reads under the lock, not the stale pre-read. Also assert (negative
+   regression) that with NO concurrent extraction the published payload is unchanged, and
+   that the new existing-show `show:` acquisition is a single holder (no nested re-acquire
+   / deadlock) via the extended advisory-lock meta-test.
+8. **Impeccable dual-gate** (critique + audit) on the admin card diff (invariant 8).
 
 ## 9. Meta-test inventory
 
 This milestone **EXTENDS** two structural meta-tests: `tests/db/postgrest-dml-lockdown.test.ts`
 (new `agenda_extract_leases` registry row — round-32) and
-`tests/auth/advisoryLockRpcDeadlock.test.ts` (endpoint as a brief single-holder of `show:`).
+`tests/auth/advisoryLockRpcDeadlock.test.ts` (endpoint as a brief single-holder of `show:`,
+AND the finalize existing-show path as a new single `show:` holder — round-34).
 It creates no new meta-test.
 
 - **Supabase call-boundary** (invariant 9): the endpoint's `pending_syncs` +
@@ -628,10 +678,15 @@ It creates no new meta-test.
   round-23/24 F2):** the endpoint takes NO advisory lock during Drive work (dedupe is
   in-memory, not a DB lock — round-24 F2). It holds the canonical `show:` key ONLY around
   the persist `UPDATE` in SHORT tx #2 (single-holder; no nested re-acquire; never during
-  external I/O). **Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** to pin: the
-  endpoint is a brief `show:` persist holder and holds NO DB lock/connection during the
-  Drive/PDF window. Document the existing `show:` holders (approve/apply/discard staged
-  routes + sync pipeline) and confirm the endpoint adds no second layer.
+  external I/O). **Plus the FINALIZE existing-show path GAINS a `show:` holder (round-34):**
+  it now acquires `adoptShowLockHeld` before `stageExistingShowShadow` to re-read
+  `parse_result` (§5.6) — a single holder per `dfid` (no nesting; that path held no
+  `show:` lock before), lock order `finalize:<session>` → `show:<dfid>`, extractor never
+  takes `finalize:` (no AB-BA). **Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** to
+  pin: the endpoint is a brief `show:` persist holder (no DB lock/connection during Drive),
+  AND the finalize existing-show path is a single `show:` holder. Document existing `show:`
+  holders (approve/apply/discard staged routes + sync pipeline + finalize first-seen) and
+  confirm no path adds a second layer.
 - **PostgREST DML lockdown (extended for the NEW lease table — round-32):** the
   `pending_syncs.parse_result` write is a **privileged raw postgres.js UPDATE** through the
   sync-pipeline `tx` — NOT a PostgREST `from('pending_syncs').update`; `pending_syncs` DML
@@ -655,6 +710,7 @@ It creates no new meta-test.
 |---|---|
 | `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **SHORT tx#1** claim durable `agenda_extract_leases` (live lease → `202`) + SELECT `pending_syncs.parse_result` + lifecycle + capture generation → top-level **revision fence** → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id …, drive_file_id text, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))`; `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
+| `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` UNDER the `show:` lock before consuming it on BOTH paths (round-34): first-seen apply (`:823-828` — lock present, add re-read) and existing-show shadow (`:771` — acquire `adoptShowLockHeld` + re-read before `stageExistingShowShadow`). Publish-safety; new `show:` holder on the existing-show path |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<string> })` — block ONLY for links in `freshByLinkKey` (default empty ⇒ note-only; round-25 F2); `capExtractionForAdmin`, `agendaPdfHref` (best-effort, null for smart-chips) |
 | `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_POLL_BUDGET_MS` (~330 000 — replaces a fixed retry count; round-33 F1), `AGENDA_MAX_CONCURRENT_EXTRACTIONS`, `AGENDA_EXTRACT_LEASE_TTL_MS` (~330 000); bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
@@ -715,6 +771,10 @@ It creates no new meta-test.
   ordinal+label match — persisted even when the PDF download FAILS, giving the note a
   valid Open-PDF href + warming the row so retries skip `getAgendaChips`) SEPARATELY from
   `confirmedFreshExtractions` (blocks only for fresh links) — round-30.
+- Publish-safety: finalize **re-reads `parse_result` under the `show:` lock** before
+  apply/shadow-stage on BOTH paths (round-34) — the extractor's tx#2 persist alone is not
+  enough because finalize reads the row BEFORE its lock; this adds a `show:` holder to the
+  existing-show finalize path (advisory-lock topology change, invariant 2, meta-test-pinned).
 - Lifecycle guard (Codex round-19/20/22 F2): extractable = active session AND NOT
   finalize-consumed/superseded; **approved/applied rows STILL extract** (they're visible
   review rows until finalize consumes them, and persistence carries the agenda to
