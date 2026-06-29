@@ -280,11 +280,19 @@ and released in tx#2, plus a cheap **in-memory fast-path** (per-instance):
    fresh block exactly when refresh FAILED. So a link is **block-eligible ONLY if it was
    positively confirmed fresh THIS call**: `extracted.extractorVersion === EXTRACTOR_VERSION`
    **AND** `extracted.sourceRevision === <the `headRevisionId` `getFile` returned this
-   call>`. `enrichAgenda` (or a thin endpoint wrapper) exposes, per link, the
-   just-fetched `headRevisionId` + whether the extraction was confirmed this call; a link
-   that failed to refresh → **note-only** (`block: null`) and its stale `extracted` is
-   NOT written back as if fresh. (Plan: extend `enrichAgenda`/the wrapper to return
-   per-link confirmed-fresh + revision, rather than relying on mutation side-effects.)
+   call>` **AND the PDF's `headRevisionId` was STABLE across the download (per-PDF
+   before+after fence — Codex round-46)**. The latter closes a per-PDF TOCTOU: `enrichAgenda`
+   reads `getFile.headRevisionId` (`rev_before`) THEN `downloadFileBytes` THEN extracts; if
+   the PDF is edited between that `getFile` and the download, the extracted bytes are the
+   NEW revision but stamped with `rev_before`. So after extracting, **re-fetch the PDF's
+   `getFile.headRevisionId` (`rev_after`) and require `rev_after === rev_before`**; if it
+   changed, the link is **NOT confirmed fresh** → note-only, its block is NOT persisted
+   (a later retry picks up the new revision). This mirrors the sheet fence's before+after
+   pattern, per linked PDF. `enrichAgenda` (or a thin endpoint wrapper) exposes, per link,
+   the just-fetched `headRevisionId` + whether the extraction was confirmed-fresh-AND-stable
+   this call; a link that failed to refresh OR changed mid-download → **note-only**
+   (`block: null`), its `extracted` NOT written as fresh. (Plan: extend `enrichAgenda`/the
+   wrapper to return per-link confirmed-fresh + stable revision, not mutation side-effects.)
 7. **SHORT tx #2 — brief `show:` lock + REREAD-MERGE-conditional persist (Codex round-25
    F1)** — open a new tx, acquire the canonical `show:` lock
    (`pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`, blocking, held only for
@@ -719,7 +727,13 @@ re-select adds no second acquisition (the topology is unchanged).
    with old `extractorVersion` (v1) OR old `sourceRevision`, AND the refresh
    `downloadFileBytes` returns `infra_error` → the returned item is **note-only**
    (`block: null`) and the stale `extracted` is **NOT written back as a fresh block**
-   (assert `parse_result` not upgraded to a fresh block); (j) **no DB connection / show:
+   (assert `parse_result` not upgraded to a fresh block); (i2) **per-PDF mid-download
+   revision change → not fresh** (round-46): the PDF's `getFile.headRevisionId` returns
+   `rev_before`, then `downloadFileBytes`+extract run, then the after-`getFile` returns a
+   DIFFERENT `rev_after` (PDF edited mid-extraction) → the link is **NOT confirmed-fresh**
+   → note-only, its block is **NOT persisted** (assert `parse_result` not upgraded), even
+   though the extraction produced high-confidence days; a stable `rev_after === rev_before`
+   → block persisted normally; (j) **no DB connection / show:
    lock during Drive** (round-23/24 F2): assert the Drive/PDF window holds NO advisory
    lock and NO open tx — a concurrent `show:` acquisition (finalize) AND a concurrent DB
    query both succeed DURING extraction; `show:` is taken only in tx#2; (k) **reread-merge,
@@ -899,7 +913,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 | `supabase/__generated__/schema-manifest.json` | regenerated via `pnpm gen:schema-manifest` to include `agenda_extract_leases` (validation-schema-parity gate) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
-| `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param**; **expose per-link confirmed-fresh + just-fetched `headRevisionId`** (round-24 F1) so the endpoint can positively gate blocks (not rely on preserve-on-error side-effects) |
+| `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param**; **expose per-link confirmed-fresh + just-fetched `headRevisionId`** (round-24 F1); **per-PDF before+after `headRevisionId` stability check** (round-46: re-`getFile` after download; `rev_after !== rev_before` → not fresh) so the endpoint can positively gate blocks (not rely on preserve-on-error side-effects) |
 | `components/admin/OnboardingWizard.tsx` (`fetchStep3Data` `:191`) | ALWAYS build `adminAgendaPreview = buildAdminAgendaPreview(arr(pr?.show?.agenda_links))` per row — **omit `freshByLinkKey`** (default empty ⇒ **note-only**; round-25 F2), pure, best-effort hrefs, never blocks |
 | Step-3 row type | add `adminAgendaPreview: AdminAgendaItem[]` to `Step3Row` (always present; empty → no breakdown); new `AdminAgendaItem` type |
 | `components/admin/wizard/Step3SheetCard.tsx` + `Step3Review.tsx` | new client `AgendaBreakdown` + per-row extract-fetch state machine (throttled), "parsing…" placeholder, live replace; pure presentation over `AdminAgendaItem` |
@@ -923,9 +937,10 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 - Freshness: cache hit costs a cheap `getFile` (not zero Drive — round-23 F1); blocks
   render ONLY for links whose **ordinal** is in `freshByLinkKey` (an EXPLICIT typed input,
   per-link not fileId — round-35 F2; default empty — round-25 F2) = links **positively
-  confirmed fresh this call** (current `EXTRACTOR_VERSION` + current `headRevisionId`); a
-  refresh-failed stale extraction is note-only and never persisted as a fresh block
-  (round-24 F1).
+  confirmed fresh this call** (current `EXTRACTOR_VERSION` + current `headRevisionId` + the
+  PDF's `headRevisionId` STABLE across the download, a per-PDF before+after fence — round-46);
+  a refresh-failed OR mid-download-edited extraction is note-only and never persisted as a
+  fresh block (round-24 F1 + round-46).
 - Persist integrity: tx#2 **rereads + merges only confirmed-fresh results** into the
   current `parse_result` (never a whole-blob clobber — round-25 F1). The merge matches
   **ordinal-first** (`i ↔ i` — the in-memory and reread links are the same generation's
