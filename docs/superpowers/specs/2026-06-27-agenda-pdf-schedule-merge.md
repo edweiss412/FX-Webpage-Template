@@ -272,10 +272,12 @@ fast-path** (per-instance):
    Do NOT use the sync `DriveClient.getFile` here: that shape STRIPS `parents` and its
    `headRevisionId` is the PER-PDF download cache key (§5.2 step 5/6 / `enrichAgenda.ts:115`),
    NOT the sheet's revision — and a native Google Sheet may have NO `headRevisionId` at all.
-   Require BOTH: (a) **sheet revision** — `metadata.modifiedTime` equals the staged row's
-   **`staged_modified_time`** (both are Drive `modifiedTime` TIMESTAMPS — compare with the
-   existing ISO/ms-precision timestamp matcher the sync/finalize stale-guard uses, NOT
-   `Date.parse(<Date>)` which drops ms; `headRevisionId` is NOT compared here); (b) **source
+   Require BOTH: (a) **sheet revision** — `revisionTimesMatch(metadata.modifiedTime,
+   staged_modified_time)` (the shared matcher `lib/sync/applyStaged.ts:386`, which finalize
+   already uses — round-25): postgres.js reads `staged_modified_time` (`timestamptz`) as a JS
+   `Date` while Drive `modifiedTime` is a string, so a strict `===` would ALWAYS mismatch and
+   false-`409` an unchanged sheet on the happy path; `revisionTimesMatch` normalizes both to
+   the exact instant (ms-precision, NOT `Date.parse(<Date>)`). `headRevisionId` is NOT compared here; (b) **source
    scope** — `metadata.parents.includes(pending_folder_id)` (from `app_settings`, tx#1b),
    mirroring finalize's guard (`finalize/route.ts:692-697`, `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`).
    Either fails → **`409 stale`** (revision-stale OR **out-of-scope**: a sheet scanned
@@ -719,7 +721,7 @@ preview, crew render, publish) can trust the persisted data directly.
 
 | Datum | Read via | Fence (before + after the consuming work) | On stale/unconfirmable |
 |---|---|---|---|
-| Sheet revision | `fetchDriveFileMetadata.modifiedTime` (§5.2 step 4) | `modifiedTime == staged_modified_time` before chip/download AND after, before persist | `409 stale`, no Drive PDF work / no persist |
+| Sheet revision | `fetchDriveFileMetadata.modifiedTime` (§5.2 step 4) | `revisionTimesMatch(modifiedTime, staged_modified_time)` (round-25) before chip/download AND after, before persist | `409 stale`, no Drive PDF work / no persist |
 | Sheet source-scope | `fetchDriveFileMetadata.parents` (step 4) | `parents.includes(pending_folder_id)` before AND after | `409` out-of-scope, no work / no persist |
 | Smart-chip fileId recovery | `getAgendaChips` (one fenced read, step 4/5) | inside the fenced sheet window; ordinal+label correlation | recovered fileIds persist (fence-validated) even if download later fails |
 | Per-PDF revision | per-link `getFile.headRevisionId` (step 6) | `rev_after === rev_before` across the download/extract | link NOT confirmed-fresh → note-only, block not persisted |
@@ -742,6 +744,23 @@ today. **No `EXTRACTOR_VERSION` bump** (§5.5) means existing `extractorVersion:
 stay version-current — the feature invalidates NO legacy data and adds NO crew render gate
 ("crew unchanged"). So crew/publish behavior for already-published shows is byte-unaffected
 by this change.
+
+**Temporal scope of the invariant — fresh AS OF EXTRACTION, cron re-validates post-publish
+(Codex round-25).** The persisted-`extracted` freshness invariant holds AS OF THE LAST
+ENDPOINT EXTRACTION: the endpoint never persists a KNOWN-stale `extracted` (it CLEARS one) at
+extraction time, and its before/after fences bind that extraction to the sheet+PDF revisions
+THEN. It is NOT a perpetual guarantee: if a linked agenda PDF is edited AFTER the endpoint
+persists but BEFORE the operator clicks Finish, finalize (which re-reads `parse_result` under
+the `show:` lock, §5.6, but deliberately does NOT do per-PDF Drive revalidation — keeping
+finalize Drive-light) publishes the last-extracted agenda, and the **next cron sync
+re-validates + re-extracts it post-publish** — the SAME freshness model that already governs
+ALL published-show agenda (cron's `enrichAgenda`). This window is narrow (the
+extraction→Finish gap), self-healing (cron), and the agenda is best-effort derived PDF data
+**outside line-item approval** (user-ratified round-43). Finalize is NOT given a Drive-I/O
+revalidation step; the cron path is the post-publish freshness authority. (DO NOT relitigate:
+adding per-PDF Drive revalidation to the finalize publish path is explicitly out of scope —
+it duplicates cron and expands finalize's blast radius for a self-healing best-effort-data
+window.)
 
 ## 6. Guard conditions (every input)
 
@@ -1061,7 +1080,7 @@ publish-safety re-select adds NO new `show:` holder — it reuses the existing
 
 | File | Change |
 |---|---|
-| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **tx#1a** (brief `agenda-extract-admit` advisory lock → GC + strict global-cap count + claim durable `agenda_extract_leases`; at cap OR live lease → `202`; commits/releases the admit lock) → **tx#1b** (SEPARATE tx, NO admit lock — round-19): SELECT `pending_syncs.parse_result` + lifecycle + capture generation + `app_settings.pending_folder_id` → top-level **revision + source-scope fence** via `fetchDriveFileMetadata` (`modifiedTime == staged_modified_time` + `parents.includes(pending_folder_id)`) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
+| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → in-memory fast-path → **tx#1a** (brief `agenda-extract-admit` advisory lock → GC + strict global-cap count + claim durable `agenda_extract_leases`; at cap OR live lease → `202`; commits/releases the admit lock) → **tx#1b** (SEPARATE tx, NO admit lock — round-19): SELECT `pending_syncs.parse_result` + lifecycle + capture generation + `app_settings.pending_folder_id` → top-level **revision + source-scope fence** via `fetchDriveFileMetadata` (`revisionTimesMatch(modifiedTime, staged_modified_time)` (round-25) + `parents.includes(pending_folder_id)`) → **`enrichAgenda` with NO DB connection held** (positive per-link freshness; stale-refresh → note-only) → revision re-check → **SHORT tx#2** brief `show:` lock + atomic generation+lifecycle-conditional `UPDATE … RETURNING` (recoveredFileIds + confirmedFreshExtractions; 0 rows → `409`) + owner-scoped lease release → `buildAdminAgendaPreview` → `200 { items }`. `finally` releases lease on every exit. No DB held during Drive; raw postgres.js |
 | `supabase/migrations/<ts>_agenda_extract_leases.sql` (new) | `create table if not exists public.agenda_extract_leases (wizard_session_id uuid not null, drive_file_id text not null, owner text not null, expires_at timestamptz not null, primary key (wizard_session_id, drive_file_id))` — keyed by the staged-row identity (round-41; `wizard_session_id` type matches `pending_syncs`); **`create index if not exists agenda_extract_leases_expires_at_idx on public.agenda_extract_leases (expires_at)`** (round-52 — the GC `DELETE … WHERE expires_at <= now()` + live count); `REVOKE INSERT, UPDATE, DELETE, SELECT … FROM anon, authenticated`. Apply local + validation; regen schema-manifest |
 | `app/api/admin/onboarding/finalize/route.ts` | re-SELECT `parse_result` INSIDE the already-`show:`-locked per-row tx (`defaultWithRowTx:164`) before consuming it on BOTH paths (round-34/35): first-seen apply (`:823-828`) and existing-show shadow (`:771`/`:546`). Publish-safety; **NO new lock holder** — reuses the existing per-row lock |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview(links, opts?: { freshByLinkKey?: Set<number>; validatedHrefs?: boolean })` — block ONLY for links whose **ordinal** is in `freshByLinkKey` (per-link, NOT fileId — round-35 F2; default empty ⇒ note-only); `href` emitted ONLY when `validatedHrefs` (endpoint, post-fence — round-50; baseline href always null); `capExtractionForAdmin`, `agendaPdfHref` |
@@ -1149,7 +1168,7 @@ there.)
   link is the universal pre-validation recovery (loading/stale/error).
 - Revision + source-scope fence: a **TOP-LEVEL precheck** via `fetchDriveFileMetadata`
   (returns `parents` + `modifiedTime`; NOT the sync `getFile` which strips `parents`) —
-  requires `metadata.modifiedTime == staged_modified_time` (a TIMESTAMP compare, NOT
+  requires `revisionTimesMatch(metadata.modifiedTime, staged_modified_time)` (the shared matcher, applyStaged.ts:386 — NOT strict `===`, since postgres.js returns a Date; round-25) (a TIMESTAMP compare, NOT
   `headRevisionId` — which is only the per-PDF cache key, and a native Sheet may lack it —
   round-39) AND `parents.includes(pending_folder_id)`. Gates ALL fileId trust (chip
   recovery AND download of any staged/recovered fileId), before AND after the Drive phase;
