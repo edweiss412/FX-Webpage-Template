@@ -79,11 +79,16 @@ No change to crew rendering.
   stays `getFile` + `listFolder` only (so the scan's wall-clock is unchanged). No
   scan-level agenda budget / deadline / stall apparatus (all dropped vs the inline
   drafts).
-- **The extract endpoint is READ-ONLY** — it does NOT write the staged `parse_result`.
-  So: no new DB write, no advisory-lock acquisition, no PostgREST DML lockdown, no
-  migration. Persistence of agenda extraction remains cron's job post-publish (the
-  existing baseline — crew agenda has always appeared after the first post-publish cron
-  sync; no regression).
+- **The extract endpoint PERSISTS + dedupes** (Codex round-18): client-side throttling
+  alone can't stop multiple tabs/refreshes/strict-mode/direct POSTs from re-doing
+  expensive Drive/PDF work. So the endpoint (a) **caches** by persisting the extraction
+  into the staged `parse_result` and short-circuiting when it's already fresh, and
+  (b) **dedupes** concurrent same-show requests via the per-show advisory lock
+  (`hashtext('show:' || drive_file_id)`, the canonical sync-pipeline key; invariant 2
+  single-holder). This reuses the existing staged-mutation discipline (advisory lock +
+  PostgREST DML lockdown for the `pending_syncs.parse_result` write + Supabase
+  call-boundary). Bonus: persistence means re-view is instant AND publish carries the
+  extracted agenda forward (crew sees it on publish, not just after the next cron).
 - **`StagedReviewCard` surfaces are out of scope**: the live first-seen page
   (`app/admin/show/staged/[stagedId]/page.tsx`) and the wizard finalize-failure
   re-review (`app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx`)
@@ -100,7 +105,7 @@ No change to crew rendering.
  ──────────────────────         ─────────────────────            ───────────────
  runOnboardingScan stages       POST /api/admin/onboarding/       Step3Review (client):
  parse_result WITHOUT           extract-agenda/[wiz]/[dfid]       for each show w/ agenda
- extraction (getFile+           (READ-ONLY):                      links + no preview yet,
+ extraction (getFile+           (advisory-locked):                links + no preview yet,
  listFolder only)               • auth (requireAdminIdentity)     fire the POST (throttled),
         │                       • read staged parse_result        show "parsing agenda…",
         ▼                       • enrichAgenda(result, prod        replace with returned
@@ -133,32 +138,48 @@ it earlier), the baseline already includes the populated `block`s — so the car
 the full agenda immediately and the client skips the round-trip (an inherent fast-path,
 not a special case). An empty `agenda_links` → empty array → no Agenda breakdown.
 
-### 5.2 Per-show read-only extract endpoint
+### 5.2 Per-show extract endpoint — advisory-locked, cache-on-revision, persists
 
 New route `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts`
-(POST, `export const maxDuration = 300`). Read-only; per request:
+(POST, `export const maxDuration = 300`). Per request, all inside ONE transaction under
+the per-show advisory lock (the established staged-mutation pattern —
+`withPostgresSyncPipelineLock` / `makeSyncPipelineTx`, as used by the
+approve/apply/discard routes):
 
-1. **Auth** — `requireAdminIdentity()` (same gate as the other onboarding routes);
-   reject otherwise.
-2. **Read** the staged `parse_result` for `(wizardSessionId, driveFileId)` from
-   `pending_syncs` (`.eq("wizard_session_id", …)`, `parse_result` column; Supabase read;
-   invariant 9 — destructure `{ data, error }`, infra fault → typed error result, never
-   silent). Missing/corrupt row (race: deleted mid-review) → `{ items: [] }`; the client
-   then keeps its server-built baseline (§5.3), so Open-PDF links never disappear.
-3. **Extract** — `enrichAgenda(parseResult, defaultAgendaDriveClient(), driveFileId)`,
-   reusing the PRODUCTION `downloadFileBytes` + `getAgendaChips` (`lib/drive/agendaDrive.ts`,
-   the same impls cron wires at `runScheduledCronSync.ts:1665-1666`). One show ⇒ ≤ a
-   couple PDFs ⇒ trivially within the request's own 300 s — **no scan-level budget /
-   deadline / active-cancellation needed**. Per-PDF and per-show hygiene caps (§5.5)
-   bound a pathological single show.
-4. **Build + return** `{ items: AdminAgendaItem[] }` via `buildAdminAgendaPreview`
-   (§5.4) over the now-`extracted` `agenda_links`. No DB write.
+1. **Auth** — `requireAdminIdentity()` (`@/lib/auth/requireAdmin`); reject otherwise.
+2. **Advisory lock (dedupe)** — `pg_try_advisory_xact_lock(hashtext('show:' ||
+   drive_file_id))` (the CANONICAL sync-pipeline key — single-holder, invariant 2; the
+   endpoint is the sole holder for its call, never nests a second). **Try**-lock (non-
+   blocking): if NOT acquired (another request is extracting this show) → return `202
+   { status: "in_progress" }` immediately — no held connection, no duplicate work; the
+   client keeps "parsing…" and retries (§5.3).
+3. **Read** the staged `parse_result` from `pending_syncs` (`.eq("wizard_session_id",
+   …)` + `drive_file_id`, `parse_result` column; Supabase read, invariant 9 — `{ data,
+   error }`, infra fault → typed error result). Missing row (race) → `200 { items: [] }`
+   → client keeps its baseline (§5.3).
+4. **Cache short-circuit** — if every fileId-bearing `agenda_link` already has
+   `extracted` with a matching `headRevisionId` + current `EXTRACTOR_VERSION`
+   (`enrichAgenda`'s existing freshness check, `enrichAgenda.ts:115-121`) → **skip all
+   Drive work**, build the preview from the stored `extracted`, return `200 { items }`.
+   This is the dominant repeat path (re-view, refresh, multi-tab after the first run).
+5. **Extract + persist** — else `enrichAgenda(parseResult, defaultAgendaDriveClient(),
+   driveFileId)` (production `downloadFileBytes` + `getAgendaChips`,
+   `runScheduledCronSync.ts:1665-1666`; one show ≤ a couple PDFs ⇒ well within 300 s;
+   per-PDF/per-show hygiene caps §5.5 bound a pathological show). Then **persist** the
+   updated `parse_result` (now carrying `extracted`) back to `pending_syncs` via the
+   RPC-gated staged-write path (PostgREST DML lockdown — the `pending_syncs` mutation
+   goes through the same SECURITY DEFINER / pipeline-tx path as the other staged
+   mutations, never a raw `from('pending_syncs').update`). Build + return
+   `200 { items }`.
 
-Idempotent + safe to call repeatedly (React strict-mode double-fire, re-view): it only
-reads + does Drive reads + returns; `enrichAgenda`'s `headRevisionId`/`extractorVersion`
-cache makes a repeat call cheap when `extracted` is already present on the in-memory
-links (within a call) — across calls it re-extracts, which is acceptable (≤ a couple
-PDFs).
+**Dedupe + cache properties:** concurrent same-show POSTs → the first holds the lock +
+extracts + persists; the rest get `202 in_progress` (no duplicate Drive work) and on
+retry hit the cache (step 4). Different shows use different hashkeys → parallel (bounded
+by the client's `AGENDA_CLIENT_CONCURRENCY`). Holding the lock during the (capped,
+≤ couple-PDF) extraction mirrors the onboarding scan, which already does Drive work
+under the per-show lock (PR #80 `PostgresOnboardingScanTx`). React strict-mode
+double-fire is absorbed by the try-lock + cache. **No durable work is duplicated and no
+unbounded server amplification is possible.**
 
 ### 5.3 Client orchestration + live fill-in (UI; Opus + impeccable invariant 8)
 
@@ -168,10 +189,14 @@ The card NEVER computes hrefs — it always renders `AdminAgendaItem`s the SERVE
 (baseline or endpoint result).
 
 - `adminAgendaPreview.length === 0` → **no Agenda breakdown** (omitted).
-- Else, per row, a state machine over the extract fetch: `idle → loading → ready(items)
-  | error`. The client fires the POST in a `useEffect` keyed on `driveFileId` (throttled
-  to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows) UNLESS the baseline already
-  has populated `block`s (already-extracted fast-path → state starts `ready`, no fetch).
+- Else, per row, a state machine over the extract fetch: `idle → loading →
+  ready(items) | error`. The client fires the POST in a `useEffect` keyed on
+  `driveFileId` (throttled to ≤ `AGENDA_CLIENT_CONCURRENCY = 3` in-flight across rows)
+  UNLESS the baseline already has populated `block`s (already-extracted/cached
+  fast-path → state starts `ready`, no fetch). A **`202 { status: "in_progress" }`**
+  response (another request holds the lock) keeps the row in `loading` and retries
+  after a short backoff (≤ `AGENDA_CLIENT_RETRY_LIMIT = 5` attempts, then → `error`/
+  baseline) — so the placeholder simply persists until the in-flight extraction lands.
 - The `AgendaBreakdown` renders the EFFECTIVE items = `state === "ready" &&
   resultItems.length ? resultItems : baselineItems` (so hrefs are always present, even
   on an empty/raced endpoint result), with a state-driven affordance:
@@ -313,12 +338,17 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
    `dropped*`; (l) > `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP` tracks in one kept session →
    capped + track overflow.
 2. **Extract endpoint (`tests/app/admin/...extractAgenda.test.ts`)** — (a) auth
-   required (unauth → rejected); (b) given a staged `parse_result` with chip-based
-   agenda links + a mock/prod-shaped agenda client over `fixtures/agenda/*.pdf` →
-   returns `{ items }` with the high-conf blocks; (c) **read-only**: asserts NO write
-   to `pending_syncs`/staged (spy the DB layer — zero mutations); (d) missing staged
-   row → `{ items: [] }`; (e) infra fault on read → typed error result (invariant 9),
-   not a silent empty.
+   required (unauth → rejected); (b) staged `parse_result` w/ chip-based links + agenda
+   client over `fixtures/agenda/*.pdf` → `200 { items }` with high-conf blocks AND the
+   updated `parse_result` is **persisted** to `pending_syncs` via the RPC-gated path
+   (assert the write happened, through the pipeline-tx, not a raw `from().update`);
+   (c) **cache short-circuit**: a second call when `extracted` is already fresh
+   (matching `headRevisionId`+`EXTRACTOR_VERSION`) → returns items with **zero Drive
+   calls** (spy `downloadFileBytes`/`getAgendaChips` = 0); (d) **dedupe**: bypass the
+   client throttle — two concurrent POSTs for the same show → the second sees the
+   advisory `try_lock` fail → `202 { status: "in_progress" }` and does **no** duplicate
+   extraction (assert Drive calls happen once); (e) missing staged row → `200 { items:
+   [] }`; (f) infra fault on read → typed error result (invariant 9), not silent empty.
 3. **Hygiene caps (`tests/drive/agendaDrive.test.ts`, `extractAgendaSchedule.test.ts`,
    `enrichAgenda.test.ts`)** — byte cap (`cap+1` stream → `unavailable`); stall guard
    (idle + pre-response abort + slow-but-progressing → no false abort); page cap
@@ -347,24 +377,36 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 
 ## 9. Meta-test inventory
 
-- **Supabase call-boundary** (`tests/auth/_metaInfraContract.test.ts` / sync analog):
-  the extract endpoint's staged-`parse_result` READ is a Supabase call boundary →
-  register it (destructure `{ data, error }`; infra fault → typed result). The Drive
-  reads (`downloadFileBytes`/`getAgendaChips`) are already registered in
-  `tests/sync/_metaInfraContract.test.ts` (reused, no new row).
-- **Advisory-lock topology:** none touched — the endpoint is READ-ONLY (no mutation of
-  `shows`/`crew_members`/`crew_member_auth`/`pending_syncs`/`pending_ingestions`), so no
-  `pg_advisory*` is required (invariant 2 N/A). Explicitly declared.
-- **PostgREST DML lockdown:** N/A — no new table, no DML (read-only endpoint).
+- **Supabase call-boundary** (invariant 9): the endpoint's staged-`parse_result` READ
+  and WRITE are Supabase call boundaries → register both (destructure `{ data, error }`;
+  infra fault → typed result, never silent). Drive reads
+  (`downloadFileBytes`/`getAgendaChips`) already registered in
+  `tests/sync/_metaInfraContract.test.ts`.
+- **Advisory-lock topology (invariant 2):** the endpoint is a NEW holder of
+  `hashtext('show:' || drive_file_id)` (JS-side, `pg_try_advisory_xact_lock`, the
+  canonical sync-pipeline key). It is the SOLE holder for its call (never nests another
+  acquisition of the same key). **Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`**
+  to pin this new holder into the topology (single-holder; no nested re-acquire under
+  the same hashkey → no deadlock). Document every existing holder of this key (the
+  approve/apply/discard staged routes + the sync pipeline) and confirm the endpoint
+  adds no second layer.
+- **PostgREST DML lockdown:** the `pending_syncs.parse_result` write goes through the
+  existing RPC-gated staged-mutation path (the same SECURITY DEFINER / pipeline-tx the
+  approve/apply routes use) — NOT a raw `from('pending_syncs').update`. Confirm
+  `pending_syncs` INSERT/UPDATE/DELETE are REVOKEd from `authenticated`/`anon` (and add
+  a registry row to `tests/db/postgrest-dml-lockdown.test.ts` if `pending_syncs` isn't
+  already covered). No NEW table.
 - No catalog change (§3).
 
 ## 10. Files touched
 
 | File | Change |
 |---|---|
-| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | READ-ONLY POST: auth → read staged `parse_result` → `enrichAgenda(…, defaultAgendaDriveClient())` → `buildAdminAgendaPreview` → `{ items }`. `maxDuration = 300`. |
+| `app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts` (new) | POST `maxDuration=300`: auth → `pg_try_advisory_xact_lock('show:'||dfid)` (not acquired → `202 in_progress`) → read staged `parse_result` → cache short-circuit if `extracted` fresh → else `enrichAgenda(…, defaultAgendaDriveClient())` + **persist** to `pending_syncs` (RPC-gated) → `buildAdminAgendaPreview` → `200 { items }` |
 | `lib/agenda/agendaAdminPreview.ts` (new) | server-pure `buildAdminAgendaPreview`, `capExtractionForAdmin`, `agendaPdfHref` |
-| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`; bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `lib/agenda/constants.ts` | add `AGENDA_PDF_MAX_BYTES`, `AGENDA_MAX_PAGES`, `AGENDA_MAX_PDFS_PER_SHEET`, `AGENDA_ADMIN_SESSIONS_CAP`, `AGENDA_ADMIN_TRACKS_PER_SESSION_CAP`, `AGENDA_CLIENT_CONCURRENCY`, `AGENDA_CLIENT_RETRY_LIMIT`; bump `EXTRACTOR_VERSION` 1→2 (`DRIVE_ASSET_STALL_TIMEOUT_MS`/`DRIVE_FILES_GET_TIMEOUT_MS` already exist) |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts` | extend: pin the endpoint as a single-holder of `show:`||dfid |
+| `tests/db/postgrest-dml-lockdown.test.ts` | ensure `pending_syncs` DML lockdown covered (registry row if absent) |
 | `lib/agenda/extractAgendaSchedule.ts` | page-cap guard (early `LOW()` when `doc.numPages > AGENDA_MAX_PAGES`) |
 | `lib/drive/agendaDrive.ts` | `downloadFileBytes` stream + byte cap (`readBoundedNodeStream({onChunk})`) + `createStallGuard` full wiring → `unavailable`/`infra_error`; `getAgendaChips` + timeout + retry |
 | `lib/sync/enrichAgenda.ts` | per-show count cap (`AGENDA_MAX_PDFS_PER_SHEET`) + skip; **no `agendaBudget` param** (scan apparatus removed) |
@@ -381,10 +423,16 @@ gone). A `downloadFileBytes`/`getAgendaChips` `infra_error` leaves the link unen
 
 - Surface: **admin Step-3 card only**; crew unchanged (round 1 + user).
 - Architecture: **async-decouple** — scan stays fast (no PDF work); a per-show
-  **read-only** extract endpoint fills the card live; "parsing agenda…" placeholder →
-  preview on resolve (user-approved pivot, round 16).
-- Persistence: endpoint is **read-only**; agenda persistence stays cron's job
-  post-publish (existing baseline) → no advisory lock / DML lockdown / migration.
+  extract endpoint fills the card live; "parsing agenda…" placeholder → preview on
+  resolve (user-approved pivot, round 16).
+- Endpoint boundary: **advisory-locked (`try_lock` on `show:`||dfid) + cache-on-revision
+  + persist to staged `parse_result`** (Codex round-18) — concurrent same-show POSTs
+  dedupe (`202 in_progress`), re-views cache-hit (no Drive work), publish carries the
+  agenda forward. Reuses the staged-mutation discipline (advisory lock + DML lockdown +
+  Supabase write boundary).
+- Persistence: endpoint **persists** the extracted agenda to the staged `parse_result`
+  (cache + dedupe + publish-carries-forward) via the staged-mutation discipline
+  (advisory lock + DML lockdown + Supabase write boundary); cron remains a fallback.
 - Render: server-pure `buildAdminAgendaPreview` (predicate + caps + `dropped*` + href +
   badge); client card is pure presentation; reuse pure `AgendaScheduleBlock`.
 - Hygiene caps kept (bytes/pages/per-show count/stall/timeout) as shared per-PDF
