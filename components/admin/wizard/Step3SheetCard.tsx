@@ -49,6 +49,7 @@ import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
@@ -57,6 +58,24 @@ import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog
 const CREW_CAP = 30;
 const ROOMS_CAP = 20;
 const HOTELS_CAP = 12;
+
+// Per-room equipment-scope fields shown under each room in the review breakdown so
+// the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L) before publishing. We
+// show every NON-EMPTY value as-parsed (sentinels like "TBD"/"-" included) — this is
+// a parse-review surface, not the crew page (which sentinel-hides), so the operator
+// sees exactly what landed. Order mirrors the crew GearSection (A→V→L→Scenic→Other).
+const ROOM_SCOPE_FIELDS: ReadonlyArray<{ label: string; key: keyof RoomRow }> = [
+  { label: "Audio", key: "audio" },
+  { label: "Video", key: "video" },
+  { label: "Lighting", key: "lighting" },
+  { label: "Scenic", key: "scenic" },
+  { label: "Other", key: "other" },
+];
+
+/** A string field that actually parsed to content (non-null, non-whitespace). */
+function hasContent(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
 const SCHEDULE_DAYS_CAP = 14;
 const SCHEDULE_ENTRIES_CAP = 6;
 
@@ -298,15 +317,69 @@ function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
         <p className="text-sm text-text-subtle">No rooms parsed.</p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {shown.map((r, i) => (
-            <li key={`${r.name}-${i}`} className="text-sm text-text">
-              <span className="font-medium text-text-strong">{r.name || "Room"}</span>
-              {r.kind ? <span className="text-text-subtle"> · {r.kind}</span> : null}
+          {shown.map((r, i) => {
+            const scope = ROOM_SCOPE_FIELDS.filter((f) => hasContent(r[f.key]));
+            return (
+              <li key={`${r.name}-${i}`} className="text-sm text-text">
+                <span className="font-medium text-text-strong">{r.name || "Room"}</span>
+                {r.kind ? <span className="text-text-subtle"> · {r.kind}</span> : null}
+                {scope.length > 0 ? (
+                  <ul
+                    data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
+                    className="mt-0.5 flex flex-col gap-0.5 pl-3 text-xs text-text-subtle"
+                  >
+                    {scope.map((f) => (
+                      <li key={f.label} className="wrap-break-word">
+                        <span className="font-medium text-text">{f.label}:</span>{" "}
+                        {r[f.key] as string}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+// Show-level event-detail fields the crew GearSection surfaces — keynote + opening
+// reel — so the operator can verify them at the publish gate. opening_reel is
+// URL-stripped (stripOpeningReelText) for a clean line; values shown as-parsed.
+function EventDetailsBreakdown({
+  dfid,
+  eventDetails,
+}: {
+  dfid: string;
+  eventDetails: Record<string, string> | undefined;
+}) {
+  const ed = eventDetails ?? {};
+  const keynote = ed["keynote_requirements"];
+  const reelRaw = ed["opening_reel"];
+  const reel = hasContent(reelRaw) ? stripOpeningReelText(reelRaw).trim() : "";
+  const fields: { label: string; value: string }[] = [];
+  if (hasContent(keynote)) fields.push({ label: "Keynote", value: keynote.trim() });
+  if (reel.length > 0) fields.push({ label: "Opening reel", value: reel });
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-event-details`}
+      label="Event details"
+      count={fields.length}
+    >
+      {fields.length === 0 ? (
+        <p className="text-sm text-text-subtle">No event details parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-0.5">
+          {fields.map((f) => (
+            <li key={f.label} className="wrap-break-word text-sm text-text">
+              <span className="font-medium text-text-strong">{f.label}:</span> {f.value}
             </li>
           ))}
         </ul>
       )}
-      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
     </BreakdownSection>
   );
 }
@@ -819,6 +892,7 @@ export function Step3SheetCard({
             <CrewBreakdown dfid={dfid} members={crewMembers} />
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
+            <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
           </div>
           {/* Warnings — pulled OUT of the column flow into a FULL-WIDTH bordered
