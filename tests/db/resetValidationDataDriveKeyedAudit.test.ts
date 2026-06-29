@@ -74,6 +74,15 @@ const DRIVE_KEYED_REGISTRY: Record<string, Disposition> = {
   deferred_ingestions: { kind: "clear-explicit" },
   onboarding_scan_manifest: { kind: "clear-explicit" }, // SET NULL child — delete from shows only NULLs the FK
   revision_race_cooldowns: { kind: "clear-explicit" },
+  // Ephemeral per-show agenda-extraction lease: NOT show/onboarding data — it is
+  // transient operational state with a ~330s TTL, GC'd on every claim
+  // (DELETE WHERE expires_at <= now()) and owner-released at tx#2. Any residue
+  // self-clears within the TTL, so reset_validation_data() does not truncate it.
+  agenda_extract_leases: {
+    kind: "preserve",
+    reason:
+      "ephemeral extraction lease (~330s TTL, GC'd on every claim, owner-released at persist); self-clears via expires_at, not persistent show data, so a validation reset need not truncate it",
+  },
 };
 
 /** Is `table` an ON DELETE CASCADE FK child of public.shows? */
