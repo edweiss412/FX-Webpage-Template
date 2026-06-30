@@ -331,10 +331,10 @@ All four states are pure server-rendered output (RSC). There is **no client-side
 |---|---|---|---|
 | **crew, real** (agenda-kind) | `agenda-entry` | `text-text-strong` title | — (unchanged) |
 | **crew, synthetic** (strike/load-out) | `agenda-entry` (`data-entry-kind`) | `text-text-subtle` title | a **leading hairline rule** (`border-l border-border`) on the title cell |
-| **agenda, event** (PDF session) | `timeline-agenda-session` | `text-text-subtle` title | a small uppercase **"Agenda" eyebrow badge** (`bg-surface-sunken`, `tracking-eyebrow`, `--icon`-scale text) before the title — NOT a hairline |
+| **agenda, event** (PDF session) | `timeline-agenda-session` | `text-text-subtle` title | a small uppercase **"Agenda" eyebrow badge** (`bg-surface-sunken`, `tracking-eyebrow`, `text-xs` — the same idiom as the run-of-show AV badge) before the title — NOT a hairline |
 
 The agenda row's badge and the synthetic crew row's hairline are **deliberately different markers** so the two muted styles never collide: the muted *crew milestone* (strike/load-out) reads as "a production beat you own," while the muted *agenda event* reads as "context from the event program." The agenda row shows the full `session.time` string verbatim (e.g. `"9:00 AM – 9:40 AM"`); its `room` renders when present; its `tracks` and `drift` are **never** rendered (the full agenda, with tracks, is one "Full agenda" chip-tap away).
 
 ### 11.3 Cap + overflow
 
-Synthetic crew rows (strike/load-out) are **never** capped and stay in chronological position. The **non-synthetic content** (real crew rows + all agenda rows) is capped at `RUN_OF_SHOW_DISPLAY_CAP` (20); beyond that a single muted stub `…and N more agenda items` (`data-testid="timeline-agenda-overflow"`) renders at the end. This mirrors `RunOfShowList`'s exemption rule but keeps everything in time order (it does **not** partition synthetic rows to the end).
+Synthetic crew rows (strike/load-out) are **never** capped and stay in chronological position. The **non-synthetic content** (real crew rows + all agenda rows) is capped at `RUN_OF_SHOW_DISPLAY_CAP` (20); beyond that a single muted stub `…and N more items` (`data-testid="timeline-agenda-overflow"`) renders at the end. The noun is **"items"** (not "agenda items") because the capped content includes crew rows — a dropped crew row must not read as merely "agenda". This mirrors `RunOfShowList`'s exemption rule but keeps everything in time order (it does **not** partition synthetic rows to the end).

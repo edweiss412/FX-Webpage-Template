@@ -3,6 +3,7 @@ import { RunOfShowEntry } from "@/components/crew/primitives/RunOfShowList";
 import type { AgendaSession } from "@/lib/agenda/types";
 import { RUN_OF_SHOW_DISPLAY_CAP, resolveOptionalField } from "@/lib/crew/agendaDisplay";
 import type { TimelineItem } from "@/lib/crew/showDayTimeline";
+import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 
 /** A muted "event" row for a PDF agenda session — DISTINCT from the muted SYNTHETIC
  *  crew row (which uses a leading hairline `border-l`): the agenda row carries a small
@@ -12,6 +13,9 @@ function AgendaSessionRow({ session }: { session: AgendaSession }): JSX.Element 
   // AgendaSession.room is `string | null`; resolveOptionalField takes `string | undefined`.
   // Under exactOptionalPropertyTypes, coerce null→undefined (mirrors ScheduleSection.tsx:262).
   const room = resolveOptionalField(session.room ?? undefined);
+  // URL-strip the title (a PDF-extracted title could carry a pasted link) — the same
+  // treatment crew titles get (RunOfShowEntry). A null/empty result drops the title cell.
+  const title = session.title ? stripAgendaUrls(session.title) : "";
   return (
     <li data-testid="timeline-agenda-session" className="flex min-w-0 flex-col gap-0.5 py-1">
       <div className="flex items-baseline gap-2">
@@ -20,12 +24,14 @@ function AgendaSessionRow({ session }: { session: AgendaSession }): JSX.Element 
         </span>
         <span
           data-agenda-field="event"
-          className="shrink-0 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-eyebrow text-text-subtle"
+          className="shrink-0 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
         >
           Agenda
         </span>
-        {session.title ? (
-          <span className="min-w-0 text-sm font-medium text-text-subtle">{session.title}</span>
+        {title ? (
+          <span className="min-w-0 wrap-break-word text-sm font-medium text-text-subtle">
+            {title}
+          </span>
         ) : null}
       </div>
       {room ? <div className="text-xs text-text-subtle">{room}</div> : null}
@@ -74,7 +80,10 @@ export function ShowDayTimelineList({
       </ul>
       {dropped > 0 ? (
         <p data-testid="timeline-agenda-overflow" className="mt-1 text-xs text-text-subtle">
-          {`…and ${dropped} more agenda item${dropped === 1 ? "" : "s"}`}
+          {/* Source-accurate noun: the capped non-synthetic content is crew-agenda rows
+              AND PDF-agenda rows, so "items" (not "agenda items") — a dropped crew row
+              must not read as merely "agenda". */}
+          {`…and ${dropped} more item${dropped === 1 ? "" : "s"}`}
         </p>
       ) : null}
     </div>
