@@ -11,7 +11,7 @@
 - **0.1 "Both" capture.** Sentry captures **all** client + server errors (its SDK auto-instruments). Additionally, a thin in-house **app_events mirror** surfaces a *bounded* subset on the Phase 2 `/admin/observability` page. (User decision.)
 - **0.2 Mirror scope = boundary crashes ONLY.** Only React error-boundary trips mirror into `app_events`. `window.onerror` / `unhandledrejection` go to **Sentry only** (Sentry dedups/samples; mirroring them would flood the timeline). (User decision.)
 - **0.3 No DB migration.** `app_events` (Phase 1, `supabase/migrations/20260629000002_app_events.sql`) is reused as-is. No new columns/tables.
-- **0.4 Errors-first Sentry.** Replay, profiling, performance tracing, and Sentry "logs" are **deferred** (sample rates default `0`, env-overridable). This phase ships error capture. Rationale: bundle size, crew PII (replay), and YAGNI for a small operator team.
+- **0.4 Errors-first Sentry.** Replay, profiling, and Sentry "logs" are **deferred** (not integrated — no vars). Performance tracing defaults to `0`; only the **server** trace sample rate is env-overridable (`SENTRY_TRACES_SAMPLE_RATE`). Client tracing is fixed at `0`. This phase ships error capture. Rationale: bundle size, crew PII (replay), and YAGNI for a small operator team.
 - **0.5 Fail-open logging.** The mirror is best-effort: it must NEVER break an error boundary or throw into render. A mirror failure degrades silently (Sentry still has the error).
 - **0.6 DSN-unset ⇒ no-op.** When the Sentry DSN env is empty/unset, the SDK sends nothing (Sentry's documented behavior: empty DSN ⇒ all `Capture*` are no-ops) and we set `enabled: Boolean(dsn)` explicitly. `next build` with no `SENTRY_*` MUST succeed (local + CI).
 
@@ -37,7 +37,7 @@ New files (none exist today — confirmed: no `instrumentation.ts`, `instrumenta
 
 - **`sentry.server.config.ts`** / **`sentry.edge.config.ts`** (repo root): `Sentry.init({ dsn: process.env.SENTRY_DSN, enabled: Boolean(process.env.SENTRY_DSN), environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV, tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0) })`. No replay/profiling integrations.
 - **`instrumentation.ts`** (root): `export async function register()` imports `./sentry.server.config` when `process.env.NEXT_RUNTIME === "nodejs"`, `./sentry.edge.config` when `=== "edge"`; `export const onRequestError = Sentry.captureRequestError`. (Confirmed shape from Sentry v10 docs.)
-- **`instrumentation-client.ts`** (root): `Sentry.init({ dsn: process.env.NEXT_PUBLIC_SENTRY_DSN, enabled: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN), environment, tracesSampleRate: 0 })`; `export const onRouterTransitionStart = Sentry.captureRouterTransitionStart`. No replay.
+- **`instrumentation-client.ts`** (root): `Sentry.init({ dsn: process.env.NEXT_PUBLIC_SENTRY_DSN, enabled: Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN), environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV, tracesSampleRate: 0 })`; `export const onRouterTransitionStart = Sentry.captureRouterTransitionStart`. No replay. NOTE: the client cannot read non-public `process.env.VERCEL_ENV`; use `NEXT_PUBLIC_VERCEL_ENV` (Vercel auto-exposes this system var to the browser bundle) falling back to `NODE_ENV`. The SERVER/edge configs use `process.env.VERCEL_ENV ?? process.env.NODE_ENV` (server can read the non-public var).
 - **`next.config.ts`** (currently exports `withMDX(nextConfig)` at line 76): wrap as `export default withSentryConfig(withMDX(nextConfig), { org: process.env.SENTRY_ORG, project: process.env.SENTRY_PROJECT, silent: !process.env.CI, authToken: process.env.SENTRY_AUTH_TOKEN, telemetry: false })`. The `withSentryConfig` is the OUTER wrapper around the existing `withMDX` result (sandwich order preserved). Webpack/Turbopack auto-instrumentation left at defaults.
 
 **Env vars** (add to `.env.local.example`; `SENTRY_DSN` already present at line 29):
@@ -66,7 +66,9 @@ New files (none exist today — confirmed: no `instrumentation.ts`, `instrumenta
     digest?: string;                    // cap 200 chars (Next error digest)
     url?: string }                      // cap 2000 chars
   ```
-  Invalid/oversized/malformed JSON ⇒ **400 `{ ok: false }`** (no detail). Unknown `area` ⇒ 400.
+  **One policy per field — REJECT structural-invalid, TRUNCATE oversized:**
+  - Malformed JSON, unknown/missing `area`, or `message` absent/empty-after-trim ⇒ **400 `{ ok: false }`** (no detail). These are structural — there is nothing useful to record.
+  - Oversized string fields (`message`, `stack`, `componentStack`, `digest`, `url`) ⇒ **TRUNCATED to their caps and accepted** (202). We never drop a real error solely for length. (So §9 "caps" = truncate; §13 "oversized ⇒ 202 + truncated write", NOT 400.)
 - **Write:** `log.error(message.slice(0,1000), { source: \`client.${area}\`, context: { stack, componentStack, digest, url } })`. **No `code:`** (so the §12.4 / x2 / codes scanners are untouched — code-less error logs persist by level alone, `lib/log/logger.ts:21-25`). `level=error` ⇒ always persists to `app_events` (`persist.ts:13-22`). `source` ∈ {`client.crew`, `client.admin`, `client.root`} — filterable on the Phase 2 page.
 - **Response:** success ⇒ **202 `{ ok: true }`** (accepted, best-effort). The endpoint NEVER returns 5xx to the browser: any internal failure is swallowed + the route returns 202 (the lib/log sink itself already swallows + degrades to console — `persist.ts:6-9`).
 - **Flood control (defense in depth; client dedup is PRIMARY per §4):**
@@ -89,7 +91,7 @@ New files (none exist today — confirmed: no `instrumentation.ts`, `instrumenta
 
 ## 5. Error boundaries
 
-Each boundary's `useEffect` does TWO independent best-effort things: `Sentry.captureException(error)` and `reportClientError({ error, area, componentStack?, digest: error.digest })`. Order-independent; neither awaited; neither may throw.
+Each boundary's `useEffect` does TWO **independently-guarded** best-effort things: `Sentry.captureException(error)` and `reportClientError({ error, area, componentStack?, digest: error.digest })`. They are SEPARATE statements, **each in its own try/catch** (or via helpers that self-guard) — so a throw in one path (e.g., `captureException` blowing up) does NOT prevent the other from running, and neither can re-crash the boundary's effect. Order-independent; neither awaited. The cleanest implementation is a shared `captureBoundaryError(error, area)` helper (in `lib/observe/`) that wraps `try { Sentry.captureException } catch {}` then `try { reportClientError } catch {}`; every boundary calls just this helper, so the guard topology is defined once and tested once.
 
 ### 5.1 `app/global-error.tsx` (NEW — root, currently absent)
 - `"use client"`. Props `{ error: Error & { digest?: string }; reset: () => void }`. MUST render its own `<html><body>` (Next requirement — global-error replaces the root layout).
@@ -108,7 +110,7 @@ Each boundary's `useEffect` does TWO independent best-effort things: `Sentry.cap
 
 ## 6. Scope / non-goals (disagreement-loop preempt — cite when challenged)
 
-- **Replay / profiling / tracing / Sentry-logs:** deferred (§0.4). Sample rates `0`, env-overridable. NOT a gap.
+- **Replay / profiling / Sentry-logs:** deferred (§0.4) — not integrated, no vars. Tracing defaults `0`; only the SERVER rate is env-overridable. NOT a gap.
 - **`window.onerror` / `unhandledrejection` → app_events:** intentionally Sentry-only (§0.2, user-ratified). NOT a gap.
 - **DB-backed rate-limiter:** intentionally not built (§3); client dedup is the guarantee. NOT a gap.
 - **Hard env validation (throw-on-unset):** intentionally absent (§2); Sentry vars are optional/no-op. Adding a throw would break builds. NOT a gap.
@@ -144,7 +146,7 @@ The canonical `next build` must not require any `SENTRY_*` (per `feedback_build_
 - `error` (boundary prop): always an `Error`-shaped object; `error.digest` may be `undefined` ⇒ omit from payload (exactOptional). `error.message` may be empty ⇒ reporter sends `"(no message)"`.
 - `reset` (boundary prop): always a function; button calls it directly.
 - mirror payload `area`: enum-validated server-side; client always passes a literal.
-- `message`/`stack` null/empty/oversized ⇒ §3 caps + fallback strings.
+- `message` absent/empty-after-trim ⇒ endpoint **400** (structural); the reporter (client) substitutes `"(no message)"` BEFORE POSTing so a real boundary crash with an empty `error.message` is still recorded (never 400 in practice). `stack`/`componentStack`/`url`/`digest` oversized ⇒ **truncated** to §3 caps (never 400). Reject = structural-invalid only; truncate = length only (§3).
 - `NEXT_PUBLIC_SENTRY_DSN` undefined ⇒ client SDK inert; `reportClientError` still works (independent path).
 - reporter called during SSR (no `window`) ⇒ boundaries are `"use client"` + the effect runs only client-side; the reporter additionally guards `typeof fetch !== "undefined"`.
 
@@ -172,12 +174,13 @@ The fallback screens have a SINGLE visual state (error shown). No mode toggles, 
 1. **reporter dedup** — same signature twice ⇒ one `fetch`; different signatures ⇒ two. Catches: a render loop flooding the endpoint.
 2. **reporter fail-open** — `fetch` rejects ⇒ `reportClientError` does not throw. Catches: a boundary re-crash.
 3. **reporter payload shape** — builds `{area, message, stack, digest}`, caps applied client-side too. Catches: oversized POST.
-4. **endpoint validation** — missing/bad `area`, oversized message, malformed JSON ⇒ 400; valid ⇒ 202 + exactly one `log.error` with `source:"client.<area>"`, no `code`. Catches: unvalidated writes / a §12.4-tripping code.
+4. **endpoint validation** — missing/bad `area`, empty `message`, malformed JSON ⇒ **400** (structural); an **oversized** message/stack ⇒ **202 + a TRUNCATED `log.error`** (NOT 400); valid ⇒ 202 + exactly one `log.error` with `source:"client.<area>"`, no `code`. Catches: unvalidated writes, a §12.4-tripping code, AND the reject-vs-truncate boundary.
 5. **endpoint fail-open** — `log.error` throws ⇒ route still 202 (never 5xx to browser).
 6. **endpoint rate backstop** — N+1 calls in-window ⇒ the (N+1)th is dropped (still 202). Catches: the weak-but-present backstop regressing to nothing.
 7. **auth-chain** — the route is classified `public`; audit passes (negative-control: remove the registry row ⇒ audit fails).
 8. **Sentry config no-op gate** — structural: every init passes `enabled: Boolean(dsn)`; with DSN unset, `enabled===false`. Negative-control: hardcode `enabled:true` ⇒ test fails.
-9. **boundary effects** — render each boundary with a thrown error ⇒ `Sentry.captureException` mock called once AND `reportClientError` mock called once with the right `area`; the fallback renders `getRequiredDougFacing("PAGE_RENDER_FAILED")` (from `@/lib/messages/lookup`, the pattern the admin boundaries use) (crew/global) or `ADMIN_ROUTE_LOAD_FAILED` (admin). Catches: a boundary that captures but doesn't mirror (or vice-versa), or renders a raw code.
+9. **boundary effects** — render each boundary with a thrown error ⇒ `Sentry.captureException` mock called once AND `reportClientError` mock called once with the right `area`; the fallback renders `getRequiredDougFacing("PAGE_RENDER_FAILED")` (crew/global) or `ADMIN_ROUTE_LOAD_FAILED` (admin). Catches: a boundary that captures but doesn't mirror (or vice-versa), or renders a raw code.
+9b. **dual-capture independence (fail-open)** — the shared `captureBoundaryError` helper: when `Sentry.captureException` THROWS, `reportClientError` STILL runs (and vice-versa), and the helper itself never throws. Negative-control: remove a try/catch ⇒ test catches the unguarded path. This is the §5/finding-2 guarantee.
 10. **build-vs-runtime** — see §8 (the real proof is CI `next build` with no `SENTRY_*`).
 11. **catalog parity** — `PAGE_RENDER_FAILED` three-way lockstep (x1).
 12. **UI fallback layout** — the button is ≥44px; the layout is a centered full-viewport column (jsdom computed-style or a light real-browser assert; per §10 no parity harness needed).
@@ -188,6 +191,6 @@ Anti-tautology: boundary tests assert the MOCKED `captureException`/`reportClien
 
 ## 14. Self-consistency / numeric sweep
 
-- New files: `sentry.server.config.ts`, `sentry.edge.config.ts`, `instrumentation.ts`, `instrumentation-client.ts`, `app/global-error.tsx`, `app/show/[slug]/[shareToken]/error.tsx`, `app/api/observe/client-error/route.ts`, `lib/observe/reportClientError.ts` = **8 new files**. Edited: `next.config.ts`, 3 admin `error.tsx`, `.env.local.example`, `lib/audit/trustDomains.ts`, master spec §12.4 + catalog + generated codes = **8 edits**.
+- New files: `sentry.server.config.ts`, `sentry.edge.config.ts`, `instrumentation.ts`, `instrumentation-client.ts`, `app/global-error.tsx`, `app/show/[slug]/[shareToken]/error.tsx`, `app/api/observe/client-error/route.ts`, `lib/observe/reportClientError.ts`, `lib/observe/captureBoundaryError.ts` (the dual-capture guard helper, §5) = **9 new files**. Edited: `next.config.ts`, 3 admin `error.tsx`, `.env.local.example`, `lib/audit/trustDomains.ts`, master spec §12.4 + catalog + generated codes = **8 edits**.
 - ONE new §12.4 code (`PAGE_RENDER_FAILED`). THREE `client.*` sources (crew/admin/root). ZERO migrations. ZERO advisory-lock surfaces.
 - `source` values appear in exactly two places: the endpoint write (§3) and the Phase 2 page's free-form source filter (no enum to extend).
