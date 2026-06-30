@@ -109,7 +109,7 @@ export function getRequiredCrewFacing(code: MessageCode, params?: MessageParams)
 **Interfaces — Produces:** `MessageCode` `"PAGE_RENDER_FAILED"` with `crewFacing` copy, `dougFacing: null`. Consumed by Tasks 9, 10.
 
 - [ ] **Step 1:** add the §12.4 row to the master spec (match the existing row format, e.g. line ~2791). Columns: `| PAGE_RENDER_FAILED | client error boundary tripped (render crash) | (none) | This page ran into a problem. Try reloading — if it keeps happening, text Doug. | Crew → reload |`. (dougFacing column empty/`—` since null.)
-- [ ] **Step 2:** `pnpm gen:spec-codes` — regenerates `lib/messages/__generated__/spec-codes.ts` with the new code. Verify the row appears.
+- [ ] **Step 2: run → RED** `pnpm gen:spec-codes && pnpm vitest run tests/cross-cutting/codes.test.ts` — x1-catalog-parity FAILS (the §12.4 prose now declares `PAGE_RENDER_FAILED` but the runtime `catalog.ts` has no such row). This is the failing test driving the catalog.
 - [ ] **Step 3:** add the catalog row to `lib/messages/catalog.ts` (match `GOOGLE_NO_CREW_MATCH` format):
 ```ts
 PAGE_RENDER_FAILED: {
@@ -124,7 +124,7 @@ PAGE_RENDER_FAILED: {
 },
 ```
 (Insert alphabetically/where peers sit; match exact field order + trailing comma.)
-- [ ] **Step 4: run** `pnpm vitest run tests/cross-cutting/codes.test.ts` (x1-catalog-parity) → PASS (the three layers agree). Also `pnpm gen:internal-code-enums` then `pnpm vitest run tests/cross-cutting/no-raw-codes.test.ts` → PASS.
+- [ ] **Step 4: run → GREEN** `pnpm vitest run tests/cross-cutting/codes.test.ts` (x1-catalog-parity) → PASS (the three layers now agree). Also `pnpm gen:internal-code-enums` then `pnpm vitest run tests/cross-cutting/no-raw-codes.test.ts` → PASS.
 - [ ] **Step 5: commit** `feat(messages): PAGE_RENDER_FAILED crew-facing code (spec §12.4 + gen + catalog lockstep)` — stage the spec, the generated file, AND catalog.ts together.
 
 ---
@@ -159,8 +159,11 @@ describe("reportClientError", () => {
     expect((init as RequestInit).keepalive).toBe(true);
   });
   test("dedups identical signatures (one POST), different signatures (two)", () => {
-    reportClientError({ error: new Error("boom"), area: "crew" });
-    reportClientError({ error: new Error("boom"), area: "crew" });
+    // SAME instance twice → identical message+stack → one signature → one POST. (Two separate
+    // `new Error("boom")` would have different `.stack` line numbers and wrongly dedup-miss.)
+    const e = new Error("boom");
+    reportClientError({ error: e, area: "crew" });
+    reportClientError({ error: e, area: "crew" });
     reportClientError({ error: new Error("other"), area: "crew" });
     expect((fetch as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2);
   });
@@ -305,15 +308,13 @@ export function captureBoundaryError(error: unknown, area: "crew" | "admin" | "r
 **Files:** Create `app/api/observe/client-error/route.ts`; Modify `lib/audit/trustDomains.ts` (`PROTECTED_ROUTES`); Test `tests/observe/clientErrorRoute.test.ts`. Verify `tests/cross-cutting/auth-chain-audit.test.ts` passes.
 **Interfaces — Consumes:** `lib/log` (`log`), `lib/log/requestContext` (`runWithRequestContext`, `deriveRequestId`). **Produces:** `POST(req: Request): Promise<Response>` + an exported testable `handleClientError(req: Request): Promise<Response>`.
 
-- [ ] **Step 1: register the route** in `lib/audit/trustDomains.ts` `PROTECTED_ROUTES` (match the existing object-literal format):
-```ts
-{ path: "app/api/observe/client-error/route.ts", chain: "public" },
-```
-- [ ] **Step 2: failing test** `tests/observe/clientErrorRoute.test.ts` — mock `@/lib/log`:
+**TDD order:** the route's unit test drives the handler; the auth-chain-audit (existing) drives the registration (red while the route exists but is unclassified → green once registered).
+
+- [ ] **Step 1: failing test** `tests/observe/clientErrorRoute.test.ts` — mock `@/lib/log`:
 ```ts
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-const h = vi.hoisted(() => ({ logError: vi.fn() }));
-vi.mock("@/lib/log", () => ({ log: { error: h.logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+const h = vi.hoisted(() => ({ logError: vi.fn(), logWarn: vi.fn() }));
+vi.mock("@/lib/log", () => ({ log: { error: h.logError, warn: h.logWarn, info: vi.fn(), debug: vi.fn() } }));
 import { handleClientError, __resetClientErrorStateForTests } from "@/app/api/observe/client-error/route";
 
 // Default headers = same-origin browser fetch (content-type json + Sec-Fetch-Site same-origin).
@@ -324,7 +325,7 @@ function req(body: unknown, headers: Record<string, string> = {}): Request {
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
-beforeEach(() => { h.logError.mockReset(); __resetClientErrorStateForTests(); });
+beforeEach(() => { h.logError.mockReset(); h.logWarn.mockReset(); __resetClientErrorStateForTests(); });
 
 describe("client-error endpoint", () => {
   test("valid same-origin POST → 202 + one log.error, source=client.<area>, no code, fields top-level", async () => {
@@ -365,21 +366,28 @@ describe("client-error endpoint", () => {
     expect((await handleClientError(ok)).status).toBe(202);
     expect(h.logError).toHaveBeenCalledTimes(1); // only the matching-origin one wrote
   });
-  test("rate backstop: the 21st in-window call is DROPPED (still 202, no extra write)", async () => {
+  test("rate backstop: 21st in-window call DROPPED (202, no extra error write) + warns ONCE", async () => {
     for (let i = 0; i < 20; i++) await handleClientError(req({ area: "crew", message: `m${i}` }));
     expect(h.logError).toHaveBeenCalledTimes(20);
     const r = await handleClientError(req({ area: "crew", message: "m20" }));
     expect(r.status).toBe(202);
-    expect(h.logError).toHaveBeenCalledTimes(20); // dropped — no 21st write
+    expect(h.logError).toHaveBeenCalledTimes(20); // dropped — no 21st error write
+    expect(h.logWarn).toHaveBeenCalledTimes(1); // rate cap "logged once" (spec §3)
+    await handleClientError(req({ area: "crew", message: "m21" })); // also dropped
+    expect(h.logWarn).toHaveBeenCalledTimes(1); // still once this window
   });
-  test("fail-open: log.error throws → still 202 (never 5xx)", async () => {
+  test("fail-open: log.error throws SYNC → still 202 (never 5xx)", async () => {
     h.logError.mockImplementation(() => { throw new Error("sink down"); });
+    expect((await handleClientError(req({ area: "root", message: "boom" }))).status).toBe(202);
+  });
+  test("fail-open: log.error returns a REJECTED promise → still 202 (awaited rejection swallowed)", async () => {
+    h.logError.mockReturnValue(Promise.reject(new Error("persist rejected")));
     expect((await handleClientError(req({ area: "root", message: "boom" }))).status).toBe(202);
   });
 });
 ```
-- [ ] **Step 3: run → FAIL.**
-- [ ] **Step 4: implement** `app/api/observe/client-error/route.ts`:
+- [ ] **Step 2: run → FAIL** (route module not found).
+- [ ] **Step 3: implement** `app/api/observe/client-error/route.ts`:
 ```ts
 import { log } from "@/lib/log";
 import { runWithRequestContext, deriveRequestId } from "@/lib/log/requestContext";
@@ -388,10 +396,21 @@ const AREAS = new Set(["crew", "admin", "root"]);
 const CAPS = { message: 1000, stack: 8000, componentStack: 8000, digest: 200, url: 2000 } as const;
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 20;
-const counters = new Map<string, { count: number; resetAt: number }>();
+const counters = new Map<string, { count: number; resetAt: number; warned: boolean }>();
 
 export function __resetClientErrorStateForTests(): void {
   counters.clear();
+}
+
+// Swallow BOTH sync throws and async rejections from the best-effort log sink (log.* returns the
+// emit promise, lib/log/logger.ts:82). Awaited so the route never returns before the write resolves
+// AND a rejected persist can never become an unhandled rejection (spec §0.5 fail-open).
+async function safeLog(fn: () => unknown): Promise<void> {
+  try {
+    await fn();
+  } catch {
+    /* ignore */
+  }
 }
 
 function sameOrigin(req: Request): boolean {
@@ -406,12 +425,21 @@ function cap(v: unknown, n: number): string | undefined {
   return typeof v === "string" && v.length > 0 ? v.slice(0, n) : undefined;
 }
 
-function allow(area: string, now: number): boolean {
+// Best-effort per-instance backstop. Returns { ok } and, on the FIRST drop of a window, { warn:true }
+// so the caller emits exactly ONE rate-cap warning per window per area (spec §3 "logged once").
+function allow(area: string, now: number): { ok: boolean; warn: boolean } {
   const c = counters.get(area);
-  if (!c || now >= c.resetAt) { counters.set(area, { count: 1, resetAt: now + WINDOW_MS }); return true; }
-  if (c.count >= MAX_PER_WINDOW) return false;
+  if (!c || now >= c.resetAt) {
+    counters.set(area, { count: 1, resetAt: now + WINDOW_MS, warned: false });
+    return { ok: true, warn: false };
+  }
+  if (c.count >= MAX_PER_WINDOW) {
+    const warn = !c.warned;
+    c.warned = true;
+    return { ok: false, warn };
+  }
   c.count += 1;
-  return true;
+  return { ok: true, warn: false };
 }
 
 export async function handleClientError(req: Request): Promise<Response> {
@@ -436,20 +464,28 @@ export async function handleClientError(req: Request): Promise<Response> {
     return Response.json({ ok: false }, { status: 400 });
   }
   // Best-effort per-instance backstop (acknowledged weak in serverless; client dedup is primary).
-  if (!allow(area, Date.now())) return Response.json({ ok: true }, { status: 202 });
-  try {
-    await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, async () => {
+  const gate = allow(area, Date.now());
+  if (!gate.ok) {
+    if (gate.warn) {
+      await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
+        safeLog(() => log.warn("client-error mirror rate cap hit", { source: "observe.client-error", area })),
+      );
+    }
+    return Response.json({ ok: true }, { status: 202 });
+  }
+  // AWAIT the write (log.error returns the emit promise) inside safeLog so a rejected sink/persist
+  // is caught here and can never escape as an unhandled rejection (fail-open: never 5xx).
+  await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
+    safeLog(() =>
       log.error(rawMessage.slice(0, CAPS.message), {
         source: `client.${area}`,
         stack: cap(body.stack, CAPS.stack),
         componentStack: cap(body.componentStack, CAPS.componentStack),
         digest: cap(body.digest, CAPS.digest),
         url: cap(body.url, CAPS.url),
-      });
-    });
-  } catch {
-    /* fail-open: never 5xx to the browser */
-  }
+      }),
+    ),
+  );
   return Response.json({ ok: true }, { status: 202 });
 }
 
@@ -458,8 +494,13 @@ export async function POST(req: Request): Promise<Response> {
 }
 ```
 (Note: `runWithRequestContext` already wraps; the `log.error` shape sends fields TOP-LEVEL per Global Constraints. `deriveRequestId(req.headers)` mirrors `app/api/report/route.ts:209-213`.)
-- [ ] **Step 5: run** the route test → PASS, then `pnpm vitest run tests/cross-cutting/auth-chain-audit.test.ts` → PASS (route classified). 
-- [ ] **Step 6: commit** `feat(observe): public client-error mirror endpoint (same-origin guarded, fail-open) + trust-domain registration`
+- [ ] **Step 4: run** the route test → PASS. Then `pnpm vitest run tests/cross-cutting/auth-chain-audit.test.ts` → **FAIL** (the new `app/api/observe/client-error/route.ts` is "not classified in TRUST_DOMAINS"). This is the red driving the registration.
+- [ ] **Step 5: register the route** — add to `lib/audit/trustDomains.ts` `PROTECTED_ROUTES` (match the existing object-literal format):
+```ts
+{ path: "app/api/observe/client-error/route.ts", chain: "public" },
+```
+- [ ] **Step 6: run** `pnpm vitest run tests/cross-cutting/auth-chain-audit.test.ts` → **PASS** (route classified).
+- [ ] **Step 7: commit** `feat(observe): public client-error mirror endpoint (same-origin guarded, fail-open) + trust-domain registration`
 
 ---
 
