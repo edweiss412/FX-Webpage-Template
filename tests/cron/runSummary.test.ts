@@ -21,7 +21,7 @@ describe("runSummary constants", () => {
     };
     for (const j of CRON_JOBS) {
       expect(Number.isFinite(j.staleAfterMs)).toBe(true);
-      expect(j.staleAfterMs).toBeGreaterThanOrEqual(2 * CADENCE_MS[j.jobName]);
+      expect(j.staleAfterMs).toBeGreaterThanOrEqual(2 * CADENCE_MS[j.jobName]!);
     }
     // the 9 logical jobs we expect (must match the CADENCE_MS keys)
     expect(new Set(names)).toEqual(new Set(Object.keys(CADENCE_MS)));

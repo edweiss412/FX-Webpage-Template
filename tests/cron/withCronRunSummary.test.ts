@@ -29,12 +29,12 @@ describe("runCronRoute", () => {
       }));
       expect(out).toBe(resp); // exact response passthrough
       expect(sink).toHaveLength(1);
-      expect(sink[0].level).toBe("info");
-      expect(sink[0].source).toBe("cron.sync");
-      expect(sink[0].code).toBe("CRON_RUN_SUMMARY");
-      expect(sink[0].requestId).toBe("vercel-abc"); // ALS established from header
-      expect(sink[0].context).toMatchObject({ jobName: "sync", outcome: "ok", counts: { processed: 2 } });
-      expect(typeof sink[0].context.durationMs).toBe("number");
+      expect(sink[0]!.level).toBe("info");
+      expect(sink[0]!.source).toBe("cron.sync");
+      expect(sink[0]!.code).toBe("CRON_RUN_SUMMARY");
+      expect(sink[0]!.requestId).toBe("vercel-abc"); // ALS established from header
+      expect(sink[0]!.context).toMatchObject({ jobName: "sync", outcome: "ok", counts: { processed: 2 } });
+      expect(typeof sink[0]!.context.durationMs).toBe("number");
     });
   });
 
@@ -55,10 +55,10 @@ describe("runCronRoute", () => {
         runCronRoute("sync", req(), async () => { throw boom; }),
       ).rejects.toBe(boom);
       expect(sink).toHaveLength(1);
-      expect(sink[0].level).toBe("error");
-      expect(sink[0].source).toBe("cron.sync");
-      expect(sink[0].code).toBe("CRON_RUN_SUMMARY");
-      expect(sink[0].context).toMatchObject({ outcome: "threw" });
+      expect(sink[0]!.level).toBe("error");
+      expect(sink[0]!.source).toBe("cron.sync");
+      expect(sink[0]!.code).toBe("CRON_RUN_SUMMARY");
+      expect(sink[0]!.context).toMatchObject({ outcome: "threw" });
     });
   });
 
@@ -69,7 +69,7 @@ describe("runCronRoute", () => {
       await runWithRequestContext({ requestId: "outer-id" }, async () => {
         await runCronRoute("sync", req(), async () => ({ response: new Response(null), summary: { outcome: "ok" } }));
       });
-      expect(sink[0].requestId).toBe("outer-id"); // did NOT derive a new id
+      expect(sink[0]!.requestId).toBe("outer-id"); // did NOT derive a new id
     });
   });
 

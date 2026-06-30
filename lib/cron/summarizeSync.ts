@@ -31,8 +31,13 @@ export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummar
   }
   const heartbeatFault = result.maintenanceFaults?.syncCronHeartbeat === "infra_error";
   if (failed > 0 || heartbeatFault) {
-    return { outcome: "partial", counts, detail: result.maintenanceFaults ? { maintenanceFaults: result.maintenanceFaults } : undefined };
+    // exactOptionalPropertyTypes: omit `detail` rather than assign `undefined`.
+    return result.maintenanceFaults
+      ? { outcome: "partial", counts, detail: { maintenanceFaults: result.maintenanceFaults } }
+      : { outcome: "partial", counts };
   }
-  const detail = result.summary?.outcome === "skipped" ? { skipReason: result.summary.skipReason } : undefined;
-  return { outcome: "ok", counts, detail };
+  if (result.summary?.outcome === "skipped") {
+    return { outcome: "ok", counts, detail: { skipReason: result.summary.skipReason } };
+  }
+  return { outcome: "ok", counts };
 }
