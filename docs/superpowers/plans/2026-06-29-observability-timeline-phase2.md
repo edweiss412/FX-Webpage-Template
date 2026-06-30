@@ -796,6 +796,23 @@ Run: `pnpm vitest run tests/cron/summarizeAssetRecovery.test.ts` — write it fi
     expect(r.status).toBe(400);
     expect(sink.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
   });
+
+  // BOTH logical notify jobs must be distinctly sourced (a bad impl could emit cron.notify.realtime
+  // for both, leaving digest health wrong). (Use the route's real orchestrator import name.)
+  test.each([
+    ["realtime", "cron.notify.realtime"],
+    ["digest", "cron.notify.digest"],
+  ])("notify ?job=%s → exactly one summary with source %s", async (job, source) => {
+    vi.resetModules();
+    vi.doMock("@/lib/notify/runNotify", () => ({ runNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "ok", sent: 0 } }) }));
+    const sink = await setSink();
+    const { GET } = await import("@/app/api/cron/notify/route");
+    const r = await GET({ headers: new Headers({ authorization: "Bearer secret" }), url: `https://x/api/cron/notify?job=${job}` } as never);
+    expect(r.status).toBe(200);
+    const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].source).toBe(source);
+  });
 ```
 
 Run until all PASS. (Read `app/api/cron/notify/route.ts` for the real import name of its orchestrator and adjust the `vi.doMock` target accordingly.)
@@ -1474,10 +1491,29 @@ git commit --no-verify -m "feat(observability): loadCronHealth per-job latest su
   });
 ```
 
+- [ ] **Step 2b: Extend the grep-shape await-detector for the inline `Promise.all(map(...supabase.from...))` form (REQUIRED).** `loadCronHealth` has NO `const x = supabase…` builder variable — it awaits `Promise.all(CRON_JOBS.map((job) => supabase.from(...)…))` inline. The current detector (`tests/admin/_metaInfraContract.test.ts:437-442`) gates the `await Promise.all(` branch on `builderNameRe` being non-null, so with no builder var it never registers an await → the "should contain at least one supabase-derived await" assertion (`:444-447`) would FAIL for `loadCronHealth`. Make this purely-additive edit (broadens detection; never weakens existing helpers):
+
+```ts
+// was (:437-442):
+if (builderNameRe && /\bawait\s+Promise\.all(?:Settled)?\s*\(/.test(line)) {
+  const windowText = lines.slice(idx, Math.min(lines.length, idx + AWAIT_BUILDER_WINDOW)).join("\n");
+  if (builderNameRe.test(windowText)) awaitLineNumbers.push(idx);
+}
+// becomes — recognize a Promise.all whose window contains a builder name OR an inline `supabase.from`:
+if (/\bawait\s+Promise\.all(?:Settled)?\s*\(/.test(line)) {
+  const windowText = lines.slice(idx, Math.min(lines.length, idx + AWAIT_BUILDER_WINDOW)).join("\n");
+  if ((builderNameRe && builderNameRe.test(windowText)) || /\bsupabase\s*\.\s*from\b/.test(windowText)) {
+    awaitLineNumbers.push(idx);
+  }
+}
+```
+
+This stays inside the existing `await Promise.all(`-only trigger (never the bare word "await"), so it only adds detections for genuine parallel supabase reads. Verify it does not change the result for any already-registered helper (run the full meta-test).
+
 - [ ] **Step 3: Run the meta-test**
 
 Run: `pnpm vitest run tests/admin/_metaInfraContract.test.ts`
-Expected: PASS — including the grep-shape test (every supabase await + the builder assignment in both loaders is inside the single try/catch) and the new behavioral blocks. **If the grep-shape test fails**, the loader has a builder/await outside its `try` — move it inside (do NOT add a `not-subject-to-meta` waiver; these are exactly the helpers the contract governs). The mock's `limit` resolves to `{data,error}`; if `loadCronHealth`'s `Promise.all` form isn't recognized by the await-detection, confirm it matches the `await Promise.all([...])` heuristic (`:437-442`).
+Expected: PASS — the grep-shape test now recognizes `loadCronHealth`'s `await Promise.all(map(...supabase.from...))` and requires it inside the single try/catch (it is), `loadAppEvents`'s single `await query.limit(...)` (builder-var `query`), and both behavioral blocks. **If the grep-shape test fails**, a supabase await/builder is outside the `try` — move it inside (do NOT add a `not-subject-to-meta` waiver; these are exactly the helpers the contract governs).
 
 - [ ] **Step 4: Commit**
 
@@ -2736,12 +2772,14 @@ git commit --no-verify -m "feat(observability): Activity desktop-nav (desktopOnl
 
 ## Task 18: Layout-dimensions assertion (real browser)
 
-**Files:**
-- Create: `tests/e2e/observability-layout.spec.ts` (Playwright) — or a chrome-devtools MCP `evaluate_script` harness per the project's standalone real-browser layout pattern.
-- Test fixtures: a static render of `CronHealthHeader` (9 cards) + a few `EventRow`s, or the seeded `/admin/observability` route.
+**Files (mirror the existing `app/admin/dev/source-link-dim` dimensional harness exactly):**
+- Create: `app/admin/dev/observability-dim/page.tsx` — a DEV-ONLY static render harness mounting the observability components with DETERMINISTIC props (no DB), like `app/admin/dev/source-link-dim/page.tsx`.
+- Modify: `scripts/with-admin-dev-flag.mjs` — add `"app/admin/dev/observability-dim/page.tsx"` to its `FILES` array (`:50`) so the route is build-gated (renamed aside in prod, like source-link-dim).
+- Modify: `lib/audit/trustDomains.ts` — add `{ path: "app/admin/dev/observability-dim/page.tsx", chain: ["requireAdmin"] }` to `PROTECTED_ROUTES` (the admin layout gates it; the auth-chain audit requires every `app/admin/**/page.tsx` to be registered — source-link-dim is registered the same way).
+- Create: `tests/e2e/observability-layout.spec.ts` (Playwright) — mirror `tests/e2e/source-link-dimensional.spec.ts`'s auth/nav harness.
 
 **Interfaces:**
-- Consumes: rendered DOM with `data-testid` = `cron-health-grid`, `cron-health-card`, `event-level-*`, and an `EventRow`.
+- Consumes: the harness route's rendered DOM with `data-testid` = `cron-health-grid`, `cron-health-card`, `event-level-*`, `event-row-toggle-*`, `event-row-request-*`, `filter-level-error`, `filter-since`, `filter-source`, `autorefresh-toggle`, `autorefresh-manual`, `event-timeline-load-older`.
 
 **Dimensional Invariants to assert (spec §8 + G7 — verbatim):**
 1. Each `cron-health-card` in a wrap row has equal `height` (`auto-rows-fr`), within 0.5px.
@@ -2749,17 +2787,67 @@ git commit --no-verify -m "feat(observability): Activity desktop-nav (desktopOnl
 3. The content column does not overflow horizontally: `scrollWidth ≤ clientWidth`.
 4. **44px mobile tap targets (G7):** on a mobile viewport, key interactive controls are ≥44px tall — the auto-refresh toggle + manual buttons, a level filter button, the filter inputs/select, the row toggle, the request chip, the load-older link (`min-h-tap-min` = DESIGN.md `--spacing-tap-min`).
 
-- [ ] **Step 1: Write the failing real-browser assertion**
+- [ ] **Step 1a: Create the deterministic dev harness** `app/admin/dev/observability-dim/page.tsx` (mirror `app/admin/dev/source-link-dim/page.tsx` — static fixture, no DB). It mounts the real components with fixed props so EVERY measured control exists deterministically (9 health cards, a `CRON_RUN_SUMMARY` row, a row with `requestId`+`showSlug`, and `hasMore=true` so load-older renders):
+
+```tsx
+// app/admin/dev/observability-dim/page.tsx
+import { Suspense } from "react";
+import { CRON_JOBS } from "@/lib/cron/runSummary";
+import type { AppEventRow, CronHealthRow } from "@/lib/admin/observabilityTypes";
+import { CronHealthHeader } from "@/components/admin/observability/CronHealthHeader";
+import { EventFilters } from "@/components/admin/observability/EventFilters";
+import { EventTimeline } from "@/components/admin/observability/EventTimeline";
+import { AutoRefreshControl } from "@/components/admin/observability/AutoRefreshControl";
+
+const NOW = new Date("2026-06-29T12:00:00.000Z");
+const jobs: CronHealthRow[] = CRON_JOBS.map((j, i) => ({
+  ...j,
+  lastRunAt: i === 0 ? new Date(NOW.getTime() - 60_000).toISOString() : null,
+  outcome: i === 0 ? "ok" : null, level: i === 0 ? "info" : null, counts: i === 0 ? { processed: 3 } : null,
+}));
+const mkRow = (id: string, over: Partial<AppEventRow> = {}): AppEventRow => ({
+  id, occurredAt: "2026-06-29T11:00:00.000Z", level: "error", source: "auth", message: "x".repeat(300),
+  code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: {},
+  showTitle: null, showSlug: null, ...over,
+});
+const events: AppEventRow[] = [
+  mkRow("a", { requestId: "req-123", showId: "s1", showSlug: "rpas-central", showTitle: "RPAS" }),
+  mkRow("b", { code: "CRON_RUN_SUMMARY", source: "cron.sync", message: "cron sync run", context: { jobName: "sync", outcome: "ok", counts: { processed: 1 } } }),
+];
+
+export default function ObservabilityDimHarness() {
+  return (
+    <div className="flex flex-col gap-section-gap p-4">
+      <AutoRefreshControl />
+      <CronHealthHeader jobs={jobs} now={NOW} />
+      <Suspense>{/* EventFilters uses useSearchParams → Suspense boundary (Next 16) */}
+        <EventFilters filters={{ sinceHours: 24 }} />
+      </Suspense>
+      <EventTimeline result={{ kind: "ok", events, hasMore: true, nextCursor: { occurredAt: events[1].occurredAt, id: "b" } }} now={NOW} currentQuery="" />
+    </div>
+  );
+}
+```
+
+Register it in `scripts/with-admin-dev-flag.mjs` `FILES` and `lib/audit/trustDomains.ts` `PROTECTED_ROUTES` (per Files above).
+
+- [ ] **Step 1b: Write the failing real-browser assertion** (mirror `tests/e2e/source-link-dimensional.spec.ts` — `signInAs(page, ADMIN_FIXTURE)` then `goto` the harness path; `desktop-chromium` project carries `ENABLE_TEST_AUTH`+`TEST_AUTH_SECRET`):
 
 ```ts
 // tests/e2e/observability-layout.spec.ts
 import { test, expect } from "@playwright/test";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { signInAs } from "./helpers/signInAs";
 
-// Renders the seeded admin route (auth via the test-auth bypass the repo uses for e2e;
-// follow tests/e2e/admin-layout.spec.ts for the sign-in/seed harness).
-test("cron cards equal height; rows do not overflow; tap targets >= 44px", async ({ page }) => {
+const HARNESS_PATH = "/admin/dev/observability-dim";
+
+test.describe("observability layout + tap targets (§8/G7)", () => {
+  test.beforeEach(async ({ page }) => { await signInAs(page, ADMIN_FIXTURE); });
+
+  test("cron cards equal height; rows do not overflow; tap targets >= 44px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); // mobile viewport for tap-target checks
-  await page.goto("/admin/observability"); // adjust to the e2e auth/seed flow used by admin-layout.spec.ts
+  const res = await page.goto(HARNESS_PATH, { waitUntil: "domcontentloaded" });
+  expect(res?.ok()).toBe(true);
   const cards = page.locator("[data-testid=cron-health-card]");
   const boxes = await cards.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
   // group by row (same top within 1px), assert equal height per row
@@ -2817,16 +2905,17 @@ test("cron cards equal height; rows do not overflow; tap targets >= 44px", async
     const h = await loc.evaluate((el) => el.getBoundingClientRect().height);
     expect(h, `${sel} tap target`).toBeGreaterThanOrEqual(44 - 0.5);
   }
-});
+  }); // test
+}); // test.describe
 ```
 
-- [ ] **Step 2: Run it** — `pnpm playwright test tests/e2e/observability-layout.spec.ts` (or the project's e2e runner). Expected: FAIL first if a card collapses, a row overflows, a tap target is <44px, or a required control is absent; then fix the component classes (`auto-rows-fr`, `h-full`, `min-w-0 flex-1`, `truncate`, `min-h-tap-min`) until PASS. The fixture MUST be deterministic for `hasMore=true` (seed >100 app_events for the route, OR render a static fixture page that mounts `EventTimeline` with `hasMore` + the full header/filters/auto-refresh, per `reference_standalone_realbrowser_layout_harness`) AND include at least one event carrying a `requestId`, so the load-older control AND the request chip are always present and measured.
+- [ ] **Step 2: Run it** — build the dev-flagged app (`ADMIN_DEV_PANEL_ENABLED=true`) and run the spec the way `source-link-dimensional.spec.ts` runs (its `desktop-chromium` project / webServer). Expected: FAIL first if a card collapses, a row overflows, a tap target is <44px, or a required control is absent; then fix the component classes (`auto-rows-fr`, `h-full`, `min-w-0 flex-1`, `truncate`, `min-h-tap-min`) until PASS. The harness (Step 1a) is the deterministic fixture — it mounts every measured control (9 cards, a CRON_RUN_SUMMARY row, a `requestId`+`showSlug` row, `hasMore=true`), so no DB seed is needed and every selector is present.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/e2e/observability-layout.spec.ts
-git commit --no-verify -m "test(observability): real-browser layout invariants (equal-height cards, no row overflow)"
+git add app/admin/dev/observability-dim/page.tsx scripts/with-admin-dev-flag.mjs lib/audit/trustDomains.ts tests/e2e/observability-layout.spec.ts
+git commit --no-verify -m "test(observability): real-browser layout + tap-target invariants via build-gated dev harness"
 ```
 
 ---
