@@ -75,8 +75,10 @@ describe("AutoRefreshControl", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
   test("hidden→visible fires one immediate refresh when ON", () => {
-    render(<AutoRefreshControl />); // ON
-    document.dispatchEvent(new Event("visibilitychange")); // visibilityState is 'visible' (beforeEach)
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    render(<AutoRefreshControl />); // ON, tab hidden
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange")); // genuine hidden → visible transition
     expect(refresh).toHaveBeenCalledTimes(1);
   });
   test("hidden→visible while scrolled past 200px does NOT refresh (scroll gate applies to resume)", () => {

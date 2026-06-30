@@ -62,26 +62,19 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     expect(href).not.toContain("cursorAt");
     expect(href).not.toContain("cursorId");
   });
-  test("blur commits a changed text filter (non-keyboard mobile path)", () => {
+  test("blur does NOT commit a typed-but-unsubmitted text filter (Enter-only; avoids URL races)", () => {
+    // Commit is Enter-only (the mobile soft-keyboard Go/Search key fires the same keydown). Blur
+    // must not push — a blur-commit races a concurrent control click and can drop the typed text.
     render(<EventFilters filters={{ sinceHours: 24 }} />);
     const input = screen.getByTestId("filter-source") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "cron.sync" } });
     fireEvent.blur(input);
-    expect(push).toHaveBeenCalledTimes(1);
-    expect(push.mock.calls[0]![0] as string).toContain("source=cron.sync");
-  });
-  test("blur with an UNCHANGED text filter does not navigate (no redundant commit)", () => {
-    render(<EventFilters filters={{ sinceHours: 24, source: "cron.sync" }} />);
-    fireEvent.blur(screen.getByTestId("filter-source"));
     expect(push).not.toHaveBeenCalled();
   });
-  test("Enter then blur pushes exactly ONCE (no double-submit before navigation re-syncs committed)", () => {
-    render(<EventFilters filters={{ sinceHours: 24 }} />);
-    const input = screen.getByTestId("filter-source") as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "cron.sync" } });
-    fireEvent.keyDown(input, { key: "Enter" }); // commit #1
-    fireEvent.blur(input); // committed prop still stale here — must NOT re-push
-    expect(push).toHaveBeenCalledTimes(1);
+  test("Enter with an UNCHANGED text filter does not navigate (no redundant commit)", () => {
+    render(<EventFilters filters={{ sinceHours: 24, source: "cron.sync" }} />);
+    fireEvent.keyDown(screen.getByTestId("filter-source"), { key: "Enter" });
+    expect(push).not.toHaveBeenCalled();
   });
   test("level toggle drops the cursor (every mutation resets pagination)", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);

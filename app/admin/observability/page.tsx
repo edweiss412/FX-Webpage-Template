@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { nowDate } from "@/lib/time/now";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
@@ -44,7 +45,10 @@ export default async function ObservabilityPage({
           Couldn’t load cron health right now.
         </div>
       )}
-      <EventFilters filters={filters} />
+      {/* EventFilters reads useSearchParams → Suspense boundary (Next 16), same as the dev harness. */}
+      <Suspense>
+        <EventFilters filters={filters} />
+      </Suspense>
       <EventTimeline result={events} now={now} currentQuery={currentQuery} />
     </div>
   );

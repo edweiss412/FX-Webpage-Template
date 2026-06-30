@@ -5,11 +5,18 @@ import type { AppEventFilters } from "@/lib/admin/observabilityTypes";
 
 const BASE = "/admin/observability";
 
-// Controlled text filter: local state mirrors the committed filter value but is NOT reset
-// by an auto-refresh re-render (the `committed` value is unchanged), so focus + in-progress
-// keystrokes survive (spec §7 compound). An external change (Clear / another filter) changes
-// `committed` → the during-render "adjust state on prop change" pattern re-syncs the displayed
-// value (no stale defaults) WITHOUT a setState-in-effect.
+// Controlled text filter: local state mirrors the committed filter value but is NOT reset by an
+// auto-refresh re-render (the `committed` value is unchanged), so focus + in-progress keystrokes
+// survive (spec §7 compound). An external change (Clear / another filter) changes `committed` → the
+// during-render "adjust state on prop change" pattern re-syncs the displayed value (no stale
+// defaults) WITHOUT a setState-in-effect.
+//
+// Commit is Enter-ONLY (spec §7). On touch devices the soft keyboard's Go/Search action fires this
+// same keydown, so there IS a non-hardware commit path. We deliberately do NOT commit on blur: a
+// blur-commit races the URL (it pushes while `committed` is still the pre-navigation value, and a
+// concurrent level/since/Clear click rebuilds the href from the stale searchParams and would drop
+// the typed text). Uncommitted text being discarded when you act on another control before pressing
+// Enter is standard filter-form behavior.
 function FilterTextInput({
   name,
   committed,
@@ -22,19 +29,11 @@ function FilterTextInput({
   onCommit: (v: string | null) => void;
 }) {
   const [value, setValue] = useState(committed);
-  // `baseline` is the last value we committed OR synced from `committed`. It is the idempotency key
-  // for commit() AND the during-render "adjust state on prop change" key — so Enter-then-blur (blur
-  // fires while the `committed` prop is still the pre-navigation value) does NOT double-push.
-  const [baseline, setBaseline] = useState(committed);
-  if (committed !== baseline) {
-    setBaseline(committed);
+  const [prevCommitted, setPrevCommitted] = useState(committed);
+  if (committed !== prevCommitted) {
+    setPrevCommitted(committed);
     setValue(committed);
   }
-  const commit = () => {
-    if (value === baseline) return; // unchanged (incl. the post-Enter blur) → no redundant navigation
-    setBaseline(value);
-    onCommit(value || null);
-  };
   return (
     <input
       type="text"
@@ -45,10 +44,8 @@ function FilterTextInput({
       className="min-h-tap-min rounded border border-border bg-surface px-2"
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") commit();
+        if (e.key === "Enter" && value !== committed) onCommit(value || null);
       }}
-      // Non-keyboard commit path (mobile): a tap-away applies the filter without the keyboard's Enter.
-      onBlur={commit}
     />
   );
 }
