@@ -379,15 +379,17 @@ function EventDetailsBreakdown({
 }) {
   const ed = eventDetails ?? {};
   // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
-  // is excluded there — folder link) so the operator sees the full picture
-  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). Coerce-then-check (String()
-  // before the content test) matches the crew card so admin can't diverge on a
-  // non-string JSONB value; `opening_reel` keeps its URL-strip cleanup.
+  // is excluded there — folder link) so the operator sees the real parsed specs
+  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). Sentinel-hidden via
+  // shouldHideGenericOptional — same visibility contract as the crew card, so a
+  // 'TBD'/'N/A' field is omitted on BOTH surfaces (a sentinel is unfilled, not a
+  // parse result worth reviewing). Coerce-then-check (String() before the test)
+  // is null/non-string-safe; `opening_reel` keeps its URL-strip cleanup.
   const fields: { label: string; value: string }[] = [];
   for (const [key, label] of Object.entries(EVENT_DETAILS_LABELS)) {
     const text = String(ed[key] ?? "").trim();
     const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
-    if (value.length > 0) fields.push({ label, value });
+    if (!shouldHideGenericOptional(value)) fields.push({ label, value });
   }
   return (
     <BreakdownSection

@@ -243,15 +243,16 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(days).toBe(3);
   });
 
-  test("event-details breakdown renders all known TEXT specs, not just keynote+reel (BL-EVENT-DETAILS-UNRENDERED)", () => {
+  test("event-details breakdown renders all known TEXT specs + hides sentinels (BL-EVENT-DETAILS-UNRENDERED)", () => {
     const FIX = parseResult({
       show: show({
         event_details: {
           stage_size: "8'x24'",
           podium_type: "(2) Acrylic",
           polling: "YES",
-          keynote_requirements: "TBD",
+          keynote_requirements: "Clicker + confidence monitor", // real → shown
           opening_reel: "Plays from house https://drive.google.com/x",
+          led: "N/A", // sentinel → hidden (same contract as the crew card)
           diagrams: "https://drive.google.com/folder", // folder link — NOT a text spec
           notes: "   ", // whitespace-only → omitted (trim)
           // non-string JSONB value → coerced + shown, no throw:
@@ -271,9 +272,11 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(txt).toContain("Keynote:");
     expect(txt).toContain("Opening reel:");
     expect(txt).toContain("169"); // non-string coerced + shown
+    expect(txt).not.toContain("LED wall:"); // sentinel 'N/A' hidden (shouldHideGenericOptional)
     expect(txt).not.toMatch(/diagrams/i); // folder link excluded (text-key scope)
     expect(txt).not.toContain("Notes:"); // whitespace-only omitted
-    // header count reflects the 6 shown fields (stage/podium/polling/keynote/reel/test_pattern)
+    // header count reflects the 6 shown fields (stage/podium/polling/keynote/reel/test_pattern);
+    // led(N/A), notes(ws), diagrams(non-text) all excluded.
     expect(txt).toContain("(6)");
   });
 
