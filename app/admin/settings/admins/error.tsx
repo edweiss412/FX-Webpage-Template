@@ -23,6 +23,7 @@ import { useEffect, useTransition } from "react";
 import Link from "next/link";
 
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
+import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
 
 export default function AdminsPageError({
   error,
@@ -34,10 +35,10 @@ export default function AdminsPageError({
   const [isRetrying, startRetry] = useTransition();
 
   useEffect(() => {
-    // Server logs already carry the stack via Next; this client-side
-    // log is for the browser console so an operator can copy/paste
-    // when reporting.
-    console.error("[admins/error.tsx]", error);
+    // Dual-capture (Sentry + same-origin mirror) replaces the prior bare
+    // console.error; captureBoundaryError still surfaces in the browser
+    // console for an operator to copy/paste when reporting.
+    captureBoundaryError(error, "admin");
   }, [error]);
 
   // M12.2 B1 (Task 2.1) REPOINT: ADMIN_EMAIL_LIST_FAILED → the fixed

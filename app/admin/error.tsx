@@ -15,6 +15,7 @@
 import { useEffect, useTransition } from "react";
 import Link from "next/link";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
+import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
 
 export default function AdminError({
   error,
@@ -25,7 +26,7 @@ export default function AdminError({
 }) {
   const [isRetrying, startRetry] = useTransition();
   useEffect(() => {
-    console.error("[admin/error.tsx]", error);
+    captureBoundaryError(error, "admin");
   }, [error]);
   const message = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
   return (
