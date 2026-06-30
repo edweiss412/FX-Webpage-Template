@@ -513,6 +513,27 @@ describe("ShowDayTimelineList", () => {
     const { container } = render(<ShowDayTimelineList isoDate={ISO} items={[agItem("9:00 AM", null, 540)]} />);
     expect(scope(container).getByTestId("timeline-agenda-session").textContent).toContain("9:00 AM");
   });
+  test("D7 — tracks and drift are NEVER rendered (non-tautological: the session HAS tracks + drift)", () => {
+    // agItem hardcodes tracks:[]/drift:null, which can't catch a tracks-rendering impl.
+    // Construct a session that DOES carry tracks + drift, then assert none of it appears.
+    const item: TimelineItem = {
+      source: "agenda",
+      minutes: 540,
+      session: {
+        time: "9:00 AM",
+        title: "Keynote",
+        room: "Main Stage",
+        tracks: [{ label: "Track A", title: "SECRET_TRACK_TITLE", room: "SECRET_TRACK_ROOM" }],
+        drift: "SECRET_DRIFT",
+      },
+    };
+    const { container } = render(<ShowDayTimelineList isoDate={ISO} items={[item]} />);
+    const row = scope(container).getByTestId("timeline-agenda-session");
+    expect(row.textContent).toContain("Keynote"); // title IS rendered
+    expect(row.textContent).not.toContain("SECRET_TRACK_TITLE"); // tracks are NOT (D7)
+    expect(row.textContent).not.toContain("SECRET_TRACK_ROOM");
+    expect(row.textContent).not.toContain("SECRET_DRIFT"); // drift is NOT (D7)
+  });
   test("cap: synthetic-exempt + chronological — early agenda survives, 20 non-synthetic + overflow, strike exempt + last", () => {
     // ShowDayTimelineList does NOT re-sort — pass items ALREADY in ascending-minute order
     // (as buildShowDayTimeline would). The agenda sits EARLY (minute 481) so it lands inside
@@ -653,7 +674,11 @@ git commit -m "feat(crew): ShowDayTimelineList — distinguished crew/agenda row
 
 Add (using the existing `makeShowForViewer` import + `TODAY`/`TODAY_ISO` already in the file; build a high-conf agenda extraction whose `dayLabel` parses to `TODAY_ISO`):
 
-Fixture API (VERIFIED against `tests/fixtures/showForViewer.ts` + the existing modeA test): `makeShowForViewer(overrides?: DeepPartial<ShowForViewer>)` deep-merges; base `show.agenda_links = []`, `runOfShow = null`. Crew entries are set via the `runOfShow` option; the show day via `show.dates.showDays`; `agenda_links` via post-build assignment (a full object, to avoid deep-merge on the `extracted.days` array). Reuse the file's existing `TODAY` (`new Date("2026-05-14T15:00:00Z")`), `TODAY_ISO` (derived via `todayIsoInShowTimezone`), and `SHOW_ID`. Admin viewer → eligible. Add these constants/imports at the top if not present, then the tests:
+Fixture API (VERIFIED against `tests/fixtures/showForViewer.ts` + the existing modeA test): `makeShowForViewer(overrides?: DeepPartial<ShowForViewer>)` deep-merges; base `show.agenda_links = []`, `runOfShow = null`. Crew entries are set via the `runOfShow` option; the show day via `show.dates.showDays`; `agenda_links` via post-build assignment (a full object, to avoid deep-merge on the `extracted.days` array). Reuse the file's existing `TODAY` (`new Date("2026-05-14T15:00:00Z")`), `TODAY_ISO` (derived via `todayIsoInShowTimezone`), and `SHOW_ID`. Admin viewer → eligible.
+
+**Import fix (REQUIRED):** the existing file imports only `{ cleanup, render }` from `@testing-library/react`; the new tests use `within` — change that import to `import { cleanup, render, within } from "@testing-library/react";`.
+
+Add these constants/imports at the top if not present, then the tests:
 
 ```tsx
 import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
@@ -707,6 +732,37 @@ test("crew-only day (no agenda_links) → plain RunOfShowList, no timeline (acti
   // agenda_links stays [] → agendaToday = [] → activation rule keeps the plain list.
   const { container } = render(<TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />);
   expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
+  expect(container.querySelector(`[data-testid="show-day-timeline-${TODAY_ISO}"]`)).toBeNull();
+  expect(container.querySelector('[data-testid="timeline-agenda-session"]')).toBeNull();
+});
+
+// NO-LEAK contract for the NEW agenda vector (spec §5 unknown_asterisk row): an
+// unknown_asterisk viewer is ineligible (eligible=false) → modeA=false → NO card.
+// Crucially, agenda is high-conf + matches today, so a gate regression that surfaced
+// agenda to an ineligible viewer would otherwise render rows. Pins that it does NOT.
+test("unknown_asterisk viewer + high-conf agenda for today → NO card, NO timeline, NO agenda rows (no leak)", () => {
+  const data = makeShowForViewer({
+    show: { dates: DAY_DATES },
+    crewMembers: [
+      {
+        id: "c1",
+        name: "Asterisk Crew",
+        email: null,
+        phone: null,
+        role: "",
+        roleFlags: [],
+        dateRestriction: { kind: "unknown_asterisk", days: null },
+        stageRestriction: { kind: "none" },
+      },
+    ],
+    runOfShow: { [TODAY_ISO]: { entries: [{ start: "8:00 AM", title: "Load In" }], showStart: "8:00 AM", window: null } },
+  });
+  data.show.agenda_links = [agendaLinkForToday(TODAY_ISO, [{ time: "9:00 AM – 9:40 AM", title: "Keynote" }])];
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  // Mode A is gated on `eligible`, which is false for unknown_asterisk → whole card absent.
+  expect(container.querySelector('[data-testid="today-run-of-show"]')).toBeNull();
   expect(container.querySelector(`[data-testid="show-day-timeline-${TODAY_ISO}"]`)).toBeNull();
   expect(container.querySelector('[data-testid="timeline-agenda-session"]')).toBeNull();
 });
@@ -774,13 +830,57 @@ git commit -m "feat(crew): wire unified timeline into Today (modeA gate + card-b
 
 **Dimensional Invariants (spec §6.1):** in the Mode A split-wide grid (`items-start`, natural height), each timeline row's `getBoundingClientRect().width` equals the `show-day-timeline` container content width (±0.5px); the list height equals Σ rows (±0.5px, no clipping).
 
-- [ ] **Step 1: Add the assertion** — extend the existing Today Mode-A dimension block. Seed (via the e2e harness's fixture mechanism) a Today preview with **2 crew + 2 agenda** interleaved rows, then:
+**Harness facts (VERIFIED in `tests/e2e/crew-layout-dimensions.spec.ts`):** the Mode A block seeds `shows_internal.run_of_show = SEED_RUN_OF_SHOW` in `beforeAll` (single-writer, `mobile-safari` project only) and restores it in `afterAll`. The server clock is pinned to `SHOW_DAY_1_INSTANT` so `todayIso === SHOW_DAY_1_ISO` (`"2026-04-21"`, `shows.dates.showDays[0]`). The seeded show is `admin.from("shows")` keyed by `id` (`lookupSeededShow()` returns `showId = shows.id`, found via `drive_file_id = SEED_DRIVE_FILE_ID`). **The live seed leaves `shows.agenda_links = []`, so the merged timeline cannot mount today — Step 1 must ALSO seed `shows.agenda_links` with a day matching `SHOW_DAY_1_ISO`, and restore it.**
+
+- [ ] **Step 1a: Add the agenda seed constant** (top of file, beside `SEED_RUN_OF_SHOW`):
 
 ```ts
-// Within the Today Mode-A dimension test (real browser), after the page renders.
-// Use a fixture of ≤20 non-synthetic rows so there is NO overflow stub — then the
-// `show-day-timeline` container's height equals exactly the <ul> row stack (the rows'
-// border-box heights already include the divide-y dividers; no padding/gap on the ul).
+// A high-conf agenda for SHOW_DAY_1_ISO so the MERGED timeline mounts (crew + agenda).
+// "April 21, 2026" → parseIsoFromDayLabel → SHOW_DAY_1_ISO ("2026-04-21").
+const SEED_AGENDA_LINKS = [
+  {
+    fileId: "seed-agenda-1",
+    label: "AGENDA",
+    extracted: {
+      confidence: "high",
+      corrections: 0,
+      extractorVersion: 2,
+      days: [
+        {
+          dayLabel: "April 21, 2026",
+          date: null,
+          sessions: [
+            { time: "9:00 AM – 9:40 AM", title: "Networking Breakfast", room: "Foyer", tracks: [], drift: null },
+            { time: "11:00 AM", title: "Sponsor Demo", room: "Hall B", tracks: [], drift: null },
+          ],
+        },
+      ],
+    },
+  },
+];
+let agendaLinksOriginal: unknown = null; // module-scoped, beside runOfShowOriginal
+```
+
+- [ ] **Step 1b: Seed + restore `shows.agenda_links`** — extend the existing `beforeAll`/`afterAll` (inside the `mobile-safari`-only guard, after the `run_of_show` seed):
+
+```ts
+// in beforeAll, after the run_of_show update (seeded.showId === shows.id):
+const showRow = await admin.from("shows").select("agenda_links").eq("id", seeded.showId).maybeSingle();
+if (showRow.error) throw new Error(`Mode A setup: read shows.agenda_links failed: ${showRow.error.message}`);
+agendaLinksOriginal = (showRow.data as { agenda_links?: unknown })?.agenda_links ?? [];
+const aUpd = await admin.from("shows").update({ agenda_links: SEED_AGENDA_LINKS }).eq("id", seeded.showId);
+if (aUpd.error) throw new Error(`Mode A setup: agenda_links seed failed: ${aUpd.error.message}`);
+
+// in afterAll, alongside the run_of_show restore (guard on showInternalId already present):
+const aRestore = await admin.from("shows").update({ agenda_links: agendaLinksOriginal }).eq("id", showInternalId);
+if (aRestore.error) console.error(`Mode A teardown: agenda_links restore failed (manual reseed): ${aRestore.error.message}`);
+```
+
+(`showInternalId` equals the seeded `shows.id` here — both resolve from the same Waldorf seed row; if the harness exposes the public `shows.id` under a different variable, key the restore by that. Capture the value used in `beforeAll` into a module-scoped var if needed.)
+
+- [ ] **Step 1c: Add the dimension assertion** — inside the existing Mode A dimension test (real browser), after the page renders. The seeded day now has crew rows (9 entries) + 2 agenda sessions interleaved — 11 non-synthetic, ≤ `RUN_OF_SHOW_DISPLAY_CAP`(20) → no overflow stub → the container height equals exactly the `<ul>` row stack (each row's border-box height already includes the `divide-y` divider; the `<ul>` has no padding/gap):
+
+```ts
 const list = page.locator('[data-testid^="show-day-timeline-"]');
 await expect(list).toBeVisible();
 await expect(list.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0); // no overflow → exact-sum holds
@@ -788,6 +888,8 @@ const listBox = (await list.boundingBox())!;
 const rows = list.locator('[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]');
 const n = await rows.count();
 expect(n).toBeGreaterThanOrEqual(4);
+// At least one agenda row mounted (proves the merge actually ran, not crew-only):
+await expect(list.locator('[data-testid="timeline-agenda-session"]').first()).toBeVisible();
 let sum = 0;
 for (let i = 0; i < n; i++) {
   const b = (await rows.nth(i).boundingBox())!;
@@ -797,8 +899,6 @@ for (let i = 0; i < n; i++) {
 // Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided (no clipping AND no slack).
 expect(Math.abs(listBox.height - sum)).toBeLessThanOrEqual(0.5);
 ```
-
-NOTE: read `tests/e2e/crew-layout-dimensions.spec.ts` first to match its fixture-seeding + viewport + assertion idiom exactly; adapt the snippet to that harness (it may use a seeded preview route rather than inline render).
 
 - [ ] **Step 2: Run** (only if the e2e harness is runnable locally; otherwise this runs in CI):
 
