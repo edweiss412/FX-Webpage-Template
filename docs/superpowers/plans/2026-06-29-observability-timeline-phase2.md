@@ -942,7 +942,7 @@ export type AppEventRow = {
   source: string; message: string; code: string | null;
   requestId: string | null; showId: string | null;
   driveFileId: string | null; actorHash: string | null;
-  context: Record<string, unknown>; showTitle: string | null;
+  context: Record<string, unknown>; showTitle: string | null; showSlug: string | null;
 };
 export type AppEventCursor = { occurredAt: string; id: string };
 export type AppEventFilters = {
@@ -1129,16 +1129,17 @@ describe("loadAppEvents", () => {
     expect((r as { message: string }).message).toMatch(/app_events.*threw/);
   });
 
-  test("shows embed: select REQUESTS shows(title), single from(app_events), maps showTitle", async () => {
-    const rows = mk(1).map((row) => ({ ...row, show_id: "s1", shows: { title: "RPAS" } }));
+  test("shows embed: select REQUESTS shows(title, slug), single from(app_events), maps showTitle+showSlug", async () => {
+    const rows = mk(1).map((row) => ({ ...row, show_id: "s1", shows: { title: "RPAS", slug: "rpas-central" } }));
     const c = mockClient(rows); const load = await withClient(c);
     const r = await load({});
     if (r.kind !== "ok") throw new Error("ok");
     expect(r.events[0].showTitle).toBe("RPAS");
+    expect(r.events[0].showSlug).toBe("rpas-central"); // slug drives the link, not the UUID
     // NON-tautological: the mock returns `shows` regardless, so prove the embed is actually
-    // requested — assert the select() arg contains shows(title) and there is NO separate from("shows").
+    // requested — assert select() includes shows(title, slug) and there is NO separate from("shows").
     const selectCall = c.__calls.find((x) => x.method === "select");
-    expect(String(selectCall?.args[0])).toContain("shows(title)");
+    expect(String(selectCall?.args[0])).toContain("shows(title, slug)");
     expect(c.__calls.filter((x) => x.method === "from" && x.args[0] === "shows")).toHaveLength(0);
     expect(c.__calls.filter((x) => x.method === "from")).toHaveLength(1); // only app_events
   });
@@ -1167,7 +1168,7 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
     let query = supabase
       .from("app_events")
       .select(
-        "id, occurred_at, level, source, message, code, request_id, show_id, drive_file_id, actor_hash, context, shows(title)",
+        "id, occurred_at, level, source, message, code, request_id, show_id, drive_file_id, actor_hash, context, shows(title, slug)",
       )
       .order("occurred_at", { ascending: false })
       .order("id", { ascending: false });
@@ -1210,6 +1211,8 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
       actorHash: (r.actor_hash as string | null) ?? null,
       context: (r.context as Record<string, unknown>) ?? {},
       showTitle: ((r.shows as { title?: string } | null)?.title) ?? null,
+      // link by SLUG — the admin show route is /admin/show/[slug] (.eq("slug", slug)), NOT by UUID.
+      showSlug: ((r.shows as { slug?: string } | null)?.slug) ?? null,
     }));
     const last = events[events.length - 1];
     return { kind: "ok", events, hasMore, nextCursor: hasMore && last ? { occurredAt: last.occurredAt, id: last.id } : null };
@@ -1641,7 +1644,7 @@ import type { AppEventRow } from "@/lib/admin/observabilityTypes";
 
 const ev = (context: Record<string, unknown>, source = "cron.sync"): AppEventRow => ({
   id: "1", occurredAt: "2026-06-29T00:00:00.000Z", level: "info", source, message: "cron sync run",
-  code: "CRON_RUN_SUMMARY", requestId: null, showId: null, driveFileId: null, actorHash: null, context, showTitle: null,
+  code: "CRON_RUN_SUMMARY", requestId: null, showId: null, driveFileId: null, actorHash: null, context, showTitle: null, showSlug: null,
 });
 
 describe("CronRunSummaryCard guards malformed context", () => {
@@ -1816,7 +1819,7 @@ const longMsg = "BEGIN " + "x".repeat(400) + " END";
 const base: AppEventRow = {
   id: "e1", occurredAt: "2026-06-29T11:59:00.000Z", level: "error", source: "auth.validateGoogleSession",
   message: longMsg, code: "ADMIN_EMAILS_INFRA", requestId: "req-9", showId: null, driveFileId: "df-1",
-  actorHash: "ah-1", context: { foo: "bar" }, showTitle: null,
+  actorHash: "ah-1", context: { foo: "bar" }, showTitle: null, showSlug: null,
 };
 
 describe("EventRow", () => {
@@ -1830,9 +1833,15 @@ describe("EventRow", () => {
     expect(screen.getByText(/df-1/)).toBeInTheDocument();
   });
   test("show/request links are NOT nested inside the toggle button (valid interactive nesting)", () => {
-    render(<EventRow event={{ ...base, showId: "00000000-0000-0000-0000-0000000000ab", showTitle: "RPAS" }} now={now} />);
+    render(<EventRow event={{ ...base, showId: "00000000-0000-0000-0000-0000000000ab", showSlug: "rpas", showTitle: "RPAS" }} now={now} />);
     const toggle = screen.getByTestId("event-row-toggle-e1");
-    expect(toggle.querySelector("a")).toBeNull(); // no <a> inside the <button>
+    expect(toggle.querySelector("a")).toBeNull(); // the show link is a SIBLING of the button, not nested
+  });
+  test("show link targets the SLUG route, never the UUID (route is /admin/show/[slug])", () => {
+    render(<EventRow event={{ ...base, showId: "00000000-0000-0000-0000-0000000000ab", showSlug: "rpas-central", showTitle: "RPAS" }} now={now} />);
+    const link = screen.getByRole("link", { name: "RPAS" });
+    expect(link.getAttribute("href")).toBe("/admin/show/rpas-central");
+    expect(link.getAttribute("href")).not.toContain("0000000000ab");
   });
   test("request chip links to ?requestId=<id>&since=all", () => {
     render(<EventRow event={base} now={now} />);
@@ -1936,9 +1945,14 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-subtle">
                 <span className="font-medium">{event.source}</span>
                 {event.code && <span className="rounded-pill bg-surface-sunken px-1.5">{event.code}</span>}
-                {event.showId && (
-                  <Link href={`/admin/show/${event.showId}`} className="inline-flex min-h-tap-min items-center underline">{event.showTitle ?? event.showId}</Link>
-                )}
+                {event.showId && (event.showSlug ? (
+                  // Route is /admin/show/[slug] — link by SLUG, never the UUID.
+                  <Link href={`/admin/show/${encodeURIComponent(event.showSlug)}`} className="inline-flex min-h-tap-min items-center underline">{event.showTitle ?? event.showSlug}</Link>
+                ) : (
+                  // show_id present but slug unavailable (effectively impossible: slug is NOT NULL and
+                  // show_id is ON DELETE SET NULL) — render plain text, never a broken UUID link.
+                  <span>{event.showTitle ?? event.showId}</span>
+                ))}
               </div>
             </>
           )}
@@ -1978,7 +1992,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/components/observability/eventRow.test.tsx`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2416,7 +2430,7 @@ import { EventTimeline } from "@/components/admin/observability/EventTimeline";
 import type { AppEventRow, LoadAppEventsResult } from "@/lib/admin/observabilityTypes";
 
 const now = new Date("2026-06-29T12:00:00.000Z");
-const row = (id: string): AppEventRow => ({ id, occurredAt: "2026-06-29T11:00:00.000Z", level: "info", source: "s", message: "m", code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: {}, showTitle: null });
+const row = (id: string): AppEventRow => ({ id, occurredAt: "2026-06-29T11:00:00.000Z", level: "info", source: "s", message: "m", code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: {}, showTitle: null, showSlug: null });
 
 describe("EventTimeline", () => {
   test("empty → EmptyState", () => {
@@ -2842,7 +2856,7 @@ const DIR = join(__dirname, "..", "..", "..", "components/admin/observability");
 const read = (f: string) => readFileSync(join(DIR, f), "utf8");
 const INSTANT = ["CronHealthHeader.tsx", "EventTimeline.tsx", "EventFilters.tsx", "CronRunSummaryCard.tsx", "AutoRefreshControl.tsx"];
 const now = new Date("2026-06-29T12:00:00.000Z");
-const ev: AppEventRow = { id: "x", occurredAt: "2026-06-29T11:00:00.000Z", level: "info", source: "s", message: "m", code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: { a: 1 }, showTitle: null };
+const ev: AppEventRow = { id: "x", occurredAt: "2026-06-29T11:00:00.000Z", level: "info", source: "s", message: "m", code: null, requestId: null, showId: null, driveFileId: null, actorHash: null, context: { a: 1 }, showTitle: null, showSlug: null };
 
 describe("transition inventory (spec §7)", () => {
   test("EventRow is the ONE animated transition: a height disclosure with reduced-motion handling", () => {
