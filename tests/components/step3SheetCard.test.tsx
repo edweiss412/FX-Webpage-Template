@@ -243,6 +243,40 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(days).toBe(3);
   });
 
+  test("event-details breakdown renders all known TEXT specs, not just keynote+reel (BL-EVENT-DETAILS-UNRENDERED)", () => {
+    const FIX = parseResult({
+      show: show({
+        event_details: {
+          stage_size: "8'x24'",
+          podium_type: "(2) Acrylic",
+          polling: "YES",
+          keynote_requirements: "TBD",
+          opening_reel: "Plays from house https://drive.google.com/x",
+          diagrams: "https://drive.google.com/folder", // folder link — NOT a text spec
+          notes: "   ", // whitespace-only → omitted (trim)
+          // non-string JSONB value → coerced + shown, no throw:
+          test_pattern: 169 as unknown as string,
+        },
+      }),
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    // Scope to the event-details breakdown only (anti-tautology).
+    const txt =
+      q.getByTestId(`wizard-step3-card-${DFID}-breakdown-event-details`).textContent ?? "";
+    expect(txt).toContain("Stage size:");
+    expect(txt).toContain("8'x24'");
+    expect(txt).toContain("Podium:");
+    expect(txt).toContain("Polling:");
+    expect(txt).toContain("Keynote:");
+    expect(txt).toContain("Opening reel:");
+    expect(txt).toContain("169"); // non-string coerced + shown
+    expect(txt).not.toMatch(/diagrams/i); // folder link excluded (text-key scope)
+    expect(txt).not.toContain("Notes:"); // whitespace-only omitted
+    // header count reflects the 6 shown fields (stage/podium/polling/keynote/reel/test_pattern)
+    expect(txt).toContain("(6)");
+  });
+
   test("schedule-day count uses Object.keys(runOfShow), NOT showDays.length", () => {
     // runOfShow has 5 days; showDays has only 2 — the rendered count must be 5.
     const FIX = parseResult({

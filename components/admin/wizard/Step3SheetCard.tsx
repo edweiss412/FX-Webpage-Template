@@ -54,6 +54,7 @@ import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
@@ -377,12 +378,17 @@ function EventDetailsBreakdown({
   eventDetails: Record<string, string> | undefined;
 }) {
   const ed = eventDetails ?? {};
-  const keynote = ed["keynote_requirements"];
-  const reelRaw = ed["opening_reel"];
-  const reel = hasContent(reelRaw) ? stripOpeningReelText(reelRaw).trim() : "";
+  // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
+  // is excluded there — folder link) so the operator sees the full picture
+  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). Coerce-then-check (String()
+  // before the content test) matches the crew card so admin can't diverge on a
+  // non-string JSONB value; `opening_reel` keeps its URL-strip cleanup.
   const fields: { label: string; value: string }[] = [];
-  if (hasContent(keynote)) fields.push({ label: "Keynote", value: keynote.trim() });
-  if (reel.length > 0) fields.push({ label: "Opening reel", value: reel });
+  for (const [key, label] of Object.entries(EVENT_DETAILS_LABELS)) {
+    const text = String(ed[key] ?? "").trim();
+    const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
+    if (value.length > 0) fields.push({ label, value });
+  }
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-event-details`}
