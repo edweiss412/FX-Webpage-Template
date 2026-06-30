@@ -79,9 +79,9 @@ EXEMPT (5): scripts/**, tests/**, lib/log/logger.ts (sink output), lib/log/persi
 
 ### 3.1 Endpoint generalization — `app/api/observe/client-error/route.ts` (P3, edited)
 P3's payload was `{ area: crew|admin|root, message, stack?, … }` → wrote `source: client.${area}`, level `error`. Generalize to a `source`+`level` shape that BOTH paths build:
-- New payload: `{ source: string, level?: "warn" | "error", message, stack?, componentStack?, digest?, url? }`.
+- New payload: `{ source: string, level?: "warn" | "error", message, stack?, componentStack?, digest?, url?, tileId? }` (`tileId` capped ≤200, for the tile boundary §4).
 - **`source` validation = a FINITE allowlist** (NOT an open regex — an unbounded source keyed into the rate-limit Map would let an attacker mint unlimited keys and bypass the per-key cap): `ALLOWED_SOURCES = {"client.crew","client.admin","client.root","client.tile","client.realtime"}`. `source` not in the set ⇒ **400**. (A future client source = one more entry in this registered table — the same finiteness `area` gave P3.) `level` defaults `error`; only `warn`/`error` accepted (both persist) — any other (incl. `info`/`debug`) ⇒ 400.
-- Write: `log[level](message.slice(0,1000), { source, stack, componentStack, digest, url })` (top-level fields). All other P3 guards unchanged (same-origin OR, reject structural-invalid → 400, truncate oversized → 202, `safeLog` fail-open). The **rate backstop + dedup now key by `source`** (P3 keyed by `area`) — `allow(source, now)` + the "logged once" rate-cap warn keyed per-source; otherwise identical.
+- Write: `log[level](message.slice(0,1000), { source, stack, componentStack, digest, url, tileId })` (top-level fields → `app_events.context`). All other P3 guards unchanged (same-origin OR, reject structural-invalid → 400, truncate oversized → 202, `safeLog` fail-open). The **rate backstop + dedup now key by `source`** (P3 keyed by `area`) — `allow(source, now)` + the "logged once" rate-cap warn keyed per-source; otherwise identical.
 - **`reportClientError` / `captureBoundaryError` (P3) updated** to send `{ source: \`client.${area}\`, level: "error", … }` instead of `{ area }`. (P3 tests updated to the new shape — same behavior, new field names.)
 
 ### 3.2 `clientLog(level, source, message, context?)` — `lib/observe/clientLog.ts` (NEW, client-safe)
@@ -97,9 +97,11 @@ P3's payload was `{ area: crew|admin|root, message, stack?, … }` → wrote `so
 
 ## 4. `TileErrorBoundary.tsx` → `captureBoundaryError`
 
-The shared tile error boundary's `console.error(error, info.componentStack)` (`TileErrorBoundary.tsx:48`, with `info.componentStack` available at `:44`) becomes `captureBoundaryError(error, "tile", { componentStack: info.componentStack })`.
+The shared tile error boundary's `console.error(error, info.componentStack)` (`TileErrorBoundary.tsx:48`) becomes `captureBoundaryError(error, "tile", { componentStack: info.componentStack, tileId: this.props.tileId ?? "unknown" })`.
 - **Add `"tile"`** to `captureBoundaryError`'s `area` enum (now `"crew"|"admin"|"root"|"tile"`) AND `"client.tile"` to the endpoint `ALLOWED_SOURCES` (§3.1).
-- **`captureBoundaryError` gains an optional 3rd param** `extra?: { componentStack?: string }` so the class boundary's `componentStack` flows through (it forwards to `reportClientError`, which already supports `componentStack` at `reportClientError.ts:19`). The route-level `error.tsx` boundaries (P3) call `(error, area)` with no extra — unchanged. This surfaces tile crashes (+ the component stack) to Sentry + the diagnostics page (the gap P3 left — it wired only route-level `error.tsx`, not this class boundary).
+- **`captureBoundaryError` gains an optional 3rd param** `extra?: { componentStack?: string; tileId?: string }`. The route-level `error.tsx` boundaries (P3) call `(error, area)` with no extra — unchanged.
+- **`tileId` must NOT be dropped** — it is the documented log/Sentry tag (`TileErrorBoundary.tsx:28`). It flows to BOTH sinks: (a) Sentry — `Sentry.captureException(error, tileId ? { tags: { tileId } } : undefined)`; (b) the mirror — `reportClientError` gains a `tileId?: string` input → the POST payload gains a capped `tileId` (≤200) → the endpoint forwards it as a top-level `log.error` field → `app_events.context.tileId`. `componentStack` flows the same way (already supported at `reportClientError.ts:19`).
+- This surfaces tile crashes (+ component stack + tile identity) to Sentry + the diagnostics page (the gap P3 left — it wired only route-level `error.tsx`, not this class boundary).
 
 ---
 
@@ -164,7 +166,7 @@ No env gate, no build-time decision. `pnpm build` behavior unchanged.
 1. **clientLog** — `warn`/`error` → `console[level](message, context)` AND one POST whose body is EXACTLY `{source,level,message}` (assert NO `context`/extra keys mirrored); `info`/`debug` → `console` only, NO POST; rejected fetch never throws; dedup per signature. (jsdom; mock fetch.)
 2. **endpoint generalized** — valid `{source:"client.realtime",level:"warn",message}` → 202 + `log.warn` with that source; `source` NOT in `ALLOWED_SOURCES` (`"evil"`, `"client.foo"`, `"client.realtime.x"`) → 400; `level:"info"`/`"debug"` → 400; oversized → truncate+202; same-origin/fail-open guards hold; **rate-cap keyed by source** (21st same-source call dropped + one warn). Re-run the P3 endpoint tests adapted to the new `{source,level}` shape.
 3. **reportClientError/captureBoundaryError** — now send `{source:"client.crew",level:"error"}` (P3 tests updated, same behavior); `captureBoundaryError(error,"tile",{componentStack})` → POST `source:"client.tile"` + `componentStack` forwarded.
-4. **TileErrorBoundary** — a thrown child → `captureBoundaryError` called once with `(error,"tile",{componentStack: <the React componentStack>})`; the fallback UI unchanged (assert it still renders, no visual change).
+4. **TileErrorBoundary** — a thrown child → `captureBoundaryError` called once with `(error,"tile",{componentStack,tileId})`; assert the mirror POST carries `tileId` AND `Sentry.captureException` got `{ tags: { tileId } }`; the fallback UI unchanged (assert it still renders, no visual change). Negative: a missing `tileId` prop → `"unknown"`.
 5. **server migration spot-tests** — for a representative migrated route (e.g. `api.admin.sync`), the error path calls `log.error` with the right `source` + the `Error` in the reserved field (mock `@/lib/log`); behavior/HTTP unchanged.
 6. **no-console rule** — `pnpm lint` ERRORs on a planted `app/` `console.log`; does NOT flag `scripts/`/`tests/`/`persist.ts`/`clientLog.ts`.
 7. **no-console exemption meta-test** (§10) — exact 5-file exemption set + AST-based no-stray-`console.*`-CALL walk (comment-safe) + negative control (real call fails, comment does not).
