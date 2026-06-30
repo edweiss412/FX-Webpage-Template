@@ -235,6 +235,67 @@ function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"]
   );
 }
 
+function TransportBreakdown({
+  dfid,
+  transportation,
+}: {
+  dfid: string;
+  transportation: TransportationRow | null;
+}) {
+  const t = transportation;
+  const fieldRows = t
+    ? contentRows([
+        ["Driver", t.driver_name],
+        ["Driver phone", t.driver_phone],
+        ["Driver email", t.driver_email],
+        ["Vehicle", t.vehicle],
+        ["License plate", t.license_plate],
+        ["Color", t.color],
+        ["Parking", t.parking],
+        ["Notes", t.notes],
+      ])
+    : [];
+  // schedule legs — arr()-guarded against untyped JSONB; each leg gated on stage.
+  const legs = (t ? arr(t.schedule) : [])
+    .filter((leg) => hasContent(leg.stage))
+    .map((leg) => {
+      const when = [leg.date, leg.time].filter((x) => hasContent(x)).join(" ");
+      const who = arr(leg.assigned_names)
+        .filter((n) => hasContent(n))
+        .join(", ");
+      return {
+        stage: leg.stage as string,
+        meta: [when, who].filter((x) => x.length > 0).join(" — "),
+      };
+    });
+  const count = fieldRows.length + legs.length;
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-transport`}
+      label="Transport"
+      count={count}
+    >
+      {count === 0 ? (
+        <p className="text-sm text-text-subtle">No transportation parsed.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {fieldRows.length > 0 ? <FieldRowList rows={fieldRows} /> : null}
+          {legs.length > 0 ? (
+            <ul className="flex flex-col gap-0.5">
+              {legs.map((leg, i) => (
+                <li key={`${leg.stage}-${i}`} className="wrap-break-word text-sm text-text">
+                  <span className="font-medium text-text-strong">{leg.stage}</span>
+                  {leg.meta ? <span className="text-text-subtle"> · {leg.meta}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </BreakdownSection>
+  );
+}
+
 function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
   const rows = contentRows([
     ["COI", show.coi_status],
@@ -1549,6 +1610,7 @@ export function Step3SheetCard({
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
             <VenueBreakdown dfid={dfid} venue={pr.show.venue} />
+            <TransportBreakdown dfid={dfid} transportation={pr.transportation} />
             <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
             <PackListBreakdown dfid={dfid} cases={pullSheet} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />

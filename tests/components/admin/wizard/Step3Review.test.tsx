@@ -687,6 +687,50 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(t).toContain("Invoice:");
     expect(t).toContain("TBD"); // sentinel as-parsed
   });
+
+  test("transport breakdown shows driver/vehicle/parking + schedule legs as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      transportation: {
+        driver_name: "Carlos Pineda",
+        driver_phone: "610-618-0111",
+        driver_email: null,
+        vehicle: "16' Box Truck",
+        license_plate: "TBD", // sentinel → as-parsed
+        color: "", // empty → omitted
+        parking: "14 East Cedar",
+        notes: null,
+        schedule: [
+          { stage: "Pick Up Warehouse", date: "10/6", time: "TBD", assigned_names: ["Doug"] },
+        ],
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-tr-more"));
+    const t = getByTestId("wizard-step3-card-drive-tr-breakdown-transport").textContent ?? "";
+    expect(t).toContain("Driver:");
+    expect(t).toContain("Carlos Pineda");
+    expect(t).toContain("Vehicle:");
+    expect(t).toContain("Parking:");
+    expect(t).toContain("License plate:");
+    expect(t).toContain("TBD"); // sentinel as-parsed
+    expect(t).not.toContain("Color:"); // empty → omitted
+    expect(t).toContain("Pick Up Warehouse"); // schedule leg
+    expect(t).toContain("Doug"); // assigned name
+
+    const pr2 = { ...GEAR_PR, transportation: null } as unknown as ParseResult;
+    const row2: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr2", parseResult: pr2 };
+    const { getByTestId: g2 } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row2]} />,
+    );
+    fireEvent.click(g2("wizard-step3-card-drive-tr2-more"));
+    expect(g2("wizard-step3-card-drive-tr2-breakdown-transport").textContent).toContain(
+      "No transportation parsed.",
+    );
+  });
 });
 
 describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {
