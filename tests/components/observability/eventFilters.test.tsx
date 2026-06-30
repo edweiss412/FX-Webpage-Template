@@ -46,7 +46,7 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     fireEvent.change(input, { target: { value: "cron.sync" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(push).toHaveBeenCalledTimes(1);
-    const href = push.mock.calls[0][0] as string;
+    const href = push.mock.calls[0]![0] as string;
     expect(href).toContain("source=cron.sync");
     expect(href).not.toContain("cursorAt");
     expect(href).not.toContain("cursorId");
@@ -54,7 +54,7 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
   test("level toggle drops the cursor (every mutation resets pagination)", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);
     fireEvent.click(screen.getByRole("button", { name: "error" }));
-    const href = push.mock.calls[0][0] as string;
+    const href = push.mock.calls[0]![0] as string;
     expect(href).toContain("level=error");
     expect(href).not.toContain("cursorAt");
     expect(href).not.toContain("cursorId");
@@ -62,7 +62,7 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
   test("since preset drops the cursor", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "7d" } });
-    const href = push.mock.calls[0][0] as string;
+    const href = push.mock.calls[0]![0] as string;
     expect(href).toContain("since=7d");
     expect(href).not.toContain("cursorAt");
   });
