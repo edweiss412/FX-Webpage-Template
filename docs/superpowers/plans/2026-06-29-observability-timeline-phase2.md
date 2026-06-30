@@ -1828,26 +1828,28 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
         <div className="min-w-0 flex-1">
           {isSummary ? (
             // Summary row: the rich card IS the collapsed body, but the row still expands to
-            // ContextDetail (AC4). CronRunSummaryCard has no nested interactive elements (dt/dd
-            // only), so wrapping it in the toggle button is valid.
-            <button
-              type="button"
+            // ContextDetail (AC4). A <button> may contain ONLY phrasing content, but the card is a
+            // <div>/<dl> (block) — so use a keyboard-accessible role="button" div, not a <button>.
+            <div
+              role="button" tabIndex={0}
               data-testid={`event-row-toggle-${event.id}`}
-              onClick={() => setOpen((v) => !v)}
               aria-expanded={open}
-              className="block w-full text-left"
+              onClick={() => setOpen((v) => !v)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
+              className="block w-full cursor-pointer text-left min-h-tap-min"
             >
               <CronRunSummaryCard event={event} />
-            </button>
+            </div>
           ) : (
             <>
-              {/* The toggle button contains ONLY the message — no nested interactive elements. */}
+              {/* The toggle button contains ONLY the message — no nested interactive elements.
+                  min-h-tap-min = 44px mobile tap target (DESIGN.md --spacing-tap-min, spec G7). */}
               <button
                 type="button"
                 data-testid={`event-row-toggle-${event.id}`}
                 onClick={() => setOpen((v) => !v)}
                 aria-expanded={open}
-                className="block w-full truncate text-left text-sm text-text"
+                className="block min-h-tap-min w-full truncate text-left text-sm text-text"
               >
                 {event.message}
               </button>
@@ -1856,7 +1858,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
                 <span className="font-medium">{event.source}</span>
                 {event.code && <span className="rounded-pill bg-surface-sunken px-1.5">{event.code}</span>}
                 {event.showId && (
-                  <Link href={`/admin/show/${event.showId}`} className="underline">{event.showTitle ?? event.showId}</Link>
+                  <Link href={`/admin/show/${event.showId}`} className="inline-flex min-h-tap-min items-center underline">{event.showTitle ?? event.showId}</Link>
                 )}
               </div>
             </>
@@ -1867,7 +1869,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
           <Link
             data-testid={`event-row-request-${event.id}`}
             href={`/admin/observability?requestId=${encodeURIComponent(event.requestId)}&since=all`}
-            className="shrink-0 rounded-pill bg-surface-sunken px-2 py-0.5 text-xs text-accent-on-bg"
+            className="inline-flex min-h-tap-min shrink-0 items-center rounded-pill bg-surface-sunken px-2 text-xs text-accent-on-bg"
           >
             {event.requestId.slice(0, 8)}
           </Link>
@@ -2032,7 +2034,7 @@ function FilterTextInput({ name, committed, placeholder, onCommit }: {
   return (
     <input
       type="text" data-testid={`filter-${name}`} placeholder={placeholder} value={value}
-      className="rounded border border-border bg-surface px-2 py-1"
+      className="min-h-tap-min rounded border border-border bg-surface px-2"
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => { if (e.key === "Enter") onCommit(value || null); }}
     />
@@ -2060,7 +2062,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
     return (
       <div className="flex items-center gap-2 text-sm">
         <span className="rounded-pill bg-surface-sunken px-2 py-0.5">Showing one request</span>
-        <button type="button" className="underline" onClick={() => router.push(BASE)}>Clear</button>
+        <button type="button" className="inline-flex min-h-tap-min items-center underline" onClick={() => router.push(BASE)}>Clear</button>
       </div>
     );
   }
@@ -2071,7 +2073,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         <button
           key={lvl} type="button"
           aria-pressed={levels.has(lvl)}
-          className={`rounded-pill px-2 py-0.5 ${levels.has(lvl) ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle"}`}
+          className={`inline-flex min-h-tap-min items-center rounded-pill px-3 ${levels.has(lvl) ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle"}`}
           onClick={() => {
             const next = new Set(levels); next.has(lvl) ? next.delete(lvl) : next.add(lvl);
             go({ level: next.size ? [...next].join(",") : null });
@@ -2079,7 +2081,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         >{lvl}</button>
       ))}
       <select
-        className="rounded border border-border bg-surface px-2 py-1"
+        className="min-h-tap-min rounded border border-border bg-surface px-2"
         value={filters.sinceHours === 1 ? "1h" : filters.sinceHours === 168 ? "7d" : filters.sinceHours === null ? "all" : "24h"}
         onChange={(e) => go({ since: e.target.value })}
       >
@@ -2097,7 +2099,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         />
       ))}
       <FilterTextInput name="q" committed={filters.q ?? ""} placeholder="Search message…" onCommit={(v) => go({ q: v })} />
-      <button type="button" className="underline" onClick={() => router.push(BASE)}>Clear filters</button>
+      <button type="button" className="inline-flex min-h-tap-min items-center underline" onClick={() => router.push(BASE)}>Clear filters</button>
     </div>
   );
 }
@@ -2283,10 +2285,10 @@ export function AutoRefreshControl() {
   return (
     <div className="flex items-center gap-2 text-xs text-text-subtle">
       <button type="button" data-testid="autorefresh-toggle" aria-pressed={on} onClick={toggle}
-        className={`rounded-pill px-2 py-0.5 ${on ? "bg-accent text-accent-text" : "bg-surface-sunken"}`}>
+        className={`inline-flex min-h-tap-min items-center rounded-pill px-3 ${on ? "bg-accent text-accent-text" : "bg-surface-sunken"}`}>
         Auto-refresh {on ? "on" : "off"}
       </button>
-      <button type="button" data-testid="autorefresh-manual" onClick={doRefresh} className="underline">Refresh</button>
+      <button type="button" data-testid="autorefresh-manual" onClick={doRefresh} className="inline-flex min-h-tap-min items-center underline">Refresh</button>
       {lastRefreshedAt != null && (
         <span data-testid="autorefresh-updated">
           Updated {Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000))}s ago
@@ -2389,7 +2391,7 @@ export function EventTimeline({ result, now, currentQuery = "" }: { result: Load
       {result.hasMore && (
         <p className="text-xs text-text-subtle">Showing the {result.events.length} most recent matching events. Refine filters or load older.</p>
       )}
-      {olderHref && <a data-testid="event-timeline-load-older" href={olderHref} className="text-sm underline">Load older</a>}
+      {olderHref && <a data-testid="event-timeline-load-older" href={olderHref} className="inline-flex min-h-tap-min items-center text-sm underline">Load older</a>}
     </div>
   );
 }
@@ -2619,10 +2621,11 @@ git commit --no-verify -m "feat(observability): Activity desktop-nav (desktopOnl
 **Interfaces:**
 - Consumes: rendered DOM with `data-testid` = `cron-health-grid`, `cron-health-card`, `event-level-*`, and an `EventRow`.
 
-**Dimensional Invariants to assert (spec §8 — verbatim):**
+**Dimensional Invariants to assert (spec §8 + G7 — verbatim):**
 1. Each `cron-health-card` in a wrap row has equal `height` (`auto-rows-fr`), within 0.5px.
 2. `EventRow` no-overflow geometry: content column right edge ≤ row inner (padding-box) right edge; `badgeWidth + rowGap + contentWidth ≤ rowInnerWidth` (the `flex gap-3` MUST be in the sum).
 3. The content column does not overflow horizontally: `scrollWidth ≤ clientWidth`.
+4. **44px mobile tap targets (G7):** on a mobile viewport, key interactive controls are ≥44px tall — the auto-refresh toggle + manual buttons, a level filter button, the filter inputs/select, the row toggle, the request chip, the load-older link (`min-h-tap-min` = DESIGN.md `--spacing-tap-min`).
 
 - [ ] **Step 1: Write the failing real-browser assertion**
 
@@ -2632,7 +2635,8 @@ import { test, expect } from "@playwright/test";
 
 // Renders the seeded admin route (auth via the test-auth bypass the repo uses for e2e;
 // follow tests/e2e/admin-layout.spec.ts for the sign-in/seed harness).
-test("cron health cards are equal height; event rows do not overflow", async ({ page }) => {
+test("cron cards equal height; rows do not overflow; tap targets >= 44px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 }); // mobile viewport for tap-target checks
   await page.goto("/admin/observability"); // adjust to the e2e auth/seed flow used by admin-layout.spec.ts
   const cards = page.locator("[data-testid=cron-health-card]");
   const boxes = await cards.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
@@ -2669,6 +2673,22 @@ test("cron health cards are equal height; event rows do not overflow", async ({ 
   expect(geom.childOverflows).toBe(0);
   // (2c) the content column truncates rather than overflowing
   expect(geom.contentScroll).toBeLessThanOrEqual(geom.contentClient + 0.5);
+
+  // (4) 44px mobile tap targets (spec G7). Each selector's first match must be >= 44px tall.
+  const TAP_SELECTORS = [
+    "[data-testid=autorefresh-toggle]",
+    "[data-testid=autorefresh-manual]",
+    "[data-testid^=event-row-toggle-]",
+    "button[aria-pressed]",            // a level filter toggle
+    "[data-testid=filter-source]",     // a filter text input
+    "[data-testid=event-timeline-load-older]", // only present when hasMore
+  ];
+  for (const sel of TAP_SELECTORS) {
+    const loc = page.locator(sel).first();
+    if ((await loc.count()) === 0) continue; // load-older only exists when paginated
+    const h = await loc.evaluate((el) => el.getBoundingClientRect().height);
+    expect(h, `${sel} tap target`).toBeGreaterThanOrEqual(44 - 0.5);
+  }
 });
 ```
 
