@@ -1,0 +1,159 @@
+"use client";
+import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { AppEventFilters } from "@/lib/admin/observabilityTypes";
+
+const BASE = "/admin/observability";
+
+// Controlled text filter: local state mirrors the committed filter value but is NOT reset by an
+// auto-refresh re-render (the `committed` value is unchanged), so focus + in-progress keystrokes
+// survive (spec §7 compound). An external change (Clear / another filter) changes `committed` → the
+// during-render "adjust state on prop change" pattern re-syncs the displayed value (no stale
+// defaults) WITHOUT a setState-in-effect.
+//
+// Commit is Enter-ONLY (spec §7). On touch devices the soft keyboard's Go/Search action fires this
+// same keydown, so there IS a non-hardware commit path. We deliberately do NOT commit on blur: a
+// blur-commit races the URL (it pushes while `committed` is still the pre-navigation value, and a
+// concurrent level/since/Clear click rebuilds the href from the stale searchParams and would drop
+// the typed text). Uncommitted text being discarded when you act on another control before pressing
+// Enter is standard filter-form behavior.
+function FilterTextInput({
+  name,
+  committed,
+  placeholder,
+  onCommit,
+}: {
+  name: string;
+  committed: string;
+  placeholder: string;
+  onCommit: (v: string | null) => void;
+}) {
+  const [value, setValue] = useState(committed);
+  const [prevCommitted, setPrevCommitted] = useState(committed);
+  if (committed !== prevCommitted) {
+    setPrevCommitted(committed);
+    setValue(committed);
+  }
+  return (
+    <input
+      type="text"
+      data-testid={`filter-${name}`}
+      placeholder={placeholder}
+      aria-label={placeholder}
+      value={value}
+      className="min-h-tap-min rounded border border-border bg-surface px-2"
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && value !== committed) onCommit(value || null);
+      }}
+    />
+  );
+}
+
+export function buildFilterHref(
+  current: URLSearchParams,
+  patch: Record<string, string | null>,
+): string {
+  const next = new URLSearchParams(current);
+  next.delete("cursorAt"); // every filter change returns to page 1
+  next.delete("cursorId");
+  for (const [k, v] of Object.entries(patch)) {
+    if (v == null || v === "") next.delete(k);
+    else next.set(k, v);
+  }
+  const qs = next.toString();
+  return qs ? `${BASE}?${qs}` : BASE;
+}
+
+export function EventFilters({ filters }: { filters: AppEventFilters }) {
+  const router = useRouter();
+  const sp = useSearchParams();
+  const spKey = sp.toString();
+  // Remount-key for the text inputs: a real navigation (level/since/Clear/another text Enter) changes
+  // spKey → the inputs remount and reset to their committed value, dropping any typed-but-unsubmitted
+  // draft so the field never shows text that isn't in the URL. Auto-refresh (router.refresh, SAME
+  // searchParams) leaves spKey unchanged → no remount → in-progress typing survives (spec §7).
+  const go = (patch: Record<string, string | null>) =>
+    router.push(buildFilterHref(new URLSearchParams(spKey), patch));
+
+  if (filters.requestId) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <span className="rounded-pill bg-surface-sunken px-2 py-0.5">Showing one request</span>
+        <button
+          type="button"
+          className="inline-flex min-h-tap-min items-center underline"
+          onClick={() => router.push(BASE)}
+        >
+          Clear
+        </button>
+      </div>
+    );
+  }
+  const levels = new Set(filters.levels ?? []);
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      {(["info", "warn", "error"] as const).map((lvl) => (
+        <button
+          key={lvl}
+          type="button"
+          data-testid={`filter-level-${lvl}`}
+          aria-pressed={levels.has(lvl)}
+          className={`inline-flex min-h-tap-min items-center rounded-pill px-3 ${levels.has(lvl) ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle"}`}
+          onClick={() => {
+            const next = new Set(levels);
+            next.has(lvl) ? next.delete(lvl) : next.add(lvl);
+            go({ level: next.size ? [...next].join(",") : null });
+          }}
+        >
+          {lvl}
+        </button>
+      ))}
+      <select
+        data-testid="filter-since"
+        aria-label="Time window"
+        className="min-h-tap-min rounded border border-border bg-surface px-2"
+        value={
+          filters.sinceHours === 1
+            ? "1h"
+            : filters.sinceHours === 168
+              ? "7d"
+              : filters.sinceHours === null
+                ? "all"
+                : "24h"
+        }
+        onChange={(e) => go({ since: e.target.value })}
+      >
+        <option value="1h">Last hour</option>
+        <option value="24h">Last 24h</option>
+        <option value="7d">Last 7 days</option>
+        <option value="all">All</option>
+      </select>
+      {(["source", "code", "showId", "requestId"] as const).map((key) => (
+        <FilterTextInput
+          key={`${key}-${spKey}`}
+          name={key}
+          committed={(filters[key] as string | undefined) ?? ""}
+          placeholder={
+            key === "showId" ? "show id…" : key === "requestId" ? "request id…" : `${key}…`
+          }
+          onCommit={(v) => go({ [key]: v })}
+        />
+      ))}
+      <FilterTextInput
+        key={`q-${spKey}`}
+        name="q"
+        committed={filters.q ?? ""}
+        placeholder="Search message…"
+        onCommit={(v) => go({ q: v })}
+      />
+      <button
+        type="button"
+        className="inline-flex min-h-tap-min items-center underline"
+        onClick={() => router.push(BASE)}
+      >
+        Clear filters
+      </button>
+    </div>
+  );
+}

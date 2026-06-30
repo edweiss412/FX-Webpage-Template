@@ -49,6 +49,17 @@ const ALLOWED_TOKEN_NAMES = new Set([
   "auditProjectNoGlobalCursor",
   "no_global_cursor_columns",
   "reject_global_watermark_columns",
+  // Observability Phase 2 (/admin/observability) — these are NOT global sync cursors:
+  //  • lastRunAt: per-job DISPLAY of the latest CRON_RUN_SUMMARY row's occurred_at (read-only
+  //    cron-health header). Sync progress is still per-show shows.last_seen_modified_time (§4).
+  //  • AppEventCursor / cursorAt / occurredAt: the read-only event timeline's KEYSET PAGINATION
+  //    cursor (occurred_at+id tie-breaker for "load older"), a UI pagination token — not a sync
+  //    watermark. The load-bearing invariant-4 defense is the DDL event trigger on watermark-shaped
+  //    COLUMNS (no_global_cursor_columns); this milestone adds NO columns.
+  "lastRunAt",
+  "AppEventCursor",
+  "cursorAt",
+  "occurredAt",
 ]);
 
 type OriginKind = "db-read" | "context" | "env" | "module" | "unresolved";

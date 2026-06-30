@@ -31,6 +31,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/show/staged/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },
+  // Observability "Activity" — service-role app-event log + cron-health page;
+  // admin-gated (the admin layout + the page's own requireAdminIdentity chain).
+  { path: "app/admin/observability/page.tsx", chain: ["requireAdmin"] },
   // Step-3 redesign — Unpublished (Held shows) + Ignored-sheets admin views.
   // Both call requireAdminIdentity() defensively (layout also admin-gates).
   { path: "app/admin/unpublished/page.tsx", chain: ["requireAdmin"] },
@@ -39,6 +42,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Dev-only dimensional-invariant harness for the source-sheet links feature
   // (build-renamed-aside in prod); same requireAdmin chokepoint as /admin/dev.
   { path: "app/admin/dev/source-link-dim/page.tsx", chain: ["requireAdmin"] },
+  // Dev-only dimensional-invariant harness for the observability timeline (spec §8
+  // + G7); build-renamed-aside in prod; same requireAdmin chokepoint as /admin/dev.
+  { path: "app/admin/dev/observability-dim/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
   // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the

@@ -40,7 +40,10 @@ export function AdminNav({
 }) {
   const pathname = usePathname();
   const badgeCount = useNeedsAttentionBadge(initialBadgeCount);
-  const overflow = shouldRenderOverflow(NAV.length);
+  // The mobile bottom tab bar shows only non-desktopOnly items (Activity is a
+  // desktop-nav destination). Overflow is derived from the mobile-visible count.
+  const mobileItems = NAV.filter((item) => !item.desktopOnly);
+  const overflow = shouldRenderOverflow(mobileItems.length);
 
   return (
     <>
@@ -109,7 +112,7 @@ export function AdminNav({
         aria-label="Admin (mobile)"
         className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border bg-surface min-[720px]:hidden"
       >
-        {NAV.map((item) => {
+        {mobileItems.map((item) => {
           const active = isNavItemActive(item.id, pathname);
           // Badge only on the attention tab, only for a finite positive count
           // (null/0/NaN/negative → hidden; spec §4.2 guard conditions).
