@@ -337,7 +337,9 @@ component must be defensive (React renders partial data during editing/loading):
 
 - **Component (jsdom, `ShowsTable.test.tsx`):** each of the 4 states renders the correct column pill
   (`shows-statuscol-{state}-{slug}`) AND the correct inline pill (existing testids + new
-  `shows-published-pill`); mutual exclusivity per row; `Published` pill renders for
+  `shows-published-pill`); per render site, a row shows exactly ONE status state (the inline and
+  column pills both exist in the jsdom DOM by design, §4.1 — this is one-state-per-site, NOT
+  one-DOM-node); `Published` pill renders for
   `published && !isLive`; the `place="column"` Held label is `Held` and `place="inline"` is
   `Held — not published`; the Status sort button toggles asc/desc and groups by `STATUS_SORT_RANK`
   (asc: publishing < held < live < published). **Failure mode caught:** a published row silently
