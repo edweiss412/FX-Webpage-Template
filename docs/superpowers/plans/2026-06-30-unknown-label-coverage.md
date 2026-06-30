@@ -29,11 +29,13 @@
 
 ---
 
-## Task 1: `emitUnknownField` helper
+## Task 1: `emitUnknownField` helper + venue adoption
 
-**Files:** Modify `lib/parser/warnings.ts`, `tests/parser/warnings.test.ts`.
+**Files:** Modify `lib/parser/warnings.ts`, `lib/parser/blocks/venue.ts`, `tests/parser/warnings.test.ts`.
 
 **Interfaces — Produces:** `emitUnknownField(agg, { block, kind, key, value })`.
+
+(TDD shape: the helper unit test is the red→green; the venue refactor is its first consumer and is covered behavior-preservingly by the existing venue tests, run green in Step 4. Codex plan-R1: folded the venue refactor here rather than a separate test-less task.)
 
 - [ ] **Step 1: Failing test** — add to `tests/parser/warnings.test.ts`:
 
@@ -89,33 +91,20 @@ export function emitUnknownField(
   agg.rawUnrecognized.push({ block: opts.block, key, value });
 }
 ```
-
-- [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/parser/warnings.test.ts` (whole file: new test + the existing venue UNKNOWN_FIELD test) → PASS. `pnpm typecheck` → clean.
-
-- [ ] **Step 5: Commit** — `feat(parser): emitUnknownField shared warning helper (unknown-label coverage)`
-
----
-
-## Task 2: Refactor venue to use the helper (behavior-preserving)
-
-**Files:** Modify `lib/parser/blocks/venue.ts`. (No new test — the existing `tests/parser/warnings.test.ts:138-188` + `tests/parser/blocks/venue.test.ts` are the regression net.)
-
-- [ ] **Step 1: Confirm the baseline is green** — `pnpm vitest run tests/parser/warnings.test.ts tests/parser/blocks/venue.test.ts` → PASS (records the pre-refactor behavior).
-
-- [ ] **Step 2: Refactor** — in `lib/parser/blocks/venue.ts`, replace the emit BODY (`:298-310`, inside the existing `if (agg && inVenueFieldScope && col0 !== "" && col0Upper !== "VENUE" && col0Canon === null) {` guard) with:
+Then ADOPT it in venue (behavior-preserving) — in `lib/parser/blocks/venue.ts`, replace the emit BODY (`:298-310`, inside the existing `if (agg && inVenueFieldScope && col0 !== "" && col0Upper !== "VENUE" && col0Canon === null) {` guard) with:
 ```ts
       const rawVal = presence(row[1] ?? "") ?? "";
       emitUnknownField(agg, { block: "venue", kind: "venue", key: col0.trim(), value: rawVal });
 ```
-Add `emitUnknownField` to the existing `@/lib/parser/warnings` import in this file. The guard (`if (agg && inVenueFieldScope && …)`) is UNCHANGED. Output is byte-identical: message `Unrecognized venue row label: '<key>'`, `blockRef.kind:'venue'`, `rawSnippet:'<key> | <rawVal>'`, `raw_unrecognized {block:'venue', key:col0.trim(), value:rawVal}` (the helper re-trims an already-trimmed key — no-op).
+Add `emitUnknownField` to the existing `@/lib/parser/warnings` import in `venue.ts`. The guard is UNCHANGED. Output is byte-identical (message `Unrecognized venue row label: '<key>'`, `blockRef.kind:'venue'`, `rawSnippet:'<key> | <rawVal>'`, `raw_unrecognized {block:'venue', key:col0.trim(), value:rawVal}`).
 
-- [ ] **Step 3: Run, verify still green** — `pnpm vitest run tests/parser/warnings.test.ts tests/parser/blocks/venue.test.ts` → PASS (identical behavior). `pnpm typecheck` → clean.
+- [ ] **Step 4: Run, verify pass** — `pnpm vitest run tests/parser/warnings.test.ts tests/parser/blocks/venue.test.ts` → PASS (helper unit test green + the existing venue UNKNOWN_FIELD/raw_unrecognized tests still green = venue behavior preserved). `pnpm typecheck` → clean.
 
-- [ ] **Step 4: Commit** — `refactor(parser): venue emits UNKNOWN_FIELD via emitUnknownField (unknown-label coverage)`
+- [ ] **Step 5: Commit** — `feat(parser): emitUnknownField helper + venue adoption (unknown-label coverage)`
 
 ---
 
-## Task 3: event-details adoption (flag-and-keep)
+## Task 2: event-details adoption (flag-and-keep)
 
 **Files:** Modify `lib/parser/blocks/event.ts`, `tests/parser/blocks/event.test.ts`.
 
@@ -165,7 +154,7 @@ import { type ParseAggregator, emitEmptySection, emitUnknownField } from "@/lib/
 
 ---
 
-## Task 4: Full verification
+## Task 3: Full verification
 
 - [ ] **Step 1: Full parser + cross-cutting suites + lint/format (blocking)**
 
@@ -182,20 +171,20 @@ Expected: all PASS / clean. **x1 (`codes.test.ts`) MUST stay green** (no new cod
 
 ---
 
-## Task 5: Close-out — whole-diff review → CI → merge
+## Task 4: Close-out — whole-diff review → CI → merge
 
 - [ ] **Step 1:** Sync `origin/main` (merge in if moved; re-verify the merged tree with the full parser suite). Whole-diff cross-model review via `codex exec` (do-not-relitigate: scope = event-details only; flag-and-keep additive; sensitive-drop unflagged; deferral of other blocks). Iterate to APPROVE. **No impeccable gate** (parser/warnings, non-UI — no `app/`/`components/`/DESIGN.md change).
 - [ ] **Step 2:** Push; `gh pr create`. (No UI → no screenshots-drift; no crew-preview regen.)
 - [ ] **Step 3:** Confirm REAL CI green (`gh pr checks <PR#> --watch`; `mergeStateStatus == CLEAN`); re-run flakes with `gh run rerun --failed`.
 - [ ] **Step 4:** `gh pr merge <PR#> --merge`.
 - [ ] **Step 5:** FF local main; verify `git rev-list --left-right --count main...origin/main` == `0  0`.
-- [ ] **Step 6:** Add a `BACKLOG.md` note (chore PR) recording the DEFERRED blocks (ops needs re-scoping; rooms-v4 asymmetric; transport/hotels/crew structural/columnar) so the deferral rationale is durable, OR fold the note into this PR's description. (No open-status backlog row needed unless we intend to do them.)
+- [ ] **Step 6:** Record the DEFERRED blocks (ops needs re-scoping; rooms-v4 asymmetric; transport/hotels/crew structural/columnar) in the **PR description** (NOT a `BACKLOG.md` edit — that would violate the lib/parser+tests-only file scope; Codex plan-R1). No open-status backlog row needed unless we later intend to do them.
 
 ---
 
 ## Self-Review
 
-- **Spec coverage:** helper → T1; venue refactor → T2; event adoption → T3; verification (incl. x1 + operator-actionable + deep-link) → T4; close-out + deferral note → T5. ✓
+- **Spec coverage:** helper + venue refactor → T1; event adoption → T2; verification (incl. x1 + operator-actionable + deep-link) → T3; close-out + deferral note (in PR description) → T4. ✓
 - **Anti-tautology:** helper test asserts the exact warning + raw_unrecognized objects; venue test is the unchanged regression net (proves behavior-preservation); event test scopes to `code === "UNKNOWN_FIELD"` (not the pre-existing autocorrect), asserts KEEP + flag for non-sensitive, DROP + no-flag + no-value-leak for sensitive, no-flag for known. Each states its failure mode. ✓
 - **No new code / touchpoint drift:** reuses `UNKNOWN_FIELD`; T4 pins x1 green; `'details'` region + dataGaps membership unchanged. ✓
 - **No placeholders / consistency:** `emitUnknownField` signature + `{block,kind,key,value}` + `blockRef.kind` values consistent across T1-T3; real code in every step. ✓
