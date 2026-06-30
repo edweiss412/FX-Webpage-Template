@@ -731,6 +731,54 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       "No transportation parsed.",
     );
   });
+
+  test("contacts breakdown shows client (+secondary) and venue/in-house-AV contacts (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        client_contact: {
+          name: "Elisabeth Kaufman",
+          phone: "917-414-1935",
+          email: "ek@example.com",
+          secondary: { name: "Maria Ferrer", phone: "555-0000", email: null },
+        },
+      },
+      contacts: [
+        { kind: "in_house_av", name: "Cesar Salazar", phone: "309-532-5534", email: null, notes: null },
+        { kind: "venue", name: "Jenae Denne", phone: null, email: "jd@fourseasons.com", notes: null },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ct", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ct-more"));
+    const t = getByTestId("wizard-step3-card-drive-ct-breakdown-contacts").textContent ?? "";
+    expect(t).toContain("Elisabeth Kaufman"); // client primary
+    expect(t).toContain("Maria Ferrer"); // client secondary
+    expect(t).toContain("Cesar Salazar"); // in-house AV
+    expect(t).toContain("In-house AV");
+    expect(t).toContain("Jenae Denne"); // venue
+    expect(t).toContain("Venue contact");
+    expect(t).toContain("Client contact");
+    const expected = 2 + (pr.contacts as unknown[]).length; // primary + secondary + contacts (derived)
+    expect(t).toContain(`(${expected})`);
+
+    const pr2 = {
+      ...GEAR_PR,
+      show: { ...GEAR_PR.show, client_contact: null },
+      contacts: [],
+    } as unknown as ParseResult;
+    const row2: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ct2", parseResult: pr2 };
+    const { getByTestId: g2 } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row2]} />,
+    );
+    fireEvent.click(g2("wizard-step3-card-drive-ct2-more"));
+    expect(g2("wizard-step3-card-drive-ct2-breakdown-contacts").textContent).toContain(
+      "No contacts parsed.",
+    );
+  });
 });
 
 describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {

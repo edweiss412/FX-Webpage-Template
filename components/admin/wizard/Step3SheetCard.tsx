@@ -210,6 +210,65 @@ function BreakdownSection({
   );
 }
 
+function ContactsBreakdown({
+  dfid,
+  clientContact,
+  contacts,
+}: {
+  dfid: string;
+  clientContact: ClientContact | null;
+  contacts: ContactRow[];
+}) {
+  // Client people: primary + optional secondary (null-safe). Each a "Client contact".
+  const clientPeople = [clientContact, clientContact?.secondary].filter(Boolean) as {
+    name: string;
+    phone: string | null;
+    email: string | null;
+    officePhone?: string | null;
+  }[];
+  const blocks = [
+    ...clientPeople.map((p) => ({
+      key: `client-${p.name}`,
+      kind: "Client contact",
+      rows: contentRows([
+        ["Name", p.name],
+        ["Phone", p.phone],
+        ["Email", p.email],
+        ["Office", p.officePhone],
+      ]),
+    })),
+    ...contacts.map((c, i) => ({
+      key: `contact-${i}`,
+      kind: c.kind === "in_house_av" ? "In-house AV" : "Venue contact",
+      rows: contentRows([
+        ["Name", c.name],
+        ["Phone", c.phone],
+        ["Email", c.email],
+      ]),
+    })),
+  ].filter((b) => b.rows.length > 0);
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-contacts`}
+      label="Contacts"
+      count={blocks.length}
+    >
+      {blocks.length === 0 ? (
+        <p className="text-sm text-text-subtle">No contacts parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {blocks.map((b) => (
+            <li key={b.key} className="text-sm text-text">
+              <span className="text-xs font-semibold uppercase text-text-subtle">{b.kind}</span>
+              <FieldRowList rows={b.rows} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </BreakdownSection>
+  );
+}
+
 function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
   const rows = venue
     ? contentRows([
@@ -1607,6 +1666,11 @@ export function Step3SheetCard({
             className="columns-1 gap-x-8 wrap-break-word sm:columns-2 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
           >
             <CrewBreakdown dfid={dfid} members={crewMembers} />
+            <ContactsBreakdown
+              dfid={dfid}
+              clientContact={pr.show.client_contact}
+              contacts={arr(pr.contacts)}
+            />
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
             <VenueBreakdown dfid={dfid} venue={pr.show.venue} />
