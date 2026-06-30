@@ -6,7 +6,10 @@ import { __resetClientTransportDedupForTests } from "@/lib/observe/clientErrorTr
 describe("clientLog", () => {
   beforeEach(() => {
     __resetClientTransportDedupForTests();
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 202 }))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 202 }))),
+    );
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -32,7 +35,9 @@ describe("clientLog", () => {
       (f.mock.calls[0]![1] as RequestInit).body as string,
     );
     expect(errBody).toEqual({
-      source: "client.tile", level: "error", message: "crash",
+      source: "client.tile",
+      level: "error",
+      message: "crash",
     });
   });
   test("info (no ctx) AND debug (with ctx) → console only, NO POST", () => {
@@ -53,7 +58,10 @@ describe("clientLog", () => {
   });
   test("fail-open: rejected fetch does not throw", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("net"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("net"))),
+    );
     expect(() => clientLog("error", "client.realtime", "x")).not.toThrow();
   });
 });

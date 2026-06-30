@@ -7,10 +7,7 @@ import { describe, expect, test } from "vitest";
 // mechanical console.* → clientLog swap (a) left no console behind, (b) routed every site through
 // clientLog(client.realtime), and (c) kept the 4 generic `outcome: failed` messages distinct so
 // the transport's dedup (keyed on source|level|message) cannot collapse them into one.
-const SRC = readFileSync(
-  join(process.cwd(), "components/realtime/ShowRealtimeBridge.tsx"),
-  "utf8",
-);
+const SRC = readFileSync(join(process.cwd(), "components/realtime/ShowRealtimeBridge.tsx"), "utf8");
 
 describe("ShowRealtimeBridge console.* → clientLog migration (structural)", () => {
   test("ZERO console.* call sites remain in the bridge", () => {

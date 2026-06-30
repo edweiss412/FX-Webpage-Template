@@ -1,6 +1,13 @@
 // Client-safe shared transport for the app_events mirror. NO server imports.
 const seen = new Set<string>();
-const CAPS = { message: 1000, stack: 8000, componentStack: 8000, digest: 200, url: 2000, tileId: 200 } as const;
+const CAPS = {
+  message: 1000,
+  stack: 8000,
+  componentStack: 8000,
+  digest: 200,
+  url: 2000,
+  tileId: 200,
+} as const;
 
 export function __resetClientTransportDedupForTests(): void {
   seen.clear();
@@ -23,7 +30,8 @@ export function clientErrorTransport(input: {
     seen.add(signature);
     const payload: Record<string, string> = { source: input.source, level: input.level, message };
     if (input.stack) payload.stack = input.stack.slice(0, CAPS.stack);
-    if (input.componentStack) payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
+    if (input.componentStack)
+      payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
     if (input.digest) payload.digest = input.digest.slice(0, CAPS.digest);
     if (input.tileId) payload.tileId = input.tileId.slice(0, CAPS.tileId);
     if (typeof location !== "undefined") payload.url = location.href.slice(0, CAPS.url);
