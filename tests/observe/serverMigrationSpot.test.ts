@@ -11,7 +11,8 @@ describe("server console.* → lib/log migration (spot)", () => {
   test("(a) api.admin.sync — log.error with source + Error in the reserved `error` field (not console)", () => {
     const src = read("app/api/admin/sync/[slug]/route.ts");
     expect(src).not.toMatch(/console\.(error|warn|log)\(/);
-    expect(src).toContain("import { log }");
+    // `log` imported from @/lib/log (the migration appends it to an existing import where present)
+    expect(src).toMatch(/import \{[^}]*\blog\b[^}]*\} from "@\/lib\/log"/);
     expect(src).toMatch(/log\.error\(/);
     expect(src).toContain('source: "api.admin.sync"');
     // the caught error flows via the reserved `error` field (lib/log serializes it), not concatenated
