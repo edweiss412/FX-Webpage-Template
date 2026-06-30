@@ -60,6 +60,7 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
+import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
@@ -407,13 +408,19 @@ function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow
         <p className="text-sm text-text-subtle">No crew parsed.</p>
       ) : (
         <ul className="flex flex-col gap-0.5">
-          {shown.map((m, i) => (
-            <li key={`${m.name}-${i}`} className="text-sm text-text">
-              <span className="font-medium text-text-strong">{m.name || "Unnamed"}</span>
-              {m.role ? <span className="text-text-subtle"> · {m.role}</span> : null}
-              {hasContent(m.phone) ? <span className="text-text-subtle"> · {m.phone}</span> : null}
-            </li>
-          ))}
+          {shown.map((m, i) => {
+            const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
+            return (
+              <li key={`${m.name}-${i}`} className="text-sm text-text">
+                <span className="font-medium text-text-strong">{m.name || "Unnamed"}</span>
+                {m.role ? <span className="text-text-subtle"> · {m.role}</span> : null}
+                {hasContent(m.phone) ? (
+                  <span className="text-text-subtle"> · {m.phone}</span>
+                ) : null}
+                {partial ? <span className="text-text-subtle"> · {partial}</span> : null}
+              </li>
+            );
+          })}
         </ul>
       )}
       {note ? <p className="text-xs text-text-subtle">{note}</p> : null}

@@ -43,6 +43,7 @@ import type { JSX } from "react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
+import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -170,6 +171,11 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                             const role = shouldHideGenericOptional(member.role)
                               ? undefined
                               : member.role;
+                            // Partial-attendance chip (BL-CREW-PARTIAL-ATTENDANCE-CHIP):
+                            // the projection carries ISO-normalized days, so humanize.
+                            const partial = partialAttendanceLabel(member.dateRestriction, {
+                              humanize: true,
+                            });
                             return (
                               <div key={member.id} data-testid="crew-person-row">
                                 <PersonRow
@@ -180,6 +186,7 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                                     ...(member.email !== null ? { email: member.email } : {}),
                                     you: viewerCrewId !== null && member.id === viewerCrewId,
                                     lead: member.roleFlags.includes("LEAD"),
+                                    ...(partial ? { partial } : {}),
                                   }}
                                 />
                               </div>

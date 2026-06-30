@@ -82,3 +82,26 @@ export function humanizeDayRange(
   // Cross-month (or cross-year) → full label on each side, spaced en dash.
   return `${MONTHS[first.month - 1]} ${first.day} – ${MONTHS[last.month - 1]} ${last.day}`;
 }
+
+/**
+ * List ISO show-days as a compact label, repeating the month only when it
+ * changes: "Oct 7 & 9", "Oct 7, 9 & 11", "Oct 30 & Nov 2", "Oct 7". Malformed
+ * entries are skipped; empty / all-malformed / non-array → null. (Distinct from
+ * humanizeDayRange, which collapses to a first–last contiguous range.)
+ */
+export function humanizeDayList(
+  isos: Array<string | null | undefined> | null | undefined,
+): string | null {
+  if (!Array.isArray(isos)) return null;
+  const valid = isos.map(parseYmd).filter((v): v is Ymd => v !== null);
+  if (valid.length === 0) return null;
+  const parts: string[] = [];
+  let prevMonth: number | null = null;
+  for (const ymd of valid) {
+    parts.push(ymd.month === prevMonth ? `${ymd.day}` : `${MONTHS[ymd.month - 1]} ${ymd.day}`);
+    prevMonth = ymd.month;
+  }
+  if (parts.length === 1) return parts[0]!;
+  if (parts.length === 2) return `${parts[0]} & ${parts[1]}`;
+  return `${parts.slice(0, -1).join(", ")} & ${parts[parts.length - 1]}`;
+}

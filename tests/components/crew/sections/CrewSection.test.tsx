@@ -191,4 +191,43 @@ describe("CrewSection", () => {
     expect(wrapper).toHaveClass("flex");
     expect(wrapper).toHaveClass("flex-col");
   });
+
+  test("partial-attendance member gets a chip; full-attendance member does not (BL-CREW-PARTIAL-ATTENDANCE-CHIP)", () => {
+    const crewMembers = [
+      {
+        id: "c0",
+        name: "Calvin",
+        email: null,
+        phone: null,
+        role: "BO",
+        roleFlags: [],
+        dateRestriction: { kind: "explicit" as const, days: ["2025-10-07", "2025-10-09"] },
+        stageRestriction: { kind: "none" as const },
+      },
+      {
+        id: "c1",
+        name: "Doug",
+        email: null,
+        phone: null,
+        role: "Lead",
+        roleFlags: [],
+        dateRestriction: { kind: "none" as const },
+        stageRestriction: { kind: "none" as const },
+      },
+    ];
+    const { container } = render(
+      <CrewSection
+        data={makeShowForViewer({ crewMembers })}
+        viewer={{ kind: "crew", crewMemberId: "c1" }}
+        today={TODAY}
+        showId={SHOW_ID}
+      />,
+    );
+    const rows = [...container.querySelectorAll('[data-testid="crew-person-row"]')];
+    const calvin = rows.find((r) => r.textContent?.includes("Calvin"))!;
+    const doug = rows.find((r) => r.textContent?.includes("Doug"))!;
+    expect(calvin.querySelector("[data-partial]")).not.toBeNull();
+    expect(calvin.textContent).toContain("Oct 7 & 9 only");
+    expect(doug.querySelector("[data-partial]")).toBeNull();
+  });
 });

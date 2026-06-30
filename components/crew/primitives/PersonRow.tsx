@@ -40,6 +40,8 @@
  *
  * Server Component (no `'use client'`) — props in, markup out.
  */
+import { CalendarDays } from "lucide-react";
+
 import { Avatar } from "@/components/atoms/Avatar";
 import { digitsOnly } from "@/lib/format/phone";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -63,6 +65,8 @@ type Person = {
   lead?: boolean;
   /** Primary contact for the row's domain → "Primary" chip + data-primary hook. */
   primary?: boolean;
+  /** Partial-attendance label (e.g. "Oct 7 & 9 only") → a chip + data-partial hook. */
+  partial?: string;
 };
 
 type PersonRowProps = {
@@ -85,6 +89,20 @@ const CHIP_CLASS = [
 ].join(" ");
 
 /**
+ * Partial-attendance chip — MIXED-case (NOT the eyebrow uppercase): it carries a
+ * content-bearing date phrase ("Oct 7 & 9 only"), which reads as shouty + breaks
+ * date-case consistency in the eyebrow uppercase (impeccable critique). A leading
+ * calendar glyph keeps the date-restriction signal visible even if the label
+ * truncates in a narrow column, and distinguishes it from the status chips.
+ * `inline-flex` here (the inner label span owns the `truncate`).
+ */
+const PARTIAL_CHIP_CLASS = [
+  "inline-flex max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 align-middle",
+  "text-xs font-medium",
+  "bg-surface-sunken text-text-subtle",
+].join(" ");
+
+/**
  * Shared action-anchor styling — the mock `.cbtn`: an icon-only 44px-square
  * tap target. `size-tap-min` (= `--spacing-tap-min` = 44px, globals.css) makes
  * the anchor a flush 44×44 square; `min-h-tap-min` keeps the explicit ≥44px tap
@@ -104,7 +122,7 @@ const ACTION_CLASS = [
 ].join(" ");
 
 export function PersonRow({ person }: PersonRowProps) {
-  const { role, fallbackLabel, you, lead, primary } = person;
+  const { role, fallbackLabel, you, lead, primary, partial } = person;
 
   const hasName = typeof person.name === "string" && person.name.trim().length > 0;
   const heading = hasName ? person.name : fallbackLabel;
@@ -162,6 +180,12 @@ export function PersonRow({ person }: PersonRowProps) {
             {primary ? (
               <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
                 Primary
+              </span>
+            ) : null}
+            {partial ? (
+              <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>
+                <CalendarDays className="size-3 shrink-0" aria-hidden />
+                <span className="min-w-0 truncate">{partial}</span>
               </span>
             ) : null}
           </div>

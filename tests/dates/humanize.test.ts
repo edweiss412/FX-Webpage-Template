@@ -5,7 +5,7 @@
  * so the same assertion holds on any runner regardless of TZ.
  */
 import { describe, expect, test } from "vitest";
-import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
+import { humanizeDate, humanizeDayRange, humanizeDayList } from "@/lib/dates/humanize";
 
 describe("humanizeDate", () => {
   test("formats a valid ISO date as 'Mon D' (no leading zero on the day)", () => {
@@ -59,5 +59,22 @@ describe("humanizeDayRange", () => {
     expect(humanizeDayRange(null)).toBeNull();
     expect(humanizeDayRange(undefined)).toBeNull();
     expect(humanizeDayRange(["nope", null, ""])).toBeNull();
+  });
+});
+
+describe("humanizeDayList", () => {
+  test("lists non-contiguous days, repeating month only on change", () => {
+    expect(humanizeDayList(["2025-10-07", "2025-10-09"])).toBe("Oct 7 & 9");
+    expect(humanizeDayList(["2025-10-07", "2025-10-09", "2025-10-11"])).toBe("Oct 7, 9 & 11");
+    expect(humanizeDayList(["2025-10-30", "2025-11-02"])).toBe("Oct 30 & Nov 2");
+    expect(humanizeDayList(["2025-10-07"])).toBe("Oct 7");
+  });
+
+  test("skips malformed; null when none valid", () => {
+    expect(humanizeDayList(["garbage", "2025-10-07"])).toBe("Oct 7");
+    expect(humanizeDayList(["garbage"])).toBeNull();
+    expect(humanizeDayList([])).toBeNull();
+    expect(humanizeDayList(null)).toBeNull();
+    expect(humanizeDayList(undefined)).toBeNull();
   });
 });
