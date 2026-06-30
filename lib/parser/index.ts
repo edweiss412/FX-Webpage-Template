@@ -25,6 +25,7 @@ import { parseGearTab, type GearRoom } from "./blocks/gear";
 import { parseTransportation } from "./blocks/transport";
 import { parseContacts } from "./blocks/contacts";
 import { parseEventDetails } from "./blocks/event";
+import { parseDress, mergeDressCode } from "./blocks/dress";
 import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams, extractLinkedFolder } from "./diagrams";
@@ -452,6 +453,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const transportation = parseTransportation(markdown, version, crewMembers, agg);
   const contacts = parseContacts(markdown, version, agg);
   const eventDetails = parseEventDetails(markdown, version, agg);
+  mergeDressCode(eventDetails, parseDress(markdown));
   const ops = parseOps(markdown, version, agg);
 
   // parsePullSheet returns { pullSheet, warnings } -- merge warnings into agg.
