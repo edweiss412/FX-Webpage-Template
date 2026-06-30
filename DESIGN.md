@@ -347,3 +347,15 @@ The Gear view renders a **"Tech specs"** card (`data-testid="gear-tech-specs"`, 
 - **Rows:** rendered via `KeyValueRows` (label + value), which routes every row through `shouldHideGenericOptional` — a `TBD`/`N/A`/empty value omits that row. Values are `String(...)`-coerced (JSONB-safe).
 - **Content states (data-driven, instant — no animation):** **present** — ≥1 real (non-sentinel) spec → card shown; **absent** — none → card not in the tree (folded into the Gear-section `allHidden` gate, so an all-sentinel show shows no empty card). Pure RSC; §5 motion does not apply.
 - **Source link:** a `SourceLink` in the card header → the `details` sheet region (same region as Keynote / Opening-reel).
+
+## 13. Crew Gear — Room details card (`gear-room-details`)
+
+The Gear view renders a **"Room details"** card (`data-testid="gear-room-details"`, title "Room details", `LayoutGrid` icon) surfacing the per-room physical + schedule detail the parser captures but no card rendered: **dimensions, floor, setup, and per-room set / show / strike times**. It is a **full-width card in the Gear section's vertical stack** (`flex flex-col gap-4`), a peer of the Tech-specs / Keynote / Opening-reel cards (not in the 3-up discipline grid).
+
+- **Room-first layout (distinct from the discipline-first scope cards).** The body is one block per room (`data-testid="gear-room-detail-<id>"`): a small uppercase room-name eyebrow (`roomLabel`, `tracking-eyebrow`, `text-text-subtle`) above a 2-column `KeyValueRows` (`columns={2}`, collapses to 1 column < 720px) of that room's detail fields. Rooms are ordered via `compareRooms` (gs-first), matching the show-level KeyTimesStrip's room selection.
+- **Source of truth:** `lib/crew/roomDetailFields.ts` (`ROOM_DETAIL_FIELDS`), shared with the Step-3 review modal so the two surfaces can't drift. Excludes `power`/`digital_signage` (AV-adjacent; show-level `event_details` already surfaces them) and `notes` (TodaySection renders it).
+- **Sentinel-hiding:** every value routed through `KeyValueRows` (`shouldHideGenericOptional`) and `String(...)`-coerced; a room block with all-empty detail is dropped, and the whole card hides when no room has any detail (folded into the Gear-section `allHidden` gate). Per-room times share the same predicate (it strips `TBD`/`N/A`/`TBA`).
+- **Cap:** at most 12 room blocks; beyond that a single `…and N more rooms` stub. Bounded by the room count (real shows carry ≤ ~9).
+- **Content states (data-driven, instant — no animation):** **present** (≥1 room has ≥1 non-sentinel detail) → card shown; **absent** → card not in the tree. Pure RSC; §5 motion does not apply.
+- **Source link:** a `SourceLink` in the card header → the `rooms` sheet region.
+- **Review-modal counterpart:** the Step-3 `RoomsBreakdown` shows the same fields per room AS-PARSED (sentinels visible — review surface), parallel to the gear-scope sub-list.

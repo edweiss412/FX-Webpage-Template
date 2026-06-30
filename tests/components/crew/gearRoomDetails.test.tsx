@@ -81,7 +81,10 @@ describe("GearSection — Room details card (BL-ROOM-DETAIL-UNRENDERED)", () => 
       '[data-slot="section-card-action"] a[data-slot="source-link"]',
     );
     expect(link?.getAttribute("href")).toBe(
-      buildSheetDeepLink(data.driveFileId, data.sourceAnchors[CARD_REGION_MAP["gear-room-details"]]),
+      buildSheetDeepLink(
+        data.driveFileId,
+        data.sourceAnchors[CARD_REGION_MAP["gear-room-details"]],
+      ),
     );
   });
 
@@ -110,9 +113,9 @@ describe("GearSection — Room details card (BL-ROOM-DETAIL-UNRENDERED)", () => 
       } as ShowForViewer["rooms"][number],
     ]);
     expect(
-      within(container.querySelector<HTMLElement>('[data-testid="gear-room-detail-r1"]')!).getByText(
-        "169",
-      ),
+      within(
+        container.querySelector<HTMLElement>('[data-testid="gear-room-detail-r1"]')!,
+      ).getByText("169"),
     ).toBeTruthy();
   });
 
