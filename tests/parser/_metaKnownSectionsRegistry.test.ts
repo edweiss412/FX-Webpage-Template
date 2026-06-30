@@ -19,6 +19,7 @@ import { isKnownSectionHeader, KNOWN_SECTION_HEADERS } from "@/lib/parser/knownS
 //   transport.ts   TRANSPORTATION
 //   rooms.ts:547   GENERAL SESSION / BREAKOUT / ADDITIONAL ROOM / LUNCH ROOM / DETAILS
 //   event.ts:38-39 EVENT DETAILS / DETAILS / GS DETAILS
+//   dress.ts       DRESS
 //   dates.ts       DATES
 //   venue.ts       VENUE / VENUES
 //   contacts.ts    IN HOUSE AV (+ venue/hotel contact-info labels)
@@ -37,6 +38,7 @@ const REQUIRED_HEADERS = [
   "EVENT DETAILS",
   "GS DETAILS",
   "DETAILS",
+  "DRESS",
   "DATES",
   "VENUE",
   "VENUES",

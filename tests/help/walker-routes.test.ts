@@ -94,6 +94,14 @@ describe("e2e suite holds no unlocked PostgREST DML on locked tables (structural
     ["claimStamp.ts", 1],
     ["seedShowWithCrew.ts", 3],
     ["picker-flow.spec.ts", 1],
+    // crew-layout-dimensions.spec.ts: the unified show-day timeline (Today Mode A)
+    // needs a high-confidence agenda for the seeded show day so the MERGED timeline
+    // mounts. Its beforeAll seeds shows.agenda_links and afterAll restores it — 2
+    // SERVICE-ROLE admin-client writes (seed + restore), the same by-design elevated
+    // fixture pattern as above (the lockdown REVOKEs from authenticated, not
+    // service_role), alongside the file's existing shows_internal.run_of_show seed
+    // (shows_internal is not a locked table, so it is not counted here).
+    ["crew-layout-dimensions.spec.ts", 2],
     // crew-page.spec.ts: the crew-redesign §4.9/§4.10/nav rewrite (Phase 4) replaced
     // the legacy today-band blocks that carried the 2 frozen locked-table fixture
     // writes with seeded-slug + signInAs flows that perform NO unlocked PostgREST

@@ -23,7 +23,7 @@ import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
  * the time group `START–FINISH · TRT` (each part sentinel-guarded), the required
  * real TITLE, then the ROOM + AV-badge metadata when present.
  */
-function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
+export function RunOfShowEntry({ entry }: { entry: AgendaEntry }): JSX.Element {
   // Title is URL-stripped (free text could paste a link). The caller only passes
   // DISPLAYABLE entries (isDisplayableEntry — stripped title is real), so the
   // stripped title here is guaranteed non-empty and renders. A title strictly

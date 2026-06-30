@@ -37,6 +37,7 @@ import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
+import { ShowDayTimelineList } from "@/components/crew/primitives/ShowDayTimelineList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -51,8 +52,10 @@ import {
 } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
+import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
 import { aggregateDays, scheduleEntriesForViewer } from "@/lib/crew/agendaDisplay";
 import { resolveKeyTimes, type KeyTimeAnchors } from "@/lib/crew/resolveKeyTimes";
+import { buildShowDayTimeline } from "@/lib/crew/showDayTimeline";
 import { selectPrimaryContact } from "@/lib/crew/selectPrimaryContact";
 import { streetFromAddress, venueDisplay } from "@/lib/venue/venueLocation";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -189,9 +192,11 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           //   - todays: displayableEntries(...) — the SAME leak-critical filter
           //     (URL-only/sentinel titles never occupy a row).
           //
-          // Mode A iff isShowDay && eligible && todays.length > 0. Fail-closed:
-          // any ambiguity (unknown_asterisk, not a show day, ineligible, empty
-          // filter, no runOfShow) → Mode B (the full-width stack, unchanged).
+          // Mode A iff isShowDay && eligible && (todays.length > 0 ||
+          // agendaToday.length > 0) — the unified timeline also activates on an
+          // agenda-only show day. Fail-closed: any ambiguity (unknown_asterisk,
+          // not a show day, ineligible, no crew AND no agenda) → Mode B
+          // (the full-width stack, unchanged).
           // Data-driven render fork — instant, no animation (§ Transitions).
           const dateRestriction = ctx.dateRestriction;
           const todayIso = todayIsoInShowTimezone(data.show, today);
@@ -212,7 +217,14 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
             dateRestriction.kind === "unknown_asterisk"
               ? []
               : scheduleEntriesForViewer(data.runOfShow?.[todayIso]?.entries, { transportVisible });
-          const modeA = isShowDay && eligible && todays.length > 0;
+          // Unified show-day timeline: today's PLACEABLE agenda sessions (high-conf,
+          // day-matched, aggregated across links). agendaToday.length>0 activates the merge.
+          const agendaToday = agendaSessionsForToday(
+            data.show.agenda_links ?? [],
+            data.show.dates.showDays ?? [],
+            todayIso,
+          );
+          const modeA = isShowDay && eligible && (todays.length > 0 || agendaToday.length > 0);
 
           const rightNowContext = buildRightNowContext({
             show: data.show,
@@ -595,7 +607,14 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                           </span>
                         }
                       >
-                        <RunOfShowList entries={todays} isoDate={todayIso} />
+                        {agendaToday.length > 0 ? (
+                          <ShowDayTimelineList
+                            items={buildShowDayTimeline(todays, agendaToday)}
+                            isoDate={todayIso}
+                          />
+                        ) : (
+                          <RunOfShowList entries={todays} isoDate={todayIso} />
+                        )}
                       </SectionCard>
                     </div>
                     <div className="min-w-0">{quickCardsStack}</div>
