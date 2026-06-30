@@ -32,7 +32,7 @@ type KeyTimesStripProps = {
    *
    *   - `"stack"` — the vertical list: one row per anchor, label-left /
    *     value-right (`justify-between`). Used in NARROW columns (ScheduleSection's
-   *     1fr "Daily call times" card) and at <720px everywhere. The e2e
+   *     1fr "Crew Schedule" card) and at <720px everywhere. The e2e
    *     label-left / value-right column-alignment contract (crew-page inv6, which
    *     runs mobile-only) pins this shape.
    *   - `"row"` — at ≥720px the present anchors lay out as an equal-width
