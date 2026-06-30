@@ -126,6 +126,7 @@ function fullFixture(): ShowForViewer {
         set_time: "08:00",
         show_time: "10:00",
         strike_time: "18:00",
+        dimensions: "20' x 30'",
       },
     ],
     hotelReservations: [

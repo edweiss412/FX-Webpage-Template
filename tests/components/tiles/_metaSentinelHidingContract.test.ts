@@ -275,6 +275,15 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     pattern:
       /event_details\[\s*"(stage_size|podium_type|polling|led|scenic|gooseneck|digital_signage|test_pattern|fonts|equipment_storage|staff_office_room|record|virtual_speaker|virtual_audience|notes)"\s*\]/,
   },
+  // BL-ROOM-DETAIL-UNRENDERED: the crew "Room details" card surfaces these
+  // RoomRow fields (GearSection). The card reads them via a dynamic loop over
+  // ROOM_DETAIL_FIELDS (no literal access), so this pattern matches nothing
+  // today — FORWARD-DEFENSE that fails CI if a future edit adds a direct
+  // `r.dimensions`-style read in a walked component without sentinel-hiding.
+  {
+    description: "room detail (crew Room-details card)",
+    pattern: /\br\??\.(dimensions|floor|setup|set_time|show_time|strike_time)\b/,
+  },
 ];
 
 /**
