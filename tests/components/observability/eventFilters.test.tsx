@@ -75,6 +75,14 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     fireEvent.blur(screen.getByTestId("filter-source"));
     expect(push).not.toHaveBeenCalled();
   });
+  test("Enter then blur pushes exactly ONCE (no double-submit before navigation re-syncs committed)", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    const input = screen.getByTestId("filter-source") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "cron.sync" } });
+    fireEvent.keyDown(input, { key: "Enter" }); // commit #1
+    fireEvent.blur(input); // committed prop still stale here — must NOT re-push
+    expect(push).toHaveBeenCalledTimes(1);
+  });
   test("level toggle drops the cursor (every mutation resets pagination)", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);
     fireEvent.click(screen.getByRole("button", { name: "error" }));

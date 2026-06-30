@@ -22,11 +22,19 @@ function FilterTextInput({
   onCommit: (v: string | null) => void;
 }) {
   const [value, setValue] = useState(committed);
-  const [prevCommitted, setPrevCommitted] = useState(committed);
-  if (committed !== prevCommitted) {
-    setPrevCommitted(committed);
+  // `baseline` is the last value we committed OR synced from `committed`. It is the idempotency key
+  // for commit() AND the during-render "adjust state on prop change" key — so Enter-then-blur (blur
+  // fires while the `committed` prop is still the pre-navigation value) does NOT double-push.
+  const [baseline, setBaseline] = useState(committed);
+  if (committed !== baseline) {
+    setBaseline(committed);
     setValue(committed);
   }
+  const commit = () => {
+    if (value === baseline) return; // unchanged (incl. the post-Enter blur) → no redundant navigation
+    setBaseline(value);
+    onCommit(value || null);
+  };
   return (
     <input
       type="text"
@@ -37,13 +45,10 @@ function FilterTextInput({
       className="min-h-tap-min rounded border border-border bg-surface px-2"
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
-        if (e.key === "Enter") onCommit(value || null);
+        if (e.key === "Enter") commit();
       }}
-      // Non-keyboard commit path (mobile): blur applies the filter when it changed, so a tap-away
-      // commits without needing the on-screen keyboard's Enter/Go key.
-      onBlur={() => {
-        if (value !== committed) onCommit(value || null);
-      }}
+      // Non-keyboard commit path (mobile): a tap-away applies the filter without the keyboard's Enter.
+      onBlur={commit}
     />
   );
 }
