@@ -109,12 +109,57 @@ function isKnownNonTitle(candidate: string): boolean {
   return KNOWN_NON_TITLES.has(candidate.toLowerCase().trim());
 }
 
+// Shared title-cell acceptance guard, used by BOTH the banner (#0) and the
+// first-cell fallback (#6) so they cannot drift. Rejects empties, known
+// non-titles, CLIENT/NO_HEADER label rows, escaped error cells, and — via the
+// parser's OWN canonical recognizer — any bare or room-family section header
+// (so a duplicated "DOCUMENT FOLDER LINK" / "GENERAL SESSION SALON ABC" first
+// row can never become show.title). See spec Fix 3.
+function isAcceptableTitleCell(cell: string): boolean {
+  if (cell.length === 0) return false;
+  if (isKnownNonTitle(cell)) return false;
+  if (cell.toUpperCase().startsWith("CLIENT")) return false;
+  if (cell.toUpperCase().startsWith("NO_HEADER")) return false;
+  if (cell === "\\#NUM\\!") return false;
+  if (/^\\#/.test(cell)) return false;
+  if (isKnownSectionHeader(cell)) return false;
+  return true;
+}
+
 function extractTitleFromMarkdown(
   md: string,
   eventDetails: Record<string, string>,
   filename?: string,
 ): string {
   const lines = md.split("\n");
+
+  // 0. Exporter banner: line 1 is the show title, column-duplicated across cells.
+  //    Examine only the first non-separator table row; require the first cell to
+  //    be duplicated in another cell AND pass the shared title guard. This beats
+  //    the uppercased "Event Name:" cell (priority #1) for exporter sheets.
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) continue;
+    if (/^\|\s*[:|-]+\s*\|/.test(trimmed)) continue; // skip separator row
+    const cells = trimmed
+      .split(CELL_SPLIT_RE)
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+    // A banner is a CLEAN single-line title column-duplicated across the row.
+    // A cell carrying an in-cell newline entity (&#10;/&#9;) is a multi-value
+    // cell (e.g. redefining-fi's two-forum banner), NOT a single title — skip it
+    // and let the existing chain pick the canonical title.
+    if (
+      cells[0] &&
+      cells[1] &&
+      cells[0] === cells[1] &&
+      !/&#(10|9);/.test(cells[0]) &&
+      isAcceptableTitleCell(cells[0])
+    ) {
+      return cells[0];
+    }
+    break; // only the first non-separator table row is a banner candidate
+  }
 
   // 1. Scan raw markdown for "Event Name:" label row (v4/v2 newer fixtures).
   //    This row lives in the CLIENT block, so parseEventDetails never captures it.
@@ -199,15 +244,9 @@ function extractTitleFromMarkdown(
     const match = TABLE_ROW_RE.exec(trimmed);
     if (match) {
       const cell = match[1]?.trim() ?? "";
-      // Skip obvious label cells and empty/escape sequences
-      if (
-        cell.length > 0 &&
-        !isKnownNonTitle(cell) &&
-        !cell.toUpperCase().startsWith("CLIENT") &&
-        !cell.toUpperCase().startsWith("NO_HEADER") &&
-        cell !== "\\#NUM\\!" &&
-        !/^\\#/.test(cell)
-      ) {
+      // Skip obvious label cells, empty/escape sequences, and section headers
+      // (shared guard — kept in lockstep with the #0 banner check).
+      if (isAcceptableTitleCell(cell)) {
         return cell;
       }
     }
