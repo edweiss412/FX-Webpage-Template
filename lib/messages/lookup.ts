@@ -128,3 +128,11 @@ export function getRequiredDougFacing(code: MessageCode, params?: MessageParams)
   }
   return value;
 }
+
+export function getRequiredCrewFacing(code: MessageCode, params?: MessageParams): string {
+  const value = getCrewFacing(code, params);
+  if (value === null) {
+    throw new Error(`getRequiredCrewFacing: code ${code} has no Crew-facing copy`);
+  }
+  return value;
+}
