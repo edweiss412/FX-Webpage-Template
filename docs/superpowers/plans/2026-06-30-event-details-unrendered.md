@@ -155,13 +155,7 @@ git commit --no-verify -m "feat(crew-page): shared event_details specs whitelist
 
 **Interfaces — Consumes:** `EVENT_DETAILS_LABELS`, `CREW_TECH_SPEC_KEYS` (Task 1); `KeyValueRows`/`KeyValueRow`, `SectionCard`, `SourceLink`, `shouldHideGenericOptional`, `CARD_REGION_MAP` (existing).
 
-- [ ] **Step 1: Add the card-id → region mapping** — `lib/sheet-links/buildSheetDeepLink.ts`, in `CARD_REGION_MAP` after `"gear-opening-reel": "details",`:
-
-```ts
-  "gear-tech-specs": "details",
-```
-
-- [ ] **Step 2: Write the failing crew-card test** — `tests/components/crew/gearTechSpecs.test.tsx`. Mirror the existing GearSection test setup (import `GearSection`, build a `ShowForViewer` fixture; copy the fixture factory from `tests/components/crew/sections/` GearSection tests). Assert:
+- [ ] **Step 1: Write the failing crew-card test** — `tests/components/crew/gearTechSpecs.test.tsx`. Mirror the existing GearSection test setup (import `GearSection`, build a `ShowForViewer` fixture; copy the fixture factory from `tests/components/crew/sections/` GearSection tests). Assert:
 
 ```ts
 // (setup: render GearSection with a fixture whose data.show.event_details has the values below)
@@ -178,13 +172,18 @@ git commit --no-verify -m "feat(crew-page): shared event_details specs whitelist
 
 Write it concretely against the real GearSection test harness (copy the neighbor test's `renderGear`/fixture helper). Use `data-testid="gear-tech-specs"`.
 
-- [ ] **Step 3: Run, verify it fails**
+- [ ] **Step 2: Run, verify it fails**
 
 Run: `pnpm vitest run tests/components/crew/gearTechSpecs.test.tsx`
-Expected: FAIL — no "Stage size" text / no `gear-tech-specs` testid.
+Expected: FAIL — no "Stage size" text / no `gear-tech-specs` testid. (TDD: test precedes ALL implementation, including the CARD_REGION_MAP add in Step 3 — Codex plan-R1.)
 
-- [ ] **Step 4: Implement the card** — `components/crew/sections/GearSection.tsx`:
+- [ ] **Step 3: Implement the card** — two files, both part of this one implementation step (the card's `CARD_REGION_MAP["gear-tech-specs"]` lookup won't compile without the mapping):
 
+(a0) `lib/sheet-links/buildSheetDeepLink.ts` — in `CARD_REGION_MAP`, after `"gear-opening-reel": "details",`:
+```ts
+  "gear-tech-specs": "details",
+```
+Then in `components/crew/sections/GearSection.tsx`:
 (a) Add imports:
 ```ts
 import { SlidersHorizontal } from "lucide-react";
@@ -223,12 +222,12 @@ import { EVENT_DETAILS_LABELS, CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetai
               ) : null}
 ```
 
-- [ ] **Step 5: Run, verify pass**
+- [ ] **Step 4: Run, verify pass**
 
 Run: `pnpm vitest run tests/components/crew/gearTechSpecs.test.tsx`
 Expected: PASS (all 5 assertions). If "Power" appears in the card, the `CREW_TECH_SPEC_KEYS` excludes it (Task 1) — verify the loop uses that const, not all labels.
 
-- [ ] **Step 6: Extend the sentinel-hiding meta-test** — `tests/components/tiles/_metaSentinelHidingContract.test.ts`, add to `GENERIC_OPTIONAL_FIELDS`:
+- [ ] **Step 5: Extend the sentinel-hiding meta-test — FORWARD-DEFENSE ONLY** — `tests/components/tiles/_metaSentinelHidingContract.test.ts`, add to `GENERIC_OPTIONAL_FIELDS`:
 
 ```ts
   {
@@ -238,16 +237,18 @@ Expected: PASS (all 5 assertions). If "Power" appears in the card, the `CREW_TEC
   },
 ```
 
-- [ ] **Step 7: Make the source-link walker cover the new card** — in `tests/components/crew/sourceLinkCoverage.test.tsx`, find `fullFixture()` and ensure its `event_details` includes a real tech spec (e.g. `stage_size: "8' x 24' x 2'"`) so the `gear-tech-specs` card renders and is discovered by the walker. (If the fixture lives in a shared helper, edit there.)
+**Important (Codex plan-R1):** this LITERAL bracket pattern does NOT match the card's implementation, which reads `data.show.event_details[key]` in a dynamic loop (no literal `event_details["stage_size"]` text in GearSection.tsx). That is intentional — the pattern is **forward-defense** that fails CI if a FUTURE edit adds a *direct literal* read of one of these keys in a walked component without sentinel-hiding. The CURRENT card's sentinel-hiding is NOT guarded by this pattern; it is guaranteed by `KeyValueRows` (a walked, already-compliant primitive that routes every row through `shouldHideGenericOptional`) and verified by the `record:"N/A"`-hidden assertion in the Step-1 component test. So after adding the pattern, the meta-test must still **PASS** (it matches no current walked file) — it neither newly-enforces nor breaks the current code.
 
-- [ ] **Step 8: Run the wiring/meta/coverage suites**
+- [ ] **Step 6: Make the source-link walker cover the new card** — in `tests/components/crew/sourceLinkCoverage.test.tsx`, find `fullFixture()` and ensure its `event_details` includes a real tech spec (e.g. `stage_size: "8' x 24' x 2'"`) so the `gear-tech-specs` card renders and is discovered by the walker. (If the fixture lives in a shared helper, edit there.)
+
+- [ ] **Step 7: Run the wiring/meta/coverage suites**
 
 Run: `pnpm vitest run tests/components/tiles/_metaSentinelHidingContract.test.ts tests/components/crew/sourceLinkCoverage.test.tsx tests/components/crew/gearTechSpecs.test.tsx`
-Expected: PASS. The walker now classifies `gear-tech-specs` (CARD_REGION_MAP key) and verifies its SourceLink href = `buildSheetDeepLink(driveFileId, sourceAnchors["details"])`.
+Expected: PASS (the meta-test passes because the new pattern matches no current file — see Step 5). The walker now classifies `gear-tech-specs` (CARD_REGION_MAP key) and verifies its SourceLink href = `buildSheetDeepLink(driveFileId, sourceAnchors["details"])`.
 
-- [ ] **Step 9: Affordance-matrix check** — Run `pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts`. Expected: PASS (the card reuses `SectionCard`+`SourceLink`, same as `gear-keynote`, which is already classified — no new help-affordance testid). If it flags the new card, mirror exactly how `gear-keynote` is handled (entry or `// not-a-help-affordance:` exempt) — do NOT invent a new pattern.
+- [ ] **Step 8: Affordance-matrix check** — Run `pnpm vitest run tests/help/_metaAffordanceMatrixParity.test.ts tests/help/_affordance-matrix-shape.test.ts tests/help/deep-link-walker-reverse.test.ts` (the three files the `affordance-matrix-parity` CI gate runs). Expected: PASS (the card reuses `SectionCard`+`SourceLink`, same as `gear-keynote`, already classified — no new help-affordance testid). If any flags the new card, mirror exactly how `gear-keynote`/`gear-opening-reel` are handled — do NOT invent a new pattern.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add lib/sheet-links/buildSheetDeepLink.ts components/crew/sections/GearSection.tsx tests/components/tiles/_metaSentinelHidingContract.test.ts tests/components/crew/sourceLinkCoverage.test.tsx tests/components/crew/gearTechSpecs.test.tsx
