@@ -779,6 +779,47 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       "No contacts parsed.",
     );
   });
+
+  test("crew breakdown shows each member's phone as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      crewMembers: [{ name: "Doug Larson", role: "Lead", phone: "917-331-4885" }],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-cp", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-cp-more"));
+    const t = getByTestId("wizard-step3-card-drive-cp-breakdown-crew").textContent ?? "";
+    expect(t).toContain("Doug Larson");
+    expect(t).toContain("917-331-4885"); // phone now shown
+  });
+
+  test("hotels breakdown shows hotel_address, never confirmation_no (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotel_name: "Four Seasons",
+          hotel_address: "120 E Delaware Pl",
+          names: [],
+          confirmation_no: "SECRET-123",
+          check_in: "2025-10-07",
+          check_out: "2025-10-10",
+          notes: null,
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ha", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ha-more"));
+    const t = getByTestId("wizard-step3-card-drive-ha-breakdown-hotels").textContent ?? "";
+    expect(t).toContain("120 E Delaware Pl"); // address now shown
+    expect(t).not.toContain("SECRET-123"); // confirmation_no stays private
+  });
 });
 
 describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {

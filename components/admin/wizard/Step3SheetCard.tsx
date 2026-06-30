@@ -395,6 +395,7 @@ function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow
             <li key={`${m.name}-${i}`} className="text-sm text-text">
               <span className="font-medium text-text-strong">{m.name || "Unnamed"}</span>
               {m.role ? <span className="text-text-subtle"> · {m.role}</span> : null}
+              {hasContent(m.phone) ? <span className="text-text-subtle"> · {m.phone}</span> : null}
             </li>
           ))}
         </ul>
@@ -742,6 +743,9 @@ function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservat
               <span className="font-medium text-text-strong">{h.hotel_name || "Hotel"}</span>
               {arr(h.names).length > 0 ? (
                 <span className="text-text-subtle"> · {arr(h.names).join(", ")}</span>
+              ) : null}
+              {hasContent(h.hotel_address) ? (
+                <span className="block text-xs text-text-subtle">{h.hotel_address}</span>
               ) : null}
               {h.check_in || h.check_out ? (
                 <span className="block text-xs tabular-nums text-text-subtle">
