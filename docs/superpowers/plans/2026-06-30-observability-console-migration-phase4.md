@@ -47,9 +47,22 @@ describe("clientLog", () => {
     expect(body).toEqual({ source: "client.realtime", level: "warn", message: "boom" }); // NO context mirrored
     warn.mockRestore();
   });
-  test("info/debug → console only, NO POST", () => {
-    vi.spyOn(console, "info").mockImplementation(() => {});
+  test("error → console.error AND a POST with level error", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    clientLog("error", "client.tile", "crash");
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(JSON.parse((f.mock.calls[0]![1] as RequestInit).body as string)).toEqual({
+      source: "client.tile", level: "error", message: "crash",
+    });
+  });
+  test("info (no ctx) AND debug (with ctx) → console only, NO POST", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
     clientLog("info", "client.realtime", "ok");
+    clientLog("debug", "client.realtime", "trace", { detail: 1 });
+    expect(info).toHaveBeenCalledWith("ok");
+    expect(debug).toHaveBeenCalledWith("trace", { detail: 1 }); // context kept in console
     expect(fetch as unknown as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
   test("dedup: same (source,level,message) → one POST", () => {
@@ -164,15 +177,22 @@ if (!gate.ok) {
   }
   return Response.json({ ok: true }, { status: 202 });
 }
+// Conditional spreads so an absent optional never materializes as `{ stack: undefined }`
+// (exactOptionalPropertyTypes); `cap()` returns string | undefined.
+const s = cap(body.stack, CAPS.stack);
+const cs = cap(body.componentStack, CAPS.componentStack);
+const dg = cap(body.digest, CAPS.digest);
+const u = cap(body.url, CAPS.url);
+const ti = cap(body.tileId, CAPS.tileId);
 await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
   safeLog(() =>
     log[level](rawMessage.slice(0, CAPS.message), {
       source,
-      stack: cap(body.stack, CAPS.stack),
-      componentStack: cap(body.componentStack, CAPS.componentStack),
-      digest: cap(body.digest, CAPS.digest),
-      url: cap(body.url, CAPS.url),
-      tileId: cap(body.tileId, CAPS.tileId),
+      ...(s ? { stack: s } : {}),
+      ...(cs ? { componentStack: cs } : {}),
+      ...(dg ? { digest: dg } : {}),
+      ...(u ? { url: u } : {}),
+      ...(ti ? { tileId: ti } : {}),
     }),
   ),
 );
@@ -269,7 +289,7 @@ override componentDidCatch(error: Error, info: ErrorInfo) {
 
 **Files:** Modify `components/realtime/ShowRealtimeBridge.tsx`; Test `tests/observe/showRealtimeBridge.test.tsx` (assert the 4 `outcome: failed` migrations carry distinct reason-bearing messages — spec §3.2/§12.8).
 
-- [ ] **Step 1: failing test** — mock `@/lib/observe/clientLog`; drive (or unit-extract) the renewal-failure paths; assert each mirrored warn calls `clientLog("warn","client.realtime", <distinct message>, <ctx>)` and that the 4 `JWT_RENEWED outcome: failed` calls have DISTINCT messages (reason folded). Minimal viable: assert the migrated source contains the exact enriched message strings (a source-grep test if driving the realtime stack is impractical). Run → FAIL.
+- [ ] **Step 1: failing test** `tests/observe/showRealtimeBridge.test.tsx` — driving the realtime stack needs live Supabase channels (impractical in unit), so assert at the SOURCE level (read `components/realtime/ShowRealtimeBridge.tsx`): (a) ZERO `console.` call sites remain (`!/console\.(warn|info|error|log|debug)\(/`); (b) all 15 migrated calls use `clientLog(` with `"client.realtime"`; (c) the 4 reason-folded failure messages are each present AND mutually DISTINCT literal strings — `"JWT renew outcome failed (mint_failed)"`, `"…(set_auth_threw)"`, `"…(subscribe_threw)"`, `"…(readiness_failed)"` — so dedup cannot collapse them. (This is a structural assertion, the same class as the no-console meta-test; it directly catches the "mechanical swap lost the reason" failure mode.) Run → FAIL.
 - [ ] **Step 2: implement** — replace each `console.warn|info(...)` with `clientLog(...)`, `source: "client.realtime"`, FOLDING the `reason` into the message for the 4 generic `outcome: failed` sites:
   - L305 `console.warn("[ShowRealtimeBridge] version endpoint returned auth_denied; forcing refresh…", {status})` → `clientLog("warn","client.realtime","version endpoint returned auth_denied; forcing refresh",{status:result.status})`
   - L384 → `clientLog("warn","client.realtime","JWT renew outcome auth_denied — viewer session revoked; forcing refresh",{reason:"mint_auth_denied",status:mintResult.status})`
@@ -299,8 +319,14 @@ override componentDidCatch(error: Error, info: ErrorInfo) {
 
 > Implementation note: this is a mechanical 1:1 transform across ~26 files — fan out (a Workflow, one agent per file-cluster) at execution time; EACH migrated file ends with `pnpm typecheck` green for that file. The transform rule + per-file source come from the spec §2 table. Server components/actions have no ALS → `requestId: null` (graceful); do NOT add `runWithRequestContext`.
 
-- [ ] **Step 1: failing spot-test** (`tests/observe/serverMigrationSpot.test.ts`) — for a representative route (`app/api/admin/sync/[slug]/route.ts`), mock `@/lib/log` and exercise its error path; assert `log.error` called with `source: "api.admin.sync"` and the `Error` in the reserved `error` field; HTTP response unchanged. Run → FAIL (until migrated).
-- [ ] **Step 2: migrate** all §2-table files per the rule. (Workflow fan-out; commit logically — e.g. per area: `app/api`, `lib`, `server components`, `app/auth+admin`.) After each cluster: `pnpm typecheck` green.
+**Per-call transform checklist (the implementer records this for EACH migrated call before committing — it is the no-placeholder contract for the mechanical transform):** (1) level: `error→error`, `warn→warn`, `log|info→info`; (2) `source` = the §2-table value for the file; (3) message = the original string MINUS the leading `[bracket]` prefix (the source carries it); (4) if the original 2nd arg is an `Error` (or `err: unknown` caught) → the reserved `error` field (`{ error: e }`); (5) any OTHER structured 2nd arg → named top-level context fields (e.g. `console.warn("[x] too-many-pages", { pages })` → `log.warn("too-many-pages", { source, pages })`); (6) NO `code:`; (7) no `runWithRequestContext` added (server components log with `requestId: null`).
+
+- [ ] **Step 1: failing spot-tests** (`tests/observe/serverMigrationSpot.test.ts`, mock `@/lib/log`) — three cases pinning the non-trivial decisions:
+  - **(a) Error → reserved field:** `app/api/admin/sync/[slug]/route.ts` error path → `log.error` with `source:"api.admin.sync"` and the `Error` in the reserved `error` field (NOT string-concatenated into the message); HTTP response unchanged.
+  - **(b) bracket-prefix removed + structured context:** `lib/agenda/extractAgendaSchedule.ts` "too-many-pages" warn → `log.warn` with `source:"agenda.extract"`, a message WITHOUT the `[agenda-extract]` prefix, and the structured fields (e.g. `pageCount`) as named context.
+  - **(c) `console.log` → `log.info`:** `lib/sync/enrichAgenda.ts` "download" log → `log.info` with `source:"sync.enrichAgenda"`.
+  Run → FAIL (until migrated).
+- [ ] **Step 2: migrate** all §2-table files per the rule + checklist. (Workflow fan-out, one agent per file-cluster, each applying the checklist; commit per area: `app/api`, `lib`, `server components`, `app/auth+admin`.) After each cluster: `pnpm typecheck` green.
 - [ ] **Step 3: run the spot-test → PASS;** `pnpm typecheck` 0.
 - [ ] **Step 4: commit** per cluster, e.g. `refactor(log): migrate app/api console.* → lib/log` / `…lib/* …` / `…server components …` / `…app auth+admin …`
 
@@ -326,7 +352,10 @@ override componentDidCatch(error: Error, info: ErrorInfo) {
 
 **Files:** Create `tests/cross-cutting/no-console-exemptions.test.ts`.
 
-- [ ] **Step 1: failing test** — (a) read `eslint.config.mjs`, assert the override `files` array equals exactly `["scripts/**","tests/**","lib/log/logger.ts","lib/log/persist.ts","lib/observe/clientLog.ts"]`; (b) a `ts-morph` `Project` over `app/`+`lib/`+`components/` (excluding the 5 exempt + `.next`), walk `CallExpression`s whose callee text matches `/^console\.(log|warn|error|info|debug)$/`, assert `[]` (comments/strings ignored by AST). Negative-control comment in the test asserts a `// console.log` line in a fixture string is NOT matched but a real call IS. (Mirror the ts-morph setup in `lib/audit/noGlobalCursor.ts`.)
+- [ ] **Step 1: failing test** — three assertions:
+  - (a) read `eslint.config.mjs`, assert the override `files` array equals exactly `["scripts/**","tests/**","lib/log/logger.ts","lib/log/persist.ts","lib/observe/clientLog.ts"]`.
+  - (b) a `ts-morph` `Project` over `app/`+`lib/`+`components/` (excluding the 5 exempt + `.next`), walk `CallExpression`s whose callee text matches `/^console\.(log|warn|error|info|debug)$/`, assert `[]` (comments/strings ignored by AST). (Mirror the ts-morph setup in `lib/audit/noGlobalCursor.ts`.)
+  - (c) **REAL negative control** — extract the detector into a helper `findConsoleCalls(filePath, source)` and feed it an in-memory fixture string containing BOTH a comment `// console.log("nope")` and a real `console.log("yes")` call; assert it returns exactly the one CALL (line of the real call) and NOT the comment. This proves the AST walk (not a grep) is what runs.
 - [ ] **Step 2: run → FAIL if any stray remains; then PASS** after Tasks 4-6.
 - [ ] **Step 3: commit** `test(cross-cutting): no-console exemption registry + AST no-stray-console walk`
 
