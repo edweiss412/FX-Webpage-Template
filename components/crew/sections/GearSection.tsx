@@ -464,10 +464,15 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                           data-testid={`gear-room-detail-${b.id}`}
                           className="flex flex-col gap-1.5"
                         >
-                          <p className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
-                            {b.label}
-                          </p>
-                          <KeyValueRows rows={b.rows} columns={2} />
+                          {/* Room name as an h3 (under the card's h2) — gives each
+                              per-room block a heading so the room↔detail relationship
+                              is exposed to SR + reads as a distinct block, not another
+                              field label (impeccable critique + audit MED). */}
+                          <h3 className="text-sm font-semibold text-text-strong">{b.label}</h3>
+                          {/* columns={1}: detail reads label:value per line, keeping the
+                              physical (dimensions/floor/setup) → schedule (set/show/strike)
+                              order intact at every width (no 2-col interleave). */}
+                          <KeyValueRows rows={b.rows} columns={1} />
                         </div>
                       ))}
                       {hiddenRoomCount > 0 ? (
