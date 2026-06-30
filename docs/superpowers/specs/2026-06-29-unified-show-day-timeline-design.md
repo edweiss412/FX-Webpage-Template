@@ -92,7 +92,7 @@ export function clockToMinutes(raw: string): number | null;
 ```ts
 export function parseIsoFromDayLabel(dayLabel: string): string | null;
 export function agendaSessionsForToday(
-  agendaLinks: { extracted?: AgendaExtraction | null }[] | null | undefined,
+  agendaLinks: { extracted?: unknown }[] | null | undefined,   // `extracted` is raw JSONB — normalized internally (§3.2 step 2)
   showDays: string[],              // ISO show-day list (data.show.dates.showDays)
   todayIso: string,
 ): AgendaSession[];
