@@ -16,4 +16,17 @@ describe("observability route is auth-chain registered", () => {
     expect(src).toContain("/admin/observability");
     expect(src).toMatch(/Activity/);
   });
+  test("dev layout harness is BOTH build-gated (with-admin-dev-flag FILES) AND auth-chain registered", () => {
+    // The harness must be renamed-aside at build time when ADMIN_DEV_PANEL_ENABLED!=='true' (so it
+    // never ships to prod) AND carry the requireAdmin chain — regressing either is a leak.
+    const harness = "app/admin/dev/observability-dim/page.tsx";
+    const gate = readFileSync(
+      join(__dirname, "..", "..", "scripts/with-admin-dev-flag.mjs"),
+      "utf8",
+    );
+    expect(gate).toContain(harness);
+    const row = PROTECTED_ROUTES.find((r) => r.path === harness);
+    expect(row).toBeTruthy();
+    expect(row!.chain).toContain("requireAdmin");
+  });
 });

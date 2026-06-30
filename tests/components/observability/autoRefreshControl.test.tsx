@@ -79,6 +79,12 @@ describe("AutoRefreshControl", () => {
     document.dispatchEvent(new Event("visibilitychange")); // visibilityState is 'visible' (beforeEach)
     expect(refresh).toHaveBeenCalledTimes(1);
   });
+  test("hidden→visible while scrolled past 200px does NOT refresh (scroll gate applies to resume)", () => {
+    (window as unknown as { scrollY: number }).scrollY = 500;
+    render(<AutoRefreshControl />); // ON, but scrolled down reading older events
+    document.dispatchEvent(new Event("visibilitychange")); // visibilityState is 'visible' (beforeEach)
+    expect(refresh).not.toHaveBeenCalled();
+  });
   test("unmount clears the interval + visibility listener (no refresh after unmount)", () => {
     const { unmount } = render(<AutoRefreshControl />);
     unmount();

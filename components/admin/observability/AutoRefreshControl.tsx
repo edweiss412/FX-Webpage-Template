@@ -33,16 +33,19 @@ export function AutoRefreshControl() {
   useEffect(() => {
     if (!on) return;
     const tick = () => {
-      if (document.visibilityState !== "hidden" && window.scrollY <= AUTO_REFRESH_TOP_PX) doRefresh();
+      if (document.visibilityState !== "hidden" && window.scrollY <= AUTO_REFRESH_TOP_PX)
+        doRefresh();
     };
     const id = window.setInterval(tick, AUTO_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [on, doRefresh]);
 
-  // Visibility resume — only when ON.
+  // Visibility resume — only when ON, visible, AND near the top (the SAME scroll gate as the
+  // interval). Returning to the tab while scrolled down reading older events must NOT yank the list.
   useEffect(() => {
     const onVis = () => {
-      if (on && document.visibilityState === "visible") doRefresh();
+      if (on && document.visibilityState === "visible" && window.scrollY <= AUTO_REFRESH_TOP_PX)
+        doRefresh();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
@@ -52,7 +55,10 @@ export function AutoRefreshControl() {
   useEffect(() => {
     if (lastRefreshedAt == null) return;
     const id = window.setInterval(
-      () => setAgoLabel(`Updated ${Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000))}s ago`),
+      () =>
+        setAgoLabel(
+          `Updated ${Math.max(0, Math.round((Date.now() - lastRefreshedAt) / 1000))}s ago`,
+        ),
       1000,
     );
     return () => window.clearInterval(id);
