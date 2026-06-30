@@ -168,6 +168,9 @@ git commit --no-verify -m "feat(crew-page): shared event_details specs whitelist
 // 3. within the gear-tech-specs card, queryByText("Power") === null  // already-rendered key excluded
 // 4. getByText("169")                              // non-string coerced+shown (no throw)
 // 5. card present: getByTestId("gear-tech-specs")
+// 6. GUARD (Codex plan-R2): a second render with event_details = {} (and one with
+//    it forced undefined via a cast) → no throw AND queryByTestId("gear-tech-specs") === null
+//    (hasTechSpecs false → card omitted). Covers the "missing event_details → no rows" guard.
 ```
 
 Write it concretely against the real GearSection test harness (copy the neighbor test's `renderGear`/fixture helper). Use `data-testid="gear-tech-specs"`.
@@ -189,11 +192,12 @@ Then in `components/crew/sections/GearSection.tsx`:
 import { SlidersHorizontal } from "lucide-react";
 import { EVENT_DETAILS_LABELS, CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
 ```
-(b) Near the keynote/reel computation (~line 185-210), compute the rows + presence:
+(b) Near the keynote/reel computation (~line 185-210), compute the rows + presence. **Null-safe `?? {}` (Codex plan-R2)** — match Task 3's `eventDetails ?? {}` so a missing `event_details` yields no rows instead of throwing (the projection guarantees `{}` at `getShowForViewer.ts:358`, but guard for parity + the spec's "undefined → no rows" guard condition):
 ```ts
+          const ed = data.show.event_details ?? {};
           const techSpecRows: KeyValueRow[] = CREW_TECH_SPEC_KEYS.map((key) => ({
             k: EVENT_DETAILS_LABELS[key],
-            v: String(data.show.event_details[key] ?? "").trim(),
+            v: String(ed[key] ?? "").trim(),
           }));
           const hasTechSpecs = techSpecRows.some((r) => !shouldHideGenericOptional(r.v));
 ```
