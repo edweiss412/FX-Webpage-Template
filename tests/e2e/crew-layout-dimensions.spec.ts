@@ -40,8 +40,9 @@
  *     test); viewports are set explicitly per-assertion (390 / 1000).
  *
  * ── Today Mode A seeding ───────────────────────────────────────────────────
- * Mode A mounts iff `isShowDay && eligible && displayableEntries(runOfShow
- * [todayIso]).length > 0` (TodaySection.tsx:178-193). The live Waldorf seed
+ * Mode A mounts iff `isShowDay && eligible && (displayableEntries(runOfShow
+ * [todayIso]).length > 0 || agendaSessionsForToday(...).length > 0)` — the unified
+ * timeline also activates on an agenda-only show day. The live Waldorf seed
  * stores `shows_internal.run_of_show = NULL`, so Mode A cannot mount unmodified
  * (exactly the gap inv3 in crew-page.spec.ts works around for GearSection). To
  * make Mode A a REAL assertion (not faked / not skipped) this suite, in

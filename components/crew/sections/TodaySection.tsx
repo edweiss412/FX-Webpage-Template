@@ -192,9 +192,11 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
           //   - todays: displayableEntries(...) — the SAME leak-critical filter
           //     (URL-only/sentinel titles never occupy a row).
           //
-          // Mode A iff isShowDay && eligible && todays.length > 0. Fail-closed:
-          // any ambiguity (unknown_asterisk, not a show day, ineligible, empty
-          // filter, no runOfShow) → Mode B (the full-width stack, unchanged).
+          // Mode A iff isShowDay && eligible && (todays.length > 0 ||
+          // agendaToday.length > 0) — the unified timeline also activates on an
+          // agenda-only show day. Fail-closed: any ambiguity (unknown_asterisk,
+          // not a show day, ineligible, no crew AND no agenda) → Mode B
+          // (the full-width stack, unchanged).
           // Data-driven render fork — instant, no animation (§ Transitions).
           const dateRestriction = ctx.dateRestriction;
           const todayIso = todayIsoInShowTimezone(data.show, today);

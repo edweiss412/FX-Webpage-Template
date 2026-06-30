@@ -10,8 +10,9 @@
  * re-implemented predicate.
  *
  * Mode A (split-wide) iff ALL of: `todayIso` ∈ the show's aggregate days, the
- * viewer is date-eligible for `todayIso`, AND `displayableEntries(runOfShow[todayIso])`
- * is non-empty → render `min-[720px]:grid-cols-[1.6fr_1fr]` with the run-of-show
+ * viewer is date-eligible for `todayIso`, AND (`displayableEntries(runOfShow[todayIso])`
+ * is non-empty OR there are agenda sessions for today) → render
+ * `min-[720px]:grid-cols-[1.6fr_1fr]` with the run-of-show / unified timeline
  * list LEFT and the Tonight/Where/Need-something cards stacked RIGHT.
  * Mode B (the current full-width stack, UNCHANGED) otherwise. Fail-closed: any
  * ambiguity → Mode B.
