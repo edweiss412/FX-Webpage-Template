@@ -235,6 +235,29 @@ function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"]
   );
 }
 
+function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
+  const rows = contentRows([
+    ["COI", show.coi_status],
+    ["Proposal", show.proposal],
+    ["PO#", show.po],
+    ["Invoice", show.invoice],
+    ["Invoice notes", show.invoice_notes],
+  ]);
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-ops`}
+      label="Ops"
+      count={rows.length}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-subtle">No ops details parsed.</p>
+      ) : (
+        <FieldRowList rows={rows} />
+      )}
+    </BreakdownSection>
+  );
+}
+
 function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
@@ -1529,6 +1552,7 @@ export function Step3SheetCard({
             <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
             <PackListBreakdown dfid={dfid} cases={pullSheet} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
+            <OpsBreakdown dfid={dfid} show={pr.show} />
           </div>
           {/* Agenda PDF schedule — live-fill card (spec §5.3). Renders nothing when
               the row has no agenda links; otherwise POSTs to the extract endpoint

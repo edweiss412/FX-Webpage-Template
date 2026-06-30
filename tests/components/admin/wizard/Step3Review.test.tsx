@@ -661,6 +661,32 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(t).toContain("City:");
     expect(t).toContain("TBD"); // sentinel as-parsed
   });
+
+  test("ops breakdown shows COI/Proposal/PO#/Invoice as-parsed, ungated (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        coi_status: "SENT",
+        proposal: "Sent - $17,500",
+        po: "PO-IIL007245",
+        invoice: "TBD",
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ops", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ops-more"));
+    const t = getByTestId("wizard-step3-card-drive-ops-breakdown-ops").textContent ?? "";
+    expect(t).toContain("COI:");
+    expect(t).toContain("SENT");
+    expect(t).toContain("PO#:");
+    expect(t).toContain("PO-IIL007245");
+    expect(t).toContain("Proposal:");
+    expect(t).toContain("Invoice:");
+    expect(t).toContain("TBD"); // sentinel as-parsed
+  });
 });
 
 describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {
