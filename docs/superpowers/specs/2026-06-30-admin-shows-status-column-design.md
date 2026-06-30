@@ -80,9 +80,11 @@ The only label that differs between the desktop **column** and the mobile **inli
   (`tests/components/admin/ShowsTable.test.tsx:116` asserts `/Held — not published/`; master spec
   §3.2 defines this string). We do **not** change §3.2 copy.
 
-`StatePill` takes a `compact?: boolean` prop. `compact` only affects the `Held` label; `Live` /
-`Published` / `Publishing…` are identical in both modes (already short). This is the **only**
-behavioral fork between the two render sites.
+`StatePill` takes a single `place: "inline" | "column"` prop (NOT a bare `compact` boolean — see
+§4.1, the place also selects the testid namespace). `place` controls exactly two things: (1) the
+`Held` label — `column` → `Held`, `inline` → `Held — not published`; `Live`/`Published`/`Publishing…`
+are identical in both places (already short); and (2) the per-state `data-testid` namespace (§4.1).
+That is the **only** behavioral fork between the two render sites.
 
 ## 4. Render placement & responsive behavior
 
@@ -104,16 +106,24 @@ disclosure: the dedicated column appears only where there is room for it.
 ### 4.1 Render sites (both always in the DOM; CSS toggles visibility)
 
 Because jsdom keeps display:none nodes in the DOM, the **inline pill** and the **column pill** are
-two separate render sites with **distinct `data-testid`s**, CSS-toggled so only one is visible per
-band (a single `getByTestId` therefore never matches two visible elements):
+two `StatePill` instances differing ONLY by their `place` prop (§3.1), which selects both the label
+compaction AND the `data-testid` namespace, so the two sites carry **distinct testids** and a single
+`getByTestId` never matches two elements:
 
-- **Inline pill** (existing site, `ShowsTable.tsx:381`): wrapped so it is visible `< 960px` and
-  hidden `≥ 960px` (`min-[960px]:hidden`). Non-compact labels. Keeps the **existing** testids
-  (`shows-live-pill-{slug}`, `shows-published-pill-{slug}` (new), `shows-publishing-{slug}`,
-  `shows-held-pill-{slug}`).
-- **Column pill** (new cell, before the chevron): `hidden min-[960px]:block`. Compact labels.
-  New testid namespace: `shows-status-{slug}` wrapper containing the pill; per-state testids
-  `shows-statuscol-{state}-{slug}` (`live` | `published` | `publishing` | `held`).
+- **Inline pill** — `<StatePill place="inline" />` at the existing site (`ShowsTable.tsx:381`),
+  wrapped so it is visible `< 960px` and hidden `≥ 960px` (`min-[960px]:hidden`). `place="inline"`
+  emits the **existing** per-state testids (`shows-live-pill-{slug}`, `shows-published-pill-{slug}`
+  (new), `shows-publishing-{slug}`, `shows-held-pill-{slug}`) and the verbose `Held — not published`
+  label, so every existing test that targets these survives unchanged.
+- **Column pill** — `<StatePill place="column" />` in the new cell (before the chevron),
+  `hidden min-[960px]:block`. `place="column"` emits the **new** per-state testids
+  `shows-statuscol-{state}-{slug}` (`live` | `published` | `publishing` | `held`) and the compact
+  `Held` label.
+
+So `place` is the single switch: it is impossible to reuse the same instance in both sites and
+accidentally emit the wrong testids — each site passes its own `place`. (The implementer maps
+state→testid inside `StatePill` keyed on `place`; the prior `data-testid=` literals at
+`ShowsTable.tsx:112,128,138` move into that `place`-keyed lookup for the `inline` branch.)
 
 **Proving "exactly one visible" needs a real browser.** jsdom does not evaluate `@media` width
 queries, so a jsdom test can only assert that each render site carries the correct responsive class
@@ -216,10 +226,14 @@ the Show cell of published rows below 960px, so it can affect `scrollWidth`/wrap
 track template is unchanged. This is GUARDED, not assumed: (a) it is the **same class** as the
 existing inline pills — Live/Held/Publishing rows already render an inline pill in that cell at these
 widths today and pass the gate, and `Published` is *shorter* than the existing `Held — not published`
-string, so it introduces no wider-content case than already ships; (b) the band-sweep's overflow
-(part b) and header-overlap (part c) checks run at 720/810 and catch any regression; (c) the
-implementation ensures the band-sweep fixture contains a **published** row so the new pill is actually
-exercised by those checks at `<960`.
+string, so it introduces no wider-content case than already ships; (b) the band-sweep's overflow and
+header-overlap checks catch any regression — BUT the existing check measures only `rows.first()`
+(`admin-layout-dimensions.spec.ts:193`), which may not be the published row. So the implementation
+adds an overflow assertion targeting a **deterministic published row located by slug** (its
+`shows-table-row-{slug}` `scrollWidth − clientWidth ≤ TOL`) at the `<960` bands, in addition to the
+existing first-row check — guaranteeing the new inline `Published` pill is actually exercised. The
+seed must contain at least one such published row (the dashboard seed does; the test selects it by its
+known slug, not by position).
 
 ### 6.3 Responsive breakpoint budget — three coordinated changes
 
@@ -298,14 +312,17 @@ component must be defensive (React renders partial data during editing/loading):
   published), but precedence puts `Live` first, so the row renders `Live` and never crashes.
 - Empty `rows` / Find-filtered-to-empty → existing empty states are unchanged (`ShowsTable.tsx:314-340`);
   no Status column renders because no rows render.
-- The `StatePill` `compact` prop defaulting to `false`/`undefined` ⇒ the verbose `Held — not
-  published` label (the safe default that preserves existing copy).
+- The `StatePill` `place` prop is **required** (no default) and is passed explicitly at each call
+  site (`place="inline"` at the title site, `place="column"` in the column cell), so neither label
+  nor testid namespace can be silently wrong; `place="inline"` yields the verbose `Held — not
+  published` label that preserves existing copy.
 
 ## 9. Files touched
 
-- `components/admin/ShowsTable.tsx` — `StatePill` (Published variant + `compact` prop), inline-pill
-  visibility wrapper (`min-[960px]:hidden`), new Status header sort button + Status cell
-  (`hidden min-[960px]:block`), 6-col grid template, `SortKey`/`sortValue`/`STATUS_SORT_RANK`.
+- `components/admin/ShowsTable.tsx` — `StatePill` (Published variant + `place: "inline" | "column"`
+  prop selecting label compaction AND testid namespace, §3.1/§4.1), inline-pill visibility wrapper
+  (`min-[960px]:hidden`), new Status header sort button + Status cell (`hidden min-[960px]:block`),
+  6-col grid template, `SortKey`/`sortValue`/`STATUS_SORT_RANK`.
 - `components/admin/Dashboard.tsx` — split breakpoint `1080`→`1240` (`:463,468`), inbox width
   classes (`:554`), comment block (`:448-460`).
 - `app/admin/loading.tsx` — mirror split + inbox breakpoints (`:31,36`).
@@ -321,16 +338,17 @@ component must be defensive (React renders partial data during editing/loading):
 - **Component (jsdom, `ShowsTable.test.tsx`):** each of the 4 states renders the correct column pill
   (`shows-statuscol-{state}-{slug}`) AND the correct inline pill (existing testids + new
   `shows-published-pill`); mutual exclusivity per row; `Published` pill renders for
-  `published && !isLive`; `compact` Held label is `Held` in the column and `Held — not published`
-  inline; the Status sort button toggles asc/desc and groups by `STATUS_SORT_RANK`
+  `published && !isLive`; the `place="column"` Held label is `Held` and `place="inline"` is
+  `Held — not published`; the Status sort button toggles asc/desc and groups by `STATUS_SORT_RANK`
   (asc: publishing < held < live < published). **Failure mode caught:** a published row silently
   showing no status; the column pill and inline pill diverging in state; sort ordering by hidden data.
 - **Real-browser layout (`admin-layout-dimensions.spec.ts`):** the change owns the `≥960` bands —
   title track `≥ 120px`, no row overflow, no header overlap at every band incl. the new
-  `1240 / 1400 / 1520` (§6.2/§6.4). The fixture MUST include a **published** row so the new inline
-  `Published` pill is exercised by the overflow/overlap checks at `<960` too. Plus a **structural
-  non-regression** assertion: at an `<960` width the resolved `gridTemplateColumns` is the 5-track
-  template (NOT the 6-track one). The pre-existing 720/810 assertions are left untouched (baseline's
+  `1240 / 1400 / 1520` (§6.2/§6.4). At the `<960` bands, ALSO assert no overflow on a **deterministic
+  published row located by slug** (`shows-table-row-{slug}` `scrollWidth − clientWidth ≤ TOL`), in
+  addition to the existing `rows.first()` check (`:193`) — because the published row carries the new
+  inline `Published` pill and may not be first. Plus a **structural non-regression** assertion: at an
+  `<960` width the resolved `gridTemplateColumns` is the 5-track template (NOT the 6-track one). The pre-existing 720/810 assertions are left untouched (baseline's
   domain); if any is red, verify at the merge-base before treating it as this change's regression.
   **Failure mode caught:** the 6th column starving the title track at `≥960`; the 6-col grid leaking
   below 960px; the new inline pill overflowing a `<960` row.
