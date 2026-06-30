@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import postgres from "postgres";
 
 import { rejectUnauthorizedCron } from "@/app/api/cron/_auth";
+import { runCronRoute } from "@/lib/cron/withCronRunSummary";
 
 type ReapedReportRow = {
   id: string;
@@ -116,16 +117,23 @@ export async function runReaperGet(
   if (rejected) return rejected;
 
   const reaper = deps.runReportReaper ?? runReportReaper;
-  let result: { deleted: number };
-  try {
-    result = await reaper();
-  } catch (error) {
-    if (error instanceof ReportReaperInfraError) {
-      return NextResponse.json({ ok: false, code: "REPORT_PIPELINE_FAILED" }, { status: 500 });
+  return runCronRoute("report-reaper", request, async () => {
+    try {
+      const result = await reaper();
+      return {
+        response: NextResponse.json({ ok: true, deleted: result.deleted }),
+        summary: { outcome: "ok", counts: { deleted: result.deleted } },
+      };
+    } catch (error) {
+      if (error instanceof ReportReaperInfraError) {
+        return {
+          response: NextResponse.json({ ok: false, code: "REPORT_PIPELINE_FAILED" }, { status: 500 }),
+          summary: { outcome: "infra" },
+        };
+      }
+      throw error;
     }
-    throw error;
-  }
-  return NextResponse.json({ ok: true, deleted: result.deleted });
+  });
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
