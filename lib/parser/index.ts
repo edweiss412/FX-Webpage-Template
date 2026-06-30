@@ -141,22 +141,29 @@ function extractTitleFromMarkdown(
     const trimmed = line.trim();
     if (!trimmed.startsWith("|")) continue;
     if (/^\|\s*[:|-]+\s*\|/.test(trimmed)) continue; // skip separator row
-    const cells = trimmed
+    // Real columns: split on pipes, drop the leading outer-pipe artifact (the
+    // "" before the first "|") and any trailing empty padding. Keep INTERNAL
+    // empties so a leading-empty data row ("|  | X | X |") is NOT mistaken for a
+    // banner (its real col0 is empty).
+    const body = trimmed
       .split(CELL_SPLIT_RE)
       .map((c) => c.trim())
-      .filter((c) => c.length > 0);
-    // A banner is a CLEAN single-line title column-duplicated across the row.
-    // A cell carrying an in-cell newline entity (&#10;/&#9;) is a multi-value
-    // cell (e.g. redefining-fi's two-forum banner), NOT a single title — skip it
-    // and let the existing chain pick the canonical title.
-    if (
-      cells[0] &&
-      cells[1] &&
-      cells[0] === cells[1] &&
-      !/&#(10|9);/.test(cells[0]) &&
-      isAcceptableTitleCell(cells[0])
-    ) {
-      return cells[0];
+      .slice(1);
+    while (body.length > 0 && body[body.length - 1] === "") body.pop();
+    const col0 = body[0] ?? "";
+    // A banner is a CLEAN single-line title DUPLICATED across the row: col0 is
+    // non-empty, at least one other column repeats it, and no column differs
+    // from it (empty padding allowed). This rejects partial duplicates
+    // ("| X | X | Other |") and leading-empty rows. A cell carrying an in-cell
+    // newline entity (&#10;/&#9;) is a multi-value cell (e.g. redefining-fi's
+    // two-forum banner), NOT a single title — skip it and let the chain decide.
+    const isBanner =
+      col0.length > 0 &&
+      body.length >= 2 &&
+      body.some((c, i) => i > 0 && c === col0) &&
+      body.every((c) => c === "" || c === col0);
+    if (isBanner && !/&#(10|9);/.test(col0) && isAcceptableTitleCell(col0)) {
+      return col0;
     }
     break; // only the first non-separator table row is a banner candidate
   }

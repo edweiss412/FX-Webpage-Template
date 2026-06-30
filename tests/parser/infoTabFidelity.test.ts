@@ -86,6 +86,23 @@ describe("title banner-preference (M3)", () => {
     expect(parseSheet(md).show.title).toBe("Acme Annual Forum 2026");
   });
 
+  // Codex whole-diff review: #0 must require a FULL-row duplicated banner, not
+  // just cells[0]===cells[1] after filtering empties.
+  it("does NOT treat a partial-duplicate first row as a banner", () => {
+    // "Show X" duplicated in cols 1-2 but col 3 differs → not a clean banner.
+    const md = "| Show X | Show X | Other |\n| Event Name: | Real Title 2026 |";
+    expect(parseSheet(md).show.title).not.toBe("Show X");
+    expect(parseSheet(md).show.title).toBe("Real Title 2026");
+  });
+
+  it("does NOT treat a leading-empty data row as a banner", () => {
+    // Real col0 is empty (a continuation/data row), so it is not a banner even
+    // though the non-empty cells duplicate.
+    const md = "|  | Show X | Show X |\n| Event Name: | Real Title 2026 |";
+    expect(parseSheet(md).show.title).not.toBe("Show X");
+    expect(parseSheet(md).show.title).toBe("Real Title 2026");
+  });
+
   // Anti-regression: shows whose title should be UNCHANGED by banner-preference.
   // redefining-fi's banner carries an in-cell &#10; (a two-forum multi-value
   // cell) so #0 skips it and the existing chain keeps "RFI & PC Chicago";
