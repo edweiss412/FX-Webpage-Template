@@ -302,6 +302,18 @@ const infraRegistry = [
     // asserted behaviorally in tests/admin/validationResetAction.test.ts (construction-throw tests).
     skipGrepShape: true as const,
   },
+  {
+    helper: "loadAppEvents",
+    path: "lib/admin/loadAppEvents.ts",
+    contract:
+      "app_events timeline read (service-role; revoke-all-from-authenticated table). client construction + single query (incl. shows(title, slug) embed) in one try/catch; returned-error → infra_error('app_events read failed'); thrown → infra_error('app_events read threw'); keyset paginated.",
+  },
+  {
+    helper: "loadCronHealth",
+    path: "lib/admin/loadCronHealth.ts",
+    contract:
+      "cron health: Promise.all of 9 per-job app_events limit(1) reads (service-role) in one try/catch; a per-result RETURNED {error} → infra_error('app_events read returned error') (distinct path, behaviorally tested in tests/admin/loadCronHealth.test.ts); a genuine THROW (network/construction) → infra_error('app_events read threw'); construction throw → infra_error.",
+  },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
@@ -434,11 +446,16 @@ describe("META §B Supabase call-boundary contract", () => {
           awaitLineNumbers.push(idx);
           return;
         }
-        if (builderNameRe && /\bawait\s+Promise\.all(?:Settled)?\s*\(/.test(line)) {
+        if (/\bawait\s+Promise\.all(?:Settled)?\s*\(/.test(line)) {
+          // Recognize a Promise.all whose window contains a builder name OR an inline
+          // `supabase.from(...)` (e.g. loadCronHealth: `await Promise.all(CRON_JOBS.map(
+          // (job) => supabase.from(...)))` has NO builder variable). Purely additive.
           const windowText = lines
             .slice(idx, Math.min(lines.length, idx + AWAIT_BUILDER_WINDOW))
             .join("\n");
-          if (builderNameRe.test(windowText)) awaitLineNumbers.push(idx);
+          if ((builderNameRe && builderNameRe.test(windowText)) || /\bsupabase\s*\.\s*from\b/.test(windowText)) {
+            awaitLineNumbers.push(idx);
+          }
         }
       });
       expect(
@@ -702,6 +719,36 @@ describe("META §B Supabase call-boundary contract", () => {
       expect((result as { kind: string; message: string }).message).toMatch(
         /deferred_ingestions.*threw/,
       );
+    });
+  });
+
+  describe("loadAppEvents", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadAppEvents } = await import("@/lib/admin/loadAppEvents");
+      expect(await loadAppEvents({})).toMatchObject({ kind: "infra_error" });
+    });
+    test("from('app_events') throw → infra_error /app_events.*threw/", async () => {
+      infraMock.throwOnFromTable = "app_events";
+      const { loadAppEvents } = await import("@/lib/admin/loadAppEvents");
+      const r = await loadAppEvents({});
+      expect(r).toMatchObject({ kind: "infra_error" });
+      expect((r as { message: string }).message).toMatch(/app_events.*threw/);
+    });
+  });
+
+  describe("loadCronHealth", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadCronHealth } = await import("@/lib/admin/loadCronHealth");
+      expect(await loadCronHealth()).toMatchObject({ kind: "infra_error" });
+    });
+    test("from('app_events') throw → infra_error /app_events.*threw/", async () => {
+      infraMock.throwOnFromTable = "app_events";
+      const { loadCronHealth } = await import("@/lib/admin/loadCronHealth");
+      const r = await loadCronHealth();
+      expect(r).toMatchObject({ kind: "infra_error" });
+      expect((r as { message: string }).message).toMatch(/app_events.*threw/);
     });
   });
 
