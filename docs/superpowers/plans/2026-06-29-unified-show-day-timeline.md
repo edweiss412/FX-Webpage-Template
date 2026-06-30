@@ -513,21 +513,30 @@ describe("ShowDayTimelineList", () => {
     const { container } = render(<ShowDayTimelineList isoDate={ISO} items={[agItem("9:00 AM", null, 540)]} />);
     expect(scope(container).getByTestId("timeline-agenda-session").textContent).toContain("9:00 AM");
   });
-  test("cap: synthetic-exempt + chronological — strike at latest time is LAST and present; 20 non-synthetic + overflow", () => {
-    const many = Array.from({ length: 22 }, (_, i) => crewItem(`8:00 AM`, `c${i}`, undefined, 480 + i));
-    const items = [...many, agItem("3:00 PM", "Keynote", 900), crewItem("11:00 PM", "Strike", "strike", 1380)];
+  test("cap: synthetic-exempt + chronological — early agenda survives, 20 non-synthetic + overflow, strike exempt + last", () => {
+    // ShowDayTimelineList does NOT re-sort — pass items ALREADY in ascending-minute order
+    // (as buildShowDayTimeline would). The agenda sits EARLY (minute 481) so it lands inside
+    // the first RUN_OF_SHOW_DISPLAY_CAP(20) non-synthetic rows and survives; the strike (1380)
+    // is synthetic → exempt → renders last in chronological position.
+    const items: TimelineItem[] = [
+      crewItem("8:00 AM", "c0", undefined, 480),
+      agItem("8:01 AM", "Keynote", 481), // early agenda → within the first 20 non-synthetic
+      ...Array.from({ length: 21 }, (_, i) => crewItem("8:00 AM", `c${i + 1}`, undefined, 482 + i)), // 482..502
+      crewItem("11:00 PM", "Strike", "strike", 1380),
+    ];
+    // Non-synthetic = 1 + 1 + 21 = 23; cap keeps first 20 (c0, agenda, c1..c18); drops c19,c20,c21 = 3.
     const { container } = render(<ShowDayTimelineList isoDate={ISO} items={items} />);
     const q = scope(container);
-    // 23 non-synthetic (22 crew + 1 agenda) capped to 20; 1 synthetic strike exempt.
-    const nonSynth = q.getAllByTestId("agenda-entry").filter((e) => e.getAttribute("data-entry-kind") == null).length
-      + q.getAllByTestId("timeline-agenda-session").length;
-    expect(nonSynth).toBe(20);
-    const overflow = q.getByTestId("timeline-agenda-overflow");
-    expect(overflow.textContent).toContain("3"); // 23 − 20 dropped
-    // Strike present AND last (chronological position, NOT partitioned).
+    const agendaShown = q.queryAllByTestId("timeline-agenda-session"); // queryAll → [] not throw
+    expect(agendaShown).toHaveLength(1); // the early agenda survived the cap
+    const crewNonSynthShown = q
+      .getAllByTestId("agenda-entry")
+      .filter((e) => e.getAttribute("data-entry-kind") == null).length;
+    expect(crewNonSynthShown + agendaShown.length).toBe(20); // total non-synthetic shown = cap
+    expect(q.getByTestId("timeline-agenda-overflow").textContent).toContain("3"); // 23 − 20 dropped
+    // Strike present AND last (chronological position, NOT partitioned to a group).
     const rows = q.getAllByTestId(/agenda-entry|timeline-agenda-session/);
-    const last = rows[rows.length - 1]!;
-    expect(last.getAttribute("data-entry-kind")).toBe("strike");
+    expect(rows[rows.length - 1]!.getAttribute("data-entry-kind")).toBe("strike");
   });
   test("cap: synthetic strike at the EARLIEST time renders FIRST (chronological, not appended)", () => {
     const items = [crewItem("6:00 AM", "Strike", "strike", 360), agItem("9:00 AM", "Keynote", 540), crewItem("10:00 AM", "Wrap", undefined, 600)];
@@ -557,7 +566,9 @@ import type { TimelineItem } from "@/lib/crew/showDayTimeline";
  *  "Agenda" event eyebrow instead. Renders the full `session.time` string verbatim;
  *  tracks + drift are never read (D7). */
 function AgendaSessionRow({ session }: { session: AgendaSession }): JSX.Element {
-  const room = resolveOptionalField(session.room);
+  // AgendaSession.room is `string | null`; resolveOptionalField takes `string | undefined`.
+  // Under exactOptionalPropertyTypes, coerce null→undefined (mirrors ScheduleSection.tsx:262).
+  const room = resolveOptionalField(session.room ?? undefined);
   return (
     <li data-testid="timeline-agenda-session" className="flex min-w-0 flex-col gap-0.5 py-1">
       <div className="flex items-baseline gap-2">
@@ -766,20 +777,25 @@ git commit -m "feat(crew): wire unified timeline into Today (modeA gate + card-b
 - [ ] **Step 1: Add the assertion** — extend the existing Today Mode-A dimension block. Seed (via the e2e harness's fixture mechanism) a Today preview with **2 crew + 2 agenda** interleaved rows, then:
 
 ```ts
-// Within the Today Mode-A dimension test (real browser), after the page renders:
+// Within the Today Mode-A dimension test (real browser), after the page renders.
+// Use a fixture of ≤20 non-synthetic rows so there is NO overflow stub — then the
+// `show-day-timeline` container's height equals exactly the <ul> row stack (the rows'
+// border-box heights already include the divide-y dividers; no padding/gap on the ul).
 const list = page.locator('[data-testid^="show-day-timeline-"]');
 await expect(list).toBeVisible();
-const listW = (await list.boundingBox())!.width;
+await expect(list.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0); // no overflow → exact-sum holds
+const listBox = (await list.boundingBox())!;
 const rows = list.locator('[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]');
 const n = await rows.count();
 expect(n).toBeGreaterThanOrEqual(4);
+let sum = 0;
 for (let i = 0; i < n; i++) {
-  const w = (await rows.nth(i).boundingBox())!.width;
-  expect(Math.abs(w - listW)).toBeLessThanOrEqual(0.5); // rows fill the list width
+  const b = (await rows.nth(i).boundingBox())!;
+  expect(Math.abs(b.width - listBox.width)).toBeLessThanOrEqual(0.5); // each row fills the list width
+  sum += b.height;
 }
-const sum = (await Promise.all(Array.from({ length: n }, (_, i) => rows.nth(i).boundingBox().then((b) => b!.height)))).reduce((a, b) => a + b, 0);
-const listH = (await list.boundingBox())!.height;
-expect(listH).toBeGreaterThanOrEqual(sum - 0.5); // no clipping
+// Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided (no clipping AND no slack).
+expect(Math.abs(listBox.height - sum)).toBeLessThanOrEqual(0.5);
 ```
 
 NOTE: read `tests/e2e/crew-layout-dimensions.spec.ts` first to match its fixture-seeding + viewport + assertion idiom exactly; adapt the snippet to that harness (it may use a seeded preview route rather than inline render).
@@ -803,15 +819,20 @@ git commit -m "test(crew): layout-dimensions — unified timeline rows fill widt
 **Files:**
 - Test: `tests/components/crew/primitives/ShowDayTimelineList.test.tsx` (extend)
 
-**Transition Inventory (spec §6.2):** 4 data-driven states (`crew-only`/`agenda-only`/`merged`/`not-rendered`), **no client-side animation** — server-rendered. No `AnimatePresence`, no `exit`/`initial`/`animate`, no `motion.*`.
+**Transition Inventory (spec §6.2):** 4 data-driven states (`crew-only`/`agenda-only`/`merged`/`not-rendered`), **no client-side animation** — server-rendered. No `AnimatePresence`, no `exit`/`initial`/`animate`, no `motion.*`. The `not-rendered` and the agenda-vs-crew-body branch live in **`TodaySection.tsx`** (the `modeA` / `agendaToday.length` conditional), so the audit must scan BOTH the new component AND `TodaySection.tsx`. `TodaySection.tsx` is currently motion-free (verified) so a whole-file scan is safe and catches animation added around the timeline branch.
 
 - [ ] **Step 1: Add a structural assertion** (extend the ShowDayTimelineList test file):
 
 ```ts
 import { readFileSync } from "node:fs";
-test("Transition audit — ShowDayTimelineList is static (no AnimatePresence/motion/exit)", () => {
-  const src = readFileSync("components/crew/primitives/ShowDayTimelineList.tsx", "utf8");
-  expect(src).not.toMatch(/AnimatePresence|framer-motion|\bmotion\.|\bexit=|\binitial=|\banimate=/);
+test("Transition audit — timeline surfaces are static (no AnimatePresence/motion/exit)", () => {
+  for (const f of [
+    "components/crew/primitives/ShowDayTimelineList.tsx",
+    "components/crew/sections/TodaySection.tsx",
+  ]) {
+    const src = readFileSync(f, "utf8");
+    expect(src, f).not.toMatch(/AnimatePresence|framer-motion|\bmotion\.|\bexit=|\binitial=|\banimate=/);
+  }
 });
 ```
 
