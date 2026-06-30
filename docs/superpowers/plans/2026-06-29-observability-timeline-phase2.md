@@ -31,6 +31,7 @@
 - `lib/cron/runSummary.ts` (NEW) — `CRON_RUN_SUMMARY` const, `CronRunOutcome`/`CronRunSummary` types, `CronJobSpec` + `CRON_JOBS` (9 entries, `staleAfterMs`). Keyword-clean.
 - `lib/cron/withCronRunSummary.ts` (NEW) — `runCronRoute(jobName, request, handler)` wrapper.
 - `lib/cron/summarizeSync.ts` (NEW) — `summarizeSync(result)`.
+- `lib/cron/summarizeAssetRecovery.ts` (NEW) — `summarizeAssetRecovery(result)` (table-tested 9-literal map).
 - 8 cron route edits: `app/api/cron/{sync,keepalive,notify,refresh-watch,gc-watch,asset-recovery,diagram-gc,report-reaper}/route.ts` + small per-route summarizers (inline or colocated).
 
 **Read path (`lib/admin/`)**
@@ -716,7 +717,71 @@ export async function GET(request: NextRequest): Promise<Response> {
 }
 ```
 
-For `notify`, branch the jobName on `?job=` (read `app/api/cron/notify/route.ts:40`); classify per the notify rule; keep the existing `statusFor`-based status code on the response. For `report-reaper`, keep its internal try/catch returning 500 and have its catch produce `{ outcome:"infra" }` to the wrapper. For `asset-recovery`/`diagram-gc`, build counts from the real result fields.
+For `notify`, branch the jobName on `?job=` (read `app/api/cron/notify/route.ts:40`); classify per the notify rule; keep the existing `statusFor`-based status code on the response. For `report-reaper`, keep its internal try/catch returning 500 and have its catch produce `{ outcome:"infra" }` to the wrapper. For `diagram-gc`, build counts from the real result fields. For **`asset-recovery`, extract the 9-literal classification into a unit-testable helper** (Step 4b) and call it.
+
+- [ ] **Step 4b: Extract + table-test `summarizeAssetRecovery`** (the asset-recovery map has 9 literals + severity precedence — too much to leave inline-untested). Create `lib/cron/summarizeAssetRecovery.ts`:
+
+```ts
+// lib/cron/summarizeAssetRecovery.ts
+import type { AssetRecoveryCronResult } from "@/lib/sync/assetRecovery";
+import type { CronRunSummary } from "@/lib/cron/runSummary";
+
+// Exhaustive map of every AssetRecoveryResult.outcome literal (lib/sync/assetRecovery.ts:102-115).
+const RECOVERED = new Set(["recovered", "restage_required", "no_op"]);
+const SKIPPED = new Set(["skipped", "revision_drift", "drift_cooldown"]);
+const PARTIAL = new Set(["partial_failure", "bytes_exceeded"]);
+// "infra_error" → infra. Anything UNKNOWN → conservative failure (never silently benign).
+
+export function summarizeAssetRecovery(result: AssetRecoveryCronResult): CronRunSummary {
+  let recovered = 0, skipped = 0, failed = 0, infra = 0;
+  for (const { result: r } of result.processed) {
+    const o = r.outcome;
+    if (o === "infra_error") { infra++; failed++; }
+    else if (PARTIAL.has(o)) failed++;
+    else if (RECOVERED.has(o)) recovered++;
+    else if (SKIPPED.has(o)) skipped++;
+    else failed++; // unknown/unforeseen → conservative failure
+  }
+  const counts = { processed: result.processed.length, recovered, skipped, failed };
+  const outcome = infra > 0 ? "infra" : failed > 0 ? "partial" : "ok";
+  return { outcome, counts };
+}
+```
+
+Table-driven test `tests/cron/summarizeAssetRecovery.test.ts` covering ALL 9 literals + severity precedence + counts:
+
+```ts
+import { describe, expect, test } from "vitest";
+import { summarizeAssetRecovery } from "@/lib/cron/summarizeAssetRecovery";
+
+const one = (outcome: string) => ({ processed: [{ showId: "s", result: { outcome } as never }] }) as never;
+
+describe("summarizeAssetRecovery — exhaustive 9-literal map", () => {
+  test.each([
+    ["recovered", "ok"], ["restage_required", "ok"], ["no_op", "ok"],
+    ["skipped", "ok"], ["revision_drift", "ok"], ["drift_cooldown", "ok"],
+    ["partial_failure", "partial"], ["bytes_exceeded", "partial"],
+    ["infra_error", "infra"],
+  ])("%s → run outcome %s", (literal, expected) => {
+    expect(summarizeAssetRecovery(one(literal)).outcome).toBe(expected);
+  });
+  test("severity precedence: infra_error wins over partial_failure wins over benign", () => {
+    const mixed = { processed: [
+      { showId: "a", result: { outcome: "recovered" } },
+      { showId: "b", result: { outcome: "partial_failure" } },
+      { showId: "c", result: { outcome: "infra_error" } },
+    ] } as never;
+    const s = summarizeAssetRecovery(mixed);
+    expect(s.outcome).toBe("infra");
+    expect(s.counts).toMatchObject({ processed: 3, recovered: 1, failed: 2 });
+  });
+  test("unknown literal → conservative failure (partial), never silently benign", () => {
+    expect(summarizeAssetRecovery(one("brand_new_outcome")).outcome).toBe("partial");
+  });
+});
+```
+
+Run: `pnpm vitest run tests/cron/summarizeAssetRecovery.test.ts` — write it first (FAIL: module missing), then implement, then PASS (11 cases). The `asset-recovery` route imports `summarizeAssetRecovery` and returns `{ response, summary: summarizeAssetRecovery(result) }`.
 
 - [ ] **Step 5: Add per-route assertions to the test** — extend `cronRouteSummaries.test.ts` with one `describe` block per remaining route (mock its orchestrator to a representative result, assert exactly one summary with the expected `source` + `outcome`: notify infra-on-fault, asset-recovery partial-on-`partial_failure`, report-reaper infra-on-`ReportReaperInfraError`, the count-only routes → ok). **Also pin notify's unknown-`?job=`→400-no-summary branch** (AC6: both 401 AND 400 emit no summary):
 
@@ -741,7 +806,7 @@ Expected: PASS (all routes).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app/api/cron tests/cron/cronRouteSummaries.test.ts
+git add app/api/cron lib/cron/summarizeAssetRecovery.ts tests/cron/cronRouteSummaries.test.ts tests/cron/summarizeAssetRecovery.test.ts
 git commit --no-verify -m "feat(observability): emit CRON_RUN_SUMMARY across all 9 cron jobs via runCronRoute"
 ```
 
@@ -2072,6 +2137,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
       {(["info", "warn", "error"] as const).map((lvl) => (
         <button
           key={lvl} type="button"
+          data-testid={`filter-level-${lvl}`}
           aria-pressed={levels.has(lvl)}
           className={`inline-flex min-h-tap-min items-center rounded-pill px-3 ${levels.has(lvl) ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle"}`}
           onClick={() => {
@@ -2081,6 +2147,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         >{lvl}</button>
       ))}
       <select
+        data-testid="filter-since"
         className="min-h-tap-min rounded border border-border bg-surface px-2"
         value={filters.sinceHours === 1 ? "1h" : filters.sinceHours === 168 ? "7d" : filters.sinceHours === null ? "all" : "24h"}
         onChange={(e) => go({ since: e.target.value })}
@@ -2633,7 +2700,7 @@ Expected: PASS. If an existing AdminNav snapshot/test asserts `NAV.map` over all
 - [ ] **Step 8: Commit**
 
 ```bash
-git add components/admin/nav/navConfig.ts components/admin/nav/AdminNav.tsx app/admin/settings/page.tsx lib/audit/trustDomains.ts tests/components/admin/navConfig.test.ts tests/admin/observabilityRouteAudit.test.ts
+git add components/admin/nav/navConfig.ts components/admin/nav/AdminNav.tsx app/admin/settings/page.tsx lib/audit/trustDomains.ts tests/components/admin/navConfig.test.ts tests/admin/observabilityRouteAudit.test.ts tests/components/admin/nav/AdminNav.test.tsx
 git commit --no-verify -m "feat(observability): Activity desktop-nav (desktopOnly) + Settings mobile link + trust-domains route"
 ```
 
@@ -2702,14 +2769,18 @@ test("cron cards equal height; rows do not overflow; tap targets >= 44px", async
   expect(geom.contentScroll).toBeLessThanOrEqual(geom.contentClient + 0.5);
 
   // (4) 44px mobile tap targets (spec G7). The fixture MUST render with hasMore=true (seed >100
-  // events, OR a static fixture rendering EventTimeline with hasMore) so EVERY listed control —
-  // including load-older — is present and measured. No skip-if-absent: all are REQUIRED.
+  // events, OR a static fixture mounting EventTimeline with hasMore) AND at least one event with a
+  // requestId, so EVERY listed control — incl. load-older + the request chip — is present and
+  // measured. No skip-if-absent: all are REQUIRED. Deterministic testids (no aria-pressed selector,
+  // which would also match the auto-refresh toggle).
   const TAP_SELECTORS = [
     "[data-testid=autorefresh-toggle]",
     "[data-testid=autorefresh-manual]",
     "[data-testid^=event-row-toggle-]",
-    "button[aria-pressed]",                     // a level filter toggle
+    "[data-testid=filter-level-error]",         // a level filter toggle (NOT the autorefresh toggle)
+    "[data-testid=filter-since]",               // the time-window select
     "[data-testid=filter-source]",              // a filter text input
+    "[data-testid^=event-row-request-]",        // a request chip (fixture includes an event with requestId)
     "[data-testid=event-timeline-load-older]",  // REQUIRED — fixture seeds hasMore=true
   ];
   for (const sel of TAP_SELECTORS) {
@@ -2721,7 +2792,7 @@ test("cron cards equal height; rows do not overflow; tap targets >= 44px", async
 });
 ```
 
-- [ ] **Step 2: Run it** — `pnpm playwright test tests/e2e/observability-layout.spec.ts` (or the project's e2e runner). Expected: FAIL first if a card collapses, a row overflows, a tap target is <44px, or a required control is absent; then fix the component classes (`auto-rows-fr`, `h-full`, `min-w-0 flex-1`, `truncate`, `min-h-tap-min`) until PASS. The fixture MUST be deterministic for `hasMore=true` (seed >100 app_events for the route, OR render a static fixture page that mounts `EventTimeline` with `hasMore` + the full header/filters/auto-refresh, per `reference_standalone_realbrowser_layout_harness`) so the load-older control is always present and measured.
+- [ ] **Step 2: Run it** — `pnpm playwright test tests/e2e/observability-layout.spec.ts` (or the project's e2e runner). Expected: FAIL first if a card collapses, a row overflows, a tap target is <44px, or a required control is absent; then fix the component classes (`auto-rows-fr`, `h-full`, `min-w-0 flex-1`, `truncate`, `min-h-tap-min`) until PASS. The fixture MUST be deterministic for `hasMore=true` (seed >100 app_events for the route, OR render a static fixture page that mounts `EventTimeline` with `hasMore` + the full header/filters/auto-refresh, per `reference_standalone_realbrowser_layout_harness`) AND include at least one event carrying a `requestId`, so the load-older control AND the request chip are always present and measured.
 
 - [ ] **Step 3: Commit**
 
