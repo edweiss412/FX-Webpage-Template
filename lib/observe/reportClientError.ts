@@ -25,9 +25,13 @@ export function reportClientError(input: {
     const signature = `${input.area}|${message}|${(stack ?? "").slice(0, 200)}`;
     if (seen.has(signature)) return;
     seen.add(signature);
-    const payload: Record<string, string> = { area: input.area, message: message.slice(0, CAPS.message) };
+    const payload: Record<string, string> = {
+      area: input.area,
+      message: message.slice(0, CAPS.message),
+    };
     if (stack) payload.stack = stack.slice(0, CAPS.stack);
-    if (input.componentStack) payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
+    if (input.componentStack)
+      payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
     if (input.digest) payload.digest = input.digest.slice(0, CAPS.digest);
     if (typeof location !== "undefined") payload.url = location.href.slice(0, CAPS.url);
     void fetch("/api/observe/client-error", {

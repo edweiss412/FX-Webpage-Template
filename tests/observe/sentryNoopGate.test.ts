@@ -10,7 +10,9 @@ describe("Sentry no-op gate (spec §0.6/§8)", () => {
   });
   test("server/edge use parseSampleRate (no raw Number())", () => {
     for (const f of ["sentry.server.config.ts", "sentry.edge.config.ts"]) {
-      expect(readFileSync(f, "utf8")).toMatch(/parseSampleRate\(process\.env\.SENTRY_TRACES_SAMPLE_RATE\)/);
+      expect(readFileSync(f, "utf8")).toMatch(
+        /parseSampleRate\(process\.env\.SENTRY_TRACES_SAMPLE_RATE\)/,
+      );
     }
   });
   test("instrumentation exports register + onRequestError", () => {

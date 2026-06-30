@@ -77,7 +77,9 @@ export async function handleClientError(req: Request): Promise<Response> {
   if (!gate.ok) {
     if (gate.warn) {
       await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
-        safeLog(() => log.warn("client-error mirror rate cap hit", { source: "observe.client-error", area })),
+        safeLog(() =>
+          log.warn("client-error mirror rate cap hit", { source: "observe.client-error", area }),
+        ),
       );
     }
     return Response.json({ ok: true }, { status: 202 });

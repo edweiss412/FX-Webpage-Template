@@ -5,7 +5,10 @@ import { reportClientError, __resetReportDedupForTests } from "@/lib/observe/rep
 describe("reportClientError", () => {
   beforeEach(() => {
     __resetReportDedupForTests();
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 202 }))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 202 }))),
+    );
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -27,22 +30,31 @@ describe("reportClientError", () => {
     reportClientError({ error: e, area: "crew" });
     reportClientError({ error: e, area: "crew" });
     reportClientError({ error: new Error("other"), area: "crew" });
-    expect((fetch as unknown as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(2);
+    expect(fetch as unknown as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(2);
   });
   test("empty message → '(no message)'", () => {
     reportClientError({ error: new Error(""), area: "admin" });
-    const body = JSON.parse(((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string);
+    const body = JSON.parse(
+      ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+        .body as string,
+    );
     expect(body.message).toBe("(no message)");
   });
   test("client-side caps: oversized message/stack truncated BEFORE the POST (≤ 1000 / 8000)", () => {
     const err = Object.assign(new Error("m".repeat(5000)), { stack: "s".repeat(20000) });
     reportClientError({ error: err, area: "crew" });
-    const body = JSON.parse(((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string);
+    const body = JSON.parse(
+      ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+        .body as string,
+    );
     expect(body.message.length).toBe(1000);
     expect(body.stack.length).toBe(8000);
   });
   test("fail-open: rejected fetch does NOT throw", () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("network"))),
+    );
     expect(() => reportClientError({ error: new Error("x"), area: "root" })).not.toThrow();
   });
 });

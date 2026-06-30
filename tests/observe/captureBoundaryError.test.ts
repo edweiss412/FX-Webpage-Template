@@ -5,22 +5,31 @@ vi.mock("@/lib/observe/reportClientError", () => ({ reportClientError: h.reportC
 import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
 const { captureException, reportClientError } = h;
 
-afterEach(() => { captureException.mockReset(); reportClientError.mockReset(); });
+afterEach(() => {
+  captureException.mockReset();
+  reportClientError.mockReset();
+});
 
 describe("captureBoundaryError", () => {
   test("calls BOTH Sentry and the mirror with area + derived digest", () => {
     const err = Object.assign(new Error("x"), { digest: "d1" });
     captureBoundaryError(err, "crew");
     expect(captureException).toHaveBeenCalledWith(err);
-    expect(reportClientError).toHaveBeenCalledWith(expect.objectContaining({ error: err, area: "crew", digest: "d1" }));
+    expect(reportClientError).toHaveBeenCalledWith(
+      expect.objectContaining({ error: err, area: "crew", digest: "d1" }),
+    );
   });
   test("Sentry throwing does NOT block the mirror (and never throws)", () => {
-    captureException.mockImplementation(() => { throw new Error("sentry down"); });
+    captureException.mockImplementation(() => {
+      throw new Error("sentry down");
+    });
     expect(() => captureBoundaryError(new Error("x"), "admin")).not.toThrow();
     expect(reportClientError).toHaveBeenCalledTimes(1);
   });
   test("mirror throwing does NOT block Sentry (and never throws)", () => {
-    reportClientError.mockImplementation(() => { throw new Error("mirror down"); });
+    reportClientError.mockImplementation(() => {
+      throw new Error("mirror down");
+    });
     expect(() => captureBoundaryError(new Error("x"), "root")).not.toThrow();
     expect(captureException).toHaveBeenCalledTimes(1);
   });
