@@ -49,7 +49,7 @@ Build `KeyValueRow[]` from these: `{ k: EVENT_DETAILS_LABELS[key], v: String(dat
 
 **File:** `components/admin/wizard/Step3SheetCard.tsx` (`EventDetailsBreakdown`, ~:372-396).
 
-Replace the hard-coded keynote+reel push with an iteration over `EVENT_DETAILS_LABELS` (insertion order), pushing `{ label, value: String(ed[key] ?? "").trim() }` for every key whose value passes `hasContent` (which itself trims: `typeof v === "string" && v.trim().length > 0`, `Step3SheetCard.tsx:96`). Push the **trimmed** value so whitespace can't inflate `count` or the displayed text. `opening_reel` keeps its `stripOpeningReelText` cleanup.
+Replace the hard-coded keynote+reel push with an iteration over `EVENT_DETAILS_LABELS` (insertion order). **Coerce FIRST, then check (Codex spec-R5 MED — same order as the crew card, so admin can't diverge):** for each `key`, `const text = String(ed[key] ?? "").trim();` then `const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;` then `if (value.length > 0) fields.push({ label, value });`. Do NOT gate on `hasContent(ed[key])` against the RAW value (it rejects non-strings, which would skip a numeric value the crew card would coerce-and-show). Pushing the coerced+trimmed `text` prevents whitespace inflating `count`.
 
 **Scope of "all known keys" (resolves the `diagrams` ambiguity):** the modal renders all non-empty keys **present in `EVENT_DETAILS_LABELS`** — i.e. all known **text** specs. `diagrams` is deliberately NOT in the label map (it is a folder-link, surfaced by the Diagrams tile, not a text spec), so it never appears here on either surface. So the precise contract is "all non-empty known text event-details keys," not literally every `event_details` entry. Result: the operator sees keynote, opening reel, stage size, podium, polling, LED, scenic, internet, power, dress, … — not just 2. The empty-state ("No event details parsed.") and `count` stay; `count` now reflects the full text-field count.
 
@@ -63,7 +63,10 @@ Replace the hard-coded keynote+reel push with an iteration over `EVENT_DETAILS_L
 // Canonical event_details key → human display label (closed-vocab whitelist).
 // Single source of truth for the crew Tech-specs card AND the Step-3 modal.
 // Keys with NO entry here (PII/financial/unknown, and `diagrams`) never render.
-export const EVENT_DETAILS_LABELS: Record<string, string> = {
+// NOTE: `as const` (NOT `: Record<string, string>`) so `keyof typeof
+// EVENT_DETAILS_LABELS` is the finite declared-key union — required for the
+// compile-time crew-keys⊆label-keys assertion below (Codex spec-R5).
+export const EVENT_DETAILS_LABELS = {
   stage_size: "Stage size",
   podium_type: "Podium",
   polling: "Polling",
@@ -85,7 +88,7 @@ export const EVENT_DETAILS_LABELS: Record<string, string> = {
   internet: "Internet / Wi-Fi",
   power: "Power",
   dress_code: "Dress code",
-};
+} as const;
 
 // Ordered crew Tech-specs card subset — EXCLUDES keys rendered on other crew
 // surfaces (dress→Today, internet/power→Venue, keynote/opening_reel→Gear) and
@@ -102,7 +105,9 @@ export const CREW_TECH_SPEC_KEYS = [
 
 **Value coercion (LOW-2):** `event_details` is typed `Record<string, string>`, but it is decoded from JSONB (`decodeJsonbColumn`, `getShowForViewer.ts:327`), so both consumers coerce defensively: `String(event_details[key] ?? "").trim()` before the content check / render. Never `(value ?? "").trim()` (a non-string JSONB value would throw).
 
-A meta-style unit test ALSO asserts every `CREW_TECH_SPEC_KEYS` entry has an `EVENT_DETAILS_LABELS` label and is NOT one of the already-rendered keys (`dress_code`/`internet`/`power`/`keynote_requirements`/`opening_reel`) or `diagrams`, and that every label-map key is a real `CANONICAL_KEY_MAP` value (so the whitelist can't drift from the parser's vocabulary).
+A meta-style unit test asserts, with an explicit documented exclusion set `LABEL_EXCLUDED = new Set(["diagrams"])` (folder link, surfaced elsewhere):
+- **Completeness (Codex spec-R5 HIGH-2):** `new Set(Object.keys(EVENT_DETAILS_LABELS))` EQUALS `new Set(Object.values(CANONICAL_KEY_MAP)) \ LABEL_EXCLUDED`. This is a two-way equality — it fails if a label is missing for any canonical text key (e.g. someone drops `fonts`/`test_pattern`) AND if a label exists for an unknown/typo key. A NEW parser canonical key forces an explicit decision (add a label or add to `LABEL_EXCLUDED`), so the whitelist can never silently fall behind the parser's vocabulary or the "all known text keys" goal.
+- **Crew subset:** every `CREW_TECH_SPEC_KEYS` entry has an `EVENT_DETAILS_LABELS` label and is NOT one of the already-rendered keys (`dress_code`/`internet`/`power`/`keynote_requirements`/`opening_reel`) or `diagrams`. (The compile-time `_crewKeysAreLabeled` assertion covers "has a label"; this runtime check adds the not-already-rendered constraint.)
 
 ---
 
@@ -143,10 +148,10 @@ The card is a Server Component with no client state. States: (a) present (≥1 r
 
 ## Test plan (failure-mode-first)
 
-1. **Shared whitelist integrity** (`lib/crew/eventDetailsSpecs.ts`): every `CREW_TECH_SPEC_KEYS` has a label; none is an already-rendered key (`dress_code`/`internet`/`power`/`keynote_requirements`/`opening_reel`) or `diagrams`; every `EVENT_DETAILS_LABELS` key ∈ `Object.values(CANONICAL_KEY_MAP)`. Catches: whitelist drift from the parser vocab; accidental double-render key.
+1. **Shared whitelist integrity** (`lib/crew/eventDetailsSpecs.ts`): **completeness two-way equality** — `keys(EVENT_DETAILS_LABELS)` === `values(CANONICAL_KEY_MAP) \ {diagrams}` (fails if any known text key lacks a label OR an unknown key has one); every `CREW_TECH_SPEC_KEYS` entry is labeled and is NOT an already-rendered key (`dress_code`/`internet`/`power`/`keynote_requirements`/`opening_reel`) or `diagrams`. Catches: missing label for a known key (the "all known text keys" goal); whitelist drift from the parser vocab; accidental double-render key; a new parser canonical key going unlabeled.
 2. **Crew card renders real specs** (GearSection component test): fixture `event_details` with `stage_size`, `podium_type`, `polling` real → card shows those labels+values; `record: "N/A"` → that row absent (sentinel-hidden); a key already shown elsewhere (`power`) → NOT in the tech-specs card; **a non-string value (e.g. the number `123`, simulating bad JSONB) → `String()`-coerced to `"123"` and RENDERED (not a sentinel, so KeyValueRows shows it); the assertion is "no throw + coerced text", NOT "hidden"** (LOW-2 guard — String() prevents the `.trim()`-on-non-string crash; a degenerate numeric value is shown as its text). Catches: missing render; sentinel leak; double-render; non-string crash.
 3. **Crew card hidden when all-sentinel/empty**: `event_details` all-`N/A` (for the spec keys) → no `gear-tech-specs` card in the tree, and (if it's the only Gear content) GearSection still respects `allHidden`. Catches: empty card; broken section gate.
-4. **Modal renders all non-empty known TEXT keys** (Step3SheetCard test): `event_details` with stage_size/podium/polling/keynote → `EventDetailsBreakdown` lists all of them (count matches), not just keynote+reel; `diagrams` present → NOT listed (text-key scope); opening_reel URL stripped; a whitespace-only value → omitted (trim). Catches: the 2-of-19 gap; reel-strip regression; diagrams leak; whitespace count-inflation. Anti-tautology: assert against the breakdown's own list, scoped so a sibling section can't satisfy it.
+4. **Modal renders all non-empty known TEXT keys** (Step3SheetCard test): `event_details` with stage_size/podium/polling/keynote → `EventDetailsBreakdown` lists all of them (count matches), not just keynote+reel; `diagrams` present → NOT listed (text-key scope); opening_reel URL stripped; a whitespace-only value → omitted (trim); **a non-string value (number) → coerced+shown (no throw), matching the crew card's coerce-then-check order (Codex spec-R5 MED)**. Catches: the 2-of-19 gap; reel-strip regression; diagrams leak; whitespace count-inflation; admin/crew non-string divergence. Anti-tautology: assert against the breakdown's own list, scoped so a sibling section can't satisfy it.
 5. **Deep-link region**: `CARD_REGION_MAP["gear-tech-specs"]` resolves to `details` and the card's SourceLink renders an anchor (mirror the keynote SourceLink coverage test).
 6. **Sentinel-hiding contract still green** (`_metaSentinelHidingContract`): after extending `GENERIC_OPTIONAL_FIELDS` with the new crew tech-spec keys, the contract passes — GearSection (walked) routes its generic-optional reads through `shouldHideGenericOptional`/`KeyValueRows`. Catches: a future direct literal read of a new spec key that forgets sentinel-hiding.
 
