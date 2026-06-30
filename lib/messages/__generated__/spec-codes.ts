@@ -692,6 +692,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → open the parent folder and copy that folder link",
     "helpfulContext": "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
   },
+  "PAGE_RENDER_FAILED": {
+    "crewFacing": "This page ran into a problem. Try reloading — if it keeps happening, text Doug.",
+    "dougFacing": null,
+    "followUp": "Crew → reload",
+    "helpfulContext": null,
+  },
   "PARSE_ERROR_LAST_GOOD": {
     "crewFacing": "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     "dougFacing": "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",

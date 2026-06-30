@@ -28,6 +28,11 @@ const CATALOG_ROUTER_FUNCTIONS = new Set([
   "messageFor",
   "getDougFacing",
   "getCrewFacing",
+  // The "required" (throw-if-null) variants are also catalog routers — a code passed to them is
+  // resolved to copy, not rendered raw. Admin boundaries use getRequiredDougFacing via a const;
+  // the Phase 3 boundaries call getRequiredCrewFacing inline in JSX, so the scanner must know both.
+  "getRequiredDougFacing",
+  "getRequiredCrewFacing",
   "lookupHelpfulContext",
   "setError",
   "setErrorCode",

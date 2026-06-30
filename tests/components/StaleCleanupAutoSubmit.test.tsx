@@ -59,8 +59,11 @@ describe("<StaleCleanupAutoSubmit>", () => {
 });
 
 describe("only-use-client-in-picker-tree static grep (R25)", () => {
-  test("StaleCleanupAutoSubmit is the only 'use client' file in app/show/[slug]/[shareToken]/", () => {
+  test("no UNSANCTIONED 'use client' islands in app/show/[slug]/[shareToken]/ (StaleCleanupAutoSubmit + error.tsx exempt)", () => {
     const dir = join(process.cwd(), "app", "show", "[slug]", "[shareToken]");
+    // Sanctioned client files: the picker auto-submit island, and error.tsx — a React error
+    // boundary, which MUST be a Client Component (Phase 3 crew boundary).
+    const SANCTIONED = new Set(["_StaleCleanupAutoSubmit.tsx", "error.tsx"]);
     const offenders: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isFile()) continue;
@@ -68,7 +71,7 @@ describe("only-use-client-in-picker-tree static grep (R25)", () => {
       const source = readFileSync(join(dir, entry.name), "utf8");
       const head = source.slice(0, 200);
       if (/^['"]use client['"]/.test(head.trim()) || /\n['"]use client['"]/.test(head)) {
-        if (entry.name !== "_StaleCleanupAutoSubmit.tsx") {
+        if (!SANCTIONED.has(entry.name)) {
           offenders.push(entry.name);
         }
       }

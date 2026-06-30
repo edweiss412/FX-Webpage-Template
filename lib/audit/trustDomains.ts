@@ -154,6 +154,7 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/cron/report-reaper/route.ts", chain: "cron" },
   { path: "app/api/cron/sync/route.ts", chain: "cron" },
   { path: "app/api/drive/webhook/route.ts", chain: "public" },
+  { path: "app/api/observe/client-error/route.ts", chain: "public" },
   { path: "app/api/test-auth/set-session/route.ts", chain: "public" },
   { path: "middleware.ts", chain: "auth-library-exception" },
 ];
