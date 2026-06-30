@@ -38,6 +38,8 @@ import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type {
   AgendaEntry,
+  ClientContact,
+  ContactRow,
   CrewMemberRow,
   HotelReservationRow,
   ParseResult,
@@ -46,6 +48,8 @@ import type {
   PullSheetItem,
   RoomRow,
   RunOfShow,
+  ShowRow,
+  TransportationRow,
 } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -97,6 +101,38 @@ const ROOM_SCOPE_FIELDS: ReadonlyArray<{ label: string; key: keyof RoomRow }> = 
 /** A string field that actually parsed to content (non-null, non-whitespace). */
 function hasContent(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+/**
+ * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
+ * content (hasContent — non-null, non-whitespace string). Used by the operator
+ * review-modal field-group sections (Venue / Ops / Transport / Contacts).
+ */
+function contentRows(
+  pairs: ReadonlyArray<readonly [string, unknown]>,
+): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  // Coerce-then-keep (String().trim(), length > 0) — matches the EventDetails +
+  // RoomsDetail modal sections (#195/#197): a non-string JSONB value still shows
+  // as text, sentinels (TBD/N/A) show as-parsed, empty/whitespace is omitted.
+  for (const [label, val] of pairs) {
+    const value = String(val ?? "").trim();
+    if (value.length > 0) out.push({ label, value });
+  }
+  return out;
+}
+
+/** Vertical label:value list shared by the review-modal field-group sections. */
+function FieldRowList({ rows }: { rows: { label: string; value: string }[] }) {
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {rows.map((r) => (
+        <li key={r.label} className="wrap-break-word text-sm text-text">
+          <span className="font-medium text-text-strong">{r.label}:</span> {r.value}
+        </li>
+      ))}
+    </ul>
+  );
 }
 const SCHEDULE_DAYS_CAP = 14;
 const SCHEDULE_ENTRIES_CAP = 6;
@@ -180,6 +216,184 @@ function BreakdownSection({
   );
 }
 
+function ContactsBreakdown({
+  dfid,
+  clientContact,
+  contacts,
+}: {
+  dfid: string;
+  clientContact: ClientContact | null;
+  contacts: ContactRow[];
+}) {
+  // Client people: primary + optional secondary (null-safe). Each a "Client
+  // contact" (the second flagged "(secondary)" so the operator can tell the lead
+  // client rep from the backup). Index keys avoid same-name React key collisions.
+  const clientPeople = [clientContact, clientContact?.secondary].filter(Boolean) as {
+    name: string;
+    phone: string | null;
+    email: string | null;
+    officePhone?: string | null;
+  }[];
+  const blocks = [
+    ...clientPeople.map((p, i) => ({
+      key: `client-${i}`,
+      kind: i === 0 ? "Client contact" : "Client contact (secondary)",
+      name: p.name,
+      rows: contentRows([
+        ["Phone", p.phone],
+        ["Email", p.email],
+        ["Office", p.officePhone],
+      ]),
+    })),
+    ...contacts.map((c, i) => ({
+      key: `contact-${i}`,
+      kind: c.kind === "in_house_av" ? "In-house AV" : "Venue contact",
+      name: c.name ?? "",
+      rows: contentRows([
+        ["Phone", c.phone],
+        ["Email", c.email],
+      ]),
+    })),
+  ].filter((b) => hasContent(b.name) || b.rows.length > 0);
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-contacts`}
+      label="Contacts"
+      count={blocks.length}
+    >
+      {blocks.length === 0 ? (
+        <p className="text-sm text-text-subtle">No contacts parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {blocks.map((b) => (
+            <li key={b.key} className="text-sm text-text">
+              <span
+                className="text-xs font-semibold uppercase text-text-subtle"
+                style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+              >
+                {b.kind}
+              </span>
+              {hasContent(b.name) ? (
+                <div className="font-medium text-text-strong">{b.name}</div>
+              ) : null}
+              {b.rows.length > 0 ? <FieldRowList rows={b.rows} /> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </BreakdownSection>
+  );
+}
+
+function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
+  const rows = venue
+    ? contentRows([
+        ["Venue", venue.name],
+        ["Address", venue.address],
+        ["City", venue.city],
+        ["Loading dock", venue.loadingDock],
+        ["Maps link", venue.googleLink],
+      ])
+    : [];
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-venue`}
+      label="Venue"
+      count={rows.length}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-subtle">No venue details parsed.</p>
+      ) : (
+        <FieldRowList rows={rows} />
+      )}
+    </BreakdownSection>
+  );
+}
+
+function TransportBreakdown({
+  dfid,
+  transportation,
+}: {
+  dfid: string;
+  transportation: TransportationRow | null;
+}) {
+  const t = transportation;
+  const fieldRows = t
+    ? contentRows([
+        ["Driver", t.driver_name],
+        ["Driver phone", t.driver_phone],
+        ["Driver email", t.driver_email],
+        ["Vehicle", t.vehicle],
+        ["License plate", t.license_plate],
+        ["Color", t.color],
+        ["Parking", t.parking],
+        ["Notes", t.notes],
+      ])
+    : [];
+  // schedule legs — arr()-guarded against untyped JSONB; each leg gated on stage.
+  const legs = (t ? arr(t.schedule) : [])
+    .filter((leg) => hasContent(leg.stage))
+    .map((leg) => {
+      const when = [leg.date, leg.time].filter((x) => hasContent(x)).join(" ");
+      const who = arr(leg.assigned_names)
+        .filter((n) => hasContent(n))
+        .join(", ");
+      return {
+        stage: leg.stage as string,
+        meta: [when, who].filter((x) => x.length > 0).join(" · "),
+      };
+    });
+  const count = fieldRows.length + legs.length;
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-transport`}
+      label="Transport"
+      count={count}
+    >
+      {count === 0 ? (
+        <p className="text-sm text-text-subtle">No transportation parsed.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {fieldRows.length > 0 ? <FieldRowList rows={fieldRows} /> : null}
+          {legs.length > 0 ? (
+            <ul className="flex flex-col gap-0.5">
+              {legs.map((leg, i) => (
+                <li key={`${leg.stage}-${i}`} className="wrap-break-word text-sm text-text">
+                  <span className="font-medium text-text-strong">{leg.stage}</span>
+                  {leg.meta ? <span className="text-text-subtle"> · {leg.meta}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </BreakdownSection>
+  );
+}
+
+function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
+  const rows = contentRows([
+    ["COI", show.coi_status],
+    ["Proposal", show.proposal],
+    ["PO#", show.po],
+    ["Invoice", show.invoice],
+    ["Invoice notes", show.invoice_notes],
+  ]);
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-ops`}
+      label="Billing & docs"
+      count={rows.length}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-subtle">No billing details parsed.</p>
+      ) : (
+        <FieldRowList rows={rows} />
+      )}
+    </BreakdownSection>
+  );
+}
+
 function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
@@ -197,6 +411,7 @@ function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow
             <li key={`${m.name}-${i}`} className="text-sm text-text">
               <span className="font-medium text-text-strong">{m.name || "Unnamed"}</span>
               {m.role ? <span className="text-text-subtle"> · {m.role}</span> : null}
+              {hasContent(m.phone) ? <span className="text-text-subtle"> · {m.phone}</span> : null}
             </li>
           ))}
         </ul>
@@ -544,6 +759,9 @@ function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservat
               <span className="font-medium text-text-strong">{h.hotel_name || "Hotel"}</span>
               {arr(h.names).length > 0 ? (
                 <span className="text-text-subtle"> · {arr(h.names).join(", ")}</span>
+              ) : null}
+              {hasContent(h.hotel_address) ? (
+                <span className="block text-xs text-text-subtle">{h.hotel_address}</span>
               ) : null}
               {h.check_in || h.check_out ? (
                 <span className="block text-xs tabular-nums text-text-subtle">
@@ -1468,11 +1686,19 @@ export function Step3SheetCard({
             className="columns-1 gap-x-8 wrap-break-word sm:columns-2 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
           >
             <CrewBreakdown dfid={dfid} members={crewMembers} />
+            <ContactsBreakdown
+              dfid={dfid}
+              clientContact={pr.show.client_contact}
+              contacts={arr(pr.contacts)}
+            />
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
+            <VenueBreakdown dfid={dfid} venue={pr.show.venue} />
             <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
             <PackListBreakdown dfid={dfid} cases={pullSheet} />
+            <TransportBreakdown dfid={dfid} transportation={pr.transportation} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
+            <OpsBreakdown dfid={dfid} show={pr.show} />
           </div>
           {/* Agenda PDF schedule — live-fill card (spec §5.3). Renders nothing when
               the row has no agenda links; otherwise POSTs to the extract endpoint
