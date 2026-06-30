@@ -1250,17 +1250,21 @@ git commit --no-verify -m "feat(observability): loadAppEvents service-role timel
 // tests/admin/loadCronHealth.test.ts
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-// Per-source latest-row mock: returns the seeded row for the source in the eq("source", X) call.
+// Per-source latest-row mock that ALSO records builder calls (so we can pin the code+source+limit
+// filters, not just observe seeded data — non-tautological).
 function mockClient(bySource: Record<string, Record<string, unknown> | null>, opts: { error?: unknown; throwOnFrom?: boolean } = {}) {
+  const calls: { method: string; args: unknown[] }[] = [];
   return {
-    from() {
+    __calls: calls,
+    from(table?: string) {
       if (opts.throwOnFrom) throw new Error("net reset");
+      calls.push({ method: "from", args: [table] });
       let source = "";
       const b: Record<string, unknown> = {};
-      const passthrough = () => b;
-      b.select = passthrough; b.order = passthrough;
-      b.eq = (col: string, val: string) => { if (col === "source") source = val; return b; };
-      b.limit = () => Promise.resolve({ data: opts.error ? null : (bySource[source] ? [bySource[source]] : []), error: opts.error ?? null });
+      b.select = (...a: unknown[]) => { calls.push({ method: "select", args: a }); return b; };
+      b.order = (...a: unknown[]) => { calls.push({ method: "order", args: a }); return b; };
+      b.eq = (col: string, val: string) => { calls.push({ method: "eq", args: [col, val] }); if (col === "source") source = val; return b; };
+      b.limit = (...a: unknown[]) => { calls.push({ method: "limit", args: a }); return Promise.resolve({ data: opts.error ? null : (bySource[source] ? [bySource[source]] : []), error: opts.error ?? null }); };
       return b;
     },
   };
@@ -1284,6 +1288,16 @@ describe("loadCronHealth", () => {
     expect(sync.outcome).toBe("ok");
     expect(sync.counts).toMatchObject({ processed: 3 });
     expect(sync.staleAfterMs).toBeGreaterThan(0);
+  });
+  test("each per-job read pins code=CRON_RUN_SUMMARY + source=cron.<job> + limit(1) (9 of each)", async () => {
+    const c = mockClient({});
+    const load = await withClient(c);
+    await load();
+    const eqCode = c.__calls.filter((x) => x.method === "eq" && x.args[0] === "code");
+    expect(eqCode).toHaveLength(9);
+    expect(eqCode.every((x) => x.args[1] === "CRON_RUN_SUMMARY")).toBe(true);
+    expect(c.__calls.filter((x) => x.method === "eq" && x.args[0] === "source")).toHaveLength(9);
+    expect(c.__calls.filter((x) => x.method === "limit" && x.args[0] === 1)).toHaveLength(9);
   });
   test("no row → lastRunAt null, outcome null", async () => {
     const load = await withClient(mockClient({}));
@@ -1387,7 +1401,7 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult> {
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `pnpm vitest run tests/admin/loadCronHealth.test.ts`
-Expected: PASS (5 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -2897,6 +2911,11 @@ Expected: clean. Fix any type/lint errors.
 
 Run: `pnpm test` (or the repo's full vitest invocation)
 Expected: PASS, modulo any pre-existing environmental failures (verify any failure also fails on `origin/main` before treating it as pre-existing — `feedback_verify_pre_existing_failures_at_merge_base`).
+
+- [ ] **Step 3b: RE-RUN the real-browser layout gate AFTER the impeccable/prettier UI edits** — impeccable fixes and `prettier --write` can change UI classes/markup, which can silently break the §8/G7 invariants (equal-height cards, no row overflow, 44px tap targets). The Task 18 Playwright test is the only thing that catches a layout regression, so it MUST run again here, last.
+
+Run: `pnpm playwright test tests/e2e/observability-layout.spec.ts`
+Expected: PASS. If it fails, the impeccable/prettier change regressed a dimensional/tap-target invariant — fix the class and re-run before close-out.
 
 - [ ] **Step 4: Commit any fixes**
 
