@@ -129,18 +129,19 @@ describe("runSummary constants", () => {
     expect(CRON_JOBS).toHaveLength(9);
     const names = CRON_JOBS.map((j) => j.jobName);
     expect(new Set(names).size).toBe(9);
-    // every staleAfterMs is a positive finite number
+    // each job's real cron cadence; staleAfterMs MUST be >= 2x cadence (the ">=2 missed runs"
+    // floor, spec §4.1) — asserts the actual multiplier, not just positivity.
+    const CADENCE_MS: Record<string, number> = {
+      "sync": 5 * 60_000, "notify.realtime": 5 * 60_000, "notify.digest": 3_600_000,
+      "refresh-watch": 3_600_000, "gc-watch": 3_600_000, "asset-recovery": 15 * 60_000,
+      "diagram-gc": 3_600_000, "report-reaper": 86_400_000, "keepalive": 86_400_000,
+    };
     for (const j of CRON_JOBS) {
       expect(Number.isFinite(j.staleAfterMs)).toBe(true);
-      expect(j.staleAfterMs).toBeGreaterThan(0);
+      expect(j.staleAfterMs).toBeGreaterThanOrEqual(2 * CADENCE_MS[j.jobName]);
     }
-    // the 9 logical jobs we expect
-    expect(new Set(names)).toEqual(
-      new Set([
-        "sync", "notify.realtime", "notify.digest", "refresh-watch",
-        "gc-watch", "asset-recovery", "diagram-gc", "report-reaper", "keepalive",
-      ]),
-    );
+    // the 9 logical jobs we expect (must match the CADENCE_MS keys)
+    expect(new Set(names)).toEqual(new Set(Object.keys(CADENCE_MS)));
   });
 
   test("module stays keyword-clean (scanner safety, spec §4.1)", () => {
@@ -318,6 +319,11 @@ describe("summarizeSync", () => {
     expect(s.outcome).toBe("ok");
     expect(s.counts).toMatchObject({ staged: 1, skipped: 1, failed: 0 });
   });
+  test("an UNKNOWN/unforeseen outcome is counted as failed (→partial), never silently benign", () => {
+    const s = summarizeSync({ processed: [p("applied"), p("some_future_outcome")] } as never);
+    expect(s.outcome).toBe("partial");
+    expect(s.counts).toMatchObject({ failed: 1, applied: 1 });
+  });
 });
 ```
 
@@ -336,6 +342,11 @@ import type { CronRunSummary } from "@/lib/cron/runSummary";
 const FAILED = new Set([
   "hard_fail", "parse_error", "source_gone", "stale", "revision_race", "revision_race_cooldown",
 ]);
+// Known benign (non-failure) outcomes. IMPLEMENTER: read the full ProcessOneFileResult union
+// (lib/sync/runScheduledCronSync.ts) and add the concurrent-sync-skip outcome literal here.
+// Any outcome NOT in a known set is counted as `failed` (conservative) so a NEW/missed outcome
+// surfaces as `partial`, never silently benign (§4.4 exhaustiveness).
+const SKIPPED = new Set(["skipped", "asset_recovery"]);
 
 export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummary {
   let applied = 0, staged = 0, skipped = 0, failed = 0;
@@ -343,9 +354,9 @@ export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummar
     const outcome = (r as { outcome?: string }).outcome;
     if (outcome === "applied") applied++;
     else if (outcome === "stage") staged++;
-    else if (outcome === "skipped" || outcome === "asset_recovery") skipped++;
+    else if (outcome && SKIPPED.has(outcome)) skipped++;
     else if (outcome && FAILED.has(outcome)) failed++;
-    else skipped++; // ConcurrentSyncSkipped + any unforeseen → treat as skipped (never silently "applied")
+    else failed++; // UNKNOWN/unforeseen outcome → conservative failure (never silently benign)
   }
   const counts = { processed: result.processed.length, applied, staged, skipped, failed };
 
@@ -364,7 +375,7 @@ export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummar
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/cron/summarizeSync.test.ts`
-Expected: PASS (6 tests).
+Expected: PASS (7 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1020,8 +1031,11 @@ describe("loadAppEvents", () => {
     await load({ cursor: { occurredAt: "2026-06-29T00:00:00.000Z", id: "id-9" } });
     const ors = c.__calls.filter((x) => x.method === "or");
     expect(ors).toHaveLength(1);
-    expect(String(ors[0].args[0])).toContain("occurred_at.lt.2026-06-29T00:00:00.000Z");
-    expect(String(ors[0].args[0])).toContain("id.lt.id-9");
+    const pred = String(ors[0].args[0]);
+    expect(pred).toContain("occurred_at.lt.2026-06-29T00:00:00.000Z");
+    // the tie-breaker MUST be the AND group — a bare `id.lt.id-9` would drop valid older rows
+    // whose occurred_at differs, so assert the exact `and(occurred_at.eq…,id.lt…)` shape.
+    expect(pred).toContain("and(occurred_at.eq.2026-06-29T00:00:00.000Z,id.lt.id-9)");
   });
 
   test("returned {error} → infra_error (no throw, message names app_events)", async () => {
@@ -1553,6 +1567,11 @@ describe("CronRunSummaryCard guards malformed context", () => {
     render(<CronRunSummaryCard event={ev({ outcome: "ok" }, "weird.source")} />);
     expect(screen.getByText(/weird\.source/)).toBeInTheDocument();
   });
+  test("outcome not in {ok,partial,infra,threw} → renders 'unknown', NOT the raw value (§6.2)", () => {
+    render(<CronRunSummaryCard event={ev({ jobName: "sync", outcome: "weird" })} />);
+    expect(screen.getByText("unknown")).toBeInTheDocument();
+    expect(screen.queryByText("weird")).toBeNull();
+  });
 });
 ```
 
@@ -1635,10 +1654,12 @@ function jobLabel(ev: AppEventRow): string {
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
+const VALID_OUTCOMES = new Set(["ok", "partial", "infra", "threw"]);
 
 export function CronRunSummaryCard({ event }: { event: AppEventRow }) {
   const ctx = event.context ?? {};
-  const outcome = typeof ctx.outcome === "string" ? ctx.outcome : "unknown";
+  // Validate against the known literal set (spec §6.2) — never render a raw/free-form value.
+  const outcome = typeof ctx.outcome === "string" && VALID_OUTCOMES.has(ctx.outcome) ? ctx.outcome : "unknown";
   const durationMs = typeof ctx.durationMs === "number" && Number.isFinite(ctx.durationMs) ? ctx.durationMs : null;
   const counts = isPlainObject(ctx.counts)
     ? Object.entries(ctx.counts).filter(([, n]) => typeof n === "number")
