@@ -63,6 +63,8 @@ type Person = {
   lead?: boolean;
   /** Primary contact for the row's domain → "Primary" chip + data-primary hook. */
   primary?: boolean;
+  /** Partial-attendance label (e.g. "Oct 7 & 9 only") → a chip + data-partial hook. */
+  partial?: string;
 };
 
 type PersonRowProps = {
@@ -104,7 +106,7 @@ const ACTION_CLASS = [
 ].join(" ");
 
 export function PersonRow({ person }: PersonRowProps) {
-  const { role, fallbackLabel, you, lead, primary } = person;
+  const { role, fallbackLabel, you, lead, primary, partial } = person;
 
   const hasName = typeof person.name === "string" && person.name.trim().length > 0;
   const heading = hasName ? person.name : fallbackLabel;
@@ -162,6 +164,14 @@ export function PersonRow({ person }: PersonRowProps) {
             {primary ? (
               <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
                 Primary
+              </span>
+            ) : null}
+            {partial ? (
+              <span
+                data-partial="true"
+                className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}
+              >
+                {partial}
               </span>
             ) : null}
           </div>
