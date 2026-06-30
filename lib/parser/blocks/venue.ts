@@ -1,6 +1,7 @@
 import type { ShowRow } from "@/lib/parser/types";
 import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser/aliases";
 import type { ParseAggregator } from "@/lib/parser/warnings";
+import { emitUnknownField } from "@/lib/parser/warnings";
 import { presence, parseTableRows } from "./_helpers";
 
 // ── VENUE block shapes across corpus ─────────────────────────────────────────
@@ -296,18 +297,7 @@ export function parseVenue(
     // terminated by a known block-opener).
     if (agg && inVenueFieldScope && col0 !== "" && col0Upper !== "VENUE" && col0Canon === null) {
       const rawVal = presence(row[1] ?? "") ?? "";
-      agg.warnings.push({
-        severity: "warn",
-        code: "UNKNOWN_FIELD",
-        message: `Unrecognized venue row label: '${col0.trim()}'`,
-        blockRef: { kind: "venue" },
-        rawSnippet: `${col0.trim()} | ${rawVal}`,
-      });
-      agg.rawUnrecognized.push({
-        block: "venue",
-        key: col0.trim(),
-        value: rawVal,
-      });
+      emitUnknownField(agg, { block: "venue", kind: "venue", key: col0.trim(), value: rawVal });
     }
   }
 

@@ -31,7 +31,7 @@
  */
 
 import { clean, presence, splitRow } from "./_helpers";
-import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import { type ParseAggregator, emitEmptySection, emitUnknownField } from "@/lib/parser/warnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
@@ -201,8 +201,20 @@ export function parseEventDetails(
           // Genuinely-unknown label (no fuzzy hit, tie-aborted, or below-minLen): preserve the
           // existing normalize-and-keep fallback. Defense-in-depth (§3.4): never let an
           // unknown label normalize into a financial/internal key (PO#/Budget/Invoice/…).
+          // A kept fallback key is rendered by nothing, so ALSO surface it to the operator via
+          // UNKNOWN_FIELD (kept + visible). Sensitive-looking labels stay silently dropped and
+          // are NOT flagged — flagging would leak the value through the warning rawSnippet.
+          // (unknown-label coverage)
           const key = toCanonicalKey(col0);
-          if (key && val && !isSensitiveCanonicalKey(key)) writeField(result, key, val);
+          if (key && val && !isSensitiveCanonicalKey(key)) {
+            writeField(result, key, val);
+            emitUnknownField(agg, {
+              block: "event_details",
+              kind: "details",
+              key: col0,
+              value: val,
+            });
+          }
         }
       }
     }
