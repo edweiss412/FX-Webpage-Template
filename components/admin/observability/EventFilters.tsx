@@ -32,6 +32,7 @@ function FilterTextInput({
       type="text"
       data-testid={`filter-${name}`}
       placeholder={placeholder}
+      aria-label={placeholder}
       value={value}
       className="min-h-tap-min rounded border border-border bg-surface px-2"
       onChange={(e) => setValue(e.target.value)}
@@ -98,6 +99,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
       ))}
       <select
         data-testid="filter-since"
+        aria-label="Time window"
         className="min-h-tap-min rounded border border-border bg-surface px-2"
         value={
           filters.sinceHours === 1

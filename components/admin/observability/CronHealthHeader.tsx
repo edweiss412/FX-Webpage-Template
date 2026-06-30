@@ -24,7 +24,7 @@ export function CronHealthHeader({ jobs, now }: { jobs: CronHealthRow[]; now: Da
               <div className="text-sm font-medium text-text">{job.label}</div>
               <StatusIndicator status={v.status} label={v.label} />
               {job.counts && (
-                <div className="mt-1 text-xs text-text-subtle">
+                <div className="mt-1 text-xs tabular-nums text-text-subtle">
                   {Object.entries(job.counts)
                     .map(([k, n]) => `${k}: ${n}`)
                     .join(" · ")}

@@ -300,7 +300,7 @@ export default async function AdminSettingsPage() {
               </span>
               <span className="flex flex-col gap-1">
                 <span className="text-sm font-medium text-text-strong underline">
-                  Activity — app event log &amp; cron health
+                  Activity: app event log &amp; cron health
                 </span>
                 <span className="text-sm text-text-subtle">
                   Browse recent app events and per-job cron run health for troubleshooting.
