@@ -143,21 +143,30 @@ import { render, within } from "@testing-library/react";
 import { GearSection } from "@/components/crew/sections/GearSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
+import { buildSheetDeepLink, CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-rd";
+const DRIVE = "drive-rd-1";
 
+// driveFileId + a 'rooms' source anchor so the card's SourceLink renders a real
+// href (mirror the room-card anchor setup in GearSection.test.tsx:238-263 for the
+// exact SourceAnchor shape). Returned `data` is reused for the deep-link assertion.
 function renderGear(rooms: ShowForViewer["rooms"]) {
-  const data = makeShowForViewer({ rooms });
+  const data = makeShowForViewer({
+    rooms,
+    driveFileId: DRIVE,
+    sourceAnchors: { rooms: { tabGid: "0", row: 1 } } as ShowForViewer["sourceAnchors"],
+  });
   const { container } = render(
     <GearSection data={data} viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID} />,
   );
-  return container;
+  return { container, data };
 }
 
 describe("GearSection — Room details card (BL-ROOM-DETAIL-UNRENDERED)", () => {
-  test("renders per-room detail; hides sentinel rooms; coerces non-string; excludes out-of-scope", () => {
-    const container = renderGear([
+  test("renders per-room detail; hides sentinel rooms; coerces non-string; excludes out-of-scope; wires SourceLink", () => {
+    const { container, data } = renderGear([
       // populated room:
       { id: "r1", kind: "gs", name: "Grand Ballroom",
         dimensions: "60' x 45'", floor: "8th Floor", setup: "18 tables of 7",
@@ -183,18 +192,24 @@ describe("GearSection — Room details card (BL-ROOM-DETAIL-UNRENDERED)", () => 
     expect(within(card!).queryByText("QU32")).toBeNull(); // audio (gear, not detail)
     // all-sentinel room block omitted:
     expect(container.querySelector('[data-testid="gear-room-detail-r2"]')).toBeNull();
+    // SourceLink wired to the rooms region (test-first — fails until CARD_REGION_MAP
+    // gear-room-details→rooms is added in Step 3; Codex plan-R2):
+    const link = card!.querySelector('[data-slot="section-card-action"] a[data-slot="source-link"]');
+    expect(link?.getAttribute("href")).toBe(
+      buildSheetDeepLink(data.driveFileId, data.sourceAnchors[CARD_REGION_MAP["gear-room-details"]]),
+    );
   });
 
   test("no card when no room has detail (empty + all-sentinel + no rooms)", () => {
-    expect(renderGear([]).querySelector('[data-testid="gear-room-details"]')).toBeNull();
-    const allSentinel = renderGear([
+    expect(renderGear([]).container.querySelector('[data-testid="gear-room-details"]')).toBeNull();
+    const { container } = renderGear([
       { id: "r1", kind: "gs", name: "GS", dimensions: "N/A", floor: "TBD", setup: "" } as ShowForViewer["rooms"][number],
     ]);
-    expect(allSentinel.querySelector('[data-testid="gear-room-details"]')).toBeNull();
+    expect(container.querySelector('[data-testid="gear-room-details"]')).toBeNull();
   });
 
   test("non-string detail value coerces + shows (no throw)", () => {
-    const container = renderGear([
+    const { container } = renderGear([
       { id: "r1", kind: "gs", name: "GS", dimensions: 169 as unknown as string } as ShowForViewer["rooms"][number],
     ]);
     expect(within(container.querySelector<HTMLElement>('[data-testid="gear-room-detail-r1"]')!).getByText("169")).toBeTruthy();
@@ -203,7 +218,7 @@ describe("GearSection — Room details card (BL-ROOM-DETAIL-UNRENDERED)", () => 
   test("cap: 13 rooms with detail → 12 blocks + overflow stub", () => {
     const rooms = Array.from({ length: 13 }, (_, i) =>
       ({ id: `r${i}`, kind: "breakout", name: `Room ${i}`, dimensions: `${i}0' x 20'` }) as ShowForViewer["rooms"][number]);
-    const container = renderGear(rooms);
+    const { container } = renderGear(rooms);
     expect(container.querySelectorAll('[data-testid^="gear-room-detail-"]').length).toBe(12);
     expect(within(container.querySelector<HTMLElement>('[data-testid="gear-room-details"]')!).getByText(/and 1 more room\b/)).toBeTruthy();
   });
@@ -213,7 +228,7 @@ describe("GearSection — Room details card (BL-ROOM-DETAIL-UNRENDERED)", () => 
 - [ ] **Step 2: Run, verify it fails**
 
 Run: `pnpm vitest run tests/components/crew/gearRoomDetails.test.tsx`
-Expected: FAIL — no `gear-room-details` testid. (TDD: test precedes ALL impl, incl. the export + CARD_REGION_MAP edits in Step 3.)
+Expected: FAIL — no `gear-room-details` testid AND the SourceLink href assertion fails (CARD_REGION_MAP has no `gear-room-details` key yet). (TDD: this failing test covers ALL of Step 3's impl — the card render, the `export compareRooms`, AND the CARD_REGION_MAP wiring — before any of it is written. If `CARD_REGION_MAP["gear-room-details"]` is `undefined` at test-author time, TS errors on the index access, which is itself the red state; it goes green only once Step 3 adds the entry.)
 
 - [ ] **Step 3: Implement** (test-first done):
 
@@ -325,7 +340,7 @@ Run: `pnpm typecheck` → clean.
   },
 ```
 
-- [ ] **Step 6: Make the source-link walker cover the card** — `tests/components/crew/sourceLinkCoverage.test.tsx`, in `fullFixture()`'s room (`:118-130`, already has set_time/show_time/strike_time so the card already renders) add `dimensions` for explicit coverage:
+- [ ] **Step 6: Source-link walker — defense-in-depth** (the card's SourceLink href is already covered test-first in Step 1; this is the repo-wide walker that also auto-classifies the card). In `tests/components/crew/sourceLinkCoverage.test.tsx`, `fullFixture()`'s room (`:118-130`) already has set_time/show_time/strike_time so the card already renders + the walker would FAIL without the CARD_REGION_MAP entry (so it too is effectively a test-first gate). Add `dimensions` for explicit coverage:
 ```ts
         dimensions: "20' x 30'",
 ```
