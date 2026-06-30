@@ -324,6 +324,14 @@ describe("summarizeSync", () => {
     expect(s.outcome).toBe("partial");
     expect(s.counts).toMatchObject({ failed: 1, applied: 1 });
   });
+  test("ConcurrentSyncSkipped ({skipped:CONCURRENT_SYNC_SKIPPED}, no outcome field) → skipped, run ok", () => {
+    // the real shape from lib/sync/lockedShowTx.ts — a benign lock-contention skip, NOT a failure
+    const s = summarizeSync({
+      processed: [{ driveFileId: "d", result: { skipped: "CONCURRENT_SYNC_SKIPPED" } }],
+    } as never);
+    expect(s.outcome).toBe("ok");
+    expect(s.counts).toMatchObject({ skipped: 1, failed: 0 });
+  });
 });
 ```
 
@@ -337,20 +345,23 @@ Expected: FAIL — module not found.
 ```ts
 // lib/cron/summarizeSync.ts
 import type { RunScheduledCronSyncResult } from "@/lib/sync/runScheduledCronSync";
+import { CONCURRENT_SYNC_SKIPPED } from "@/lib/sync/lockedShowTx";
 import type { CronRunSummary } from "@/lib/cron/runSummary";
 
 const FAILED = new Set([
   "hard_fail", "parse_error", "source_gone", "stale", "revision_race", "revision_race_cooldown",
 ]);
-// Known benign (non-failure) outcomes. IMPLEMENTER: read the full ProcessOneFileResult union
-// (lib/sync/runScheduledCronSync.ts) and add the concurrent-sync-skip outcome literal here.
-// Any outcome NOT in a known set is counted as `failed` (conservative) so a NEW/missed outcome
-// surfaces as `partial`, never silently benign (§4.4 exhaustiveness).
+// Benign (non-failure) `outcome` values. Anything NOT recognized here, NOT the ConcurrentSyncSkipped
+// shape below, is counted as `failed` (conservative) — a NEW/missed outcome surfaces as `partial`,
+// never silently benign (§4.4 exhaustiveness).
 const SKIPPED = new Set(["skipped", "asset_recovery"]);
 
 export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummary {
   let applied = 0, staged = 0, skipped = 0, failed = 0;
   for (const { result: r } of result.processed) {
+    // ConcurrentSyncSkipped has shape { skipped: CONCURRENT_SYNC_SKIPPED } — NO `outcome` field
+    // (lib/sync/lockedShowTx.ts:16-18). A benign lock-contention skip; count as skipped, not failed.
+    if ((r as { skipped?: string }).skipped === CONCURRENT_SYNC_SKIPPED) { skipped++; continue; }
     const outcome = (r as { outcome?: string }).outcome;
     if (outcome === "applied") applied++;
     else if (outcome === "stage") staged++;
@@ -375,7 +386,7 @@ export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummar
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/cron/summarizeSync.test.ts`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1053,12 +1064,18 @@ describe("loadAppEvents", () => {
     expect((r as { message: string }).message).toMatch(/app_events.*threw/);
   });
 
-  test("shows embed maps to showTitle", async () => {
+  test("shows embed: select REQUESTS shows(title), single from(app_events), maps showTitle", async () => {
     const rows = mk(1).map((row) => ({ ...row, show_id: "s1", shows: { title: "RPAS" } }));
     const c = mockClient(rows); const load = await withClient(c);
     const r = await load({});
     if (r.kind !== "ok") throw new Error("ok");
     expect(r.events[0].showTitle).toBe("RPAS");
+    // NON-tautological: the mock returns `shows` regardless, so prove the embed is actually
+    // requested — assert the select() arg contains shows(title) and there is NO separate from("shows").
+    const selectCall = c.__calls.find((x) => x.method === "select");
+    expect(String(selectCall?.args[0])).toContain("shows(title)");
+    expect(c.__calls.filter((x) => x.method === "from" && x.args[0] === "shows")).toHaveLength(0);
+    expect(c.__calls.filter((x) => x.method === "from")).toHaveLength(1); // only app_events
   });
 });
 ```
@@ -1743,10 +1760,14 @@ describe("EventRow", () => {
     const chip = screen.getByTestId("event-row-request-e1");
     expect(chip.getAttribute("href")).toBe("/admin/observability?requestId=req-9&since=all");
   });
-  test("CRON_RUN_SUMMARY row renders the summary card instead of the generic body", () => {
-    const ev = { ...base, code: "CRON_RUN_SUMMARY", source: "cron.sync", context: { jobName: "sync", outcome: "ok", counts: { processed: 1 } } };
+  test("CRON_RUN_SUMMARY row: card is the collapsed body AND it expands to ContextDetail (AC4)", () => {
+    const ev = { ...base, code: "CRON_RUN_SUMMARY", source: "cron.sync", message: "cron sync run",
+      context: { jobName: "sync", outcome: "ok", counts: { processed: 1 } } };
     render(<EventRow event={ev} now={now} />);
-    expect(screen.getByText(/processed/i)).toBeInTheDocument();
+    expect(screen.getByText(/processed/i)).toBeInTheDocument(); // rich card = collapsed body
+    expect(screen.queryByTestId("event-full-message")).toBeNull();
+    fireEvent.click(screen.getByTestId("event-row-toggle-e1"));
+    expect(screen.getByTestId("event-full-message")).toHaveTextContent("cron sync run"); // expands to raw detail
   });
 });
 ```
@@ -1806,7 +1827,18 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
         <EventLevelBadge level={event.level} />
         <div className="min-w-0 flex-1">
           {isSummary ? (
-            <CronRunSummaryCard event={event} />
+            // Summary row: the rich card IS the collapsed body, but the row still expands to
+            // ContextDetail (AC4). CronRunSummaryCard has no nested interactive elements (dt/dd
+            // only), so wrapping it in the toggle button is valid.
+            <button
+              type="button"
+              data-testid={`event-row-toggle-${event.id}`}
+              onClick={() => setOpen((v) => !v)}
+              aria-expanded={open}
+              className="block w-full text-left"
+            >
+              <CronRunSummaryCard event={event} />
+            </button>
           ) : (
             <>
               {/* The toggle button contains ONLY the message — no nested interactive elements. */}
@@ -1844,7 +1876,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
       {/* The ONE animated transition in this surface (spec §7): height disclosure,
           220ms ease-out-quart, instant under prefers-reduced-motion (useReducedMotion → 0). */}
       <AnimatePresence initial={false}>
-        {open && !isSummary && (
+        {open && (
           <motion.div
             key="detail"
             initial={{ height: 0, opacity: 0 }}
