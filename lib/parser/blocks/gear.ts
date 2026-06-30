@@ -89,15 +89,23 @@ export function hasGearDateGrid(markdown: string): boolean {
 const ROOM_PREFIX_RE =
   /^(GENERAL SESSION|BREAKOUT( SESSION)?\s*\d*|LUNCH( ROOM| SESSION)?|ADDITIONAL( ROOM)?)\s*-?\s*/i;
 
-function newRoom(header: string): GearRoom {
+// Exported so the lunch-scoped GRAND-strip is unit-testable on the REAL code
+// path (a global strip would regress GS/other rooms — BL-ROOM-GEAR-MERGE-DEDUP).
+export function newRoom(header: string): GearRoom {
   const upper = header.toUpperCase();
   let kind: RoomKind = "additional";
   if (/^GENERAL\b/.test(upper)) kind = "gs";
   else if (/^BREAKOUT\b/.test(upper)) kind = "breakout";
-  const stripped = header
+  else if (/^LUNCH\b/.test(upper)) kind = "breakout"; // align with INFO lunchRe (rooms.ts:721)
+  let stripped = header
     .replace(ROOM_PREFIX_RE, "")
     .replace(/\s*(Dimensions|Floor)\s*$/i, "")
     .trim();
+  // Lunch-scoped ONLY: the GEAR sheet names the lunch room "GRAND BALLROOM C"
+  // while INFO names it "BALLROOM C". Strip the leading GRAND so the (kind, token)
+  // merge key matches. NOT applied to other rooms (no global GRAND strip), so
+  // distinct GRAND X / X rooms (and the GS GRAND BALLROOM A/B merge) are unaffected.
+  if (/^LUNCH\b/.test(upper)) stripped = stripped.replace(/^GRAND\s+/i, "");
   return {
     kind,
     name: stripped.length > 0 ? stripped : header.trim(),

@@ -25,6 +25,7 @@ import { parseGearTab, type GearRoom } from "./blocks/gear";
 import { parseTransportation } from "./blocks/transport";
 import { parseContacts } from "./blocks/contacts";
 import { parseEventDetails } from "./blocks/event";
+import { parseDress, mergeDressCode } from "./blocks/dress";
 import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams, extractLinkedFolder } from "./diagrams";
@@ -108,12 +109,64 @@ function isKnownNonTitle(candidate: string): boolean {
   return KNOWN_NON_TITLES.has(candidate.toLowerCase().trim());
 }
 
+// Shared title-cell acceptance guard, used by BOTH the banner (#0) and the
+// first-cell fallback (#6) so they cannot drift. Rejects empties, known
+// non-titles, CLIENT/NO_HEADER label rows, escaped error cells, and — via the
+// parser's OWN canonical recognizer — any bare or room-family section header
+// (so a duplicated "DOCUMENT FOLDER LINK" / "GENERAL SESSION SALON ABC" first
+// row can never become show.title). See spec Fix 3.
+function isAcceptableTitleCell(cell: string): boolean {
+  if (cell.length === 0) return false;
+  if (isKnownNonTitle(cell)) return false;
+  if (cell.toUpperCase().startsWith("CLIENT")) return false;
+  if (cell.toUpperCase().startsWith("NO_HEADER")) return false;
+  if (cell === "\\#NUM\\!") return false;
+  if (/^\\#/.test(cell)) return false;
+  if (isKnownSectionHeader(cell)) return false;
+  return true;
+}
+
 function extractTitleFromMarkdown(
   md: string,
   eventDetails: Record<string, string>,
   filename?: string,
 ): string {
   const lines = md.split("\n");
+
+  // 0. Exporter banner: line 1 is the show title, column-duplicated across cells.
+  //    Examine only the first non-separator table row; require the first cell to
+  //    be duplicated in another cell AND pass the shared title guard. This beats
+  //    the uppercased "Event Name:" cell (priority #1) for exporter sheets.
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) continue;
+    if (/^\|\s*[:|-]+\s*\|/.test(trimmed)) continue; // skip separator row
+    // Real columns: split on pipes, drop the leading outer-pipe artifact (the
+    // "" before the first "|") and any trailing empty padding. Keep INTERNAL
+    // empties so a leading-empty data row ("|  | X | X |") is NOT mistaken for a
+    // banner (its real col0 is empty).
+    const body = trimmed
+      .split(CELL_SPLIT_RE)
+      .map((c) => c.trim())
+      .slice(1);
+    while (body.length > 0 && body[body.length - 1] === "") body.pop();
+    const col0 = body[0] ?? "";
+    // A banner is a CLEAN single-line title DUPLICATED across the row: col0 is
+    // non-empty, at least one other column repeats it, and no column differs
+    // from it (empty padding allowed). This rejects partial duplicates
+    // ("| X | X | Other |") and leading-empty rows. A cell carrying an in-cell
+    // newline entity (&#10;/&#9;) is a multi-value cell (e.g. redefining-fi's
+    // two-forum banner), NOT a single title — skip it and let the chain decide.
+    const isBanner =
+      col0.length > 0 &&
+      body.length >= 2 &&
+      body.some((c, i) => i > 0 && c === col0) &&
+      body.every((c) => c === "" || c === col0);
+    if (isBanner && !/&#(10|9);/.test(col0) && isAcceptableTitleCell(col0)) {
+      return col0;
+    }
+    break; // only the first non-separator table row is a banner candidate
+  }
 
   // 1. Scan raw markdown for "Event Name:" label row (v4/v2 newer fixtures).
   //    This row lives in the CLIENT block, so parseEventDetails never captures it.
@@ -198,15 +251,9 @@ function extractTitleFromMarkdown(
     const match = TABLE_ROW_RE.exec(trimmed);
     if (match) {
       const cell = match[1]?.trim() ?? "";
-      // Skip obvious label cells and empty/escape sequences
-      if (
-        cell.length > 0 &&
-        !isKnownNonTitle(cell) &&
-        !cell.toUpperCase().startsWith("CLIENT") &&
-        !cell.toUpperCase().startsWith("NO_HEADER") &&
-        cell !== "\\#NUM\\!" &&
-        !/^\\#/.test(cell)
-      ) {
+      // Skip obvious label cells, empty/escape sequences, and section headers
+      // (shared guard — kept in lockstep with the #0 banner check).
+      if (isAcceptableTitleCell(cell)) {
         return cell;
       }
     }
@@ -452,6 +499,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const transportation = parseTransportation(markdown, version, crewMembers, agg);
   const contacts = parseContacts(markdown, version, agg);
   const eventDetails = parseEventDetails(markdown, version, agg);
+  mergeDressCode(eventDetails, parseDress(markdown));
   const ops = parseOps(markdown, version, agg);
 
   // parsePullSheet returns { pullSheet, warnings } -- merge warnings into agg.
