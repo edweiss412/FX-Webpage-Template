@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import createMDX from "@next/mdx";
+import { withSentryConfig } from "@sentry/nextjs";
 
 /**
  * NEXT_DIST_DIR allows separate build artifacts to coexist on disk so the
@@ -73,4 +74,14 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withMDX(nextConfig);
+export default withSentryConfig(withMDX(nextConfig), {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  telemetry: false,
+  // The optional `org`/`project`/`authToken` resolve to `string | undefined` from env; Sentry's
+  // SentryBuildOptions types them as plain `string` (optional), so under exactOptionalPropertyTypes
+  // an explicit `undefined` trips assignability. Casting the literal is behavior-identical: an unset
+  // env var still means "skip" (no upload / inferred org) at build time.
+} as Parameters<typeof withSentryConfig>[1]);
