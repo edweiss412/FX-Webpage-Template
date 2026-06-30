@@ -2103,6 +2103,16 @@ export const MESSAGE_CATALOG = {
       "Something went wrong loading this admin page. Refresh in a moment; if it keeps failing, the developer needs to take a look.",
     helpHref: "/help/errors#ADMIN_ROUTE_LOAD_FAILED",
   },
+  PAGE_RENDER_FAILED: {
+    code: "PAGE_RENDER_FAILED",
+    dougFacing: null,
+    crewFacing: "This page ran into a problem. Try reloading — if it keeps happening, text Doug.",
+    followUp: "Crew → reload",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   ADMIN_EMAIL_WRITE_FAILED: {
     code: "ADMIN_EMAIL_WRITE_FAILED",
     dougFacing: "Couldn't update administrators right now. Try again in a moment.",
