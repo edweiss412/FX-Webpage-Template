@@ -39,6 +39,11 @@ function FilterTextInput({
       onKeyDown={(e) => {
         if (e.key === "Enter") onCommit(value || null);
       }}
+      // Non-keyboard commit path (mobile): blur applies the filter when it changed, so a tap-away
+      // commits without needing the on-screen keyboard's Enter/Go key.
+      onBlur={() => {
+        if (value !== committed) onCommit(value || null);
+      }}
     />
   );
 }

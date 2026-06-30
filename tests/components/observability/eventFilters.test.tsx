@@ -62,6 +62,19 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     expect(href).not.toContain("cursorAt");
     expect(href).not.toContain("cursorId");
   });
+  test("blur commits a changed text filter (non-keyboard mobile path)", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    const input = screen.getByTestId("filter-source") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "cron.sync" } });
+    fireEvent.blur(input);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push.mock.calls[0]![0] as string).toContain("source=cron.sync");
+  });
+  test("blur with an UNCHANGED text filter does not navigate (no redundant commit)", () => {
+    render(<EventFilters filters={{ sinceHours: 24, source: "cron.sync" }} />);
+    fireEvent.blur(screen.getByTestId("filter-source"));
+    expect(push).not.toHaveBeenCalled();
+  });
   test("level toggle drops the cursor (every mutation resets pagination)", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);
     fireEvent.click(screen.getByRole("button", { name: "error" }));
