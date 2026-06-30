@@ -624,6 +624,29 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     expect(r2.status).toBe(401);
     expect(sink2.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
   });
+
+  // EVERY edited route must keep auth OUTSIDE the wrapper: a 401 emits no summary.
+  // (Static import() specifiers so vite can resolve the module graph.)
+  const ROUTES: Array<[string, () => Promise<{ GET: (r: never) => Promise<Response> }>]> = [
+    ["sync", () => import("@/app/api/cron/sync/route")],
+    ["keepalive", () => import("@/app/api/cron/keepalive/route")],
+    ["notify", () => import("@/app/api/cron/notify/route")],
+    ["refresh-watch", () => import("@/app/api/cron/refresh-watch/route")],
+    ["gc-watch", () => import("@/app/api/cron/gc-watch/route")],
+    ["asset-recovery", () => import("@/app/api/cron/asset-recovery/route")],
+    ["diagram-gc", () => import("@/app/api/cron/diagram-gc/route")],
+    ["report-reaper", () => import("@/app/api/cron/report-reaper/route")],
+  ];
+  test.each(ROUTES)("%s: unauthorized (no Bearer) → 401 and NO CRON_RUN_SUMMARY", async (name, importRoute) => {
+    vi.resetModules();
+    const sink = await setSink();
+    const { GET } = await importRoute();
+    const r = await GET({ headers: new Headers(), url: `https://x/api/cron/${name}` } as never);
+    expect(r.status).toBe(401);
+    expect(sink.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
+  });
+  // If a route's module import fails on load-time deps in the test env, add a vi.doMock for
+  // that orchestrator above the import — the 401 path never calls it, so a stub suffices.
 });
 ```
 
@@ -2366,6 +2389,12 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: async () => ({ email: "a@b.c" }) }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:00:00.000Z") }));
+// The page renders client children (EventFilters, AutoRefreshControl) that call App Router
+// hooks; without this mock the render throws the Next router invariant instead of testing.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 
 describe("ObservabilityPage", () => {
   beforeEach(() => vi.resetModules());
