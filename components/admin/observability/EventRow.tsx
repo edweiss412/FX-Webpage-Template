@@ -54,9 +54,13 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
               </button>
               {/* Metadata row — SIBLING of the button (links must not nest inside a button). */}
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-text-subtle">
-                <span className="font-medium">{event.source}</span>
+                {/* Raw source/code are unbreakable identifiers — break-all + min-w-0 lets a long
+                    token wrap inside the row instead of forcing horizontal overflow (spec G7). */}
+                <span className="min-w-0 break-all font-medium">{event.source}</span>
                 {event.code && (
-                  <span className="rounded-pill bg-surface-sunken px-1.5">{event.code}</span>
+                  <span className="max-w-full break-all rounded-pill bg-surface-sunken px-1.5">
+                    {event.code}
+                  </span>
                 )}
                 {event.showId &&
                   (event.showSlug ? (

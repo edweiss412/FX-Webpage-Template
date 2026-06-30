@@ -75,7 +75,14 @@ const mkRow = (id: string, over: Partial<AppEventRow> = {}): AppEventRow => ({
 });
 
 const events: AppEventRow[] = [
-  mkRow("a", { requestId: "req-123", showId: "s1", showSlug: "rpas-central", showTitle: "RPAS" }),
+  mkRow("a", {
+    requestId: "req-123",
+    showId: "s1",
+    showSlug: "rpas-central",
+    showTitle: "RPAS",
+    // A long, unbreakable source token so the e2e exercises EventRow metadata no-overflow (R6).
+    source: "cron.notify.realtime.a-very-long-unbreakable-source-token-without-spaces-overflow",
+  }),
   mkRow("b", {
     code: CRON_RUN_SUMMARY,
     source: "cron.sync",
