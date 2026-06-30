@@ -1,4 +1,8 @@
 "use client";
+// global-error REPLACES the root layout (Next 16) and does NOT inherit its globals.css — without
+// this import every Tailwind utility + DESIGN @theme token no-ops and the fallback ships unstyled
+// (collapsed tap target, no focus ring). Tailwind v4 emits tokens+utilities from this entrypoint.
+import "./globals.css";
 import { useEffect } from "react";
 import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
 import { getRequiredCrewFacing } from "@/lib/messages/lookup";
