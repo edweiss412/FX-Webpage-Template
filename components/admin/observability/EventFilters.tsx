@@ -68,8 +68,13 @@ export function buildFilterHref(
 export function EventFilters({ filters }: { filters: AppEventFilters }) {
   const router = useRouter();
   const sp = useSearchParams();
+  const spKey = sp.toString();
+  // Remount-key for the text inputs: a real navigation (level/since/Clear/another text Enter) changes
+  // spKey → the inputs remount and reset to their committed value, dropping any typed-but-unsubmitted
+  // draft so the field never shows text that isn't in the URL. Auto-refresh (router.refresh, SAME
+  // searchParams) leaves spKey unchanged → no remount → in-progress typing survives (spec §7).
   const go = (patch: Record<string, string | null>) =>
-    router.push(buildFilterHref(new URLSearchParams(sp.toString()), patch));
+    router.push(buildFilterHref(new URLSearchParams(spKey), patch));
 
   if (filters.requestId) {
     return (
@@ -126,7 +131,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
       </select>
       {(["source", "code", "showId", "requestId"] as const).map((key) => (
         <FilterTextInput
-          key={key}
+          key={`${key}-${spKey}`}
           name={key}
           committed={(filters[key] as string | undefined) ?? ""}
           placeholder={
@@ -136,6 +141,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
         />
       ))}
       <FilterTextInput
+        key={`q-${spKey}`}
         name="q"
         committed={filters.q ?? ""}
         placeholder="Search message…"

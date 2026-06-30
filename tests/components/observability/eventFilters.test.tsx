@@ -7,12 +7,13 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 afterEach(cleanup);
 
 const push = vi.fn();
+const DEFAULT_SP =
+  "level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001";
+// Mutable so a test can simulate a real navigation (searchParams change) between renders.
+const spHolder = vi.hoisted(() => ({ value: "" }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
-  useSearchParams: () =>
-    new URLSearchParams(
-      "level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001",
-    ),
+  useSearchParams: () => new URLSearchParams(spHolder.value),
 }));
 
 import { EventFilters, buildFilterHref } from "@/components/admin/observability/EventFilters";
@@ -38,7 +39,10 @@ describe("buildFilterHref drops cursor on every mutation", () => {
 });
 
 describe("EventFilters surface (spec §6.2 / AC2)", () => {
-  beforeEach(() => push.mockClear());
+  beforeEach(() => {
+    push.mockClear();
+    spHolder.value = DEFAULT_SP;
+  });
   test("renders level + since + source/code/show/request + message inputs", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);
     for (const id of [
@@ -104,6 +108,17 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     const { rerender } = render(<EventFilters filters={{ sinceHours: 24 }} />);
     rerender(<EventFilters filters={{ source: "cron.sync", sinceHours: 24 }} />);
     expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe("cron.sync");
+  });
+  test("typed-but-unsubmitted text is CLEARED after a real filter navigation (no stale draft, R5)", () => {
+    // Type a source draft, then a level/since/Clear click changes the URL (searchParams). The source
+    // input must NOT keep showing the discarded draft — it resets to its (empty) committed value.
+    const { rerender } = render(<EventFilters filters={{ sinceHours: 24 }} />);
+    fireEvent.change(screen.getByTestId("filter-source"), {
+      target: { value: "cron.partial-typing" },
+    });
+    spHolder.value = "level=warn"; // a real navigation occurred (URL changed)
+    rerender(<EventFilters filters={{ sinceHours: 24, levels: ["warn"] }} />);
+    expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe("");
   });
   test("requestId mode shows the 'Showing one request' chip", () => {
     render(<EventFilters filters={{ requestId: "req-9", sinceHours: null }} />);
