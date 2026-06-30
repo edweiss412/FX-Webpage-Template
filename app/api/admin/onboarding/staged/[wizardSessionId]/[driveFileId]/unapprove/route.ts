@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
@@ -146,11 +147,11 @@ export async function handleWizardStagedUnapprove(
       });
     });
   } catch (error) {
-    console.error(
+    log.error(
       `wizard un-approve: unexpected failure: ${
         error instanceof Error ? error.message : String(error)
       }`,
-      error,
+      { source: "api.admin.onboarding.staged.unapprove", error },
     );
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }

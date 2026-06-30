@@ -7,7 +7,7 @@ import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { messageFor } from "@/lib/messages/lookup";
-import { serializeError } from "@/lib/log/serializeError";
+import { log } from "@/lib/log";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
@@ -81,8 +81,9 @@ async function stampOauthClaim(
   try {
     const { data: userResult, error: getUserError } = await supabase.auth.getUser();
     if (getUserError) {
-      console.error("[auth/callback] getUser returned error", {
-        error: serializeError(getUserError),
+      void log.error("getUser returned error", {
+        source: "auth.callback",
+        error: getUserError,
       });
       return;
     }
@@ -95,9 +96,10 @@ async function stampOauthClaim(
       p_email: canonicalEmail,
     });
     if (rpcError) {
-      console.error("[auth/callback] claim_oauth_identity returned error", {
+      void log.error("claim_oauth_identity returned error", {
+        source: "auth.callback",
         emailHash: hashForLog(canonicalEmail),
-        error: serializeError(rpcError),
+        error: rpcError,
       });
       return;
     }
@@ -116,19 +118,17 @@ async function stampOauthClaim(
           },
         });
       } catch (alertErr) {
-        console.error("[auth/callback] OAUTH_IDENTITY_CLAIMED alert emission failed", {
+        void log.error("OAUTH_IDENTITY_CLAIMED alert emission failed", {
+          source: "auth.callback",
           emailHash: hashForLog(canonicalEmail),
           showId: row.show_id,
           crewMemberId: row.crew_member_id,
-          error:
-            alertErr instanceof Error
-              ? { name: alertErr.name, message: alertErr.message }
-              : String(alertErr),
+          error: alertErr,
         });
       }
     }
   } catch (err) {
-    console.error("[auth/callback] claim-stamp threw", { error: serializeError(err) });
+    void log.error("claim-stamp threw", { source: "auth.callback", error: err });
     try {
       await upsertAdminAlert({
         showId: null,

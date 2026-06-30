@@ -10,6 +10,7 @@
  * stack text — the admin UI does a catalog lookup on `code`.
  */
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import {
   reapStaleOnboardingSessions as defaultReap,
   type ReapStaleSessionsResult,
@@ -58,7 +59,7 @@ export async function handleReapStaleSessions(
     // catalog lookup on `code`. Plan R31-2: LOG the cause before returning the
     // cataloged response — this route performs advisory-locked deletes; losing
     // the DB/lock/permission context makes failures unrecoverable.
-    console.error("reap-stale-sessions failed", error);
+    log.error("reap-stale-sessions failed", { source: "api.admin.onboarding.reap", error });
     return errorResponse(500, "REAP_STALE_SESSIONS_FAILED");
   }
 }

@@ -36,6 +36,7 @@ import type { ReactElement } from "react";
 
 import { TileErrorFallback } from "./TileErrorFallback";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { log } from "@/lib/log";
 
 type TileServerFallbackProps<T> = {
   /** Async data loader. Runs INSIDE try/catch. May throw. */
@@ -73,11 +74,12 @@ export async function TileServerFallback<T>({
     return render(data);
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    console.error(
-      `[TileServerFallback] tile=${tileId} show=${showId ?? "n/a"} threw:`,
-      err.message,
-      err.stack,
-    );
+    log.error("render threw", {
+      source: "crew.tileServerFallback",
+      tileId,
+      ...(showId !== undefined ? { showId } : {}),
+      error: err,
+    });
     // Best-effort admin_alerts upsert. Its failure must NOT mask the
     // original render failure — swallow so the fallback still renders.
     try {
@@ -94,10 +96,11 @@ export async function TileServerFallback<T>({
         },
       });
     } catch (alertErr) {
-      console.error(
-        `[TileServerFallback] admin_alerts upsert failed (tile=${tileId}):`,
-        alertErr instanceof Error ? alertErr.message : String(alertErr),
-      );
+      log.error("admin_alerts upsert failed", {
+        source: "crew.tileServerFallback",
+        tileId,
+        error: alertErr,
+      });
     }
     return fallback ?? <TileErrorFallback />;
   }

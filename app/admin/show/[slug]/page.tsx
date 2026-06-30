@@ -20,6 +20,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { nowDate } from "@/lib/time/now";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
@@ -144,10 +145,10 @@ export default async function AdminShowPage({
   try {
     supabase = await createSupabaseServerClient();
   } catch (err) {
-    console.error(
-      "[/admin/show/[slug]] supabase client construction threw:",
-      err instanceof Error ? err.message : String(err),
-    );
+    void log.error("supabase client construction threw:", {
+      source: "admin.show",
+      error: err,
+    });
     throw new Error("supabase_client_construction_failed");
   }
 
@@ -161,16 +162,16 @@ export default async function AdminShowPage({
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
     if (showError) {
-      console.error("[/admin/show/[slug]] show lookup failed:", showError.message);
+      void log.error("show lookup failed:", { source: "admin.show", error: showError.message });
       throw new Error("show_lookup_failed");
     }
     show = data;
   } catch (err) {
     if (err instanceof Error && err.message === "show_lookup_failed") throw err;
-    console.error(
-      "[/admin/show/[slug]] show lookup threw:",
-      err instanceof Error ? err.message : String(err),
-    );
+    void log.error("show lookup threw:", {
+      source: "admin.show",
+      error: err,
+    });
     throw new Error("show_lookup_failed");
   }
   if (!show) {
@@ -211,10 +212,10 @@ export default async function AdminShowPage({
         err instanceof SyncInfraError ||
         (err instanceof Error && err.name === "SyncInfraError")
       ) {
-        console.error(
-          "[/admin/show/[slug]] changes feed read failed:",
-          err instanceof Error ? err.message : String(err),
-        );
+        void log.error("changes feed read failed:", {
+          source: "admin.show",
+          error: err,
+        });
         return { feed: null, feedInfraError: true };
       }
       throw err;
@@ -230,15 +231,18 @@ export default async function AdminShowPage({
         .order("name", { ascending: true })
         .returns<CrewMemberRow[]>();
       if (error) {
-        console.error("[/admin/show/[slug]] crew_members lookup failed:", error.message);
+        void log.error("crew_members lookup failed:", {
+          source: "admin.show",
+          error: error.message,
+        });
         return { crew: [], crewLookupFailed: true };
       }
       return { crew: data ?? [], crewLookupFailed: false };
     } catch (err) {
-      console.error(
-        "[/admin/show/[slug]] crew_members lookup threw:",
-        err instanceof Error ? err.message : String(err),
-      );
+      void log.error("crew_members lookup threw:", {
+        source: "admin.show",
+        error: err,
+      });
       return { crew: [], crewLookupFailed: true };
     }
   };
@@ -274,7 +278,10 @@ export default async function AdminShowPage({
         .eq("show_id", show.id)
         .maybeSingle<{ parse_warnings: ParseWarning[] | null }>();
       if (error) {
-        console.error("[/admin/show/[slug]] shows_internal read failed:", error.message);
+        void log.error("shows_internal read failed:", {
+          source: "admin.show",
+          error: error.message,
+        });
         return { messages: [], actionable: [], failed: true };
       }
       const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
@@ -298,10 +305,10 @@ export default async function AdminShowPage({
       // data-gap-only `.message` digest.
       return { messages, actionable: warnings, failed: false };
     } catch (err) {
-      console.error(
-        "[/admin/show/[slug]] shows_internal read threw:",
-        err instanceof Error ? err.message : String(err),
-      );
+      void log.error("shows_internal read threw:", {
+        source: "admin.show",
+        error: err,
+      });
       return { messages: [], actionable: [], failed: true };
     }
   };

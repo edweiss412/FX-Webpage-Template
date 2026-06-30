@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
 import {
@@ -1123,9 +1124,9 @@ export async function handleOnboardingFinalize(
         try {
           sourceAnchors = await runtime.fetchOnboardingSourceAnchors(row.drive_file_id);
         } catch (error) {
-          console.warn(
+          log.warn(
             `onboarding finalize: source-anchor computation failed for ${row.drive_file_id}; applying without anchors`,
-            error,
+            { source: "api.admin.onboarding.finalize", error },
           );
           sourceAnchors = undefined;
         }
@@ -1198,11 +1199,11 @@ export async function handleOnboardingFinalize(
     // JSON error, and the underlying message is logged so the next failure is
     // diagnosable from logs rather than a truncated TypeError. (M12 Phase 0.F
     // smoke-3 structural defense.)
-    console.error(
+    log.error(
       `onboarding finalize: unexpected failure: ${
         error instanceof Error ? error.message : String(error)
       }`,
-      error,
+      { source: "api.admin.onboarding.finalize", error },
     );
     return errorResponse(500, ONBOARDING_FINALIZE_INTERNAL_ERROR);
   }

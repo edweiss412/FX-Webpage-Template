@@ -47,6 +47,7 @@ import { after } from "next/server";
 
 import { TileErrorFallback } from "@/components/shared/TileErrorFallback";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { log } from "@/lib/log";
 
 type WrappedSectionProps = {
   /**
@@ -82,11 +83,12 @@ export function WrappedSection({
     return render();
   } catch (e) {
     const err = e instanceof Error ? e : new Error(String(e));
-    console.error(
-      `[WrappedSection] tile=${tileId} show=${showId ?? "n/a"} threw:`,
-      err.message,
-      err.stack,
-    );
+    log.error("render threw", {
+      source: "crew.wrappedSection",
+      tileId,
+      showId,
+      error: err,
+    });
     // Best-effort admin_alerts upsert. The upsert's own failure must NOT mask
     // the fallback render — swallow the rejection.
     const fireAlert = () =>
@@ -99,10 +101,11 @@ export function WrappedSection({
           sheet_name: sheetName ?? null,
         },
       }).catch((alertErr: unknown) => {
-        console.error(
-          `[WrappedSection] admin_alerts upsert failed (tile=${tileId}):`,
-          alertErr instanceof Error ? alertErr.message : String(alertErr),
-        );
+        log.error("admin_alerts upsert failed", {
+          source: "crew.wrappedSection",
+          tileId,
+          error: alertErr,
+        });
       });
     // Durability (Codex R3 HIGH): a bare unawaited promise can be dropped when a
     // serverless RSC render freezes before it settles, losing the

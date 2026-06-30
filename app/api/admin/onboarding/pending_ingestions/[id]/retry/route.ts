@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
 import type { ConcurrentSyncSkipped, LockedShowTx } from "@/lib/sync/lockedShowTx";
@@ -504,7 +505,10 @@ async function handleAction(
           },
         });
       } catch (alertError) {
-        console.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", alertError);
+        log.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", {
+          source: "api.admin.onboarding.retry",
+          error: alertError,
+        });
       }
       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
     }
