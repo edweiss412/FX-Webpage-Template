@@ -48,6 +48,11 @@ const FILES = [
   // builds too, else the prod artifact would still contain the route — defeating
   // the build-artifact gate. No actions.ts (pure static render, no server action).
   "app/admin/dev/source-link-dim/page.tsx",
+  // Dimensional-invariant render harness for the observability timeline (spec §8 +
+  // G7). Same build-gate rationale as source-link-dim: it MUST be renamed aside on
+  // flag-UNSET builds so the prod artifact never contains the route. Pure render
+  // harness with a requireAdmin() chokepoint; no actions.ts.
+  "app/admin/dev/observability-dim/page.tsx",
 ];
 const DISABLED_SUFFIX = ".disabled-by-build-gate";
 

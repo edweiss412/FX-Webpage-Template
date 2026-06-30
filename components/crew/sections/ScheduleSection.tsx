@@ -191,18 +191,18 @@ export function ScheduleSection({
 
           // §4.9 mock `split-wide`: at ≥720px the section is two columns — LEFT
           // the day-card list (primary, wider via the 1.6fr track), RIGHT the
-          // "Daily call times" SectionCard THEN (admin) the rooms-fetch degraded
+          // "Crew Schedule" SectionCard THEN (admin) the rooms-fetch degraded
           // tile, stacked. <720px it collapses to a single column (grid-cols-1)
           // with the left column first, then the right column. The grid uses
           // `items-start` (NOT the default stretch) so the SHORT right column
-          // ("Daily call times", ~3 rows) takes its natural height instead of
+          // ("Crew Schedule", ~3 rows) takes its natural height instead of
           // stretching to match the tall day list and leaving dead space below it
           // (2026-06-21 owner amendment — see v1-pre-deployment-amendments). Each
           // column carries `min-w-0` so long day/anchor strings wrap instead of
           // overflowing 390px.
           //
           // One-sided collapse (Task 4 §6 / Codex plan R2, mirrors Crew Task 8):
-          // when the RIGHT column would have NO content — no "Daily call times"
+          // when the RIGHT column would have NO content — no "Crew Schedule"
           // card (all anchors absent → KeyTimesStrip null) AND no rooms-error
           // tile — the 2-track grid would leave a BLANK right column at ≥720px.
           // In that case the wrapper falls back to `flex flex-col` so the days
@@ -321,15 +321,17 @@ export function ScheduleSection({
                 data-schedule-column="times"
                 className="flex min-w-0 flex-col gap-4"
               >
-                {/* Wrap the key-times in the mock's "Daily call times" card so the
-                    right column reads as a card (matching the left). With
-                    `items-start` the card takes its natural height. Render NO card
-                    when all anchors are absent — no empty shell. */}
+                {/* Wrap the key-times in the "Crew Schedule" card so the right
+                    column reads as a card (matching the left). With `items-start`
+                    the card takes its natural height. Render NO card when all
+                    anchors are absent — no empty shell. (Renamed from "Daily call
+                    times": the card carries the call anchor AND the run-of-show
+                    entries, not just call times.) */}
                 {hasTimesCard ? (
                   <div data-card-id="schedule-call-times">
                     <SectionCard
                       icon={<ClockIcon />}
-                      title="Daily call times"
+                      title="Crew Schedule"
                       action={
                         <SourceLink
                           driveFileId={data.driveFileId}

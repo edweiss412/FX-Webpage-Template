@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { rejectUnauthorizedCron } from "@/app/api/cron/_auth";
 import { runDigestNotify, runRealtimeNotify, type NotifyRunResult } from "@/lib/notify/runNotify";
+import { runCronRoute } from "@/lib/cron/withCronRunSummary";
+import type { CronRunSummary } from "@/lib/cron/runSummary";
 
 /**
  * The orchestrators never throw; they RECORD dependency faults as data
@@ -33,15 +35,38 @@ function statusFor(result: NotifyRunResult): number {
   return deliveryFault || maintenanceFault ? 500 : 200;
 }
 
+// §4.3 notify classification: any recorded infra/toggle fault (delivery or maintenance) → infra;
+// otherwise ok. (No `partial` arm for notify — a recorded fault is the scheduler-visible signal.)
+function summarizeNotify(result: NotifyRunResult): CronRunSummary {
+  const deliveryFault =
+    result.delivery.kind === "infra_error" || recordsToggleFault(result.delivery);
+  const maintenanceFault = result.maintenance.some(
+    (step) => step.result.kind === "infra_error" || recordsToggleFault(step.result),
+  );
+  return {
+    outcome: deliveryFault || maintenanceFault ? "infra" : "ok",
+    counts: {
+      sent: result.delivery.kind === "ok" ? result.delivery.sent : 0,
+      maintenanceSteps: result.maintenance.length,
+    },
+  };
+}
+
 export async function GET(request: NextRequest): Promise<Response> {
   const rejected = rejectUnauthorizedCron(request);
   if (rejected) return rejected;
 
   const job = new URL(request.url).searchParams.get("job");
-  if (job === "realtime" || job === "digest") {
-    const result = job === "realtime" ? await runRealtimeNotify() : await runDigestNotify();
-    return NextResponse.json(result, { status: statusFor(result) });
+  if (job !== "realtime" && job !== "digest") {
+    return NextResponse.json({ ok: false, error: "unknown job" }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: false, error: "unknown job" }, { status: 400 });
+  const jobName = job === "realtime" ? "notify.realtime" : "notify.digest";
+  return runCronRoute(jobName, request, async () => {
+    const result = job === "realtime" ? await runRealtimeNotify() : await runDigestNotify();
+    return {
+      response: NextResponse.json(result, { status: statusFor(result) }),
+      summary: summarizeNotify(result),
+    };
+  });
 }
