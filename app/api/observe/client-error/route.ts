@@ -22,12 +22,14 @@ async function safeLog(fn: () => unknown): Promise<void> {
   }
 }
 
+// Accept if EITHER signal proves same-origin (spec §3 literal OR): the browser-stamped
+// Sec-Fetch-Site is the primary check; Origin===site is the fallback for browsers that omit it.
+// A real cross-site browser request fails both (cross-site stamp + foreign Origin) → rejected.
 function sameOrigin(req: Request): boolean {
   const sfs = req.headers.get("sec-fetch-site");
-  if (sfs) return sfs === "same-origin";
   const origin = req.headers.get("origin");
   const site = process.env.NEXT_PUBLIC_SITE_ORIGIN;
-  return Boolean(origin && site && origin === site);
+  return sfs === "same-origin" || Boolean(origin && site && origin === site);
 }
 
 function cap(v: unknown, n: number): string | undefined {
