@@ -169,6 +169,13 @@ describe("reportClientError", () => {
     const body = JSON.parse(((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string);
     expect(body.message).toBe("(no message)");
   });
+  test("client-side caps: oversized message/stack truncated BEFORE the POST (≤ 1000 / 8000)", () => {
+    const err = Object.assign(new Error("m".repeat(5000)), { stack: "s".repeat(20000) });
+    reportClientError({ error: err, area: "crew" });
+    const body = JSON.parse(((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.message.length).toBe(1000);
+    expect(body.stack.length).toBe(8000);
+  });
   test("fail-open: rejected fetch does NOT throw", () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network"))));
     expect(() => reportClientError({ error: new Error("x"), area: "root" })).not.toThrow();
@@ -181,6 +188,8 @@ describe("reportClientError", () => {
 // Client-safe. NO server imports. Best-effort mirror of boundary crashes to /api/observe/client-error.
 type Area = "crew" | "admin" | "root";
 const seen = new Set<string>();
+// Client-side caps mirror the server caps (spec §3) so we never send oversized bodies on the wire.
+const CAPS = { message: 1000, stack: 8000, componentStack: 8000, digest: 200, url: 2000 } as const;
 
 function toError(e: unknown): { message: string; stack?: string } {
   if (e instanceof Error) return { message: e.message || "(no message)", stack: e.stack };
@@ -203,11 +212,11 @@ export function reportClientError(input: {
     const signature = `${input.area}|${message}|${(stack ?? "").slice(0, 200)}`;
     if (seen.has(signature)) return;
     seen.add(signature);
-    const payload: Record<string, string> = { area: input.area, message };
-    if (stack) payload.stack = stack;
-    if (input.componentStack) payload.componentStack = input.componentStack;
-    if (input.digest) payload.digest = input.digest;
-    if (typeof location !== "undefined") payload.url = location.href;
+    const payload: Record<string, string> = { area: input.area, message: message.slice(0, CAPS.message) };
+    if (stack) payload.stack = stack.slice(0, CAPS.stack);
+    if (input.componentStack) payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
+    if (input.digest) payload.digest = input.digest.slice(0, CAPS.digest);
+    if (typeof location !== "undefined") payload.url = location.href.slice(0, CAPS.url);
     void fetch("/api/observe/client-error", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -232,11 +241,11 @@ export function reportClientError(input: {
 - [ ] **Step 1: failing test** (mock both `@sentry/nextjs` and the reporter):
 ```ts
 import { afterEach, describe, expect, test, vi } from "vitest";
-const captureException = vi.fn();
-const reportClientError = vi.fn();
-vi.mock("@sentry/nextjs", () => ({ captureException }));
-vi.mock("@/lib/observe/reportClientError", () => ({ reportClientError }));
+const h = vi.hoisted(() => ({ captureException: vi.fn(), reportClientError: vi.fn() }));
+vi.mock("@sentry/nextjs", () => ({ captureException: h.captureException }));
+vi.mock("@/lib/observe/reportClientError", () => ({ reportClientError: h.reportClientError }));
 import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
+const { captureException, reportClientError } = h;
 
 afterEach(() => { captureException.mockReset(); reportClientError.mockReset(); });
 
@@ -302,11 +311,12 @@ export function captureBoundaryError(error: unknown, area: "crew" | "admin" | "r
 ```
 - [ ] **Step 2: failing test** `tests/observe/clientErrorRoute.test.ts` — mock `@/lib/log`:
 ```ts
-import { afterEach, describe, expect, test, vi } from "vitest";
-const logError = vi.fn();
-vi.mock("@/lib/log", () => ({ log: { error: logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
-import { handleClientError } from "@/app/api/observe/client-error/route";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+const h = vi.hoisted(() => ({ logError: vi.fn() }));
+vi.mock("@/lib/log", () => ({ log: { error: h.logError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+import { handleClientError, __resetClientErrorStateForTests } from "@/app/api/observe/client-error/route";
 
+// Default headers = same-origin browser fetch (content-type json + Sec-Fetch-Site same-origin).
 function req(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("https://x/api/observe/client-error", {
     method: "POST",
@@ -314,37 +324,56 @@ function req(body: unknown, headers: Record<string, string> = {}): Request {
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 }
-afterEach(() => logError.mockReset());
+beforeEach(() => { h.logError.mockReset(); __resetClientErrorStateForTests(); });
 
 describe("client-error endpoint", () => {
   test("valid same-origin POST → 202 + one log.error, source=client.<area>, no code, fields top-level", async () => {
     const r = await handleClientError(req({ area: "crew", message: "boom", stack: "S", url: "u" }));
     expect(r.status).toBe(202);
-    expect(logError).toHaveBeenCalledTimes(1);
-    const [msg, fields] = logError.mock.calls[0]!;
+    expect(h.logError).toHaveBeenCalledTimes(1);
+    const [msg, fields] = h.logError.mock.calls[0]!;
     expect(msg).toBe("boom");
     expect(fields).toMatchObject({ source: "client.crew", stack: "S", url: "u" });
     expect(fields.code).toBeUndefined();
     expect(fields.context).toBeUndefined(); // fields are TOP-LEVEL, not nested
   });
-  test("unknown area / empty message / malformed JSON → 400 (no write)", async () => {
-    expect((await handleClientError(req({ area: "nope", message: "x" }))).status).toBe(400);
-    expect((await handleClientError(req({ area: "crew", message: "   " }))).status).toBe(400);
-    expect((await handleClientError(req("{not json"))).status).toBe(400);
-    expect(logError).not.toHaveBeenCalled();
+  test("structural-invalid → 400 (no write): unknown area, empty message, malformed JSON, null/array/primitive JSON", async () => {
+    for (const b of [{ area: "nope", message: "x" }, { area: "crew", message: "   " }, "{not json", "null", "[]", "42"]) {
+      expect((await handleClientError(req(b))).status).toBe(400);
+    }
+    expect(h.logError).not.toHaveBeenCalled();
   });
   test("oversized message → 202 + TRUNCATED write (not 400)", async () => {
     const r = await handleClientError(req({ area: "admin", message: "x".repeat(5000) }));
     expect(r.status).toBe(202);
-    expect((logError.mock.calls[0]![0] as string).length).toBe(1000);
+    expect((h.logError.mock.calls[0]![0] as string).length).toBe(1000);
   });
-  test("cross-site → 403 (no write)", async () => {
-    const r = await handleClientError(req({ area: "crew", message: "boom" }, { "sec-fetch-site": "cross-site" }));
-    expect(r.status).toBe(403);
-    expect(logError).not.toHaveBeenCalled();
+  test("content-type not json → 400 (no write)", async () => {
+    const r = await handleClientError(req({ area: "crew", message: "boom" }, { "content-type": "text/plain" }));
+    expect(r.status).toBe(400);
+    expect(h.logError).not.toHaveBeenCalled();
+  });
+  test("same-origin guard: cross-site → 403; Sec-Fetch-Site absent + foreign Origin → 403; absent + matching Origin → 202", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://app.example";
+    // cross-site (Sec-Fetch-Site present) → 403
+    expect((await handleClientError(req({ area: "crew", message: "b" }, { "sec-fetch-site": "cross-site" }))).status).toBe(403);
+    // Sec-Fetch-Site ABSENT + foreign Origin → 403 (override default by passing empty sec-fetch-site is not possible; build a bespoke Request)
+    const foreign = new Request("https://x", { method: "POST", headers: { "content-type": "application/json", origin: "https://evil.example" }, body: JSON.stringify({ area: "crew", message: "b" }) });
+    expect((await handleClientError(foreign)).status).toBe(403);
+    // Sec-Fetch-Site ABSENT + matching Origin → 202
+    const ok = new Request("https://x", { method: "POST", headers: { "content-type": "application/json", origin: "https://app.example" }, body: JSON.stringify({ area: "crew", message: "b" }) });
+    expect((await handleClientError(ok)).status).toBe(202);
+    expect(h.logError).toHaveBeenCalledTimes(1); // only the matching-origin one wrote
+  });
+  test("rate backstop: the 21st in-window call is DROPPED (still 202, no extra write)", async () => {
+    for (let i = 0; i < 20; i++) await handleClientError(req({ area: "crew", message: `m${i}` }));
+    expect(h.logError).toHaveBeenCalledTimes(20);
+    const r = await handleClientError(req({ area: "crew", message: "m20" }));
+    expect(r.status).toBe(202);
+    expect(h.logError).toHaveBeenCalledTimes(20); // dropped — no 21st write
   });
   test("fail-open: log.error throws → still 202 (never 5xx)", async () => {
-    logError.mockImplementation(() => { throw new Error("sink down"); });
+    h.logError.mockImplementation(() => { throw new Error("sink down"); });
     expect((await handleClientError(req({ area: "root", message: "boom" }))).status).toBe(202);
   });
 });
@@ -360,6 +389,10 @@ const CAPS = { message: 1000, stack: 8000, componentStack: 8000, digest: 200, ur
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 20;
 const counters = new Map<string, { count: number; resetAt: number }>();
+
+export function __resetClientErrorStateForTests(): void {
+  counters.clear();
+}
 
 function sameOrigin(req: Request): boolean {
   const sfs = req.headers.get("sec-fetch-site");
@@ -386,12 +419,17 @@ export async function handleClientError(req: Request): Promise<Response> {
     return Response.json({ ok: false }, { status: 400 });
   }
   if (!sameOrigin(req)) return Response.json({ ok: false }, { status: 403 });
-  let body: Record<string, unknown>;
+  let parsed: unknown;
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    parsed = await req.json();
   } catch {
     return Response.json({ ok: false }, { status: 400 });
   }
+  // Reject non-object JSON (null, arrays, primitives) BEFORE field access — else `body.area` throws.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return Response.json({ ok: false }, { status: 400 });
+  }
+  const body = parsed as Record<string, unknown>;
   const area = body.area;
   const rawMessage = typeof body.message === "string" ? body.message.trim() : "";
   if (typeof area !== "string" || !AREAS.has(area) || rawMessage === "") {
@@ -500,10 +538,25 @@ export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
 
 ### Task 8: `withSentryConfig` wrap + env docs
 
-**Files:** Modify `next.config.ts` (the `export default` at line 76); Modify `.env.local.example`.
+**Files:** Modify `next.config.ts` (the `export default` at line 76); Modify `.env.local.example`; Test `tests/observe/nextConfigSentry.test.ts`.
 **Interfaces — Consumes:** `@sentry/nextjs` `withSentryConfig`.
 
-- [ ] **Step 1: implement** — change `next.config.ts` final line from `export default withMDX(nextConfig);` to:
+- [ ] **Step 1: failing structural test** `tests/observe/nextConfigSentry.test.ts` (source-asserts the wrap; a runtime import would execute the Sentry build plugin):
+```ts
+import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+describe("next.config Sentry wrap", () => {
+  const src = readFileSync("next.config.ts", "utf8");
+  test("withSentryConfig is the OUTER wrapper around withMDX(nextConfig)", () => {
+    expect(src).toMatch(/withSentryConfig\(\s*withMDX\(nextConfig\)/);
+  });
+  test("source-map upload is gated on SENTRY_AUTH_TOKEN (undefined ⇒ skip, no fail)", () => {
+    expect(src).toMatch(/authToken:\s*process\.env\.SENTRY_AUTH_TOKEN/);
+  });
+});
+```
+- [ ] **Step 2: run → FAIL** (`export default withMDX(nextConfig);` doesn't match).
+- [ ] **Step 3: implement** — change `next.config.ts` final line from `export default withMDX(nextConfig);` to:
 ```ts
 import { withSentryConfig } from "@sentry/nextjs";
 // ... existing config ...
@@ -515,8 +568,8 @@ export default withSentryConfig(withMDX(nextConfig), {
   telemetry: false,
 });
 ```
-(`withSentryConfig` is the OUTER wrapper around the existing `withMDX(nextConfig)`; preserves MDX. Add the import at the top with the other imports.)
-- [ ] **Step 2:** add to `.env.local.example` near the existing `SENTRY_DSN` (line 29):
+(`withSentryConfig` is the OUTER wrapper around the existing `withMDX(nextConfig)`; preserves MDX. Add the import at the top with the other imports.) Run the Step-1 test → PASS.
+- [ ] **Step 4:** add to `.env.local.example` near the existing `SENTRY_DSN` (line 29):
 ```
 # Sentry (Phase 3) — ALL optional; unset ⇒ SDK no-ops, build still succeeds.
 NEXT_PUBLIC_SENTRY_DSN=        # client SDK; build-inlined
@@ -525,9 +578,9 @@ SENTRY_ORG=
 SENTRY_PROJECT=
 SENTRY_TRACES_SAMPLE_RATE=    # default 0 (errors-only); clamped to [0,1]
 ```
-- [ ] **Step 3: verify build** `SENTRY_DSN= NEXT_PUBLIC_SENTRY_DSN= pnpm build` (no Sentry secrets) → succeeds (no source-map upload, SDK inert). Expected: build completes; Sentry logs "no auth token, skipping source map upload" or similar, NOT a failure.
-- [ ] **Step 4: typecheck** `pnpm typecheck` → 0 errors.
-- [ ] **Step 5: commit** `feat(observe): wrap next.config with withSentryConfig + document Sentry env vars`
+- [ ] **Step 5: verify build** `env -u SENTRY_DSN -u NEXT_PUBLIC_SENTRY_DSN -u SENTRY_AUTH_TOKEN pnpm build` (no Sentry secrets) → succeeds (no source-map upload, SDK inert). Expected: build completes; Sentry logs "no auth token, skipping source map upload" or similar, NOT a failure.
+- [ ] **Step 6: typecheck** `pnpm typecheck` → 0 errors.
+- [ ] **Step 7: commit** `feat(observe): wrap next.config with withSentryConfig + document Sentry env vars`
 
 ---
 
@@ -542,9 +595,10 @@ SENTRY_TRACES_SAMPLE_RATE=    # default 0 (errors-only); clamped to [0,1]
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-const captureBoundaryError = vi.fn();
-vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError }));
+const h = vi.hoisted(() => ({ captureBoundaryError: vi.fn() }));
+vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError: h.captureBoundaryError }));
 import GlobalError from "@/app/global-error";
+const { captureBoundaryError } = h;
 afterEach(() => { cleanup(); captureBoundaryError.mockReset(); });
 
 describe("global-error", () => {
@@ -606,7 +660,30 @@ export default function GlobalError({
 **Files:** Create `app/show/[slug]/[shareToken]/error.tsx`; Test `tests/observe/crewError.test.tsx`.
 **Interfaces — Consumes:** `captureBoundaryError`, `getRequiredCrewFacing`.
 
-- [ ] **Step 1: failing test** — mirror Task 9's test with `area: "crew"`, importing `@/app/show/[slug]/[shareToken]/error`.
+- [ ] **Step 1: failing test** `tests/observe/crewError.test.tsx`:
+```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+const h = vi.hoisted(() => ({ captureBoundaryError: vi.fn() }));
+vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError: h.captureBoundaryError }));
+import CrewError from "@/app/show/[slug]/[shareToken]/error";
+const { captureBoundaryError } = h;
+afterEach(() => { cleanup(); captureBoundaryError.mockReset(); });
+
+describe("crew error boundary", () => {
+  test("captures with area=crew on mount and renders crew copy + try-again", () => {
+    const reset = vi.fn();
+    const err = Object.assign(new Error("boom"), { digest: "d2" });
+    render(<CrewError error={err} reset={reset} />);
+    expect(captureBoundaryError).toHaveBeenCalledWith(err, "crew");
+    expect(screen.getByText(/try reloading/i)).toBeInTheDocument(); // PAGE_RENDER_FAILED crewFacing
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    expect(reset).toHaveBeenCalled();
+  });
+});
+```
 - [ ] **Step 2: run → FAIL.**
 - [ ] **Step 3: implement** `app/show/[slug]/[shareToken]/error.tsx` (crew-styled, mobile-first; NO `<html>` — segment boundaries render within the layout):
 ```tsx
@@ -649,7 +726,35 @@ export default function CrewError({
 **Files:** Modify `app/admin/error.tsx`, `app/admin/settings/error.tsx`, `app/admin/settings/admins/error.tsx`; Test `tests/observe/adminErrorWiring.test.tsx`.
 **Interfaces — Consumes:** `captureBoundaryError`.
 
-- [ ] **Step 1: failing test** — for each admin boundary, render with an error ⇒ `captureBoundaryError` called with `area: "admin"`; the existing `ADMIN_ROUTE_LOAD_FAILED` copy still renders (use the real `getRequiredDougFacing` copy via `getByText`). Mock `@/lib/observe/captureBoundaryError`.
+- [ ] **Step 1: failing test** `tests/observe/adminErrorWiring.test.tsx`:
+```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { render, screen, cleanup } from "@testing-library/react";
+import { getRequiredDougFacing } from "@/lib/messages/lookup";
+const h = vi.hoisted(() => ({ captureBoundaryError: vi.fn() }));
+vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError: h.captureBoundaryError }));
+import AdminError from "@/app/admin/error";
+import SettingsError from "@/app/admin/settings/error";
+import AdminsError from "@/app/admin/settings/admins/error";
+const { captureBoundaryError } = h;
+afterEach(() => { cleanup(); captureBoundaryError.mockReset(); });
+
+const COPY = getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED");
+describe.each([
+  ["admin", AdminError],
+  ["settings", SettingsError],
+  ["admins", AdminsError],
+])("admin boundary %s", (_name, Boundary) => {
+  test("captures with area=admin AND still renders ADMIN_ROUTE_LOAD_FAILED copy (no visual change)", () => {
+    const err = Object.assign(new Error("x"), { digest: "d3" });
+    render(<Boundary error={err} reset={vi.fn()} />);
+    expect(captureBoundaryError).toHaveBeenCalledWith(err, "admin");
+    expect(screen.getByText(new RegExp(COPY.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"))).toBeInTheDocument();
+  });
+});
+```
 - [ ] **Step 2: run → FAIL.**
 - [ ] **Step 3: implement** — in EACH of the 3 files, REPLACE the existing `console.error(...)` line inside `useEffect` with `captureBoundaryError(error, "admin");` and add `import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";`. Keep ALL other content (the `getRequiredDougFacing("ADMIN_ROUTE_LOAD_FAILED")` render, the `reset()` button, testids) UNCHANGED — no visual change. (Each boundary's existing `useEffect(() => { … }, [error])` stays; only its body line changes. The admin test asserts `captureBoundaryError` called with `(error, "admin")`.)
 - [ ] **Step 4: run → PASS.** Also run any existing admin error.tsx tests to confirm no regression.
@@ -671,13 +776,23 @@ import { render, screen, cleanup } from "@testing-library/react";
 vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError: vi.fn() }));
 import CrewError from "@/app/show/[slug]/[shareToken]/error";
 afterEach(cleanup);
+const CREW = "app/show/[slug]/[shareToken]/error.tsx";
+const GLOBAL = "app/global-error.tsx";
 describe("error-boundary fallback layout/transition (§10/§11)", () => {
-  test("single button has min-h-tap-min", () => {
+  test("crew fallback: single rendered button has min-h-tap-min, centered container", () => {
     render(<CrewError error={new Error("x")} reset={() => {}} />);
     expect(screen.getByRole("button").className).toMatch(/min-h-tap-min/);
+    // centered column container present
+    expect(readFileSync(CREW, "utf8")).toMatch(/items-center[\s\S]*justify-center/);
   });
-  test("fallbacks are instant — no framer-motion (transition inventory)", () => {
-    for (const f of ["app/show/[slug]/[shareToken]/error.tsx", "app/global-error.tsx"]) {
+  test("global fallback: button min-h-tap-min + centered full-viewport column (source — it renders <html>, awkward to RTL-render)", () => {
+    const src = readFileSync(GLOBAL, "utf8");
+    expect(src).toMatch(/min-h-tap-min/); // the Reload button tap target
+    expect(src).toMatch(/min-h-screen/); // full-viewport
+    expect(src).toMatch(/items-center[\s\S]*justify-center/); // centered column
+  });
+  test("both fallbacks are instant — no framer-motion (transition inventory)", () => {
+    for (const f of [CREW, GLOBAL]) {
       expect(readFileSync(f, "utf8")).not.toMatch(/framer-motion|AnimatePresence|motion\./);
     }
   });
