@@ -307,3 +307,34 @@ These are the absolute bans from shared design laws + this project's specific an
 `app/globals.css` is the single source of executable tokens. Components consume tokens via Tailwind utilities (e.g., `bg-bg`, `text-text`, `text-text-subtle`, `border-border`, `bg-accent`, `text-accent-on-bg`, `rounded-md`, `duration-normal`). **Components MUST NOT hardcode hex values, ms values, or px spacing magic numbers** — every visual decision is named in this file or in `globals.css`. If a tile needs a color or spacing not present, the answer is to extend `DESIGN.md` + `globals.css` first, then consume — not to inline the literal.
 
 This contract is enforced by review (and, optionally, by an ESLint rule in a future task) — not by automated test today.
+
+---
+
+## 11. Crew Today — unified show-day timeline card (`today-run-of-show`)
+
+On a show day the Today view's **"Run of show"** card (`data-testid="today-run-of-show"`, title stays "Run of show") renders **one chronological timeline** that interleaves the crew's operational run-of-show entries (sheet-sourced, authoritative, per-viewer gated) with the PDF event agenda's sessions for that same day (best-effort, ungated event context). The two sources are **visually distinguished** so a crew member instantly reads *their job* vs *event context*, and a mis-parsed agenda line can never masquerade as a crew instruction. Implemented by `components/crew/primitives/ShowDayTimelineList.tsx`.
+
+### 11.1 Card content states (data-driven, instant — no animation)
+
+| State | When | Renders |
+|---|---|---|
+| **crew-only** | crew entries today, no high-confidence agenda for today | the existing `RunOfShowList` (unchanged) |
+| **agenda-only** | zero crew entries today, but high-confidence agenda for today | the timeline, agenda rows only |
+| **merged** | both present | the timeline, interleaved chronologically |
+| **not-rendered** | not a show day, or viewer ineligible | the card is absent (Mode B / no card) |
+
+All four states are pure server-rendered output (RSC). There is **no client-side animation** — state changes come from a fresh render (§5 motion does not apply to this card).
+
+### 11.2 Row treatment — crew vs agenda must be visually distinct
+
+| Row | `data-testid` | Tone | Marker |
+|---|---|---|---|
+| **crew, real** (agenda-kind) | `agenda-entry` | `text-text-strong` title | — (unchanged) |
+| **crew, synthetic** (strike/load-out) | `agenda-entry` (`data-entry-kind`) | `text-text-subtle` title | a **leading hairline rule** (`border-l border-border`) on the title cell |
+| **agenda, event** (PDF session) | `timeline-agenda-session` | `text-text-subtle` title | a small uppercase **"Agenda" eyebrow badge** (`bg-surface-sunken`, `tracking-eyebrow`, `--icon`-scale text) before the title — NOT a hairline |
+
+The agenda row's badge and the synthetic crew row's hairline are **deliberately different markers** so the two muted styles never collide: the muted *crew milestone* (strike/load-out) reads as "a production beat you own," while the muted *agenda event* reads as "context from the event program." The agenda row shows the full `session.time` string verbatim (e.g. `"9:00 AM – 9:40 AM"`); its `room` renders when present; its `tracks` and `drift` are **never** rendered (the full agenda, with tracks, is one "Full agenda" chip-tap away).
+
+### 11.3 Cap + overflow
+
+Synthetic crew rows (strike/load-out) are **never** capped and stay in chronological position. The **non-synthetic content** (real crew rows + all agenda rows) is capped at `RUN_OF_SHOW_DISPLAY_CAP` (20); beyond that a single muted stub `…and N more agenda items` (`data-testid="timeline-agenda-overflow"`) renders at the end. This mirrors `RunOfShowList`'s exemption rule but keeps everything in time order (it does **not** partition synthetic rows to the end).
