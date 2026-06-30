@@ -8,9 +8,8 @@ export function clientLog(
   message: string,
   context?: unknown,
 ): void {
-  // eslint-disable-next-line no-console -- this file IS the sanctioned console wrapper
+  // This file IS the sanctioned console wrapper — exempt from no-console in eslint.config.mjs.
   if (context === undefined) console[level](message);
-  // eslint-disable-next-line no-console
   else console[level](message, context);
   if (level === "warn" || level === "error") {
     clientErrorTransport({ source, level, message });
