@@ -200,18 +200,18 @@ test("partial-attendance member gets a chip; full-attendance member does not (BL
   /** Partial-attendance label (e.g. "Oct 7 & 9 only") → a chip + data-partial hook. */
   partial?: string;
 ```
-Destructure `partial` where the other props are pulled from `person` (alongside `you`/`lead`/`primary`), add `data-partial` to the `<li>` hooks (`:135-137`):
-```tsx
-      {...(partial ? { "data-partial": "true" } : {})}
-```
-and render the chip after the Primary chip (`:154-166`):
+Destructure `partial` where the other props are pulled from `person` (alongside `you`/`lead`/`primary`), and render the chip after the Primary chip (`:154-166`) with `data-partial` ON THE CHIP SPAN (so `querySelector("[data-partial]")` from the row wrapper finds it unambiguously — Codex plan-R1; the hook marks the chip itself, not the row):
 ```tsx
             {partial ? (
-              <span className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}>
+              <span
+                data-partial="true"
+                className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}
+              >
                 {partial}
               </span>
             ) : null}
 ```
+(No change to the `<li>` `data-*` hooks block — `data-partial` lives on the chip span.)
 
 (b) `CrewSection.tsx` — add import:
 ```ts
@@ -250,10 +250,13 @@ test("crew breakdown shows partial-attendance as-parsed (BL-CREW-PARTIAL-ATTENDA
   const { getByTestId } = render(<Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />);
   fireEvent.click(getByTestId("wizard-step3-card-drive-pa-more"));
   const t = getByTestId("wizard-step3-card-drive-pa-breakdown-crew").textContent ?? "";
-  expect(t).toContain("10/7, 10/9 only"); // explicit raw, as-parsed
-  expect(t).toContain("Partial (dates TBD)"); // unknown_asterisk
-  // Doug (none) has no "only"/"Partial" suffix — assert his row segment is clean:
-  expect(t).toContain("Doug");
+  expect(t).toContain("Doug"); // all 3 members render
+  expect(t).toContain("10/7, 10/9 only"); // Calvin: explicit raw, as-parsed
+  expect(t).toContain("Partial (dates TBD)"); // Kari: unknown_asterisk
+  // none-member (Doug) adds NO suffix → exactly ONE "only" + ONE "Partial" across
+  // the 3-member breakdown (anti-tautology — a leaked suffix on Doug fails this):
+  expect((t.match(/ only/g) ?? []).length).toBe(1);
+  expect((t.match(/Partial \(dates TBD\)/g) ?? []).length).toBe(1);
 });
 ```
 
