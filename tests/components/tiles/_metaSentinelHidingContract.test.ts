@@ -263,6 +263,18 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "dates.setupTime (Set-day DayCard meta)",
     pattern: /\bdates\??\.setupTime\b|\bsetupTime\b/,
   },
+  // BL-EVENT-DETAILS-UNRENDERED: the crew "Tech specs" card surfaces these
+  // event_details text keys (GearSection). The current card reads them via a
+  // dynamic loop over CREW_TECH_SPEC_KEYS (no literal access), so this LITERAL
+  // bracket pattern matches nothing today — it is FORWARD-DEFENSE that fails CI
+  // if a FUTURE edit adds a direct `event_details["<key>"]` read in a walked
+  // component without routing through shouldHideGenericOptional. (The card's
+  // current sentinel-hiding is guaranteed by KeyValueRows + gearTechSpecs tests.)
+  {
+    description: "event_details tech specs (crew Tech-specs card, bracket access)",
+    pattern:
+      /event_details\[\s*"(stage_size|podium_type|polling|led|scenic|gooseneck|digital_signage|test_pattern|fonts|equipment_storage|staff_office_room|record|virtual_speaker|virtual_audience|notes)"\s*\]/,
+  },
 ];
 
 /**

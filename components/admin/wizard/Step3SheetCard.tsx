@@ -54,6 +54,7 @@ import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
@@ -377,12 +378,22 @@ function EventDetailsBreakdown({
   eventDetails: Record<string, string> | undefined;
 }) {
   const ed = eventDetails ?? {};
-  const keynote = ed["keynote_requirements"];
-  const reelRaw = ed["opening_reel"];
-  const reel = hasContent(reelRaw) ? stripOpeningReelText(reelRaw).trim() : "";
+  // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
+  // is excluded there — folder link) so the operator sees the full picture
+  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). This is a REVIEW surface, so
+  // sentinels are shown AS-PARSED (a 'TBD'/'N/A' tells the operator the cell
+  // parsed-but-unfilled) — deliberately NOT sentinel-hidden like the crew card.
+  // This asymmetry is the existing, tested contract (Step3Review.test.tsx
+  // "shown as-parsed (review surface, not sentinel-hidden like the crew page)").
+  // Coerce FIRST (String() is null/non-string-safe), then keep any non-empty
+  // value; `opening_reel` keeps its URL-strip cleanup; trim prevents whitespace
+  // from inflating `count`.
   const fields: { label: string; value: string }[] = [];
-  if (hasContent(keynote)) fields.push({ label: "Keynote", value: keynote.trim() });
-  if (reel.length > 0) fields.push({ label: "Opening reel", value: reel });
+  for (const [key, label] of Object.entries(EVENT_DETAILS_LABELS)) {
+    const text = String(ed[key] ?? "").trim();
+    const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
+    if (value.length > 0) fields.push({ label, value });
+  }
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-event-details`}
