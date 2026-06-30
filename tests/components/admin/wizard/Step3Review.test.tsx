@@ -632,6 +632,35 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       getByTestId("wizard-step3-card-drive-gear-2-breakdown-event-details").textContent,
     ).toContain("No event details parsed.");
   });
+
+  test("venue breakdown shows address/loading dock/maps as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        venue: {
+          name: "Four Seasons",
+          address: "120 E Delaware Pl",
+          city: "TBD", // sentinel → shown as-parsed
+          loadingDock: "64 East Walton St",
+          googleLink: "https://maps.google.com/x",
+        },
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-venue", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-venue-more"));
+    const t = getByTestId("wizard-step3-card-drive-venue-breakdown-venue").textContent ?? "";
+    expect(t).toContain("Address:");
+    expect(t).toContain("120 E Delaware Pl");
+    expect(t).toContain("Loading dock:");
+    expect(t).toContain("Maps link:");
+    expect(t).toContain("https://maps.google.com/x"); // raw text, not a live link
+    expect(t).toContain("City:");
+    expect(t).toContain("TBD"); // sentinel as-parsed
+  });
 });
 
 describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {

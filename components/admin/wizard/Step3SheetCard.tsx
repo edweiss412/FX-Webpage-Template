@@ -38,6 +38,8 @@ import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type {
   AgendaEntry,
+  ClientContact,
+  ContactRow,
   CrewMemberRow,
   HotelReservationRow,
   ParseResult,
@@ -46,6 +48,8 @@ import type {
   PullSheetItem,
   RoomRow,
   RunOfShow,
+  ShowRow,
+  TransportationRow,
 } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -97,6 +101,32 @@ const ROOM_SCOPE_FIELDS: ReadonlyArray<{ label: string; key: keyof RoomRow }> = 
 /** A string field that actually parsed to content (non-null, non-whitespace). */
 function hasContent(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
+}
+
+/**
+ * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
+ * content (hasContent — non-null, non-whitespace string). Used by the operator
+ * review-modal field-group sections (Venue / Ops / Transport / Contacts).
+ */
+function contentRows(
+  pairs: ReadonlyArray<readonly [string, unknown]>,
+): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  for (const [label, val] of pairs) if (hasContent(val)) out.push({ label, value: val });
+  return out;
+}
+
+/** Vertical label:value list shared by the review-modal field-group sections. */
+function FieldRowList({ rows }: { rows: { label: string; value: string }[] }) {
+  return (
+    <ul className="flex flex-col gap-0.5">
+      {rows.map((r) => (
+        <li key={r.label} className="wrap-break-word text-sm text-text">
+          <span className="font-medium text-text-strong">{r.label}:</span> {r.value}
+        </li>
+      ))}
+    </ul>
+  );
 }
 const SCHEDULE_DAYS_CAP = 14;
 const SCHEDULE_ENTRIES_CAP = 6;
@@ -177,6 +207,31 @@ function BreakdownSection({
       </h4>
       {children}
     </section>
+  );
+}
+
+function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
+  const rows = venue
+    ? contentRows([
+        ["Venue", venue.name],
+        ["Address", venue.address],
+        ["City", venue.city],
+        ["Loading dock", venue.loadingDock],
+        ["Maps link", venue.googleLink],
+      ])
+    : [];
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-venue`}
+      label="Venue"
+      count={rows.length}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-subtle">No venue details parsed.</p>
+      ) : (
+        <FieldRowList rows={rows} />
+      )}
+    </BreakdownSection>
   );
 }
 
@@ -1470,6 +1525,7 @@ export function Step3SheetCard({
             <CrewBreakdown dfid={dfid} members={crewMembers} />
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
+            <VenueBreakdown dfid={dfid} venue={pr.show.venue} />
             <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
             <PackListBreakdown dfid={dfid} cases={pullSheet} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
