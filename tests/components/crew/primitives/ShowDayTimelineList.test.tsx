@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { render, within } from "@testing-library/react";
 import { ShowDayTimelineList } from "@/components/crew/primitives/ShowDayTimelineList";
@@ -112,5 +113,19 @@ describe("ShowDayTimelineList", () => {
     const { container } = render(<ShowDayTimelineList isoDate={ISO} items={items} />);
     const rows = scope(container).getAllByTestId(/agenda-entry|timeline-agenda-session/);
     expect(rows[0]!.getAttribute("data-entry-kind")).toBe("strike");
+  });
+  test("Transition audit (spec §6.2) — timeline surfaces are static (no AnimatePresence/motion/exit)", () => {
+    // 4 data-driven states (crew-only/agenda-only/merged/not-rendered), all instant — no
+    // client animation. The not-rendered + agenda-vs-crew branch live in TodaySection, so
+    // scan BOTH the component and the section (both currently motion-free).
+    for (const f of [
+      "components/crew/primitives/ShowDayTimelineList.tsx",
+      "components/crew/sections/TodaySection.tsx",
+    ]) {
+      const src = readFileSync(f, "utf8");
+      expect(src, f).not.toMatch(
+        /AnimatePresence|framer-motion|\bmotion\.|\bexit=|\binitial=|\banimate=/,
+      );
+    }
   });
 });
