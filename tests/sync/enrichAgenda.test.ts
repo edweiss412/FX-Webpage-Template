@@ -570,7 +570,7 @@ describe("enrichAgenda — per-link freshness verdict", () => {
   test("(c2) stored extractorVersion=0 + matching sourceRevision → known_stale (version mismatch alone is stale)", async () => {
     const staleVersion = highExtraction({
       sourceRevision: "rev-F1",
-      extractorVersion: 0, // EXTRACTOR_VERSION - 1; v1 stays current, v0 is stale
+      extractorVersion: 0, // any value ≠ EXTRACTOR_VERSION (currently 2) is version-stale
     });
     const result = makeResult([{ label: "AGENDA LINK", fileId: "F1", extracted: staleVersion }]);
     // download fails → can't refresh → known_stale
@@ -581,10 +581,10 @@ describe("enrichAgenda — per-link freshness verdict", () => {
     expect(report.perLink[0]!.verdict).toBe("known_stale"); // NOT "unknown"
   });
 
-  // (c2-converse) extractorVersion=1 (current) + matching sourceRevision → fresh (cache hit)
-  // Proves v1 is never treated as stale and causes a proper cache hit.
-  test("(c2-converse) stored extractorVersion=1 + matching sourceRevision → fresh cache hit; download never called", async () => {
-    const current = highExtraction({ sourceRevision: "rev-F1" }); // extractorVersion = EXTRACTOR_VERSION = 1
+  // (c2-converse) extractorVersion === EXTRACTOR_VERSION (current) + matching sourceRevision → fresh (cache hit)
+  // Proves the current version is never treated as stale and causes a proper cache hit.
+  test("(c2-converse) stored current extractorVersion + matching sourceRevision → fresh cache hit; download never called", async () => {
+    const current = highExtraction({ sourceRevision: "rev-F1" }); // extractorVersion = EXTRACTOR_VERSION (currently 2)
     const result = makeResult([{ label: "AGENDA LINK", fileId: "F1", extracted: current }]);
     const downloadFileBytes = vi.fn(async () => ({
       kind: "bytes" as const,

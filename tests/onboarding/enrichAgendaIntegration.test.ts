@@ -103,7 +103,7 @@ describe("enrichAgenda integration — onboarding scan inherits it", () => {
     expect(link.fileId).toBe("RFI_FILE"); // recovered via ordinal chip correlation
     expect(link.extracted?.confidence).toBe("high"); // real extractor, real PDF
     expect(link.extracted?.sourceRevision).toBe("rev-RFI_FILE");
-    expect(link.extracted?.extractorVersion).toBe(1);
+    expect(link.extracted?.extractorVersion).toBe(EXTRACTOR_VERSION); // a real extraction carries the live version
   });
 
   test("the enriched agenda_links payload is what the apply path serializes (jsonb passthrough)", () => {

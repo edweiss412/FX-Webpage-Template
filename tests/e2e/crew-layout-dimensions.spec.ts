@@ -40,8 +40,9 @@
  *     test); viewports are set explicitly per-assertion (390 / 1000).
  *
  * ── Today Mode A seeding ───────────────────────────────────────────────────
- * Mode A mounts iff `isShowDay && eligible && displayableEntries(runOfShow
- * [todayIso]).length > 0` (TodaySection.tsx:178-193). The live Waldorf seed
+ * Mode A mounts iff `isShowDay && eligible && (displayableEntries(runOfShow
+ * [todayIso]).length > 0 || agendaSessionsForToday(...).length > 0)` — the unified
+ * timeline also activates on an agenda-only show day. The live Waldorf seed
  * stores `shows_internal.run_of_show = NULL`, so Mode A cannot mount unmodified
  * (exactly the gap inv3 in crew-page.spec.ts works around for GearSection). To
  * make Mode A a REAL assertion (not faked / not skipped) this suite, in
@@ -108,6 +109,36 @@ const SEED_RUN_OF_SHOW = {
     window: { start: "8:00am", end: "5:30pm" },
   },
 };
+
+// A high-conf agenda for SHOW_DAY_1_ISO so the MERGED timeline mounts (crew + agenda).
+// "April 21, 2026" → parseIsoFromDayLabel → SHOW_DAY_1_ISO ("2026-04-21").
+const SEED_AGENDA_LINKS = [
+  {
+    fileId: "seed-agenda-1",
+    label: "AGENDA",
+    extracted: {
+      confidence: "high",
+      corrections: 0,
+      extractorVersion: 2,
+      days: [
+        {
+          dayLabel: "April 21, 2026",
+          date: null,
+          sessions: [
+            {
+              time: "9:00 AM – 9:40 AM",
+              title: "Networking Breakfast",
+              room: "Foyer",
+              tracks: [],
+              drift: null,
+            },
+            { time: "11:00 AM", title: "Sponsor Demo", room: "Hall B", tracks: [], drift: null },
+          ],
+        },
+      ],
+    },
+  },
+];
 
 type Rect = {
   top: number;
@@ -180,6 +211,10 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // never reads these rows (every test early-returns for non-mobile-safari).
   let showInternalId: string | null = null;
   let runOfShowOriginal: unknown = null;
+  // Public shows.id (== seeded.showId) + its original agenda_links, so the MERGED
+  // timeline can mount today and be restored after the run.
+  let showPublicId: string | null = null;
+  let agendaLinksOriginal: unknown = null;
 
   test.beforeAll(async ({}, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
@@ -201,19 +236,48 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       .update({ run_of_show: SEED_RUN_OF_SHOW })
       .eq("show_id", showInternalId);
     if (upd.error) throw new Error(`Mode A setup: run_of_show seed failed: ${upd.error.message}`);
+
+    // Seed shows.agenda_links so the unified timeline (crew + agenda) mounts today.
+    showPublicId = seeded.showId;
+    const showRow = await admin
+      .from("shows")
+      .select("agenda_links")
+      .eq("id", showPublicId)
+      .maybeSingle();
+    if (showRow.error)
+      throw new Error(`Mode A setup: read shows.agenda_links failed: ${showRow.error.message}`);
+    agendaLinksOriginal = (showRow.data as { agenda_links?: unknown })?.agenda_links ?? [];
+    const aUpd = await admin
+      .from("shows")
+      .update({ agenda_links: SEED_AGENDA_LINKS })
+      .eq("id", showPublicId);
+    if (aUpd.error)
+      throw new Error(`Mode A setup: agenda_links seed failed: ${aUpd.error.message}`);
   });
 
   test.afterAll(async ({}, testInfo) => {
     if (testInfo.project.name !== "mobile-safari") return;
-    if (!showInternalId) return;
-    const restore = await admin
-      .from("shows_internal")
-      .update({ run_of_show: runOfShowOriginal })
-      .eq("show_id", showInternalId);
-    if (restore.error) {
-      console.error(
-        `Mode A teardown: run_of_show restore failed (manual reseed needed): ${restore.error.message}`,
-      );
+    if (showInternalId) {
+      const restore = await admin
+        .from("shows_internal")
+        .update({ run_of_show: runOfShowOriginal })
+        .eq("show_id", showInternalId);
+      if (restore.error) {
+        console.error(
+          `Mode A teardown: run_of_show restore failed (manual reseed needed): ${restore.error.message}`,
+        );
+      }
+    }
+    if (showPublicId) {
+      const aRestore = await admin
+        .from("shows")
+        .update({ agenda_links: agendaLinksOriginal })
+        .eq("id", showPublicId);
+      if (aRestore.error) {
+        console.error(
+          `Mode A teardown: agenda_links restore failed (manual reseed needed): ${aRestore.error.message}`,
+        );
+      }
     }
   });
 
@@ -439,6 +503,37 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     // The run-of-show card is the LEFT column — its presence confirms Mode A, not
     // the full-width Mode B stack.
     await expect(page.getByTestId("today-run-of-show")).toBeVisible();
+
+    // Unified show-day timeline (spec §6.1 Dimensional Invariants): the seeded agenda
+    // (April 21, 2026 → SHOW_DAY_1_ISO) merges with the 9 crew run-of-show entries → the
+    // `show-day-timeline-*` list mounts in the LEFT column. The fixture has 11 non-synthetic
+    // rows (≤ RUN_OF_SHOW_DISPLAY_CAP=20) → NO overflow stub → the list height equals exactly
+    // the <ul> row stack (each row's border-box height already includes the divide-y divider).
+    const timeline = page.locator('[data-testid^="show-day-timeline-"]');
+    await expect(timeline).toBeVisible();
+    await expect(timeline.locator('[data-testid="timeline-agenda-overflow"]')).toHaveCount(0);
+    // At least one agenda row mounted (proves the merge actually ran, not crew-only).
+    await expect(timeline.locator('[data-testid="timeline-agenda-session"]').first()).toBeVisible();
+    const timelineBox = await rectOf(timeline);
+    const timelineRows = timeline.locator(
+      '[data-testid="agenda-entry"], [data-testid="timeline-agenda-session"]',
+    );
+    const rowCount = await timelineRows.count();
+    expect(rowCount, "unified timeline must render ≥4 interleaved rows").toBeGreaterThanOrEqual(4);
+    let rowHeightSum = 0;
+    for (let i = 0; i < rowCount; i++) {
+      const rb = await rectOf(timelineRows.nth(i));
+      expect(
+        Math.abs(rb.width - timelineBox.width),
+        `timeline row ${i} must fill the list width; row=${rb.width} list=${timelineBox.width}`,
+      ).toBeLessThanOrEqual(TOL_TIGHT);
+      rowHeightSum += rb.height;
+    }
+    // Spec §6.1: list height EQUALS the sum of row heights (±0.5px) — two-sided.
+    expect(
+      Math.abs(timelineBox.height - rowHeightSum),
+      `timeline list height must equal Σ row heights; list=${timelineBox.height} sum=${rowHeightSum}`,
+    ).toBeLessThanOrEqual(TOL_TIGHT);
 
     // ≥720px: the two grid children are side-by-side, 1.6 ratio, natural height
     // (items-start per the 2026-06-21 owner amendment — NOT equal-height).

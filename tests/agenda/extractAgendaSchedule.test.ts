@@ -66,9 +66,9 @@ test("garbage / non-agenda PDF → low confidence", async () => {
 });
 test("output always carries the current extractorVersion", async () => {
   const x = await extractAgendaSchedule(bytes("rfi.pdf"));
-  expect(x.extractorVersion).toBe(1);
+  expect(x.extractorVersion).toBe(2);
 });
-test("page cap: >AGENDA_MAX_PAGES → low confidence, no per-page parse, extractorVersion still 1", async () => {
+test("page cap: >AGENDA_MAX_PAGES → low confidence, no per-page parse, extractorVersion still 2", async () => {
   const getPage = vi.fn();
   vi.resetModules();
   vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
@@ -78,7 +78,7 @@ test("page cap: >AGENDA_MAX_PAGES → low confidence, no per-page parse, extract
   const x = await extract(new Uint8Array([1, 2, 3]));
   expect(x.confidence).toBe("low");
   expect(x.days).toEqual([]);
-  expect(x.extractorVersion).toBe(1);
+  expect(x.extractorVersion).toBe(2);
   expect(getPage).not.toHaveBeenCalled();
   vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
   vi.resetModules();
