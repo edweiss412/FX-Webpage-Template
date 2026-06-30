@@ -127,7 +127,10 @@ export async function runReaperGet(
     } catch (error) {
       if (error instanceof ReportReaperInfraError) {
         return {
-          response: NextResponse.json({ ok: false, code: "REPORT_PIPELINE_FAILED" }, { status: 500 }),
+          response: NextResponse.json(
+            { ok: false, code: "REPORT_PIPELINE_FAILED" },
+            { status: 500 },
+          ),
           summary: { outcome: "infra" },
         };
       }

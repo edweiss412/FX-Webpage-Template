@@ -7,7 +7,10 @@ export function ContextDetail({ event }: { event: AppEventRow }) {
   const hasContext = Object.keys(ctx).length > 0;
   return (
     <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2 text-sm">
-      <div data-testid="event-full-message" className="whitespace-pre-wrap wrap-break-word text-text">
+      <div
+        data-testid="event-full-message"
+        className="whitespace-pre-wrap wrap-break-word text-text"
+      >
         {event.message}
       </div>
       <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">

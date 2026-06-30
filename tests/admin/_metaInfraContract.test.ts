@@ -453,7 +453,10 @@ describe("META §B Supabase call-boundary contract", () => {
           const windowText = lines
             .slice(idx, Math.min(lines.length, idx + AWAIT_BUILDER_WINDOW))
             .join("\n");
-          if ((builderNameRe && builderNameRe.test(windowText)) || /\bsupabase\s*\.\s*from\b/.test(windowText)) {
+          if (
+            (builderNameRe && builderNameRe.test(windowText)) ||
+            /\bsupabase\s*\.\s*from\b/.test(windowText)
+          ) {
             awaitLineNumbers.push(idx);
           }
         }
