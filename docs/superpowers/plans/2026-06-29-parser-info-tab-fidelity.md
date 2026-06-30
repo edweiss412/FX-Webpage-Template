@@ -293,7 +293,9 @@ Expected: FAIL — currently two BALLROOM C rooms (the INFO `BALLROOM C` + the G
 - [ ] **Step 3: Implement** — in `lib/parser/blocks/gear.ts`, change `newRoom` (lines 92-110) to:
 
 ```ts
-function newRoom(header: string): GearRoom {
+// Exported so the lunch-scoped GRAND-strip is unit-testable on the REAL code
+// path (Codex plan-R1) — a global strip would regress GS/other rooms.
+export function newRoom(header: string): GearRoom {
   const upper = header.toUpperCase();
   let kind: RoomKind = "additional";
   if (/^GENERAL\b/.test(upper)) kind = "gs";
@@ -325,30 +327,45 @@ function newRoom(header: string): GearRoom {
 Run: `pnpm vitest run tests/parser/infoTabFidelity.test.ts -t "lunch-room dedup"`
 Expected: PASS.
 
-- [ ] **Step 5: Add the collision negative test** — append to `tests/parser/infoTabFidelity.test.ts`:
+- [ ] **Step 5: Add the collision guard ON THE REAL CODE PATH (Codex plan-R1)** — the GRAND-strip lives in `newRoom`, so the guard must exercise `newRoom`, not a hand-built object fed to `mergeGearIntoRooms` (which would still pass if `newRoom` stripped GRAND *globally*). Append to `tests/parser/infoTabFidelity.test.ts`:
 
 ```ts
-import { mergeGearIntoRooms } from "@/lib/parser/index";
-import type { RoomRow } from "@/lib/parser/types";
+import { newRoom } from "@/lib/parser/blocks/gear";
 
-describe("gear-merge collision safety (H2)", () => {
-  it("does NOT merge a non-lunch GRAND X onto X (GRAND strip is lunch-scoped)", () => {
-    const parsed: RoomRow[] = [
-      {
-        kind: "additional", name: "FOYER", dimensions: null, floor: null, setup: null,
-        set_time: null, show_time: null, strike_time: null,
-        audio: null, video: null, lighting: null, scenic: null, other: null, notes: null,
-      },
-    ];
-    // a GEAR additional room "GRAND FOYER" must NOT merge onto "FOYER"
-    const gear = [{ kind: "additional" as const, name: "GRAND FOYER", audio: "spk", video: null, lighting: null, scenic: null, other: null }];
-    const merged = mergeGearIntoRooms(parsed, gear);
-    expect(merged).toHaveLength(2); // stays distinct
+// Direct newRoom coverage — proves the GRAND strip is scoped to ^LUNCH only.
+describe("gear newRoom — GRAND strip is lunch-scoped (H2 collision safety)", () => {
+  it("strips leading GRAND from a LUNCH room and sets kind=breakout", () => {
+    expect(newRoom("LUNCH SESSION - GRAND BALLROOM C")).toMatchObject({
+      kind: "breakout",
+      name: "BALLROOM C",
+    });
+  });
+  it("does NOT strip GRAND from a non-lunch additional room (no global strip)", () => {
+    expect(newRoom("ADDITIONAL ROOM - GRAND FOYER")).toMatchObject({
+      kind: "additional",
+      name: "GRAND FOYER",
+    });
+  });
+  it("does NOT strip GRAND from a GS room (a global strip would break GS merge)", () => {
+    expect(newRoom("GENERAL SESSION - GRAND BALLROOM A/B")).toMatchObject({
+      kind: "gs",
+      name: "GRAND BALLROOM A/B",
+    });
+  });
+});
+
+// Integration guard on the real parser path: a global strip would de-merge GS
+// (GEAR "GRAND BALLROOM A/B" → "BALLROOM A/B" ≠ INFO GS "GRAND BALLROOM A/B"),
+// so the GS room would lose its merged gear.
+describe("gear-merge integration — GS gear retained (H2)", () => {
+  it("the consultants GS room keeps its merged GEAR audio", () => {
+    const gs = consultants().rooms.find((r) => r.kind === "gs");
+    expect(gs?.audio).toBeTruthy();
   });
 });
 ```
 
-> NOTE: confirm `mergeGearIntoRooms` is exported from `lib/parser/index.ts` (it is — `export function mergeGearIntoRooms`, index.ts:350) and that `RoomRow` shape matches `lib/parser/types.ts:155` (kind, name, dimensions, floor, setup, set_time, show_time, strike_time, audio, video, lighting, scenic, other, notes). If the literal is missing a required field, copy the exact field list from types.ts.
+> Rationale (Codex plan-R1): the earlier draft built a `GRAND FOYER` GearRoom literal and called `mergeGearIntoRooms` directly — that bypasses `newRoom`/`parseGearTab` where the strip is implemented, so a buggy global strip would still pass. Testing `newRoom` directly (the non-lunch `GRAND FOYER` → name unchanged) and asserting GS gear survives on the real fixture both exercise the actual code path and fail under a global strip.
 
 - [ ] **Step 6: Run, verify pass**
 
@@ -570,7 +587,7 @@ git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main..
 
 - **Spec coverage:** Fix 1 (dress) → Task 1; Fix 2 (lunch dedup) → Task 2; Fix 3 (title) → Task 3; dropped Fix 4 → not implemented (correct); meta-test → Task 1 Step 8; live-sheet gate → Task 4 Step 3; companion surfaces (dataGaps/warnings/exporterFixtures) → Task 4 Step 1. ✓
 - **Anti-tautology:** dress test asserts the parsed value (not a container); lunch test asserts `rooms` array shape derived from the fixture; title structural test derives cases from the live registry (not hardcoded). Each test states the failure mode it catches and has a negative-regression. ✓
-- **Type consistency:** `parseDress`/`mergeDressCode` signatures match between Task 1 def and the orchestrator call; `RoomRow` literal in Task 2 Step 5 must match `lib/parser/types.ts:155` (verify field list at implementation time); `isAcceptableTitleCell` used identically by #0 and #6. ✓
+- **Type consistency:** `parseDress`/`mergeDressCode` signatures match between Task 1 def and the orchestrator call; `newRoom` is exported from gear.ts and imported in the Task 2 collision test (real code-path coverage, Codex plan-R1); `isAcceptableTitleCell` used identically by #0 and #6. ✓
 - **No placeholders:** every code step shows real code; every run step shows the exact command + expected result. ✓
 
 ## Execution Handoff
