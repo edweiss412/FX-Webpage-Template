@@ -83,7 +83,7 @@ Refactor `handleOnboardingFinalize` (`finalize/route.ts:1029`) into three shared
 
 1. `resolveFinalizer(runtime): Promise<{ email: string } | { error: Response }>` — extract the existing auth block (`finalize/route.ts:1034-1047`) verbatim (returns 500 `ADMIN_SESSION_LOOKUP_FAILED` / 403 `ADMIN_FORBIDDEN`).
 2. `executeFinalizeBatch(runtime, finalizerEmail, callbacks?): Promise<Response>` — the existing `runtime.withTx(...)` body (`finalize/route.ts:1054-1186`) + post-commit `revalidateShow` loop (`1190-1192`) + the `catch → errorResponse(500, …)` wrapper (`1194-1208`), unchanged EXCEPT two additive callback hooks:
-   - Before the row loop, **only if `callbacks?.onListed`**: `callbacks.onListed(await countRemainingCleanRows(tx, wizardSessionId))`. (No callback ⇒ no extra query ⇒ byte-identical.)
+   - **`listed` emission point — single, early, before any branch.** Immediately AFTER the precondition gate passes (after `ensureCheckpoint` returns a checkpoint at `finalize/route.ts:1071-1072`) and BEFORE the `final_cas_done` early return (`1073`), the `all_batches_complete` early return (`1090`), the zero-row short-circuit (`1104`), AND the row loop — **only if `callbacks?.onListed`**: `callbacks.onListed(await countRemainingCleanRows(tx, wizardSessionId))`. This one placement guarantees that EVERY non-error streaming response emits exactly one `listed` (including all zero-row finishes), then zero-or-more `row`, then one terminal `result`. Precondition-ERROR paths (`CHECKPOINT_MISSING` at `1060`/`1072`, `CONCURRENT_FINALIZE_IN_FLIGHT` at `1064`, `WIZARD_SESSION_SUPERSEDED` at `1068`, `ONBOARDING_NOT_RESOLVED` at `1099`) return BEFORE this point and emit only the terminal `{result, ok:false}` with no `listed`. (No callback ⇒ no extra query ⇒ the non-streaming path is byte-identical.)
    - After each `perRow.push(...)` inside the loop (`finalize/route.ts:1169-1174`): `callbacks?.onRow?.({ done: perRow.length, total: approvedRows.length, name: parsedShowTitle(row.parse_result) ?? null, driveFileId: row.drive_file_id })`. (`parsedShowTitle` is already imported and used at `finalize/route.ts:1172`; def `lib/onboarding/blockerDisplayName.ts:12`.)
 3. `handleOnboardingFinalize(request, deps)` (non-streaming, **public contract preserved**) = `resolveFinalizer` → on error return it; else `return executeFinalizeBatch(runtime, email)` with NO callbacks. Identical bytes to today.
 
@@ -196,7 +196,7 @@ type ButtonState =
   | { kind: "complete" };
 ```
 
-A `completedRef` accumulates rows finished across prior batches; `grandTotalRef` holds the latest grand total. Progress math (D5):
+A `completedRef` accumulates rows finished across prior batches; `grandTotalRef` holds the latest grand total; a `lastNameRef`/state field holds the current sheet name. **`runLoop` resets `completedRef = 0`, `grandTotalRef = 0`, and the last-name to `null` at entry** (before the first batch fetch), so a retry from the `error` / `race_row` / `cas_per_row` states starts a fresh accumulator with no stale inflation. This is correct on retry because the server's `listed`/`countRemainingCleanRows` already reflects only the REMAINING finishable rows (rows finalized in a prior attempt were consumed/deleted, `finalize/route.ts:620` `deleteApprovedPending`), so a from-zero bar over the remaining work is the intended UX. Progress math (D5):
 
 - On `listed`: `grandTotalRef = completedRef + listed.total`. Render bar `max = grandTotalRef`, `value = completedRef` (0-of-N for the new batch).
 - On `row`: `value = completedRef + event.done`; `lastName = event.name || event.driveFileId`; status line `Publishing: <lastName> (value of grandTotalRef)`.
@@ -254,9 +254,9 @@ Tailwind v4 does not default `.flex` to `align-items: stretch` (project invarian
 |--------|-------|-----------|-----------|
 | `wizard-finalize` container (`flex flex-col gap-3`, `FinalizeButton.tsx:243`) | progress panel | panel spans full container width | panel root `w-full` (it is a block `flex flex-col`, full width by default in a column flex) |
 | progress panel | `<progress>` bar | bar spans full panel width, fixed height | `className="h-2 w-full"` (matches `components/admin/wizard/Step2Verify.tsx:423`) |
-| `wizard-finalize` container | button (idle) vs panel (running) | **no layout jump on morph** | the container reserves `min-h-tap-min` so the swap from the `lg` button to the panel does not collapse height; panel `data-testid="wizard-finalize-progress"` |
+| `wizard-finalize` container | button (idle) vs panel (running) | **no HORIZONTAL shift; panel width == container width** | panel root is a full-width block in the column flex; `data-testid="wizard-finalize-progress"`. Vertical growth IS expected and accepted — the panel (bar + count line + status line) is taller than the idle button; the morph is honest about replacing the button, not pretending to be the same height. The container's left edge and width do not change. |
 
-Real-browser (Playwright) layout assertion required (jsdom insufficient): with the panel rendered, assert the `<progress>` `getBoundingClientRect().width` equals the panel's content width (±0.5px) and the panel width equals the `wizard-finalize` container width (±0.5px).
+Real-browser (Playwright) layout assertion required (jsdom insufficient): with the panel rendered, assert (a) `<progress>` `getBoundingClientRect().width` equals the panel's content width (±0.5px), (b) the panel width equals the `wizard-finalize` container width (±0.5px), and (c) the panel's `getBoundingClientRect().left` equals the container's `left` (±0.5px) — i.e. NO horizontal shift. Height equality is explicitly NOT asserted (the panel is legitimately taller than the button).
 
 ## 8. Guard conditions (every prop / input / event field)
 
