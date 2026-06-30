@@ -13,8 +13,8 @@
 - Touch only `lib/crew/`, `components/crew/sections/GearSection.tsx`, `components/admin/wizard/Step3SheetCard.tsx`, `lib/sheet-links/buildSheetDeepLink.ts`, `DESIGN.md`, `tests/**`. No `app/api`, DB, parser, migrations.
 - UI surface → Opus + impeccable v3 dual-gate (invariant 8); dispositions in the PR description (+`DEFERRED.md` for deferrals).
 - TDD per task; commit per task (`feat(crew-page):` / `feat(admin):` / `chore(sheet-links):` / `docs(design):`). `--no-verify`.
-- Value coercion everywhere: `String(r[key] ?? "").trim()` (never `(… ?? "").trim()`).
-- Crew HIDES sentinels (`KeyValueRows`/`shouldHideGenericOptional`); modal shows AS-PARSED (`value.length > 0`, the existing tested `Step3Review.test.tsx:582` contract). DO NOT apply `shouldHideGenericOptional` in the modal.
+- Value coercion everywhere: compute `const value = String(r[key] ?? "").trim()` ONCE and use that same `value` for both the presence filter and the render (never render the raw `r[key]` / `r[key] as string` — that leaves non-string JSONB + whitespace padding un-coerced). Applies to BOTH surfaces.
+- Per-surface filter differs ONLY in the predicate: crew HIDES sentinels (`!shouldHideGenericOptional(value)`); modal shows AS-PARSED (`value.length > 0`, the existing tested `Step3Review.test.tsx:582` contract — sentinels like `TBD`/`N/A` render). DO NOT apply `shouldHideGenericOptional` in the modal.
 - Scope = exactly the six fields; `power`/`digital_signage`/`notes` are OUT (Decision 4).
 - Worktree: `/Users/ericweiss/fxav-room-detail-unrendered` (branch `feat/room-detail-unrendered`). Run tests from worktree root.
 
@@ -225,13 +225,17 @@ export function compareRooms(a: ProjectedRoomRow, b: ProjectedRoomRow): number {
 ```ts
   "gear-room-details": "rooms",
 ```
-(c) `components/crew/sections/GearSection.tsx` — add imports (top):
+(c) `components/crew/sections/GearSection.tsx` — imports:
+- **MERGE `LayoutGrid` into the EXISTING `lucide-react` import** (it already imports `Boxes, Frame, Lightbulb, SlidersHorizontal, Video, Volume2`) — do NOT add a second `from "lucide-react"` line (`no-duplicate-imports` would fail). Result:
 ```ts
-import { LayoutGrid } from "lucide-react";
+import { Boxes, Frame, LayoutGrid, Lightbulb, SlidersHorizontal, Video, Volume2 } from "lucide-react";
+```
+- Add the two new module imports:
+```ts
 import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
 import { compareRooms } from "@/lib/crew/resolveKeyTimes";
 ```
-(`roomLabel`, `KeyValueRows`/`KeyValueRow`, `SectionCard`, `SourceLink`, `CARD_REGION_MAP`, `shouldHideGenericOptional` are already imported — verify; add only the missing ones. `SlidersHorizontal` import line shows the lucide import group.)
+(`roomLabel`, `KeyValueRows`/`KeyValueRow`, `SectionCard`, `SourceLink`, `CARD_REGION_MAP`, `shouldHideGenericOptional` are already imported — verify; add only the missing ones.)
 
 Compute after `hasTechSpecs` (~:213):
 ```ts
@@ -372,26 +376,27 @@ Run: `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx -t "det
 
 Add import: `import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";`
 
-Inside the room `<li>` (after the scope `<ul>` block, before the `</li>`), add:
+Inside the room `<li>` (after the scope `<ul>` block, before the `</li>`), add — **coerce once, render the computed value** (Codex plan-R1; matches the BL-EVENT-DETAILS modal pattern, not the raw `as string` scope render):
 ```tsx
                 {(() => {
-                  const detail = ROOM_DETAIL_FIELDS.filter((f) => hasContent(r[f.key]));
+                  const detail = ROOM_DETAIL_FIELDS
+                    .map((f) => ({ label: f.label, value: String(r[f.key] ?? "").trim() }))
+                    .filter((d) => d.value.length > 0); // as-parsed: keep non-empty incl. sentinels
                   return detail.length > 0 ? (
                     <ul
                       data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
                       className="mt-0.5 flex flex-col gap-0.5 pl-3 text-xs text-text-subtle"
                     >
-                      {detail.map((f) => (
-                        <li key={f.label} className="wrap-break-word">
-                          <span className="font-medium text-text">{f.label}:</span>{" "}
-                          {r[f.key] as string}
+                      {detail.map((d) => (
+                        <li key={d.label} className="wrap-break-word">
+                          <span className="font-medium text-text">{d.label}:</span> {d.value}
                         </li>
                       ))}
                     </ul>
                   ) : null;
                 })()}
 ```
-(`hasContent` keeps non-empty values as-parsed — sentinels show, matching the existing scope sub-list contract. `r[f.key] as string` mirrors the scope render at :360.)
+`String(r[f.key] ?? "").trim()` coerces non-string JSONB + strips whitespace padding (global constraint); filtering on `value.length > 0` (NOT `shouldHideGenericOptional`) keeps `TBD`/`N/A` visible as-parsed — the review-surface contract. `hasContent` is no longer used by this block (still used elsewhere in the file, so its import stays).
 
 - [ ] **Step 4: Run, verify pass**
 
