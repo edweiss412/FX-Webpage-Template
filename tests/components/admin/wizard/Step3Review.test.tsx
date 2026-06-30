@@ -837,8 +837,18 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     const pr = {
       ...GEAR_PR,
       crewMembers: [
-        { name: "Calvin", role: "BO", phone: null, date_restriction: { kind: "explicit", days: ["10/7", "10/9"] } },
-        { name: "Kari", role: "BO", phone: null, date_restriction: { kind: "unknown_asterisk", days: null } },
+        {
+          name: "Calvin",
+          role: "BO",
+          phone: null,
+          date_restriction: { kind: "explicit", days: ["10/7", "10/9"] },
+        },
+        {
+          name: "Kari",
+          role: "BO",
+          phone: null,
+          date_restriction: { kind: "unknown_asterisk", days: null },
+        },
         { name: "Doug", role: "Lead", phone: null, date_restriction: { kind: "none" } },
       ],
     } as unknown as ParseResult;

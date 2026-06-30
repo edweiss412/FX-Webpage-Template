@@ -359,3 +359,11 @@ The Gear view renders a **"Room details"** card (`data-testid="gear-room-details
 - **Content states (data-driven, instant — no animation):** **present** (≥1 room has ≥1 non-sentinel detail) → card shown; **absent** → card not in the tree. Pure RSC; §5 motion does not apply.
 - **Source link:** a `SourceLink` in the card header → the `rooms` sheet region.
 - **Review-modal counterpart:** the Step-3 `RoomsBreakdown` shows the same fields per room AS-PARSED (sentinels visible — review surface), parallel to the gear-scope sub-list.
+
+## 14. Crew roster — partial-attendance chip (`data-partial`)
+
+A crew member written `(10/7 ONLY)` / `(10/7 and 10/9 ONLY)` / `***` in the sheet has that suffix parsed into a `date_restriction`; the roster surfaces it to teammates as a small chip so the crew can see who's only on-site some days (a coordination aid — NOT viewer-gated; every member's chip renders).
+
+- **Crew roster** (`CrewSection` → `PersonRow`): a new chip in the `PersonRow` chip family, rendered beside You / Lead / Primary using the shared `CHIP_CLASS` with the neutral `bg-surface-sunken text-text-subtle` tone and a `data-partial` hook. Label from `partialAttendanceLabel(member.dateRestriction, { humanize: true })`: explicit days (ISO, projection-normalized) → `humanizeDayList` → e.g. **"Oct 7 & 9 only"**; `***`/unknown → **"Partial (dates TBD)"**; unrestricted → no chip.
+- **Step-3 review modal** (`CrewBreakdown`): the same label rendered as a plain inline `· …` segment (matching the row's name·role·phone idiom), but **as-parsed** — `partialAttendanceLabel(m.date_restriction, { humanize: false })` shows the raw `M/D` tokens verbatim (e.g. "10/7, 10/9 only"), consistent with the modal's as-parsed review contract.
+- **Source of truth:** `partialAttendanceLabel` (`lib/crew/partialAttendance.ts`) + `humanizeDayList` (`lib/dates/humanize.ts`). Pure data-driven render (RSC); no animation.
