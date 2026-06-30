@@ -1,15 +1,24 @@
 import { describe, it, expect } from "vitest";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "@/components/admin/nav/navConfig";
 
-it("launch destinations: dashboard + attention + unpublished + ignored-sheets + settings", () => {
+it("launch destinations: dashboard + attention + unpublished + ignored-sheets + settings + observability", () => {
   expect(NAV.map((n) => n.id)).toEqual([
     "dashboard",
     "attention",
     "unpublished",
     "ignored-sheets",
     "settings",
+    "observability",
   ]);
-  expect(NAV.length).toBe(5);
+  expect(NAV.length).toBe(6);
+});
+
+it("observability (Activity) is a desktopOnly destination with href /admin/observability", () => {
+  const obs = NAV.find((n) => n.id === "observability");
+  expect(obs).toBeDefined();
+  expect(obs?.desktopOnly).toBe(true);
+  expect(obs?.mobileOnly).toBeUndefined();
+  expect(obs?.href).toBe("/admin/observability");
 });
 
 it("ignored-sheets item is a desktop destination with href /admin/ignored-sheets (Task E2)", () => {
@@ -43,7 +52,13 @@ describe("active-state matrix: exactly one active id per path", () => {
   const matrix: Array<
     [
       path: string,
-      activeId: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings",
+      activeId:
+        | "dashboard"
+        | "attention"
+        | "unpublished"
+        | "ignored-sheets"
+        | "settings"
+        | "observability",
     ]
   > = [
     ["/admin", "dashboard"],
@@ -55,6 +70,8 @@ describe("active-state matrix: exactly one active id per path", () => {
     ["/admin/ignored-sheets/x", "ignored-sheets"],
     ["/admin/settings", "settings"],
     ["/admin/settings/admins", "settings"],
+    ["/admin/observability", "observability"],
+    ["/admin/observability/x", "observability"],
     ["/admin/show/abc", "dashboard"],
   ];
 
@@ -97,7 +114,11 @@ it("settings + nested settings routes activate Settings", () => {
 
 it("overflow 'More' tab hidden at ≤5 destinations, shown only at >5", () => {
   expect(shouldRenderOverflow(2)).toBe(false);
-  expect(shouldRenderOverflow(NAV.length)).toBe(false);
+  // The mobile bottom bar shows only non-desktopOnly items (Activity is desktopOnly),
+  // so the mobile-visible count stays at 5 → no overflow "More" tab.
+  const mobileCount = NAV.filter((n) => !n.desktopOnly).length;
+  expect(mobileCount).toBe(5);
+  expect(shouldRenderOverflow(mobileCount)).toBe(false);
   expect(shouldRenderOverflow(5)).toBe(false);
   expect(shouldRenderOverflow(6)).toBe(true);
 });

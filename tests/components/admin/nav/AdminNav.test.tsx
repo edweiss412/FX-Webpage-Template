@@ -83,6 +83,13 @@ describe("AdminNav", () => {
     ).toBeTruthy();
   });
 
+  it("Activity (desktopOnly) is absent from the mobile bottom tabs; no dead 'More' placeholder", () => {
+    render(<AdminNav email="a@b.c" alertCount={okAlerts} initialBadgeCount={0} />);
+    expect(screen.queryByTestId("admin-bottom-tab-observability")).toBeNull();
+    expect(screen.queryByTestId("admin-bottom-tab-more")).toBeNull(); // overflow never triggers (5 mobile tabs)
+    expect(screen.getByTestId("admin-bottom-tab-dashboard")).toBeInTheDocument(); // a real mobile tab still renders
+  });
+
   it("infra_error alertCount → degraded bell in the shell", () => {
     render(<AdminNav email="d@e.com" alertCount={{ kind: "infra_error" }} />);
     expect(screen.getByTestId("admin-notif-bell-degraded")).toBeInTheDocument();

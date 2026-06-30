@@ -31,6 +31,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/show/staged/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },
+  // Observability "Activity" — service-role app-event log + cron-health page;
+  // admin-gated (the admin layout + the page's own requireAdminIdentity chain).
+  { path: "app/admin/observability/page.tsx", chain: ["requireAdmin"] },
   // Step-3 redesign — Unpublished (Held shows) + Ignored-sheets admin views.
   // Both call requireAdminIdentity() defensively (layout also admin-gates).
   { path: "app/admin/unpublished/page.tsx", chain: ["requireAdmin"] },

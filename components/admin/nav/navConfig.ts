@@ -1,14 +1,16 @@
-import { EyeOff, FileX, Inbox, LayoutGrid, Settings } from "lucide-react";
+import { Activity, EyeOff, FileX, Inbox, LayoutGrid, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 
 export type NavItem = {
-  id: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings";
+  id: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings" | "observability";
   label: string;
   short: string;
   href: string;
   Icon: ComponentType<{ className?: string }>;
   /** Excluded from the desktop top bar (spec D-2: desktop nav unchanged). */
   mobileOnly?: true;
+  /** Excluded from the mobile bottom tab bar (desktop-nav destination). */
+  desktopOnly?: true;
 };
 
 export const NAV: NavItem[] = [
@@ -42,6 +44,18 @@ export const NAV: NavItem[] = [
     Icon: FileX,
   },
   { id: "settings", label: "Settings", short: "Settings", href: "/admin/settings", Icon: Settings },
+  // Observability "Activity" — the app-event log + cron-health diagnostics page.
+  // A DESKTOP-nav destination only (desktopOnly): it never appears in the mobile
+  // bottom tab bar (which stays at 5 items → no overflow "More"). Mobile reaches
+  // it via the Settings-page link.
+  {
+    id: "observability",
+    label: "Activity",
+    short: "Activity",
+    href: "/admin/observability",
+    Icon: Activity,
+    desktopOnly: true,
+  },
 ];
 
 export const NAV_BREAKPOINT_PX = 720;
@@ -62,9 +76,12 @@ export function isNavItemActive(id: NavItem["id"], pathname: string): boolean {
     pathname === "/admin/unpublished" || pathname.startsWith("/admin/unpublished/");
   const inIgnoredSheets =
     pathname === "/admin/ignored-sheets" || pathname.startsWith("/admin/ignored-sheets/");
+  const inObservability =
+    pathname === "/admin/observability" || pathname.startsWith("/admin/observability/");
   if (id === "settings") return inSettings;
   if (id === "attention") return inAttention;
   if (id === "unpublished") return inUnpublished;
   if (id === "ignored-sheets") return inIgnoredSheets;
-  return !inSettings && !inAttention && !inUnpublished && !inIgnoredSheets;
+  if (id === "observability") return inObservability;
+  return !inSettings && !inAttention && !inUnpublished && !inIgnoredSheets && !inObservability;
 }
