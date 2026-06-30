@@ -4,7 +4,7 @@ const seen = new Set<string>();
 // Client-side caps mirror the server caps (spec §3) so we never send oversized bodies on the wire.
 const CAPS = { message: 1000, stack: 8000, componentStack: 8000, digest: 200, url: 2000 } as const;
 
-function toError(e: unknown): { message: string; stack?: string } {
+function toError(e: unknown): { message: string; stack?: string | undefined } {
   if (e instanceof Error) return { message: e.message || "(no message)", stack: e.stack };
   return { message: String(e) || "(no message)" };
 }
