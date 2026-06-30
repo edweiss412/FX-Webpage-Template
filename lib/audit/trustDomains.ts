@@ -42,6 +42,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Dev-only dimensional-invariant harness for the source-sheet links feature
   // (build-renamed-aside in prod); same requireAdmin chokepoint as /admin/dev.
   { path: "app/admin/dev/source-link-dim/page.tsx", chain: ["requireAdmin"] },
+  // Dev-only dimensional-invariant harness for the observability timeline (spec §8
+  // + G7); build-renamed-aside in prod; same requireAdmin chokepoint as /admin/dev.
+  { path: "app/admin/dev/observability-dim/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
   // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the
