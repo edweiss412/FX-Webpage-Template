@@ -67,7 +67,9 @@ TodaySection (render)
   └─ <ShowDayTimelineList items=…>                             ── components/crew/primitives/ShowDayTimelineList.tsx (NEW)
 ```
 
-**Activation rule (blast-radius minimization):** the merge path activates **only when `agendaSessionsForToday` returns ≥1 session.** When there is no agenda for today, TodaySection renders the **existing `RunOfShowList(todays)` unchanged** — so the common crew-only path is **byte-identical** to today (no reorder, no new sort, no regression). The new sort/dedup/distinguished rendering exists solely on days that actually have agenda to interleave.
+**Activation rule (blast-radius minimization):** `agendaSessionsForToday` returns **only placeable** sessions — it drops any session whose `time` is unparseable (`clockToMinutes(time) === null`) *before* returning (see §3.2 step 5). So `agendaToday.length > 0` is a faithful "≥1 interleavable agenda session" gate. The merge path (`ShowDayTimelineList` via `buildShowDayTimeline`) activates **iff `agendaToday.length > 0`**; otherwise TodaySection renders the **existing `RunOfShowList(todays)` unchanged**. Two consequences, both intentional:
+- **Crew-only path is render-identical** to today (no reorder, no new sort, no dedup) — the new code is unreachable when no placeable agenda exists. (The `modeA` gate condition changes, §4.1, but the *rendered output* is identical because `RunOfShowList` is invoked with the same `todays`.)
+- **No "ghost activation":** filtering null-time sessions in `agendaSessionsForToday` (not later in `buildShowDayTimeline`) closes the hole where an all-unparseable-time agenda would flip on the merge path (and re-sort the crew entries) while contributing zero visible agenda rows.
 
 ### 3.1 `lib/time/clockToMinutes.ts` (NEW)
 
@@ -77,10 +79,10 @@ TodaySection (render)
  *  Returns null on anything it cannot confidently place (no meridiem, garbage). */
 export function clockToMinutes(raw: string): number | null;
 ```
-- Take the substring before the first en-dash/hyphen (range → start), trim.
-- Match `/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i` (minutes optional, meridiem **required**). No meridiem → `null`.
-- `h = m[1]`, `mm = m[2] ?? 0`, `ap = m[3].toUpperCase()`.
-- `minutes = ((h % 12) + (ap === "PM" ? 12 : 0)) * 60 + mm` — mirrors the private `toMin` (`extractAgendaSchedule.ts:56-59`): `12 AM → 0`, `12:30 AM → 30`, `12 PM → 720`, `12:30 PM → 750`, `1 PM → 780`.
+- **Split on the first en-dash/hyphen** (range → start): `raw.split(/[–—-]/)[0]`, then `.trim()`.
+- Match `/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i` — **fully anchored** (`^…$`), minutes optional, meridiem **required**. Anything with trailing content or no meridiem → `null`.
+- `h = +m[1]`, `mm = m[2] ? +m[2] : 0`, `ap = m[3].toUpperCase()`.
+- `minutes = ((h % 12) + (ap === "PM" ? 12 : 0)) * 60 + mm` — mirrors the private `toMin` (`extractAgendaSchedule.ts:55-59`): `12 AM → 0`, `12:30 AM → 30`, `12 PM → 720`, `12:30 PM → 750`, `1 PM → 780`.
 - **Why a new module, not reuse:** `toMin` is private to the extractor and takes `(h,m,ap)` not a string; the exported clock utils (`extractFirstClock`, `extractClockTimes`) return strings/arrays, never minutes (grounding: time-formats surface). A single shared string→minutes converter is the correct new primitive.
 
 ### 3.2 `lib/crew/agendaDayForToday.ts` (NEW)
@@ -88,22 +90,24 @@ export function clockToMinutes(raw: string): number | null;
 ```ts
 export function parseIsoFromDayLabel(dayLabel: string): string | null;
 export function agendaSessionsForToday(
-  agendaLinks: { extracted?: AgendaExtraction | null }[],
+  agendaLinks: { extracted?: AgendaExtraction | null }[] | null | undefined,
   showDays: string[],              // ISO show-day list (data.show.dates.showDays)
   todayIso: string,
 ): AgendaSession[];
 ```
 
 **`parseIsoFromDayLabel`** — turn a date-bearing label into ISO, else `null`:
-1. **Collapse glyph-split digits FIRST** — replace every space *between two digits* (`/(?<=\d)\s+(?=\d)/g → ""`). **This is load-bearing and validated against real data:** the live PDFs emit `"Tuesday, March 2 4 , 202 6"`, `"Wednesday , June 2 5 , 202 5"`, `"Thursday, October 9, 202 5"` (digits split by pdfjs). Without this collapse, ~50% of real day labels fail to parse. After it, **all 12 day labels across the 6 real agenda PDFs parse correctly** (validated 2026-06-29 by running the live extractor).
-2. Match `/\b(jan|feb|…|dec)[a-z]*\.?\s+(\d{1,2})\s*,?\s*(\d{4})\b/i` (full or abbreviated month, comma optional, whitespace-tolerant) → `YYYY-MM-DD` (zero-padded). No existing parser does month-name→ISO (`normalizeDate` is M/D/YY-only — grounding day-matching surface), so this is new.
-3. No month-name+year match → `null` (positional fallback territory; e.g. `"Day 1"`, weekday-only).
+1. **Collapse glyph-split digits FIRST** — `dayLabel.replace(/(?<=\d)\s+(?=\d)/g, "")` (remove every space *between two digits*; leaves `"May 4"` and `"4, 2026"` intact). **Load-bearing, validated against real data:** the live PDFs emit `"Tuesday, March 2 4 , 202 6"`, `"Wednesday , June 2 5 , 202 5"`, `"Thursday, October 9, 202 5"` (digits split by pdfjs). Without it, ~50% of real day labels fail to parse; with it, **all 12 day labels across the 6 real agenda PDFs parse correctly** (validated 2026-06-29 by running the live extractor — this is empirical, not speculative).
+2. Match `/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})\s*,?\s*(\d{4})\b/` (month word, comma optional, **4-digit year**, whitespace-tolerant) against the collapsed label.
+3. **Month→number:** `MONTHS[m[1].slice(0,3).toLowerCase()]` where `MONTHS = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12}` (handles full "January" and abbreviated "Jan"/"Jan."). If the 3-letter prefix is not a key → `null`. Else `${m[3]}-${pad2(month)}-${pad2(+m[2])}` (zero-padded). No existing util does month-name→ISO (`normalizeDate` is M/D/YY-only — grounding), so this map is new.
+4. No match (e.g. `"Day 1"`, weekday-only, or a **2-digit year** like `"May 4, 26"` — unsupported, intentionally) → `null` (positional-fallback territory).
 
-**`agendaSessionsForToday`** — the D4 algorithm:
-1. Pick the **first high-confidence** extraction among `agendaLinks` (`extracted?.confidence === "high" && extracted.days.length > 0`); if none → `[]`.
-2. **Primary (date-bearing):** for each `day`, if `parseIsoFromDayLabel(day.dayLabel) === todayIso` → return `day.sessions`. (First match wins.)
-3. **Guarded positional fallback:** ONLY when **every** `showDays[i]` is non-null **AND** `extraction.days.length === showDays.length` **AND** no day parsed a date that matched: let `idx = showDays.indexOf(todayIso)`; if `idx >= 0` → return `extraction.days[idx].sessions`. The exact count + all-non-null guards prevent wrong-day mapping when the agenda has an extra/missing day (e.g. a pre-event reception day) — the ratified "never guess" rule (grounding: existing sheet-agenda matching uses the same principle).
-4. Otherwise → `[]` (no confident match → no agenda today).
+**`agendaSessionsForToday`** — the D4 algorithm (returns **placeable** sessions only):
+1. **Nullsafe:** treat a null/undefined `agendaLinks` as `[]`.
+2. Pick the **first** link whose `extracted` is **high-confidence** (`extracted?.confidence === "high" && (extracted.days?.length ?? 0) > 0`); if none → `[]`. Call it `ext`.
+3. **Primary (date-bearing):** for each `day` in `ext.days`, compute `parseIsoFromDayLabel(day.dayLabel)`; if it `=== todayIso` → that day is the match (first wins). Capture whether **any** day parsed to a non-null ISO (`someDateParsed`).
+4. **Guarded positional fallback** — used ONLY when the primary found no match **AND** `!someDateParsed` (i.e. **no** day label parsed to *any* date — they are all positional like `"Day 1"`/weekday-only; this avoids fallback on a *partially* date-aligned agenda) **AND** `showDays.length > 0 && showDays.every(d => d != null)` **AND** `ext.days.length === showDays.length`: let `idx = showDays.indexOf(todayIso)`; if `idx >= 0` → that index's day is the match. The exact-count + all-non-null + no-date-parsed guards together prevent wrong-day mapping (extra/missing agenda day, e.g. a pre-event reception day) — the ratified "never guess" rule (grounding: the existing sheet↔agenda matcher uses the same principle).
+5. **Filter to placeable:** from the matched day's `sessions`, **drop any whose `clockToMinutes(session.time) === null`** (an unplaceable session can't be interleaved). Return the surviving sessions. No match at all → `[]`.
 
 ### 3.3 `lib/crew/showDayTimeline.ts` (NEW)
 
@@ -117,10 +121,10 @@ export function buildShowDayTimeline(
   agendaSessions: AgendaSession[],     // ALREADY day-matched + high-conf (agendaSessionsForToday)
 ): TimelineItem[];
 ```
-1. Map crew entries → `{source:"crew", entry, minutes: clockToMinutes(entry.start)}`.
-2. Map agenda sessions → `{source:"agenda", session, minutes: clockToMinutes(session.time)}`; **drop** any whose `minutes === null` (an agenda session with no placeable time cannot be safely interleaved — D3 conservatism).
-3. **Dedup (crew wins):** drop an agenda item iff there exists a crew item with **equal `minutes` (exact, no tolerance)** AND **`normTitle(crew) === normTitle(agenda)`**, where `normTitle(s) = stripAgendaUrls(s ?? "").toLowerCase().replace(/\s+/g," ").trim()` (`stripAgendaUrls` from `lib/visibility/agendaUrls.ts:35`). Crew-vs-crew duplicates are **never** deduped (sheet errors are preserved, not silently dropped).
-4. **Sort:** ascending by `minutes`; **stable**; ties broken `crew` before `agenda` (the authoritative call leads its co-timed event session). Items with `minutes === null` (crew entries with unparseable `start` — agenda nulls were already dropped) sort **last**, preserving their original relative order (sheet order).
+1. Map crew entries → `{source:"crew", entry, minutes: clockToMinutes(entry.start)}` (minutes may be `null` for an unparseable `start` like `"TBD"`).
+2. Map agenda sessions → `{source:"agenda", session, minutes: clockToMinutes(session.time)}`. The caller (`agendaSessionsForToday` step 5) already filtered unplaceable sessions, so `minutes` is non-null here; defensively drop any `minutes === null` anyway (a no-op for the normal path — keeps `buildShowDayTimeline` correct if called directly in a test).
+3. **Dedup (crew wins):** drop an agenda item iff there exists a crew item with **equal `minutes` (exact, no tolerance)** AND **`normTitle(crew.entry.title) === normTitle(agenda.session.title)`**, where `normTitle(s) = stripAgendaUrls(s ?? "").toLowerCase()` — `stripAgendaUrls` (`lib/visibility/agendaUrls.ts:35`) already collapses whitespace runs + trims (`:44-45`), so no extra `.replace(/\s+/)/.trim()` is needed. A crew item with `minutes === null` can never dedup (null ≠ null is not matched — both being unplaceable means neither participates). Crew-vs-crew duplicates are **never** deduped (sheet errors preserved). (`crew.entry.title` is guaranteed non-empty by `displayableEntries`; a null/empty agenda title normalizes to `""` and would only "match" an impossible empty crew title — operationally never.)
+4. **Sort:** ascending by `minutes`; **stable** (preserve input order for equal keys); ties broken `crew` before `agenda` (the authoritative call leads its co-timed event session). Items with `minutes === null` (only crew, post-step-2) sort **last**, preserving their original relative order (sheet order).
 
 ---
 
@@ -129,7 +133,7 @@ export function buildShowDayTimeline(
 ### 4.1 New computation (near `:211-215`)
 ```ts
 const todays = (unknown_asterisk ? [] : scheduleEntriesForViewer(runOfShow[todayIso].entries, { transportVisible })); // unchanged :211-214
-const agendaToday = agendaSessionsForToday(data.show.agenda_links, data.show.dates.showDays, todayIso);                // NEW
+const agendaToday = agendaSessionsForToday(data.show.agenda_links ?? [], data.show.dates.showDays ?? [], todayIso);    // NEW (nullsafe)
 const modeA = isShowDay && eligible && (todays.length > 0 || agendaToday.length > 0);                                  // CHANGED :215
 ```
 - `isShowDay` / `eligible` unchanged (`:198-201`). `todayIso` from `todayIsoInShowTimezone` (`lib/visibility/packList.ts:102`) — **timezone-aware**; all matching uses this same authority (no UTC/browser-local).
@@ -144,9 +148,12 @@ The SectionCard shell (`data-card-id="today-run-of-show"`, icon, title `"Run of 
 ```
 
 ### 4.3 `components/crew/primitives/ShowDayTimelineList.tsx` (NEW)
-- Container `data-testid={`show-day-timeline-${isoDate}`}` (distinct from RunOfShowList's `run-of-show-${iso}`).
-- **Crew rows** reuse the existing `RunOfShowEntry` rendering (`RunOfShowList.tsx:26-…`) verbatim — same `data-testid="agenda-entry"`, same title/time(`START–FINISH·TRT`)/room/av/synthetic-muted treatment. Zero visual change to a crew row.
-- **Agenda rows** = a NEW muted "event" row, `data-testid="timeline-agenda-session"` (distinct from the crew `"agenda-entry"`): renders `clock` (the session start, from `session.time`), `title` (null → time-only), `room` (null/empty → omit), with a small **event marker** (e.g. an eyebrow/badge "Agenda" or a calendar glyph) and muted text tone (`text-text-subtle`). **`tracks` and `drift` are never read** (D7). The exact visual treatment is specified in §6 and finalized against a DESIGN.md mock at implementation (impeccable v3).
+**Props:** `{ items: TimelineItem[]; isoDate: string }`. For each item: `source === "crew"` → render the existing `RunOfShowEntry` with `item.entry`; `source === "agenda"` → render the new `AgendaSessionRow` with `item.session`. Direct import from `RunOfShowList.tsx` (no barrel; `components/crew/primitives/` has no `index.ts`).
+- Container `data-testid={`show-day-timeline-${isoDate}`}`, classes `mt-2 flex flex-col` (mirrors `RunOfShowList.tsx:139`). Distinct from RunOfShowList's `run-of-show-${iso}`.
+- **Crew rows** reuse the existing `RunOfShowEntry` rendering (`RunOfShowList.tsx:26-…`) **verbatim** — same `data-testid="agenda-entry"`, same title/time(`START–FINISH·TRT`)/room/av/synthetic-muted treatment. Zero visual change to a crew row. (`RunOfShowEntry` must be exported from `RunOfShowList.tsx` for reuse — currently module-private; export it.)
+- **Agenda rows** = a NEW muted "event" row `AgendaSessionRow`, `data-testid="timeline-agenda-session"` (distinct from the crew `"agenda-entry"`), `min-w-0`. Renders: the **full `session.time` string verbatim** (e.g. `"9:00 AM – 9:40 AM"` or `"9:00 AM"` — NOT just the start; the range is useful event context), `title` (null → time-only row), `room` (null/empty → omit), a small **event marker** (badge/eyebrow), muted tone (`text-text-subtle`). **`tracks` and `drift` are never read** (D7). `clockToMinutes` is used ONLY for sort/dedup, never for display.
+- **Capping (mirrors `RunOfShowList`'s established pattern, `:113-136`):** crew rows are **never** capped (authoritative). Agenda rows are capped at `RUN_OF_SHOW_DISPLAY_CAP` (`lib/crew/agendaDisplay.ts:16`, =20) — keep the first `cap` agenda-source items in timeline order; if more exist, render a single `+N more agenda item(s)` overflow stub (`data-testid="timeline-agenda-overflow"`) after the last shown agenda row. A merged day rarely exceeds the cap, but mobile Today must not render 30+ rows.
+- The agenda-row visual treatment (the event marker glyph/badge, its placement/color/contrast, and a side-by-side proving it is **distinct from the muted synthetic crew row** `RunOfShowList.tsx` strike/loadout treatment) is finalized against the DESIGN.md subsection (§7) at implementation, under the impeccable v3 dual-gate.
 
 ---
 
@@ -155,7 +162,7 @@ The SectionCard shell (`data-card-id="today-run-of-show"`, icon, title `"Run of 
 | Condition | Behavior | Guard / citation |
 |---|---|---|
 | today not a show day (travel/set) | card not rendered | `modeA` false (`isShowDay` false, `:198,215`) |
-| `unknown_asterisk` restriction | `todays = []`; agenda-only could still render if sessions exist *and* viewer eligible — but `eligible` is independent of restriction-kind here, so confirm: `unknown_asterisk` ⇒ no crew; agenda shows only if `eligible` true | `:212`, §4.1; **resolved:** `unknown_asterisk` does not force `eligible=false`, so an `unknown_asterisk` viewer on a show day *with* agenda would see agenda-only. **This is acceptable** (the agenda is public program info, never per-viewer gated, §2.2). |
+| `unknown_asterisk` restriction | **card NOT rendered (no agenda leak)** | `eligible` (`:199-201`) is `true` **only** when `dateRestriction.kind === "none"` OR (`"explicit"` ∧ today ∈ days); `kind === "unknown_asterisk"` matches **neither** → `eligible === false` → `modeA === false`. So an `unknown_asterisk` viewer sees **no** timeline (and `todays` is `[]` too, `:212`). The unified timeline introduces **no** new exposure for restricted viewers — agenda is never shown to an ineligible viewer because the whole `modeA` branch is gated on `eligible`. |
 | crew-only (no/low-conf/no-match agenda) | existing `RunOfShowList(todays)`, **unchanged** | §3 activation rule; `agendaToday=[]` |
 | agenda-only (zero crew entries) | merged list = agenda rows only | D6; `modeA` via the `\|\|` (§4.1) |
 | both present | interleaved, sorted, deduped | §3.3 |
@@ -172,6 +179,8 @@ The SectionCard shell (`data-card-id="today-run-of-show"`, icon, title `"Run of 
 | dedup exact (same minute + same normTitle) | agenda suppressed, crew kept (with its room/av) | §3.3 step 3 |
 | dedup near-miss (minute off / title differs) | **both** shown | §3.3 step 3 (no fuzzy) |
 | crew loadout entry, non-transport viewer | already filtered out upstream; never in the merge | §2.1; merge does NOT re-gate |
+| > `RUN_OF_SHOW_DISPLAY_CAP` agenda sessions today | first `cap` agenda rows shown + `+N more agenda item(s)` stub; crew rows uncapped | §4.3 capping |
+| agenda session time unparseable | dropped in `agendaSessionsForToday` (step 5) → not in `agendaToday` | §3.2 step 5 |
 | DST / near-midnight | `todayIso` in show tz; all comparisons share that authority | `todayIsoInShowTimezone` (`packList.ts:102`) |
 
 ---
@@ -185,7 +194,7 @@ The card lives in the Mode A split-wide grid (`today-mode-a-grid`, `:575`), whic
 - **Real-browser assertion (mandatory layout-dimensions task):** at the captured mobile width, every row's `getBoundingClientRect().width` equals the list container's content width (±0.5px), and the list's height equals the sum of its rows (no clipping). Jsdom is insufficient (AGENTS.md).
 
 ### 6.2 Transition Inventory
-The card has **4 content states** keyed purely on data (no toggles/animation): `crew-only`, `agenda-only`, `merged`, `not-rendered`. There are **no client-side interactive transitions** (it's a server-rendered list; the only interactivity is the existing `SourceLink`/`SectionChipLink` navigations, unchanged). For the N=4 states, all `N*(N-1)/2 = 6` pairs are **"instant — no animation; the card re-renders from new server data on navigation/refresh"** (the page is RSC; state changes come from a fresh render, not in-place client animation). Compound transitions: none (no overlapping client state). This is declared explicitly so the reviewer does not expect `AnimatePresence`/exit props — there are none and none are needed.
+The card is **server-rendered**; no client-side animation. The four states (`crew-only`, `agenda-only`, `merged`, `not-rendered`) are purely data-driven and **instant** (RSC re-render on navigation/refresh) — all 6 state-pairs are "instant, no animation." No `AnimatePresence`/exit props exist or are needed; the only interactivity is the existing (unchanged) `SourceLink`/`SectionChipLink` navigations. Distinguishing crew vs agenda rows is a **static styling** difference (§4.3), not a transition.
 
 ---
 
@@ -198,24 +207,24 @@ The card has **4 content states** keyed purely on data (no toggles/animation): `
 - **MODIFY** `components/crew/sections/TodaySection.tsx` (`:211-215` compute + `:215` gate + `:579-599` card body branch)
 - **MODIFY** `tests/components/crew/sections/TodaySection.modeA.test.tsx` (add agenda-only Mode-A case + a merged-interleave case; existing cases unchanged)
 - **MODIFY** `tests/e2e/crew-layout-dimensions.spec.ts` (extend the Today Mode-A dimension assertions to the timeline rows)
-- **DESIGN.md** — a short subsection documenting the unified-timeline card states + the crew-vs-agenda row treatment (referenced by the impeccable gate).
+- **MODIFY** `components/crew/primitives/RunOfShowList.tsx` — **export `RunOfShowEntry`** (currently module-private) for reuse by `ShowDayTimelineList`. No behavior change.
+- **DESIGN.md** — a NEW subsection (placed after the existing split-wide amendment) titled "Crew Today — unified show-day timeline card." It MUST contain: (a) the 4-state table (crew-only / agenda-only / merged / not-rendered); (b) the **crew row** treatment (real vs synthetic-muted, unchanged from today); (c) the **agenda row** treatment — the exact event marker (badge/eyebrow/glyph), its placement/size/color/contrast, and a **side-by-side** showing the agenda row is visually **distinct from the muted synthetic crew row** (the two muted styles must not collide); (d) the cap + overflow-stub copy. This subsection is the artifact the impeccable v3 gate critiques.
 
-No `lib/agenda/*`, no `lib/parser/*`, no `supabase/`, no `app/api/`, no `EXTRACTOR_VERSION`.
+No `lib/agenda/*`, no `lib/parser/*`, no `supabase/`, no `app/api/`, no `EXTRACTOR_VERSION`. No primitives barrel (`components/crew/primitives/` has no `index.ts`; direct imports).
 
 ---
 
 ## 8. Test plan (TDD, anti-tautology)
 
-Pure-module tests assert against the **returned data structure**, with expectations **derived from fixture inputs** (never hardcoded). Each test names the concrete bug it catches.
+Pure-module tests assert against the **returned data structure**. **Anti-tautology rules (AGENTS.md):** sort/order assertions use a fixture in a **deliberately non-sorted** input order and assert a **constant** expected order (never one re-derived by sorting the fixture); the digit-collapse and dedup tests are **mutation-verified** (the named line, when removed, must flip the test); DOM scans clone the tree and scope to the card. Each test states the concrete bug it catches.
 
-- **`clockToMinutes`:** `"9 AM"→540`, `"9:00 AM"→540` (bare-hour ≡ explicit; catches sort-position divergence), `"12:00 AM"→0`, `"12:30 AM"→30`, `"12:00 PM"→720`, `"12:30 PM"→750`, `"1:00 PM"→780` (12h-wrap; catches noon-before-midnight), `"9:00 AM – 9:40 AM"→540` (range→start), `"9:00"→null`, `"TBD"→null` (no-meridiem→null; catches false placement).
-- **`parseIsoFromDayLabel`:** the **6 real labels** as fixtures — `"Tuesday, March 2 4 , 202 6"→"2026-03-24"`, `"Wednesday , June 2 5 , 202 5"→"2025-06-25"`, `"Thursday, October 9, 202 5"→"2025-10-09"`, `"Monday , May 4, 2026"→"2026-05-04"`, `"Tuesday May 13,2024"→"2024-05-13"` (glyph-split + comma/space variance; **catches the silent ~50% parse failure** if the digit-collapse is dropped), `"Day 1"→null`, `"Friday"→null`.
-- **`agendaSessionsForToday`:** date-bearing match returns that day's sessions; non-matching today → `[]`; low-conf → `[]`; positional fallback fires when counts equal + labels positional (assert the *index-mapped* day's sessions, derived from the fixture); positional **blocked** when counts differ (→`[]`); `showDays` with a null blocks positional. *Failure mode:* wrong-day sessions surfaced, or agenda silently shown on a non-show day.
-- **`buildShowDayTimeline`:** interleave order (derive expected order by sorting the fixture's known minutes); dedup exact (crew "9 AM Keynote" + agenda "9:00 AM – … Keynote" → 1 item, crew kept); dedup near-miss (9:00 vs 9:05, or title differs → 2 items); agenda-null-time dropped (count = crew + agenda − dropped); crew-null-time sorts last; crew-vs-crew dup NOT deduped; ties → crew before agenda. *Failure mode:* an agenda extraction error suppressing a real crew call, or a double-shown item.
-- **`ShowDayTimelineList`:** crew rows render as `agenda-entry` (existing treatment); agenda rows render as `timeline-agenda-session` with muted tone + event marker, time + title + room, **no track/drift**; agenda-only list renders; null-title agenda → time-only row.
-- **`TodaySection.modeA`:** **agenda-only** show day (no crew entries, high-conf agenda for today) → Mode A renders with `timeline-agenda-session` rows and **no** `run-of-show-<iso>` plain list; **merged** day → both `agenda-entry` and `timeline-agenda-session` present, interleaved; **crew-only** day (no agenda) → unchanged `RunOfShowList` (`run-of-show-<iso>` present, no `timeline-agenda-session`). Existing no-content cases unchanged.
-- **Layout-dimensions (e2e, real browser):** §6.1 width/height invariants on the timeline rows at the captured mobile viewport.
-- **Anti-tautology guard:** the modeA component tests clone the tree and scope to the `today-run-of-show` card before counting rows (a sibling card must not satisfy the assertion); expected session counts come from `markdownVariables`/fixture session arrays, not literals.
+- **`clockToMinutes` (`tests/time/clockToMinutes.test.ts`):** `"9 AM"→540` and `"9:00 AM"→540` (bare-hour ≡ explicit-minutes — catches a parser that ignores bare hours); `"12:00 AM"→0`, `"12:30 AM"→30`, `"12:00 PM"→720`, `"12:30 PM"→750`, `"1:00 PM"→780` (12h-wrap — catches noon/midnight inversion); `"9:00 AM – 9:40 AM"→540` (range→start split); `"9:00"→null`, `"TBD"→null`, `"9:00 AM x"→null` (no-meridiem / trailing-garbage → null, proving the `^…$` anchor — catches false placement). *Failure mode:* a clock that converts to the wrong minute-of-day, mis-ordering the merged list. (Sort-position regressions live in the `buildShowDayTimeline` tests, not here.)
+- **`parseIsoFromDayLabel` (`tests/crew/agendaDayForToday.test.ts`):** the **6 real labels** as fixtures (verbatim, glyph-split) → exact ISO: `"Tuesday, March 2 4 , 202 6"→"2026-03-24"`, `"Wednesday , June 2 5 , 202 5"→"2025-06-25"`, `"Thursday, October 9, 202 5"→"2025-10-09"`, `"Monday , May 4, 2026"→"2026-05-04"`, `"Tuesday May 13,2024"→"2024-05-13"`; plus `"Day 1"→null`, `"Friday"→null`, `"May 4, 26"→null` (2-digit year unsupported). **Mutation guard (mandatory):** a fixture that is *provably* unparseable without the digit-collapse — `"March 2 4 , 202 6"` — is asserted `→"2026-03-24"`, and the plan's negative-regression step removes `/(?<=\d)\s+(?=\d)/g` and confirms this case flips to `null` (proving the collapse is load-bearing, not incidental). Also `"Marb 5, 2026"→null` (bad month prefix → map miss).
+- **`agendaSessionsForToday`:** (1) date-bearing match returns exactly the matched day's **placeable** sessions; (2) today not in any day → `[]`; (3) low-confidence extraction → `[]`; (4) **first** high-conf link chosen when multiple `agenda_links`; (5) positional fallback **fires** — fixture `showDays=["2026-01-01","2026-01-02","2026-01-03"]`, `todayIso="2026-01-02"`, extraction 3 days labeled `"Day 1/2/3"` each with **distinct** sessions; assert the returned sessions are exactly **day index 1's** (the fixture's day-2 sessions) — catches off-by-one index mapping; (6) positional **blocked** when `ext.days.length !== showDays.length` → `[]`; (7) positional **blocked** when any `showDays[i]` is null → `[]`; (8) positional **blocked** when *any* label parsed a date (partial date-alignment) → `[]`; (9) unplaceable-time sessions filtered out (matched day has 3 sessions, one `time:"TBD"` → returns 2). *Failure mode:* wrong-day sessions surfaced, or agenda shown when it shouldn't be.
+- **`buildShowDayTimeline`:** **interleave order** — fixture in non-sorted input order (crew `["10:00 AM" Set, "8:00 AM" LoadIn]`, agenda `["9:00 AM – … Keynote"]`) → assert the **constant** expected order `[LoadIn(8:00), Keynote(9:00), Set(10:00)]` by `(source,minutes)` (a descending or input-order impl fails); **dedup exact** — crew `"9:00 AM" "Keynote"` + agenda `"9:00 AM – 9:40 AM" "Keynote"` → **1** item, the crew row (keeps crew room/av); **dedup near-miss** — `9:00` vs `9:05`, or title `"Keynote"` vs `"Keynote Q&A"` → **2** items; **mutation guard:** removing the dedup `normTitle`-equality clause makes the exact-dedup case render 2 instead of 1; **ties** — crew `"9:00 AM" "X"` + agenda `"9:00 AM" "Y"` (different titles → not deduped) → **2** items, crew **first**; **crew-null-time** — crew `"TBD"` sorts last; **agenda-null-time** dropped (defensive); **crew-vs-crew dup** — two identical crew entries → **both** kept. *Failure mode:* a real crew call suppressed, or a double-shown item.
+- **`ShowDayTimelineList` (`tests/components/crew/primitives/…`):** scope every assertion to `container.querySelector('[data-testid="show-day-timeline-<iso>"]')`. Crew items → `data-testid="agenda-entry"` (existing treatment); agenda items → `data-testid="timeline-agenda-session"` with the full `session.time` string, muted tone + event marker, room when present, **no** track/drift text; null-title agenda → time-only row; > cap agenda → first `cap` rows + one `timeline-agenda-overflow` stub; crew rows never capped.
+- **`TodaySection.modeA` (`tests/components/crew/sections/TodaySection.modeA.test.tsx`, EXTEND):** build inputs with the real `makeShowForViewer()` fixture (`tests/fixtures/showForViewer.ts`); derive expected counts from the fixture's `agendaToday`/`todays` arrays (never literals). Clone the tree and scope to the `today-run-of-show` card before counting. Cases: (a) **agenda-only** show day (fixture crew `[]`, one high-conf agenda day matching the fixture's `todayIso`) → `[data-testid="show-day-timeline-<iso>"]` present, `timeline-agenda-session` count === the day's session count, **no** `run-of-show-<iso>` plain list; (b) **merged** → both `agenda-entry` and `timeline-agenda-session` present; (c) **crew-only** (no `agenda_links`) → `run-of-show-<iso>` present, **zero** `timeline-agenda-session`, and `show-day-timeline-<iso>` absent (proves the activation rule). Existing no-content cases (`:119,239-240`) unchanged (their fixtures have no `agenda_links`).
+- **Layout-dimensions (e2e, real browser, `tests/e2e/crew-layout-dimensions.spec.ts`):** fixture = 2 crew + 2 agenda rows interleaved; assert each row's `getBoundingClientRect().width === showDayTimeline.contentWidth` (±0.5px) and `list.height === Σ rows` (±0.5px) at the captured mobile viewport (§6.1). Jsdom insufficient.
 
 ---
 
@@ -230,8 +239,10 @@ Pure-module tests assert against the **returned data structure**, with expectati
 
 - **Render-only, no extractor change** is a ratified decision (D5). Do not propose populating `AgendaDay.date` in the extractor (that would force a re-extract / `EXTRACTOR_VERSION` bump, which we just shipped #190). The date is derived at render from `dayLabel`.
 - **The glyph-split digit collapse in `parseIsoFromDayLabel` is mandatory and validated against live data** (not speculative) — ~50% of real day labels are `"202 6"`-style. Do not "simplify" it away.
-- **Crew-only path is intentionally byte-identical** (§3 activation rule): the new sort/dedup only runs when agenda is present. Do not propose always-sorting crew entries (that would reorder the crew-only common case and regress its screenshot/tests).
+- **Crew-only path renders the identical component** (§3 activation rule): when `agendaToday` is empty, `RunOfShowList(todays)` is invoked exactly as today (same component, same sort=sheet-order, same cap) — render-identical output. (The `modeA` *gate condition* gains `|| agendaToday.length>0`, but that only adds the agenda-only case; it never changes the crew-only render.) Do not propose always-sorting crew entries (that would reorder the crew-only common case). Note the intentional asymmetry: on a *merged* day crew entries are time-sorted to interleave; on a *crew-only* day they keep sheet order — acceptable because well-formed sheets are already chronological and the sort is stable.
 - **Dedup is exact, crew-wins, no fuzzy matching** (D3) — by design, to avoid suppressing a real crew call on a wrong fuzzy match. Do not propose tolerance windows or similarity scoring.
 - **The merge does NOT re-gate** — crew entries arrive already per-viewer filtered (`scheduleEntriesForViewer`); agenda is public/ungated. Do not add `dateRestriction` handling inside the merge.
 - **`modeA` gate change is the minimal `|| agendaToday.length>0`** — the existing no-content tests are unaffected because those fixtures have no `agenda_links`.
-- **Today card title stays "Run of show"** (D8) — not "Crew Schedule"; the rename is a separate (parked) change for the Schedule tab + Step 3.
+- **Today card title stays "Run of show"** (D8) — not "Crew Schedule"; the rename is a separate (parked) change for the Schedule tab + Step 3. **On an agenda-only day** the card titled "Run of show" shows only event sessions — this is the **deliberate, ratified** choice (D6+D8): the agenda *is* the run of the show that day, and a conditional title would add state/complexity the user did not request. Do not relitigate as a "misleading title."
+- **`clockToMinutes` lives in `lib/time/`** as a string→minute-of-day primitive (no existing `lib/time/*` does string→minutes — grounding). This is a deliberate placement (reusable, pure), not over-scoping; it has exactly one caller today and that is fine.
+- **2-digit years are intentionally unsupported** in `parseIsoFromDayLabel` (real PDFs use 4-digit years; the 6-PDF corpus confirms). Such a label falls to the guarded positional fallback. Do not add ambiguous 2-digit-year parsing (the >2069 pivot is a footgun).
