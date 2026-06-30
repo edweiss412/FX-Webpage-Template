@@ -832,6 +832,40 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(t).toContain("120 E Delaware Pl"); // address now shown
     expect(t).not.toContain("SECRET-123"); // confirmation_no stays private
   });
+
+  test("crew breakdown shows partial-attendance as-parsed (BL-CREW-PARTIAL-ATTENDANCE-CHIP)", () => {
+    const pr = {
+      ...GEAR_PR,
+      crewMembers: [
+        {
+          name: "Calvin",
+          role: "BO",
+          phone: null,
+          date_restriction: { kind: "explicit", days: ["10/7", "10/9"] },
+        },
+        {
+          name: "Kari",
+          role: "BO",
+          phone: null,
+          date_restriction: { kind: "unknown_asterisk", days: null },
+        },
+        { name: "Doug", role: "Lead", phone: null, date_restriction: { kind: "none" } },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-pa", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-pa-more"));
+    const t = getByTestId("wizard-step3-card-drive-pa-breakdown-crew").textContent ?? "";
+    expect(t).toContain("Doug"); // all 3 members render
+    expect(t).toContain("10/7, 10/9 only"); // Calvin: explicit raw, as-parsed
+    expect(t).toContain("Partial (dates TBD)"); // Kari: unknown_asterisk
+    // none-member (Doug) adds NO suffix → exactly ONE " only" + ONE "Partial (dates TBD)"
+    // across the 3-member breakdown (anti-tautology — a leaked suffix on Doug fails this):
+    expect((t.match(/ only/g) ?? []).length).toBe(1);
+    expect((t.match(/Partial \(dates TBD\)/g) ?? []).length).toBe(1);
+  });
 });
 
 describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSection)", () => {
