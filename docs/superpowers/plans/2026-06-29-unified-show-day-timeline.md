@@ -419,13 +419,13 @@ export function buildShowDayTimeline(
     source: "crew", entry, minutes: clockToMinutes(entry.start),
   }));
   const crewKeys = new Set(
-    crew.filter((c) => c.minutes !== null).map((c) => `${c.minutes} ${normTitle((c as { entry: AgendaEntry }).entry.title)}`),
+    crew.filter((c) => c.minutes !== null).map((c) => JSON.stringify([c.minutes, normTitle((c as { entry: AgendaEntry }).entry.title)])),
   );
   const agenda: TimelineItem[] = [];
   for (const session of agendaSessions) {
     const minutes = clockToMinutes(session.time);
     if (minutes === null) continue; // defensive (caller already filtered)
-    if (crewKeys.has(`${minutes} ${normTitle(session.title)}`)) continue; // dedup, crew wins
+    if (crewKeys.has(JSON.stringify([minutes, normTitle(session.title)]))) continue; // dedup, crew wins
     agenda.push({ source: "agenda", session, minutes });
   }
   const items = [...crew, ...agenda];
