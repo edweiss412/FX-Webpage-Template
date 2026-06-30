@@ -11,6 +11,7 @@ import {
   newAggregator,
   emitFieldUnreadable,
   emitUnknownSection,
+  emitUnknownField,
   FIELD_UNREADABLE,
   UNKNOWN_SECTION_HEADER,
   BLOCK_DISAPPEARED,
@@ -77,6 +78,35 @@ describe("emitUnknownSection", () => {
 
   it("no-ops when the aggregator is undefined", () => {
     expect(() => emitUnknownSection(undefined, "CATERING")).not.toThrow();
+  });
+});
+
+describe("emitUnknownField", () => {
+  it("pushes an UNKNOWN_FIELD warning + a raw_unrecognized entry", () => {
+    const agg = newAggregator();
+    emitUnknownField(agg, {
+      block: "event_details",
+      kind: "details",
+      key: " Rigging ",
+      value: "2 motors",
+    });
+    expect(agg.warnings).toEqual([
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized event_details row label: 'Rigging'",
+        blockRef: { kind: "details" },
+        rawSnippet: "Rigging | 2 motors",
+      },
+    ]);
+    expect(agg.rawUnrecognized).toEqual([
+      { block: "event_details", key: "Rigging", value: "2 motors" },
+    ]);
+  });
+  it("no-ops on an undefined aggregator (no throw)", () => {
+    expect(() =>
+      emitUnknownField(undefined, { block: "x", kind: "x", key: "k", value: "v" }),
+    ).not.toThrow();
   });
 });
 
