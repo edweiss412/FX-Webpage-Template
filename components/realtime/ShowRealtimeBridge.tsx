@@ -82,7 +82,7 @@
  *     (f) log SHOW_REALTIME_JWT_RENEWED outcome:'success'
  *
  *   Renewal mint failure → log SHOW_REALTIME_BROADCAST_AUTH_FAILED, no
- *   retry-loop. Initial subscribe failure → console.warn, no retry-loop.
+ *   retry-loop. Initial subscribe failure → clientLog warn, no retry-loop.
  *   Bounded backoff retry is a v2 enhancement; v1 fails open.
  *
  * Defense-in-depth note:
@@ -95,6 +95,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+import { clientLog } from "@/lib/observe/clientLog";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { subscribeToShow } from "@/lib/realtime/subscribeToShow";
 import type { ShowInvalidationChannel } from "@/lib/realtime/subscribeToShow";
@@ -302,8 +303,10 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
       // skipped refresh, leaving stale show data on screen for a
       // viewer whose session was revoked while disconnected.
       if (result.kind === "auth_denied") {
-        console.warn(
-          "[ShowRealtimeBridge] version endpoint returned auth_denied; forcing refresh to let the auth chain re-evaluate",
+        clientLog(
+          "warn",
+          "client.realtime",
+          "version endpoint returned auth_denied; forcing refresh",
           { status: result.status },
         );
         router.refresh();
@@ -381,15 +384,19 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           // chain re-evaluates and reroutes) from transient_failure
           // (network / 5xx — stay silent fail-open).
           if (mintResult.kind === "auth_denied") {
-            console.warn(
-              "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: auth_denied — viewer session revoked; forcing refresh",
+            clientLog(
+              "warn",
+              "client.realtime",
+              "JWT renew outcome auth_denied — viewer session revoked; forcing refresh",
               { reason: "mint_auth_denied", status: mintResult.status },
             );
             router.refresh();
             return;
           }
-          console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; will retry via bounded backoff",
+          clientLog(
+            "warn",
+            "client.realtime",
+            "BROADCAST_AUTH_FAILED — JWT renewal mint failed; will retry via bounded backoff",
           );
           // Logging contract: the file-header doc (line ~82) promises a
           // `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'` log on every
@@ -397,7 +404,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           // line ~298. Each failure branch emits the failed outcome with
           // a distinct `reason` tag so dashboards can disambiguate
           // mint-fail vs setAuth-fail vs subscribe-fail.
-          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+          clientLog("warn", "client.realtime", "JWT renew outcome failed (mint_failed)", {
             reason: "mint_failed",
           });
           // Codex round-21 MEDIUM: a transient mint failure (5xx /
@@ -416,11 +423,13 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
         try {
           supabase.realtime.setAuth(newJwt);
         } catch (err) {
-          console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — setAuth threw during renewal",
+          clientLog(
+            "warn",
+            "client.realtime",
+            "BROADCAST_AUTH_FAILED — setAuth threw during renewal",
             err,
           );
-          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+          clientLog("warn", "client.realtime", "JWT renew outcome failed (set_auth_threw)", {
             reason: "set_auth_threw",
             err,
           });
@@ -491,8 +500,8 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           newChannel = result.channel;
           newSubscribed = result.subscribed;
         } catch (err) {
-          console.warn("[ShowRealtimeBridge] subscription failed during renewal", err);
-          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+          clientLog("warn", "client.realtime", "subscription failed during renewal", err);
+          clientLog("warn", "client.realtime", "JWT renew outcome failed (subscribe_threw)", {
             reason: "subscribe_threw",
             err,
           });
@@ -524,7 +533,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           await newSubscribed;
           readinessOk = true;
         } catch (err) {
-          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+          clientLog("warn", "client.realtime", "JWT renew outcome failed (readiness_failed)", {
             reason: "readiness_failed",
             err,
           });
@@ -564,7 +573,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
         // (f) Renewal succeeded — log success. Only fires on the
         // SUBSCRIBED-readiness path; failure path returned above without
         // logging success.
-        console.info("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success");
+        clientLog("info", "client.realtime", "JWT renew outcome success");
         // Reset backoff on a clean subscribe so a transient blip
         // doesn't poison the next legitimate failure-recovery sequence.
         renewalBackoffStepRef.current = 0;
@@ -647,7 +656,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           // branch is unreachable, but Supabase may deliver an unenumerated
           // event at runtime. We log without crashing.
           const unknownEvent = e as unknown as { event?: unknown };
-          console.warn("[ShowRealtimeBridge] unknown system event", unknownEvent);
+          clientLog("warn", "client.realtime", "unknown system event", unknownEvent);
           return;
         }
       }
@@ -687,8 +696,10 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           initialMintResult.kind === "auth_denied"
             ? `mint_auth_denied_${initialMintResult.status}`
             : "mint_transient";
-        console.warn(
-          "[ShowRealtimeBridge] subscription failed: initial JWT mint returned no token; falling back to no-op (no retry loop)",
+        clientLog(
+          "warn",
+          "client.realtime",
+          "subscription failed: initial JWT mint returned no token; falling back to no-op (no retry loop)",
           { reason },
         );
         return;
@@ -698,7 +709,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
       try {
         supabase.realtime.setAuth(jwt);
       } catch (err) {
-        console.warn("[ShowRealtimeBridge] subscription failed: setAuth threw", err);
+        clientLog("warn", "client.realtime", "subscription failed: setAuth threw", err);
         return;
       }
 
@@ -729,7 +740,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
       } catch (err) {
         // Single failed subscribe does NOT loop. Bounded-backoff retry
         // is a v2 enhancement; v1 fails open.
-        console.warn("[ShowRealtimeBridge] subscription failed", err);
+        clientLog("warn", "client.realtime", "subscription failed", err);
         return;
       }
       currentChannelRef.current = channel;
@@ -749,7 +760,7 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
         await subscribedPromise;
         readinessOk = true;
       } catch (err) {
-        console.warn("[ShowRealtimeBridge] subscription readiness failed", err);
+        clientLog("warn", "client.realtime", "subscription readiness failed", err);
       }
       if (effectToken.aborted) return;
       if (!isMountedRef.current || initialAborted) return;
