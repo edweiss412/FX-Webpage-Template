@@ -265,14 +265,22 @@ const consultants = () =>
   parseSheet(readFileSync("fixtures/shows/exporter-xlsx/consultants.md", "utf8"));
 
 describe("lunch-room dedup (H2)", () => {
-  it("merges the GEAR lunch room onto the INFO lunch room (no duplicate)", () => {
+  it("merges the GEAR lunch room onto the INFO lunch room without losing INFO data", () => {
     const rooms = consultants().rooms;
     const ballroomC = rooms.filter((r) => /\bBALLROOM C\b/i.test(r.name));
-    // Exactly one BALLROOM C room (the INFO breakout), carrying GEAR audio.
+    // Exactly one BALLROOM C room (the INFO breakout), not two.
     expect(ballroomC).toHaveLength(1);
     const lunch = ballroomC[0]!;
     expect(lunch.kind).toBe("breakout");
-    expect(lunch.audio).toBeTruthy(); // GEAR audio merged in
+    // GEAR audio merged in...
+    expect(lunch.audio).toBeTruthy();
+    // ...AND the INFO room's own data survives (the H2 bug is split-room data
+    // loss: a gear-only BALLROOM C room would have null times/setup, so these
+    // assertions prove the merge landed ON the INFO room, not a gear stub).
+    expect(lunch.setup).toBeTruthy();
+    expect(lunch.set_time).toBeTruthy();
+    expect(lunch.show_time).toBeTruthy();
+    expect(lunch.strike_time).toBeTruthy();
     // No separate GRAND BALLROOM C room remains.
     expect(rooms.some((r) => /^GRAND BALLROOM C$/i.test(r.name))).toBe(false);
   });
@@ -541,10 +549,23 @@ Expected: clean.
 
   Record the result (pass/fail + any drift) in the PR description. If the live sheet has drifted from these assumptions, STOP and reconcile before merge.
 
-- [ ] **Step 4: Run the broader suite touched by parser output** (defense vs. cross-surface breakage)
+- [ ] **Step 4: Run the broader suites that consume parser output — BLOCKING, no fallback** (defense vs. cross-surface breakage). Do NOT use `|| pnpm vitest run tests/parser` (it would swallow real onboarding/tile failures).
 
-Run: `pnpm vitest run tests/parser tests/onboarding tests/components/tiles 2>/dev/null || pnpm vitest run tests/parser`
-Expected: PASS. (If the wider suite is slow/oversized, at minimum run any suite that imports `parseSheet`/room/title/event output. Note in the PR which suites ran.)
+First discover the consumers:
+
+```bash
+grep -rlE "from \"@/lib/parser|parseSheet|getShowForViewer" tests | grep -v "^tests/parser/" | sort -u
+```
+
+Then run EACH discovered suite as its own blocking command (failure = stop + diagnose), e.g.:
+
+```bash
+pnpm vitest run tests/onboarding
+pnpm vitest run tests/components/tiles   # only if it exists
+pnpm vitest run tests/data               # only if it exists
+```
+
+Expected: PASS for every suite that exists. For any suite that is intentionally NOT run (does not exist, is a real-DB/env-gated suite, or is oversized for local), record the suite name + the explicit skip reason in the PR body — never silently swallow a failure. The whole-diff Codex review (Task 5) and real CI (Task 5 Step 3) are the backstops, but local cross-surface green must be genuine.
 
 - [ ] **Step 5: No commit** (verification task — its evidence lands in the PR body). If Step 2 required a formatting fix, commit it as `chore(parser): formatting`.
 
