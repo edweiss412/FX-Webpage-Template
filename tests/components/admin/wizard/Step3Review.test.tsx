@@ -571,6 +571,38 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(queryByTestId("wizard-step3-card-drive-gear-1-room-1-scope")).toBeNull();
   });
 
+  test("each room shows its non-empty detail (dimensions/floor/setup/times) as-parsed incl. sentinels (BL-ROOM-DETAIL-UNRENDERED)", () => {
+    const pr = {
+      ...GEAR_PR,
+      rooms: [
+        {
+          kind: "gs",
+          name: "GRAND BALLROOM",
+          dimensions: "60' x 45'",
+          floor: "TBD", // sentinel → SHOWN as-parsed (review surface)
+          setup: "18 tables of 7",
+          set_time: "5/13 after 8pm",
+          show_time: "   ", // whitespace-only → omitted (empty after trim)
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-gear-3", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-3-more"));
+    const detail = getByTestId("wizard-step3-card-drive-gear-3-room-0-detail").textContent ?? "";
+    expect(detail).toContain("Dimensions:");
+    expect(detail).toContain("60' x 45'");
+    expect(detail).toContain("Setup:");
+    expect(detail).toContain("Set time:");
+    // sentinel SHOWN as-parsed (review surface, NOT sentinel-hidden like the crew page):
+    expect(detail).toContain("Floor:");
+    expect(detail).toContain("TBD");
+    // whitespace-only omitted (empty after trim):
+    expect(detail).not.toContain("Show time:");
+  });
+
   test("event-details breakdown shows keynote + URL-stripped opening reel (no Drive URL leak)", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,
@@ -599,6 +631,206 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(
       getByTestId("wizard-step3-card-drive-gear-2-breakdown-event-details").textContent,
     ).toContain("No event details parsed.");
+  });
+
+  test("venue breakdown shows address/loading dock/maps as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        venue: {
+          name: "Four Seasons",
+          address: "120 E Delaware Pl",
+          city: "TBD", // sentinel → shown as-parsed
+          loadingDock: "64 East Walton St",
+          googleLink: "https://maps.google.com/x",
+        },
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-venue", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-venue-more"));
+    const t = getByTestId("wizard-step3-card-drive-venue-breakdown-venue").textContent ?? "";
+    expect(t).toContain("Address:");
+    expect(t).toContain("120 E Delaware Pl");
+    expect(t).toContain("Loading dock:");
+    expect(t).toContain("Maps link:");
+    expect(t).toContain("https://maps.google.com/x"); // raw text, not a live link
+    expect(t).toContain("City:");
+    expect(t).toContain("TBD"); // sentinel as-parsed
+  });
+
+  test("ops breakdown shows COI/Proposal/PO#/Invoice as-parsed, ungated (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        coi_status: "SENT",
+        proposal: "Sent - $17,500",
+        po: "PO-IIL007245",
+        invoice: "TBD",
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ops", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ops-more"));
+    const t = getByTestId("wizard-step3-card-drive-ops-breakdown-ops").textContent ?? "";
+    expect(t).toContain("COI:");
+    expect(t).toContain("SENT");
+    expect(t).toContain("PO#:");
+    expect(t).toContain("PO-IIL007245");
+    expect(t).toContain("Proposal:");
+    expect(t).toContain("Invoice:");
+    expect(t).toContain("TBD"); // sentinel as-parsed
+  });
+
+  test("transport breakdown shows driver/vehicle/parking + schedule legs as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      transportation: {
+        driver_name: "Carlos Pineda",
+        driver_phone: "610-618-0111",
+        driver_email: null,
+        vehicle: "16' Box Truck",
+        license_plate: "TBD", // sentinel → as-parsed
+        color: "", // empty → omitted
+        parking: "14 East Cedar",
+        notes: null,
+        schedule: [
+          { stage: "Pick Up Warehouse", date: "10/6", time: "TBD", assigned_names: ["Doug"] },
+        ],
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-tr-more"));
+    const t = getByTestId("wizard-step3-card-drive-tr-breakdown-transport").textContent ?? "";
+    expect(t).toContain("Driver:");
+    expect(t).toContain("Carlos Pineda");
+    expect(t).toContain("Vehicle:");
+    expect(t).toContain("Parking:");
+    expect(t).toContain("License plate:");
+    expect(t).toContain("TBD"); // sentinel as-parsed
+    expect(t).not.toContain("Color:"); // empty → omitted
+    expect(t).toContain("Pick Up Warehouse"); // schedule leg
+    expect(t).toContain("Doug"); // assigned name
+
+    const pr2 = { ...GEAR_PR, transportation: null } as unknown as ParseResult;
+    const row2: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr2", parseResult: pr2 };
+    const { getByTestId: g2 } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row2]} />,
+    );
+    fireEvent.click(g2("wizard-step3-card-drive-tr2-more"));
+    expect(g2("wizard-step3-card-drive-tr2-breakdown-transport").textContent).toContain(
+      "No transportation parsed.",
+    );
+  });
+
+  test("contacts breakdown shows client (+secondary) and venue/in-house-AV contacts (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        client_contact: {
+          name: "Elisabeth Kaufman",
+          phone: "917-414-1935",
+          email: "ek@example.com",
+          secondary: { name: "Maria Ferrer", phone: "555-0000", email: null },
+        },
+      },
+      contacts: [
+        {
+          kind: "in_house_av",
+          name: "Cesar Salazar",
+          phone: "309-532-5534",
+          email: null,
+          notes: null,
+        },
+        {
+          kind: "venue",
+          name: "Jenae Denne",
+          phone: null,
+          email: "jd@fourseasons.com",
+          notes: null,
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ct", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ct-more"));
+    const t = getByTestId("wizard-step3-card-drive-ct-breakdown-contacts").textContent ?? "";
+    expect(t).toContain("Elisabeth Kaufman"); // client primary
+    expect(t).toContain("Maria Ferrer"); // client secondary
+    expect(t).toContain("Cesar Salazar"); // in-house AV
+    expect(t).toContain("In-house AV");
+    expect(t).toContain("Jenae Denne"); // venue
+    expect(t).toContain("Venue contact");
+    expect(t).toContain("Client contact");
+    const expected = 2 + (pr.contacts as unknown[]).length; // primary + secondary + contacts (derived)
+    expect(t).toContain(`(${expected})`);
+
+    const pr2 = {
+      ...GEAR_PR,
+      show: { ...GEAR_PR.show, client_contact: null },
+      contacts: [],
+    } as unknown as ParseResult;
+    const row2: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ct2", parseResult: pr2 };
+    const { getByTestId: g2 } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row2]} />,
+    );
+    fireEvent.click(g2("wizard-step3-card-drive-ct2-more"));
+    expect(g2("wizard-step3-card-drive-ct2-breakdown-contacts").textContent).toContain(
+      "No contacts parsed.",
+    );
+  });
+
+  test("crew breakdown shows each member's phone as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      crewMembers: [{ name: "Doug Larson", role: "Lead", phone: "917-331-4885" }],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-cp", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-cp-more"));
+    const t = getByTestId("wizard-step3-card-drive-cp-breakdown-crew").textContent ?? "";
+    expect(t).toContain("Doug Larson");
+    expect(t).toContain("917-331-4885"); // phone now shown
+  });
+
+  test("hotels breakdown shows hotel_address, never confirmation_no (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+    const pr = {
+      ...GEAR_PR,
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotel_name: "Four Seasons",
+          hotel_address: "120 E Delaware Pl",
+          names: [],
+          confirmation_no: "SECRET-123",
+          check_in: "2025-10-07",
+          check_out: "2025-10-10",
+          notes: null,
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ha", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ha-more"));
+    const t = getByTestId("wizard-step3-card-drive-ha-breakdown-hotels").textContent ?? "";
+    expect(t).toContain("120 E Delaware Pl"); // address now shown
+    expect(t).not.toContain("SECRET-123"); // confirmation_no stays private
   });
 });
 

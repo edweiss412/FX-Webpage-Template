@@ -26,7 +26,7 @@ function isAbsentTime(value: string | null | undefined): boolean {
 }
 
 /** Stable total order: kind rank, then normalized name, then DB id. */
-function compareRooms(a: ProjectedRoomRow, b: ProjectedRoomRow): number {
+export function compareRooms(a: ProjectedRoomRow, b: ProjectedRoomRow): number {
   const rk = ROOM_KIND_RANK[a.kind] - ROOM_KIND_RANK[b.kind];
   if (rk !== 0) return rk;
   const an = a.name.trim().toLowerCase();

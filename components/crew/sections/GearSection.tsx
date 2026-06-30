@@ -36,7 +36,15 @@
  * crewMembers projection — this section does not swallow it).
  */
 import type { JSX, ReactNode } from "react";
-import { Boxes, Frame, Lightbulb, SlidersHorizontal, Video, Volume2 } from "lucide-react";
+import {
+  Boxes,
+  Frame,
+  LayoutGrid,
+  Lightbulb,
+  SlidersHorizontal,
+  Video,
+  Volume2,
+} from "lucide-react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -46,10 +54,11 @@ import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { EVENT_DETAILS_LABELS, CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
+import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
-import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
+import { compareRooms, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { shouldHideOpeningReel } from "@/lib/visibility/emptyState";
@@ -212,6 +221,26 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
           }));
           const hasTechSpecs = techSpecRows.some((r) => !shouldHideGenericOptional(r.v));
 
+          // Per-room detail (BL-ROOM-DETAIL-UNRENDERED): physical + schedule fields
+          // the parser captures but no card rendered. Room-first (a block per
+          // room), distinct from the discipline-first scope cards. Sentinel-hidden
+          // via KeyValueRows; String() coerces non-string JSONB without throwing.
+          const ROOM_DETAIL_CAP = 12;
+          const roomDetailBlocks = [...data.rooms]
+            .sort(compareRooms)
+            .map((r) => ({
+              id: r.id,
+              label: roomLabel(r),
+              rows: ROOM_DETAIL_FIELDS.map((f) => ({
+                k: f.label,
+                v: String(r[f.key] ?? "").trim(),
+              })) satisfies KeyValueRow[],
+            }))
+            .filter((b) => b.rows.some((row) => !shouldHideGenericOptional(row.v)));
+          const hasRoomDetails = roomDetailBlocks.length > 0;
+          const shownRoomBlocks = roomDetailBlocks.slice(0, ROOM_DETAIL_CAP);
+          const hiddenRoomCount = roomDetailBlocks.length - shownRoomBlocks.length;
+
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
           // A/V/L scope cards read data.rooms; per _ShowBody §4.13 scope is shown
           // to all viewers (effectively ungated), so a rooms fetch error surfaces
@@ -225,7 +254,8 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
             !packVisible &&
             keynote === null &&
             !hasReel &&
-            !hasTechSpecs;
+            !hasTechSpecs &&
+            !hasRoomDetails;
 
           return (
             <>
@@ -411,6 +441,46 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     {/* columns={2} packs ~15 reference specs efficiently on desktop;
                         KeyValueRows collapses to a single column <720px (mobile-safe). */}
                     <KeyValueRows rows={techSpecRows} columns={2} />
+                  </SectionCard>
+                </div>
+              ) : null}
+
+              {hasRoomDetails ? (
+                <div data-testid="gear-room-details" data-card-id="gear-room-details">
+                  <SectionCard
+                    icon={<LayoutGrid size={14} strokeWidth={2} />}
+                    title="Room details"
+                    action={
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-room-details"]]}
+                      />
+                    }
+                  >
+                    <div className="flex flex-col gap-4">
+                      {shownRoomBlocks.map((b) => (
+                        <div
+                          key={b.id}
+                          data-testid={`gear-room-detail-${b.id}`}
+                          className="flex flex-col gap-1.5"
+                        >
+                          {/* Room name as an h3 (under the card's h2) — gives each
+                              per-room block a heading so the room↔detail relationship
+                              is exposed to SR + reads as a distinct block, not another
+                              field label (impeccable critique + audit MED). */}
+                          <h3 className="text-sm font-semibold text-text-strong">{b.label}</h3>
+                          {/* columns={1}: detail reads label:value per line, keeping the
+                              physical (dimensions/floor/setup) → schedule (set/show/strike)
+                              order intact at every width (no 2-col interleave). */}
+                          <KeyValueRows rows={b.rows} columns={1} />
+                        </div>
+                      ))}
+                      {hiddenRoomCount > 0 ? (
+                        <p className="text-sm text-text-subtle">
+                          …and {hiddenRoomCount} more room{hiddenRoomCount === 1 ? "" : "s"}
+                        </p>
+                      ) : null}
+                    </div>
                   </SectionCard>
                 </div>
               ) : null}

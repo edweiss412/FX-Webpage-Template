@@ -152,6 +152,7 @@ export const CARD_REGION_MAP = {
   "gear-keynote": "details",
   "gear-opening-reel": "details",
   "gear-tech-specs": "details",
+  "gear-room-details": "rooms",
   "schedule-days": "schedule",
   "schedule-call-times": "rooms",
   "budget-main": "financials",
