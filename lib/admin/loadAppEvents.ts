@@ -41,7 +41,8 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
     if (filters.showId) query = query.eq("show_id", filters.showId);
     if (filters.requestId) query = query.eq("request_id", filters.requestId);
     const sinceH = filters.sinceHours === undefined ? 24 : filters.sinceHours;
-    if (sinceH != null) query = query.gte("occurred_at", new Date(Date.now() - sinceH * 3_600_000).toISOString());
+    if (sinceH != null)
+      query = query.gte("occurred_at", new Date(Date.now() - sinceH * 3_600_000).toISOString());
     if (filters.q) query = query.ilike("message", `%${escapeIlike(filters.q)}%`);
     if (filters.cursor) query = applyCursor(query, filters.cursor);
     const { data, error } = await query
@@ -70,7 +71,10 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
 
 // Keyset tie-breaker: (occurred_at < c) OR (occurred_at = c AND id < id). Extracted so the
 // builder chain stays compact (keeps the `await` within the meta-test proximity window).
-function applyCursor<Q extends { or: (f: string) => Q }>(query: Q, cursor: { occurredAt: string; id: string }): Q {
+function applyCursor<Q extends { or: (f: string) => Q }>(
+  query: Q,
+  cursor: { occurredAt: string; id: string },
+): Q {
   const { occurredAt: c, id } = cursor;
   return query.or(`occurred_at.lt.${c},and(occurred_at.eq.${c},id.lt.${id})`);
 }

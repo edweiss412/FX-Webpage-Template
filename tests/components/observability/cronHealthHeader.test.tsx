@@ -10,7 +10,13 @@ import type { CronHealthRow } from "@/lib/admin/observabilityTypes";
 afterEach(cleanup);
 
 const now = new Date("2026-06-29T12:00:00.000Z");
-const rows: CronHealthRow[] = CRON_JOBS.map((j) => ({ ...j, lastRunAt: null, outcome: null, level: null, counts: null }));
+const rows: CronHealthRow[] = CRON_JOBS.map((j) => ({
+  ...j,
+  lastRunAt: null,
+  outcome: null,
+  level: null,
+  counts: null,
+}));
 
 describe("CronHealthHeader", () => {
   test("renders one card per job with grid auto-rows-fr and 'No run seen' when no data", () => {
@@ -20,9 +26,16 @@ describe("CronHealthHeader", () => {
     expect(screen.getAllByText("No run seen").length).toBeGreaterThan(0);
   });
   test("stale job shows 'Stale' label", () => {
-    const stale = rows.map((r) => r.jobName === "sync"
-      ? { ...r, lastRunAt: new Date(now.getTime() - r.staleAfterMs - 60_000).toISOString(), outcome: "ok" as const, level: "info" as const }
-      : r);
+    const stale = rows.map((r) =>
+      r.jobName === "sync"
+        ? {
+            ...r,
+            lastRunAt: new Date(now.getTime() - r.staleAfterMs - 60_000).toISOString(),
+            outcome: "ok" as const,
+            level: "info" as const,
+          }
+        : r,
+    );
     render(<CronHealthHeader jobs={stale} now={now} />);
     expect(screen.getByText(/Stale/)).toBeInTheDocument();
   });

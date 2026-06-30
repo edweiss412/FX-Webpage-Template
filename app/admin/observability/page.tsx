@@ -11,22 +11,39 @@ import { AutoRefreshControl } from "@/components/admin/observability/AutoRefresh
 
 export const dynamic = "force-dynamic";
 
-export default async function ObservabilityPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+export default async function ObservabilityPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireAdminIdentity();
   const sp = await searchParams;
   const filters = parseAppEventFilters(sp);
   const now = await nowDate();
   const [health, events] = await Promise.all([loadCronHealth(), loadAppEvents(filters)]);
   const currentQuery = new URLSearchParams(
-    Object.entries(sp).flatMap(([k, v]) => (v == null ? [] : [[k, Array.isArray(v) ? v[0] : v]] as [string, string][])),
+    Object.entries(sp).flatMap(([k, v]) =>
+      v == null ? [] : ([[k, Array.isArray(v) ? v[0] : v]] as [string, string][]),
+    ),
   ).toString();
 
   return (
     <div className="flex flex-col gap-section-gap">
-      <AdminPageHeader title="Activity" sub="App event log & cron health" rightSlot={<AutoRefreshControl />} />
-      {health.kind === "ok"
-        ? <CronHealthHeader jobs={health.jobs} now={now} />
-        : <div data-testid="cron-health-degraded" className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm">Couldn’t load cron health right now.</div>}
+      <AdminPageHeader
+        title="Activity"
+        sub="App event log & cron health"
+        rightSlot={<AutoRefreshControl />}
+      />
+      {health.kind === "ok" ? (
+        <CronHealthHeader jobs={health.jobs} now={now} />
+      ) : (
+        <div
+          data-testid="cron-health-degraded"
+          className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm"
+        >
+          Couldn’t load cron health right now.
+        </div>
+      )}
       <EventFilters filters={filters} />
       <EventTimeline result={events} now={now} currentQuery={currentQuery} />
     </div>

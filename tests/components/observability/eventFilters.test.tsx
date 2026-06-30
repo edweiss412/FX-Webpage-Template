@@ -9,14 +9,19 @@ afterEach(cleanup);
 const push = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
-  useSearchParams: () => new URLSearchParams("level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001"),
+  useSearchParams: () =>
+    new URLSearchParams(
+      "level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001",
+    ),
 }));
 
 import { EventFilters, buildFilterHref } from "@/components/admin/observability/EventFilters";
 
 describe("buildFilterHref drops cursor on every mutation", () => {
   test("changing a filter removes cursorAt/cursorId", () => {
-    const cur = new URLSearchParams("level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001");
+    const cur = new URLSearchParams(
+      "level=error&cursorAt=2026-06-29T00:00:00.000Z&cursorId=00000000-0000-0000-0000-000000000001",
+    );
     const href = buildFilterHref(cur, { source: "cron.sync" });
     const out = new URLSearchParams(href.split("?")[1]);
     expect(out.get("cursorAt")).toBeNull();
@@ -36,7 +41,13 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
   beforeEach(() => push.mockClear());
   test("renders level + since + source/code/show/request + message inputs", () => {
     render(<EventFilters filters={{ sinceHours: 24 }} />);
-    for (const id of ["filter-source", "filter-code", "filter-showId", "filter-requestId", "filter-q"]) {
+    for (const id of [
+      "filter-source",
+      "filter-code",
+      "filter-showId",
+      "filter-requestId",
+      "filter-q",
+    ]) {
       expect(screen.getByTestId(id)).toBeInTheDocument();
     }
   });
@@ -71,7 +82,9 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     const input = screen.getByTestId("filter-source") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "cron.partial-typing" } });
     rerender(<EventFilters filters={{ sinceHours: 24 }} />); // simulates router.refresh() — same committed filters
-    expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe("cron.partial-typing");
+    expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe(
+      "cron.partial-typing",
+    );
   });
   test("an external committed-filter change re-syncs the displayed value (no stale default)", () => {
     const { rerender } = render(<EventFilters filters={{ sinceHours: 24 }} />);

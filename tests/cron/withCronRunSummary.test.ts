@@ -11,12 +11,20 @@ async function withCapture(fn: (sink: LogRecord[]) => Promise<void>) {
   vi.resetModules();
   const sink: LogRecord[] = [];
   const log = await import("@/lib/log"); // dynamic import AFTER resetModules → same instance the wrapper imports
-  log.setLogSink((record) => { sink.push(record); });
-  try { await fn(sink); } finally { log.resetLogSink(); }
+  log.setLogSink((record) => {
+    sink.push(record);
+  });
+  try {
+    await fn(sink);
+  } finally {
+    log.resetLogSink();
+  }
 }
 
 function req() {
-  return { headers: new Headers({ "x-vercel-id": "vercel-abc" }) } as unknown as import("next/server").NextRequest;
+  return {
+    headers: new Headers({ "x-vercel-id": "vercel-abc" }),
+  } as unknown as import("next/server").NextRequest;
 }
 
 describe("runCronRoute", () => {
@@ -25,7 +33,8 @@ describe("runCronRoute", () => {
       const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
       const resp = new Response("ok", { status: 200 });
       const out = await runCronRoute("sync", req(), async () => ({
-        response: resp, summary: { outcome: "ok", counts: { processed: 2 } },
+        response: resp,
+        summary: { outcome: "ok", counts: { processed: 2 } },
       }));
       expect(out).toBe(resp); // exact response passthrough
       expect(sink).toHaveLength(1);
@@ -33,7 +42,11 @@ describe("runCronRoute", () => {
       expect(sink[0]!.source).toBe("cron.sync");
       expect(sink[0]!.code).toBe("CRON_RUN_SUMMARY");
       expect(sink[0]!.requestId).toBe("vercel-abc"); // ALS established from header
-      expect(sink[0]!.context).toMatchObject({ jobName: "sync", outcome: "ok", counts: { processed: 2 } });
+      expect(sink[0]!.context).toMatchObject({
+        jobName: "sync",
+        outcome: "ok",
+        counts: { processed: 2 },
+      });
       expect(typeof sink[0]!.context.durationMs).toBe("number");
     });
   });
@@ -41,8 +54,14 @@ describe("runCronRoute", () => {
   test("partial → log.warn; infra → log.error", async () => {
     await withCapture(async (sink) => {
       const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
-      await runCronRoute("a", req(), async () => ({ response: new Response(null), summary: { outcome: "partial" } }));
-      await runCronRoute("b", req(), async () => ({ response: new Response(null), summary: { outcome: "infra" } }));
+      await runCronRoute("a", req(), async () => ({
+        response: new Response(null),
+        summary: { outcome: "partial" },
+      }));
+      await runCronRoute("b", req(), async () => ({
+        response: new Response(null),
+        summary: { outcome: "infra" },
+      }));
       expect(sink.map((s) => s.level)).toEqual(["warn", "error"]);
     });
   });
@@ -52,7 +71,9 @@ describe("runCronRoute", () => {
       const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
       const boom = new Error("boom");
       await expect(
-        runCronRoute("sync", req(), async () => { throw boom; }),
+        runCronRoute("sync", req(), async () => {
+          throw boom;
+        }),
       ).rejects.toBe(boom);
       expect(sink).toHaveLength(1);
       expect(sink[0]!.level).toBe("error");
@@ -67,7 +88,10 @@ describe("runCronRoute", () => {
       const { runWithRequestContext } = await import("@/lib/log/requestContext");
       const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
       await runWithRequestContext({ requestId: "outer-id" }, async () => {
-        await runCronRoute("sync", req(), async () => ({ response: new Response(null), summary: { outcome: "ok" } }));
+        await runCronRoute("sync", req(), async () => ({
+          response: new Response(null),
+          summary: { outcome: "ok" },
+        }));
       });
       expect(sink[0]!.requestId).toBe("outer-id"); // did NOT derive a new id
     });
@@ -79,13 +103,23 @@ describe("runCronRoute", () => {
     vi.resetModules();
     let released = false;
     let release!: () => void;
-    const gate = new Promise<void>((r) => { release = () => { released = true; r(); }; });
+    const gate = new Promise<void>((r) => {
+      release = () => {
+        released = true;
+        r();
+      };
+    });
     const log = await import("@/lib/log");
     log.setLogSink(() => gate); // sink returns a pending promise (real Sink may return Promise<void>)
     const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
     let settled = false;
-    const p = runCronRoute("sync", req(), async () => ({ response: new Response(null), summary: { outcome: "ok" } }));
-    void p.then(() => { settled = true; });
+    const p = runCronRoute("sync", req(), async () => ({
+      response: new Response(null),
+      summary: { outcome: "ok" },
+    }));
+    void p.then(() => {
+      settled = true;
+    });
     await new Promise((r) => setTimeout(r, 0)); // flush microtasks (real timers in this test)
     expect(settled).toBe(false); // has NOT returned — awaiting the emit
     release();

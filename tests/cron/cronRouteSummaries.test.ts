@@ -2,24 +2,37 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { LogRecord } from "@/lib/log/types";
 
-beforeEach(() => { process.env.CRON_SECRET = "secret"; });
-afterEach(() => { vi.resetModules(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  process.env.CRON_SECRET = "secret";
+});
+afterEach(() => {
+  vi.resetModules();
+  vi.restoreAllMocks();
+});
 
 // Bare-function sink; CRON_RUN_SUMMARY rows have code at top level, outcome in context.
 async function setSink(): Promise<LogRecord[]> {
   const sink: LogRecord[] = [];
   const log = await import("@/lib/log");
-  log.setLogSink((record) => { sink.push(record); });
+  log.setLogSink((record) => {
+    sink.push(record);
+  });
   return sink;
 }
-const authed = () => ({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/sync" }) as never;
+const authed = () =>
+  ({
+    headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+    url: "https://x/api/cron/sync",
+  }) as never;
 const unauthed = () => ({ headers: new Headers(), url: "https://x/api/cron/sync" }) as never;
 
 describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
   test("sync: authorized → one info summary; unauthorized → none", async () => {
     vi.resetModules();
     vi.doMock("@/lib/sync/runScheduledCronSync", () => ({
-      runScheduledCronSync: async () => ({ processed: [{ driveFileId: "d", result: { outcome: "applied" } }] }),
+      runScheduledCronSync: async () => ({
+        processed: [{ driveFileId: "d", result: { outcome: "applied" } }],
+      }),
     }));
     vi.doMock("@/lib/sync/syncLog", () => ({ writeSyncLog: async () => {} }));
     const sink = await setSink();
@@ -49,14 +62,17 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     ["diagram-gc", () => import("@/app/api/cron/diagram-gc/route")],
     ["report-reaper", () => import("@/app/api/cron/report-reaper/route")],
   ];
-  test.each(ROUTES)("%s: unauthorized (no Bearer) → 401 and NO CRON_RUN_SUMMARY", async (name, importRoute) => {
-    vi.resetModules();
-    const sink = await setSink();
-    const { GET } = await importRoute();
-    const r = await GET({ headers: new Headers(), url: `https://x/api/cron/${name}` } as never);
-    expect(r.status).toBe(401);
-    expect(sink.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
-  });
+  test.each(ROUTES)(
+    "%s: unauthorized (no Bearer) → 401 and NO CRON_RUN_SUMMARY",
+    async (name, importRoute) => {
+      vi.resetModules();
+      const sink = await setSink();
+      const { GET } = await importRoute();
+      const r = await GET({ headers: new Headers(), url: `https://x/api/cron/${name}` } as never);
+      expect(r.status).toBe(401);
+      expect(sink.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
+    },
+  );
   // If a route's module import fails on load-time deps in the test env, add a vi.doMock for
   // that orchestrator above the import — the 401 path never calls it, so a stub suffices.
 
@@ -64,7 +80,10 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     vi.resetModules();
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/keepalive/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/keepalive" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/keepalive",
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -80,7 +99,10 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/refresh-watch/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/refresh-watch" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/refresh-watch",
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -96,7 +118,10 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/gc-watch/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/gc-watch" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/gc-watch",
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -107,11 +132,16 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
   test("asset-recovery: a partial_failure item → one partial summary (source cron.asset-recovery)", async () => {
     vi.resetModules();
     vi.doMock("@/lib/sync/assetRecovery", () => ({
-      runAssetRecoveryCron: async () => ({ processed: [{ showId: "s", result: { outcome: "partial_failure" } }] }),
+      runAssetRecoveryCron: async () => ({
+        processed: [{ showId: "s", result: { outcome: "partial_failure" } }],
+      }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/asset-recovery/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/asset-recovery" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/asset-recovery",
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -122,11 +152,18 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
   test("diagram-gc: authorized → one ok summary with the three delete counts", async () => {
     vi.resetModules();
     vi.doMock("@/lib/sync/diagramGc", () => ({
-      runDiagramGc: async () => ({ orphanBlobsDeleted: 1, pendingPrefixesDeleted: 2, promotedRowsDeleted: 3 }),
+      runDiagramGc: async () => ({
+        orphanBlobsDeleted: 1,
+        pendingPrefixesDeleted: 2,
+        promotedRowsDeleted: 3,
+      }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/diagram-gc/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/diagram-gc" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/diagram-gc",
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -141,14 +178,20 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     vi.resetModules();
     vi.doMock("postgres", () => ({
       default: () => ({
-        begin: async (fn: (tx: { unsafe: (s: string, p?: unknown[]) => Promise<unknown[]> }) => Promise<unknown>) =>
-          fn({ unsafe: async () => [] }),
+        begin: async (
+          fn: (tx: {
+            unsafe: (s: string, p?: unknown[]) => Promise<unknown[]>;
+          }) => Promise<unknown>,
+        ) => fn({ unsafe: async () => [] }),
         end: async () => {},
       }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/report-reaper/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/report-reaper" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/report-reaper",
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -160,13 +203,18 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     vi.resetModules();
     vi.doMock("postgres", () => ({
       default: () => ({
-        begin: async () => { throw new Error("db down"); },
+        begin: async () => {
+          throw new Error("db down");
+        },
         end: async () => {},
       }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/report-reaper/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/report-reaper" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/report-reaper",
+    } as never);
     expect(r.status).toBe(500);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -177,12 +225,23 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
   test("notify: an infra_error delivery → 500 and one infra summary", async () => {
     vi.resetModules();
     vi.doMock("@/lib/notify/runNotify", () => ({
-      runRealtimeNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "infra_error", source: "x" } }),
-      runDigestNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "infra_error", source: "x" } }),
+      runRealtimeNotify: async () => ({
+        kind: "ok",
+        maintenance: [],
+        delivery: { kind: "infra_error", source: "x" },
+      }),
+      runDigestNotify: async () => ({
+        kind: "ok",
+        maintenance: [],
+        delivery: { kind: "infra_error", source: "x" },
+      }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/notify/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }), url: "https://x/api/cron/notify?job=realtime" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret", "x-vercel-id": "v1" }),
+      url: "https://x/api/cron/notify?job=realtime",
+    } as never);
     expect(r.status).toBe(500);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
@@ -194,12 +253,23 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     vi.resetModules();
     // notify's orchestrator need not run for an unknown job; mock it as a no-op for safety.
     vi.doMock("@/lib/notify/runNotify", () => ({
-      runRealtimeNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "ok", sent: 0 } }),
-      runDigestNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "ok", sent: 0 } }),
+      runRealtimeNotify: async () => ({
+        kind: "ok",
+        maintenance: [],
+        delivery: { kind: "ok", sent: 0 },
+      }),
+      runDigestNotify: async () => ({
+        kind: "ok",
+        maintenance: [],
+        delivery: { kind: "ok", sent: 0 },
+      }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/notify/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret" }), url: "https://x/api/cron/notify?job=bogus" } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret" }),
+      url: "https://x/api/cron/notify?job=bogus",
+    } as never);
     expect(r.status).toBe(400);
     expect(sink.filter((s) => s.code === "CRON_RUN_SUMMARY")).toHaveLength(0);
   });
@@ -212,12 +282,23 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
   ])("notify ?job=%s → exactly one summary with source %s", async (job, source) => {
     vi.resetModules();
     vi.doMock("@/lib/notify/runNotify", () => ({
-      runRealtimeNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "ok", sent: 0 } }),
-      runDigestNotify: async () => ({ kind: "ok", maintenance: [], delivery: { kind: "ok", sent: 0 } }),
+      runRealtimeNotify: async () => ({
+        kind: "ok",
+        maintenance: [],
+        delivery: { kind: "ok", sent: 0 },
+      }),
+      runDigestNotify: async () => ({
+        kind: "ok",
+        maintenance: [],
+        delivery: { kind: "ok", sent: 0 },
+      }),
     }));
     const sink = await setSink();
     const { GET } = await import("@/app/api/cron/notify/route");
-    const r = await GET({ headers: new Headers({ authorization: "Bearer secret" }), url: `https://x/api/cron/notify?job=${job}` } as never);
+    const r = await GET({
+      headers: new Headers({ authorization: "Bearer secret" }),
+      url: `https://x/api/cron/notify?job=${job}`,
+    } as never);
     expect(r.status).toBe(200);
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);

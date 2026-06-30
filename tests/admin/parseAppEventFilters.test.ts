@@ -18,7 +18,10 @@ describe("parseAppEventFilters", () => {
     expect(parseAppEventFilters(sp({ since: "bogus" })).sinceHours).toBe(24);
   });
   test("levels: only valid members kept", () => {
-    expect(parseAppEventFilters(sp({ level: "warn,bogus,error" })).levels).toEqual(["warn", "error"]);
+    expect(parseAppEventFilters(sp({ level: "warn,bogus,error" })).levels).toEqual([
+      "warn",
+      "error",
+    ]);
     expect(parseAppEventFilters(sp({ level: "nope" })).levels).toBeUndefined();
   });
   test("showId/cursor.id must be UUID else dropped", () => {
@@ -32,7 +35,9 @@ describe("parseAppEventFilters", () => {
     expect(parseAppEventFilters(sp({ q: "  hello  " })).q).toBe("hello");
   });
   test("source/code/requestId pass through (requestId must survive parse for AC3 correlation)", () => {
-    const f = parseAppEventFilters(sp({ source: "cron.sync", code: "CRON_RUN_SUMMARY", requestId: "req-9" }));
+    const f = parseAppEventFilters(
+      sp({ source: "cron.sync", code: "CRON_RUN_SUMMARY", requestId: "req-9" }),
+    );
     expect(f.source).toBe("cron.sync");
     expect(f.code).toBe("CRON_RUN_SUMMARY");
     expect(f.requestId).toBe("req-9");
@@ -41,7 +46,10 @@ describe("parseAppEventFilters", () => {
     const good = parseAppEventFilters(sp({ cursorAt: "2026-06-29T00:00:00.000Z", cursorId: UUID }));
     expect(good.cursor).toEqual({ occurredAt: "2026-06-29T00:00:00.000Z", id: UUID });
     // accepts PostgREST-style microseconds + +00:00 offset (the DB's own format)
-    expect(parseAppEventFilters(sp({ cursorAt: "2026-06-29T00:00:00.123456+00:00", cursorId: UUID })).cursor).toBeTruthy();
+    expect(
+      parseAppEventFilters(sp({ cursorAt: "2026-06-29T00:00:00.123456+00:00", cursorId: UUID }))
+        .cursor,
+    ).toBeTruthy();
     // rejects Date.parse-able-but-not-a-timestamp junk
     for (const bad of ["nope", "2026", "now", "June 29 2026"]) {
       expect(parseAppEventFilters(sp({ cursorAt: bad, cursorId: UUID })).cursor == null).toBe(true);

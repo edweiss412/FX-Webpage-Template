@@ -4,7 +4,12 @@ import { CONCURRENT_SYNC_SKIPPED } from "@/lib/sync/lockedShowTx";
 import type { CronRunSummary } from "@/lib/cron/runSummary";
 
 const FAILED = new Set([
-  "hard_fail", "parse_error", "source_gone", "stale", "revision_race", "revision_race_cooldown",
+  "hard_fail",
+  "parse_error",
+  "source_gone",
+  "stale",
+  "revision_race",
+  "revision_race_cooldown",
 ]);
 // Benign (non-failure) `outcome` values. Anything NOT recognized here, NOT the ConcurrentSyncSkipped
 // shape below, is counted as `failed` (conservative) — a NEW/missed outcome surfaces as `partial`,
@@ -12,11 +17,17 @@ const FAILED = new Set([
 const SKIPPED = new Set(["skipped", "asset_recovery"]);
 
 export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummary {
-  let applied = 0, staged = 0, skipped = 0, failed = 0;
+  let applied = 0,
+    staged = 0,
+    skipped = 0,
+    failed = 0;
   for (const { result: r } of result.processed) {
     // ConcurrentSyncSkipped has shape { skipped: CONCURRENT_SYNC_SKIPPED } — NO `outcome` field
     // (lib/sync/lockedShowTx.ts:16-18). A benign lock-contention skip; count as skipped, not failed.
-    if ((r as { skipped?: string }).skipped === CONCURRENT_SYNC_SKIPPED) { skipped++; continue; }
+    if ((r as { skipped?: string }).skipped === CONCURRENT_SYNC_SKIPPED) {
+      skipped++;
+      continue;
+    }
     const outcome = (r as { outcome?: string }).outcome;
     if (outcome === "applied") applied++;
     else if (outcome === "stage") staged++;

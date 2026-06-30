@@ -44,7 +44,9 @@ async function withClient(client: unknown) {
   vi.doMock("@/lib/supabase/server", () => ({ createSupabaseServiceRoleClient: () => client }));
   // Stub lib/log so the loader's best-effort `void log.error(...)` does not fire an async persist
   // (un-awaited, it would otherwise leak a `.from()` into a later test's mock client).
-  vi.doMock("@/lib/log", () => ({ log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} } }));
+  vi.doMock("@/lib/log", () => ({
+    log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
+  }));
   return (await import("@/lib/admin/loadCronHealth")).loadCronHealth;
 }
 const row = (over: Record<string, unknown>) => ({
@@ -85,7 +87,9 @@ describe("loadCronHealth", () => {
     expect(keepalive.outcome).toBeNull();
   });
   test("malformed context.outcome → outcome null but lastRunAt set (distinct from no-row)", async () => {
-    const load = await withClient(mockClient({ "cron.sync": row({ level: "warn", context: { outcome: "weird" } }) }));
+    const load = await withClient(
+      mockClient({ "cron.sync": row({ level: "warn", context: { outcome: "weird" } }) }),
+    );
     const r = await load();
     if (r.kind !== "ok") throw new Error("ok");
     const sync = r.jobs.find((j) => j.jobName === "sync")!;

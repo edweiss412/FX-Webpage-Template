@@ -4,10 +4,12 @@ type Row = Record<string, unknown>;
 function mockClient(rows: Row[], opts: { error?: unknown } = {}) {
   const calls: { method: string; args: unknown[] }[] = [];
   const builder: Record<string, unknown> = {};
-  const rec = (m: string) => (...a: unknown[]) => {
-    calls.push({ method: m, args: a });
-    return builder;
-  };
+  const rec =
+    (m: string) =>
+    (...a: unknown[]) => {
+      calls.push({ method: m, args: a });
+      return builder;
+    };
   for (const m of ["select", "in", "eq", "gte", "ilike", "order", "or"]) builder[m] = rec(m);
   builder.limit = (...a: unknown[]) => {
     calls.push({ method: "limit", args: a });
@@ -44,7 +46,9 @@ async function withClient(client: unknown) {
   vi.doMock("@/lib/supabase/server", () => ({ createSupabaseServiceRoleClient: () => client }));
   // Stub lib/log so the loader's best-effort `void log.error(...)` does not fire an async persist
   // (which, un-awaited, would otherwise leak a `.from()` call into a later test's mock client).
-  vi.doMock("@/lib/log", () => ({ log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} } }));
+  vi.doMock("@/lib/log", () => ({
+    log: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
+  }));
   return (await import("@/lib/admin/loadAppEvents")).loadAppEvents;
 }
 
@@ -93,9 +97,15 @@ describe("loadAppEvents", () => {
           x.args[1] === "00000000-0000-0000-0000-000000000001",
       ),
     ).toBe(true);
-    expect(c.__calls.some((x) => x.method === "eq" && x.args[0] === "request_id" && x.args[1] === "req-9")).toBe(true);
+    expect(
+      c.__calls.some(
+        (x) => x.method === "eq" && x.args[0] === "request_id" && x.args[1] === "req-9",
+      ),
+    ).toBe(true);
     // q is escaped + wrapped
-    expect(c.__calls.some((x) => x.method === "ilike" && String(x.args[1]).includes("5\\%x"))).toBe(true);
+    expect(c.__calls.some((x) => x.method === "ilike" && String(x.args[1]).includes("5\\%x"))).toBe(
+      true,
+    );
   });
 
   test("cursor → exactly one .or(...) keyset predicate with occurred_at AND id tie-breaker", async () => {
@@ -132,7 +142,11 @@ describe("loadAppEvents", () => {
   });
 
   test("shows embed: select REQUESTS shows(title, slug), single from(app_events), maps showTitle+showSlug", async () => {
-    const rows = mk(1).map((row) => ({ ...row, show_id: "s1", shows: { title: "RPAS", slug: "rpas-central" } }));
+    const rows = mk(1).map((row) => ({
+      ...row,
+      show_id: "s1",
+      shows: { title: "RPAS", slug: "rpas-central" },
+    }));
     const c = mockClient(rows);
     const load = await withClient(c);
     const r = await load({});

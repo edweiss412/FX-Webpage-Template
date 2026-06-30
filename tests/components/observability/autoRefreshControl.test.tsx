@@ -10,11 +10,16 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 import { AutoRefreshControl } from "@/components/admin/observability/AutoRefreshControl";
 
 beforeEach(() => {
-  vi.useFakeTimers(); refresh.mockClear(); localStorage.clear();
+  vi.useFakeTimers();
+  refresh.mockClear();
+  localStorage.clear();
   Object.defineProperty(window, "scrollY", { value: 0, writable: true, configurable: true });
   Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); // reset per test
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("AutoRefreshControl", () => {
   test("default ON: a tick at scrollY<=200 calls router.refresh", () => {

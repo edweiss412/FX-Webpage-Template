@@ -20,12 +20,37 @@ export type CronJobSpec = { jobName: string; label: string; cadence: string; sta
 
 export const CRON_JOBS: readonly CronJobSpec[] = [
   { jobName: "sync", label: "Sync", cadence: "every 5 min", staleAfterMs: 20 * 60_000 },
-  { jobName: "notify.realtime", label: "Notify · realtime", cadence: "every 5 min", staleAfterMs: 20 * 60_000 },
-  { jobName: "notify.digest", label: "Notify · digest", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
-  { jobName: "refresh-watch", label: "Refresh watch", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
+  {
+    jobName: "notify.realtime",
+    label: "Notify · realtime",
+    cadence: "every 5 min",
+    staleAfterMs: 20 * 60_000,
+  },
+  {
+    jobName: "notify.digest",
+    label: "Notify · digest",
+    cadence: "hourly",
+    staleAfterMs: 3 * 3_600_000,
+  },
+  {
+    jobName: "refresh-watch",
+    label: "Refresh watch",
+    cadence: "hourly",
+    staleAfterMs: 3 * 3_600_000,
+  },
   { jobName: "gc-watch", label: "GC watch", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
-  { jobName: "asset-recovery", label: "Asset recovery", cadence: "every 15 min", staleAfterMs: 45 * 60_000 },
+  {
+    jobName: "asset-recovery",
+    label: "Asset recovery",
+    cadence: "every 15 min",
+    staleAfterMs: 45 * 60_000,
+  },
   { jobName: "diagram-gc", label: "Diagram GC", cadence: "hourly", staleAfterMs: 3 * 3_600_000 },
-  { jobName: "report-reaper", label: "Report reaper", cadence: "daily", staleAfterMs: 48 * 3_600_000 },
+  {
+    jobName: "report-reaper",
+    label: "Report reaper",
+    cadence: "daily",
+    staleAfterMs: 48 * 3_600_000,
+  },
   { jobName: "keepalive", label: "Keepalive", cadence: "daily", staleAfterMs: 48 * 3_600_000 },
 ];

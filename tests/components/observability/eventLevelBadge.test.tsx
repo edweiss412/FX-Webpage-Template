@@ -8,9 +8,12 @@ import { EventLevelBadge } from "@/components/admin/observability/EventLevelBadg
 afterEach(cleanup);
 
 describe("EventLevelBadge", () => {
-  test.each([["info", "Info"], ["warn", "Warn"], ["error", "Error"]] as const)(
-    "%s renders a text label (never color-only)", (level, label) => {
-      render(<EventLevelBadge level={level} />);
-      expect(screen.getByText(label)).toBeInTheDocument();
-    });
+  test.each([
+    ["info", "Info"],
+    ["warn", "Warn"],
+    ["error", "Error"],
+  ] as const)("%s renders a text label (never color-only)", (level, label) => {
+    render(<EventLevelBadge level={level} />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
 });

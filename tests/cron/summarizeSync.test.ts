@@ -11,21 +11,37 @@ describe("summarizeSync", () => {
     expect(s.counts).toMatchObject({ processed: 3, applied: 2, skipped: 1, failed: 0, staged: 0 });
   });
   test("any hard_fail/parse_error/source_gone/stale/revision_race → partial", () => {
-    for (const bad of ["hard_fail", "parse_error", "source_gone", "stale", "revision_race", "revision_race_cooldown"]) {
+    for (const bad of [
+      "hard_fail",
+      "parse_error",
+      "source_gone",
+      "stale",
+      "revision_race",
+      "revision_race_cooldown",
+    ]) {
       expect(summarizeSync({ processed: [p("applied"), p(bad)] } as never).outcome).toBe("partial");
     }
   });
   test("summary.outcome=parse_error (SYNC_INFRA_ERROR arm) → infra", () => {
-    const s = summarizeSync({ processed: [], summary: { outcome: "parse_error", code: "SYNC_INFRA_ERROR" } } as never);
+    const s = summarizeSync({
+      processed: [],
+      summary: { outcome: "parse_error", code: "SYNC_INFRA_ERROR" },
+    } as never);
     expect(s.outcome).toBe("infra");
   });
   test("maintenance heartbeat fault → partial with detail", () => {
-    const s = summarizeSync({ processed: [p("applied")], maintenanceFaults: { syncCronHeartbeat: "infra_error" } } as never);
+    const s = summarizeSync({
+      processed: [p("applied")],
+      maintenanceFaults: { syncCronHeartbeat: "infra_error" },
+    } as never);
     expect(s.outcome).toBe("partial");
     expect(s.detail).toMatchObject({ maintenanceFaults: { syncCronHeartbeat: "infra_error" } });
   });
   test("empty processed, no folder configured → ok with skipReason", () => {
-    const s = summarizeSync({ processed: [], summary: { outcome: "skipped", skipReason: "no_folder_configured" } } as never);
+    const s = summarizeSync({
+      processed: [],
+      summary: { outcome: "skipped", skipReason: "no_folder_configured" },
+    } as never);
     expect(s.outcome).toBe("ok");
     expect(s.counts).toMatchObject({ processed: 0 });
     expect(s.detail).toMatchObject({ skipReason: "no_folder_configured" });
