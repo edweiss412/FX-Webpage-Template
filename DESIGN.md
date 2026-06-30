@@ -338,3 +338,12 @@ The agenda row's badge and the synthetic crew row's hairline are **deliberately 
 ### 11.3 Cap + overflow
 
 Synthetic crew rows (strike/load-out) are **never** capped and stay in chronological position. The **non-synthetic content** (real crew rows + all agenda rows) is capped at `RUN_OF_SHOW_DISPLAY_CAP` (20); beyond that a single muted stub `…and N more items` (`data-testid="timeline-agenda-overflow"`) renders at the end. The noun is **"items"** (not "agenda items") because the capped content includes crew rows — a dropped crew row must not read as merely "agenda". This mirrors `RunOfShowList`'s exemption rule but keeps everything in time order (it does **not** partition synthetic rows to the end).
+
+## 12. Crew Gear — Tech specs card (`gear-tech-specs`)
+
+The Gear view renders a **"Tech specs"** card (`data-testid="gear-tech-specs"`, title "Tech specs", `SlidersHorizontal` icon) that surfaces the show-level `event_details` technical specs the crew need on-site but that were previously parsed-and-hidden — stage size, podium, polling, LED, backdrop/scenic, gooseneck, digital signage, test pattern, fonts, equipment storage, staff office, recording, virtual speaker/audience, notes. It is a **full-width card in the Gear section's vertical stack** (`flex flex-col gap-4`), a peer of the Keynote / Opening-reel cards — **not** a member of the 3-up scope grid (so the §7 equal-height grid rule does not apply; there is no same-row sibling to match).
+
+- **Source of truth:** the closed-vocab whitelist `lib/crew/eventDetailsSpecs.ts` (`EVENT_DETAILS_LABELS` + ordered `CREW_TECH_SPEC_KEYS`), shared with the Step-3 review modal so the two surfaces can't drift. Keys already rendered elsewhere (dress→Today, internet/power→Venue, keynote/opening-reel→Gear) and `diagrams` (a folder link) are excluded from the crew card.
+- **Rows:** rendered via `KeyValueRows` (label + value), which routes every row through `shouldHideGenericOptional` — a `TBD`/`N/A`/empty value omits that row. Values are `String(...)`-coerced (JSONB-safe).
+- **Content states (data-driven, instant — no animation):** **present** — ≥1 real (non-sentinel) spec → card shown; **absent** — none → card not in the tree (folded into the Gear-section `allHidden` gate, so an all-sentinel show shows no empty card). Pure RSC; §5 motion does not apply.
+- **Source link:** a `SourceLink` in the card header → the `details` sheet region (same region as Keynote / Opening-reel).
