@@ -48,10 +48,7 @@ export function parseDress(markdown: string): string | null {
  * writeField): a sentinel dress block never clobbers an existing real value;
  * otherwise the dress block wins.
  */
-export function mergeDressCode(
-  eventDetails: Record<string, string>,
-  dress: string | null,
-): void {
+export function mergeDressCode(eventDetails: Record<string, string>, dress: string | null): void {
   if (dress === null) return;
   const existing = eventDetails["dress_code"];
   const existingIsReal = existing !== undefined && !shouldHideGenericOptional(existing);
