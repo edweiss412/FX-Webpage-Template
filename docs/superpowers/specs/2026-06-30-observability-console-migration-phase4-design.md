@@ -2,7 +2,7 @@
 
 **Status:** spec (autonomous-ship). **Date:** 2026-06-30. **Arc:** centralized observability (FINAL phase).
 **Prior:** P1 `lib/log`+`app_events` (#187); P2 `/admin/observability` (#193); P3 Sentry + client-error mirror (#203).
-**Implementer:** Opus. **No impeccable gate** — zero visual/DOM change (console→log swaps).
+**Implementer:** Opus. **Impeccable v3 dual-gate RUNS** — invariant 8 is file-based (any `components/**` or `app/**` except `app/api/**`), and this diff touches `components/realtime/ShowRealtimeBridge.tsx`, `components/shared/TileErrorBoundary.tsx`, and several server component/page files. The changes are non-visual (console→log swaps + a `componentStack` pass-through, zero DOM/className change), so the gate is expected to PASS trivially — but `/impeccable critique` + `/impeccable audit` still run at close-out per invariant 8, with HIGH/CRITICAL dispositions recorded (see §13 close-out).
 
 ---
 
@@ -85,7 +85,7 @@ P3's payload was `{ area: crew|admin|root, message, stack?, … }` → wrote `so
 - **`reportClientError` / `captureBoundaryError` (P3) updated** to send `{ source: \`client.${area}\`, level: "error", … }` instead of `{ area }`. (P3 tests updated to the new shape — same behavior, new field names.)
 
 ### 3.2 `clientLog(level, source, message, context?)` — `lib/observe/clientLog.ts` (NEW, client-safe)
-- `level: "warn" | "error" | "info" | "debug"`; `source: string` (a `client.*` literal in `ALLOWED_SOURCES`); `message: string`; `context?: Record<string,unknown>`.
+- `level: "warn" | "error" | "info" | "debug"`; `source: string` (a `client.*` literal in `ALLOWED_SOURCES`); `message: string`; **`context?: unknown`** (NOT `Record<string,unknown>` — several realtime call sites pass a caught `err: unknown` directly as the 2nd console arg, e.g. `ShowRealtimeBridge.tsx:419,494,701,732,752`; under strict TS `unknown` is not assignable to a record, so the param is `unknown` and is forwarded verbatim to `console[level]`).
 - ALWAYS `console[level](message, context)` (browser dev keeps the full structured detail).
 - **`context` is CONSOLE-ONLY — NOT mirrored.** The POST payload is `{ source, level, message }` only (no `context` field). The `message` must be self-describing for the diagnostics page; arbitrary client objects are never serialized/capped/sanitized over the wire (size + PII safety). If a realtime warning's structured 2nd arg holds something operator-relevant (a status/reason), fold the salient bit INTO the `message` string at the call site; the rest stays browser-console.
 - **Only `warn`/`error` additionally POST** to `/api/observe/client-error` (level-gated, §0.4); `info`/`debug` are console-only.
@@ -171,3 +171,12 @@ No env gate, no build-time decision. `pnpm build` behavior unchanged.
 8. **ShowRealtimeBridge mirrored messages are DISTINCT + detail-bearing** — render/exercise the bridge's warn paths (or unit-assert the migrated call sites) so each mirrored `client.realtime` warn carries its salient reason/status IN the message (no two mirrored warns share a generic message that would dedup-collapse). Catches the "mechanical swap lost the context" failure mode (§3.2).
 
 Anti-tautology: the server spot-tests assert the migrated call reaches `log.<level>` with the exact `source` (not just "log was called"); the meta-test plants a real stray `console.*()` CALL (and a `// console.log` comment) to prove the call fails it and the comment does not.
+
+---
+
+## 13. Close-out gates (autonomous-ship)
+
+- **Impeccable v3 dual-gate (invariant 8):** `/impeccable critique` + `/impeccable audit` on the touched UI files (`components/realtime/ShowRealtimeBridge.tsx`, `components/shared/TileErrorBoundary.tsx`, and the server component/page files migrated to `lib/log`). The changes are non-visual (logging swaps), so it is expected to PASS trivially — but it RUNS, and any HIGH/CRITICAL is fixed or `DEFERRED.md`'d. (External attestation per the project's impeccable rule.)
+- **Whole-diff cross-model (Codex) review** to APPROVE.
+- **Full unit suite green** (only the known env-only failures: `test-auth-gate`, `email-canonicalization`, `pg-cron-coverage`) + typecheck 0 + `pnpm lint` 0 (the new `no-console` rule must show 0 errors after migration) + `format:check` clean.
+- **Real CI green** → `gh pr merge --merge` → fast-forward `main`.
