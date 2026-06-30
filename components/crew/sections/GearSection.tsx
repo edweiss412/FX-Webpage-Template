@@ -36,7 +36,7 @@
  * crewMembers projection — this section does not swallow it).
  */
 import type { JSX, ReactNode } from "react";
-import { Boxes, Frame, Lightbulb, Video, Volume2 } from "lucide-react";
+import { Boxes, Frame, Lightbulb, SlidersHorizontal, Video, Volume2 } from "lucide-react";
 
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -45,6 +45,7 @@ import { SourceLink } from "@/components/crew/primitives/SourceLink";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
+import { EVENT_DETAILS_LABELS, CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
@@ -200,6 +201,17 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
           const hasReelText = reelText !== null && reelText.length > 0;
           const hasReel = showReelPlayer || hasReelText;
 
+          // Tech specs — the show-level event_details specs not surfaced elsewhere
+          // (BL-EVENT-DETAILS-UNRENDERED). `?? {}` is null-safe parity with the
+          // modal; `String(...)` coerces non-string JSONB values without throwing.
+          // KeyValueRows omits any sentinel/empty row, so no per-row guard here.
+          const ed = data.show.event_details ?? {};
+          const techSpecRows: KeyValueRow[] = CREW_TECH_SPEC_KEYS.map((key) => ({
+            k: EVENT_DETAILS_LABELS[key],
+            v: String(ed[key] ?? "").trim(),
+          }));
+          const hasTechSpecs = techSpecRows.some((r) => !shouldHideGenericOptional(r.v));
+
           // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
           // A/V/L scope cards read data.rooms; per _ShowBody §4.13 scope is shown
           // to all viewers (effectively ungated), so a rooms fetch error surfaces
@@ -208,7 +220,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
           // producer). Composes with the WrappedSection render-throw arm.
           const roomsFetchFailed = Boolean(data.tileErrors["rooms"]) && ctx.isAdmin;
 
-          const allHidden = scopeCards.length === 0 && !packVisible && keynote === null && !hasReel;
+          const allHidden =
+            scopeCards.length === 0 &&
+            !packVisible &&
+            keynote === null &&
+            !hasReel &&
+            !hasTechSpecs;
 
           return (
             <>
@@ -375,6 +392,23 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                         {overflowCount === 1 ? "more case" : "more cases"} on the source pull sheet
                       </div>
                     ) : null}
+                  </SectionCard>
+                </div>
+              ) : null}
+
+              {hasTechSpecs ? (
+                <div data-testid="gear-tech-specs" data-card-id="gear-tech-specs">
+                  <SectionCard
+                    icon={<SlidersHorizontal className="size-4" aria-hidden />}
+                    title="Tech specs"
+                    action={
+                      <SourceLink
+                        driveFileId={data.driveFileId}
+                        anchor={data.sourceAnchors[CARD_REGION_MAP["gear-tech-specs"]]}
+                      />
+                    }
+                  >
+                    <KeyValueRows rows={techSpecRows} />
                   </SectionCard>
                 </div>
               ) : null}

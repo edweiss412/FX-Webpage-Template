@@ -106,6 +106,9 @@ function fullFixture(): ShowForViewer {
         keynote_requirements: "Clicker + confidence monitor",
         opening_reel: "Plays from house",
         dress_code: "Black tie",
+        // ≥1 real tech spec so the gear-tech-specs card renders and the
+        // source-link walker discovers + classifies it (BL-EVENT-DETAILS-UNRENDERED).
+        stage_size: "8' x 24' x 2'",
       },
       // A fileId-bearing agenda link satisfies VenueSection's `hasDiagrams`
       // predicate so the out-of-scope `venue-diagrams` block renders, without
