@@ -2472,6 +2472,20 @@ describe("ObservabilityPage", () => {
     render(await Page({ searchParams: Promise.resolve({ requestId: "req-9", since: "all" }) }));
     expect(loadAppEvents).toHaveBeenCalledWith(expect.objectContaining({ requestId: "req-9", sinceHours: null }));
   });
+
+  // Order-sensitive safety (spec §6.1/§11): the admin gate runs BEFORE any service-role read.
+  // LAST in the describe — it overrides the requireAdmin mock to REJECT; placing it last avoids leak.
+  test("requireAdminIdentity rejection → NEITHER service-role loader is called (auth-before-read)", async () => {
+    const loadAppEvents = vi.fn(async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }));
+    const loadCronHealth = vi.fn(async () => ({ kind: "ok", jobs: [] }));
+    vi.doMock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: async () => { throw new Error("not admin"); } }));
+    vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));
+    vi.doMock("@/lib/admin/loadAppEvents", () => ({ loadAppEvents }));
+    const { default: Page } = await import("@/app/admin/observability/page");
+    await expect(Page({ searchParams: Promise.resolve({}) })).rejects.toThrow();
+    expect(loadCronHealth).not.toHaveBeenCalled();
+    expect(loadAppEvents).not.toHaveBeenCalled();
+  });
 });
 ```
 
@@ -2496,6 +2510,7 @@ git commit --no-verify -m "feat(observability): EventTimeline + /admin/observabi
 - Modify: `lib/audit/trustDomains.ts`
 - Test: `tests/components/admin/navConfig.test.ts` (extend or create)
 - Test: `tests/admin/observabilityRouteAudit.test.ts`
+- Test: `tests/components/admin/nav/AdminNav.test.tsx` (EXTEND — rendered mobile assertion)
 
 **Interfaces:**
 - Consumes/extends: `NavItem`, `NAV`, `isNavItemActive`, `OVERFLOW_THRESHOLD`, `shouldRenderOverflow`; `PROTECTED_ROUTES`.
@@ -2549,6 +2564,18 @@ describe("observability route is auth-chain registered", () => {
 });
 ```
 
+Also EXTEND the existing `tests/components/admin/nav/AdminNav.test.tsx` (which already has the render harness — `usePathname` mock, `alertCount` fixture, `useNeedsAttentionBadge` handling) with a **rendered** mobile-behavior assertion (data-level tests above can pass while `AdminNav.tsx` still maps raw `NAV`):
+
+```tsx
+// add to tests/components/admin/nav/AdminNav.test.tsx (reuse its existing imports/mocks/props)
+test("Activity (desktopOnly) is absent from the mobile bottom tabs; no dead 'More' placeholder", () => {
+  render(<AdminNav email="a@b.c" alertCount={/* the file's existing AlertCountResult fixture */} initialBadgeCount={0} />);
+  expect(screen.queryByTestId("admin-bottom-tab-observability")).toBeNull();
+  expect(screen.queryByTestId("admin-bottom-tab-more")).toBeNull();      // overflow never triggers (5 mobile tabs)
+  expect(screen.getByTestId("admin-bottom-tab-dashboard")).toBeInTheDocument(); // a real mobile tab still renders
+});
+```
+
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `pnpm vitest run tests/components/admin/navConfig.test.ts tests/admin/observabilityRouteAudit.test.ts`
@@ -2599,7 +2626,7 @@ const overflow = shouldRenderOverflow(mobileItems.length);
 
 - [ ] **Step 7: Run nav + audit + auth-chain tests**
 
-Run: `pnpm vitest run tests/components/admin/navConfig.test.ts tests/admin/observabilityRouteAudit.test.ts lib/audit`
+Run: `pnpm vitest run tests/components/admin/navConfig.test.ts tests/admin/observabilityRouteAudit.test.ts tests/components/admin/nav/AdminNav.test.tsx lib/audit`
 Run also the existing auth-chain audit if separate: `pnpm vitest run tests/audit` (find the suite that consumes `authChain`/`trustDomains`).
 Expected: PASS. If an existing AdminNav snapshot/test asserts `NAV.map` over all items, update it to the `mobileItems` expectation (Activity absent from mobile tabs by design).
 
@@ -2674,25 +2701,27 @@ test("cron cards equal height; rows do not overflow; tap targets >= 44px", async
   // (2c) the content column truncates rather than overflowing
   expect(geom.contentScroll).toBeLessThanOrEqual(geom.contentClient + 0.5);
 
-  // (4) 44px mobile tap targets (spec G7). Each selector's first match must be >= 44px tall.
+  // (4) 44px mobile tap targets (spec G7). The fixture MUST render with hasMore=true (seed >100
+  // events, OR a static fixture rendering EventTimeline with hasMore) so EVERY listed control —
+  // including load-older — is present and measured. No skip-if-absent: all are REQUIRED.
   const TAP_SELECTORS = [
     "[data-testid=autorefresh-toggle]",
     "[data-testid=autorefresh-manual]",
     "[data-testid^=event-row-toggle-]",
-    "button[aria-pressed]",            // a level filter toggle
-    "[data-testid=filter-source]",     // a filter text input
-    "[data-testid=event-timeline-load-older]", // only present when hasMore
+    "button[aria-pressed]",                     // a level filter toggle
+    "[data-testid=filter-source]",              // a filter text input
+    "[data-testid=event-timeline-load-older]",  // REQUIRED — fixture seeds hasMore=true
   ];
   for (const sel of TAP_SELECTORS) {
     const loc = page.locator(sel).first();
-    if ((await loc.count()) === 0) continue; // load-older only exists when paginated
+    await expect(loc, `${sel} must be present`).toBeVisible();
     const h = await loc.evaluate((el) => el.getBoundingClientRect().height);
     expect(h, `${sel} tap target`).toBeGreaterThanOrEqual(44 - 0.5);
   }
 });
 ```
 
-- [ ] **Step 2: Run it** — `pnpm playwright test tests/e2e/observability-layout.spec.ts` (or the project's e2e runner). Expected: FAIL first if a card collapses or a row overflows; then fix the component classes (`auto-rows-fr`, `h-full`, `min-w-0 flex-1`, `truncate`) until PASS. If the seeded e2e harness can't reach `/admin/observability` yet, render a static fixture page (per `reference_standalone_realbrowser_layout_harness`) instead.
+- [ ] **Step 2: Run it** — `pnpm playwright test tests/e2e/observability-layout.spec.ts` (or the project's e2e runner). Expected: FAIL first if a card collapses, a row overflows, a tap target is <44px, or a required control is absent; then fix the component classes (`auto-rows-fr`, `h-full`, `min-w-0 flex-1`, `truncate`, `min-h-tap-min`) until PASS. The fixture MUST be deterministic for `hasMore=true` (seed >100 app_events for the route, OR render a static fixture page that mounts `EventTimeline` with `hasMore` + the full header/filters/auto-refresh, per `reference_standalone_realbrowser_layout_harness`) so the load-older control is always present and measured.
 
 - [ ] **Step 3: Commit**
 
