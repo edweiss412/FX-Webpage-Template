@@ -379,17 +379,20 @@ function EventDetailsBreakdown({
 }) {
   const ed = eventDetails ?? {};
   // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
-  // is excluded there — folder link) so the operator sees the real parsed specs
-  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). Sentinel-hidden via
-  // shouldHideGenericOptional — same visibility contract as the crew card, so a
-  // 'TBD'/'N/A' field is omitted on BOTH surfaces (a sentinel is unfilled, not a
-  // parse result worth reviewing). Coerce-then-check (String() before the test)
-  // is null/non-string-safe; `opening_reel` keeps its URL-strip cleanup.
+  // is excluded there — folder link) so the operator sees the full picture
+  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). This is a REVIEW surface, so
+  // sentinels are shown AS-PARSED (a 'TBD'/'N/A' tells the operator the cell
+  // parsed-but-unfilled) — deliberately NOT sentinel-hidden like the crew card.
+  // This asymmetry is the existing, tested contract (Step3Review.test.tsx
+  // "shown as-parsed (review surface, not sentinel-hidden like the crew page)").
+  // Coerce FIRST (String() is null/non-string-safe), then keep any non-empty
+  // value; `opening_reel` keeps its URL-strip cleanup; trim prevents whitespace
+  // from inflating `count`.
   const fields: { label: string; value: string }[] = [];
   for (const [key, label] of Object.entries(EVENT_DETAILS_LABELS)) {
     const text = String(ed[key] ?? "").trim();
     const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
-    if (!shouldHideGenericOptional(value)) fields.push({ label, value });
+    if (value.length > 0) fields.push({ label, value });
   }
   return (
     <BreakdownSection
