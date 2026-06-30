@@ -112,7 +112,13 @@ function contentRows(
   pairs: ReadonlyArray<readonly [string, unknown]>,
 ): { label: string; value: string }[] {
   const out: { label: string; value: string }[] = [];
-  for (const [label, val] of pairs) if (hasContent(val)) out.push({ label, value: val });
+  // Coerce-then-keep (String().trim(), length > 0) — matches the EventDetails +
+  // RoomsDetail modal sections (#195/#197): a non-string JSONB value still shows
+  // as text, sentinels (TBD/N/A) show as-parsed, empty/whitespace is omitted.
+  for (const [label, val] of pairs) {
+    const value = String(val ?? "").trim();
+    if (value.length > 0) out.push({ label, value });
+  }
   return out;
 }
 
@@ -219,7 +225,9 @@ function ContactsBreakdown({
   clientContact: ClientContact | null;
   contacts: ContactRow[];
 }) {
-  // Client people: primary + optional secondary (null-safe). Each a "Client contact".
+  // Client people: primary + optional secondary (null-safe). Each a "Client
+  // contact" (the second flagged "(secondary)" so the operator can tell the lead
+  // client rep from the backup). Index keys avoid same-name React key collisions.
   const clientPeople = [clientContact, clientContact?.secondary].filter(Boolean) as {
     name: string;
     phone: string | null;
@@ -227,11 +235,11 @@ function ContactsBreakdown({
     officePhone?: string | null;
   }[];
   const blocks = [
-    ...clientPeople.map((p) => ({
-      key: `client-${p.name}`,
-      kind: "Client contact",
+    ...clientPeople.map((p, i) => ({
+      key: `client-${i}`,
+      kind: i === 0 ? "Client contact" : "Client contact (secondary)",
+      name: p.name,
       rows: contentRows([
-        ["Name", p.name],
         ["Phone", p.phone],
         ["Email", p.email],
         ["Office", p.officePhone],
@@ -240,13 +248,13 @@ function ContactsBreakdown({
     ...contacts.map((c, i) => ({
       key: `contact-${i}`,
       kind: c.kind === "in_house_av" ? "In-house AV" : "Venue contact",
+      name: c.name ?? "",
       rows: contentRows([
-        ["Name", c.name],
         ["Phone", c.phone],
         ["Email", c.email],
       ]),
     })),
-  ].filter((b) => b.rows.length > 0);
+  ].filter((b) => hasContent(b.name) || b.rows.length > 0);
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-contacts`}
@@ -259,8 +267,16 @@ function ContactsBreakdown({
         <ul className="flex flex-col gap-1.5">
           {blocks.map((b) => (
             <li key={b.key} className="text-sm text-text">
-              <span className="text-xs font-semibold uppercase text-text-subtle">{b.kind}</span>
-              <FieldRowList rows={b.rows} />
+              <span
+                className="text-xs font-semibold uppercase text-text-subtle"
+                style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+              >
+                {b.kind}
+              </span>
+              {hasContent(b.name) ? (
+                <div className="font-medium text-text-strong">{b.name}</div>
+              ) : null}
+              {b.rows.length > 0 ? <FieldRowList rows={b.rows} /> : null}
             </li>
           ))}
         </ul>
@@ -324,7 +340,7 @@ function TransportBreakdown({
         .join(", ");
       return {
         stage: leg.stage as string,
-        meta: [when, who].filter((x) => x.length > 0).join(" — "),
+        meta: [when, who].filter((x) => x.length > 0).join(" · "),
       };
     });
   const count = fieldRows.length + legs.length;
@@ -366,11 +382,11 @@ function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-ops`}
-      label="Ops"
+      label="Billing & docs"
       count={rows.length}
     >
       {rows.length === 0 ? (
-        <p className="text-sm text-text-subtle">No ops details parsed.</p>
+        <p className="text-sm text-text-subtle">No billing details parsed.</p>
       ) : (
         <FieldRowList rows={rows} />
       )}
@@ -1678,9 +1694,9 @@ export function Step3SheetCard({
             <ScheduleBreakdown dfid={dfid} ros={ros} />
             <RoomsBreakdown dfid={dfid} rooms={rooms} />
             <VenueBreakdown dfid={dfid} venue={pr.show.venue} />
-            <TransportBreakdown dfid={dfid} transportation={pr.transportation} />
             <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
             <PackListBreakdown dfid={dfid} cases={pullSheet} />
+            <TransportBreakdown dfid={dfid} transportation={pr.transportation} />
             <HotelsBreakdown dfid={dfid} hotels={hotels} />
             <OpsBreakdown dfid={dfid} show={pr.show} />
           </div>
