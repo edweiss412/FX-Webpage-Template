@@ -15,7 +15,9 @@ function AgendaSessionRow({ session }: { session: AgendaSession }): JSX.Element 
   return (
     <li data-testid="timeline-agenda-session" className="flex min-w-0 flex-col gap-0.5 py-1">
       <div className="flex items-baseline gap-2">
-        <span className="shrink-0 text-xs font-semibold tabular-nums text-text-subtle">{session.time}</span>
+        <span className="shrink-0 text-xs font-semibold tabular-nums text-text-subtle">
+          {session.time}
+        </span>
         <span
           data-agenda-field="event"
           className="shrink-0 rounded-sm bg-surface-sunken px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-eyebrow text-text-subtle"
@@ -37,7 +39,13 @@ const isSynthetic = (i: TimelineItem): boolean =>
 /** Render the discriminated, sorted timeline. Synthetic crew rows (strike/loadout) are
  *  EXEMPT from the cap and stay in their chronological position; the non-synthetic content
  *  (crew-agenda + PDF-agenda) is capped at RUN_OF_SHOW_DISPLAY_CAP with an overflow stub. */
-export function ShowDayTimelineList({ items, isoDate }: { items: TimelineItem[]; isoDate: string }): JSX.Element {
+export function ShowDayTimelineList({
+  items,
+  isoDate,
+}: {
+  items: TimelineItem[];
+  isoDate: string;
+}): JSX.Element {
   let nonSynthShown = 0;
   let dropped = 0;
   const kept: TimelineItem[] = [];

@@ -67,16 +67,24 @@ describe("agendaSessionsForToday", () => {
     expect(agendaSessionsForToday([{ extracted: low }], SHOW, "2026-05-04")).toEqual([]);
   });
   test("malformed extracted (missing days / scalar) → skipped, no throw", () => {
-    expect(agendaSessionsForToday([{ extracted: { confidence: "high" } }], SHOW, "2026-05-04")).toEqual([]);
+    expect(
+      agendaSessionsForToday([{ extracted: { confidence: "high" } }], SHOW, "2026-05-04"),
+    ).toEqual([]);
     expect(agendaSessionsForToday([{ extracted: "garbage" }], SHOW, "2026-05-04")).toEqual([]);
-    expect(agendaSessionsForToday([{ extracted: null }, { extracted: undefined }], SHOW, "2026-05-04")).toEqual([]);
+    expect(
+      agendaSessionsForToday([{ extracted: null }, { extracted: undefined }], SHOW, "2026-05-04"),
+    ).toEqual([]);
   });
   test("multiple high-conf links each covering today → AGGREGATED (catches first-link-only)", () => {
     const links = [
       { extracted: ext([{ dayLabel: "Monday, May 4, 2026", sessions: [sess("9:00 AM", "A")] }]) },
       { extracted: ext([{ dayLabel: "Monday, May 4, 2026", sessions: [sess("11:00 AM", "B")] }]) },
     ];
-    expect(agendaSessionsForToday(links, SHOW, "2026-05-04").map((s) => s.title).sort()).toEqual(["A", "B"]);
+    expect(
+      agendaSessionsForToday(links, SHOW, "2026-05-04")
+        .map((s) => s.title)
+        .sort(),
+    ).toEqual(["A", "B"]);
   });
   test("positional fallback FIRES — counts equal, all labels positional; correct index", () => {
     const SHOW3 = ["2026-01-01", "2026-01-02", "2026-01-03"];
@@ -104,7 +112,9 @@ describe("agendaSessionsForToday", () => {
         ]),
       },
     ];
-    expect(agendaSessionsForToday(links, [null as unknown as string, "2026-01-02"], "2026-01-02")).toEqual([]);
+    expect(
+      agendaSessionsForToday(links, [null as unknown as string, "2026-01-02"], "2026-01-02"),
+    ).toEqual([]);
   });
   test("positional BLOCKED when ANY label parsed a date (partial alignment) → []", () => {
     const links = [
@@ -129,6 +139,9 @@ describe("agendaSessionsForToday", () => {
         ]),
       },
     ];
-    expect(agendaSessionsForToday(links, SHOW, "2026-05-04").map((s) => s.title)).toEqual(["ok", "ok2"]);
+    expect(agendaSessionsForToday(links, SHOW, "2026-05-04").map((s) => s.title)).toEqual([
+      "ok",
+      "ok2",
+    ]);
   });
 });

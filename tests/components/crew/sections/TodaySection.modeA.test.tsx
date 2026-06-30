@@ -23,11 +23,13 @@
  */
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 
 import { TodaySection } from "@/components/crew/sections/TodaySection";
+import { agendaSessionsForToday } from "@/lib/crew/agendaDayForToday";
 import { aggregateDays } from "@/lib/crew/agendaDisplay";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
+import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { AgendaEntry } from "@/lib/parser/types";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 
@@ -376,4 +378,151 @@ test("Today card chrome: section-card icons + a Booked pill on Tonight + a Full-
   );
   expect(chip).toBeTruthy();
   expect(chip!.textContent).toContain("Full agenda");
+});
+
+// ---------------------------------------------------------------------------
+// Unified show-day timeline (Task 5) — interleave crew run-of-show + agenda.
+// ---------------------------------------------------------------------------
+const DAY_DATES = { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null };
+const MONTHS_FULL = [
+  "",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+// A high-conf agenda link whose single day's label parses to TODAY_ISO.
+function agendaLinkForToday(iso: string, sessions: { time: string; title: string }[]) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dayLabel = `${MONTHS_FULL[m!]} ${d}, ${y}`; // parseIsoFromDayLabel(dayLabel) === iso
+  const extracted: AgendaExtraction = {
+    confidence: "high",
+    corrections: 0,
+    extractorVersion: 2,
+    days: [
+      {
+        dayLabel,
+        date: null,
+        sessions: sessions.map((s) => ({ ...s, room: null, tracks: [], drift: null })),
+      },
+    ],
+  };
+  return { fileId: "agenda-1", label: "AGENDA", extracted };
+}
+
+test("agenda-only show day (no crew entries) → Mode A renders the timeline, no plain run-of-show list", () => {
+  const data = makeShowForViewer({ show: { dates: DAY_DATES } }); // runOfShow stays null → no crew entries
+  data.show.agenda_links = [
+    agendaLinkForToday(TODAY_ISO, [
+      { time: "9:00 AM – 9:40 AM", title: "Keynote" },
+      { time: "10:00 AM", title: "Panel" },
+    ]),
+  ];
+  const expectedSessions = agendaSessionsForToday(
+    data.show.agenda_links,
+    data.show.dates.showDays,
+    TODAY_ISO,
+  ).length;
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  const card = container.querySelector('[data-testid="today-run-of-show"]') as HTMLElement;
+  expect(within(card).getByTestId(`show-day-timeline-${TODAY_ISO}`)).toBeTruthy();
+  expect(within(card).getAllByTestId("timeline-agenda-session")).toHaveLength(expectedSessions);
+  expect(card.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeNull(); // not the plain list
+});
+
+test("merged day → both crew agenda-entry and timeline-agenda-session present", () => {
+  const data = makeShowForViewer({
+    show: { dates: DAY_DATES },
+    runOfShow: {
+      [TODAY_ISO]: {
+        entries: [{ start: "8:00 AM", title: "Load In", room: "Hall A" }],
+        showStart: "8:00 AM",
+        window: null,
+      },
+    },
+  });
+  data.show.agenda_links = [
+    agendaLinkForToday(TODAY_ISO, [{ time: "9:00 AM – 9:40 AM", title: "Keynote" }]),
+  ];
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  const card = within(container.querySelector('[data-testid="today-run-of-show"]') as HTMLElement);
+  expect(card.getAllByTestId("agenda-entry").length).toBeGreaterThan(0);
+  expect(card.getAllByTestId("timeline-agenda-session").length).toBeGreaterThan(0);
+});
+
+test("crew-only day (no agenda_links) → plain RunOfShowList, no timeline (activation rule)", () => {
+  const data = makeShowForViewer({
+    show: { dates: DAY_DATES },
+    runOfShow: {
+      [TODAY_ISO]: {
+        entries: [{ start: "8:00 AM", title: "Load In" }],
+        showStart: "8:00 AM",
+        window: null,
+      },
+    },
+  });
+  // agenda_links stays [] → agendaToday = [] → activation rule keeps the plain list.
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+  expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
+  expect(container.querySelector(`[data-testid="show-day-timeline-${TODAY_ISO}"]`)).toBeNull();
+  expect(container.querySelector('[data-testid="timeline-agenda-session"]')).toBeNull();
+});
+
+// NO-LEAK contract for the NEW agenda vector (spec §5 unknown_asterisk row): an
+// unknown_asterisk viewer is ineligible (eligible=false) → modeA=false → NO card.
+// Crucially, agenda is high-conf + matches today, so a gate regression that surfaced
+// agenda to an ineligible viewer would otherwise render rows. Pins that it does NOT.
+test("unknown_asterisk viewer + high-conf agenda for today → NO card, NO timeline, NO agenda rows (no leak)", () => {
+  const data = makeShowForViewer({
+    show: { dates: DAY_DATES },
+    crewMembers: [
+      {
+        id: "c1",
+        name: "Asterisk Crew",
+        email: null,
+        phone: null,
+        role: "",
+        roleFlags: [],
+        dateRestriction: { kind: "unknown_asterisk", days: null },
+        stageRestriction: { kind: "none" },
+      },
+    ],
+    runOfShow: {
+      [TODAY_ISO]: {
+        entries: [{ start: "8:00 AM", title: "Load In" }],
+        showStart: "8:00 AM",
+        window: null,
+      },
+    },
+  });
+  data.show.agenda_links = [
+    agendaLinkForToday(TODAY_ISO, [{ time: "9:00 AM – 9:40 AM", title: "Keynote" }]),
+  ];
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  // Mode A is gated on `eligible`, which is false for unknown_asterisk → whole card absent.
+  expect(container.querySelector('[data-testid="today-run-of-show"]')).toBeNull();
+  expect(container.querySelector(`[data-testid="show-day-timeline-${TODAY_ISO}"]`)).toBeNull();
+  expect(container.querySelector('[data-testid="timeline-agenda-session"]')).toBeNull();
 });

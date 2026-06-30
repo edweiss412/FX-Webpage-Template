@@ -7,24 +7,38 @@ import type { AgendaEntry } from "@/lib/parser/types";
 import type { AgendaSession } from "@/lib/agenda/types";
 
 const ISO = "2026-05-04";
-const crewItem = (start: string, title: string, kind?: AgendaEntry["kind"], minutes: number | null = 0): TimelineItem => ({
+const crewItem = (
+  start: string,
+  title: string,
+  kind?: AgendaEntry["kind"],
+  minutes: number | null = 0,
+): TimelineItem => ({
   source: "crew",
   entry: { start, title, ...(kind ? { kind } : {}) },
   minutes,
 });
-const agItem = (time: string, title: string | null, minutes: number, room: string | null = null): TimelineItem => ({
+const agItem = (
+  time: string,
+  title: string | null,
+  minutes: number,
+  room: string | null = null,
+): TimelineItem => ({
   source: "agenda",
   session: { time, title, room, tracks: [], drift: null } as AgendaSession,
   minutes,
 });
-const scope = (c: HTMLElement) => within(c.querySelector(`[data-testid="show-day-timeline-${ISO}"]`) as HTMLElement);
+const scope = (c: HTMLElement) =>
+  within(c.querySelector(`[data-testid="show-day-timeline-${ISO}"]`) as HTMLElement);
 
 describe("ShowDayTimelineList", () => {
   test("crew rows render as agenda-entry; agenda rows as timeline-agenda-session with full time + room, no tracks", () => {
     const { container } = render(
       <ShowDayTimelineList
         isoDate={ISO}
-        items={[crewItem("8:00 AM", "LoadIn", undefined, 480), agItem("9:00 AM – 9:40 AM", "Keynote", 540, "Main Stage")]}
+        items={[
+          crewItem("8:00 AM", "LoadIn", undefined, 480),
+          agItem("9:00 AM – 9:40 AM", "Keynote", 540, "Main Stage"),
+        ]}
       />,
     );
     const q = scope(container);
@@ -36,8 +50,12 @@ describe("ShowDayTimelineList", () => {
     expect(sessions[0]!.textContent).toContain("Main Stage");
   });
   test("null-title agenda → time-only row (no crash)", () => {
-    const { container } = render(<ShowDayTimelineList isoDate={ISO} items={[agItem("9:00 AM", null, 540)]} />);
-    expect(scope(container).getByTestId("timeline-agenda-session").textContent).toContain("9:00 AM");
+    const { container } = render(
+      <ShowDayTimelineList isoDate={ISO} items={[agItem("9:00 AM", null, 540)]} />,
+    );
+    expect(scope(container).getByTestId("timeline-agenda-session").textContent).toContain(
+      "9:00 AM",
+    );
   });
   test("D7 — tracks and drift are NEVER rendered (non-tautological: the session HAS tracks + drift)", () => {
     // agItem hardcodes tracks:[]/drift:null, which can't catch a tracks-rendering impl.

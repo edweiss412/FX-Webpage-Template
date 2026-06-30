@@ -28,7 +28,9 @@ export function buildShowDayTimeline(
   const crewKeys = new Set(
     crew
       .filter((c) => c.minutes !== null)
-      .map((c) => JSON.stringify([c.minutes, normTitle((c as { entry: AgendaEntry }).entry.title)])),
+      .map((c) =>
+        JSON.stringify([c.minutes, normTitle((c as { entry: AgendaEntry }).entry.title)]),
+      ),
   );
   const agenda: TimelineItem[] = [];
   for (const session of agendaSessions) {
