@@ -40,6 +40,8 @@
  *
  * Server Component (no `'use client'`) — props in, markup out.
  */
+import { CalendarDays } from "lucide-react";
+
 import { Avatar } from "@/components/atoms/Avatar";
 import { digitsOnly } from "@/lib/format/phone";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -84,6 +86,20 @@ const CHIP_CLASS = [
   // container's flowed text. `max-w-full` bounds it to the column.
   "inline-block max-w-full truncate rounded-sm px-1.5 py-0.5 align-middle",
   "text-xs font-semibold uppercase tracking-eyebrow",
+].join(" ");
+
+/**
+ * Partial-attendance chip — MIXED-case (NOT the eyebrow uppercase): it carries a
+ * content-bearing date phrase ("Oct 7 & 9 only"), which reads as shouty + breaks
+ * date-case consistency in the eyebrow uppercase (impeccable critique). A leading
+ * calendar glyph keeps the date-restriction signal visible even if the label
+ * truncates in a narrow column, and distinguishes it from the status chips.
+ * `inline-flex` here (the inner label span owns the `truncate`).
+ */
+const PARTIAL_CHIP_CLASS = [
+  "inline-flex max-w-full items-center gap-1 rounded-sm px-1.5 py-0.5 align-middle",
+  "text-xs font-medium",
+  "bg-surface-sunken text-text-subtle",
 ].join(" ");
 
 /**
@@ -167,11 +183,9 @@ export function PersonRow({ person }: PersonRowProps) {
               </span>
             ) : null}
             {partial ? (
-              <span
-                data-partial="true"
-                className={[CHIP_CLASS, "bg-surface-sunken text-text-subtle"].join(" ")}
-              >
-                {partial}
+              <span data-partial="true" title={partial} className={PARTIAL_CHIP_CLASS}>
+                <CalendarDays className="size-3 shrink-0" aria-hidden />
+                <span className="min-w-0 truncate">{partial}</span>
               </span>
             ) : null}
           </div>
