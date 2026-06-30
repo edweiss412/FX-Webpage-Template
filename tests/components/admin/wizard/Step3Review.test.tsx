@@ -587,7 +587,9 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       ],
     } as unknown as ParseResult;
     const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-gear-3", parseResult: pr };
-    const { getByTestId } = render(<Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />);
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
     fireEvent.click(getByTestId("wizard-step3-card-drive-gear-3-more"));
     const detail = getByTestId("wizard-step3-card-drive-gear-3-room-0-detail").textContent ?? "";
     expect(detail).toContain("Dimensions:");
