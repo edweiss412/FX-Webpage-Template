@@ -792,10 +792,12 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     );
   });
 
-  test("crew breakdown shows each member's phone as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+  test("crew breakdown shows each member's phone + email as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
     const pr = {
       ...GEAR_PR,
-      crewMembers: [{ name: "Doug Larson", role: "Lead", phone: "917-331-4885" }],
+      crewMembers: [
+        { name: "Doug Larson", role: "Lead", phone: "917-331-4885", email: "doug@fxav.com" },
+      ],
     } as unknown as ParseResult;
     const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-cp", parseResult: pr };
     const { getByTestId } = render(
@@ -804,7 +806,8 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     fireEvent.click(getByTestId("wizard-step3-card-drive-cp-more"));
     const t = getByTestId("wizard-step3-card-drive-cp-breakdown-crew").textContent ?? "";
     expect(t).toContain("Doug Larson");
-    expect(t).toContain("917-331-4885"); // phone now shown
+    expect(t).toContain("917-331-4885"); // phone shown
+    expect(t).toContain("doug@fxav.com"); // email shown (parity with the crew page)
   });
 
   test("hotels breakdown shows hotel_address, never confirmation_no (BL-REVIEW-MODAL-COMPLETENESS)", () => {

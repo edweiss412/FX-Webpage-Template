@@ -417,6 +417,9 @@ function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow
                 {hasContent(m.phone) ? (
                   <span className="text-text-subtle"> · {m.phone}</span>
                 ) : null}
+                {hasContent(m.email) ? (
+                  <span className="text-text-subtle"> · {m.email}</span>
+                ) : null}
                 {partial ? <span className="text-text-subtle"> · {partial}</span> : null}
               </li>
             );
