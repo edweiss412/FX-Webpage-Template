@@ -45,7 +45,7 @@ describe("GearSection — Tech specs card (BL-EVENT-DETAILS-UNRENDERED)", () => 
     expect(q.getByText("Stage size")).toBeTruthy();
     expect(q.getByText("8' x 24' x 2'")).toBeTruthy();
     expect(q.getByText("Podium")).toBeTruthy();
-    expect(q.getByText("Polling")).toBeTruthy();
+    expect(q.getByText("Audience polling")).toBeTruthy();
     // 2. sentinel hidden
     expect(q.queryByText("Recording")).toBeNull();
     // 3. already-rendered-elsewhere key excluded from the tech-specs card

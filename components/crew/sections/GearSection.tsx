@@ -399,7 +399,7 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
               {hasTechSpecs ? (
                 <div data-testid="gear-tech-specs" data-card-id="gear-tech-specs">
                   <SectionCard
-                    icon={<SlidersHorizontal className="size-4" aria-hidden />}
+                    icon={<SlidersHorizontal size={14} strokeWidth={2} />}
                     title="Tech specs"
                     action={
                       <SourceLink
@@ -408,7 +408,9 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                       />
                     }
                   >
-                    <KeyValueRows rows={techSpecRows} />
+                    {/* columns={2} packs ~15 reference specs efficiently on desktop;
+                        KeyValueRows collapses to a single column <720px (mobile-safe). */}
+                    <KeyValueRows rows={techSpecRows} columns={2} />
                   </SectionCard>
                 </div>
               ) : null}

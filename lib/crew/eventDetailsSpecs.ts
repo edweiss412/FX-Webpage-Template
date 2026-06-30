@@ -7,9 +7,9 @@
 export const EVENT_DETAILS_LABELS = {
   stage_size: "Stage size",
   podium_type: "Podium",
-  polling: "Polling",
+  polling: "Audience polling",
   led: "LED wall",
-  scenic: "Backdrop / scenic",
+  scenic: "Scenic",
   gooseneck: "Gooseneck mics",
   digital_signage: "Digital signage",
   test_pattern: "Test pattern",

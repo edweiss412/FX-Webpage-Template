@@ -267,7 +267,7 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(txt).toContain("Stage size:");
     expect(txt).toContain("8'x24'");
     expect(txt).toContain("Podium:");
-    expect(txt).toContain("Polling:");
+    expect(txt).toContain("Audience polling:");
     expect(txt).toContain("Keynote:");
     expect(txt).toContain("Opening reel:");
     expect(txt).toContain("169"); // non-string coerced + shown
