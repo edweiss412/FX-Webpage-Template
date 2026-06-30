@@ -40,7 +40,7 @@ This is a **response-encoding + UI change only**. No DB logic, RPC, advisory-loc
 | D3 | **CAS shown as a distinct final step** ("Finishing setup…") with phase sub-labels (applying / publishing / subscribing). | User-approved. |
 | D4 | **Dual-mode via `Accept: application/x-ndjson` negotiation at `POST` only.** Keep `handleOnboardingFinalize` / `handleOnboardingFinalizeCas` as the unchanged non-streaming functions; add `*Stream` siblings. | The 17+ `tests/onboarding/finalize*.test.ts` files call the non-streaming functions directly and assert HTTP status + flat body; dual-mode keeps them ALL green and proves "DB logic byte-for-byte identical." The client's `!isStream` safety net handles their `mockJsonResponse` shape. |
 | D5 | **Grand-total denominator derived server-side** via a `listed` event that reuses the existing `countRemainingCleanRows` helper, computed at batch start ONLY when a streaming progress callback is present. | The loop processes BOTH `'staged'` and `'applied'` manifest rows (`finalize/route.ts:393`), so `publishCount` alone is the wrong denominator. Computing the count only under a callback keeps the non-streaming path byte-identical (no new query). |
-| D6 | **Native `<progress>` element + instant state swaps** (mirror `Step2Verify.tsx:422-431`). No bespoke animations. | Matches the sibling Step 2 surface; sidesteps the animation-bug class; the bar value change is the only motion and it is native. |
+| D6 | **Native `<progress>` element + instant state swaps** (mirror `components/admin/wizard/Step2Verify.tsx:422-431`). No bespoke animations. | Matches the sibling Step 2 surface; sidesteps the animation-bug class; the bar value change is the only motion and it is native. |
 | D7 | **Streamed `row`/`phase`/`listed` events are OPTIMISTIC; the terminal `{type:"result", body}` is authoritative.** | Same contract Step 2 uses (`scanProgress.ts:20-30`). The body is the exact JSON the non-streaming path returns. |
 
 ## 4. Architecture
@@ -177,7 +177,7 @@ The non-streaming `handleOnboardingFinalizeCas` already does `revalidateShow` + 
 
 ### 4.4 `FinalizeButton` consumer
 
-Keep the client-driven multi-batch loop (`FinalizeButton.tsx:133-218`). Per batch, `fetch("/api/admin/onboarding/finalize", { method:"POST", headers:{ Accept: FINALIZE_STREAM_CONTENT_TYPE } })`, then mirror `Step2Verify`'s reader (`Step2Verify.tsx:232-272`):
+Keep the client-driven multi-batch loop (`FinalizeButton.tsx:133-218`). Per batch, `fetch("/api/admin/onboarding/finalize", { method:"POST", headers:{ Accept: FINALIZE_STREAM_CONTENT_TYPE } })`, then mirror `Step2Verify`'s reader (`components/admin/wizard/Step2Verify.tsx:232-272`):
 
 - `isStream = response.ok && contentType.includes(FINALIZE_STREAM_CONTENT_TYPE) && response.body != null`.
 - `!isStream` → `const body = await response.json()` and run the existing terminal handling (handles pre-stream non-200 JSON AND legacy mocks).
@@ -253,7 +253,7 @@ Tailwind v4 does not default `.flex` to `align-items: stretch` (project invarian
 | Parent | Child | Invariant | Mechanism |
 |--------|-------|-----------|-----------|
 | `wizard-finalize` container (`flex flex-col gap-3`, `FinalizeButton.tsx:243`) | progress panel | panel spans full container width | panel root `w-full` (it is a block `flex flex-col`, full width by default in a column flex) |
-| progress panel | `<progress>` bar | bar spans full panel width, fixed height | `className="h-2 w-full"` (matches `Step2Verify.tsx:423`) |
+| progress panel | `<progress>` bar | bar spans full panel width, fixed height | `className="h-2 w-full"` (matches `components/admin/wizard/Step2Verify.tsx:423`) |
 | `wizard-finalize` container | button (idle) vs panel (running) | **no layout jump on morph** | the container reserves `min-h-tap-min` so the swap from the `lg` button to the panel does not collapse height; panel `data-testid="wizard-finalize-progress"` |
 
 Real-browser (Playwright) layout assertion required (jsdom insufficient): with the panel rendered, assert the `<progress>` `getBoundingClientRect().width` equals the panel's content width (±0.5px) and the panel width equals the `wizard-finalize` container width (±0.5px).
@@ -261,13 +261,13 @@ Real-browser (Playwright) layout assertion required (jsdom insufficient): with t
 ## 8. Guard conditions (every prop / input / event field)
 
 - `publishCount` undefined → legacy label `Finish setup and publish` (existing, `FinalizeButton.tsx:225-228`); progress still works (denominator comes from `listed`, not `publishCount`).
-- `publishCount === 0` does NOT disable the button. The disabled gate is `disabled={!finishable}` (`Step3ReviewWithFinalize.tsx:56`), the resolution gate — independent of `publishCount`. A finishable session with `publishCount === 0` and `uncheckedCleanCount > 0` (all clean rows unchecked → all become Held) is a valid publish; the loop still processes the `'staged'` rows. The progress denominator NEVER reads `publishCount` (it reads `listed`), so a `0` count cannot divide-by-zero and the bar still works for an all-Held finish.
-- `uncheckedCleanCount` default `0` (existing default, `FinalizeButton.tsx:123`) → no soft confirm. The live values flow from the optimistic checkbox overlay (`Step3ReviewWithFinalize.tsx:54-58`), so the label/soft-confirm track the boxes with no round-trip lag.
+- `publishCount === 0` does NOT disable the button. The disabled gate is `disabled={!finishable}` (`components/admin/wizard/Step3ReviewWithFinalize.tsx:56`), the resolution gate — independent of `publishCount`. A finishable session with `publishCount === 0` and `uncheckedCleanCount > 0` (all clean rows unchecked → all become Held) is a valid publish; the loop still processes the `'staged'` rows. The progress denominator NEVER reads `publishCount` (it reads `listed`), so a `0` count cannot divide-by-zero and the bar still works for an all-Held finish.
+- `uncheckedCleanCount` default `0` (existing default, `FinalizeButton.tsx:123`) → no soft confirm. The live values flow from the optimistic checkbox overlay (`components/admin/wizard/Step3ReviewWithFinalize.tsx:54-58`), so the label/soft-confirm track the boxes with no round-trip lag.
 - `disabled` true (i.e. `!finishable`) → button disabled, click is a no-op (`onPrimaryClick` early return, `FinalizeButton.tsx:234`); no progress UI is reachable until the session is finishable.
 - `listed.total === 0` → `grandTotal = completedRef + 0`; if `grandTotal === 0` the bar renders `value=0 max=undefined` (indeterminate) to avoid `0/0`; status line shows "Finishing up…" rather than "0 of 0".
 - `row.name` null/empty → status line falls back to `row.driveFileId`; if both unusable, generic "this sheet".
 - `row.done > grandTotal` (estimate drift) → clamp `value = Math.min(value, grandTotal)` so the native bar never exceeds `max`.
-- Stream interruption (reader throws / `done` before terminal `result`) → mirror `Step2Verify.tsx:262-270`: if no terminal `result` was seen, set `{kind:"error", copy: GENERIC_ERROR, code:null}` (no raw code).
+- Stream interruption (reader throws / `done` before terminal `result`) → mirror `components/admin/wizard/Step2Verify.tsx:262-270`: if no terminal `result` was seen, set `{kind:"error", copy: GENERIC_ERROR, code:null}` (no raw code).
 - Non-200 / non-NDJSON response (pre-stream error, proxy stripped `Accept`) → `!isStream` branch reads `response.json()` and runs the same terminal handling (race_row / cas_per_row / error / continue).
 - `fetch` network throw → `{kind:"error", copy: GENERIC_ERROR, code:null}` (existing, `FinalizeButton.tsx:145-147`).
 - Double-click guard preserved: `runLoop` early-returns while `state.kind === "running"` (`FinalizeButton.tsx:134`) and the button is `disabled` while running.
