@@ -745,8 +745,20 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
         },
       },
       contacts: [
-        { kind: "in_house_av", name: "Cesar Salazar", phone: "309-532-5534", email: null, notes: null },
-        { kind: "venue", name: "Jenae Denne", phone: null, email: "jd@fourseasons.com", notes: null },
+        {
+          kind: "in_house_av",
+          name: "Cesar Salazar",
+          phone: "309-532-5534",
+          email: null,
+          notes: null,
+        },
+        {
+          kind: "venue",
+          name: "Jenae Denne",
+          phone: null,
+          email: "jd@fourseasons.com",
+          notes: null,
+        },
       ],
     } as unknown as ParseResult;
     const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ct", parseResult: pr };
