@@ -136,9 +136,12 @@ sync sorts problems first:
 STATUS_SORT_RANK = { publishing: 0, held: 1, live: 2, published: 3 }
 ```
 
-`sortValue("status")` returns `${STATUS_SORT_RANK[state]}|${label}` so ties break on the visible
-label, then the existing title tiebreak (`ShowsTable.tsx:99,104`). The status state is **never
-null**, so status rows never sort "last" (consistent with the sync column, `ShowsTable.tsx:82-84`).
+`sortValue("status")` returns just the numeric `STATUS_SORT_RANK[state]`. (Unlike the sync column —
+where one bucket maps to several distinct labels, so it appends `|label` to order within a bucket,
+`ShowsTable.tsx:83-84` — each status state has exactly ONE label, so rank ↔ label is 1:1 and a
+`|label` suffix would add nothing. Equal-rank rows therefore fall straight through to the existing
+title tiebreak, `ShowsTable.tsx:99,104`.) The status state is **never null**, so status rows never
+sort "last" (consistent with the sync column, `ShowsTable.tsx:82`).
 
 The sort button is part of the 6-column header and therefore also gated `≥ 960px`
 (`hidden min-[960px]:...`), so it is absent from the 5-column grid where there is no Status column to
@@ -188,15 +191,35 @@ gate is the band-sweep test**, which measures the browser-resolved first track. 
 below are tuned against it — if any band falls below 120px, the implementer raises the corresponding
 breakpoint until green (never lowers `MIN_TITLE_PX`).
 
-**Parity invariant for the 5-column bands (720–959px).** This change adds grid tracks ONLY at
-`≥960px`; the 5-column grid (`min-[720px]` tracks, gaps, padding) is **byte-for-byte unchanged**, and
-the new inline `Published` pill lives INSIDE the existing 1fr Show cell (it does not alter any track).
-Therefore the band-sweep result at every band `<960px` is **identical to baseline `origin/main`** —
-this change can neither improve nor regress it. The spec deliberately makes **no absolute pass claim**
-for 720/810 (the hand-estimate above suggests they sit near the floor today); the implementation's
-layout-dimensions task runs the band-sweep on the branch and asserts **parity with baseline** at
-`<960px` and `≥120px` at `≥960px`. If baseline is itself at/under the floor at a `<960` band, that is
-a **pre-existing condition surfaced, not introduced** here, and is reported (not silently absorbed).
+**Scope of the layout gate — which bands this change is responsible for.** The band-sweep
+(`tests/e2e/admin-layout-dimensions.spec.ts`) is a **local** gate — it is NOT in the automated PR CI
+(crew-e2e.yml runs only `crew-section-toggle.spec.ts`); the implementation runs it locally in the
+layout-dimensions task. There is **no parity-only exception and no license to ship an under-floor
+band** — the rule is uniform: every band this change AFFECTS must pass the full gate (`titleTrack ≥
+120px` AND no horizontal row overflow AND no header Show/Dates overlap).
+
+This change adds grid tracks ONLY at `≥960px`. So:
+
+- **Bands `≥960px` (the new 6-column grid — `960` and the new `1240/1400/1520`):** this change OWNS
+  them; each must pass the full gate (≥120 + overflow + overlap).
+- **Bands `<960px` (720–959, the unchanged 5-column grid):** the grid template, gaps, and padding are
+  **byte-for-byte unchanged**, so their gate status is **whatever it is on baseline `origin/main`** —
+  this change does not assert, alter, or take responsibility for their absolute values. The
+  layout-dimensions task confirms non-regression two ways: (a) **structural** — the rendered grid at a
+  `<960` width still resolves to the OLD 5-track template (not the 6-track one); (b) the existing
+  720/810 assertions are left untouched. Per project discipline, any pre-existing 720/810 result is
+  verified at the merge-base (`feedback_verify_pre_existing_failures_at_merge_base`) and tracked
+  separately — it is neither introduced nor masked here.
+
+**Content/overflow of the new inline `Published` pill (720–959).** The new pill is *new content* in
+the Show cell of published rows below 960px, so it can affect `scrollWidth`/wrapping even though the
+track template is unchanged. This is GUARDED, not assumed: (a) it is the **same class** as the
+existing inline pills — Live/Held/Publishing rows already render an inline pill in that cell at these
+widths today and pass the gate, and `Published` is *shorter* than the existing `Held — not published`
+string, so it introduces no wider-content case than already ships; (b) the band-sweep's overflow
+(part b) and header-overlap (part c) checks run at 720/810 and catch any regression; (c) the
+implementation ensures the band-sweep fixture contains a **published** row so the new pill is actually
+exercised by those checks at `<960`.
 
 ### 6.3 Responsive breakpoint budget — three coordinated changes
 
@@ -217,27 +240,29 @@ Title estimates use 6-col overhead ≈ 660px (`showsCol − 660`); they are appr
 to show each band clears 120px with margin. The 5-column bands assert **parity** (§6.2), not an
 absolute number.
 
-| Band (px) | Grid    | Split | Inbox | `showsCol` ≈ | Title ≈      | Result                          |
+| Band (px) | Grid    | Split | Inbox | `showsCol` ≈ | Title ≈      | Owner / result                  |
 | --------- | ------- | ----- | ----- | ------------ | ------------ | ------------------------------- |
-| 720       | 5-col   | off   | —     | 656          | baseline-equal | parity w/ `origin/main` (§6.2) |
-| 810       | 5-col   | off   | —     | 746          | baseline-equal | parity w/ `origin/main` (§6.2) |
-| 960       | 6-col   | off   | —     | 896          | ~236         | ✓                               |
-| 1024      | 6-col   | off   | —     | 960          | ~300         | ✓                               |
-| 1080      | 6-col   | off   | —     | 1016         | ~356         | ✓ (was two-col; now single-col) |
-| 1152      | 6-col   | off   | —     | 1088         | ~428         | ✓                               |
-| 1240      | 6-col   | on    | 320   | 840          | ~180         | ✓ (new band — split activation) |
-| 1280      | 6-col   | on    | 320   | 880          | ~220         | ✓ (existing band)               |
-| 1400      | 6-col   | on    | 480   | 840          | ~180         | ✓ (new band — inbox widen)      |
-| 1520      | 6-col   | on    | 480   | 960          | ~300         | ✓ (new band)                    |
+| 720       | 5-col   | off   | —     | 656          | unchanged    | baseline's domain (§6.2)        |
+| 810       | 5-col   | off   | —     | 746          | unchanged    | baseline's domain (§6.2)        |
+| 960       | 6-col   | off   | —     | 896          | ~236         | this change — must pass ✓        |
+| 1024      | 6-col   | off   | —     | 960          | ~300         | this change — must pass ✓        |
+| 1080      | 6-col   | off   | —     | 1016         | ~356         | this change (was two-col→single) |
+| 1152      | 6-col   | off   | —     | 1088         | ~428         | this change — must pass ✓        |
+| 1240      | 6-col   | on    | 320   | 840          | ~180         | this change — new band (split)   |
+| 1280      | 6-col   | on    | 320   | 880          | ~220         | this change — existing band      |
+| 1400      | 6-col   | on    | 480   | 840          | ~180         | this change — new band (inbox)   |
+| 1520      | 6-col   | on    | 480   | 960          | ~300         | this change — new band           |
 
 `tests/e2e/admin-layout-dimensions.spec.ts` `TITLE_BANDS` (`:160`) is extended by appending
-`1240, 1400, 1520` (the new boundary bands); the existing bands `720,810,960,1024,1080,1100,1152,1280`
-stay. Bands 720/810/1100 exercise the **unchanged 5-column grid** (their title track is identical to
-baseline — §6.2 parity); bands ≥960 exercise the new 6-column grid. The assertion body (`:183-206`)
-is unchanged — it already handles every grid-on band. The implementation also adds a **baseline-parity
-assertion** for the `<960` bands (capture the resolved first-track px on `origin/main` and assert the
-branch matches within 0.5px) so a future regression of the 5-col grid cannot hide behind "it was
-already like that."
+`1240, 1400, 1520` (the new ≥960 boundary bands the change owns); the existing bands stay. Every band
+`≥960` must pass the existing assertion body (`:183-206`: titleTrack ≥120, no overflow, no header
+overlap) — unchanged, it already handles grid-on bands. The `<960` bands (720/810) are left exactly
+as they are (baseline's domain, §6.2); the layout-dimensions task additionally adds a **structural
+non-regression** check — render at an `<960` width and assert the resolved `gridTemplateColumns` is
+the 5-track template, NOT the 6-track one — so a future change that accidentally activates the
+6-column grid below 960px (which WOULD starve the title there) fails loudly. (The 1080/1100/1152
+bands, which were two-col on baseline and are single-col now, are owned by this change because the
+split moved; they pass comfortably as single-col.)
 
 ## 7. Transition Inventory
 
@@ -300,17 +325,24 @@ component must be defensive (React renders partial data during editing/loading):
   inline; the Status sort button toggles asc/desc and groups by `STATUS_SORT_RANK`
   (asc: publishing < held < live < published). **Failure mode caught:** a published row silently
   showing no status; the column pill and inline pill diverging in state; sort ordering by hidden data.
-- **Real-browser layout (`admin-layout-dimensions.spec.ts`):** title track `≥ 120px`, no row
-  overflow, no header overlap at every band incl. the new `1240 / 1400 / 1520`; PLUS the §6.2
-  baseline-parity assertion at the `<960` bands (resolved first-track px matches `origin/main` within
-  0.5px). **Failure mode caught:** the 6th column starving the title track (the exact collapse the
-  gate exists for); a silent regression of the 5-col grid.
-- **Real-browser visibility toggle (Playwright, `admin-lifecycle-transitions.spec.ts` or the layout
-  spec):** at a `<960px` viewport the inline pill for a row is visible and its column pill has
-  `display:none`; at a `≥960px` viewport the inline pill is `display:none` and the column pill is
-  visible. Assert visibility of BOTH nodes at each band (not by removing one), so a regression that
-  leaves both visible — or neither — fails. **Failure mode caught:** the inline↔column responsive
-  toggle being broken in a way jsdom cannot see (jsdom does not evaluate `@media` width queries).
+- **Real-browser layout (`admin-layout-dimensions.spec.ts`):** the change owns the `≥960` bands —
+  title track `≥ 120px`, no row overflow, no header overlap at every band incl. the new
+  `1240 / 1400 / 1520` (§6.2/§6.4). The fixture MUST include a **published** row so the new inline
+  `Published` pill is exercised by the overflow/overlap checks at `<960` too. Plus a **structural
+  non-regression** assertion: at an `<960` width the resolved `gridTemplateColumns` is the 5-track
+  template (NOT the 6-track one). The pre-existing 720/810 assertions are left untouched (baseline's
+  domain); if any is red, verify at the merge-base before treating it as this change's regression.
+  **Failure mode caught:** the 6th column starving the title track at `≥960`; the 6-col grid leaking
+  below 960px; the new inline pill overflowing a `<960` row.
+- **Real-browser visibility toggle (Playwright, in the layout/lifecycle spec):** pick a **deterministic
+  seeded row whose state is `Published`** (e.g. the first synced/published seeded show — selected by
+  its known slug, not "the first row", so a fixture reorder can't silently drop coverage). At a
+  `<960px` viewport assert its inline `shows-published-pill-{slug}` is visible AND its column
+  `shows-statuscol-published-{slug}` has `display:none`; at `≥960px` assert the reverse. Assert
+  visibility of BOTH nodes at each band (not by removing one), so a regression that leaves both
+  visible — or neither — fails. Additionally assert the **column header** `shows-sort-status` is hidden
+  at `<960` and visible at `≥960`. **Failure mode caught:** the inline↔column responsive toggle being
+  broken in a way jsdom cannot see (jsdom does not evaluate `@media` width queries).
 - **Component structural (jsdom):** assert each render site carries the correct responsive class
   (`min-[960px]:hidden` on the inline wrapper; `hidden`+`min-[960px]:block` on the column cell) — this
   is the jsdom-checkable half of the visibility contract; the real-browser test above proves the rest.
