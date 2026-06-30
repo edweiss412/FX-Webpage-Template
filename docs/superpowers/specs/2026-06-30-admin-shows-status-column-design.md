@@ -24,8 +24,13 @@ viewports.
 - the **Active** dashboard bucket (`components/admin/Dashboard.tsx:535-548`), and
 - the **/admin/unpublished** "Held shows" view (`app/admin/unpublished/page.tsx:72-89`).
 
-Both consume the same component, so the column appears in both. In the Held view every row is
-`Held` by construction — that is consistent and acceptable.
+Both consume the same component, so the column appears in both. In the Held view every row resolves
+to the `Held` state by construction: `loadHeldShows` selects `published = false` rows
+(`lib/admin/loadHeldShows.ts:107`), **filters out** finalize-owned rows
+(`lib/admin/loadHeldShows.ts:176`), and hardcodes `published: false, finalizeOwned: false` (and
+`isLive` false — a Held show is never live) on every returned row
+(`lib/admin/loadHeldShows.ts:191-196`). So the §3 precedence yields `Held` for every Held-view row —
+no `Publishing…`/`Live`/`Published` can appear there. That is consistent and acceptable.
 
 **Out of scope** (explicit):
 
@@ -46,7 +51,7 @@ existing `StatePill` (`components/admin/ShowsTable.tsx:108-146`):
 
 | State          | Condition (precedence order)            | Status token (existing)        | Column label   | Inline-pill label (mobile) |
 | -------------- | --------------------------------------- | ------------------------------ | -------------- | -------------------------- |
-| **Live**       | `row.isLive`                            | `status-live` (+ ping)         | `Live`         | `Live`                     |
+| **Live**       | `row.isLive`                            | `status-live` (static dot)     | `Live`         | `Live`                     |
 | **Published**  | `row.published && !row.isLive`          | `status-positive` (teal) — NEW | `Published`    | `Published`                |
 | **Publishing…**| `!row.published && row.finalizeOwned`   | `status-warn`                  | `Publishing…`  | `Publishing…`              |
 | **Held**       | `!row.published && !row.finalizeOwned`  | `status-idle`                  | `Held`         | `Held — not published`     |
@@ -55,6 +60,12 @@ Tokens already exist in `app/globals.css:76-85` (`--color-status-live`, `--color
 `--color-status-warn`, `--color-status-idle`, plus `-text` variants). Color is **never** the sole
 carrier — every pill pairs a dot with a text label (DESIGN §1 color-blind floor), exactly as the
 current pills do.
+
+**No animation is introduced.** The pills reuse `StatePill`'s existing visual: a `rounded-pill`
+border + a **static** colored dot (`ShowsTable.tsx:113-115` — the Live pill is a static
+`bg-status-live` dot, **NOT** the pulsing `animate-ping` that lives only in `StatusIndicator`,
+`components/admin/StatusIndicator.tsx:32-44`, used by the Sync cell). The new `Published` pill is the
+same static treatment in `status-positive`. There is no ping anywhere in the Status column.
 
 **The only new state is `Published`** (`status-positive`/teal). Today `StatePill` returns `null` for
 published rows; this spec adds the positive pill.
@@ -103,6 +114,15 @@ band (a single `getByTestId` therefore never matches two visible elements):
 - **Column pill** (new cell, before the chevron): `hidden min-[960px]:block`. Compact labels.
   New testid namespace: `shows-status-{slug}` wrapper containing the pill; per-state testids
   `shows-statuscol-{state}-{slug}` (`live` | `published` | `publishing` | `held`).
+
+**Proving "exactly one visible" needs a real browser.** jsdom does not evaluate `@media` width
+queries, so a jsdom test can only assert that each render site carries the correct responsive class
+(`min-[960px]:hidden` on the inline wrapper; `hidden min-[960px]:block` on the column cell) — it
+cannot prove actual visibility. The contract that exactly one of the two pills is *visible* at each
+band is therefore proved by a **Playwright** assertion (§10): at `<960px` the inline pill is visible
+and the column pill has `display:none`; at `≥960px` the reverse. The Playwright check asserts
+visibility of BOTH nodes (so a regression that leaves both visible fails), rather than removing a
+sibling before asserting.
 
 ## 5. Sortability
 
@@ -157,13 +177,26 @@ Width budget (admin wrapper `px-page-pad-desktop` = 64px total at ≥640px; inte
 
 - **Single-column (split off):** `showsCol = viewport − 64`.
 - **Two-column (split on):** `showsCol = viewport − 64 − inboxWidth − 16`.
-- 6-column fixed overhead ≈ `548px tracks + 80px gaps + 32px px-4 ≈ 660px`; title ≈ `showsCol − 660`.
-  Title `≥ 120` ⇒ `showsCol ≥ 780px`.
+- 6-column fixed overhead ≈ `548px tracks + 80px gaps + 32px px-4 + ~2px container border ≈ 660px`;
+  title ≈ `showsCol − 660`. Title `≥ 120` ⇒ `showsCol ≥ 780px`. (5-column overhead ≈ `452 + 64 + 32
+  + 2 ≈ 550px`, so by the same hand-arithmetic the title at 720px single-column is
+  `656 − 550 ≈ 106px` — **see the parity note below**: this number is NOT re-derived or claimed by
+  this spec.)
 
-These hand figures are **approximate**; the **binding gate is the band-sweep test**, which measures
-the browser-resolved first track. Breakpoint targets below are tuned against it — if any band falls
-below 120px, the implementer raises the corresponding breakpoint until green (never lowers
-`MIN_TITLE_PX`).
+These hand figures are **approximate** (real glyph/box metrics differ by a few px); the **binding
+gate is the band-sweep test**, which measures the browser-resolved first track. Breakpoint targets
+below are tuned against it — if any band falls below 120px, the implementer raises the corresponding
+breakpoint until green (never lowers `MIN_TITLE_PX`).
+
+**Parity invariant for the 5-column bands (720–959px).** This change adds grid tracks ONLY at
+`≥960px`; the 5-column grid (`min-[720px]` tracks, gaps, padding) is **byte-for-byte unchanged**, and
+the new inline `Published` pill lives INSIDE the existing 1fr Show cell (it does not alter any track).
+Therefore the band-sweep result at every band `<960px` is **identical to baseline `origin/main`** —
+this change can neither improve nor regress it. The spec deliberately makes **no absolute pass claim**
+for 720/810 (the hand-estimate above suggests they sit near the floor today); the implementation's
+layout-dimensions task runs the band-sweep on the branch and asserts **parity with baseline** at
+`<960px` and `≥120px` at `≥960px`. If baseline is itself at/under the floor at a `<960` band, that is
+a **pre-existing condition surfaced, not introduced** here, and is reported (not silently absorbed).
 
 ### 6.3 Responsive breakpoint budget — three coordinated changes
 
@@ -178,37 +211,46 @@ below 120px, the implementer raises the corresponding breakpoint until green (ne
 comment block `Dashboard.tsx:448-460` (which says the inbox widens to "360px" — the code actually
 says 480px) is rewritten to describe the new budget.
 
-### 6.4 Worked band table (targets; test is the arbiter)
+### 6.4 Worked band table (estimates; the band-sweep test is the arbiter)
 
-| Band (px) | Grid    | Split | Inbox | `showsCol` ≈ | Title ≈ | Result      |
-| --------- | ------- | ----- | ----- | ------------ | ------- | ----------- |
-| 720       | 5-col   | off   | —     | 656          | unchanged from today | ✓ (existing) |
-| 810       | 5-col   | off   | —     | 746          | unchanged | ✓ (existing) |
-| 960       | 6-col   | off   | —     | 896          | 234     | ✓           |
-| 1024      | 6-col   | off   | —     | 960          | 298     | ✓           |
-| 1080      | 6-col   | off   | —     | 1016         | 354     | ✓           |
-| 1152      | 6-col   | off   | —     | 1088         | 426     | ✓           |
-| 1240      | 6-col   | on    | 320   | 840          | 178     | ✓ (new band)|
-| 1280      | 6-col   | on    | 320   | 880          | 218     | ✓ (existing)|
-| 1400      | 6-col   | on    | 480   | 840          | 178     | ✓ (new band)|
-| 1520      | 6-col   | on    | 480   | 960          | 298     | ✓ (new band)|
+Title estimates use 6-col overhead ≈ 660px (`showsCol − 660`); they are approximate and exist only
+to show each band clears 120px with margin. The 5-column bands assert **parity** (§6.2), not an
+absolute number.
+
+| Band (px) | Grid    | Split | Inbox | `showsCol` ≈ | Title ≈      | Result                          |
+| --------- | ------- | ----- | ----- | ------------ | ------------ | ------------------------------- |
+| 720       | 5-col   | off   | —     | 656          | baseline-equal | parity w/ `origin/main` (§6.2) |
+| 810       | 5-col   | off   | —     | 746          | baseline-equal | parity w/ `origin/main` (§6.2) |
+| 960       | 6-col   | off   | —     | 896          | ~236         | ✓                               |
+| 1024      | 6-col   | off   | —     | 960          | ~300         | ✓                               |
+| 1080      | 6-col   | off   | —     | 1016         | ~356         | ✓ (was two-col; now single-col) |
+| 1152      | 6-col   | off   | —     | 1088         | ~428         | ✓                               |
+| 1240      | 6-col   | on    | 320   | 840          | ~180         | ✓ (new band — split activation) |
+| 1280      | 6-col   | on    | 320   | 880          | ~220         | ✓ (existing band)               |
+| 1400      | 6-col   | on    | 480   | 840          | ~180         | ✓ (new band — inbox widen)      |
+| 1520      | 6-col   | on    | 480   | 960          | ~300         | ✓ (new band)                    |
 
 `tests/e2e/admin-layout-dimensions.spec.ts` `TITLE_BANDS` (`:160`) is extended by appending
 `1240, 1400, 1520` (the new boundary bands); the existing bands `720,810,960,1024,1080,1100,1152,1280`
-stay and continue to pass. Bands 720/810 still exercise the **unchanged 5-column grid** (so their
-title-track behavior is identical to today). The assertion body (`:183-206`) is unchanged — it
-already handles grid-on bands.
+stay. Bands 720/810/1100 exercise the **unchanged 5-column grid** (their title track is identical to
+baseline — §6.2 parity); bands ≥960 exercise the new 6-column grid. The assertion body (`:183-206`)
+is unchanged — it already handles every grid-on band. The implementation also adds a **baseline-parity
+assertion** for the `<960` bands (capture the resolved first-track px on `origin/main` and assert the
+branch matches within 0.5px) so a future regression of the 5-col grid cannot hide behind "it was
+already like that."
 
 ## 7. Transition Inventory
 
-The status pill has 4 states; the table also crosses the 960px breakpoint (inline↔column). All
-transitions are **instant — no animation** (matching the existing pills, which animate only the
-`status-live` ping; `components/admin/StatusIndicator.tsx:32-44`):
+The status pill has 4 states; the table also crosses the 960px breakpoint (inline↔column). **No
+animation is introduced** — `StatePill` is a static bordered pill with a static dot
+(`ShowsTable.tsx:113-115`). The `animate-ping` lives only in `StatusIndicator`
+(`components/admin/StatusIndicator.tsx:32-44`), which the **Sync** cell uses — it is untouched by
+this change and is NOT part of the Status column.
 
 | Transition                                   | Treatment                                                                 |
 | -------------------------------------------- | ------------------------------------------------------------------------- |
 | Any state ↔ any state (data change → re-render) | Instant — no animation. Pills are pure render of precomputed fields.    |
-| `Live` pill                                  | Retains the existing `status-live` CSS ping (`StatusIndicator`), `motion-reduce:hidden`. |
+| `Live` pill                                  | Static `status-live` bordered pill + static dot — **no ping** (the Status column does not use `StatusIndicator`). |
 | Inline pill (`<960`) ↔ column pill (`≥960`)  | Instant — CSS media-query visibility toggle of two static DOM nodes; no JS, no animation. |
 | 5-col grid ↔ 6-col grid at 960px             | Instant — `grid-template-columns` media-query swap; Status cell `display` toggles. |
 | Two-col split at 1240 / inbox widen at 1400  | Instant — existing flex/width media queries; unchanged animation posture. |
@@ -259,11 +301,24 @@ component must be defensive (React renders partial data during editing/loading):
   (asc: publishing < held < live < published). **Failure mode caught:** a published row silently
   showing no status; the column pill and inline pill diverging in state; sort ordering by hidden data.
 - **Real-browser layout (`admin-layout-dimensions.spec.ts`):** title track `≥ 120px`, no row
-  overflow, no header overlap at every band incl. the new `1240 / 1400 / 1520`. **Failure mode
-  caught:** the 6th column starving the title track (the exact collapse the gate exists for).
+  overflow, no header overlap at every band incl. the new `1240 / 1400 / 1520`; PLUS the §6.2
+  baseline-parity assertion at the `<960` bands (resolved first-track px matches `origin/main` within
+  0.5px). **Failure mode caught:** the 6th column starving the title track (the exact collapse the
+  gate exists for); a silent regression of the 5-col grid.
+- **Real-browser visibility toggle (Playwright, `admin-lifecycle-transitions.spec.ts` or the layout
+  spec):** at a `<960px` viewport the inline pill for a row is visible and its column pill has
+  `display:none`; at a `≥960px` viewport the inline pill is `display:none` and the column pill is
+  visible. Assert visibility of BOTH nodes at each band (not by removing one), so a regression that
+  leaves both visible — or neither — fails. **Failure mode caught:** the inline↔column responsive
+  toggle being broken in a way jsdom cannot see (jsdom does not evaluate `@media` width queries).
+- **Component structural (jsdom):** assert each render site carries the correct responsive class
+  (`min-[960px]:hidden` on the inline wrapper; `hidden`+`min-[960px]:block` on the column cell) — this
+  is the jsdom-checkable half of the visibility contract; the real-browser test above proves the rest.
 - **Anti-tautology:** column-pill assertions read `row` state derived from fixture fields, not the
-  rendered container; the inline-vs-column scan clones the row and removes the hidden sibling before
-  asserting a single visible pill, so a broken CSS toggle (both visible) fails rather than passes.
+  rendered container. Because both pills coexist in the jsdom DOM, per-row state assertions target the
+  **distinct** testids (`shows-statuscol-{state}-{slug}` vs the inline `shows-{state}-pill-{slug}`) so
+  a query never silently matches the wrong site; the "exactly one visible" property is proved in the
+  real browser (above), never by deleting a sibling in jsdom.
 - **Negative regression:** flipping a fixture row `published: true → false` must move it Published →
   Held in both render sites; a test that still passes after that mutation is tautological and must be
   strengthened.
@@ -277,9 +332,11 @@ PR / handoff.
 
 ## 12. Watchpoints / do-not-relitigate
 
-- **Three breakpoint bumps are required, not optional.** The 720px grid is at title-floor capacity
-  (§6.2); a 6th column at 720 collapses the title below 120px. Gating Status at 960 + split at 1240 +
-  inbox-widen at 1400 is the minimal set that keeps every band ≥120px (§6.4). The band-sweep test is
+- **The Status column is gated `≥960px` precisely BECAUSE the 720px grid is at title-floor capacity**
+  (§6.2): a 6th column at 720 would collapse the title (hand-estimate ~106px). So the 5-column grid at
+  720–959 is left untouched (parity with baseline) and the column + the two coordinated breakpoint
+  bumps (split 1080→1240, inbox-widen 1280→1400) apply only at `≥960`. This is the minimal set that
+  keeps every `≥960` band ≥120px while not regressing the `<960` bands (§6.4). The band-sweep test is
   the proof. (The user chose "compact label + bump breakpoint" over the no-new-track option in
   brainstorming.)
 - **Inline pill and column pill are intentionally two DOM nodes** with distinct testids, CSS-toggled
