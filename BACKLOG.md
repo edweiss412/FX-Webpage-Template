@@ -26,7 +26,7 @@ The seven items below were surfaced by a parser → review-modal → crew-page a
 
 The parser captures all 19 `event_details` keys but the crew page renders 5 and the review modal 2 (`Step3SheetCard.tsx:380-385`). Never rendered anywhere: **Stage Size, GS Podium Type, Polling, LED, Backdrop/Scenic, Equipment Storage, Test Pattern, Fonts** (+ sentinels). No component iterates the `event_details` map. **Fix:** a crew-facing Tech-Specs card (Venue or Gear section) iterating the full map with sentinel-hiding (highest crew impact: stage size, podium, polling); extend `EventDetailsBreakdown` to render all non-sentinel keys for the operator pre-publish.
 
-### BL-ROOM-DETAIL-UNRENDERED — deliver per-room setup/dimensions/floor/times (mixed) 
+### BL-ROOM-DETAIL-UNRENDERED — deliver per-room setup/dimensions/floor/times
 
 **Status:** open · **Severity:** medium · **Class:** PARSED-NOT-RENDERED · **Routing:** UI → Opus
 
