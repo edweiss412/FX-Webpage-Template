@@ -452,11 +452,7 @@ describe("title guard — section headers never become the title (structural, M3
 Run: `pnpm vitest run tests/parser/infoTabFidelity.test.ts -t "title"`
 Expected: FAIL — consultants title is currently `AII/III - CONSULTANTS ROUNDTABLE` (uppercase Event Name), and some duplicated-header cases return the header.
 
-- [ ] **Step 3: Implement** — `lib/parser/index.ts`. Add the import (with the other `knownSections` imports, or near the top of the title section):
-
-```ts
-import { isKnownSectionHeader } from "@/lib/parser/knownSections";
-```
+- [ ] **Step 3: Implement** — `lib/parser/index.ts`. **No new import needed** — `isKnownSectionHeader` is ALREADY imported at `index.ts:15` (`import { isKnownSectionHeader, isKnownSubLabel, countFieldHeaderWords } from "./knownSections";`). Do NOT add a second import (Codex plan-R3: a duplicate binding fails typecheck). Just reference the existing `isKnownSectionHeader`.
 
 Add the shared guard helper just above `extractTitleFromMarkdown` (after `isKnownNonTitle`, ~line 109):
 
