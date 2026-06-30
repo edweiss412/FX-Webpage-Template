@@ -3,7 +3,9 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 const h = vi.hoisted(() => ({ captureBoundaryError: vi.fn() }));
-vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError: h.captureBoundaryError }));
+vi.mock("@/lib/observe/captureBoundaryError", () => ({
+  captureBoundaryError: h.captureBoundaryError,
+}));
 import GlobalError from "@/app/global-error";
 const { captureBoundaryError } = h;
 afterEach(() => {

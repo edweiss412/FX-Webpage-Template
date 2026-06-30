@@ -4,7 +4,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 const h = vi.hoisted(() => ({ captureBoundaryError: vi.fn() }));
-vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError: h.captureBoundaryError }));
+vi.mock("@/lib/observe/captureBoundaryError", () => ({
+  captureBoundaryError: h.captureBoundaryError,
+}));
 import AdminError from "@/app/admin/error";
 import SettingsError from "@/app/admin/settings/error";
 import AdminsError from "@/app/admin/settings/admins/error";
@@ -25,9 +27,7 @@ describe.each([
     render(<Boundary error={err} reset={vi.fn()} />);
     expect(captureBoundaryError).toHaveBeenCalledWith(err, "admin");
     expect(
-      screen.getByText(
-        new RegExp(COPY.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
-      ),
+      screen.getByText(new RegExp(COPY.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i")),
     ).toBeInTheDocument();
   });
 });
