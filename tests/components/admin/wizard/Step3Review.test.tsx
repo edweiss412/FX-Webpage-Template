@@ -571,6 +571,36 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(queryByTestId("wizard-step3-card-drive-gear-1-room-1-scope")).toBeNull();
   });
 
+  test("each room shows its non-empty detail (dimensions/floor/setup/times) as-parsed incl. sentinels (BL-ROOM-DETAIL-UNRENDERED)", () => {
+    const pr = {
+      ...GEAR_PR,
+      rooms: [
+        {
+          kind: "gs",
+          name: "GRAND BALLROOM",
+          dimensions: "60' x 45'",
+          floor: "TBD", // sentinel → SHOWN as-parsed (review surface)
+          setup: "18 tables of 7",
+          set_time: "5/13 after 8pm",
+          show_time: "   ", // whitespace-only → omitted (empty after trim)
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-gear-3", parseResult: pr };
+    const { getByTestId } = render(<Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />);
+    fireEvent.click(getByTestId("wizard-step3-card-drive-gear-3-more"));
+    const detail = getByTestId("wizard-step3-card-drive-gear-3-room-0-detail").textContent ?? "";
+    expect(detail).toContain("Dimensions:");
+    expect(detail).toContain("60' x 45'");
+    expect(detail).toContain("Setup:");
+    expect(detail).toContain("Set time:");
+    // sentinel SHOWN as-parsed (review surface, NOT sentinel-hidden like the crew page):
+    expect(detail).toContain("Floor:");
+    expect(detail).toContain("TBD");
+    // whitespace-only omitted (empty after trim):
+    expect(detail).not.toContain("Show time:");
+  });
+
   test("event-details breakdown shows keynote + URL-stripped opening reel (no Drive URL leak)", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,

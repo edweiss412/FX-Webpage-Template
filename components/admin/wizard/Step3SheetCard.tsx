@@ -55,6 +55,7 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
+import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
@@ -357,6 +358,27 @@ function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
                     ))}
                   </ul>
                 ) : null}
+                {(() => {
+                  // Per-room physical + schedule detail (BL-ROOM-DETAIL-UNRENDERED).
+                  // Coerce once; keep non-empty AS-PARSED (sentinels visible — review
+                  // surface, NOT sentinel-hidden like the crew page).
+                  const detail = ROOM_DETAIL_FIELDS.map((f) => ({
+                    label: f.label,
+                    value: String(r[f.key] ?? "").trim(),
+                  })).filter((d) => d.value.length > 0);
+                  return detail.length > 0 ? (
+                    <ul
+                      data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
+                      className="mt-0.5 flex flex-col gap-0.5 pl-3 text-xs text-text-subtle"
+                    >
+                      {detail.map((d) => (
+                        <li key={d.label} className="wrap-break-word">
+                          <span className="font-medium text-text">{d.label}:</span> {d.value}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null;
+                })()}
               </li>
             );
           })}
