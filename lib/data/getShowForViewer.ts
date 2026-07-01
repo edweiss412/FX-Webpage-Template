@@ -507,10 +507,9 @@ async function readShowDataForViewer(
         driver_name: (transRes.data.driver_name as string | null) ?? null,
         driver_phone: (transRes.data.driver_phone as string | null) ?? null,
         driver_email: (transRes.data.driver_email as string | null) ?? null,
-        // loadout_* projected in Task 4 (stubbed null here to keep typecheck green)
-        loadout_name: null,
-        loadout_phone: null,
-        loadout_email: null,
+        loadout_name: (transRes.data.loadout_name as string | null) ?? null,
+        loadout_phone: (transRes.data.loadout_phone as string | null) ?? null,
+        loadout_email: (transRes.data.loadout_email as string | null) ?? null,
         vehicle: (transRes.data.vehicle as string | null) ?? null,
         license_plate: (transRes.data.license_plate as string | null) ?? null,
         color: (transRes.data.color as string | null) ?? null,
