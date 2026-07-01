@@ -80,37 +80,51 @@ Purely additive to the anchor spec; the `header-block` strategy already exists i
 ### 4.1 Affordance
 
 A new **client** primitive `components/crew/primitives/CardReportTrigger.tsx`:
-- Renders an **icon-only**, recessive button (a small flag glyph, thin-stroke family matching `SheetIcon`) with `aria-label="Report a problem with this card"`.
+- Renders an **icon-only**, recessive button (a small flag glyph, thin-stroke family matching `SheetIcon`) with `aria-label="Report a problem with this card"` and `data-slot="card-report-trigger"`.
 - Styling mirrors `SourceLink`'s recessive treatment: `text-text-faint`, hover → `text-text-subtle`, `[&_svg]:size-3.5`, `h-fit shrink-0` (no added row height — see Dimensional Invariants).
-- On click, opens the existing `ReportModal` (surface `"crew"`) with:
-  - `surfaceId = crew-card-${cardId}-${showId}` (stable per card per show; `showId` is the show UUID → distinct sessionStorage scope so drafts don't leak between cards or shows).
-  - `autocapture = { fieldRef: { cardId, region } }` where `region = CARD_REGION_MAP[cardId]`. `cardId` already encodes the section (`today-dress` → Today), so no separate `viewerVisibleSection` is threaded.
-- Reuses `ReportModal` verbatim (idempotency-key lifecycle, retry, a11y). No new modal, no new error code.
+- On click, opens the existing `ReportModal` with the surface + context resolved from the `cardReport` bundle (§4.2a):
+  - `surface = cardReport.surface` (`"crew"` for a plain crew viewer; `"admin"` under admin preview-as — matches the footer override at `_CrewShell.tsx:372`).
+  - `surfaceId = ${cardReport.surfaceIdScope}-${cardId}-${showId}` (`crew-card-…` for crew; `admin-preview-card-…` under preview — distinct sessionStorage scope per card per show per surface).
+  - `autocapture = { ...cardReport.extraContext, fieldRef: { cardId, region } }` where `region = CARD_REGION_MAP[cardId]`. `extraContext` carries `crewPreview` under admin preview-as (mirrors `_CrewShell.tsx:358-371`); empty for crew. `cardId` already encodes the section (`today-dress` → Today), so no separate `viewerVisibleSection` is threaded.
+  - Reuses `ReportModal` verbatim (idempotency-key lifecycle, retry, a11y). No new modal, no new error code.
 
 ### 4.2 Integration — `CardHeaderActions`
 
-To keep the 23 source-backed call sites uniform and avoid per-site boilerplate, introduce one composition primitive `components/crew/primitives/CardHeaderActions.tsx` that renders the existing `SourceLink` **and** the new `CardReportTrigger` as a single right-aligned cluster in the `SectionCard` header `action` slot. It takes the card id and derives both the region and the anchor internally:
+To keep the 23 source-backed call sites uniform, introduce one composition primitive `components/crew/primitives/CardHeaderActions.tsx` (a Server Component that renders the server `SourceLink` plus the client `CardReportTrigger` leaf) as a single right-aligned cluster in the `SectionCard` header `action` slot. **The anchor is passed in explicitly — NOT derived from `CARD_REGION_MAP[cardId]`** — because some call sites compute a bespoke anchor: the `gear-scope-*` cards pick the dynamic `gear_scope` anchor when present, else fall back to `rooms` (`GearSection.tsx:319-328`). Deriving the anchor internally would collapse those links back to `rooms`. Each call site keeps its existing `anchor={…}` expression verbatim; only `region` (for `fieldRef`) is derived from the static `CARD_REGION_MAP[cardId]`.
 
 ```tsx
 // props: { cardId: CardId; driveFileId: string | null;
-//          sourceAnchors: Record<string, SourceAnchor>; showId: string }
+//          anchor?: SourceAnchor | null; showId: string; cardReport: CardReportContext }
 // internally: const region = CARD_REGION_MAP[cardId];
-//             const anchor = sourceAnchors[region];
+//   <SourceLink driveFileId={driveFileId} anchor={anchor} />   // unchanged
+//   <CardReportTrigger cardId={cardId} region={region} showId={showId} cardReport={cardReport} />
 <CardHeaderActions
   cardId="today-dress"
   driveFileId={data.driveFileId}
-  sourceAnchors={data.sourceAnchors}
+  anchor={data.sourceAnchors[CARD_REGION_MAP["today-dress"]]}
   showId={showId}
+  cardReport={cardReport}
 />
 ```
 
 - `SourceLink` is rendered **unchanged** (same `<a data-slot="source-link">`), preserving the `sourceLinkCoverage` contract (the `<a>` still lives in the header). `CardReportTrigger` is a sibling to its right, separated by a hairline gap.
 - Rendered ONLY for cards in `CARD_REGION_MAP` (source-backed). `OUT_OF_SCOPE_CARDS` keep their current behavior (no source link, no report trigger).
-- The 23 crew-section call sites that currently pass `action={<SourceLink … />}` are migrated to `action={<CardHeaderActions cardId="…" driveFileId={data.driveFileId} sourceAnchors={data.sourceAnchors} showId={showId} />}`. Mechanical; `cardId` is the literal already used at each site inside `CARD_REGION_MAP[…]`.
+- The 23 crew-section call sites that currently pass `action={<SourceLink driveFileId={…} anchor={…} />}` are migrated to `action={<CardHeaderActions cardId="…" driveFileId={…} anchor={…} showId={showId} cardReport={cardReport} />}` — the `driveFileId`/`anchor` expressions are copied verbatim (incl. gear-scope's ternary); `cardId` is the literal already used at each site inside `CARD_REGION_MAP[…]`.
+
+### 4.2a `CardReportContext` — preview-aware, computed once
+
+Type: `type CardReportContext = { surface: ReportSurface; surfaceIdScope: string; extraContext: ReportAutocapture }` (exported from `CardHeaderActions.tsx` or a small sibling module).
+
+Computed **once** in `_CrewShell.tsx` `renderOne` (`app/show/[slug]/[shareToken]/_CrewShell.tsx:284-300`), right beside the footer's existing preview override (`:358-377`), and threaded into every section as a new prop, which forwards it to each `CardHeaderActions`. This centralizes the viewer/preview branch in the SAME place the footer already branches — no per-section duplication.
+
+- Plain crew viewer: `{ surface: "crew", surfaceIdScope: "crew-card", extraContext: {} }`.
+- Admin preview-as (`viewer.kind === "admin_preview"`): `{ surface: "admin", surfaceIdScope: "admin-preview-card", extraContext: { crewPreview: { crewMemberId, name, role } } }` — `name`/`role` resolved exactly as the footer does (`ctx.viewerName`, `ctx.viewerCrew?.role ?? null`, `_CrewShell.tsx:362-366`).
+
+The section prop `cardReport` is **optional** and defaults to the crew variant `{ surface: "crew", surfaceIdScope: "crew-card", extraContext: {} }`, so existing section unit tests and the coverage walker need not thread it unless they exercise the preview path. `_CrewShell` always passes it explicitly.
 
 ### 4.3 Data availability
 
-Sections already receive `data: ShowForViewer` (`lib/data/getShowForViewer.ts:115`) — `data.driveFileId` (`:250`), `data.sourceAnchors` (`:258`) — **and** `showId: string` as a direct prop (every `*SectionProps`, e.g. `TodaySectionProps` at `components/crew/sections/TodaySection.tsx:153`; passed by the crew page `app/show/[slug]/[shareToken]/page.tsx`). `showId` is the same show UUID the footer `ReportButton` uses. `data.show` is the parser `ShowRow` (`lib/parser/types.ts:96`) and carries NO `id`/`slug`, so the report's `showId` comes from the section prop, not `data.show`.
+Sections already receive `data: ShowForViewer` (`lib/data/getShowForViewer.ts:115`) — `data.driveFileId` (`:250`), `data.sourceAnchors` (`:258`) — **and** `showId: string` + `viewer` as direct props (every `*SectionProps`, e.g. `TodaySectionProps` at `components/crew/sections/TodaySection.tsx:153`; instantiated in `_CrewShell.tsx:288-300`). `showId` is the same show UUID the footer `ReportButton` uses. `data.show` is the parser `ShowRow` (`lib/parser/types.ts:96`) and carries NO `id`/`slug`, so the report's `showId` comes from the section prop, not `data.show`. The `cardReport` bundle (§4.2a) supplies the preview-aware surface/context so sections do not each re-derive `viewer.kind`.
 
 ### 4.4 Report body
 
@@ -121,9 +135,11 @@ Sections already receive `data: ShowForViewer` (`lib/data/getShowForViewer.ts:11
 | Input | Behavior |
 | --- | --- |
 | `driveFileId` null/empty | `SourceLink` renders null (existing). `CardReportTrigger` still renders (a card can be reported even with no sheet link) — but `fieldRef` still carries `{cardId, region}`; the report is about the rendered card, not the link. |
-| `cardId` not in `CARD_REGION_MAP` | `CardHeaderActions` is not used for that card (out-of-scope cards keep their current header). Compile-time safe: `region` param typed `RegionId`. |
+| `cardId` not in `CARD_REGION_MAP` | `CardHeaderActions` is not used for that card (out-of-scope cards keep their current header). Compile-time safe: `cardId` typed `CardId`, so `CARD_REGION_MAP[cardId]` is always a valid `RegionId`. |
 | `showId` empty | Guard: `CardReportTrigger` renders nothing if `showId` is falsy (mirrors Footer's `{showId ? … }` guard, `Footer.tsx:147`). A crew card always has a show, so this is defense-in-depth. |
 | Report modal already open on another card | Each card's `surfaceId` is distinct → independent sessionStorage scope → no draft collision. |
+| `anchor` is a bespoke expression (gear-scope dynamic `gear_scope`/`rooms`) | Passed through to `SourceLink` verbatim — the link behavior is byte-identical to today. `fieldRef.region` uses the static `CARD_REGION_MAP[cardId]` (`"rooms"` for gear-scope), which documents the card's canonical region regardless of the dynamic link target. |
+| Admin preview-as viewer | `cardReport.surface="admin"`, `surfaceIdScope="admin-preview-card"`, `extraContext.crewPreview` present → the card report files as admin with previewed-viewer context, matching the footer override (`_CrewShell.tsx:358-377`). |
 
 ## 5. Dimensional Invariants
 
@@ -170,6 +186,8 @@ No new advisory-lock surface, no Supabase call boundary, no admin-alert catalog 
 5. **Coverage walker extension (Part B):** assertion (d) above.
 6. **Layout dimensions (Part B):** real-browser Playwright — for a card header containing `CardHeaderActions`, assert both `[data-slot="source-link"]` and `[data-slot="card-report-trigger"]` heights equal the header row height within 0.5px, and the header height is unchanged vs. a SourceLink-only render. jsdom is NOT sufficient.
 7. **issueBody (Part B):** `buildAdminIssueBody` with `fieldRef:{cardId:"today-dress",region:"dress"}` renders both `today-dress` and `dress` under "Field/section ref:". Failure mode: formatValue regression.
+8. **Gear-scope anchor non-regression (Part B):** render `GearSection` with a fixture that has BOTH a `gear_scope` anchor and a `rooms` anchor; assert each `gear-scope-*` card's `<a data-slot="source-link">` href still equals `buildSheetDeepLink(driveFileId, sourceAnchors["gear_scope"])` (the dynamic choice), NOT the `rooms` anchor. Failure mode: `CardHeaderActions` deriving the anchor from `CARD_REGION_MAP` and collapsing the gear-scope link to `rooms` (Codex spec-R1 finding). Also assert the same card's `fieldRef.region === "rooms"` (static map) to pin the intended split.
+9. **Admin-preview parity (Part B):** with `cardReport = { surface:"admin", surfaceIdScope:"admin-preview-card", extraContext:{ crewPreview } }`, a card trigger's submit body carries `surface:"admin"`, the `admin-preview-card-<cardId>-<showId>` surfaceId scope, AND `crewPreview` alongside `fieldRef`. Failure mode: card report hard-coding crew surface / dropping preview context (Codex spec-R1 finding).
 
 ## 9. Resolved decisions (preempt relitigation)
 
@@ -179,11 +197,14 @@ No new advisory-lock surface, no Supabase call boundary, no admin-alert catalog 
 - **RD4 — reuse `ReportModal` / no new §12.4 code.** The report flow, copy catalog, and idempotency lifecycle are unchanged; this is a new *caller*, not a new *channel*.
 - **RD5 — no `rawSnippet`/`crewPreview` from crew cards (YAGNI).** `fieldRef` is the high-value field for the deep-link class; adding raw cell capture is deferred (would require threading each card's raw source through render). If a future report class needs it, revisit.
 - **RD6 — impeccable is the noise arbiter.** If `/impeccable critique`/`audit` judges a report glyph on every source-backed card too noisy, the documented fallback is to reduce to a hover/focus-revealed trigger or a per-section (not per-card) grouping — decided at the invariant-8 gate, not pre-emptively.
+- **RD7 — anchor is an explicit prop; only `region` is derived.** `CardHeaderActions` must NOT recompute the anchor from `CARD_REGION_MAP[cardId]` — the `gear-scope-*` cards choose `gear_scope` vs `rooms` dynamically (`GearSection.tsx:319-328`). The call site passes its existing `anchor` expression verbatim; `region` (for `fieldRef` only) comes from the static map. This makes the link behavior byte-identical to today and the change purely additive.
+- **RD8 — card reports honor the admin-preview override.** The crew sections are re-rendered under admin preview-as, where the footer files reports as `surface:"admin"` with `crewPreview` context and an `admin-preview-…` surfaceId (`_CrewShell.tsx:358-377`). Card triggers mirror this via the `cardReport` bundle (§4.2a) so preview reports keep admin-facing modal copy and previewed-viewer context. The bundle is computed once (not per section) at the same choke point.
 
 ## 10. Blast radius
 
 - `lib/sheet-links/buildSheetDeepLink.ts` (region id + spec + card map) — Part A.
-- New: `components/crew/primitives/CardReportTrigger.tsx`, `components/crew/primitives/CardHeaderActions.tsx` — Part B.
+- New: `components/crew/primitives/CardReportTrigger.tsx`, `components/crew/primitives/CardHeaderActions.tsx` (+ the `CardReportContext` type) — Part B.
 - 23 `action={<SourceLink…/>}` sites across `components/crew/sections/*` (BudgetSection 1, CrewSection 2, GearSection 6, ScheduleSection 2, TodaySection 6, TravelSection 3, VenueSection 3) migrated to `CardHeaderActions` — Part B (mechanical).
-- Tests: `sourceLinkCoverage.test.tsx` (extend), new unit tests, new Playwright layout test, `issueBody.test.ts` (add case).
+- 7 section components gain an optional `cardReport?: CardReportContext` prop (defaulting to the crew variant) and forward it; `app/show/[slug]/[shareToken]/_CrewShell.tsx` `renderOne` computes the bundle once (crew vs admin-preview) and threads it — Part B.
+- Tests: `sourceLinkCoverage.test.tsx` (extend), new unit tests (CardReportTrigger, gear-scope non-regression, admin-preview parity), new Playwright layout test, `issueBody.test.ts` (add case).
 - No `app/api/**`, no DB, no advisory locks, no email boundary, no Supabase call sites.
