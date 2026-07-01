@@ -178,7 +178,7 @@ const STATE_LABEL: Record<StatusState, string> = {
 // `place` selects BOTH the Held label compaction AND the testid namespace (§3.1/§4.1):
 // place="inline" → verbose "Held — not published" + shows-{state}-pill;
 // place="column" → compact "Held" + shows-statuscol-{state}. No animation — the dot is
-// static (the pulsing animate-ping lives only in StatusIndicator, the Sync cell).
+// static (the pulsing ping animation lives only in StatusIndicator, the Sync cell).
 function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
   const state = statusState(row);
   const tone = PILL_TONE[state];
