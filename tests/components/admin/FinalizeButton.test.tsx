@@ -17,6 +17,8 @@
  *     → { status: 'finalize_complete', ... } → router.refresh
  *     → { ok: false, code } → render Doug-facing copy
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
@@ -689,7 +691,7 @@ describe("FinalizeButton", () => {
     expect(getByText(BLOCKER_FALLBACK_ID)).toBeTruthy();
   });
 
-  test("clicking while a request is in flight does not double-fire", async () => {
+  test("morphs the button into the progress panel while in flight, so a second request cannot fire", async () => {
     let resolveFirst!: (value: Response) => void;
     fetchMock.mockImplementation(
       () =>
@@ -697,10 +699,14 @@ describe("FinalizeButton", () => {
           resolveFirst = resolve;
         }),
     );
-    const { getByTestId } = render(<FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />);
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
     fireEvent.click(getByTestId("wizard-finalize-button"));
-    fireEvent.click(getByTestId("wizard-finalize-button"));
-    fireEvent.click(getByTestId("wizard-finalize-button"));
+    // The button is REPLACED by the progress panel while running — there is nothing left to
+    // double-click, so the double-fire guard is now structural (no button = no second request).
+    expect(queryByTestId("wizard-finalize-button")).toBeNull();
+    expect(getByTestId("wizard-finalize-progress")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await act(async () => {
       resolveFirst(
@@ -713,5 +719,346 @@ describe("FinalizeButton", () => {
         }),
       );
     });
+  });
+});
+
+// ── Streaming progress panel (Task 4) + transition audit (Task 5) ──
+
+function mockNdjsonResponse(lines: unknown[]): Response {
+  const text = lines.map((line) => JSON.stringify(line)).join("\n") + "\n";
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (k: string) => (k.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
+    },
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(text));
+        controller.close();
+      },
+    }),
+    json: async () => {
+      throw new Error("stream response has no json()");
+    },
+  } as unknown as Response;
+}
+
+// A stream the test feeds one event at a time so intermediate progress states can be observed.
+function controllableNdjson() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const enc = new TextEncoder();
+  const response = {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (k: string) => (k.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
+    },
+    body: stream,
+    json: async () => {
+      throw new Error("stream response has no json()");
+    },
+  } as unknown as Response;
+  return {
+    response,
+    push: (obj: unknown) => controller.enqueue(enc.encode(JSON.stringify(obj) + "\n")),
+    close: () => controller.close(),
+  };
+}
+
+const allBatchesDone = () => ({
+  status: "all_batches_complete",
+  wizard_session_id: WIZARD_SESSION_ID,
+  remaining_count: 0,
+  unresolved_manifest_count: 0,
+  per_row: [],
+});
+
+const progressBar = (getByTestId: (id: string) => HTMLElement) =>
+  getByTestId("wizard-finalize-progressbar") as unknown as HTMLProgressElement;
+
+describe("FinalizeButton — streaming progress panel", () => {
+  test("single-batch: bar fills to X of Y with the current sheet name, then Finishing setup, then complete + refresh", async () => {
+    const batch = controllableNdjson();
+    const cas = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response).mockResolvedValueOnce(cas.response);
+    const { getByTestId, queryByTestId, findByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    expect(queryByTestId("wizard-finalize-button")).toBeNull();
+    expect(getByTestId("wizard-finalize-progress")).toBeTruthy();
+
+    await act(async () => {
+      batch.push({ type: "listed", total: 2 });
+      batch.push({ type: "row", done: 1, total: 2, name: "East Coast", driveFileId: "f1" });
+      batch.push({ type: "row", done: 2, total: 2, name: "RPAS", driveFileId: "f2" });
+    });
+    // Expected values DERIVED from the fixture (2 rows), not hardcoded independently.
+    expect(progressBar(getByTestId).max).toBe(2);
+    expect(progressBar(getByTestId).value).toBe(2);
+    expect(getByTestId("wizard-finalize-count").textContent).toContain("2 of 2 shows");
+    expect(getByTestId("wizard-finalize-current").textContent).toContain("RPAS");
+
+    await act(async () => {
+      batch.push({ type: "result", body: allBatchesDone() });
+      batch.close();
+    });
+    // Distinct finishing step.
+    expect(getByTestId("wizard-finalize-cas-phase")).toBeTruthy();
+    await act(async () => {
+      cas.push({ type: "phase", phase: "publishing" });
+    });
+    expect(getByTestId("wizard-finalize-cas-phase").textContent).toContain("Publishing shows");
+
+    await act(async () => {
+      cas.push({
+        type: "result",
+        body: {
+          status: "finalize_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          watched_folder_id: "wf",
+        },
+      });
+      cas.close();
+    });
+    await findByTestId("wizard-finalize-publish-complete");
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  test("missing sheet name falls back to the driveFileId in the status line", async () => {
+    const batch = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 1 });
+      batch.push({ type: "row", done: 1, total: 1, name: null, driveFileId: "drive-xyz" });
+    });
+    expect(getByTestId("wizard-finalize-current").textContent).toContain("drive-xyz");
+  });
+
+  test("multi-batch: the bar's grand total is reconciled across batches (no per-batch reset)", async () => {
+    const batch1 = controllableNdjson();
+    const batch2 = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch1.response)
+      .mockResolvedValueOnce(batch2.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={3} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    // Batch 1: 3 finishable remaining, processes 2.
+    await act(async () => {
+      batch1.push({ type: "listed", total: 3 });
+      batch1.push({ type: "row", done: 1, total: 2, name: "A", driveFileId: "a" });
+      batch1.push({ type: "row", done: 2, total: 2, name: "B", driveFileId: "b" });
+    });
+    expect(progressBar(getByTestId).max).toBe(3);
+    expect(progressBar(getByTestId).value).toBe(2);
+    await act(async () => {
+      batch1.push({
+        type: "result",
+        body: {
+          status: "batch_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 1,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        },
+      });
+      batch1.close();
+    });
+    // Batch 2: 1 remaining, processes 1 → grand total STILL 3, value → 3 (no reset).
+    await act(async () => {
+      batch2.push({ type: "listed", total: 1 });
+      batch2.push({ type: "row", done: 1, total: 1, name: "C", driveFileId: "c" });
+    });
+    expect(progressBar(getByTestId).max).toBe(3);
+    expect(progressBar(getByTestId).value).toBe(3);
+  });
+
+  test("stream interruption (no terminal result) surfaces the generic error, no raw code", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockNdjsonResponse([
+        { type: "listed", total: 1 },
+        { type: "row", done: 1, total: 1, name: "A", driveFileId: "a" },
+      ]),
+    );
+    const { getByTestId, findByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    const err = await findByTestId("wizard-finalize-error");
+    expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
+    expect(container.textContent ?? "").not.toContain("undefined");
+  });
+
+  test("race-row terminal on a streamed batch renders the re-apply links and does NOT call /finalize-cas", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockNdjsonResponse([
+        { type: "listed", total: 1 },
+        { type: "row", done: 1, total: 1, name: "A", driveFileId: "f1" },
+        {
+          type: "result",
+          body: {
+            status: "batch_complete",
+            wizard_session_id: WIZARD_SESSION_ID,
+            remaining_count: 0,
+            unresolved_manifest_count: 0,
+            per_row: [
+              {
+                drive_file_id: "f1",
+                wizard_session_id: WIZARD_SESSION_ID,
+                code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+                re_apply_url: "/admin/reapply/f1",
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    const { getByTestId, findByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await findByTestId("wizard-finalize-race-row");
+    expect(
+      (getByTestId("wizard-finalize-reapply-f1") as HTMLAnchorElement).getAttribute("href"),
+    ).toBe("/admin/reapply/f1");
+    expect(fetchMock).toHaveBeenCalledTimes(1); // /finalize-cas NOT fired
+  });
+
+  test("!isStream JSON safety net: a non-NDJSON ok:false error still routes through the catalog copy", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
+    );
+    const { getByTestId, findByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await findByTestId("wizard-finalize-error");
+    expect(container.textContent ?? "").not.toContain("ONBOARDING_NOT_RESOLVED");
+  });
+
+  test("retry after an error starts the bar fresh (no stale accumulator inflating the denominator)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockNdjsonResponse([
+        { type: "listed", total: 2 },
+        { type: "row", done: 1, total: 2, name: "A", driveFileId: "a" },
+      ]),
+    );
+    const { getByTestId, findByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={2} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await findByTestId("wizard-finalize-error");
+
+    // Retry: the button is back; a fresh single-row stream must show 1 of 1, NOT 3 of 3.
+    const batch = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 1 });
+      batch.push({ type: "row", done: 1, total: 1, name: "Z", driveFileId: "z" });
+    });
+    expect(progressBar(getByTestId).max).toBe(1);
+    expect(progressBar(getByTestId).value).toBe(1);
+    expect(getByTestId("wizard-finalize-count").textContent).toContain("1 of 1 show");
+  });
+
+  test("layout structure (spec §7): the bar is full-width in a block flex-col panel; the button is absent while running", async () => {
+    const batch = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    const panel = getByTestId("wizard-finalize-progress");
+    expect(panel.className).toContain("flex");
+    expect(panel.className).toContain("flex-col");
+    expect(getByTestId("wizard-finalize-progressbar").className).toContain("w-full");
+    expect(queryByTestId("wizard-finalize-button")).toBeNull();
+  });
+});
+
+describe("FinalizeButton — transition audit (Task 5)", () => {
+  test("uses NO animation library (native bar + instant state swaps only)", () => {
+    const src = readFileSync(join(process.cwd(), "components/admin/FinalizeButton.tsx"), "utf8");
+    expect(src).not.toMatch(/framer-motion|AnimatePresence/);
+  });
+
+  test("state exclusivity: the button and the progress panel never render together", async () => {
+    const batch = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    expect(getByTestId("wizard-finalize-button")).toBeTruthy();
+    expect(queryByTestId("wizard-finalize-progress")).toBeNull();
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    expect(queryByTestId("wizard-finalize-button")).toBeNull();
+    expect(getByTestId("wizard-finalize-progress")).toBeTruthy();
+  });
+
+  test("compound: confirming the soft confirm closes it AND enters the running panel (no button+panel overlap)", async () => {
+    const batch = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    const { getByTestId, queryByTestId } = render(
+      <FinalizeButton
+        wizardSessionId={WIZARD_SESSION_ID}
+        publishCount={2}
+        uncheckedCleanCount={1}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    expect(getByTestId("wizard-finalize-confirm")).toBeTruthy(); // still idle; button present
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-confirm-proceed"));
+    });
+    expect(queryByTestId("wizard-finalize-confirm")).toBeNull();
+    expect(queryByTestId("wizard-finalize-button")).toBeNull();
+    expect(getByTestId("wizard-finalize-progress")).toBeTruthy();
   });
 });
