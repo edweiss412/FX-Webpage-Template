@@ -403,7 +403,7 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
-          staged_id, source_kind, warning_summary, wizard_session_id
+          staged_id, source_kind, warning_summary, wizard_session_id, source_anchors
         )
         select $1,
                coalesce(
@@ -411,7 +411,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
                  (select s.last_seen_modified_time from public.shows s where s.drive_file_id = $1)
                ),
                $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
-               coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid
+               coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid,
+               coalesce($12::jsonb, '{}'::jsonb)
         where exists (
           select 1 from public.app_settings
            where id = 'default'
@@ -428,7 +429,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
           prior_last_sync_error = excluded.prior_last_sync_error,
           staged_id = excluded.staged_id,
           source_kind = excluded.source_kind,
-          warning_summary = excluded.warning_summary
+          warning_summary = excluded.warning_summary,
+          source_anchors = excluded.source_anchors
          where public.pending_syncs.wizard_session_id = $11::uuid
         returning staged_id
       `,
@@ -444,6 +446,9 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
         "onboarding_scan",
         row.warningSummary,
         this.wizardSessionId,
+        // Raw object to $12::jsonb (postgres.js serializes; never JSON.stringify). Unconditional
+        // refresh on conflict so a re-stage (rescan) clears/updates stale anchors (spec §5.3/§5.4).
+        row.sourceAnchors ?? null,
       ],
     );
     return { stagedId: upserted?.staged_id ?? "" };
@@ -594,6 +599,9 @@ async function scanPreparedFileWithTx(
       parseResult,
       binding,
       wizardSessionId,
+      // Required field on the sheet variant (always present, possibly {}), forwarded so the
+      // staging upsert persists pending_syncs.source_anchors.
+      sourceAnchors: prepared.sourceAnchors,
     });
     if (result.outcome === "pass") {
       await callTx("logSync", () =>
