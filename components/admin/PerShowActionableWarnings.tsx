@@ -2,6 +2,7 @@ import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
 
 /**
@@ -42,6 +43,17 @@ export function PerShowActionableWarnings({
             className="flex flex-col gap-0.5 rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
           >
             <span className="font-medium text-text-strong">{renderEmphasis(title)}</span>
+            {(() => {
+              // The offending row label (from rawSnippet "<label> | <value>"): the
+              // catalog title is generic, so this identifies the row even when the
+              // deep link is absent (legacy/ambiguous anchor).
+              const rowLabel = labelFromRawSnippet(w.rawSnippet);
+              return rowLabel ? (
+                <span data-testid="per-show-actionable-row-label" className="text-xs text-text-subtle">
+                  {rowLabel}
+                </span>
+              ) : null;
+            })()}
             {context ? (
               <span className="text-xs text-text-subtle">{renderEmphasis(context)}</span>
             ) : null}
