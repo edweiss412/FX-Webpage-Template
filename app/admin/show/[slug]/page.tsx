@@ -271,6 +271,10 @@ export default async function AdminShowPage({
     actionable: ParseWarning[];
     failed: boolean;
   }> => {
+    // The supabase await + its error handling stay TIGHT in the try/catch (invariant 9 / the
+    // _metaInfraContract proximity guard); the pure warnings→messages processing (no await, can't
+    // throw the supabase fault) runs AFTER the try.
+    let warnings: ParseWarning[];
     try {
       const { data, error } = await supabase
         .from("shows_internal")
@@ -284,26 +288,7 @@ export default async function AdminShowPage({
         });
         return { messages: [], actionable: [], failed: true };
       }
-      const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
-      // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
-      // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
-      // can BE the raw code (asset reelWarning() → message: code), which would print a
-      // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
-      // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
-      // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED) from the flat .message
-      // digest — they render once, below, as a titled card WITH a source-sheet
-      // deep link (strictly better). The digest keeps the non-actionable data gaps
-      // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
-      // impeccable critique flagged.
-      const messages = warnings
-        .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
-        .map((w) => w.message)
-        .filter((m): m is string => typeof m === "string" && m.length > 0);
-      // Carry the full warnings through so the panel can render the operator-
-      // actionable subset WITH their source-sheet deep links (the component filters
-      // + dedups via operatorActionableWarnings); the messages list stays the
-      // data-gap-only `.message` digest.
-      return { messages, actionable: warnings, failed: false };
+      warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
     } catch (err) {
       void log.error("shows_internal read threw:", {
         source: "admin.show",
@@ -311,6 +296,24 @@ export default async function AdminShowPage({
       });
       return { messages: [], actionable: [], failed: true };
     }
+    // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
+    // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
+    // can BE the raw code (asset reelWarning() → message: code), which would print a
+    // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
+    // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
+    // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED) from the flat .message
+    // digest — they render once, below, as a titled card WITH a source-sheet
+    // deep link (strictly better). The digest keeps the non-actionable data gaps
+    // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
+    // impeccable critique flagged.
+    const messages = warnings
+      .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
+      .map((w) => w.message)
+      .filter((m): m is string => typeof m === "string" && m.length > 0);
+    // Carry the full warnings through so the panel can render the operator-actionable subset WITH
+    // their source-sheet deep links (the component filters + dedups via operatorActionableWarnings);
+    // the messages list stays the data-gap-only `.message` digest.
+    return { messages, actionable: warnings, failed: false };
   };
 
   const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =
