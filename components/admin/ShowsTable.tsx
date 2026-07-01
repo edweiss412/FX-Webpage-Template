@@ -55,8 +55,14 @@ type ShowsTableProps = {
 // ("12/31/26 → 12/31/26") measures ~140px, which 8rem (128px) truncated. The
 // 1fr Show track lets long titles WRAP (no truncation) while the row stays
 // vertically centered (items-center). Crew/Sync wrap within their tracks too.
+// Two column templates: the original 5-track grid at min-[720px] (Show/Dates/Crew/Sync/
+// chevron) and a 6-track grid at min-[960px] that inserts a 6rem STATUS track before the
+// chevron. The Status header/cell are `hidden min-[960px]:block`, so below 960px they drop
+// out of grid flow and 5 cells map to the 5 tracks; at ≥960px the 6th cell re-enters and
+// 6 cells map to the 6 tracks. Status is gated at 960 (not 720) because the 720px grid is
+// already at the title `minmax(0,1fr)` track's floor — a 6th column there starves it.
 const ROW_GRID =
-  "min-[720px]:grid min-[720px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem] min-[720px]:items-center min-[720px]:gap-4";
+  "min-[720px]:grid min-[720px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem] min-[720px]:items-center min-[720px]:gap-4";
 
 // M12.10 — sortable columns. `null` = the server's incoming order (live-first),
 // preserved until the user picks a column. Nulls (no dates / never-synced)
@@ -408,7 +414,11 @@ export function ShowsTable({
                         <span className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong">
                           {rowTitle(row)}
                         </span>
-                        <StatePill row={row} place="inline" />
+                        {/* Inline pill — visible <960px (stacked + 5-col bands); hidden
+                            ≥960px where the dedicated Status column takes over (§4.1). */}
+                        <span className="min-[960px]:hidden">
+                          <StatePill row={row} place="inline" />
+                        </span>
                       </div>
                       {/* Mobile stacked meta sub-line (hidden ≥md) */}
                       <div
@@ -439,6 +449,14 @@ export function ShowsTable({
                       className="hidden text-sm min-[720px]:block"
                     >
                       <SyncCell row={row} now={now} />
+                    </span>
+                    {/* Status column (§4). Gated at min-[960px]: hidden below (the inline
+                        pill shows the state there), the 6th grid track appears at ≥960. */}
+                    <span
+                      data-testid={`shows-status-${row.slug}`}
+                      className="hidden min-[960px]:block"
+                    >
+                      <StatePill row={row} place="column" />
                     </span>
                     <span
                       data-testid={`shows-chevron-${row.slug}`}

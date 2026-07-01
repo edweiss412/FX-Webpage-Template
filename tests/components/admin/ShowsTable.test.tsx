@@ -164,6 +164,48 @@ describe("ShowsTable", () => {
     expect(screen.getByTestId("shows-held-pill-h").textContent).toMatch(/Held — not published/);
   });
 
+  it("renders a Status COLUMN pill (place=column) with the compact 'Held' label — §4.1", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "h2", published: false, isLive: false, finalizeOwned: false })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const colPill = screen.getByTestId("shows-statuscol-held-h2");
+    expect(colPill.textContent).toBe("Held"); // compact, no "— not published"
+    // the inline pill still exists in the DOM (CSS-toggled), with the verbose copy
+    expect(screen.getByTestId("shows-held-pill-h2").textContent).toMatch(/Held — not published/);
+  });
+
+  it("inline pill wraps to hide ≥960px and the Status cell hides <960px — §4.1", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "p3", published: true, isLive: false })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    // inline wrapper carries the hide-at-960 class (check the parent's className string
+    // directly — a bracket-heavy attribute selector is fragile in jsdom's selector engine)
+    const inline = screen.getByTestId("shows-published-pill-p3");
+    expect(inline.parentElement?.className ?? "").toContain("min-[960px]:hidden");
+    // column cell carries hidden + show-at-960
+    const cell = screen.getByTestId("shows-status-p3");
+    expect(cell.className).toContain("hidden");
+    expect(cell.className).toContain("min-[960px]:block");
+  });
+
+  it("ROW_GRID defines a 6-track template at min-[960px] (Status before chevron)", () => {
+    render(<ShowsTable rows={[row({ slug: "g" })]} now={now} activeCount={1} overflowCount={0} />);
+    const header = screen.getByTestId("shows-table-header");
+    expect(header.className).toContain(
+      "min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem]",
+    );
+  });
+
   it("overflowCount>0 -> 'showing first N of M' overflow notice renders", () => {
     render(
       <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={600} overflowCount={599} />,
