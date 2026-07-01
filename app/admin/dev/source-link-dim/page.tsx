@@ -36,6 +36,7 @@
  */
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { FactRows } from "@/components/crew/primitives/FactRows";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
@@ -107,6 +108,27 @@ export default async function SourceLinkDimPage() {
           the `action` slot's presence differs — the variable under test. */}
       <div data-testid="card-no-link">
         <SectionCard title="INFO" action={undefined}>
+          <MeasuredBody />
+        </SectionCard>
+      </div>
+
+      {/* WITH the full CardHeaderActions cluster (SourceLink + CardReportTrigger)
+          in the header action slot: identical title/children. The report trigger
+          is a recessive sibling to the link; this card lets the spec verify the
+          trigger does NOT perturb data-row heights vs. the no-link control, and
+          that neither affordance stretches the header band. */}
+      <div data-testid="card-with-actions">
+        <SectionCard
+          title="INFO"
+          action={
+            <CardHeaderActions
+              cardId="today-dress"
+              driveFileId="harness-drive"
+              anchor={{ title: "INFO", gid: 0, a1: "A4:B5" }}
+              showId="harness-show"
+            />
+          }
+        >
           <MeasuredBody />
         </SectionCard>
       </div>

@@ -136,4 +136,50 @@ test.describe("SourceLink header does not change row heights (spec §5.4)", () =
       ).toBeLessThanOrEqual(TOL);
     }
   });
+
+  test("CardHeaderActions (SourceLink + report trigger) does not change data-row heights", async ({
+    page,
+  }) => {
+    const actionsCard = page.getByTestId("card-with-actions");
+    const noCard = page.getByTestId("card-no-link");
+    await expect(actionsCard, "the with-actions harness card must render").toBeVisible();
+
+    // Both affordances must actually be present (else the comparison is vacuous).
+    await expect(
+      actionsCard.locator("[data-slot=section-card-action] [data-slot=source-link]"),
+      "the with-actions card must render the header SourceLink",
+    ).toBeVisible();
+    await expect(
+      actionsCard.locator("[data-slot=section-card-action] [data-slot=card-report-trigger]"),
+      "the with-actions card must render the report trigger",
+    ).toBeVisible();
+
+    for (const testid of ROW_TESTIDS) {
+      const actionsRow = actionsCard.getByTestId(testid);
+      const noRow = noCard.getByTestId(testid);
+      await expect(actionsRow, `${testid} must exist in the with-actions card`).toBeVisible();
+      const actH = await heightOf(actionsRow);
+      const noH = await heightOf(noRow);
+      expect(actH, `${testid} with-actions height must be laid out (>0)`).toBeGreaterThan(0);
+      // Adding the report trigger to the header must not perturb any body row.
+      expect(
+        Math.abs(actH - noH),
+        `${testid}: CardHeaderActions changed the row height. withActions=${actH} noLink=${noH} Δ=${Math.abs(
+          actH - noH,
+        ).toFixed(3)}px > ${TOL}px`,
+      ).toBeLessThanOrEqual(TOL);
+    }
+
+    // Neither affordance may stretch the header band beyond its intrinsic height.
+    const headerBox = await actionsCard.locator("header").boundingBox();
+    expect(headerBox, "header must lay out").not.toBeNull();
+    for (const slot of ["source-link", "card-report-trigger"]) {
+      const box = await actionsCard.locator(`[data-slot=${slot}]`).boundingBox();
+      expect(box, `${slot} must lay out`).not.toBeNull();
+      expect(
+        box!.height,
+        `${slot} (h=${box!.height}) must not exceed the header band (h=${headerBox!.height})`,
+      ).toBeLessThanOrEqual(headerBox!.height + TOL);
+    }
+  });
 });
