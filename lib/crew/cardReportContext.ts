@@ -44,7 +44,12 @@ export function buildCardReportContext(
   if (viewer.kind === "admin_preview") {
     return {
       surface: "admin",
-      surfaceIdScope: "admin-preview-card",
+      // Scope the report draft/idempotency by the PREVIEWED crew member, mirroring
+      // the footer override (`_CrewShell.tsx` `admin-preview-footer-${slug}-${crewMemberId}`).
+      // Without the crewMemberId, switching previewed viewers on the same card/show
+      // would resume a stale draft + idempotency key and submit it tagged with the
+      // NEW viewer's crewPreview (Codex whole-diff finding).
+      surfaceIdScope: `admin-preview-card-${viewer.crewMemberId}`,
       extraContext: {
         crewPreview: { crewMemberId: viewer.crewMemberId, name: viewerName, role: viewerRole },
       },
