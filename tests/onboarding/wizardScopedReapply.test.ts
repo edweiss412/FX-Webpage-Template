@@ -387,6 +387,81 @@ describe("wizard-scoped staged apply/discard routes", () => {
     });
   });
 
+  test("discard logs STAGE_DISCARDED outcome after a discarded commit", async () => {
+    logAdminOutcomeMock.mockClear();
+    const routeDeps = deps(new FakeWizardStagedTx());
+
+    const response = await handleWizardStagedDiscard(
+      discardRequest({ kind: "try_again_next_sync" }),
+      context,
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "STAGE_DISCARDED",
+        source: "api.admin.onboarding.staged.discard",
+        actorEmail: "doug@example.com",
+        driveFileId: "file-1",
+        wizardSessionId: W1,
+      }),
+    );
+  });
+
+  // The superseded 409 path throws the typed rollback BEFORE the discard commits, so
+  // the outcome is never staged and never emitted (Do-NOT-emit-on-409 contract).
+  test("discard does NOT log an outcome on the WIZARD_SESSION_SUPERSEDED 409 path", async () => {
+    logAdminOutcomeMock.mockClear();
+    const tx = new FakeWizardStagedTx();
+
+    const response = await handleWizardStagedDiscard(
+      discardRequest({ kind: "permanent_ignore" }),
+      context,
+      {
+        ...deps(tx),
+        upsertAdminAlert: vi.fn(async () => "alert-id"),
+        readCurrentWizardSessionId: vi.fn(async () => W1),
+        discardStagedUnlocked: async () => {
+          throw new WizardSessionSupersededRollbackError({
+            attemptedAction: "discard",
+            supersededSessionId: W1,
+            driveFileId: "file-1",
+          });
+        },
+      },
+    );
+
+    expect(response.status).toBe(409);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  // Proves the log is POST-commit: the callback resolves (staging the outcome-ref) but
+  // withRowTx then throws — control jumps to the catch (typed 500) before the emit.
+  test("discard does NOT log an outcome when withRowTx throws after the callback resolves (500)", async () => {
+    logAdminOutcomeMock.mockClear();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tx = new FakeWizardStagedTx();
+    const failingWithRowTx = async <R>(
+      _driveFileId: string,
+      fn: (t: WizardStagedRouteTx) => Promise<R> | R,
+    ): Promise<R> => {
+      await fn(tx as unknown as WizardStagedRouteTx);
+      throw new Error("commit failed");
+    };
+
+    const response = await handleWizardStagedDiscard(
+      discardRequest({ kind: "try_again_next_sync" }),
+      context,
+      { ...deps(tx), withRowTx: failingWithRowTx },
+    );
+
+    expect(response.status).toBe(500);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   test("modtime mismatch inline rescan upserts pending_syncs for the same wizard session", async () => {
     const oldPending = pendingSync({
       stagedId: STAGED,

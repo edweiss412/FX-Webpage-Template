@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import {
   discardStaged_unlocked as defaultDiscardStagedUnlocked,
   type DiscardStagedDeps,
@@ -100,8 +101,9 @@ export async function handleWizardStagedDiscard(
   routeDeps: WizardDiscardRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let adminEmail: string;
   try {
-    await deps.requireAdminIdentity();
+    ({ email: adminEmail } = await deps.requireAdminIdentity());
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -116,9 +118,10 @@ export async function handleWizardStagedDiscard(
   if (!variant) return errorResponse(400, "INVALID_REVIEWER_ACTION");
 
   let result: DiscardStagedResult;
+  let outcome: AdminOutcome | null = null;
   try {
-    result = await deps.withRowTx(driveFileId, (tx) =>
-      deps.discardStagedUnlocked(
+    result = await deps.withRowTx(driveFileId, async (tx) => {
+      const discardResult = await deps.discardStagedUnlocked(
         tx,
         {
           sourceScope: "wizard",
@@ -128,8 +131,21 @@ export async function handleWizardStagedDiscard(
           variant,
         },
         {},
-      ),
-    );
+      );
+      // OUTCOME-REF: stage the durable telemetry inside the locked tx (only on the
+      // committed discard path), but EMIT it after withRowTx resolves — never inside
+      // the advisory-lock tx, and never when a post-callback commit fault aborts.
+      if (discardResult.outcome === "discarded") {
+        outcome = {
+          code: "STAGE_DISCARDED",
+          source: "api.admin.onboarding.staged.discard",
+          actorEmail: adminEmail,
+          driveFileId,
+          wizardSessionId,
+        };
+      }
+      return discardResult;
+    });
   } catch (error) {
     // F5 Task 5.5 (S3/S4 + R51-1): discardStaged_unlocked throws the typed
     // rollback error on a post-mutation currency miss. The per-show-locked tx
@@ -159,8 +175,17 @@ export async function handleWizardStagedDiscard(
       }
       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
     }
-    throw error;
+    // Never leak a body-less 500 (invariant 5). A post-callback commit fault (or any
+    // other unexpected throw from the locked tx) aborts the row tx; map it to a typed
+    // JSON 500 — the staged outcome is NOT emitted because control never reaches the
+    // post-resolve logAdminOutcome call below.
+    log.error("wizard staged discard: unexpected failure", {
+      source: "api.admin.onboarding.staged.discard",
+      error,
+    });
+    return errorResponse(500, "SYNC_INFRA_ERROR");
   }
+  if (outcome) await logAdminOutcome(outcome);
   if (result.outcome === "discarded") {
     return NextResponse.json({
       status: "discarded",
