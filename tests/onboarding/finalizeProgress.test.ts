@@ -40,7 +40,10 @@ describe("finalizeProgress wire contract", () => {
         type: "result",
         body: { status: "finalize_complete", wizard_session_id: "s", watched_folder_id: "wf" },
       },
-      { type: "result", body: { ok: false, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D", per_row: [] } },
+      {
+        type: "result",
+        body: { ok: false, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D", per_row: [] },
+      },
     ];
     expect(msgs).toHaveLength(5);
   });

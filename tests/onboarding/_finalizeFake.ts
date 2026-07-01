@@ -379,7 +379,10 @@ export function pending(driveFileId: string, overrides: Partial<PendingRow> = {}
   };
 }
 
-export function deps(db: FakeFinalizeDb, overrides: Partial<FinalizeRouteDeps> = {}): FinalizeRouteDeps {
+export function deps(
+  db: FakeFinalizeDb,
+  overrides: Partial<FinalizeRouteDeps> = {},
+): FinalizeRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(db),

@@ -3,14 +3,7 @@ import {
   handleOnboardingFinalizeCas,
   handleOnboardingFinalizeCasStream,
 } from "@/app/api/admin/onboarding/finalize-cas/route";
-import {
-  FakeFinalizeCasDb,
-  deps,
-  json,
-  request,
-  shadowPayload,
-  W1,
-} from "./_finalizeCasFake";
+import { FakeFinalizeCasDb, deps, json, request, shadowPayload, W1 } from "./_finalizeCasFake";
 
 const NDJSON = "application/x-ndjson";
 
@@ -108,7 +101,10 @@ describe("handleOnboardingFinalizeCasStream", () => {
     const phases = msgs.filter((m) => m.type === "phase").map((m) => m.phase);
     expect(phases).toEqual(["applying", "publishing", "subscribing"]); // subscribing emitted before the throw
     const results = msgs.filter((m) => m.type === "result");
-    expect(results[0]!.body).toMatchObject({ ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" });
+    expect(results[0]!.body).toMatchObject({
+      ok: false,
+      code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
+    });
   });
 
   test("auth failure returns a NON-stream 403 JSON (pre-stream)", async () => {
