@@ -5,6 +5,8 @@ import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
 import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -139,6 +141,9 @@ export type PreparedOnboardingFile =
       kind: "sheet";
       binding: Phase1Binding;
       parseResult: ParseResult;
+      // Region source anchors computed at scan (best-effort {}), persisted to
+      // pending_syncs.source_anchors so finalize reads them instead of re-exporting the XLSX.
+      sourceAnchors: Record<string, SourceAnchor>;
     };
 
 export type RunOnboardingScanDeps = {
@@ -936,15 +941,38 @@ export async function prepareOnboardingFiles(
       fileMeta: toDriveFileMeta(file),
       binding,
     });
-    // Best-effort exact-cell deep links: ONLY when a cell-anchored warning is
-    // present (rare) do we pay the extra tab-gid fetch. Any failure leaves the
-    // warnings link-less — never breaks the scan.
-    // Best-effort exact-cell/region deep links on BOTH ingestion paths via the
-    // shared helper (pure raw-workbook read; gated internally so a warning-free
-    // sheet pays no extra fetch). Onboarding passes a lazy gids fetch; the helper
-    // self-computes region anchors.
-    await attachWarningAnchors(parseResult.warnings, bytes, () => listSheetGids(file.driveFileId));
-    return { file, kind: "sheet", binding, parseResult };
+    // Compute region source anchors ONCE from the already-fetched bytes (best-effort) and
+    // reuse them for BOTH warning attachment AND persistence (spec §5.1). The tab-gid fetch
+    // now runs for EVERY sheet (not just cell-anchored-warning sheets) so finalize can read
+    // pending_syncs.source_anchors instead of re-exporting the XLSX — moved off the finalize
+    // critical path onto this already-parallelized prepare phase.
+    let sourceAnchors: Record<string, SourceAnchor> = {};
+    // Default resolver: the lazy fetch (only reached if a cell-anchored warning exists AND the
+    // eager fetch below did not run — e.g. bytes missing).
+    let resolveGids = () => listSheetGids(file.driveFileId);
+    if (bytes) {
+      try {
+        const titleToGid = await listSheetGids(file.driveFileId);
+        // Cache → attachWarningAnchors reuses the SAME map, no second fetch (keeps the existing
+        // "listSheetGids called once" contract for cell-anchored sheets).
+        resolveGids = () => Promise.resolve(titleToGid);
+        sourceAnchors = extractSourceAnchors(bytes, titleToGid);
+      } catch {
+        // gids/extract failed → {} anchors, and hand attachWarningAnchors an EMPTY map so it
+        // degrades link-less WITHOUT a second (also-failing) network fetch.
+        sourceAnchors = {};
+        resolveGids = () => Promise.resolve(new Map<string, number>());
+      }
+    }
+    // attachWarningAnchors is contractually no-throw (attachWarningAnchors.ts:14-15), but wrap it
+    // anyway so anchor work can NEVER wedge the scan (plan-wide best-effort invariant), keeping
+    // warning-anchor degradation independent of any region-anchor failure.
+    try {
+      await attachWarningAnchors(parseResult.warnings, bytes, resolveGids, sourceAnchors);
+    } catch {
+      /* belt-and-suspenders: best-effort, never wedges the scan */
+    }
+    return { file, kind: "sheet", binding, parseResult, sourceAnchors };
   };
 
   return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne, (info) =>
