@@ -164,12 +164,11 @@ try {
     pending_folder_id: string | null;
     auto_publish_clean_first_seen: boolean | null;
   }>;
-  originalSettings =
-    rows[0] ?? {
-      pending_wizard_session_id: null,
-      pending_folder_id: null,
-      auto_publish_clean_first_seen: null,
-    };
+  originalSettings = rows[0] ?? {
+    pending_wizard_session_id: null,
+    pending_folder_id: null,
+    auto_publish_clean_first_seen: null,
+  };
   sql = probe;
   dbUp = true;
 } catch {
@@ -180,10 +179,19 @@ try {
 
 async function cleanup(): Promise<void> {
   if (!sql) return;
-  for (const table of ["pending_syncs", "pending_ingestions", "onboarding_scan_manifest", "sync_log"]) {
-    await sql.unsafe(`delete from public.${table} where drive_file_id like 'sa-db-%'`, []).catch(() => {});
+  for (const table of [
+    "pending_syncs",
+    "pending_ingestions",
+    "onboarding_scan_manifest",
+    "sync_log",
+  ]) {
+    await sql
+      .unsafe(`delete from public.${table} where drive_file_id like 'sa-db-%'`, [])
+      .catch(() => {});
   }
-  await sql.unsafe(`delete from public.shows where drive_file_id like 'sa-db-%'`, []).catch(() => {});
+  await sql
+    .unsafe(`delete from public.shows where drive_file_id like 'sa-db-%'`, [])
+    .catch(() => {});
 }
 
 async function readAnchors(): Promise<unknown> {

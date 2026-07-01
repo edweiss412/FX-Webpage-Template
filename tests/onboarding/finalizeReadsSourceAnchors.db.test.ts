@@ -50,7 +50,12 @@ const PARSE_RESULT = {
     client_contact: null,
     template_version: "v4",
     venue: { name: "Grand Hall" },
-    dates: { travelIn: "2026-05-07", set: "2026-05-08", showDays: ["2026-05-09"], travelOut: "2026-05-10" },
+    dates: {
+      travelIn: "2026-05-07",
+      set: "2026-05-08",
+      showDays: ["2026-05-09"],
+      travelOut: "2026-05-10",
+    },
     event_details: {},
     agenda_links: [],
     coi_status: null,
@@ -71,7 +76,12 @@ const PARSE_RESULT = {
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {
-  const probe = postgres(databaseUrl, { max: 1, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(databaseUrl, {
+    max: 1,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   sql = probe;
   dbUp = true;
@@ -94,10 +104,14 @@ async function cleanup(): Promise<void> {
     "pending_syncs",
     "shows_pending_changes",
   ]) {
-    await sql.unsafe(`delete from public.${table} where drive_file_id = $1`, [DRIVE_FILE_ID]).catch(() => {});
+    await sql
+      .unsafe(`delete from public.${table} where drive_file_id = $1`, [DRIVE_FILE_ID])
+      .catch(() => {});
   }
   await sql
-    .unsafe(`delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`, [SESSION])
+    .unsafe(`delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`, [
+      SESSION,
+    ])
     .catch(() => {});
   await sql
     .unsafe(
@@ -125,7 +139,11 @@ async function activateSession(): Promise<void> {
 
 async function writeApprovedRow(sourceAnchors?: Record<string, unknown>): Promise<void> {
   await sql!.begin(async (rawTx) => {
-    const tx = new PostgresOnboardingScanTx(rawTx as unknown as PostgresTransaction, FOLDER, SESSION);
+    const tx = new PostgresOnboardingScanTx(
+      rawTx as unknown as PostgresTransaction,
+      FOLDER,
+      SESSION,
+    );
     await tx.upsertLivePendingSync({
       driveFileId: DRIVE_FILE_ID,
       wizardSessionId: SESSION,
@@ -137,7 +155,9 @@ async function writeApprovedRow(sourceAnchors?: Record<string, unknown>): Promis
       priorLastSyncError: null,
       sourceKind: "onboarding_scan",
       warningSummary: "",
-      ...(sourceAnchors !== undefined ? { sourceAnchors: sourceAnchors as Record<string, never> } : {}),
+      ...(sourceAnchors !== undefined
+        ? { sourceAnchors: sourceAnchors as Record<string, never> }
+        : {}),
     });
   });
   await sql!.unsafe(
@@ -186,42 +206,50 @@ afterAll(async () => {
 });
 
 describe("finalize reads persisted source_anchors (no Drive export)", () => {
-  test.skipIf(!dbUp)("copies the persisted anchors onto the show (export fns mocked to throw)", async () => {
-    await writeApprovedRow(KNOWN_ANCHORS);
+  test.skipIf(!dbUp)(
+    "copies the persisted anchors onto the show (export fns mocked to throw)",
+    async () => {
+      await writeApprovedRow(KNOWN_ANCHORS);
 
-    const response = await finalize();
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { per_row: Array<{ code: string }> };
-    expect(body.per_row[0]?.code).toBe("OK"); // published without ever hitting a (throwing) export fn
+      const response = await finalize();
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { per_row: Array<{ code: string }> };
+      expect(body.per_row[0]?.code).toBe("OK"); // published without ever hitting a (throwing) export fn
 
-    const rows = await sql!.unsafe(`select source_anchors from public.shows where drive_file_id = $1`, [
-      DRIVE_FILE_ID,
-    ]);
-    expect(first<{ source_anchors: unknown }>(rows).source_anchors).toEqual(KNOWN_ANCHORS);
-  });
+      const rows = await sql!.unsafe(
+        `select source_anchors from public.shows where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      expect(first<{ source_anchors: unknown }>(rows).source_anchors).toEqual(KNOWN_ANCHORS);
+    },
+  );
 
-  test.skipIf(!dbUp)("a CORRUPT jsonb scalar in the column does NOT wedge the publish (→ {})", async () => {
-    await writeApprovedRow();
-    // Seed a legal-but-corrupt jsonb STRING SCALAR directly (the column is jsonb, no CHECK).
-    await sql!.unsafe(
-      `update public.pending_syncs set source_anchors = to_jsonb('oops'::text)
+  test.skipIf(!dbUp)(
+    "a CORRUPT jsonb scalar in the column does NOT wedge the publish (→ {})",
+    async () => {
+      await writeApprovedRow();
+      // Seed a legal-but-corrupt jsonb STRING SCALAR directly (the column is jsonb, no CHECK).
+      await sql!.unsafe(
+        `update public.pending_syncs set source_anchors = to_jsonb('oops'::text)
         where drive_file_id = $1 and wizard_session_id = $2::uuid`,
-      [DRIVE_FILE_ID, SESSION],
-    );
-    const seed = await sql!.unsafe(
-      `select jsonb_typeof(source_anchors) as t from public.pending_syncs where drive_file_id = $1`,
-      [DRIVE_FILE_ID],
-    );
-    expect(first<{ t: string }>(seed).t).toBe("string"); // guard: really a scalar
+        [DRIVE_FILE_ID, SESSION],
+      );
+      const seed = await sql!.unsafe(
+        `select jsonb_typeof(source_anchors) as t from public.pending_syncs where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      expect(first<{ t: string }>(seed).t).toBe("string"); // guard: really a scalar
 
-    const response = await finalize();
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as { per_row: Array<{ code: string }> };
-    expect(body.per_row[0]?.code).toBe("OK"); // best-effort coerce swallowed the corrupt value
+      const response = await finalize();
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as { per_row: Array<{ code: string }> };
+      expect(body.per_row[0]?.code).toBe("OK"); // best-effort coerce swallowed the corrupt value
 
-    const rows = await sql!.unsafe(`select source_anchors from public.shows where drive_file_id = $1`, [
-      DRIVE_FILE_ID,
-    ]);
-    expect(first<{ source_anchors: unknown }>(rows).source_anchors).toEqual({});
-  });
+      const rows = await sql!.unsafe(
+        `select source_anchors from public.shows where drive_file_id = $1`,
+        [DRIVE_FILE_ID],
+      );
+      expect(first<{ source_anchors: unknown }>(rows).source_anchors).toEqual({});
+    },
+  );
 });
