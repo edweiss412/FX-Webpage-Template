@@ -63,6 +63,10 @@ it("Published pill renders inline for a published, non-live row (status-positive
   );
   const pill = screen.getByTestId("shows-published-pill-pubd");
   expect(pill.textContent).toMatch(/Published/);
+  // right VISUAL token, not just the right text (status-positive/teal) — §3
+  expect(pill.className).toContain("border-status-positive");
+  expect(pill.className).toContain("text-status-positive-text");
+  expect(pill.querySelector(".bg-status-positive"), "positive dot").not.toBeNull();
   expect(within(pill).queryByText(/Held|Live|Publishing/)).toBeNull();
   // mutually exclusive: no other inline state pill for this row
   expect(screen.queryByTestId("shows-live-pill-pubd")).toBeNull();
@@ -190,9 +194,11 @@ it("inline pill is wrapped to hide ≥960px and the Status cell hides <960px —
   render(
     <ShowsTable rows={[row({ slug: "p3", published: true, isLive: false })]} now={now} activeCount={1} overflowCount={0} />,
   );
-  // inline wrapper carries the hide-at-960 class
+  // inline wrapper carries the hide-at-960 class. Check the parent's className string
+  // directly — a bracket-heavy attribute selector (`[class*='min-[960px]:hidden']`) is
+  // fragile in jsdom's selector engine.
   const inline = screen.getByTestId("shows-published-pill-p3");
-  expect(inline.closest("[class*='min-[960px]:hidden']")).not.toBeNull();
+  expect(inline.parentElement?.className ?? "").toContain("min-[960px]:hidden");
   // column cell carries hidden + show-at-960
   const cell = screen.getByTestId("shows-status-p3");
   expect(cell.className).toContain("hidden");
@@ -422,33 +428,47 @@ const TITLE_BANDS = [720, 810, 960, 1024, 1080, 1100, 1152, 1240, 1280, 1400, 15
 await page.setViewportSize({ width: 1280, height: 900 }); // was 1200 — now two-col starts at 1240
 ```
 
-(c) Add a new test — structural non-regression + Published-row overflow + visibility toggle (uses the existing `lookupSeededSlug`, `gridTemplate`, `rect` helpers and `signInAs(ADMIN_FIXTURE)` in `beforeEach`):
+(c) Add a new test — structural non-regression + Published-row overflow + visibility toggle. It pins the **known** seeded published row via `lookupSeededSlug()` (the Waldorf show, `published=true` by schema default `20260501000000:26`; its April-2026 dates are in the past so `isLive=false` → state `Published`), NOT "the first matching row" (spec §10). It uses the existing `lookupSeededSlug`/`gridTemplate`/`rect` helpers and `signInAs(ADMIN_FIXTURE)` from `beforeEach`:
 
 ```tsx
-test("Status column: 6-col grid only ≥960, published row no-overflow <960, inline↔column toggle", async ({ page }) => {
-  // Identify a deterministic PUBLISHED row by its column-pill testid at a wide
-  // viewport (selected by STATE, then pinned by slug — not by position).
+test("Status column: 6-col grid only ≥960, known published row no-overflow <960, inline↔column toggle", async ({ page }) => {
+  const slug = await lookupSeededSlug(); // KNOWN seeded row (Waldorf), published=true, isLive=false → Published
+
+  // ≥960: 6-track grid; the KNOWN row IS Published (fixture guard — fails loudly if
+  // its state ever changes); its column pill visible, inline pill hidden; sort header visible.
   await page.setViewportSize({ width: 1280, height: 1000 });
   await page.goto("/admin");
   await expect(page.getByTestId("stat-strip")).toBeVisible();
-  const colPill = page.locator("[data-testid^='shows-statuscol-published-']").first();
-  await expect(colPill, "seed must contain a published active show").toBeVisible();
-  const slug = (await colPill.getAttribute("data-testid"))!.replace("shows-statuscol-published-", "");
-
-  // ≥960: 6-track grid; column pill visible, inline pill hidden; sort header visible.
-  expect(await gridTemplate(page, "shows-table-header")).toMatch(/(\d|\.)+px (\d|\.)+px (\d|\.)+px (\d|\.)+px (\d|\.)+px (\d|\.)+px/); // 6 tracks
+  await expect(page.getByTestId(`shows-table-row-${slug}`)).toBeVisible();
   await expect(page.getByTestId(`shows-statuscol-published-${slug}`)).toBeVisible();
   await expect(page.getByTestId(`shows-published-pill-${slug}`)).toBeHidden();
   await expect(page.getByTestId("shows-sort-status")).toBeVisible();
+  const wideTracks = (await gridTemplate(page, "shows-table-header")).trim().split(/\s+/).length;
+  expect(wideTracks, "6-col grid has 6 tracks at ≥960").toBe(6);
 
-  // <960 (structural non-regression): 5-track grid; inline visible, column hidden;
-  // sort header hidden; the published row does NOT overflow with its new inline pill.
+  // <960 (structural non-regression): 5-track grid — the 6-col grid must NOT leak below 960.
   await page.setViewportSize({ width: 810, height: 1000 });
-  const tracks = (await gridTemplate(page, "shows-table-header")).trim().split(/\s+/).length;
-  expect(tracks, "6-col grid must NOT activate below 960px").toBe(5);
+  const narrowTracks = (await gridTemplate(page, "shows-table-header")).trim().split(/\s+/).length;
+  expect(narrowTracks, "6-col grid must NOT activate below 960px").toBe(5);
+  // inline visible, column hidden, sort header hidden.
   await expect(page.getByTestId(`shows-published-pill-${slug}`)).toBeVisible();
   await expect(page.getByTestId(`shows-statuscol-published-${slug}`)).toBeHidden();
   await expect(page.getByTestId("shows-sort-status")).toBeHidden();
+  // Header MAPS to the 5-track grid: exactly 5 VISIBLE header cells (Status wrapper is
+  // display:none), and the last cell (chevron) shares the first cell's row — i.e. the
+  // hidden Status wrapper did NOT leave 6 items wrapping onto an implicit 6th-item row.
+  const header = await page.getByTestId("shows-table-header").evaluate((el) => {
+    const kids = Array.from(el.children) as HTMLElement[];
+    const visible = kids.filter((k) => getComputedStyle(k).display !== "none");
+    return {
+      visibleCount: visible.length,
+      firstTop: visible[0]!.getBoundingClientRect().top,
+      lastTop: visible[visible.length - 1]!.getBoundingClientRect().top,
+    };
+  });
+  expect(header.visibleCount, "exactly 5 visible header cells at 810px").toBe(5);
+  expect(Math.abs(header.firstTop - header.lastTop), "chevron header on the Show header's row (no wrap)").toBeLessThanOrEqual(TOL);
+  // The known published row + its new inline Published pill must not overflow at <960.
   const overflow = await page.getByTestId(`shows-table-row-${slug}`).evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow, "published row + inline Published pill must not overflow at 810px").toBeLessThanOrEqual(TOL);
 });
@@ -501,15 +521,46 @@ const base = (over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow =>
 });
 
 describe("ShowsTable status pills — transition audit (§7: no animation introduced)", () => {
-  it("the Status pills source has no animation primitive (no AnimatePresence/motion/animate-ping)", () => {
+  // DOM-SCOPED animation ban: assert every status pill AND its inner dot carries no
+  // animate-*/transition-*/motion-* class. Scoped to the pills (NOT the whole file) so it
+  // does NOT false-fail on the pre-existing sort-header `transition-colors` (:236), while
+  // still catching a `transition-opacity`/`animate-*` accidentally added to a pill.
+  it("every status pill + dot has no animation/transition class (all 4 states × both places)", () => {
+    render(
+      <ShowsTable
+        rows={[
+          base({ slug: "pu", published: true, isLive: false }),
+          base({ slug: "lv", published: true, isLive: true }),
+          base({ slug: "pg", published: false, finalizeOwned: true }),
+          base({ slug: "hl", published: false, finalizeOwned: false }),
+        ]}
+        now={now} activeCount={4} overflowCount={0}
+      />,
+    );
+    const testids = [
+      "shows-published-pill-pu", "shows-statuscol-published-pu",
+      "shows-live-pill-lv", "shows-statuscol-live-lv",
+      "shows-publishing-pg", "shows-statuscol-publishing-pg",
+      "shows-held-pill-hl", "shows-statuscol-held-hl",
+    ];
+    for (const id of testids) {
+      const pill = screen.getByTestId(id);
+      for (const el of [pill, ...Array.from(pill.querySelectorAll("*"))] as HTMLElement[]) {
+        expect(el.className, `${id}: pill/dot carries an animation class`).not.toMatch(/\banimate-|\btransition-|\bmotion-/);
+      }
+    }
+  });
+
+  it("source has no heavyweight animation primitive for the pills (no AnimatePresence/framer-motion/animate-ping)", () => {
     const src = readFileSync("components/admin/ShowsTable.tsx", "utf8");
-    expect(src).not.toMatch(/AnimatePresence|framer-motion|\bmotion\./);
-    expect(src).not.toMatch(/animate-ping/); // the Live pill is a static dot (§3, §7)
+    expect(src).not.toMatch(/AnimatePresence|framer-motion/);
+    // the Live pill is a static dot (§3/§7); the pulsing animate-ping belongs ONLY to
+    // StatusIndicator (the Sync cell), never to this file.
+    expect(src).not.toMatch(/animate-ping/);
   });
 
   it("inline↔column is a pure CSS toggle: both pills exist as static nodes, no JS conditional mount", () => {
     render(<ShowsTable rows={[base({ slug: "p", published: true })]} now={now} activeCount={1} overflowCount={0} />);
-    // both render sites present in the DOM simultaneously (CSS, not JS, hides one)
     expect(screen.getByTestId("shows-published-pill-p")).toBeInTheDocument();
     expect(screen.getByTestId("shows-statuscol-published-p")).toBeInTheDocument();
   });
@@ -565,10 +616,11 @@ For each failure, update the assertion to the new reality (a published row now c
 Run: `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-lifecycle-layout.spec.ts`
 Expected: PASS, or fix any side-by-side-at-<1240 assertion to ≥1240. Verify any pre-existing `<960`/`<1240` band failure at the merge-base before attributing it here.
 
-- [ ] **Step 4: Run prettier + the full unit suite once more**
+- [ ] **Step 4: Run prettier + the full unit suite + BOTH admin layout e2e specs once more**
 
 Run: `pnpm exec prettier --check . && pnpm exec vitest run`
-Expected: PASS / formatted.
+Then re-run the real-browser layout gates (a late CSS/class tweak in this task could break the Task 5 gate): `pnpm exec playwright test --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts tests/e2e/admin-lifecycle-layout.spec.ts`
+Expected: PASS / formatted; both e2e specs green (re-confirm the Task 5 Status-column test + the moved-split assertions still hold).
 
 - [ ] **Step 5: Commit**
 
