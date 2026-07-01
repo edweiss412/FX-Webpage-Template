@@ -313,6 +313,33 @@ describe("getShowForViewer (§7.4)", () => {
     expect(r.transportation?.schedule[1]?.assigned_names).toEqual(["Alice", "Bob"]);
   });
 
+  test("projects loadout_{name,phone,email} onto transportation (transport-loadout-contact)", async () => {
+    const showId = await seedShow({ title: "Loadout Projection Show" });
+    const crewId = await seedCrew({ showId, name: "Alice", roleFlags: ["A1"] });
+    const { error } = await admin.from("transportation").insert({
+      show_id: showId,
+      driver_name: "Driver Dan",
+      driver_phone: null,
+      driver_email: null,
+      loadout_name: "Carlos Pineda",
+      loadout_phone: "610-618-0111",
+      loadout_email: "carlos@x.com", // canonical (CHECK requires lowercased/trimmed)
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: [],
+      notes: null,
+    });
+    if (error) throw new Error(`seed transportation failed: ${error.message}`);
+
+    const r = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId });
+
+    expect(r.transportation?.loadout_name).toBe("Carlos Pineda");
+    expect(r.transportation?.loadout_phone).toBe("610-618-0111");
+    expect(r.transportation?.loadout_email).toBe("carlos@x.com");
+  });
+
   test("legacy double-encoded crew restriction (jsonb string scalar) is decoded, not mis-rendered (Codex R8)", async () => {
     const showId = await seedShow({ title: "Legacy Restriction Show" });
     const crewId = await seedCrew({ showId, name: "Restricted Crew", roleFlags: ["A1"] });

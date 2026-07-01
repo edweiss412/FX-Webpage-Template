@@ -397,7 +397,10 @@ function transportationInsertSql(seed: FixtureSeed): string {
       color,
       parking,
       schedule,
-      notes
+      notes,
+      loadout_name,
+      loadout_phone,
+      loadout_email
     )
     select
       id,
@@ -409,7 +412,10 @@ function transportationInsertSql(seed: FixtureSeed): string {
       ${sqlNullableString(transportation.color)},
       ${sqlNullableString(transportation.parking)},
       ${sqlJson(transportation.schedule)},
-      ${sqlNullableString(transportation.notes)}
+      ${sqlNullableString(transportation.notes)},
+      ${sqlNullableString(transportation.loadout_name)},
+      ${sqlNullableString(transportation.loadout_phone)},
+      ${sqlNullableString(transportation.loadout_email)}
     from public.shows
     where drive_file_id = ${sqlString(seed.driveFileId)};
   `;

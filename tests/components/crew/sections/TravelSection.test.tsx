@@ -150,6 +150,83 @@ test("driver/vehicle facts render as travelrows (not vertical KeyValueRows)", ()
   ).not.toBeNull();
 });
 
+// ── Load-out secondary transporter (transport-loadout-contact) ───────────────
+function withLoadout(over: {
+  loadout_name?: string | null;
+  loadout_phone?: string | null;
+  loadout_email?: string | null;
+}) {
+  return makeShowForViewer({
+    transportation: {
+      driver_name: "Pat Driver",
+      driver_phone: "555-1234",
+      driver_email: null,
+      loadout_name: null,
+      loadout_phone: null,
+      loadout_email: null,
+      vehicle: null,
+      license_plate: null,
+      color: null,
+      parking: null,
+      schedule: [],
+      notes: null,
+      ...over,
+    },
+  });
+}
+
+test("Load-out contact renders as a travelrow: name primary + phone·email meta; driver row unaffected", () => {
+  const { getAllByTestId } = renderAdmin(
+    withLoadout({
+      loadout_name: "Carlos Pineda",
+      loadout_phone: "610-618-0111",
+      loadout_email: "carlos@x.com",
+    }),
+  );
+  const rows = getAllByTestId("travelrow");
+  const loadoutRow = rows.find((r) => within(r).queryByText("Load out"));
+  expect(loadoutRow, "expected a Load-out travelrow").toBeTruthy();
+  expect(within(loadoutRow!).getByTestId("travelrow-primary")).toHaveTextContent("Carlos Pineda");
+  const meta = within(loadoutRow!).getByTestId("travelrow-meta");
+  expect(meta).toHaveTextContent("610-618-0111");
+  expect(meta).toHaveTextContent("carlos@x.com");
+  // anti-tautology: the Driver row must NOT carry the load-out name (assertion is
+  // scoped to the Load-out row, not satisfiable by the sibling Driver row).
+  const driverRow = rows.find((r) => within(r).queryByText("Driver"));
+  expect(driverRow, "expected a Driver travelrow").toBeTruthy();
+  expect(within(driverRow!).getByTestId("travelrow-primary")).not.toHaveTextContent(
+    "Carlos Pineda",
+  );
+});
+
+test("name-only Load-out renders the name with no meta line", () => {
+  const { getAllByTestId } = renderAdmin(withLoadout({ loadout_name: "Carlos Pineda" }));
+  const rows = getAllByTestId("travelrow");
+  const loadoutRow = rows.find((r) => within(r).queryByText("Load out"))!;
+  expect(within(loadoutRow).getByTestId("travelrow-primary")).toHaveTextContent("Carlos Pineda");
+  expect(within(loadoutRow).queryByTestId("travelrow-meta")).toBeNull();
+});
+
+test("sentinel Load-out email is hidden from the meta", () => {
+  const { getAllByTestId } = renderAdmin(
+    withLoadout({
+      loadout_name: "Carlos Pineda",
+      loadout_phone: "610-618-0111",
+      loadout_email: "N/A",
+    }),
+  );
+  const rows = getAllByTestId("travelrow");
+  const loadoutRow = rows.find((r) => within(r).queryByText("Load out"))!;
+  const meta = within(loadoutRow).getByTestId("travelrow-meta");
+  expect(meta).toHaveTextContent("610-618-0111");
+  expect(meta).not.toHaveTextContent("N/A");
+});
+
+test("no Load-out contact renders no Load-out row", () => {
+  const { queryByText } = renderAdmin(withLoadout({}));
+  expect(queryByText("Load out")).toBeNull();
+});
+
 test("split-wide grid uses the 1.6fr/1fr ratio (wide getting-there, narrow hotel)", () => {
   const { getAllByTestId } = renderAdmin(bothBlocksData());
   // The two travel columns are wrapped by the split grid; assert the grid

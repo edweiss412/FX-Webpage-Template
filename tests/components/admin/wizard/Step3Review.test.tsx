@@ -688,6 +688,51 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(t).toContain("TBD"); // sentinel as-parsed
   });
 
+  test("transport breakdown shows the Load-out contact as-parsed (transport-loadout-contact)", () => {
+    const pr = {
+      ...GEAR_PR,
+      transportation: {
+        driver_name: "Tracy Edwards",
+        driver_phone: null,
+        driver_email: null,
+        loadout_name: "Carlos Pineda",
+        loadout_phone: "610-618-0111",
+        loadout_email: "carlos@x.com",
+        vehicle: null,
+        license_plate: null,
+        color: null,
+        parking: null,
+        notes: null,
+        schedule: [],
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr-lo", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-tr-lo-more"));
+    const t = getByTestId("wizard-step3-card-drive-tr-lo-breakdown-transport").textContent ?? "";
+    expect(t).toContain("Load out:");
+    expect(t).toContain("Carlos Pineda");
+    expect(t).toContain("Load out phone:");
+    expect(t).toContain("610-618-0111");
+    expect(t).toContain("Load out email:");
+    expect(t).toContain("carlos@x.com");
+
+    // A transport with no load-out contact omits the Load-out rows entirely.
+    const prNoLoadout = {
+      ...GEAR_PR,
+      transportation: { driver_name: "Solo Driver", schedule: [] },
+    } as unknown as ParseResult;
+    const rowNo: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr-nolo", parseResult: prNoLoadout };
+    const { getByTestId: gNo } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowNo]} />,
+    );
+    fireEvent.click(gNo("wizard-step3-card-drive-tr-nolo-more"));
+    const tNo = gNo("wizard-step3-card-drive-tr-nolo-breakdown-transport").textContent ?? "";
+    expect(tNo).not.toContain("Load out:");
+  });
+
   test("transport breakdown shows driver/vehicle/parking + schedule legs as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
     const pr = {
       ...GEAR_PR,
