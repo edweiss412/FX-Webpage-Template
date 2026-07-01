@@ -159,9 +159,30 @@ to each (after `driver_email`/`driver_phone`). Known sites (typecheck is the aut
 
 ## Task 2: DB migration + manifest + email-audit registration
 
-**Files:** Create `supabase/migrations/20260630000001_transportation_loadout_contact.sql`; modify `lib/audit/emailCanonicalization.ts`; regen `supabase/__generated__/schema-manifest.json`.
+**Files:** Modify `tests/db/schema.test.ts`; create `supabase/migrations/20260630000001_transportation_loadout_contact.sql`; modify `lib/audit/emailCanonicalization.ts`; regen `supabase/__generated__/schema-manifest.json`.
 
-- [ ] **Step 1: Write the migration** — create `supabase/migrations/20260630000001_transportation_loadout_contact.sql`:
+- [ ] **Step 1: Failing test** — `tests/db/schema.test.ts` statically parses migration SQL text via `expectColumn(body, name, regex)` (no DB needed). Add a `describe` for the new migration that reads `supabase/migrations/20260630000001_transportation_loadout_contact.sql` and asserts, for BOTH `public.transportation` and `dev.transportation`, the three `loadout_*` columns and the canonical CHECK:
+```ts
+describe("transportation loadout_* migration", () => {
+  const migrationPath = "supabase/migrations/20260630000001_transportation_loadout_contact.sql";
+  test("adds loadout_{name,phone,email} + canonical CHECK to public + dev", () => {
+    const sql = readFileSync(migrationPath, "utf8");
+    for (const col of ["loadout_name", "loadout_phone", "loadout_email"]) {
+      expect(sql, `missing column ${col}`).toMatch(
+        new RegExp(`add column if not exists ${col} text`, "i"),
+      );
+    }
+    // canonical CHECK present twice (public + dev)
+    const checks = sql.match(/transportation_loadout_email_canonical check \(\s*loadout_email is null or \(loadout_email = lower\(trim\(loadout_email\)\) and loadout_email <> ''\)/gi);
+    expect(checks?.length ?? 0).toBeGreaterThanOrEqual(2);
+  });
+});
+```
+(Match the file's existing `readFileSync` import + assertion idiom.)
+
+- [ ] **Step 2: Run, verify fail** — `pnpm vitest run tests/db/schema.test.ts -t "loadout"` → FAIL (migration file does not exist yet).
+
+- [ ] **Step 3: Write the migration** — create `supabase/migrations/20260630000001_transportation_loadout_contact.sql`:
 ```sql
 -- Surface the transport "Load Out" secondary transporter: persist loadout_{name,phone,email}.
 -- Mirrors the driver_email canonical CHECK. Idempotent (apply-twice safe).
@@ -184,22 +205,22 @@ alter table dev.transportation add constraint transportation_loadout_email_canon
 );
 ```
 
-- [ ] **Step 2: Apply locally + regen manifest** — ensure local Supabase is up (`supabase start` if needed), apply the migration to the local DB (`psql "$LOCAL_DB_URL" -f supabase/migrations/20260630000001_transportation_loadout_contact.sql` or `supabase migration up`), then:
+- [ ] **Step 4: Apply locally + regen manifest** — ensure local Supabase is up (`supabase start` if needed), apply the migration to the local DB (`psql "$LOCAL_DB_URL" -f supabase/migrations/20260630000001_transportation_loadout_contact.sql` or `supabase migration up`), then:
 ```bash
 pnpm gen:schema-manifest
 ```
 Verify `supabase/__generated__/schema-manifest.json` `transportation` array now contains `loadout_email`, `loadout_name`, `loadout_phone` (alphabetical).
 
-- [ ] **Step 3: Register the migration for the email CHECK audit** — `lib/audit/emailCanonicalization.ts`, in `defaultSchemaCheckSources()` (`:71-77`) add to the array:
+- [ ] **Step 5: Register the migration for the email CHECK audit** — `lib/audit/emailCanonicalization.ts`, in `defaultSchemaCheckSources()` (`:71-77`) add to the array:
 ```ts
     "supabase/migrations/20260630000001_transportation_loadout_contact.sql",
 ```
 
-- [ ] **Step 4: Run the affected audits** — `pnpm vitest run tests/cross-cutting/email-canonicalization.test.ts tests/db/schema-manifest-lib.test.ts` → PASS (new CHECK parsed + canonical; manifest lib consistent). `pnpm typecheck` → clean.
+- [ ] **Step 6: Run the affected tests** — `pnpm vitest run tests/db/schema.test.ts tests/cross-cutting/email-canonicalization.test.ts tests/db/schema-manifest-lib.test.ts` → PASS (schema test now green; new CHECK parsed + canonical; manifest lib consistent). `pnpm typecheck` → clean.
 
-- [ ] **Step 5: Commit** — `feat(db): add transportation loadout_* columns + canonical CHECK (transport-loadout-contact)` (stage the migration, the regenerated manifest, and `emailCanonicalization.ts`).
+- [ ] **Step 7: Commit** — `feat(db): add transportation loadout_* columns + canonical CHECK (transport-loadout-contact)` (stage the schema test, the migration, the regenerated manifest, and `emailCanonicalization.ts`).
 
-*(Validation-project surgical apply happens in Task 7 close-out prep, before push — `psql "$TEST_DATABASE_URL" -f <migration>` + `notify pgrst, 'reload schema';`; `TEST_DATABASE_URL` in main `.env.local`.)*
+*(Validation-project surgical apply happens in Task 7 Step 3, before push — `psql "$TEST_DATABASE_URL" -f <migration>` + `notify pgrst, 'reload schema';`; `TEST_DATABASE_URL` lives in the main checkout's env file `/Users/ericweiss/FX-Webpage-Template/.env.local`, NOT the worktree.)*
 
 ---
 
@@ -371,9 +392,9 @@ All PASS/clean. (Full suite catches any missed shape-sweep literal + exact-`toEq
 
 - [ ] **Step 2: Impeccable dual-gate (invariant 8)** — the UI diff is `TravelSection.tsx` + `Step3SheetCard.tsx`. Run `/impeccable critique` AND `/impeccable audit` on the affected diff with the canonical v3 preflight (PRODUCT.md → DESIGN.md → register → preflight). Fix HIGH/CRITICAL or defer via `DEFERRED.md`. Record dispositions in the PR description. (The load-out row is a structural clone of the Driver row → minimal visual surface.)
 
-- [ ] **Step 3: Validation-project migration apply** — `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260630000001_transportation_loadout_contact.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"` (`TEST_DATABASE_URL` in `/Users/ericweiss/FX-Webpage-Template/.env.local`). This makes `validation-schema-parity` L2 pass in CI.
+- [ ] **Step 3: Validation-project migration apply** — load `TEST_DATABASE_URL` from the main checkout's env file `/Users/ericweiss/FX-Webpage-Template/.env.local` (NOT the worktree, which has no such file), then `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260630000001_transportation_loadout_contact.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. This makes `validation-schema-parity` L2 pass in CI.
 
-- [ ] **Step 4: screenshots-drift** — determine whether the seeded fintech crew travel route is in the screenshot manifest. If YES, the "Getting there" card now shows a "Load out" row → regenerate the affected WebP baseline **from the CI pinned-amd64 artifact, never from the local arm64 host** (`feedback_screenshot_capture_runner_bimodality`). If NO, no drift (verify the `screenshots-drift` job passes in CI at close-out). Do not commit locally-captured (arm64) screenshots.
+- [ ] **Step 4: screenshots-drift** — determine whether the seeded fintech crew travel route is in the screenshot manifest. If YES, the "Getting there" card now shows a "Load out" row → regenerate the affected WebP baseline **from the CI pinned-amd64 Docker artifact, never from the local arm64 host** (a pinned Docker image still produces different raster bytes on an arm64 dev machine than the x64 CI runner, so a locally-captured WebP fails the byte-exact `screenshots-drift` gate). If NO, no drift (verify the `screenshots-drift` job passes in CI at close-out). Do not commit locally-captured (arm64) screenshots.
 
 ---
 
