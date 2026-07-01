@@ -148,7 +148,11 @@ const PILL_TONE: Record<StatusState, { border: string; text: string; dot: string
     text: "text-status-positive-text",
     dot: "bg-status-positive",
   },
-  publishing: { border: "border-status-warn", text: "text-status-warn-text", dot: "bg-status-warn" },
+  publishing: {
+    border: "border-status-warn",
+    text: "text-status-warn-text",
+    dot: "bg-status-warn",
+  },
   held: { border: "border-status-idle", text: "text-status-idle-text", dot: "bg-status-idle" },
 };
 

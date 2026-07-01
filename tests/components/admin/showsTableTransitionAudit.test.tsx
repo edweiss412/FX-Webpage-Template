@@ -90,7 +90,10 @@ describe("ShowsTable status pills — transition audit (§7: no animation introd
   it("compound: a published row and a held row each render their own instant state (no shared animation state)", () => {
     render(
       <ShowsTable
-        rows={[base({ slug: "a", published: true }), base({ slug: "b", published: false, finalizeOwned: false })]}
+        rows={[
+          base({ slug: "a", published: true }),
+          base({ slug: "b", published: false, finalizeOwned: false }),
+        ]}
         now={now}
         activeCount={2}
         overflowCount={0}
