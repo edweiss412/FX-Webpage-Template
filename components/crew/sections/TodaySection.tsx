@@ -371,7 +371,7 @@ export function TodaySection({
                           // §1 color-blind floor: the status-positive hue (calm
                           // teal, NOT green) is ALWAYS paired with a text label;
                           // the dot + "Booked" word both carry the signal.
-                          <span className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-[color-mix(in_srgb,var(--color-status-positive)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-status-positive)_14%,transparent)] px-2.5 py-1 text-xs font-semibold text-status-positive-text">
                               <span
                                 aria-hidden="true"
@@ -386,7 +386,7 @@ export function TodaySection({
                               showId={showId}
                               cardReport={cardReport}
                             />
-                          </span>
+                          </div>
                         }
                       >
                         <KeyValueRows rows={tonightRows} columns={2} />
@@ -619,7 +619,7 @@ export function TodaySection({
                         icon={<ClockIcon />}
                         title="Run of show"
                         action={
-                          <span className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                             <SectionChipLink section="schedule" icon={<CalendarIcon />}>
                               Full agenda
                             </SectionChipLink>
@@ -630,7 +630,7 @@ export function TodaySection({
                               showId={showId}
                               cardReport={cardReport}
                             />
-                          </span>
+                          </div>
                         }
                       >
                         {agendaToday.length > 0 ? (

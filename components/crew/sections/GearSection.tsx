@@ -318,7 +318,7 @@ export function GearSection({
                         action={
                           // The viewer's-own-scope eyebrow (when emphasized) and the
                           // recessive source link share the header action slot.
-                          <span className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                             {d.emphasized ? (
                               <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
                                 Your scope
@@ -340,7 +340,7 @@ export function GearSection({
                               showId={showId}
                               cardReport={cardReport}
                             />
-                          </span>
+                          </div>
                         }
                       >
                         <KeyValueRows rows={d.rows} />
