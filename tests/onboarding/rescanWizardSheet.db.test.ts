@@ -312,6 +312,7 @@ function deps(opts: {
       {
         file: meta,
         kind: "sheet",
+        sourceAnchors: {},
         binding: { bindingToken: modifiedTime, modifiedTime },
         parseResult: opts.refreshedParse as unknown as ParseResult,
       },
