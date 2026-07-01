@@ -114,4 +114,56 @@ describe("replaceTransportation — loadout_* round-trip (real DB)", () => {
       expect(readback?.loadout_email).toBe("carlos@x.com");
     },
   );
+
+  test.skipIf(!dbUp)(
+    "tolerates a legacy transportation object missing loadout_* (undefined coalesces to null, no throw)",
+    async () => {
+      // A pre-loadout ParseResult fixture (cast) has no loadout_* keys → the fields
+      // read `undefined`. postgres.js REJECTS undefined bind params, so the write
+      // boundary must coalesce undefined→null (a load-out-only-absent transport).
+      const driveFileId = `loadout-legacy-${process.pid}-${Math.floor(performance.now())}`;
+      let stored: { loadout_name: string | null; loadout_email: string | null } | undefined;
+
+      const legacyRow = {
+        driver_name: "Sam",
+        driver_phone: null,
+        driver_email: null,
+        vehicle: null,
+        license_plate: null,
+        color: null,
+        parking: null,
+        schedule: [],
+        notes: null,
+        // loadout_* intentionally ABSENT (undefined at runtime)
+      } as unknown as TransportationRow;
+
+      await sql!
+        .begin(async (tx) => {
+          const inserted = (await tx.unsafe(
+            `insert into public.shows (drive_file_id, slug, title, client_label, template_version)
+             values ($1, $2, $3, $4, $5) returning id`,
+            [driveFileId, driveFileId, "Legacy Show", "Client", "v4"],
+          )) as unknown as Array<{ id: string }>;
+          const showId = inserted[0]!.id;
+
+          const pipe = makeSyncPipelineTx(tx as unknown as PostgresTransaction);
+          await pipe.replaceTransportation(showId, legacyRow); // must not throw
+
+          stored = (
+            (await tx.unsafe(
+              `select loadout_name, loadout_email from public.transportation where show_id = $1`,
+              [showId],
+            )) as unknown as Array<typeof stored>
+          )[0];
+
+          throw new Error(ROLLBACK);
+        })
+        .catch((e: unknown) => {
+          if (!(e instanceof Error) || e.message !== ROLLBACK) throw e;
+        });
+
+      expect(stored?.loadout_name).toBeNull();
+      expect(stored?.loadout_email).toBeNull();
+    },
+  );
 });

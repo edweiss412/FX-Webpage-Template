@@ -1379,8 +1379,12 @@ class PostgresPipelineTx implements SyncPipelineTx {
         row.parking,
         row.schedule,
         row.notes,
-        row.loadout_name,
-        row.loadout_phone,
+        // Coalesce undefined→null: a legacy/pre-loadout ParseResult (built without
+        // loadout_* keys, e.g. a cast test fixture) reads `undefined`, and postgres.js
+        // rejects undefined bind params. null = "no load-out contact". canonicalize()
+        // already maps undefined→null for the email.
+        row.loadout_name ?? null,
+        row.loadout_phone ?? null,
         canonicalize(row.loadout_email),
       ],
     );
