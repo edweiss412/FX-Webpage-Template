@@ -109,15 +109,17 @@ describe("prepareOnboardingFiles — exact-cell source anchors", () => {
     expect(row.parseResult.warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 4242, a1: "C2" });
   });
 
-  it("does NOT fetch tab gids when no cell-anchored warning is present (no extra round-trip)", async () => {
+  it("fetches tab gids for region anchors even without a cell-anchored warning, but leaves that warning link-less", async () => {
     const listSheetGids = vi.fn(async () => new Map([["Main", 4242]]));
     const other: ParseWarning = { severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" };
     const prepared = await prepareOnboardingFiles("folder-1", depsWith([other], { listSheetGids }));
 
-    expect(listSheetGids).not.toHaveBeenCalled();
+    expect(listSheetGids).toHaveBeenCalledTimes(1); // now called for region-anchor compute
     const row = prepared[0]!;
     if (row.kind !== "sheet") throw new Error("expected a sheet row");
-    expect(row.parseResult.warnings[0]!.sourceCell).toBeUndefined();
+    expect(row.parseResult.warnings[0]!.sourceCell).toBeUndefined(); // non-cell-anchored warning stays link-less
+    // "Main" is not on SOURCE_LINK_ALLOWLIST → no region anchor.
+    expect(row.sourceAnchors).toEqual({});
   });
 
   it("is best-effort: a gid-fetch failure leaves the warning link-less, scan continues", async () => {

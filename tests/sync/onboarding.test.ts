@@ -721,6 +721,7 @@ describe("runOnboardingScan", () => {
       {
         file: file("file-1"),
         kind: "sheet",
+        sourceAnchors: {},
         binding: { bindingToken: "tok-file-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
         parseResult: parseResult(),
       },
