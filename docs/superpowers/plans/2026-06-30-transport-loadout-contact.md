@@ -165,20 +165,30 @@ to each (after `driver_email`/`driver_phone`). Known sites (typecheck is the aut
 ```ts
 describe("transportation loadout_* migration", () => {
   const migrationPath = "supabase/migrations/20260630000001_transportation_loadout_contact.sql";
-  test("adds loadout_{name,phone,email} + canonical CHECK to public + dev", () => {
-    const sql = readFileSync(migrationPath, "utf8");
-    for (const col of ["loadout_name", "loadout_phone", "loadout_email"]) {
-      expect(sql, `missing column ${col}`).toMatch(
-        new RegExp(`add column if not exists ${col} text`, "i"),
+  const sql = readFileSync(migrationPath, "utf8");
+  // Assert BOTH tables independently — a public-only migration must FAIL the dev case
+  // (dev-schema parity is a hard requirement; scope every assertion to the table name).
+  for (const schema of ["public", "dev"] as const) {
+    test(`adds loadout_{name,phone,email} + canonical CHECK to ${schema}.transportation`, () => {
+      const addBlock = new RegExp(
+        `alter table ${schema}\\.transportation\\s+add column if not exists loadout_name text,` +
+          `\\s*add column if not exists loadout_phone text,` +
+          `\\s*add column if not exists loadout_email text`,
+        "i",
       );
-    }
-    // canonical CHECK present twice (public + dev)
-    const checks = sql.match(/transportation_loadout_email_canonical check \(\s*loadout_email is null or \(loadout_email = lower\(trim\(loadout_email\)\) and loadout_email <> ''\)/gi);
-    expect(checks?.length ?? 0).toBeGreaterThanOrEqual(2);
-  });
+      expect(sql, `missing loadout_* add-column block for ${schema}`).toMatch(addBlock);
+      const check = new RegExp(
+        `alter table ${schema}\\.transportation add constraint transportation_loadout_email_canonical ` +
+          `check \\(\\s*loadout_email is null or \\(loadout_email = lower\\(trim\\(loadout_email\\)\\) ` +
+          `and loadout_email <> ''\\)`,
+        "i",
+      );
+      expect(sql, `missing canonical CHECK for ${schema}`).toMatch(check);
+    });
+  }
 });
 ```
-(Match the file's existing `readFileSync` import + assertion idiom.)
+(Match the file's existing `readFileSync` import + assertion idiom. The two per-schema tests mean a migration that adds columns/CHECK only to `public.transportation` fails the `dev` case — dev-schema parity is genuinely test-first. This also pins the migration SQL to a single `alter table <schema>.transportation add column …, add column …, add column …` statement + a separate `add constraint` per table, matching Step 3.)
 
 - [ ] **Step 2: Run, verify fail** — `pnpm vitest run tests/db/schema.test.ts -t "loadout"` → FAIL (migration file does not exist yet).
 
