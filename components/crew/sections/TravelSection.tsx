@@ -45,7 +45,8 @@ import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { BedIcon, CarIcon, PlaneIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -67,6 +68,7 @@ type TravelSectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 };
 
 /**
@@ -143,7 +145,13 @@ function TravelRow({
   );
 }
 
-export function TravelSection({ data, viewer, showId, today }: TravelSectionProps): JSX.Element {
+export function TravelSection({
+  data,
+  viewer,
+  showId,
+  today,
+  cardReport = DEFAULT_CARD_REPORT,
+}: TravelSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + isAdmin true;
   // crew/admin_preview → matched row; malformed projection throws
   // MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
@@ -306,9 +314,12 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
                 icon={<PlaneIcon />}
                 title="Getting there"
                 action={
-                  <SourceLink
+                  <CardHeaderActions
+                    cardId="travel-getting-there"
                     driveFileId={data.driveFileId}
                     anchor={data.sourceAnchors[CARD_REGION_MAP["travel-getting-there"]]}
+                    showId={showId}
+                    cardReport={cardReport}
                   />
                 }
               >
@@ -405,9 +416,12 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
                 icon={<BedIcon />}
                 title="Hotels"
                 action={
-                  <SourceLink
+                  <CardHeaderActions
+                    cardId="travel-hotels"
                     driveFileId={data.driveFileId}
                     anchor={data.sourceAnchors[CARD_REGION_MAP["travel-hotels"]]}
+                    showId={showId}
+                    cardReport={cardReport}
                   />
                 }
               >
@@ -499,9 +513,12 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
                     icon={<PlaneIcon />}
                     title="Your flight"
                     action={
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="travel-flight"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["travel-flight"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     }
                   >

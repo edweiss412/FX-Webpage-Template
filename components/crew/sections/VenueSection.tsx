@@ -41,7 +41,8 @@ import { DiagramsTile } from "@/components/crew/DiagramsBlock";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { WrappedSection } from "@/components/crew/WrappedSection";
 import { FactRows, type FactRow } from "@/components/crew/primitives/FactRows";
@@ -65,6 +66,7 @@ type VenueSectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 };
 
 /**
@@ -84,7 +86,12 @@ function isParseableUrl(value: string | null | undefined): boolean {
   }
 }
 
-export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.Element {
+export function VenueSection({
+  data,
+  viewer,
+  showId,
+  cardReport = DEFAULT_CARD_REPORT,
+}: VenueSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + none-restriction;
   // crew/admin_preview → matched row; malformed projection throws
   // MalformedProjectionError (the page's existing infra arm catches it).
@@ -221,9 +228,12 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
             icon={<MapPinIcon />}
             title="Where"
             action={
-              <SourceLink
+              <CardHeaderActions
+                cardId="venue-where"
                 driveFileId={data.driveFileId}
                 anchor={data.sourceAnchors[CARD_REGION_MAP["venue-where"]]}
+                showId={showId}
+                cardReport={cardReport}
               />
             }
           >
@@ -251,9 +261,12 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
             icon={<BuildingIcon />}
             title="Facilities"
             action={
-              <SourceLink
+              <CardHeaderActions
+                cardId="venue-facilities"
                 driveFileId={data.driveFileId}
                 anchor={data.sourceAnchors[CARD_REGION_MAP["venue-facilities"]]}
+                showId={showId}
+                cardReport={cardReport}
               />
             }
           >
@@ -268,9 +281,12 @@ export function VenueSection({ data, viewer, showId }: VenueSectionProps): JSX.E
             icon={<InfoIcon />}
             title="Venue status"
             action={
-              <SourceLink
+              <CardHeaderActions
+                cardId="venue-status"
                 driveFileId={data.driveFileId}
                 anchor={data.sourceAnchors[CARD_REGION_MAP["venue-status"]]}
+                showId={showId}
+                cardReport={cardReport}
               />
             }
           >

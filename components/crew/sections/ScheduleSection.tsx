@@ -42,7 +42,8 @@ import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import { agendaDisplayLabel } from "@/lib/agenda/agendaLabel";
 import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { buildSheetDeepLink, CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { ClockIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionTileError } from "@/components/crew/SectionTileError";
@@ -77,6 +78,7 @@ type ScheduleSectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 };
 
 export function ScheduleSection({
@@ -84,6 +86,7 @@ export function ScheduleSection({
   viewer,
   today,
   showId,
+  cardReport = DEFAULT_CARD_REPORT,
 }: ScheduleSectionProps): JSX.Element {
   // Single canonical viewer resolution: admin → none-restriction;
   // crew/admin_preview → matched row's dateRestriction; malformed projection
@@ -238,9 +241,12 @@ export function ScheduleSection({
                 ) !== null ? (
                   <div className="mb-2 flex justify-end">
                     <div data-slot="section-card-action" className="flex shrink-0 items-center">
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="schedule-days"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-days"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     </div>
                   </div>
@@ -333,9 +339,12 @@ export function ScheduleSection({
                       icon={<ClockIcon />}
                       title="Crew Schedule"
                       action={
-                        <SourceLink
+                        <CardHeaderActions
+                          cardId="schedule-call-times"
                           driveFileId={data.driveFileId}
                           anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-call-times"]]}
+                          showId={showId}
+                          cardReport={cardReport}
                         />
                       }
                     >

@@ -39,7 +39,8 @@ import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { RunOfShowList } from "@/components/crew/primitives/RunOfShowList";
 import { ShowDayTimelineList } from "@/components/crew/primitives/ShowDayTimelineList";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { SectionChipLink } from "@/components/crew/SectionChipLink";
 import {
@@ -151,9 +152,16 @@ type TodaySectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 };
 
-export function TodaySection({ data, viewer, today, showId }: TodaySectionProps): JSX.Element {
+export function TodaySection({
+  data,
+  viewer,
+  today,
+  showId,
+  cardReport = DEFAULT_CARD_REPORT,
+}: TodaySectionProps): JSX.Element {
   // Single canonical viewer resolution: flags / restriction / name / isAdmin.
   // admin → all-flags + none-restriction; crew/admin_preview → matched row;
   // malformed projection throws MalformedProjectionError (INTENTIONALLY outside
@@ -371,9 +379,12 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                               />
                               Booked
                             </span>
-                            <SourceLink
+                            <CardHeaderActions
+                              cardId="today-tonight"
                               driveFileId={data.driveFileId}
                               anchor={data.sourceAnchors[CARD_REGION_MAP["today-tonight"]]}
+                              showId={showId}
+                              cardReport={cardReport}
                             />
                           </span>
                         }
@@ -395,9 +406,12 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                         icon={<MapPinIcon />}
                         title="Where"
                         action={
-                          <SourceLink
+                          <CardHeaderActions
+                            cardId="today-where"
                             driveFileId={data.driveFileId}
                             anchor={data.sourceAnchors[CARD_REGION_MAP["today-where"]]}
+                            showId={showId}
+                            cardReport={cardReport}
                           />
                         }
                       >
@@ -418,9 +432,12 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                         icon={<PhoneIcon />}
                         title="Need something"
                         action={
-                          <SourceLink
+                          <CardHeaderActions
+                            cardId="today-contact"
                             driveFileId={data.driveFileId}
                             anchor={data.sourceAnchors[CARD_REGION_MAP["today-contact"]]}
+                            showId={showId}
+                            cardReport={cardReport}
                           />
                         }
                       >
@@ -466,9 +483,12 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                 icon={<ClockIcon />}
                 title="Key times"
                 action={
-                  <SourceLink
+                  <CardHeaderActions
+                    cardId="today-key-times"
                     driveFileId={data.driveFileId}
                     anchor={data.sourceAnchors[CARD_REGION_MAP["today-key-times"]]}
+                    showId={showId}
+                    cardReport={cardReport}
                   />
                 }
               >
@@ -481,9 +501,12 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
               <SectionCard
                 title="Dress code"
                 action={
-                  <SourceLink
+                  <CardHeaderActions
+                    cardId="today-dress"
                     driveFileId={data.driveFileId}
                     anchor={data.sourceAnchors[CARD_REGION_MAP["today-dress"]]}
+                    showId={showId}
+                    cardReport={cardReport}
                   />
                 }
               >
@@ -600,9 +623,12 @@ export function TodaySection({ data, viewer, today, showId }: TodaySectionProps)
                             <SectionChipLink section="schedule" icon={<CalendarIcon />}>
                               Full agenda
                             </SectionChipLink>
-                            <SourceLink
+                            <CardHeaderActions
+                              cardId="today-run-of-show"
                               driveFileId={data.driveFileId}
                               anchor={data.sourceAnchors[CARD_REGION_MAP["today-run-of-show"]]}
+                              showId={showId}
+                              cardReport={cardReport}
                             />
                           </span>
                         }

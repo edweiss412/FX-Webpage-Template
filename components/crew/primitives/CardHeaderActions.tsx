@@ -29,7 +29,7 @@ export function CardHeaderActions({
 }: {
   cardId: CardId;
   driveFileId: string | null;
-  anchor?: SourceAnchor | null;
+  anchor?: SourceAnchor | null | undefined;
   showId: string;
   cardReport?: CardReportContext;
 }): ReactNode {
