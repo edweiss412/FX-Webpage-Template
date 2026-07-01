@@ -33,7 +33,7 @@ loadout_phone: string | null;
 loadout_email: string | null; // canonicalized per §4.1.1, mirror of driver_email
 ```
 
-Rationale for flat fields on `TransportationRow` (not a `secondary_contacts[]` array): the `public.transportation` table is 1:1 with the show (`show_id … unique`, `20260501000000_initial_public_schema.sql:89`), and there is exactly one `Load Out:` row per sheet (§6, corpus-grounded). An array is YAGNI. Multiple-row handling → §5 first-wins.
+Rationale for flat fields on `TransportationRow` (not a `secondary_contacts[]` array): the `public.transportation` table is 1:1 with the show (`show_id … unique`, `20260501000000_initial_public_schema.sql:89`), and there is exactly one `Load Out:` row per sheet (§6, corpus-grounded). An array is YAGNI. Multiple-row handling → §5 first-non-empty-wins.
 
 `ShowForViewer.transportation` is typed as `TransportationRow | null` directly (`lib/data/getShowForViewer.ts:143`), so the three fields flow to the crew viewer type automatically — no separate viewer type to extend.
 
@@ -143,7 +143,7 @@ The three fields are **required-nullable** (`loadout_*: string | null`), matchin
 | **missing email** | `canonicalize("")` → `null` | filtered | — |
 | **sentinel** (`TBD`/`N/A`) | stored raw (`presence` keeps non-empty; `canonicalize` lowercases but does not sentinel-strip) | `shouldHideGenericOptional` reflows it out | shown **as-parsed** (crew-hides-vs-modal-shows asymmetry — documented, do not "fix") |
 | **no load-out row** | all three `null` (init) | `hasLoadout` false → nothing renders | `contentRows` drops empties → nothing |
-| **multiple `Load Out:` rows** | first-wins (§3 guard) | first only | first only |
+| **multiple `Load Out:` rows** | first-non-empty-wins (§3 guard) — the first row bearing a value latches; a later row cannot overwrite it, AND a fully-blank first `Load Out:` row does not suppress a later populated one | first only | first only |
 
 ---
 
@@ -212,7 +212,7 @@ No zombie columns: every field is written by the parser and reaches both render 
 
 ## 10. Test plan (TDD per task)
 
-1. **Parser (`tests/parser/blocks/transport.test.ts`)** — v4 markdown with a `Load Out: | Carlos Pineda | 610-618-0111 | carlosmpdal@gmail.com |` row → `loadout_name/phone/email` captured (email canonicalized: assert lowercased); the driver (from the slash header) is unaffected; a **name-only** load-out row (`| Load Out: | Carlos Pineda | | |`) → name set, phone/email `null`; **no** load-out row → all three `null`; **two** `Load Out:` rows → first-wins; v2/v1 returns carry `loadout_*: null`. Failure mode caught: the `:264` skip silently dropping the contact.
+1. **Parser (`tests/parser/blocks/transport.test.ts`)** — v4 markdown with a `Load Out: | Carlos Pineda | 610-618-0111 | carlosmpdal@gmail.com |` row → `loadout_name/phone/email` captured (email canonicalized: assert lowercased); the driver (from the slash header) is unaffected; a **name-only** load-out row (`| Load Out: | Carlos Pineda | | |`) → name set, phone/email `null`; **no** load-out row → all three `null`; **two** `Load Out:` rows → first-non-empty-wins (populated first row not overwritten; blank first row does not suppress a later populated one); v2/v1 returns carry `loadout_*: null`. Failure mode caught: the `:264` skip silently dropping the contact.
 2. **Projection (`tests/data/getShowForViewer*.test.ts` or the transportation projection test)** — a DB row with `loadout_*` set projects the three fields onto `ShowForViewer.transportation`.
 3. **Cron round-trip (existing `runScheduledCronSync` test surface)** — assert EXPLICITLY that `replaceTransportation`'s INSERT column list contains `loadout_name, loadout_phone, loadout_email` (a dropped column would silently lose the parsed value while parser + render tests still pass — the exact failure mode this test exists to catch); that the persisted `loadout_email` is canonicalized (write a mixed-case value, read back lowercased); and that the change-detection read-back SELECT (`:565-567`) returns the three columns, so a load-out-only edit is detected as a change (not a false "no change"). Derive expectations from the inserted fixture row, not a hardcode.
 4. **Crew render (`tests/components/crew/sections/TravelSection.test.tsx`)** — full contact → a "Load out" `TravelRow` with name primary + `phone · email` meta; name-only → row with no meta; sentinel email → hidden; absent → no "Load out" row in the DOM. Anti-tautology: assert on the load-out row's own `data`/label scoped away from the Driver row (clone-and-remove the Driver row before scanning, or query by the "Load out" label), and derive expected meta from the fixture, not a hardcode.
@@ -227,7 +227,7 @@ No zombie columns: every field is written by the parser and reaches both render 
 1. **DB migration IS required** — `transportation` is a normalized per-column table (`20260501000000_initial_public_schema.sql:87-101`), not JSONB; crew renders from the DB projection, so persistence is mandatory. Verified.
 2. **No spec §17.2 / `EMAIL_BOUNDARIES` edit** — the email-schema-check audit validates CHECK **bodies** are canonical (`auditEmailSchemaCheckSources`, `emailCanonicalization.ts:176-184`), one-directional; a canonical CHECK mirroring `driver_email` passes without a boundary-prose entry, and the audit does not require an email column to carry a CHECK. Verified `emailCanonicalization.ts:161-184`.
 3. **Capture only in `parseV4Transport`** — the `Load Out:` label + `:264` skip exist only there; v2/v1 get `loadout_*: null`. Verified.
-4. **No dedup** (§7); **`isEmptyTransport` unchanged**; **first-wins on multiples**; **crew-hides-vs-modal-shows asymmetry preserved** (§1 non-goals + §5).
+4. **No dedup** (§7); **`isEmptyTransport` unchanged**; **first-non-empty-wins on multiples**; **crew-hides-vs-modal-shows asymmetry preserved** (§1 non-goals + §5).
 5. **UI dual-gate required** — `TravelSection.tsx` + `Step3SheetCard.tsx` are UI (invariant 8): `/impeccable critique` + `/impeccable audit` on the diff before the Codex whole-diff review; findings fixed or `DEFERRED.md`'d.
 
 ---

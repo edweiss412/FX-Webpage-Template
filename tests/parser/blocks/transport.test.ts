@@ -287,7 +287,7 @@ ${loadoutRow}
     expect(t!.loadout_email).toBeNull();
   });
 
-  it("multiple Load Out rows: first-wins", () => {
+  it("multiple populated Load Out rows: first-non-empty-wins (later row cannot overwrite)", () => {
     const t = parseTransportation(
       v4(
         "| Load Out: | Carlos Pineda | 610-618-0111 | a@b.com | |\n| Load Out: | Second Person | 999-999-9999 | c@d.com | |",
@@ -295,6 +295,16 @@ ${loadoutRow}
       "v4",
     );
     expect(t!.loadout_name).toBe("Carlos Pineda");
+    expect(t!.loadout_email).toBe("a@b.com");
+  });
+
+  it("a fully-blank first Load Out row does NOT suppress a later populated one (first-non-empty-wins)", () => {
+    const t = parseTransportation(
+      v4("| Load Out: | | | |\n| Load Out: | Carlos Pineda | 610-618-0111 | a@b.com | |"),
+      "v4",
+    );
+    expect(t!.loadout_name).toBe("Carlos Pineda");
+    expect(t!.loadout_phone).toBe("610-618-0111");
     expect(t!.loadout_email).toBe("a@b.com");
   });
 

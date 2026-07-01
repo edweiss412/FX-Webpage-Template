@@ -266,6 +266,9 @@ function parseV4Transport(
     // Load-out secondary transporter (col0 like "Load Out:"). Capture name/phone/email
     // mirroring the driver body-row read; canonicalize the email at this parser boundary
     // (AGENTS.md invariant 3). It is a contact, not a schedule leg — continue after.
+    // FIRST-NON-EMPTY-WINS: the first "Load Out:" row that carries any value latches
+    // (guard true only while all three stay null), so a later row cannot overwrite a
+    // populated one AND a fully-blank first row does NOT suppress a later populated one.
     if (/^load\s+out\s*:/i.test(col0)) {
       if (loadoutName === null && loadoutPhone === null && loadoutEmail === null) {
         loadoutName = presence(clean(cells[1] ?? ""));
