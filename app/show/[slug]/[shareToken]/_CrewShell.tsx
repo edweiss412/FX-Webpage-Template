@@ -58,6 +58,7 @@ import {
   type SectionId,
 } from "@/lib/crew/resolveActiveSection";
 import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
+import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import {
   MalformedProjectionError,
   resolveViewerContext,
@@ -286,22 +287,84 @@ export async function CrewShell({
   // stays sheet-synced via ShowRealtimeBridge → router.refresh(), which re-runs
   // this server component (all bodies fresh) while the controller's `active`
   // state survives.
+  // Per-card report context, computed ONCE (viewer/ctx are section-independent)
+  // and threaded to every section → CardHeaderActions. Mirrors the footer's
+  // report override below: crew viewer files as crew; admin preview-as files as
+  // admin with the previewed-viewer crewPreview context.
+  const cardReport = buildCardReportContext(viewer, ctx.viewerName, ctx.viewerCrew?.role ?? null);
+
   const renderOne = (id: SectionId): JSX.Element => {
     switch (id) {
       case "today":
-        return <TodaySection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <TodaySection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
       case "schedule":
-        return <ScheduleSection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <ScheduleSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
       case "venue":
-        return <VenueSection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <VenueSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
       case "travel":
-        return <TravelSection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <TravelSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
       case "crew":
-        return <CrewSection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <CrewSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
       case "gear":
-        return <GearSection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <GearSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
       case "budget":
-        return <BudgetSection data={data} viewer={viewer} today={today} showId={showId} />;
+        return (
+          <BudgetSection
+            data={data}
+            viewer={viewer}
+            today={today}
+            showId={showId}
+            cardReport={cardReport}
+          />
+        );
     }
   };
 

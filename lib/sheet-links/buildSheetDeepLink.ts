@@ -36,6 +36,7 @@ export const REGION_IDS = [
   "venue",
   "financials",
   "details",
+  "dress",
   "gear_packlist",
   "gear_scope",
   "schedule",
@@ -120,6 +121,16 @@ export const REGION_ANCHOR_SPEC: Record<RegionId, RegionAnchorSpec> = {
     header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i,
     terminators: BLOCK_TERMINATORS,
   },
+  // The standalone DRESS block sits ABOVE the DETAILS header on the INFO tab
+  // (lib/parser/blocks/dress.ts) — a separate section. `today-dress`'s deep link
+  // targets THIS region, not `details` (issue #207). BLOCK_TERMINATORS already
+  // lists DRESS, so the header-block is self-terminating.
+  dress: {
+    tabs: ["INFO"],
+    strategy: "header-block",
+    header: /^DRESS$/i,
+    terminators: BLOCK_TERMINATORS,
+  },
   gear_packlist: { tabs: ["PULL SHEET", "GEAR"], strategy: "whole-tab" },
   // gear_scope is the whole-GEAR-tab anchor for the per-discipline scope cards, but it is
   // EMITTED ONLY when the GEAR tab carries the date-grid signature (gated in
@@ -160,7 +171,7 @@ export const CARD_REGION_MAP = {
   "today-where": "venue",
   "today-contact": "contacts",
   "today-key-times": "rooms",
-  "today-dress": "details",
+  "today-dress": "dress",
   "today-run-of-show": "schedule",
 } satisfies Record<string, RegionId>;
 export type CardId = keyof typeof CARD_REGION_MAP;

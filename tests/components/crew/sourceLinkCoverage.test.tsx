@@ -315,4 +315,52 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     expect(sourceBackedSeen, "no source-backed cards were rendered").toBeGreaterThan(8);
     expect(outOfScopeSeen, "no out-of-scope cards were rendered").toBeGreaterThan(0);
   });
+
+  it("(d) every source-backed card exposes a report trigger; out-of-scope cards do not", () => {
+    const data = fullFixture();
+    const { container } = renderAllSections(data);
+    const cards = Array.from(container.querySelectorAll<HTMLElement>("[data-card-id]"));
+    const outOfScope = new Set<string>(OUT_OF_SCOPE_CARDS);
+    let mappedWithTrigger = 0;
+
+    for (const card of cards) {
+      const id = card.getAttribute("data-card-id")!;
+      // Scope to THIS card's subtree so a sibling's trigger can't satisfy it.
+      const hasTrigger = card.querySelector('[data-slot="card-report-trigger"]') !== null;
+      if (Object.prototype.hasOwnProperty.call(CARD_REGION_MAP, id)) {
+        expect(hasTrigger, `source-backed card "${id}" must expose a report trigger`).toBe(true);
+        mappedWithTrigger += 1;
+      } else if (outOfScope.has(id)) {
+        expect(hasTrigger, `out-of-scope card "${id}" must NOT expose a report trigger`).toBe(
+          false,
+        );
+      }
+    }
+    expect(mappedWithTrigger, "no source-backed cards exposed a report trigger").toBeGreaterThan(8);
+  });
+
+  it("schedule-days keeps its report trigger even when there is no source link (null driveFileId)", () => {
+    // ScheduleSection's day-cards are not wrapped in a SectionCard; the fix
+    // renders the actions header UNCONDITIONALLY so the report trigger survives
+    // a null driveFileId (where SourceLink renders nothing). Regression guard for
+    // the Codex whole-diff finding that the whole cluster was gated on link presence.
+    const data: ShowForViewer = { ...fullFixture(), driveFileId: null };
+    const { container } = renderSection(
+      <ScheduleSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />,
+    );
+    const card = container.querySelector('[data-card-id="schedule-days"]')!;
+    expect(card.querySelector('[data-slot="card-report-trigger"]')).not.toBeNull();
+    expect(card.querySelector('a[data-slot="source-link"]')).toBeNull();
+  });
+
+  it("gear-scope card keeps its dynamic gear_scope link after the CardHeaderActions migration", () => {
+    const data = fullFixture();
+    const { container } = renderAllSections(data);
+    const card = container.querySelector('[data-card-id="gear-scope-audio"]')!;
+    const href = card.querySelector('a[data-slot="source-link"]')!.getAttribute("href");
+    // fullFixture() populates gear_scope → the card must use it, NOT rooms — proving
+    // CardHeaderActions passes the call site's anchor expression through verbatim.
+    expect(href).toBe(buildSheetDeepLink(data.driveFileId, data.sourceAnchors["gear_scope"]));
+    expect(href).not.toBe(buildSheetDeepLink(data.driveFileId, data.sourceAnchors["rooms"]));
+  });
 });

@@ -22,7 +22,8 @@ import type { JSX } from "react";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -40,11 +41,13 @@ export function BudgetSection({
   data,
   viewer,
   showId,
+  cardReport = DEFAULT_CARD_REPORT,
 }: {
   data: ShowForViewer;
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 }): JSX.Element {
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The Budget
   // surface reads data.financials, gated by financialsVisible(viewerFlags,
@@ -99,9 +102,12 @@ export function BudgetSection({
             <SectionCard
               title="Budget"
               action={
-                <SourceLink
+                <CardHeaderActions
+                  cardId="budget-main"
                   driveFileId={data.driveFileId}
                   anchor={data.sourceAnchors[CARD_REGION_MAP["budget-main"]]}
+                  showId={showId}
+                  cardReport={cardReport}
                 />
               }
             >

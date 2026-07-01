@@ -49,7 +49,8 @@ import {
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { BoxIcon, MonitorIcon, NoteIcon } from "@/components/crew/icons/sectionIcons";
 import { KeyValueRows, type KeyValueRow } from "@/components/crew/primitives/KeyValueRows";
@@ -77,6 +78,7 @@ type GearSectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 };
 
 type Discipline = "audio" | "video" | "lighting" | "scenic" | "other";
@@ -143,7 +145,13 @@ function viewerDisciplines(flags: RoleFlag[]): Set<Discipline> {
   return set;
 }
 
-export function GearSection({ data, viewer, today, showId }: GearSectionProps): JSX.Element {
+export function GearSection({
+  data,
+  viewer,
+  today,
+  showId,
+  cardReport = DEFAULT_CARD_REPORT,
+}: GearSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + none-restriction;
   // crew/admin_preview → matched row; malformed projection throws
   // MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
@@ -310,13 +318,14 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                         action={
                           // The viewer's-own-scope eyebrow (when emphasized) and the
                           // recessive source link share the header action slot.
-                          <span className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                             {d.emphasized ? (
                               <span className="text-xs font-medium uppercase tracking-eyebrow text-accent-on-bg">
                                 Your scope
                               </span>
                             ) : null}
-                            <SourceLink
+                            <CardHeaderActions
+                              cardId={`gear-scope-${d.id}`}
                               driveFileId={data.driveFileId}
                               anchor={
                                 // GEAR-derived scope (modern shows) → link to the GEAR tab via the
@@ -328,8 +337,10 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                                     : CARD_REGION_MAP[`gear-scope-${d.id}`]
                                 ]
                               }
+                              showId={showId}
+                              cardReport={cardReport}
                             />
-                          </span>
+                          </div>
                         }
                       >
                         <KeyValueRows rows={d.rows} />
@@ -345,9 +356,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     icon={<BoxIcon />}
                     title="Pack list"
                     action={
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="gear-pack-list"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["gear-pack-list"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     }
                   >
@@ -432,9 +446,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     icon={<SlidersHorizontal size={14} strokeWidth={2} />}
                     title="Tech specs"
                     action={
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="gear-tech-specs"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["gear-tech-specs"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     }
                   >
@@ -451,9 +468,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     icon={<LayoutGrid size={14} strokeWidth={2} />}
                     title="Room details"
                     action={
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="gear-room-details"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["gear-room-details"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     }
                   >
@@ -491,9 +511,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     icon={<NoteIcon />}
                     title="Keynote requirements"
                     action={
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="gear-keynote"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["gear-keynote"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     }
                   >
@@ -508,9 +531,12 @@ export function GearSection({ data, viewer, today, showId }: GearSectionProps): 
                     icon={<MonitorIcon />}
                     title="Opening reel"
                     action={
-                      <SourceLink
+                      <CardHeaderActions
+                        cardId="gear-opening-reel"
                         driveFileId={data.driveFileId}
                         anchor={data.sourceAnchors[CARD_REGION_MAP["gear-opening-reel"]]}
+                        showId={showId}
+                        cardReport={cardReport}
                       />
                     }
                   >

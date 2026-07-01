@@ -45,7 +45,8 @@ import { SectionTileError } from "@/components/crew/SectionTileError";
 import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
-import { SourceLink } from "@/components/crew/primitives/SourceLink";
+import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { PhoneIcon, UsersIcon } from "@/components/crew/icons/sectionIcons";
 import { WrappedSection } from "@/components/crew/WrappedSection";
@@ -58,6 +59,7 @@ type CrewSectionProps = {
   viewer: Viewer;
   today: Date;
   showId: string;
+  cardReport?: CardReportContext;
 };
 
 /**
@@ -85,7 +87,12 @@ function contactFallbackLabel(kind: ShowForViewer["contacts"][number]["kind"]): 
   }
 }
 
-export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Element {
+export function CrewSection({
+  data,
+  viewer,
+  showId,
+  cardReport = DEFAULT_CARD_REPORT,
+}: CrewSectionProps): JSX.Element {
   // Single canonical viewer resolution. admin → all-flags + none-restriction;
   // crew/admin_preview → matched row; a malformed crewMembers projection throws
   // MalformedProjectionError (the page's existing infra arm catches it — this is
@@ -158,9 +165,12 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                         icon={<UsersIcon />}
                         title="Show crew"
                         action={
-                          <SourceLink
+                          <CardHeaderActions
+                            cardId="crew-roster"
                             driveFileId={data.driveFileId}
                             anchor={data.sourceAnchors[CARD_REGION_MAP["crew-roster"]]}
+                            showId={showId}
+                            cardReport={cardReport}
                           />
                         }
                       >
@@ -219,9 +229,12 @@ export function CrewSection({ data, viewer, showId }: CrewSectionProps): JSX.Ele
                         icon={<PhoneIcon />}
                         title="Key contacts"
                         action={
-                          <SourceLink
+                          <CardHeaderActions
+                            cardId="crew-contacts"
                             driveFileId={data.driveFileId}
                             anchor={data.sourceAnchors[CARD_REGION_MAP["crew-contacts"]]}
+                            showId={showId}
+                            cardReport={cardReport}
                           />
                         }
                       >
