@@ -15,6 +15,7 @@
  * previewed-viewer `crewPreview` context.
  */
 import type { ReportAutocapture, ReportSurface } from "@/components/shared/ReportModal";
+import type { Viewer } from "@/lib/data/getShowForViewer";
 
 export type CardReportContext = {
   surface: ReportSurface;
@@ -28,4 +29,26 @@ export const DEFAULT_CARD_REPORT: CardReportContext = {
   extraContext: {},
 };
 
-// buildCardReportContext(...) is added here in Task 5 (driven by its own test).
+/**
+ * Resolve the per-card report bundle for the active viewer, mirroring the crew
+ * footer's report override (`_CrewShell.tsx`). A plain crew viewer (and a plain
+ * `admin` viewer — the footer only special-cases `admin_preview`,
+ * `_CrewShell.tsx:359,372`) files as `crew`; the admin preview-as viewer files
+ * as `admin` and carries the previewed-viewer `crewPreview` context.
+ */
+export function buildCardReportContext(
+  viewer: Viewer,
+  viewerName: string | null,
+  viewerRole: string | null,
+): CardReportContext {
+  if (viewer.kind === "admin_preview") {
+    return {
+      surface: "admin",
+      surfaceIdScope: "admin-preview-card",
+      extraContext: {
+        crewPreview: { crewMemberId: viewer.crewMemberId, name: viewerName, role: viewerRole },
+      },
+    };
+  }
+  return DEFAULT_CARD_REPORT;
+}
