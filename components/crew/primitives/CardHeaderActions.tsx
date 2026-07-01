@@ -35,10 +35,7 @@ export function CardHeaderActions({
 }): ReactNode {
   const region = CARD_REGION_MAP[cardId];
   return (
-    <span
-      data-slot="card-header-actions"
-      className="inline-flex h-fit shrink-0 items-center gap-2"
-    >
+    <span data-slot="card-header-actions" className="inline-flex h-fit shrink-0 items-center gap-2">
       <SourceLink driveFileId={driveFileId} anchor={anchor} />
       <CardReportTrigger cardId={cardId} region={region} showId={showId} cardReport={cardReport} />
     </span>

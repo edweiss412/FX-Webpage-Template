@@ -331,7 +331,9 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
         expect(hasTrigger, `source-backed card "${id}" must expose a report trigger`).toBe(true);
         mappedWithTrigger += 1;
       } else if (outOfScope.has(id)) {
-        expect(hasTrigger, `out-of-scope card "${id}" must NOT expose a report trigger`).toBe(false);
+        expect(hasTrigger, `out-of-scope card "${id}" must NOT expose a report trigger`).toBe(
+          false,
+        );
       }
     }
     expect(mappedWithTrigger, "no source-backed cards exposed a report trigger").toBeGreaterThan(8);

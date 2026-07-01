@@ -11,7 +11,12 @@ it("renders the SourceLink <a> with the EXACT passed-in anchor (not a CARD_REGIO
   // gear-scope passes a dynamic gear_scope anchor even though its region is `rooms`.
   const gearScope: SourceAnchor = { title: "GEAR", gid: 7, a1: "A1:D9" };
   const { container } = render(
-    <CardHeaderActions cardId="gear-scope-audio" driveFileId={DRIVE} anchor={gearScope} showId="s1" />,
+    <CardHeaderActions
+      cardId="gear-scope-audio"
+      driveFileId={DRIVE}
+      anchor={gearScope}
+      showId="s1"
+    />,
   );
   const a = container.querySelector('a[data-slot="source-link"]')!;
   expect(a.getAttribute("href")).toBe(buildSheetDeepLink(DRIVE, gearScope));
