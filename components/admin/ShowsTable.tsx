@@ -12,7 +12,7 @@
 // recomputed here), Publishing badge iff !published. The Sync column is HEALTH
 // only via syncStatusBucket (decoupled from live/publishing, R1).
 //
-// Mobile (<md=720px): the Dates/Crew/Sync columns collapse into a stacked
+// Mobile (<768px): the Dates/Crew/Sync columns collapse into a stacked
 // sub-line under the title; the Live/Publishing pill stays with the title.
 "use client";
 
