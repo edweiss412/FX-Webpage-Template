@@ -18,7 +18,7 @@
 - **Invariant 9 — Supabase call-boundary.** N/A to new code: `extractUnknownFieldAnchors` is a pure raw-workbook read (no Supabase client, no advisory lock, invariant-2-safe). Keep it that way.
 - **No DB migration.** `blockRef.name` rides the existing jsonb columns; `sourceCell` shape unchanged. No `supabase/migrations/**`, no `pnpm gen:schema-manifest`, no validation-project apply.
 - **Never a wrong-cell link.** Every resolver returns the correct cell or `null` — never a wrong cell (spec §5.1.1).
-- **Verify against the live sheet** `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4`, INFO tab `gid=0` (via gsheets MCP) before final close-out (Task 11).
+- **Verify against the live sheet** `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4`, INFO tab `gid=0` (via gsheets MCP) before final close-out (Task 10).
 
 ### Declarations (mandatory per AGENTS.md writing-plans additions)
 
@@ -37,9 +37,9 @@
 | `lib/parser/warnings.ts` | `emitUnknownField` stashes label in `blockRef.name` | Modify (:127-134) |
 | `lib/drive/unknownFieldAnchors.ts` | Re-scan workbook → per-row `(kind,label,value)→cell` anchors; resolve exactly-one-else-null | Create |
 | `lib/drive/showDayTimeAnchors.ts` | `WarningAnchorSources.unknownField`; dispatch `UNKNOWN_FIELD` → per-row cell; remove from region fallback | Modify (:98-102, :123-149) |
-| `lib/sync/attachWarningAnchors.ts` | Wire the 4th `safe()`-wrapped source family | Modify (:46-50) |
-| `lib/parser/dataGaps.ts` | `stripLegacyUnknownFieldAnchors` read-time shim (Part D) | Modify (add fn near :152) |
-| `app/admin/show/[slug]/page.tsx` | Apply shim at the published-warnings read boundary | Modify (:291) |
+| `lib/sync/attachWarningAnchors.ts` | Wire the 4th `safe()`-wrapped source family | Modify (:6, :46-50) |
+| `lib/parser/dataGaps.ts` | `stripLegacyUnknownFieldAnchors` + `selectActionableForDisplay` (Part D + tested read-boundary seam) | Modify (add fns near :152) |
+| `app/admin/show/[slug]/page.tsx` | Use `selectActionableForDisplay` at the actionable read boundary | Modify (:325) |
 | `components/admin/wizard/Step3SheetCard.tsx` | Apply shim at Step-3 read; surface label (Part A) | Modify (:1496, WarningsBreakdown :826-848) |
 | `components/admin/PerShowActionableWarnings.tsx` | Surface label (Part A) | Modify (:44) |
 
@@ -140,7 +140,6 @@ git commit --no-verify -m "feat(parser): rawSnippet label/value split helpers"
 - Test: `tests/parser/warnings.test.ts`
 
 **Interfaces:**
-- Consumes: nothing new.
 - Produces: every `UNKNOWN_FIELD` warning now carries `blockRef: { kind, name: <label> }` (the raw label key). `rawSnippet` unchanged.
 
 - [ ] **Step 1: Write the failing test** (append to `tests/parser/warnings.test.ts`)
@@ -177,12 +176,12 @@ Expected: FAIL — `blockRef` is `{ kind: "details" }`, missing `name`.
   });
 ```
 
-(`opts.key` is the raw label; `key` is `opts.key.trim()` used in the message. `blockRef.name` uses the raw `opts.key` so it matches the emit-site input; the resolver normalizes both sides anyway.)
+(`opts.key` is the raw label; `key` is `opts.key.trim()` used in the message. `blockRef.name` uses the raw `opts.key`; the resolver normalizes both sides anyway.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm vitest run tests/parser/warnings.test.ts`
-Expected: PASS. Also run `pnpm vitest run tests/parser/` to confirm no snapshot of the warning shape broke.
+Run: `pnpm vitest run tests/parser/warnings.test.ts` then `pnpm vitest run tests/parser/`
+Expected: PASS; no warning-shape snapshot broke.
 
 - [ ] **Step 5: Commit**
 
@@ -215,8 +214,8 @@ import {
   normalizeCellKey,
 } from "@/lib/drive/unknownFieldAnchors";
 
-// Build a minimal INFO sheet with a VENUE block and a DETAILS block, returning
-// the workbook bytes + a gid map. Row/col are 0-based; A1 is derived by the code.
+// Build a minimal INFO sheet from an array-of-arrays; returns bytes + gid map.
+// Row/col are 0-based; A1 is derived by the code under test.
 function buildInfoWorkbook(rows: (string | null)[][]): { buffer: ArrayBuffer; gids: Map<string, number> } {
   const ws = XLSX.utils.aoa_to_sheet(rows.map((r) => r.map((c) => c ?? "")));
   const wb = XLSX.utils.book_new();
@@ -227,88 +226,72 @@ function buildInfoWorkbook(rows: (string | null)[][]): { buffer: ArrayBuffer; gi
 
 describe("extractUnknownFieldAnchors", () => {
   it("anchors each venue/details row to its LABEL cell keyed by (kind,label,value)", () => {
-    // Row indices: 0 DATES header (terminator context), 1 blank, 2 VENUE, 3 Where row,
-    // 4 blank, 5 DETAILS, 6 Floor Plan, 7 GS Podium Type
+    // Rows: 0 DATES(term) 1 blank 2 VENUE 3 Where 4 blank 5 DETAILS 6 Floor Plan 7 GS Podium Type
     const { buffer, gids } = buildInfoWorkbook([
-      ["DATES", ""],
-      ["", ""],
-      ["VENUE", ""],
-      ["Where", "Four Seasons Hotel"],
-      ["", ""],
-      ["DETAILS", ""],
-      ["Floor Plan", "LINK"],
-      ["GS Podium Type", "(2) Acrylic Podium"],
+      ["DATES", ""], ["", ""], ["VENUE", ""], ["Where", "Four Seasons Hotel"],
+      ["", ""], ["DETAILS", ""], ["Floor Plan", "LINK"], ["GS Podium Type", "(2) Acrylic Podium"],
     ]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
-    const venue = anchors.find((a) => a.kind === "venue" && a.label === "where");
-    expect(venue?.anchor.a1).toBe("A4"); // row index 3 → A4
+    expect(anchors.find((a) => a.kind === "venue" && a.label === "where")?.anchor.a1).toBe("A4"); // row 3 → A4
     const podium = anchors.find((a) => a.kind === "details" && a.label === "gs podium type");
-    expect(podium?.anchor.a1).toBe("A8"); // row index 7 → A8
+    expect(podium?.anchor.a1).toBe("A8"); // row 7 → A8
     expect(podium?.value).toBe(normalizeCellKey("(2) Acrylic Podium"));
   });
 
   it("resolves exactly-one (kind,label,value) match to the cell", () => {
-    const { buffer, gids } = buildInfoWorkbook([
-      ["DETAILS", ""],
-      ["GS Podium Type", "(2) Acrylic Podium"],
-    ]);
+    const { buffer, gids } = buildInfoWorkbook([["DETAILS", ""], ["GS Podium Type", "(2) Acrylic Podium"]]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
-    const cell = resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "(2) Acrylic Podium");
-    expect(cell?.a1).toBe("A2");
+    expect(resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "(2) Acrylic Podium")?.a1).toBe("A2");
   });
 
   it("PROVENANCE: same label, different value → matches the correct row (never the impostor)", () => {
+    const { buffer, gids } = buildInfoWorkbook([["DETAILS", ""], ["Notes", "real note"], ["Notes", "other note"]]);
+    const anchors = extractUnknownFieldAnchors(buffer, gids);
+    expect(resolveUnknownFieldCell(anchors, "details", "Notes", "other note")?.a1).toBe("A3"); // not A2
+  });
+
+  it("PROVENANCE across bound divergence: parser emits an outside-bound label; an inside impostor shares the label but not the value → never anchors to the impostor", () => {
+    // DETAILS block has "Notes | inside-val"; a LATER block (after the CONTACTS terminator)
+    // has "Notes | outside-val". The extractor only scans the DETAILS block, so it holds
+    // (details,"notes","inside-val"). The parser emitted for the OUTSIDE row (value
+    // "outside-val"). Resolving with the outside value must NOT pick the inside impostor.
     const { buffer, gids } = buildInfoWorkbook([
-      ["DETAILS", ""],
-      ["Notes", "real note"],
-      ["Notes", "other note"],
+      ["DETAILS", ""], ["Notes", "inside-val"],
+      ["", ""], ["CONTACTS", ""], ["Notes", "outside-val"],
     ]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
-    const cell = resolveUnknownFieldCell(anchors, "details", "Notes", "other note");
-    expect(cell?.a1).toBe("A3"); // the "other note" row, not "real note" at A2
+    expect(resolveUnknownFieldCell(anchors, "details", "Notes", "outside-val")).toBeNull(); // value mismatch → null, never A2
   });
 
   it("same label AND same value (true duplicate) → null (never a wrong cell)", () => {
-    const { buffer, gids } = buildInfoWorkbook([
-      ["DETAILS", ""],
-      ["Notes", "dup"],
-      ["Notes", "dup"],
-    ]);
+    const { buffer, gids } = buildInfoWorkbook([["DETAILS", ""], ["Notes", "dup"], ["Notes", "dup"]]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
     expect(resolveUnknownFieldCell(anchors, "details", "Notes", "dup")).toBeNull();
   });
 
   it("kind-scoping: same label in venue and details does not cross-collide", () => {
     const { buffer, gids } = buildInfoWorkbook([
-      ["VENUE", ""],
-      ["Notes", "venue note"],
-      ["", ""],
-      ["DETAILS", ""],
-      ["Notes", "details note"],
+      ["VENUE", ""], ["Notes", "venue note"], ["", ""], ["DETAILS", ""], ["Notes", "details note"],
     ]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
     expect(resolveUnknownFieldCell(anchors, "venue", "Notes", "venue note")?.a1).toBe("A2");
     expect(resolveUnknownFieldCell(anchors, "details", "Notes", "details note")?.a1).toBe("A5");
   });
 
-  it("no match → null; missing INFO tab → []", () => {
+  it("no match → null; wrong/absent inputs → null; missing gid → []", () => {
     const { buffer, gids } = buildInfoWorkbook([["DETAILS", ""], ["Floor Plan", "LINK"]]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
     expect(resolveUnknownFieldCell(anchors, "details", "Nonexistent", "x")).toBeNull();
     expect(resolveUnknownFieldCell(anchors, undefined, "Floor Plan", "LINK")).toBeNull();
-    // missing gid → []
     expect(extractUnknownFieldAnchors(buffer, new Map())).toEqual([]);
   });
 
   it("over-inclusive: does NOT stop at an internal blank row within the block", () => {
     const { buffer, gids } = buildInfoWorkbook([
-      ["DETAILS", ""],
-      ["Floor Plan", "LINK"],
-      ["", ""], // internal blank — must NOT terminate the block
-      ["Notes", "kept"],
+      ["DETAILS", ""], ["Floor Plan", "LINK"], ["", ""], ["Notes", "kept"],
     ]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
-    expect(anchors.find((a) => a.label === "notes")?.anchor.a1).toBe("A4");
+    expect(anchors.find((a) => a.label === "notes")?.anchor.a1).toBe("A4"); // row 3 → A4
   });
 });
 ```
@@ -328,7 +311,7 @@ import { clean } from "@/lib/parser/blocks/_helpers";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
 /** An anchor to a venue/details row's LABEL cell, keyed by (kind, normalized
- *  label, normalized value). The value participates in the key so resolution
+ *  label, normalized value). value participates in the key so resolution
  *  identifies the specific row (provenance), not merely a unique label. */
 export type UnknownFieldAnchor = { kind: string; label: string; value: string; anchor: SourceAnchor };
 
@@ -340,9 +323,8 @@ const BLOCKS: { kind: string; header: RegExp }[] = [
 ];
 
 // A row whose first non-blank cell (upper-cased) is one of these ENDS the block.
-// Mirror of the crew TERMINATORS / region BLOCK_TERMINATORS — the set of section
-// openers on the INFO tab. Over-inclusion is safe (spec §5.1.1), so this list only
-// needs to catch the real section boundaries, not every possible label.
+// Mirror of the crew TERMINATORS / region BLOCK_TERMINATORS. Over-inclusion is
+// safe (spec §5.1.1), so this only needs to catch real section openers.
 const TERMINATORS = new Set([
   "CREW", "TECH", "VENUE", "DATES", "HOTEL", "HOTELS", "ROOMS", "TRANSPORTATION",
   "CONTACTS", "SCHEDULE", "PULL SHEET", "PULL", "DIAGRAMS", "EVENT DETAILS", "DETAILS",
@@ -352,7 +334,7 @@ const TERMINATORS = new Set([
 
 /** Normalize a sheet cell for matching. canonicalize-exempt: sheet field text,
  *  not an email (AGENTS.md invariant 3 N/A). Applied identically to grid cells
- *  and to the label/value derived from the warning, so the two sides compare equal. */
+ *  and to the label/value from the warning, so the two sides compare equal. */
 export function normalizeCellKey(s: string): string {
   return clean(s).replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -374,8 +356,8 @@ function nextNonBlankAfter(grid: AbsGrid, r: number, afterCol: number): string {
 }
 
 /**
- * Re-scan the RAW workbook to locate each venue/details row's LABEL cell, keyed
- * by (kind, normalized label, normalized value). The parser runs on synthesized
+ * Re-scan the RAW workbook to locate each venue/details row's LABEL cell, keyed by
+ * (kind, normalized label, normalized value). The parser runs on synthesized
  * markdown (which loses A1 coordinates), so we reconstruct from the raw grid,
  * mirroring extractCrewRoleAnchors. OVER-INCLUSIVE by design: the scan continues
  * past internal blank rows to the next section terminator, so it is a superset of
@@ -449,12 +431,12 @@ export function resolveUnknownFieldCell(
 }
 ```
 
-**Note (plan refinement of spec §5.1):** the spec names `normalizeLabelKey`/`normalizeValueKey`; label and value use identical normalization, so this plan consolidates to one `normalizeCellKey` (YAGNI — no behavior difference). The `(kind,label,value)` match and every guarantee in spec §5.1.1 are unchanged.
+**Note (plan refinement of spec §5.1):** the spec names `normalizeLabelKey`/`normalizeValueKey`; label and value use identical normalization, so this plan consolidates to one `normalizeCellKey` (YAGNI). The `(kind,label,value)` match and every guarantee in spec §5.1.1 are unchanged.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/drive/unknownFieldAnchors.test.ts`
-Expected: PASS (7 tests).
+Expected: PASS (8 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -465,112 +447,29 @@ git commit --no-verify -m "feat(drive): per-row UNKNOWN_FIELD label-cell anchors
 
 ---
 
-## Task 4: wire the unknownField source family
+## Task 4: wire + dispatch the per-row anchor (source family + dispatch, one unit)
+
+Source-family wiring and the dispatch branch are one inseparable testable deliverable (a warning resolving to its cell requires both). They ship as one task/commit — this does not violate one-task-per-commit; it is one task.
 
 **Files:**
-- Modify: `lib/drive/showDayTimeAnchors.ts:98-102` (WarningAnchorSources type)
-- Modify: `lib/sync/attachWarningAnchors.ts:6,46-50`
-- Test: `tests/sync/attachWarningAnchors.test.ts`
+- Modify: `lib/drive/showDayTimeAnchors.ts` (import; `WarningAnchorSources` :98-102; dispatch :118-149)
+- Modify: `lib/sync/attachWarningAnchors.ts` (:6 import, :46-50 family)
+- Test: `tests/drive/showDayTimeAnchors.test.ts`, `tests/sync/attachWarningAnchors.test.ts`
 
 **Interfaces:**
-- Consumes: `extractUnknownFieldAnchors`, `UnknownFieldAnchor` (Task 3).
-- Produces: `WarningAnchorSources` gains `unknownField: UnknownFieldAnchor[]`; `attachWarningAnchors` populates it (safe-wrapped).
+- Consumes: `extractUnknownFieldAnchors`, `resolveUnknownFieldCell`, `UnknownFieldAnchor` (Task 3); `valueFromRawSnippet` (Task 1).
+- Produces: `WarningAnchorSources` gains `unknownField: UnknownFieldAnchor[]`; `attachSourceCellAnchors` resolves `UNKNOWN_FIELD` to the per-row cell (no region fallback).
 
-- [ ] **Step 1: Write the failing test** (append to `tests/sync/attachWarningAnchors.test.ts`)
+- [ ] **Step 1: Write the failing tests**
 
-```ts
-it("populates sources.unknownField and resolves an UNKNOWN_FIELD warning to its cell", async () => {
-  // Build an INFO workbook with a DETAILS block; a UNKNOWN_FIELD warning for one row.
-  const XLSX = await import("xlsx");
-  const ws = XLSX.utils.aoa_to_sheet([["DETAILS", ""], ["GS Podium Type", "(2) Acrylic Podium"]]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "INFO");
-  const bytes = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
-
-  const warnings = [{
-    severity: "warn", code: "UNKNOWN_FIELD",
-    message: "Unrecognized event_details row label: 'GS Podium Type'",
-    blockRef: { kind: "details", name: "GS Podium Type" },
-    rawSnippet: "GS Podium Type | (2) Acrylic Podium",
-  }] as any[];
-
-  await attachWarningAnchors(warnings, bytes, async () => new Map([["INFO", 0]]));
-  expect(warnings[0].sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2" });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pnpm vitest run tests/sync/attachWarningAnchors.test.ts -t "sources.unknownField"`
-Expected: FAIL — `sourceCell` is undefined (no unknownField source wired yet) or a region range.
-
-- [ ] **Step 3: Write minimal implementation**
-
-In `lib/drive/showDayTimeAnchors.ts`, extend `WarningAnchorSources` (lines 98-102) and its import:
-```ts
-import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
-import {
-  resolveUnknownFieldCell,
-  type UnknownFieldAnchor,
-} from "@/lib/drive/unknownFieldAnchors";
-// ...
-export type WarningAnchorSources = {
-  showDay: ShowDayTimeAnchor[];
-  crewRole: CrewRoleAnchor[];
-  unknownField: UnknownFieldAnchor[];
-  region: Record<string, SourceAnchor>;
-};
-```
-
-In `lib/sync/attachWarningAnchors.ts`, add the import and the 4th family:
-```ts
-import { extractUnknownFieldAnchors } from "@/lib/drive/unknownFieldAnchors";
-// ...
-  attachSourceCellAnchors(warnings, {
-    showDay: safe(() => extractShowDayTimeAnchors(bytes, gids), []),
-    crewRole: safe(() => extractCrewRoleAnchors(bytes, gids), []),
-    unknownField: safe(() => extractUnknownFieldAnchors(bytes, gids), []),
-    region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
-  });
-```
-
-(The dispatch that consumes `sources.unknownField` lands in Task 5; this test will pass once Task 5's dispatch branch is added. To keep Task 4 green on its own, assert only that `sources.unknownField` is populated — see Step 1 variant below. **Sequencing note:** implement Task 4 + Task 5 together if executing task-by-task, or make this test assert the source array via a spy. Simplest: fold the dispatch (Task 5) into this commit.)
-
-> **Execution note:** Tasks 4 and 5 are two edits to the same call chain (`attachWarningAnchors` → `attachSourceCellAnchors`). Implement Task 5's dispatch branch before running this task's end-to-end assertion. Commit them separately (source-family wiring, then dispatch) or together as one `feat(drive)` commit — do not leave the tree with `unknownField` populated but unused between commits if running CI mid-plan.
-
-- [ ] **Step 4: Run test to verify it passes** (after Task 5's dispatch is in place)
-
-Run: `pnpm vitest run tests/sync/attachWarningAnchors.test.ts`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add lib/drive/showDayTimeAnchors.ts lib/sync/attachWarningAnchors.ts tests/sync/attachWarningAnchors.test.ts
-git commit --no-verify -m "feat(drive): wire unknownField anchor source family"
-```
-
----
-
-## Task 5: dispatch UNKNOWN_FIELD to the per-row cell (remove from region fallback)
-
-**Files:**
-- Modify: `lib/drive/showDayTimeAnchors.ts:118-149` (attachSourceCellAnchors dispatch)
-- Test: `tests/drive/showDayTimeAnchors.test.ts`
-
-**Interfaces:**
-- Consumes: `resolveUnknownFieldCell` (Task 3), `valueFromRawSnippet` (Task 1).
-- Produces: `UNKNOWN_FIELD` resolves to the per-row cell; no longer falls back to the block region.
-
-- [ ] **Step 1: Write the failing test** (append to `tests/drive/showDayTimeAnchors.test.ts`)
-
+In `tests/drive/showDayTimeAnchors.test.ts` (append):
 ```ts
 import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
 
 it("UNKNOWN_FIELD resolves to the per-row cell, not the block region", () => {
   const warnings = [{
-    severity: "warn", code: "UNKNOWN_FIELD",
-    message: "x", blockRef: { kind: "details", name: "GS Podium Type" },
+    severity: "warn", code: "UNKNOWN_FIELD", message: "x",
+    blockRef: { kind: "details", name: "GS Podium Type" },
     rawSnippet: "GS Podium Type | (2) Acrylic Podium",
   }] as any[];
   attachSourceCellAnchors(warnings, {
@@ -582,11 +481,10 @@ it("UNKNOWN_FIELD resolves to the per-row cell, not the block region", () => {
   expect(warnings[0].sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A8" });
 });
 
-it("UNKNOWN_FIELD with no matching per-row anchor gets NO region fallback (sourceCell stays undefined)", () => {
+it("UNKNOWN_FIELD with no matching per-row anchor gets NO region fallback", () => {
   const warnings = [{
-    severity: "warn", code: "UNKNOWN_FIELD",
-    message: "x", blockRef: { kind: "details", name: "Mystery" },
-    rawSnippet: "Mystery | val",
+    severity: "warn", code: "UNKNOWN_FIELD", message: "x",
+    blockRef: { kind: "details", name: "Mystery" }, rawSnippet: "Mystery | val",
   }] as any[];
   attachSourceCellAnchors(warnings, {
     showDay: [], crewRole: [], unknownField: [],
@@ -605,19 +503,46 @@ it("FIELD_UNREADABLE still uses the region fallback (unchanged)", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts -t "UNKNOWN_FIELD"`
-Expected: FAIL — currently `UNKNOWN_FIELD` still hits the region branch → `A55:B74`, and the no-match case falls back to the region too.
-
-- [ ] **Step 3: Write minimal implementation** — in `lib/drive/showDayTimeAnchors.ts`:
-
-Add the import:
+In `tests/sync/attachWarningAnchors.test.ts` (append) — end-to-end through the raw workbook:
 ```ts
-import { valueFromRawSnippet } from "@/lib/parser/rawSnippet";
+it("attachWarningAnchors resolves an UNKNOWN_FIELD to its label cell via the raw workbook", async () => {
+  const XLSX = await import("xlsx");
+  const ws = XLSX.utils.aoa_to_sheet([["DETAILS", ""], ["GS Podium Type", "(2) Acrylic Podium"]]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "INFO");
+  const bytes = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const warnings = [{
+    severity: "warn", code: "UNKNOWN_FIELD", message: "x",
+    blockRef: { kind: "details", name: "GS Podium Type" },
+    rawSnippet: "GS Podium Type | (2) Acrylic Podium",
+  }] as any[];
+  await attachWarningAnchors(warnings, bytes, async () => new Map([["INFO", 0]]));
+  expect(warnings[0].sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2" });
+});
 ```
 
-Add a new branch after the crew-role branch (currently ends ~line 129), before the `KIND_TO_REGION` branch:
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts tests/sync/attachWarningAnchors.test.ts -t "UNKNOWN_FIELD"`
+Expected: FAIL — currently `UNKNOWN_FIELD` hits the region branch (`A55:B74`), no-match falls back to region, and `WarningAnchorSources` has no `unknownField`.
+
+- [ ] **Step 3: Write minimal implementation**
+
+`lib/drive/showDayTimeAnchors.ts` — imports + type:
+```ts
+import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
+import { resolveUnknownFieldCell, type UnknownFieldAnchor } from "@/lib/drive/unknownFieldAnchors";
+import { valueFromRawSnippet } from "@/lib/parser/rawSnippet";
+// ...
+export type WarningAnchorSources = {
+  showDay: ShowDayTimeAnchor[];
+  crewRole: CrewRoleAnchor[];
+  unknownField: UnknownFieldAnchor[];
+  region: Record<string, SourceAnchor>;
+};
+```
+
+Dispatch — add the `UNKNOWN_FIELD` branch after the crew-role branch (~line 129), and remove `UNKNOWN_FIELD` from the region-fallback branch (line 138):
 ```ts
     } else if (w.code === "UNKNOWN_FIELD") {
       // Per-row cell by (kind,label,value); no region fallback — a no/ambiguous
@@ -629,10 +554,7 @@ Add a new branch after the crew-role branch (currently ends ~line 129), before t
         valueFromRawSnippet(w.rawSnippet),
       );
     } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
-```
-
-Remove `UNKNOWN_FIELD` from the region-fallback branch (currently line 138):
-```ts
+      cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
     } else if (
       w.code === "FIELD_UNREADABLE" ||
       w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
@@ -642,28 +564,41 @@ Remove `UNKNOWN_FIELD` from the region-fallback branch (currently line 138):
     ) {
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+`lib/sync/attachWarningAnchors.ts` — import + 4th family:
+```ts
+import { extractUnknownFieldAnchors } from "@/lib/drive/unknownFieldAnchors";
+// ...
+  attachSourceCellAnchors(warnings, {
+    showDay: safe(() => extractShowDayTimeAnchors(bytes, gids), []),
+    crewRole: safe(() => extractCrewRoleAnchors(bytes, gids), []),
+    unknownField: safe(() => extractUnknownFieldAnchors(bytes, gids), []),
+    region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
+  });
+```
 
-Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts tests/sync/attachWarningAnchors.test.ts`
-Expected: PASS (including Task 4's end-to-end test).
+Also update any existing `attachSourceCellAnchors` call in tests/`applyParseResult.ts` that constructs `WarningAnchorSources` literally to include `unknownField: []` (grep `showDay:` to find them — typecheck will flag any missed one).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pnpm vitest run tests/drive/showDayTimeAnchors.test.ts tests/sync/attachWarningAnchors.test.ts` then `pnpm typecheck`
+Expected: PASS; typecheck clean (all `WarningAnchorSources` literals updated).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/drive/showDayTimeAnchors.ts tests/drive/showDayTimeAnchors.test.ts
-git commit --no-verify -m "feat(drive): dispatch UNKNOWN_FIELD to per-row cell, drop region fallback"
+git add lib/drive/showDayTimeAnchors.ts lib/sync/attachWarningAnchors.ts tests/drive/showDayTimeAnchors.test.ts tests/sync/attachWarningAnchors.test.ts
+git commit --no-verify -m "feat(drive): resolve UNKNOWN_FIELD to per-row cell via unknownField source family"
 ```
 
 ---
 
-## Task 6: Part B — under-count regression (no impl change)
+## Task 5: Part B — under-count regression (no impl change)
 
-**Files:**
-- Test: `tests/parser/operatorActionableWarnings.test.ts`
+Part B falls out of Tasks 3-4 (distinct per-row anchors → distinct dedup keys; null-anchor rows skip the dedup). This task pins that and updates any expectation that assumed the old collapse.
 
-Part B falls out of Tasks 3-5 (distinct per-row anchors → distinct dedup keys; null-anchor rows skip the dedup). This task pins that behavior and updates any expectation that assumed the old collapse.
+**Files:** Test: `tests/parser/operatorActionableWarnings.test.ts`
 
-- [ ] **Step 1: Write the failing/guard test** (append)
+- [ ] **Step 1: Write the guard test** (append)
 
 ```ts
 it("two distinct-label UNKNOWN_FIELD warnings with distinct per-row anchors both survive dedup", () => {
@@ -674,7 +609,7 @@ it("two distinct-label UNKNOWN_FIELD warnings with distinct per-row anchors both
   expect(operatorActionableWarnings(warnings)).toHaveLength(2);
 });
 
-it("two UNKNOWN_FIELD warnings with NO sourceCell (ambiguous) both survive (no a1 → no dedup)", () => {
+it("two UNKNOWN_FIELD warnings with NO sourceCell both survive (no a1 → no dedup)", () => {
   const warnings = [
     { severity: "warn", code: "UNKNOWN_FIELD", message: "a" },
     { severity: "warn", code: "UNKNOWN_FIELD", message: "b" },
@@ -686,7 +621,7 @@ it("two UNKNOWN_FIELD warnings with NO sourceCell (ambiguous) both survive (no a
 - [ ] **Step 2: Run**
 
 Run: `pnpm vitest run tests/parser/operatorActionableWarnings.test.ts`
-Expected: PASS (no impl change needed — this pins the emergent behavior). If any pre-existing test asserted the old 2→1 collapse for distinct-cell UNKNOWN_FIELD, update it to the new expectation and note why in the commit.
+Expected: PASS (no impl change). If a pre-existing test asserted the old 2→1 collapse for distinct-cell `UNKNOWN_FIELD`, update it to the new expectation and note why in the commit.
 
 - [ ] **Step 3: Commit**
 
@@ -697,60 +632,73 @@ git commit --no-verify -m "test(parser): pin UNKNOWN_FIELD distinct-anchor no-co
 
 ---
 
-## Task 7: Part D — stripLegacyUnknownFieldAnchors shim
+## Task 6: Part D — stripLegacyUnknownFieldAnchors + selectActionableForDisplay seam
 
 **Files:**
-- Modify: `lib/parser/dataGaps.ts` (add function near `operatorActionableWarnings`, ~line 152)
+- Modify: `lib/parser/dataGaps.ts` (add both fns after `operatorActionableWarnings`, ~line 170)
 - Test: `tests/parser/dataGaps.test.ts`
 
 **Interfaces:**
-- Produces: `stripLegacyUnknownFieldAnchors(warnings: readonly ParseWarning[] | null | undefined): ParseWarning[]` — clears `sourceCell` on `UNKNOWN_FIELD` warnings whose persisted `sourceCell.a1` is a RANGE (contains `":"`).
+- Produces: `stripLegacyUnknownFieldAnchors(warnings): ParseWarning[]` — clears `sourceCell` on `UNKNOWN_FIELD` whose `sourceCell.a1` is a RANGE (contains `":"`). `selectActionableForDisplay(warnings): ParseWarning[]` — the read-boundary seam = `operatorActionableWarnings(stripLegacyUnknownFieldAnchors(warnings))`; the single function both persisted-read surfaces call, so a boundary regression is caught by this function's test.
 
 - [ ] **Step 1: Write the failing test** (append to `tests/parser/dataGaps.test.ts`)
 
 ```ts
-import { stripLegacyUnknownFieldAnchors, operatorActionableWarnings } from "@/lib/parser/dataGaps";
+import {
+  stripLegacyUnknownFieldAnchors, selectActionableForDisplay, operatorActionableWarnings,
+} from "@/lib/parser/dataGaps";
 
 describe("stripLegacyUnknownFieldAnchors (Part D)", () => {
-  it("clears the stale range anchor on legacy UNKNOWN_FIELD → both rows survive, no link", () => {
-    const legacy = [
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "a", rawSnippet: "Floor Plan | LINK",
-        sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "b", rawSnippet: "GS Podium Type | (2) Acrylic",
-        sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
-    ] as any[];
-    const stripped = stripLegacyUnknownFieldAnchors(legacy);
-    expect(stripped.every((w) => w.sourceCell === null)).toBe(true);
-    // count corrects: no a1 → not deduped
-    expect(operatorActionableWarnings(stripped)).toHaveLength(2);
-  });
+  const legacy = () => ([
+    { severity: "warn", code: "UNKNOWN_FIELD", message: "a", rawSnippet: "Floor Plan | LINK",
+      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    { severity: "warn", code: "UNKNOWN_FIELD", message: "b", rawSnippet: "GS Podium Type | (2) Acrylic",
+      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+  ] as any[]);
 
-  it("is a NO-OP for a new single-cell UNKNOWN_FIELD anchor (A56)", () => {
-    const fresh = [{ severity: "warn", code: "UNKNOWN_FIELD", message: "a",
-      sourceCell: { title: "INFO", gid: 0, a1: "A56" } }] as any[];
+  it("clears the stale range anchor on legacy UNKNOWN_FIELD", () => {
+    expect(stripLegacyUnknownFieldAnchors(legacy()).every((w) => w.sourceCell === null)).toBe(true);
+  });
+  it("is a NO-OP for a new single-cell anchor (A56)", () => {
+    const fresh = [{ severity: "warn", code: "UNKNOWN_FIELD", message: "a", sourceCell: { title: "INFO", gid: 0, a1: "A56" } }] as any[];
     expect(stripLegacyUnknownFieldAnchors(fresh)[0].sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A56" });
   });
-
-  it("is a NO-OP for a new UNKNOWN_FIELD with empty blockRef.name + single-cell anchor (R2 edge)", () => {
+  it("is a NO-OP for a new UNKNOWN_FIELD with EMPTY blockRef.name + single-cell anchor (R2 edge)", () => {
     const fresh = [{ severity: "warn", code: "UNKNOWN_FIELD", message: "a", blockRef: { kind: "details", name: "" },
       sourceCell: { title: "INFO", gid: 0, a1: "A56" } }] as any[];
     expect(stripLegacyUnknownFieldAnchors(fresh)[0].sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A56" });
   });
-
   it("does not touch other codes carrying a range anchor", () => {
-    const other = [{ severity: "warn", code: "FIELD_UNREADABLE", message: "a",
-      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } }] as any[];
+    const other = [{ severity: "warn", code: "FIELD_UNREADABLE", message: "a", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } }] as any[];
     expect(stripLegacyUnknownFieldAnchors(other)[0].sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A55:B74" });
+  });
+});
+
+describe("selectActionableForDisplay (read-boundary seam)", () => {
+  it("legacy A55-range pair → 2 items, each link-less (count corrects, no stale link)", () => {
+    const items = selectActionableForDisplay([
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "a", rawSnippet: "Floor Plan | LINK", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "b", rawSnippet: "GS Podium Type | X", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    ] as any[]);
+    expect(items).toHaveLength(2);
+    expect(items.every((w) => w.sourceCell === null)).toBe(true);
+  });
+  it("fresh distinct-cell pair → 2 items keeping their anchors", () => {
+    const items = selectActionableForDisplay([
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "a", sourceCell: { title: "INFO", gid: 0, a1: "A56" } },
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "b", sourceCell: { title: "INFO", gid: 0, a1: "A65" } },
+    ] as any[]);
+    expect(items.map((w) => w.sourceCell?.a1).sort()).toEqual(["A56", "A65"]);
   });
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/parser/dataGaps.test.ts -t "stripLegacyUnknownFieldAnchors"`
-Expected: FAIL — function not exported.
+Run: `pnpm vitest run tests/parser/dataGaps.test.ts -t "Part D|read-boundary seam"`
+Expected: FAIL — functions not exported.
 
-- [ ] **Step 3: Write minimal implementation** — add to `lib/parser/dataGaps.ts` (after `operatorActionableWarnings`):
+- [ ] **Step 3: Write minimal implementation** — add to `lib/parser/dataGaps.ts` after `operatorActionableWarnings`:
 
 ```ts
 /**
@@ -759,10 +707,10 @@ Expected: FAIL — function not exported.
  * no per-row identity; the admin surface would keep collapsing them and rendering
  * the wrong block-header link until a re-parse rewrites the jsonb (which never
  * happens for an unchanged sheet). Clear that stale anchor at read time so legacy
- * rows behave like ambiguous rows: not deduped (count corrects) and link-less
- * (no wrong A55 link); the label still shows via rawSnippet. NO-OP once re-parsed
- * — Part C anchors are single cells (encode_cell → no ":") and ambiguous rows are
- * null, so the range-":" fingerprint is the exact, unambiguous legacy signature.
+ * rows behave like ambiguous rows: not deduped (count corrects) and link-less.
+ * NO-OP once re-parsed — Part C anchors are single cells (encode_cell → no ":")
+ * and ambiguous rows are null, so the range-":" fingerprint is the exact legacy
+ * signature (never misfires on a new single-cell/null anchor, incl. empty name).
  */
 export function stripLegacyUnknownFieldAnchors(
   warnings: readonly ParseWarning[] | null | undefined,
@@ -774,42 +722,54 @@ export function stripLegacyUnknownFieldAnchors(
       : w,
   );
 }
+
+/**
+ * The read-boundary seam for persisted parse_warnings feeding the operator-
+ * actionable Data-quality panel: neutralize stale legacy UNKNOWN_FIELD anchors,
+ * THEN filter+dedup. Both persisted-read call sites use this one function so the
+ * legacy behavior is defined (and tested) in exactly one place.
+ */
+export function selectActionableForDisplay(
+  warnings: readonly ParseWarning[] | null | undefined,
+): ParseWarning[] {
+  return operatorActionableWarnings(stripLegacyUnknownFieldAnchors(warnings));
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/parser/dataGaps.test.ts`
-Expected: PASS (4 tests).
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add lib/parser/dataGaps.ts tests/parser/dataGaps.test.ts
-git commit --no-verify -m "feat(parser): stripLegacyUnknownFieldAnchors read-time shim (Part D)"
+git commit --no-verify -m "feat(parser): stripLegacyUnknownFieldAnchors + selectActionableForDisplay seam (Part D)"
 ```
 
 ---
 
-## Task 8: apply the shim at the admin read boundary
+## Task 7: apply the seam at the admin read boundary
 
 **Files:**
-- Modify: `app/admin/show/[slug]/page.tsx:291`
-- Test: `tests/components/admin/perShowDataQualityActionable.test.tsx`
+- Modify: `app/admin/show/[slug]/page.tsx:325` (+ import)
+- Test: covered by Task 6's `selectActionableForDisplay` tests; add a render assertion here for the end-to-end panel behavior.
 
 **Interfaces:**
-- Consumes: `stripLegacyUnknownFieldAnchors` (Task 7), `operatorActionableWarnings`.
+- Consumes: `selectActionableForDisplay` (Task 6).
 
-- [ ] **Step 1: Write the failing test** — assert the panel shows BOTH legacy rows and NO link. (append to `tests/components/admin/perShowDataQualityActionable.test.tsx`; mirror the file's existing render harness for `PerShowActionableWarnings` fed by `operatorActionableWarnings(stripLegacyUnknownFieldAnchors(warnings))`.)
+- [ ] **Step 1: Write the failing test** (append to `tests/components/admin/perShowDataQualityActionable.test.tsx`)
 
 ```tsx
-it("legacy: two UNKNOWN_FIELD sharing an A55 range render as two items with no link", () => {
-  const legacy = [
-    { code: "UNKNOWN_FIELD", severity: "warn", message: "a", rawSnippet: "Floor Plan | LINK",
-      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
-    { code: "UNKNOWN_FIELD", severity: "warn", message: "b", rawSnippet: "GS Podium Type | (2) Acrylic",
-      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
-  ];
-  const items = operatorActionableWarnings(stripLegacyUnknownFieldAnchors(legacy as any));
+import { selectActionableForDisplay } from "@/lib/parser/dataGaps";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+
+it("admin boundary: legacy A55-range UNKNOWN_FIELD pair renders 2 items, no link", () => {
+  const items = selectActionableForDisplay([
+    { code: "UNKNOWN_FIELD", severity: "warn", message: "a", rawSnippet: "Floor Plan | LINK", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    { code: "UNKNOWN_FIELD", severity: "warn", message: "b", rawSnippet: "GS Podium Type | (2) Acrylic", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+  ] as any);
   render(<PerShowActionableWarnings items={items} driveFileId="drive123" />);
   expect(screen.getAllByTestId("per-show-actionable-item")).toHaveLength(2);
   expect(screen.queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
@@ -818,74 +778,84 @@ it("legacy: two UNKNOWN_FIELD sharing an A55 range render as two items with no l
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx -t "legacy"`
-Expected: FAIL — without the shim, `operatorActionableWarnings` collapses to 1 item and renders the A55 link.
+Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx -t "admin boundary"`
+Expected: FAIL if the component/import isn't wired; PASS proves the seam produces the right items. (This asserts the seam's end-to-end render; the page wiring in Step 3 makes the real page use it.)
 
-- [ ] **Step 3: Write minimal implementation** — in `app/admin/show/[slug]/page.tsx`, add the import and wrap the assignment at line 291:
+- [ ] **Step 3: Write minimal implementation** — in `app/admin/show/[slug]/page.tsx`, change the import at the top (currently `import { operatorActionableWarnings } from "@/lib/parser/dataGaps"` — extend it) and the call at line 325:
 
 ```ts
-import { operatorActionableWarnings, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
+import { selectActionableForDisplay } from "@/lib/parser/dataGaps";
 // ...
-      warnings = stripLegacyUnknownFieldAnchors(
-        Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [],
-      );
+  // Neutralize stale legacy UNKNOWN_FIELD anchors, then filter+dedup — the single
+  // seam so legacy behavior is defined once (Part D).
+  const actionableItems = selectActionableForDisplay(dataQuality.actionable);
 ```
 
-(The existing `operatorActionableWarnings(dataQuality.actionable)` at line 325 now receives shimmed warnings; the `messages` digest at 309-312 is unaffected — it excludes `OPERATOR_ACTIONABLE_ANCHORED` codes.)
+(Remove the now-unused `operatorActionableWarnings` import if nothing else in the file uses it — grep the file; typecheck will flag an unused import.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx`
-Expected: PASS.
+Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx` then `pnpm typecheck`
+Expected: PASS; typecheck clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add "app/admin/show/[slug]/page.tsx" tests/components/admin/perShowDataQualityActionable.test.tsx
-git commit --no-verify -m "fix(admin): strip legacy UNKNOWN_FIELD anchors at the data-quality read boundary"
+git commit --no-verify -m "fix(admin): route Data-quality actionable warnings through selectActionableForDisplay (Part D)"
 ```
 
 ---
 
-## Task 9: Part A + shim on Step-3 (UI — Opus + impeccable)
+## Task 8: Part A + shim on Step-3 (UI — Opus + impeccable)
 
 **Files:**
-- Modify: `components/admin/wizard/Step3SheetCard.tsx:1496` (shim), `:826-848` (WarningsBreakdown label)
+- Modify: `components/admin/wizard/Step3SheetCard.tsx` (:1496 shim; WarningsBreakdown label insertion)
 - Test: `tests/components/step3SheetCard.test.tsx`
 
 **Interfaces:**
-- Consumes: `stripLegacyUnknownFieldAnchors` (Task 7), `labelFromRawSnippet` (Task 1).
+- Consumes: `stripLegacyUnknownFieldAnchors` (Task 6), `labelFromRawSnippet` (Task 1).
 
-- [ ] **Step 1: Write the failing test** (append to `tests/components/step3SheetCard.test.tsx`; mirror the file's existing render harness)
+**DOM placement (pinned):** In `WarningsBreakdown` each warning is an `<li className="flex flex-col gap-0.5">` (line 829-833) containing, in order: the title row `<span className="flex items-baseline gap-1.5 ...">…</span>` (closes line 845), then `{context ? <p className="pl-3 …"> … }`, then the "Open in Sheet" block. Insert the label as a **direct child of the `<li>`, immediately after the title-row span's closing `</span>` (line 845) and before the `{context …}` block** — so it renders as its own flex-column row beneath the title, matching the `pl-3` indent of the context/link.
+
+- [ ] **Step 1: Write the failing test** (append to `tests/components/step3SheetCard.test.tsx`; adapt to the file's existing render harness — the assertions are the contract)
 
 ```tsx
+import { within } from "@testing-library/react";
+
 it("Part A: two UNKNOWN_FIELD warnings render distinguishable row labels", () => {
-  // Render the card with two UNKNOWN_FIELD warnings differing only by rawSnippet label.
-  // (Use the file's existing helper to build a card with a parse result carrying these warnings.)
   const warnings = [
     { code: "UNKNOWN_FIELD", severity: "warn", message: "Unrecognized event_details row label: 'Floor Plan'", rawSnippet: "Floor Plan | LINK" },
     { code: "UNKNOWN_FIELD", severity: "warn", message: "Unrecognized event_details row label: 'GS Podium Type'", rawSnippet: "GS Podium Type | (2) Acrylic Podium" },
   ];
-  renderStep3CardWithWarnings(warnings); // existing/local harness
-  // Scope extraction to the warnings list so a sibling panel cannot satisfy this.
-  const list = screen.getByTestId(/wizard-step3-card-.*-warnings/); // or the WarningsBreakdown container
-  expect(within(list).getByText("Floor Plan")).toBeInTheDocument();
-  expect(within(list).getByText("GS Podium Type")).toBeInTheDocument();
-  // The two entries are distinguishable: their label lines differ.
-  expect(within(list).getByText("Floor Plan")).not.toBe(within(list).getByText("GS Podium Type"));
+  const { container } = renderStep3CardWithWarnings(warnings); // existing/local harness
+  // Scope to the warnings list so an unrelated sibling panel cannot satisfy this.
+  const labels = container.querySelectorAll('[data-testid$="-label"]');
+  const texts = Array.from(labels).map((n) => n.textContent);
+  expect(texts).toContain("Floor Plan");
+  expect(texts).toContain("GS Podium Type"); // the two entries are distinguishable
+});
+
+it("Part A shim: a legacy A55-range UNKNOWN_FIELD renders NO 'Open in Sheet' link", () => {
+  // Drives the REAL component through stripLegacyUnknownFieldAnchors(arr(pr.warnings)).
+  // If the shim is removed, buildSheetDeepLink renders the stale A55 link and this fails.
+  const warnings = [
+    { code: "UNKNOWN_FIELD", severity: "warn", message: "x", rawSnippet: "Floor Plan | LINK",
+      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+  ];
+  const { queryByRole } = renderStep3CardWithWarnings(warnings);
+  expect(queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
 });
 ```
-
-> If `renderStep3CardWithWarnings` / the list testid differ in the existing file, adapt to the file's established harness — the assertion (two distinct label texts, scoped to the warnings list) is the contract.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/components/step3SheetCard.test.tsx -t "Part A"`
-Expected: FAIL — labels not rendered.
+Expected: FAIL — labels not rendered; and without the shim the legacy warning renders an A55 link.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Add imports to `components/admin/wizard/Step3SheetCard.tsx`:
+Imports in `components/admin/wizard/Step3SheetCard.tsx`:
 ```ts
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
@@ -896,10 +866,8 @@ Shim the Step-3 warnings source (line 1496):
   const warnings = stripLegacyUnknownFieldAnchors(arr(pr.warnings));
 ```
 
-Surface the label in `WarningsBreakdown` — insert after the title `<span>` (line 841), before the `context` block:
+Insert the label in `WarningsBreakdown` — directly after the title-row span closes (line 845), before `{context …}`:
 ```tsx
-                <span className="font-medium text-text-strong">{renderEmphasis(title)}</span>
-                {/* ...existing warn/info chip span... */}
               </span>
               {(() => {
                 const rowLabel = labelFromRawSnippet(w.rawSnippet);
@@ -918,7 +886,7 @@ Surface the label in `WarningsBreakdown` — insert after the title `<span>` (li
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/components/step3SheetCard.test.tsx`
-Expected: PASS. Also run `pnpm vitest run tests/e2e/step3-card-dimensions.spec.ts` if it runs in the local harness (or note it runs in CI) — the added text line must not break the card's pinned dimensions.
+Expected: PASS. Note: `tests/e2e/step3-card-dimensions.spec.ts` runs in CI — the added text line must not break the card's pinned dimensions.
 
 - [ ] **Step 5: Commit**
 
@@ -929,7 +897,7 @@ git commit --no-verify -m "feat(crew-page): surface UNKNOWN_FIELD row label + sh
 
 ---
 
-## Task 10: Part A on the admin Data-quality panel (UI — Opus + impeccable)
+## Task 9: Part A on the admin Data-quality panel (UI — Opus + impeccable)
 
 **Files:**
 - Modify: `components/admin/PerShowActionableWarnings.tsx:44`
@@ -938,20 +906,24 @@ git commit --no-verify -m "feat(crew-page): surface UNKNOWN_FIELD row label + sh
 **Interfaces:**
 - Consumes: `labelFromRawSnippet` (Task 1).
 
+**DOM placement (pinned):** each item is `<li className="flex flex-col gap-0.5 …">` containing the title `<span className="font-medium …">` (line 44), then `{context …}`, then the link. Insert the label as a **direct child of the `<li>`, immediately after the title span (line 44) and before `{context …}`**.
+
 - [ ] **Step 1: Write the failing test** (append)
 
 ```tsx
+import { within } from "@testing-library/react";
+
 it("Part A: renders the row label from rawSnippet under the title", () => {
   const items = [{ code: "UNKNOWN_FIELD", severity: "warn", message: "x", rawSnippet: "GS Podium Type | (2) Acrylic" }];
   render(<PerShowActionableWarnings items={items as any} driveFileId="d1" />);
   const item = screen.getByTestId("per-show-actionable-item");
-  expect(within(item).getByText("GS Podium Type")).toBeInTheDocument();
+  expect(within(item).getByTestId("per-show-actionable-row-label")).toHaveTextContent("GS Podium Type");
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx -t "Part A"`
+Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx -t "under the title"`
 Expected: FAIL — label not rendered.
 
 - [ ] **Step 3: Write minimal implementation** — in `components/admin/PerShowActionableWarnings.tsx`, add the import and insert after the title span (line 44):
@@ -986,31 +958,31 @@ git commit --no-verify -m "feat(admin): surface UNKNOWN_FIELD row label in the D
 
 ---
 
-## Task 11: live-sheet fidelity verification (gsheets MCP)
+## Task 10: live-sheet fidelity verification (gsheets MCP)
 
-**Files:** none (verification + evidence only).
+**Files:** none (verification + evidence), or a `.live.test.ts` if a durable test is added.
 
-- [ ] **Step 1:** Read the live INFO tab of `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4` (gid=0) via gsheets MCP (`sheets_get_values` INFO!A1:E120). Identify the DETAILS block rows and which two are the unrecognized labels (the reported repro).
-- [ ] **Step 2:** Write a focused integration test (or a scratch `tsx` script) that downloads/loads the sheet as xlsx bytes and runs `extractUnknownFieldAnchors` + `resolveUnknownFieldCell` for those two labels; assert each resolves to a DISTINCT single-cell `a1` in column A (e.g. the two label rows), never a range, never the same cell.
-- [ ] **Step 3:** Record the two resolved `a1` values + the two labels in the plan's closeout notes / commit message as evidence. If the live labels differ from assumptions, adjust the test fixtures (not the impl) accordingly.
-- [ ] **Step 4: Commit** (if a durable integration test was added)
+- [ ] **Step 1:** Read the live INFO tab of `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4` (gid=0) via gsheets MCP (`sheets_get_values` `INFO!A1:E120`). Identify the DETAILS block rows and the two unrecognized labels (the reported repro).
+- [ ] **Step 2:** Load the sheet as xlsx bytes and run `extractUnknownFieldAnchors` + `resolveUnknownFieldCell` for those two labels; assert each resolves to a DISTINCT single-cell `a1` in column A — never a range, never the same cell.
+- [ ] **Step 3:** Record the two labels + resolved `a1` values in the closeout notes / commit message as evidence. If the live labels differ from assumptions, adjust the test fixtures (not the impl).
+- [ ] **Step 4: Commit** (if a durable test was added)
 
 ```bash
 git add tests/drive/unknownFieldAnchors.live.test.ts
 git commit --no-verify -m "test(drive): live-sheet fidelity for UNKNOWN_FIELD per-row anchors"
 ```
 
-> If the gsheets MCP is unavailable in the run, fall back to the committed fixtures under `fixtures/shows/` for an INFO tab containing venue/details blocks, and note the substitution.
+> If gsheets MCP is unavailable in the run, fall back to a committed `fixtures/shows/` INFO tab containing venue/details blocks and note the substitution.
 
 ---
 
-## Task 12: impeccable dual-gate on the UI diff (invariant 8)
+## Task 11: impeccable dual-gate on the UI diff (invariant 8)
 
-**Files:** `components/admin/wizard/Step3SheetCard.tsx`, `components/admin/PerShowActionableWarnings.tsx` (and `app/admin/show/[slug]/page.tsx` shim — non-visual).
+**Files:** `components/admin/wizard/Step3SheetCard.tsx`, `components/admin/PerShowActionableWarnings.tsx` (visual). `app/admin/show/[slug]/page.tsx` seam swap is non-visual.
 
-- [ ] **Step 1:** Run `/impeccable critique` on the UI diff (Tasks 9-10) with the canonical v3 preflight gates (PRODUCT.md → DESIGN.md → register → preflight signal).
+- [ ] **Step 1:** Run `/impeccable critique` on the UI diff (Tasks 8-9) with the canonical v3 preflight gates (PRODUCT.md → DESIGN.md → register → preflight signal).
 - [ ] **Step 2:** Run `/impeccable audit` on the same diff.
-- [ ] **Step 3:** Fix every HIGH/CRITICAL finding, or defer via a `DEFERRED.md` entry with rationale. Record findings + dispositions for the handoff.
+- [ ] **Step 3:** Fix every HIGH/CRITICAL, or defer via a `DEFERRED.md` entry with rationale. Record findings + dispositions for the handoff.
 - [ ] **Step 4: Commit** any fixes:
 
 ```bash
@@ -1020,18 +992,19 @@ git commit --no-verify -m "fix(admin): impeccable critique/audit findings on row
 
 ---
 
-## Task 13: full verification + close-out
+## Task 12: full verification + close-out
 
-- [ ] **Step 1:** `pnpm vitest run` (full suite). Expected: green. Investigate any failure in isolation (shared-DB pollution can cause `.db` false failures — re-run the specific file alone).
-- [ ] **Step 2:** `pnpm typecheck` (or `pnpm tsc --noEmit`). Expected: no errors.
-- [ ] **Step 3:** `pnpm prettier --check .` — the whole tree. Fix with `pnpm prettier --write` on touched files if needed.
-- [ ] **Step 4:** `pnpm lint` on touched files. Expected: clean.
-- [ ] **Step 5:** Confirm no stray edits: `git status` clean, `git log --oneline origin/main..HEAD` shows one commit per task.
+- [ ] **Step 1:** `pnpm vitest run` (full suite). Green. Investigate any failure in isolation (shared-DB `.db` false failures — re-run the specific file alone).
+- [ ] **Step 2:** `pnpm typecheck`. No errors.
+- [ ] **Step 3:** `pnpm prettier --check .`. Fix touched files with `--write` if needed.
+- [ ] **Step 4:** `pnpm lint` on touched files. Clean.
+- [ ] **Step 5:** `git status` clean; `git log --oneline origin/main..HEAD` = one commit per task.
 
 ---
 
 ## Self-review (author checklist — run before adversarial review)
 
-1. **Spec coverage:** Part A (Tasks 9-10) ✓; Part B (Task 6) ✓; Part C (Tasks 2-5) ✓; Part D (Tasks 7-8, and Step-3 shim in Task 9) ✓; live-sheet verify (Task 11) ✓; impeccable (Task 12) ✓. §5.1.1 provenance → Task 3 provenance tests ✓.
-2. **Placeholder scan:** every code step carries real code; test harness adaptation notes are explicit, not placeholders.
-3. **Type consistency:** `normalizeCellKey` (Task 3) used consistently; `UnknownFieldAnchor` shape identical in Tasks 3-5; `labelFromRawSnippet`/`valueFromRawSnippet` signatures identical in Tasks 1/5/9/10; `stripLegacyUnknownFieldAnchors` signature identical in Tasks 7/8/9; `WarningAnchorSources.unknownField` added in Task 4 and consumed in Task 5.
+1. **Spec coverage:** Part A (Tasks 8-9) ✓; Part B (Task 5) ✓; Part C (Tasks 2-4) ✓; Part D (Tasks 6-7 admin, Task 8 Step-3) ✓; §5.1.1 provenance incl. outside-bound impostor → Task 3 tests ✓; live-sheet (Task 10) ✓; impeccable (Task 11) ✓.
+2. **Placeholder scan:** every code step carries real code; harness-adaptation notes are explicit, not placeholders.
+3. **Type consistency:** `normalizeCellKey` (Task 3) used consistently; `UnknownFieldAnchor` shape identical Tasks 3-4; `labelFromRawSnippet`/`valueFromRawSnippet` signatures identical Tasks 1/4/8/9; `stripLegacyUnknownFieldAnchors` + `selectActionableForDisplay` identical Tasks 6/7/8; `WarningAnchorSources.unknownField` added in Task 4 and consumed there; `attachSourceCellAnchors` callers updated (Task 4 Step 3 note).
+4. **TDD honesty:** Task 4 is one inseparable unit (source+dispatch) with an end-to-end test; Tasks 6-7 test the real read-boundary seam (`selectActionableForDisplay`), not a re-implementation; Task 8's shim test drives the real component and asserts no stale link.
