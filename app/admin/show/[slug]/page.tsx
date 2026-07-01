@@ -20,6 +20,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { nowDate } from "@/lib/time/now";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
@@ -144,10 +145,10 @@ export default async function AdminShowPage({
   try {
     supabase = await createSupabaseServerClient();
   } catch (err) {
-    console.error(
-      "[/admin/show/[slug]] supabase client construction threw:",
-      err instanceof Error ? err.message : String(err),
-    );
+    void log.error("supabase client construction threw:", {
+      source: "admin.show",
+      error: err,
+    });
     throw new Error("supabase_client_construction_failed");
   }
 
@@ -161,16 +162,16 @@ export default async function AdminShowPage({
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
     if (showError) {
-      console.error("[/admin/show/[slug]] show lookup failed:", showError.message);
+      void log.error("show lookup failed:", { source: "admin.show", error: showError.message });
       throw new Error("show_lookup_failed");
     }
     show = data;
   } catch (err) {
     if (err instanceof Error && err.message === "show_lookup_failed") throw err;
-    console.error(
-      "[/admin/show/[slug]] show lookup threw:",
-      err instanceof Error ? err.message : String(err),
-    );
+    void log.error("show lookup threw:", {
+      source: "admin.show",
+      error: err,
+    });
     throw new Error("show_lookup_failed");
   }
   if (!show) {
@@ -211,10 +212,10 @@ export default async function AdminShowPage({
         err instanceof SyncInfraError ||
         (err instanceof Error && err.name === "SyncInfraError")
       ) {
-        console.error(
-          "[/admin/show/[slug]] changes feed read failed:",
-          err instanceof Error ? err.message : String(err),
-        );
+        void log.error("changes feed read failed:", {
+          source: "admin.show",
+          error: err,
+        });
         return { feed: null, feedInfraError: true };
       }
       throw err;
@@ -230,15 +231,18 @@ export default async function AdminShowPage({
         .order("name", { ascending: true })
         .returns<CrewMemberRow[]>();
       if (error) {
-        console.error("[/admin/show/[slug]] crew_members lookup failed:", error.message);
+        void log.error("crew_members lookup failed:", {
+          source: "admin.show",
+          error: error.message,
+        });
         return { crew: [], crewLookupFailed: true };
       }
       return { crew: data ?? [], crewLookupFailed: false };
     } catch (err) {
-      console.error(
-        "[/admin/show/[slug]] crew_members lookup threw:",
-        err instanceof Error ? err.message : String(err),
-      );
+      void log.error("crew_members lookup threw:", {
+        source: "admin.show",
+        error: err,
+      });
       return { crew: [], crewLookupFailed: true };
     }
   };
@@ -267,6 +271,10 @@ export default async function AdminShowPage({
     actionable: ParseWarning[];
     failed: boolean;
   }> => {
+    // The supabase await + its error handling stay TIGHT in the try/catch (invariant 9 / the
+    // _metaInfraContract proximity guard); the pure warnings→messages processing (no await, can't
+    // throw the supabase fault) runs AFTER the try.
+    let warnings: ParseWarning[];
     try {
       const { data, error } = await supabase
         .from("shows_internal")
@@ -274,36 +282,38 @@ export default async function AdminShowPage({
         .eq("show_id", show.id)
         .maybeSingle<{ parse_warnings: ParseWarning[] | null }>();
       if (error) {
-        console.error("[/admin/show/[slug]] shows_internal read failed:", error.message);
+        void log.error("shows_internal read failed:", {
+          source: "admin.show",
+          error: error.message,
+        });
         return { messages: [], actionable: [], failed: true };
       }
-      const warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
-      // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
-      // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
-      // can BE the raw code (asset reelWarning() → message: code), which would print a
-      // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
-      // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
-      // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED) from the flat .message
-      // digest — they render once, below, as a titled card WITH a source-sheet
-      // deep link (strictly better). The digest keeps the non-actionable data gaps
-      // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
-      // impeccable critique flagged.
-      const messages = warnings
-        .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
-        .map((w) => w.message)
-        .filter((m): m is string => typeof m === "string" && m.length > 0);
-      // Carry the full warnings through so the panel can render the operator-
-      // actionable subset WITH their source-sheet deep links (the component filters
-      // + dedups via operatorActionableWarnings); the messages list stays the
-      // data-gap-only `.message` digest.
-      return { messages, actionable: warnings, failed: false };
+      warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
     } catch (err) {
-      console.error(
-        "[/admin/show/[slug]] shows_internal read threw:",
-        err instanceof Error ? err.message : String(err),
-      );
+      void log.error("shows_internal read threw:", {
+        source: "admin.show",
+        error: err,
+      });
       return { messages: [], actionable: [], failed: true };
     }
+    // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
+    // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
+    // can BE the raw code (asset reelWarning() → message: code), which would print a
+    // raw §12.4 code (invariant 5) and misclassify it under "Data quality".
+    // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
+    // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED) from the flat .message
+    // digest — they render once, below, as a titled card WITH a source-sheet
+    // deep link (strictly better). The digest keeps the non-actionable data gaps
+    // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
+    // impeccable critique flagged.
+    const messages = warnings
+      .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
+      .map((w) => w.message)
+      .filter((m): m is string => typeof m === "string" && m.length > 0);
+    // Carry the full warnings through so the panel can render the operator-actionable subset WITH
+    // their source-sheet deep links (the component filters + dedups via operatorActionableWarnings);
+    // the messages list stays the data-gap-only `.message` digest.
+    return { messages, actionable: warnings, failed: false };
   };
 
   const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =

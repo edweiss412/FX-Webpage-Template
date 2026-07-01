@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { discardStaged, type DiscardVariant } from "@/lib/sync/discardStaged";
+import { log } from "@/lib/log";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -34,7 +35,7 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
   try {
     supabase = await createSupabaseServerClient();
   } catch (error) {
-    console.error("[/api/admin/staged/[fileId]/discard] server client construction failed", error);
+    log.error("server client construction failed", { source: "api.admin.staged.discard", error });
     return { kind: "infra_error" };
   }
 
@@ -45,11 +46,14 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
     data = response.data;
     error = response.error;
   } catch (cause) {
-    console.error("[/api/admin/staged/[fileId]/discard] getUser threw", cause);
+    log.error("getUser threw", { source: "api.admin.staged.discard", error: cause });
     return { kind: "infra_error" };
   }
   if (error) {
-    console.error("[/api/admin/staged/[fileId]/discard] getUser failed", error.message);
+    log.error("getUser failed", {
+      source: "api.admin.staged.discard",
+      errorMessage: error.message,
+    });
     return { kind: "infra_error" };
   }
   const email = canonicalize(data.user?.email);

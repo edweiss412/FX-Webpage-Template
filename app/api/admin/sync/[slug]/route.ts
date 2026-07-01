@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { FINALIZE_OWNED_SHOW, runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
-import { deriveRequestId, runWithRequestContext } from "@/lib/log";
+import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
 
 type RouteContext = {
   params: Promise<{ slug: string }>;
@@ -25,7 +25,7 @@ async function readDriveFileIdForSlug(
   try {
     supabase = createSupabaseServiceRoleClient();
   } catch (error) {
-    console.error("[/api/admin/sync/[slug]] service-role construction failed", error);
+    log.error("service-role construction failed", { source: "api.admin.sync", error });
     return { kind: "infra_error" };
   }
 
@@ -40,12 +40,12 @@ async function readDriveFileIdForSlug(
     data = response.data as ShowSlugRow | null;
     error = response.error;
   } catch (cause) {
-    console.error("[/api/admin/sync/[slug]] show lookup threw", cause);
+    log.error("show lookup threw", { source: "api.admin.sync", error: cause });
     return { kind: "infra_error" };
   }
 
   if (error) {
-    console.error("[/api/admin/sync/[slug]] show lookup failed", error.message);
+    log.error("show lookup failed", { source: "api.admin.sync", errorMessage: error.message });
     return { kind: "infra_error" };
   }
   if (!data) return { kind: "not_found" };

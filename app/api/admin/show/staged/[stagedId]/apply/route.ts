@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import postgres from "postgres";
 import {
   applyStaged as defaultApplyStaged,
@@ -181,12 +182,10 @@ export async function handleLiveStagedApply(
     // throw inside applyStaged (a deref of a corrupt-but-object field the coercer's
     // shape gate doesn't cover, or a DB fault) must still return a typed JSON body,
     // not a body-less 500 (Codex R5 structural backstop).
-    console.error(
-      `live staged apply: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    log.error("live staged apply: unexpected failure", {
+      source: "api.admin.staged.apply",
       error,
-    );
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

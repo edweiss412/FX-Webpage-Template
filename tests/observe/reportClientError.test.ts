@@ -12,16 +12,25 @@ describe("reportClientError", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  test("POSTs once with area+message+stack to the endpoint", () => {
+  test("POSTs once with source+level+message+stack to the endpoint (no `area` field on the wire)", () => {
     reportClientError({ error: new Error("boom"), area: "crew" });
     const f = fetch as unknown as ReturnType<typeof vi.fn>;
     expect(f).toHaveBeenCalledTimes(1);
     const [url, init] = f.mock.calls[0]!;
     expect(url).toBe("/api/observe/client-error");
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body).toMatchObject({ area: "crew", message: "boom" });
+    expect(body).toMatchObject({ source: "client.crew", level: "error", message: "boom" });
+    expect(body.area).toBeUndefined(); // `area` is now mapped to `source`, never sent raw
     expect(typeof body.stack).toBe("string");
     expect((init as RequestInit).keepalive).toBe(true);
+  });
+  test("tileId forwarded into the POST body (source=client.tile)", () => {
+    reportClientError({ error: new Error("boom"), area: "tile", tileId: "t1" });
+    const body = JSON.parse(
+      ((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as RequestInit)
+        .body as string,
+    );
+    expect(body).toMatchObject({ source: "client.tile", level: "error", tileId: "t1" });
   });
   test("dedups identical signatures (one POST), different signatures (two)", () => {
     // SAME instance twice → identical message+stack → one signature → one POST. (Two separate

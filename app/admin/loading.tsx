@@ -26,14 +26,15 @@ export default function Loading() {
       </div>
 
       {/* Two-column split: shows table (1fr) + needs-attention inbox. Mirrors
-          the real Dashboard split — a flex row at >=1080px with the inbox at
-          w-80 (320px) growing to w-[480px] at >=1280px. */}
-      <div className="flex flex-col gap-section-gap min-[1080px]:flex-row">
+          the real Dashboard split — a flex row at >=1240px with the inbox at
+          w-80 (320px) growing to w-[480px] at >=1400px (bumped from 1080/1280 when
+          the ShowsTable Status column added a 6th grid track). */}
+      <div className="flex flex-col gap-section-gap min-[1240px]:flex-row">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-80 w-full" />
         </div>
-        <div className="flex flex-col gap-3 min-[1080px]:w-80 min-[1280px]:w-[480px]">
+        <div className="flex flex-col gap-3 min-[1240px]:w-80 min-[1400px]:w-[480px]">
           <Skeleton className="h-6 w-44" />
           <Skeleton className="h-80 w-full" />
         </div>

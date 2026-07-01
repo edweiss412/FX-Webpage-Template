@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
 import {
@@ -11,6 +12,11 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
+import {
+  FINALIZE_STREAM_CONTENT_TYPE,
+  type FinalizeStreamMessage,
+  type FinalizeResultBody,
+} from "@/lib/onboarding/finalizeProgress";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revisionTimesMatch, STAGED_REVIEW_ITEMS_CORRUPT } from "@/lib/sync/applyStaged";
 import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
@@ -1026,26 +1032,39 @@ async function processApprovedRow(input: {
   return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
 
-export async function handleOnboardingFinalize(
-  _request: Request,
-  deps: FinalizeRouteDeps = {},
-): Promise<Response> {
-  const runtime = depsWithDefaults(deps);
-  let finalizerEmail: string;
+export type FinalizeProgressCallbacks = {
+  onListed?: (total: number) => void;
+  onRow?: (e: { done: number; total: number; name: string | null; driveFileId: string }) => void;
+};
+
+// Resolve the finalizing admin's email (the audit actor for unchecked first-seen rows). Extracted
+// so BOTH the non-streaming handler and the streaming sibling can surface auth failures PRE-stream
+// as a real non-200 (mirrors the scan route).
+async function resolveFinalizer(
+  runtime: ReturnType<typeof depsWithDefaults>,
+): Promise<{ email: string } | { error: Response }> {
   try {
-    // Task B2: capture the finalizing admin's email — it is the audit actor for unchecked
-    // first-seen rows (those have no approver on the pending row).
     const admin = await runtime.requireAdminIdentity();
-    finalizerEmail = admin.email;
+    return { email: admin.email };
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
-      return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
+      return { error: errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED") };
     }
-    return errorResponse(403, "ADMIN_FORBIDDEN");
+    return { error: errorResponse(403, "ADMIN_FORBIDDEN") };
   }
+}
 
+// The finalize batch core, shared by the non-streaming handler and the streaming sibling. When
+// `callbacks` is provided (streaming only) it emits ONE `onListed` (finishable-remaining at batch
+// start) and one `onRow` per processed sheet. With NO callbacks the DB work is byte-for-byte
+// identical to the pre-refactor handler (no extra query fires) — the existing endpoint tests prove it.
+async function executeFinalizeBatch(
+  runtime: ReturnType<typeof depsWithDefaults>,
+  finalizerEmail: string,
+  callbacks?: FinalizeProgressCallbacks,
+): Promise<Response> {
   // nav-perf tag-caching (Task 6): first-seen apply created-show ids, collected DURING the apply
   // (inside the per-row txns) and revalidated AFTER deps.withTx resolves (post-commit) — never
   // inside the tx (pre-commit revalidate = stale cache bug, spec §4.2).
@@ -1070,6 +1089,14 @@ export async function handleOnboardingFinalize(
 
       const checkpoint = await ensureCheckpoint(tx, wizardSessionId);
       if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
+
+      // §4.2/D5 progress `listed`: emitted ONCE, after the precondition gate and BEFORE every
+      // zero-row branch and the loop, so every non-error stream carries exactly one listed. Fires
+      // only under a streaming callback → the non-streaming path runs no extra query (byte-identical).
+      if (callbacks?.onListed) {
+        callbacks.onListed(await countRemainingCleanRows(tx, wizardSessionId));
+      }
+
       if (checkpoint.status === "final_cas_done") {
         return NextResponse.json({
           status: "all_batches_complete",
@@ -1123,9 +1150,9 @@ export async function handleOnboardingFinalize(
         try {
           sourceAnchors = await runtime.fetchOnboardingSourceAnchors(row.drive_file_id);
         } catch (error) {
-          console.warn(
+          log.warn(
             `onboarding finalize: source-anchor computation failed for ${row.drive_file_id}; applying without anchors`,
-            error,
+            { source: "api.admin.onboarding.finalize", error },
           );
           sourceAnchors = undefined;
         }
@@ -1172,6 +1199,15 @@ export async function handleOnboardingFinalize(
           const displayTitle = parsedShowTitle(row.parse_result);
           perRow.push(displayTitle ? { ...result, display_name: displayTitle } : result);
         }
+        // Optimistic per-sheet progress (streaming only). `done` = rows processed so far this
+        // batch; `total` = this batch's row count. The authoritative outcome rides the terminal
+        // result event; a row that fails still surfaces via per_row (client stops on non-OK).
+        callbacks?.onRow?.({
+          done: perRow.length,
+          total: approvedRows.length,
+          name: parsedShowTitle(row.parse_result) ?? null,
+          driveFileId: row.drive_file_id,
+        });
       }
 
       const remainingCount = await countRemainingCleanRows(tx, wizardSessionId);
@@ -1198,16 +1234,89 @@ export async function handleOnboardingFinalize(
     // JSON error, and the underlying message is logged so the next failure is
     // diagnosable from logs rather than a truncated TypeError. (M12 Phase 0.F
     // smoke-3 structural defense.)
-    console.error(
-      `onboarding finalize: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    log.error("onboarding finalize: unexpected failure", {
+      source: "api.admin.onboarding.finalize",
       error,
-    );
+    });
     return errorResponse(500, ONBOARDING_FINALIZE_INTERNAL_ERROR);
   }
 }
 
+// Non-streaming handler — public contract preserved byte-for-byte (auth + executeFinalizeBatch,
+// no callbacks). The existing tests/onboarding/finalize*.test.ts call this directly.
+export async function handleOnboardingFinalize(
+  _request: Request,
+  deps: FinalizeRouteDeps = {},
+): Promise<Response> {
+  const runtime = depsWithDefaults(deps);
+  const finalizer = await resolveFinalizer(runtime);
+  if ("error" in finalizer) return finalizer.error;
+  return executeFinalizeBatch(runtime, finalizer.email);
+}
+
+// Streaming sibling — same auth + same executeFinalizeBatch core, response written as NDJSON.
+// Auth failures surface PRE-stream as a real non-200 (mirrors scan). Precondition failures that
+// occur inside the transaction surface as a terminal { ok:false } on a 200 stream (the client is
+// status-agnostic). Streamed listed/row events are optimistic; the terminal result is authoritative.
+export async function handleOnboardingFinalizeStream(
+  _request: Request,
+  deps: FinalizeRouteDeps = {},
+): Promise<Response> {
+  const runtime = depsWithDefaults(deps);
+  const finalizer = await resolveFinalizer(runtime);
+  if ("error" in finalizer) return finalizer.error;
+  const email = finalizer.email;
+  const encoder = new TextEncoder();
+  let canceled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const emit = (msg: FinalizeStreamMessage) => {
+        if (canceled) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n")); // jsonb-text-exempt: NDJSON wire encoding for the HTTP progress stream, not a postgres.js jsonb param
+        } catch {
+          canceled = true;
+        }
+      };
+      try {
+        const response = await executeFinalizeBatch(runtime, email, {
+          onListed: (total) => emit({ type: "listed", total }),
+          onRow: (e) => emit({ type: "row", ...e }),
+        });
+        emit({ type: "result", body: (await response.json()) as FinalizeResultBody });
+      } catch {
+        emit({ type: "result", body: { ok: false, code: ONBOARDING_FINALIZE_INTERNAL_ERROR } });
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* already closed / canceled */
+        }
+      }
+    },
+    cancel() {
+      // Client aborted the read; the batch still runs to completion inside executeFinalizeBatch's
+      // promise (consistent finalize state). emit() no-ops via `canceled`.
+      canceled = true;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": FINALIZE_STREAM_CONTENT_TYPE,
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+// A streamed finalize batch holds the function open for the whole batch; 300s is the platform
+// default ceiling (mirrors app/api/admin/onboarding/scan/route.ts).
+export const maxDuration = 300;
+
 export async function POST(request: Request): Promise<Response> {
+  if ((request.headers.get("accept") ?? "").includes(FINALIZE_STREAM_CONTENT_TYPE)) {
+    return await handleOnboardingFinalizeStream(request);
+  }
   return await handleOnboardingFinalize(request);
 }

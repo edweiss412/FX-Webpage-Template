@@ -27,6 +27,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE) because
 // §B (this file's milestone) cannot import from §A's lib/auth surface. A single
@@ -79,9 +80,9 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     // returns a session whose user.email round-trips through canonicalize()
     // to null, we refuse to write a NULL resolved_by rather than silently
     // attributing the resolve to "unknown."
-    console.error(
-      "[resolveAdminAlertFormAction] requireAdmin returned but canonicalized email is null",
-    );
+    void log.error("requireAdmin returned but canonicalized email is null", {
+      source: "admin.actions",
+    });
     return;
   }
   const resolvedBy = adminEmail;

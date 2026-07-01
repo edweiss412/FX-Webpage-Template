@@ -88,6 +88,19 @@ describe("Dashboard composition", () => {
     expect(split.className).toMatch(/items-stretch/);
   });
 
+  it("two-col split + inbox use the bumped breakpoints (1240 split, 1400 inbox-widen) — §6.3", async () => {
+    await renderDashboard();
+    const split = screen.getByTestId("dashboard-split");
+    expect(split.className).toContain("min-[1240px]:flex-row");
+    expect(split.className).toContain("min-[1240px]:items-stretch");
+    const inbox = screen.getByTestId("dashboard-inbox-col");
+    expect(inbox.className).toContain("min-[1240px]:w-80");
+    expect(inbox.className).toContain("min-[1400px]:w-[480px]");
+    // the old breakpoints are gone
+    expect(inbox.className).not.toContain("min-[1080px]");
+    expect(inbox.className).not.toContain("min-[1280px]");
+  });
+
   it("dashboard main is full-width on desktop — no max-w-* cap (M12.3 item 4)", async () => {
     await renderDashboard();
     const main = screen.getByTestId("admin-dashboard");

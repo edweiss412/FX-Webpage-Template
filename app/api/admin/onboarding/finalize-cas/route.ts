@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
 import type { DriveListedFile } from "@/lib/drive/list";
@@ -13,6 +14,12 @@ import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/l
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import {
+  FINALIZE_STREAM_CONTENT_TYPE,
+  type FinalizeCasPhase,
+  type FinalizeCasStreamMessage,
+  type FinalizeCasResultBody,
+} from "@/lib/onboarding/finalizeProgress";
 
 const OK_CODE = "OK" as const;
 
@@ -650,6 +657,9 @@ async function runFinalizeCas(
   // mutates — applied existing-show shadows + the first-seen publish flip. The handler revalidates
   // each AFTER deps.withTx resolves (post-commit), never inside this transaction.
   affectedShowIds: Set<string>,
+  // Optional progress sink (streaming only). Emits the in-transaction phases (applying →
+  // publishing); the post-commit `subscribing` phase is emitted by the streaming handler.
+  onPhase?: (p: FinalizeCasPhase) => void,
 ): Promise<FinalizeCasResult> {
   // R16-1: PLAIN candidate-discovery read — no row lock yet (lock order: finalize: first).
   const session = await readSession(tx);
@@ -709,6 +719,7 @@ async function runFinalizeCas(
     });
   }
 
+  onPhase?.("applying");
   const shadowResults: ShadowApplyResult[] = [];
   for (const row of await readShadowRows(tx, wizardSessionId)) {
     const result = await deps.withRowTx(row.drive_file_id, (rowTx, pipelineTx) =>
@@ -730,6 +741,7 @@ async function runFinalizeCas(
     return errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row: shadowResults });
   }
   await deleteShadowRows(tx, wizardSessionId);
+  onPhase?.("publishing");
   for (const showId of await publishAppliedWizardShows(tx, wizardSessionId)) {
     affectedShowIds.add(showId);
   }
@@ -785,16 +797,94 @@ export async function handleOnboardingFinalizeCas(
     // Never leak an empty 500: the final-CAS step parses shadow payloads and runs DB work that
     // may fault. Any unexpected throw becomes a typed JSON error + console.error, mirroring
     // handleOnboardingFinalize.
-    console.error(
-      `onboarding finalize-cas: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    log.error("onboarding finalize-cas: unexpected failure", {
+      source: "api.admin.onboarding.finalizeCas",
       error,
-    );
+    });
     return errorResponse(500, "ONBOARDING_FINALIZE_INTERNAL_ERROR");
   }
 }
 
+// Streaming sibling — same auth + same runFinalizeCas core, response written as NDJSON. Auth
+// failures surface PRE-stream as a real non-200 (mirrors scan). runFinalizeCas emits the
+// in-transaction phases (applying → publishing); `subscribing` is post-commit, emitted right
+// before the Drive subscribe (mirroring the non-streaming post-commit sequence). Phase events are
+// optimistic; the terminal result is authoritative and equals the non-streaming body.
+export async function handleOnboardingFinalizeCasStream(
+  _request: Request,
+  routeDeps: FinalizeCasRouteDeps = {},
+): Promise<Response> {
+  const deps = depsWithDefaults(routeDeps);
+  try {
+    await deps.requireAdminIdentity();
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
+      return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
+    return errorResponse(403, "ADMIN_FORBIDDEN");
+  }
+  const encoder = new TextEncoder();
+  let canceled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const emit = (msg: FinalizeCasStreamMessage) => {
+        if (canceled) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(msg) + "\n")); // jsonb-text-exempt: NDJSON wire encoding for the HTTP progress stream, not a postgres.js jsonb param
+        } catch {
+          canceled = true;
+        }
+      };
+      const affectedShowIds = new Set<string>();
+      try {
+        const result = await deps.withTx((tx) =>
+          runFinalizeCas(tx, deps, affectedShowIds, (p) => emit({ type: "phase", phase: p })),
+        );
+        // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): a mixed batch may have
+        // committed early shadow applies via their own withRowTx, so bust their caches before the
+        // terminal event regardless of the outcome.
+        for (const showId of affectedShowIds) revalidateShow(showId);
+        if (result instanceof Response) {
+          emit({ type: "result", body: (await result.json()) as FinalizeCasResultBody });
+        } else {
+          // `subscribing` is post-commit (the Drive call), emitted immediately BEFORE it runs.
+          emit({ type: "phase", phase: "subscribing" });
+          await deps.subscribeToWatchedFolder(result.watched_folder_id);
+          emit({ type: "result", body: result });
+        }
+      } catch {
+        emit({ type: "result", body: { ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" } });
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* already closed / canceled */
+        }
+      }
+    },
+    cancel() {
+      canceled = true;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": FINALIZE_STREAM_CONTENT_TYPE,
+      "Cache-Control": "no-store, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+// A streamed final-CAS holds the function open for the phase pass; 300s is the platform default
+// ceiling (mirrors app/api/admin/onboarding/scan/route.ts).
+export const maxDuration = 300;
+
 export async function POST(request: Request): Promise<Response> {
+  if ((request.headers.get("accept") ?? "").includes(FINALIZE_STREAM_CONTENT_TYPE)) {
+    return await handleOnboardingFinalizeCasStream(request);
+  }
   return await handleOnboardingFinalizeCas(request);
 }
