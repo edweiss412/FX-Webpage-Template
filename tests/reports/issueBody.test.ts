@@ -44,6 +44,19 @@ describe("report issue body templates", () => {
     expect(body).toContain("> Doug note with context");
   });
 
+  test("admin body renders a card-scoped fieldRef {cardId, region} (per-card report, #207)", () => {
+    // Failure mode: a future formatValue change silently drops the card context
+    // that lets a deep-link report self-identify its card + sheet region.
+    const body = buildAdminIssueBody(
+      { kind: "admin", email: "doug@example.com" },
+      { ...baseBody, fieldRef: { cardId: "today-dress", region: "dress" } },
+      null,
+    );
+    expect(body).toContain("Field/section ref:");
+    expect(body).toContain("today-dress");
+    expect(body).toContain("dress");
+  });
+
   test("admin body uses server-derived show context when client autocapture omits show fields", () => {
     // Failure mode: production callers send only show_id, so issue bodies
     // regress to UUID/Not captured instead of the spec-required show context.
