@@ -55,7 +55,7 @@ import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 import type { ParseWarning } from "@/lib/parser/types";
 import {
   isDataQualityWarning,
-  operatorActionableWarnings,
+  selectActionableForDisplay,
   OPERATOR_ACTIONABLE_ANCHORED,
 } from "@/lib/parser/dataGaps";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
@@ -320,9 +320,11 @@ export default async function AdminShowPage({
     await Promise.all([readFeed(), readCrew(), readToken(), readDataQuality(), nowDate()]);
 
   // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
-  // JSX condition and again in the component — whole-diff R1). The per-show Data
-  // Quality panel renders these with source-sheet deep links below the data-gap digest.
-  const actionableItems = operatorActionableWarnings(dataQuality.actionable);
+  // JSX condition and again in the component — whole-diff R1). selectActionableForDisplay
+  // first neutralizes stale legacy UNKNOWN_FIELD block-range anchors (Part D) so
+  // already-persisted shows self-heal at read time. The per-show Data Quality panel
+  // renders these with source-sheet deep links below the data-gap digest.
+  const actionableItems = selectActionableForDisplay(dataQuality.actionable);
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
