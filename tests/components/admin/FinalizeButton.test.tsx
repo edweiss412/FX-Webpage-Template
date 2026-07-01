@@ -817,7 +817,7 @@ describe("FinalizeButton — streaming progress panel", () => {
     await act(async () => {
       cas.push({ type: "phase", phase: "publishing" });
     });
-    expect(getByTestId("wizard-finalize-cas-phase").textContent).toContain("Publishing shows");
+    expect(getByTestId("wizard-finalize-cas-phase").textContent).toContain("Making shows live");
 
     await act(async () => {
       cas.push({

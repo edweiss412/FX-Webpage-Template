@@ -94,11 +94,13 @@ function casPhaseLabel(phase: FinalizeCasPhase | null): string {
     case "applying":
       return "Applying your edits…";
     case "publishing":
-      return "Publishing shows…";
+      return "Making shows live…";
     case "subscribing":
       return "Connecting your folder…";
     default:
-      return "Finishing up…";
+      // No phase yet (CAS entry, before the first phase event): the "Finishing setup…" heading
+      // stands alone — avoid a redundant "Finishing up…" second line.
+      return "";
   }
 }
 
@@ -536,6 +538,8 @@ const ProgressPanel = forwardRef<
     <div
       ref={ref}
       tabIndex={-1}
+      role="group"
+      aria-label="Publish progress"
       data-testid="wizard-finalize-progress"
       className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
     >
