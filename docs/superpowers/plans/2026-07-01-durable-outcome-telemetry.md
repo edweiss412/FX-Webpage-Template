@@ -51,23 +51,20 @@
 
 Each task: extend the route's EXISTING test file; mock `@/lib/log`; drive the committed-success path; assert `log.info` fired with the route's code + `actorHash` (from the fixture admin email via `hashForLog`) + correlation; assert NO outcome log on (a) 409-superseded and (b) the **post-success commit-failure** shape (`withRowTx: async (id, fn) => { await fn(tx); throw new Error("commit failed"); }` → outer catch → NO outcome log). Then implement via the outcome-ref pattern (spec §3/§4.1). Commit per task.
 
-- [ ] **Task 4 — apply** (`app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts`): success already post-`applyStaged` (:170-186). Set + `await logAdminOutcome({ code: "STAGE_APPLIED", result: "reapplied"|"restaged_inline", source: "api.admin.onboarding.staged.apply", actorEmail: admin.email, driveFileId, wizardSessionId })` directly before returns 172/179. Test: both sub-outcomes log with matching `result`; `SHOW_BUSY_RETRY`/`SUPERSEDED` do not.
+- [ ] **Task 4 — apply** (`app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts`): success already post-`applyStaged` (:170-186). Set + `await logAdminOutcome({ code: "STAGE_APPLIED", result: "reapplied"|"restaged_inline", source: "api.admin.onboarding.staged.apply", actorEmail: admin.email, driveFileId, wizardSessionId })` directly before returns 172/179. **Commit-boundary note:** apply logs AFTER `deps.applyStaged(...)` has fully RESOLVED (the commit happened inside applyStaged) — there is NO log-then-rollback window here, so the outcome-ref pattern is not needed (log directly at :172/179). apply's equivalent of the "post-success commit-failure" negative case is: `applyStaged` **rejects/throws** (caught by the outer unexpected-failure catch → 500) OR returns `{ outcome: "infra_error" }` / `{ skipped }` → the handler returns the error/`SHOW_BUSY_RETRY` BEFORE reaching the log line. Tests: (a) both sub-outcomes (`wizard_applied`→"reapplied", `restaged_inline`→"restaged_inline") log with matching `result`; (b) `SHOW_BUSY_RETRY` (skipped) and `SUPERSEDED` (409) do NOT log; (c) `applyStaged` throwing → 500 AND no outcome log (proves log is post-resolve).
 - [ ] **Task 5 — approve** (`…/approve/route.ts`): `code: "STAGE_APPROVED"`, `source: "api.admin.onboarding.staged.approve"`, `actorEmail: adminEmail` (bound :200). Outcome-ref: `const response = await deps.withRowTx(…)`; set `outcome` before the in-callback success return (:248); `if (outcome) await logAdminOutcome(outcome); return response;`.
 - [ ] **Task 6 — unapprove** (`…/unapprove/route.ts`): bind email (`const { email } = await deps.requireAdminIdentity()` at :125); `code: "STAGE_UNAPPROVED"`, `source: "api.admin.onboarding.staged.unapprove"`. Outcome-ref around the :136 `withRowTx`; set before :143 return.
 - [ ] **Task 7 — discard** (`…/discard/route.ts`): bind email at :104; `code: "STAGE_DISCARDED"`, `source: "api.admin.onboarding.staged.discard"`. Outcome-ref around the :120 `withRowTx`; set before :165 return (NOT the :160 superseded errorResponse).
-- [ ] **Task 8 — finalize** (`app/api/admin/onboarding/finalize/route.ts`): `code: "SHOW_FINALIZED"`, `source: "api.admin.onboarding.finalize"`, `actorEmail: admin.email` (:1047), `wizardSessionId`, `result: status`. Set the outcome ref at every terminal-success 200 (streaming AND non-streaming) — read the handler's tx/streaming structure, place ONE ref-assignment reachable by both branches, log after the wrapper resolves. Tests: assert an outcome log for a streamed AND a non-streamed terminal success; none for a mid-batch 409/rollback.
-- [ ] **Task 9 — finalize-cas** (`app/api/admin/onboarding/finalize-cas/route.ts`): `code: "SHOW_FINALIZED"`, `result: "final_cas"`, `source: "api.admin.onboarding.finalize-cas"`. Cover the streaming success branch AND :795. Same negative tests.
+- [ ] **Task 8 — finalize** (`app/api/admin/onboarding/finalize/route.ts`): `code: "SHOW_FINALIZED"`, `source: "api.admin.onboarding.finalize"`, `actorEmail: admin.email` (:1047), `wizardSessionId`, `result: status`. Set the outcome ref at every terminal-success 200 (streaming AND non-streaming) — read the handler's tx/streaming structure, place ONE ref-assignment reachable by both branches, log after the wrapper resolves. Tests: (a) outcome log fires for a streamed terminal success; (b) for a non-streamed terminal success; (c) **post-success commit-failure (explicit fixture):** make the finalize tx/batch dependency resolve the callback to its terminal-success point (ref SET) and THEN reject the commit — e.g. the injected `withRowTx`/batch-commit dep runs the batch to `all_batches_complete` then throws — assert the outer catch returns the typed 500 AND `log.info` was NOT called with `SHOW_FINALIZED` (proves the ref→post-wrapper placement survives streaming); (d) a mid-batch 409/superseded → no outcome log.
+- [ ] **Task 9 — finalize-cas** (`app/api/admin/onboarding/finalize-cas/route.ts`): `code: "SHOW_FINALIZED"`, `result: "final_cas"`, `source: "api.admin.onboarding.finalize-cas"`. Cover the streaming success branch AND :795. Tests: (a) streamed terminal success logs; (b) non-streamed (:795) logs; (c) **post-success commit-failure (explicit fixture):** the final-CAS dep reaches the terminal `result` (ref SET) then the post-commit revalidate/response path throws → assert 500 AND no `SHOW_FINALIZED` log; (d) a per-row 409 for a blocked sibling → the batch may still log for the committed shows but NOT for the blocked one (assert the outcome log's `result`/count reflects only committed applies, per the mixed-batch semantics at :790-795).
 
-### Task 10: `_metaAdminOutcomeContract` meta-test
+### Task 10: applyStaged typed-error logging (BEFORE the meta-test's Assertion 2)
 
-**Files:** Create `tests/log/_metaAdminOutcomeContract.test.ts`.
+**Files:** Modify `lib/sync/applyStaged.ts` (9 infra_error sites); Test `tests/sync/applyStaged*.test.ts`.
 
-- [ ] **10.1** Write the registry `AUDITABLE_MUTATIONS` (6 rows: file + code), `SANCTIONED_CODES`, `NEW_FORENSIC_CODES` (spec §6).
-- [ ] **10.2 Assertion 1:** each route's raw source contains `logAdminOutcome(` + its registry `code` literal + imports `logAdminOutcome`.
-- [ ] **10.3 Assertion 2:** `applyStaged.ts` — every `return { outcome: "infra_error"` has a `log.` within the preceding 12 lines (depends on Task 13; if run before, mark xfail or order Task 13 first — see note).
-- [ ] **10.4 Assertion 3:** codes ∈ SANCTIONED_CODES, SHOUTY_SNAKE_CASE, every sanctioned code used ≥1× (SHOW_FINALIZED shared).
-- [ ] **10.5 Assertion 4:** `import { codeProducerLiterals } from "@/lib/messages/__internal__/codeProducers"`; assert `NEW_FORENSIC_CODES ∩ codeProducerLiterals() === ∅`.
-- [ ] **10.6 Run → pass** (after Tasks 4-9, 12-14). **Commit** `test(log): _metaAdminOutcomeContract registry + scanner-safety guard`.
+- [ ] **10.1 Failing tests:** force ≥3 representative infra_error branches; assert `log.error(..., objectContaining({ code: "SYNC_INFRA_ERROR", source: "sync.applyStaged", error: <the caught error> }))` fired AND the return value is unchanged (`{ outcome: "infra_error", code: SYNC_INFRA_ERROR }`).
+- [ ] **10.2** For each of the 9 `return { outcome: "infra_error", code: SYNC_INFRA_ERROR }` sites (1040,1047,1184,1234,1428,1442,1501,1519,1618): ensure the enclosing catch binds the error (`catch (error)`), add `log.error("applyStaged infra fault", { code: SYNC_INFRA_ERROR, source: "sync.applyStaged", error })` before the return. Sites NOT in a catch (a plain guard `if (!x) return infra_error`) get the log without an `error` field (a `reason` context string instead). Preserve return values byte-identical.
+- [ ] **10.3 Run → pass. Commit** `feat(sync): log applyStaged typed infra_error path (expected-failure durability)`.
 
 ### Task 11: advisory-lock skip durability
 
@@ -85,21 +82,26 @@ Each task: extend the route's EXISTING test file; mock `@/lib/log`; drive the co
 - [ ] **12.2** Implement (add the logs before the cited returns; bind the caught error where needed).
 - [ ] **12.3 Run → pass. Commit** `feat(agenda): durable logs for extract terminal decision branches`.
 
-### Task 13: applyStaged typed-error logging (do BEFORE Task 10.3)
-
-**Files:** Modify `lib/sync/applyStaged.ts` (9 infra_error sites); Test `tests/sync/applyStaged*.test.ts`.
-
-- [ ] **13.1 Failing tests:** force ≥3 representative infra_error branches; assert `log.error(..., objectContaining({ code: "SYNC_INFRA_ERROR", source: "sync.applyStaged", error: <the caught error> }))` fired AND the return value is unchanged (`{ outcome: "infra_error", code: SYNC_INFRA_ERROR }`).
-- [ ] **13.2** For each of the 9 `return { outcome: "infra_error", code: SYNC_INFRA_ERROR }` sites (1040,1047,1184,1234,1428,1442,1501,1519,1618): ensure the enclosing catch binds the error (`catch (error)`), add `log.error("applyStaged infra fault", { code: SYNC_INFRA_ERROR, source: "sync.applyStaged", error })` before the return. Sites NOT in a catch (a plain guard `if (!x) return infra_error`) get the log without an `error` field (or a synthetic context). Preserve return values byte-identical.
-- [ ] **13.3 Run → pass. Commit** `feat(sync): log applyStaged typed infra_error path (expected-failure durability)`.
-
-### Task 14: geocoding warn enrichment
+### Task 13: geocoding warn enrichment
 
 **Files:** Modify `lib/geocoding/cache.ts` (43,54,60,78,95,100); Test its existing test.
 
-- [ ] **14.1 Failing test:** assert each fault path emits `log.warn(..., objectContaining({ code: "GEOCODE_CACHE_FAULT", source: "geocoding/cache", op: <read|write|parse>, error: <bound> }))` and that two different fault sites are distinguishable (`op` differs).
-- [ ] **14.2** Bind the caught error at each site; add `code`, `op`, `error`, and the cache key where in scope.
-- [ ] **14.3 Run → pass. Commit** `fix(geocoding): enrich cache-fault warns (op + error + code, distinguishable)`.
+- [ ] **13.1 Failing test:** assert each fault path emits `log.warn(..., objectContaining({ code: "GEOCODE_CACHE_FAULT", source: "geocoding/cache", op: <read|write|parse>, error: <bound> }))` and that two different fault sites are distinguishable (`op` differs).
+- [ ] **13.2** Bind the caught error at each site; add `code`, `op`, `error`, and the cache key where in scope.
+- [ ] **13.3 Run → pass. Commit** `fix(geocoding): enrich cache-fault warns (op + error + code, distinguishable)`.
+
+### Task 14: `_metaAdminOutcomeContract` meta-test (LAST — after all instrumentation)
+
+**Files:** Create `tests/log/_metaAdminOutcomeContract.test.ts`. Runs after Tasks 4-13 so every guarded instance exists. Because a structural guard cannot "fail-first" against already-instrumented code, its TDD proof is **negative-regression verification** (14.7): each assertion is shown to BITE by temporarily breaking one instance.
+
+- [ ] **14.1** Write the registry `AUDITABLE_MUTATIONS` (6 rows: file + code), `SANCTIONED_CODES`, `NEW_FORENSIC_CODES` (spec §6).
+- [ ] **14.2 Assertion 1 (coverage):** each route's raw source contains `logAdminOutcome(` + its registry `code` literal + imports `logAdminOutcome`.
+- [ ] **14.3 Assertion 2 (applyStaged class-sweep):** `lib/sync/applyStaged.ts` — every `return { outcome: "infra_error"` has a `log.` within the preceding 12 lines. (Task 10 is done → passes.)
+- [ ] **14.4 Assertion 3 (convention):** codes ∈ SANCTIONED_CODES, SHOUTY_SNAKE_CASE, every sanctioned code used ≥1× (SHOW_FINALIZED shared by finalize + finalize-cas).
+- [ ] **14.5 Assertion 4 (scanner-safety):** `import { codeProducerLiterals } from "@/lib/messages/__internal__/codeProducers"`; assert `NEW_FORENSIC_CODES ∩ codeProducerLiterals() === ∅`.
+- [ ] **14.6 Run → pass.**
+- [ ] **14.7 Negative-regression (prove each guard bites, then restore):** (A1) delete `logAdminOutcome` from one route → run → A1 FAILS with a message naming the route → restore. (A2) delete the `log.error` before one applyStaged infra_error return → A2 FAILS → restore. (A4) add a stray `const X = "STRAY_FORENSIC_CODE"` referenced via `code: X` OUTSIDE any `log.*`/`logAdminOutcome` span in a `lib/` file AND add `STRAY_FORENSIC_CODE` to `NEW_FORENSIC_CODES` → A4 FAILS (it appears in the producer set) → restore both. Record in the commit body that all three were verified red-then-green.
+- [ ] **14.8 Commit** `test(log): _metaAdminOutcomeContract registry + scanner-safety guard (negative-regression verified)`.
 
 ### Task 15: full verification
 
@@ -117,7 +119,10 @@ Each task: extend the route's EXISTING test file; mock `@/lib/log`; drive the co
 - [ ] Merge latest `origin/main` into the branch (resolve behind-base). Re-run the no-console + meta + full suite after merge.
 - [ ] Push → open PR → real CI green (watch `unit-suite` shards + x1-catalog-parity + gen gates) → `gh pr merge --merge` → fast-forward local `main` (verify `0  0`) → clean up worktree → update memory.
 
+## Execution order (dependencies)
+1 (codeProducers) → 2 (strip-extension) → 3 (logAdminOutcome helper) → 4-9 (routes) → **10 (applyStaged)** → 11 (lock-skip) → 12 (agenda) → 13 (geocoding) → **14 (meta-test, LAST)** → 15 (verify) → 16 (Codex review) → 17 (ship). The meta-test is intentionally last (it guards all prior instrumentation); its Assertion 2 depends on Task 10 (applyStaged), which is now ordered before it. Each task ends green + committed; the meta-test's non-tautology is proven by the 14.7 negative-regression step, not by fail-first (impossible for a guard written after the code it guards).
+
 ## Self-review notes
-- **Meta-test ordering:** Task 10's Assertion 2 depends on Task 13 (applyStaged logs). Run Task 13 before finalizing Task 10, OR land Assertion 2 in the same commit as Task 13. The plan orders 13 before 10.6.
-- **finalize/finalize-cas streaming (Tasks 8/9)** are the highest-risk: the exact ref-placement is discovered by reading the live handler + driven by the streaming/non-streaming tests. If the streaming structure makes a single reachable ref impossible without control-flow change, log at BOTH the streaming-completion and non-streaming return with the same helper call (still post-commit) — never restructure the finalize critical path.
+- **Meta-test TDD:** a structural guard written after its guarded instances cannot fail-first; Task 14.7 (negative-regression: break one instance per assertion → confirm red → restore) is the accepted proof it is non-tautological (per the project's negative-regression discipline). Assertion 2's dependency on Task 10 is satisfied by the execution order above.
+- **finalize/finalize-cas streaming (Tasks 8/9)** are the highest-risk: the exact ref-placement is discovered by reading the live handler + driven by the streaming/non-streaming + post-success-commit-failure tests (8c/9c). If the streaming structure makes a single reachable ref impossible without control-flow change, log at BOTH the streaming-completion and non-streaming return with the same helper call (still post-commit) — never restructure the finalize critical path.
 - **No DB migration, no UI** → no validation-schema-parity apply, no impeccable gate.
