@@ -65,8 +65,18 @@ const defaultSink: Sink = async (record, persist) => {
   // The ONE intentional console chokepoint. Always synchronous, before persist.
   console[record.level](`[${record.source}] ${record.message}`, compact);
   if (persist) {
-    const { persistAppEvent } = await import("./persist");
-    await persistAppEvent(record);
+    // Best-effort persist. Logging must NEVER throw over the caller (invariant 9);
+    // callers emit fire-and-forget (`void log.*`), so an escaping rejection here
+    // becomes an UNHANDLED rejection. persist.ts already swallows write faults, but
+    // the dynamic `import("./persist")` itself was unguarded — in a unit test it can
+    // resolve AFTER the environment tears down (vitest EnvironmentTeardownError). Guard
+    // the whole persist step so neither the import nor the write can escape.
+    try {
+      const { persistAppEvent } = await import("./persist");
+      await persistAppEvent(record);
+    } catch {
+      /* best-effort: never surface a persist failure to the caller */
+    }
   }
 };
 
