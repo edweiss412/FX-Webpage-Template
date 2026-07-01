@@ -44,7 +44,7 @@ import { DayCard } from "@/components/crew/primitives/DayCard";
 import { SectionCard } from "@/components/crew/primitives/SectionCard";
 import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
-import { buildSheetDeepLink, CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
+import { CARD_REGION_MAP } from "@/lib/sheet-links/buildSheetDeepLink";
 import { ClockIcon } from "@/components/crew/icons/sectionIcons";
 import { SectionTileError } from "@/components/crew/SectionTileError";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
@@ -230,27 +230,25 @@ export function ScheduleSection({
                 className="min-w-0"
               >
                 {/* The Schedule day-cards are not wrapped in a SectionCard shell,
-                    so the source link sits in a flush, right-aligned header above
-                    the day list — rendered only when a link exists (no empty
-                    header band). The `section-card-action` slot keeps it discover-
-                    able by the §12 coverage walker, matching the SectionCard
-                    header contract. */}
-                {buildSheetDeepLink(
-                  data.driveFileId,
-                  data.sourceAnchors[CARD_REGION_MAP["schedule-days"]],
-                ) !== null ? (
-                  <div className="mb-2 flex justify-end">
-                    <div data-slot="section-card-action" className="flex shrink-0 items-center">
-                      <CardHeaderActions
-                        cardId="schedule-days"
-                        driveFileId={data.driveFileId}
-                        anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-days"]]}
-                        showId={showId}
-                        cardReport={cardReport}
-                      />
-                    </div>
+                    so the card actions sit in a flush, right-aligned header above
+                    the day list. Rendered UNCONDITIONALLY: `CardHeaderActions`
+                    always emits the per-card report trigger (and the "In sheet"
+                    link when a link exists), so the header band is never empty —
+                    matching the other 22 source-backed cards, whose SectionCard
+                    header always carries the actions cluster. The
+                    `section-card-action` slot keeps it discoverable by the §12
+                    coverage walker, matching the SectionCard header contract. */}
+                <div className="mb-2 flex justify-end">
+                  <div data-slot="section-card-action" className="flex shrink-0 items-center">
+                    <CardHeaderActions
+                      cardId="schedule-days"
+                      driveFileId={data.driveFileId}
+                      anchor={data.sourceAnchors[CARD_REGION_MAP["schedule-days"]]}
+                      showId={showId}
+                      cardReport={cardReport}
+                    />
                   </div>
-                ) : null}
+                </div>
                 {visibleDays.length === 0 ? (
                   <EmptyState label="Show dates haven't been confirmed yet." />
                 ) : (

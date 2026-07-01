@@ -35,9 +35,13 @@ export function CardHeaderActions({
 }): ReactNode {
   const region = CARD_REGION_MAP[cardId];
   return (
-    <span data-slot="card-header-actions" className="inline-flex h-fit shrink-0 items-center gap-2">
+    // A `div` (flow content), NOT a `span`: CardReportTrigger mounts ReportModal's
+    // `<div role="dialog">` overlay as a descendant when open, which is invalid
+    // inside a `span` (phrasing content). `inline-flex` keeps the cluster's
+    // intrinsic-width, header-band layout identical to a span.
+    <div data-slot="card-header-actions" className="inline-flex h-fit shrink-0 items-center gap-2">
       <SourceLink driveFileId={driveFileId} anchor={anchor} />
       <CardReportTrigger cardId={cardId} region={region} showId={showId} cardReport={cardReport} />
-    </span>
+    </div>
   );
 }

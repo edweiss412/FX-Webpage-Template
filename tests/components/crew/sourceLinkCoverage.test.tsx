@@ -339,6 +339,20 @@ describe("source-link field-aware coverage walker (§8 / §12)", () => {
     expect(mappedWithTrigger, "no source-backed cards exposed a report trigger").toBeGreaterThan(8);
   });
 
+  it("schedule-days keeps its report trigger even when there is no source link (null driveFileId)", () => {
+    // ScheduleSection's day-cards are not wrapped in a SectionCard; the fix
+    // renders the actions header UNCONDITIONALLY so the report trigger survives
+    // a null driveFileId (where SourceLink renders nothing). Regression guard for
+    // the Codex whole-diff finding that the whole cluster was gated on link presence.
+    const data: ShowForViewer = { ...fullFixture(), driveFileId: null };
+    const { container } = renderSection(
+      <ScheduleSection data={data} viewer={adminViewer} today={FROZEN_TODAY} showId="show-1" />,
+    );
+    const card = container.querySelector('[data-card-id="schedule-days"]')!;
+    expect(card.querySelector('[data-slot="card-report-trigger"]')).not.toBeNull();
+    expect(card.querySelector('a[data-slot="source-link"]')).toBeNull();
+  });
+
   it("gear-scope card keeps its dynamic gear_scope link after the CardHeaderActions migration", () => {
     const data = fullFixture();
     const { container } = renderAllSections(data);
