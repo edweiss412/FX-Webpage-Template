@@ -183,6 +183,18 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
             transportation && !shouldHideGenericOptional(transportation.driver_email)
               ? transportation.driver_email
               : null;
+          const loadoutName =
+            transportation && !shouldHideGenericOptional(transportation.loadout_name)
+              ? transportation.loadout_name
+              : null;
+          const loadoutPhone =
+            transportation && !shouldHideGenericOptional(transportation.loadout_phone)
+              ? transportation.loadout_phone
+              : null;
+          const loadoutEmail =
+            transportation && !shouldHideGenericOptional(transportation.loadout_email)
+              ? transportation.loadout_email
+              : null;
           const vehicle =
             transportation && !shouldHideGenericOptional(transportation.vehicle)
               ? transportation.vehicle
@@ -238,6 +250,14 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
           const driverPrimary = driverFields[0] ?? null;
           const driverMetaLines = driverFields.slice(1);
 
+          // Load-out secondary transporter: same promote-first-survivor cascade as the driver.
+          const loadoutFields = [loadoutName, loadoutPhone, loadoutEmail].filter(
+            Boolean,
+          ) as string[];
+          const hasLoadout = loadoutFields.length > 0;
+          const loadoutPrimary = loadoutFields[0] ?? null;
+          const loadoutMetaLines = loadoutFields.slice(1);
+
           // Vehicle row: vehicle is the primary; license plate + color fall to meta;
           // parking is the conf line. Same promote-first-survivor cascade.
           const vehicleFields = [vehicle, licensePlate, color, parking].filter(Boolean) as string[];
@@ -248,7 +268,7 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
             vehicleFields.length > 1 ? vehicleFields[vehicleFields.length - 1] : null;
 
           const hasGettingThere =
-            hasDriver || hasVehicle || legs.length > 0 || transportNotes !== null;
+            hasDriver || hasLoadout || hasVehicle || legs.length > 0 || transportNotes !== null;
 
           // --- Hotels: sort ascending by ordinal, regardless of array order ---------
           const reservations = [...data.hotelReservations].sort((a, b) => a.ordinal - b.ordinal);
@@ -324,6 +344,19 @@ export function TravelSection({ data, viewer, showId, today }: TravelSectionProp
                       meta={
                         driverMetaLines.length > 0 ? (
                           <span className="tabular-nums">{driverMetaLines.join(" · ")}</span>
+                        ) : undefined
+                      }
+                    />
+                  ) : null}
+
+                  {hasLoadout && loadoutPrimary ? (
+                    <TravelRow
+                      mode="ground"
+                      label="Load out"
+                      primary={loadoutPrimary}
+                      meta={
+                        loadoutMetaLines.length > 0 ? (
+                          <span className="tabular-nums">{loadoutMetaLines.join(" · ")}</span>
                         ) : undefined
                       }
                     />
