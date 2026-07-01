@@ -246,7 +246,9 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
 
     // <960 (structural non-regression): 5-track grid — the 6-col grid must NOT leak below 960.
     await page.setViewportSize({ width: 810, height: 1000 });
-    const narrowTracks = (await gridTemplate(page, "shows-table-header")).trim().split(/\s+/).length;
+    const narrowTracks = (await gridTemplate(page, "shows-table-header"))
+      .trim()
+      .split(/\s+/).length;
     expect(narrowTracks, "6-col grid must NOT activate below 960px").toBe(5);
     // inline visible, column hidden, sort header hidden.
     await expect(page.getByTestId(`shows-published-pill-${slug}`)).toBeVisible();
