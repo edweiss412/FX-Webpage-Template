@@ -1013,6 +1013,36 @@ describe("FinalizeButton — streaming progress panel", () => {
     expect(getByTestId("wizard-finalize-progressbar").className).toContain("w-full");
     expect(queryByTestId("wizard-finalize-button")).toBeNull();
   });
+
+  test("a11y: focus moves to the progress panel when the button morphs away (no drop to <body>)", async () => {
+    const batch = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(batch.response)
+      .mockResolvedValueOnce(controllableNdjson().response);
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    getByTestId("wizard-finalize-button").focus();
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    // The focused trigger was removed; focus must land on the panel, not <body>.
+    expect(document.activeElement).toBe(getByTestId("wizard-finalize-progress"));
+  });
+
+  test("a11y: focus moves to the error alert on failure so keyboard recovery is reachable", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({ ok: false, code: "ONBOARDING_NOT_RESOLVED" }, { status: 409 }),
+    );
+    const { getByTestId, findByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await findByTestId("wizard-finalize-error");
+    expect(document.activeElement).toBe(getByTestId("wizard-finalize-error"));
+  });
 });
 
 describe("FinalizeButton — transition audit (Task 5)", () => {

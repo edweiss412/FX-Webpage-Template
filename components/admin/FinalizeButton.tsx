@@ -40,7 +40,7 @@
  * keeps the button from spinning the request count unnecessarily).
  */
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -130,6 +130,27 @@ export function FinalizeButton({
   // the grand total (completed + the current batch's `listed` remaining). Reset each runLoop entry.
   const completedRef = useRef(0);
   const grandTotalRef = useRef(0);
+  // A11y (WCAG 2.4.3): the trigger button is REMOVED when the panel takes over, and terminal
+  // alert/status regions replace it too. Without intervention, keyboard/SR focus is dropped onto
+  // <body>. Move focus deliberately: the running panel and each terminal alert region are focusable
+  // (tabIndex=-1) and receive focus on entry, so the operator keeps their place and can reach the
+  // re-apply / retry controls without re-tabbing from the top of the page.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const alertRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (state.kind === "running") {
+      panelRef.current?.focus();
+    } else if (
+      state.kind === "race_row" ||
+      state.kind === "cas_per_row" ||
+      state.kind === "error"
+    ) {
+      alertRef.current?.focus();
+    }
+    // Keyed on state.kind only: focus the panel ONCE on entering `running` (not on every batch/cas
+    // phase tick, which would yank focus mid-progress).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.kind]);
 
   // Read one /finalize batch response. Streaming (Accept: NDJSON) → parse listed/row progress into
   // state and return the terminal body + rows processed this batch. Non-NDJSON (proxy stripped
@@ -355,6 +376,14 @@ export function FinalizeButton({
       ? `Publish ${publishCount} show${publishCount === 1 ? "" : "s"} & finish setup`
       : "Finish setup and publish";
 
+  // Persistent SR live message for the transient running phases (rendered by the announcer below).
+  const liveMessage =
+    state.kind === "running"
+      ? state.phase === "cas"
+        ? "Finishing setup"
+        : "Publishing your shows"
+      : "";
+
   // Primary click: if clean rows remain unchecked, open the soft confirm
   // FIRST (pure setState — never self-disables the button mid-submit). With
   // nothing unchecked, run the loop directly. The confirm's Proceed runs it.
@@ -369,9 +398,15 @@ export function FinalizeButton({
 
   return (
     <div className="flex flex-col gap-3" data-testid="wizard-finalize">
+      {/* Persistent SR announcer: hoisted ABOVE the morph so screen readers reliably announce phase
+          changes. A live region inserted already-populated is often missed; a stable region whose
+          text mutates is announced. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {liveMessage}
+      </span>
       {/* D2 inline morph: while running, the button region becomes the progress panel. */}
       {state.kind === "running" ? (
-        <ProgressPanel state={state} />
+        <ProgressPanel ref={panelRef} state={state} />
       ) : (
         <AccentButton
           data-testid="wizard-finalize-button"
@@ -398,9 +433,11 @@ export function FinalizeButton({
 
       {state.kind === "race_row" ? (
         <div
+          ref={alertRef}
+          tabIndex={-1}
           role="alert"
           data-testid="wizard-finalize-race-row"
-          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
+          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           <p className="text-sm font-semibold">
             Some sheets need another look before we can publish.
@@ -429,9 +466,11 @@ export function FinalizeButton({
 
       {state.kind === "cas_per_row" ? (
         <div
+          ref={alertRef}
+          tabIndex={-1}
           role="alert"
           data-testid="wizard-finalize-cas-per-row"
-          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
+          className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           <p className="text-sm font-semibold">Some sheets are blocking the final publish step.</p>
           <ul className="flex flex-col gap-2">
@@ -457,9 +496,11 @@ export function FinalizeButton({
 
       {state.kind === "error" ? (
         <div
+          ref={alertRef}
+          tabIndex={-1}
           role="alert"
           data-testid="wizard-finalize-error"
-          className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+          className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           <p>{renderEmphasis(state.copy)}</p>
           <HelpAffordance code={state.code} />
@@ -487,26 +528,30 @@ export function FinalizeButton({
  * (same tokens, same native bar) so the two wizard progress surfaces read as siblings. All motion
  * is the native bar's value change; state swaps are instant (no animation).
  */
-function ProgressPanel({ state }: { state: Extract<ButtonState, { kind: "running" }> }) {
+const ProgressPanel = forwardRef<
+  HTMLDivElement,
+  { state: Extract<ButtonState, { kind: "running" }> }
+>(function ProgressPanel({ state }, ref) {
   return (
     <div
+      ref={ref}
+      tabIndex={-1}
       data-testid="wizard-finalize-progress"
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text"
+      className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
     >
       {state.phase === "batch" ? (
         <>
           <p className="text-base font-semibold text-text-strong" aria-hidden="true">
             Publishing your shows…
           </p>
+          {/* Native <progress> drives the progressbar role's value/max/valuetext — no explicit
+                aria-value* needed (they duplicate it and misbehave in the indeterminate case). */}
           <progress
             data-testid="wizard-finalize-progressbar"
             className="h-2 w-full"
             max={state.total > 0 ? state.total : undefined}
             value={state.total > 0 ? Math.min(state.done, state.total) : undefined}
             aria-label="Publish progress"
-            aria-valuemin={0}
-            aria-valuemax={state.total > 0 ? state.total : undefined}
-            aria-valuenow={state.total > 0 ? Math.min(state.done, state.total) : undefined}
           />
           {state.total > 0 ? (
             <p
@@ -544,13 +589,9 @@ function ProgressPanel({ state }: { state: Extract<ButtonState, { kind: "running
           </p>
         </>
       )}
-      {/* Screen-reader announcer: phase heading only, not every tick. */}
-      <span className="sr-only" role="status" aria-live="polite">
-        {state.phase === "cas" ? "Finishing setup" : "Publishing your shows"}
-      </span>
     </div>
   );
-}
+});
 
 /**
  * D5 soft confirm (spec §4.1 / D4 decision): an INLINE confirm surface (not a
