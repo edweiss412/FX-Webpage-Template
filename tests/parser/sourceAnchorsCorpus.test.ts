@@ -8,7 +8,11 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
-import { SOURCE_LINK_ALLOWLIST, REGION_IDS } from "@/lib/sheet-links/buildSheetDeepLink";
+import {
+  SOURCE_LINK_ALLOWLIST,
+  REGION_IDS,
+  CARD_REGION_MAP,
+} from "@/lib/sheet-links/buildSheetDeepLink";
 
 // ── fixture builder ───────────────────────────────────────────────────────────
 
@@ -379,5 +383,47 @@ describe("gear_scope region (date-grid-gated whole-tab GEAR anchor)", () => {
     const titleToGid = new Map<string, number>([["INFO", 0]]);
     const anchors = extractSourceAnchors(buffer, titleToGid);
     expect(anchors.gear_scope).toBeUndefined();
+  });
+});
+
+describe("dress region (deep-link fix, spec §3 / issue #207)", () => {
+  // INFO tab mirroring the live sheet shape: a DRESS block, a blank row, then
+  // later a DETAILS block. Row indices are 0-based in this array.
+  const ROWS: unknown[][] = [
+    ["CREW", "PHONE"], // 0
+    ["Doug", "917"], // 1
+    [], // 2  (blank ends CREW block)
+    ["DRESS", "Set/Strike: Black Pants"], // 3  <- dress header row
+    ["", "Show: Black Long Sleeve"], // 4  <- dress continuation
+    [], // 5  (blank ends DRESS block)
+    ["DETAILS"], // 6  <- details header row
+    ["LED", "NO LED WALL"], // 7
+    ["Stage Size", "8x24"], // 8
+  ];
+  const buf = makeWorkbookBuffer([{ name: "INFO", rows: ROWS }]);
+  const titleToGid = new Map<string, number>([["INFO", 0]]);
+  const anchors = extractSourceAnchors(buf, titleToGid);
+
+  it("emits a dress anchor bounded to the DRESS rows (3-4), not the DETAILS rows", () => {
+    expect(anchors.dress).toBeDefined();
+    const r = XLSX.utils.decode_range(anchors.dress!.a1!);
+    expect(r.s.r).toBe(3); // starts at DRESS header row
+    expect(r.e.r).toBe(4); // ends at the continuation row (blank row 5 terminates)
+  });
+
+  it("keeps details anchored to the DETAILS block, disjoint from dress", () => {
+    const d = XLSX.utils.decode_range(anchors.details!.a1!);
+    expect(d.s.r).toBe(6); // DETAILS header
+    expect(d.e.r).toBeGreaterThanOrEqual(8);
+    const dress = XLSX.utils.decode_range(anchors.dress!.a1!);
+    expect(dress.e.r).toBeLessThan(d.s.r); // dress fully above details
+  });
+
+  it("maps the today-dress card to the dress region (was details)", () => {
+    expect(CARD_REGION_MAP["today-dress"]).toBe("dress");
+    // details stays the region for the gear DETAILS-block cards
+    expect(CARD_REGION_MAP["gear-keynote"]).toBe("details");
+    expect(CARD_REGION_MAP["gear-opening-reel"]).toBe("details");
+    expect(CARD_REGION_MAP["gear-tech-specs"]).toBe("details");
   });
 });
