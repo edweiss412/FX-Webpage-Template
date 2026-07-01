@@ -38,52 +38,17 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { AccentButton } from "@/components/shared/AccentButton";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import type {
+  PerRowFailure,
+  FinalizeBatchResponse,
+  CasPerRowEntry,
+  FinalizeResponse,
+  FinalizeCasResponse,
+} from "@/lib/onboarding/finalizeProgress";
 
 // The one per-row code a re-scan can heal: an outdated Phase-D shadow. Corrupt-payload
 // / archived-show rows keep their existing recovery (re-scan is the wrong tool there).
 const RESCANNABLE_CAS_CODE = "STAGED_PARSE_OUTDATED_AT_PHASE_D";
-
-type PerRowFailure = {
-  drive_file_id: string;
-  wizard_session_id: string;
-  code: string;
-  re_apply_url: string;
-  display_name?: string;
-};
-
-type PerRowOk = {
-  drive_file_id: string;
-  wizard_session_id: string;
-  code: "OK";
-};
-
-type PerRowEntry = PerRowFailure | PerRowOk;
-
-type FinalizeBatchResponse = {
-  status: "batch_complete" | "all_batches_complete";
-  wizard_session_id: string;
-  remaining_count: number;
-  unresolved_manifest_count: number;
-  per_row: PerRowEntry[];
-};
-
-// WM-R3: finalize-cas 409s carry per_row entries ({ drive_file_id, code })
-// for retained shadow rows (app/api/admin/onboarding/finalize-cas/route.ts
-// errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row })).
-// OK rows ride along in the array and are filtered before rendering.
-type CasPerRowEntry = { drive_file_id: string; code: string; display_name?: string };
-
-type FinalizeErrorResponse = { ok: false; code: string; per_row?: CasPerRowEntry[] };
-
-type FinalizeResponse = FinalizeBatchResponse | FinalizeErrorResponse;
-
-type FinalizeCasResponse =
-  | {
-      status: "finalize_complete";
-      wizard_session_id: string;
-      watched_folder_id: string;
-    }
-  | FinalizeErrorResponse;
 
 type FinalizeButtonProps = {
   wizardSessionId: string;
