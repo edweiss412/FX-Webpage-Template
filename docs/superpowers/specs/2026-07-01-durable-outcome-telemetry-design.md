@@ -34,7 +34,7 @@ import { hashForLog } from "@/lib/email/hashForLog";
 // app_events (shouldPersist: info persists only with a code). Free-form
 // forensic namespace — NOT §12.4 (stripLogEmissionCalls excludes log emissions).
 export interface AdminOutcome {
-  code: string; // SHOUTY_SNAKE_CASE literal, from ADMIN_OUTCOME_CODES
+  code: string; // SHOUTY_SNAKE_CASE string literal at the call site (see §6 registry)
   source: string; // e.g. "api.admin.onboarding.staged.apply"
   actorEmail?: string; // ALREADY canonical (requireAdminIdentity returns canonicalize()'d email)
   driveFileId?: string;
@@ -71,19 +71,9 @@ export async function logAdminOutcome(o: AdminOutcome): Promise<void> {
 - **`actorEmail` optional / absent → no `actorHash`.** If a call site has no bound admin email (e.g. a cron path), `actorHash` is simply omitted (never a bogus hash of `""`).
 - **`hashForLog` boot gate.** `hashForLog` throws at module load if `HASH_FOR_LOG_PEPPER` < 32 chars (`hashForLog.ts:8-14`). Already satisfied in prod + tests (`tests/setup.ts` seeds it). No new env requirement.
 
-New constants module **`lib/log/adminOutcomeCodes.ts`** — the sanctioned outcome-code set, exported as consts so impl + meta-test share one source of truth:
+**Scanner-safety — `logAdminOutcome` is a recognized emission wrapper (Codex spec-R3 HIGH).** The producer scanners (`tests/cross-cutting/codes.test.ts` `codeProducerLiterals`, `ACTIVE_PRODUCER_ROOTS = ["app","lib"]`, `PRODUCER_RE = /\bcode:\s*["'…]/`) and the internal-code-enum generator both scan `app/`+`lib/` for `code:`/quoted-code producers, first calling `stripLogEmissionCalls` to EXCLUDE `log.<level>(…)` spans. **`logAdminOutcome({ code: "STAGE_APPLIED", … })` is NOT a `log.*` call**, so its `code: "STAGE_APPLIED"` literal would be seen by `PRODUCER_RE` as a §12.4 producer → x1-catalog-parity would demand a catalog entry → FAIL. Fix: **extend `stripLogEmissionCalls` to also strip `logAdminOutcome(…)` spans** (it is the durable-outcome emission wrapper — the same class as `log.*`). Change its sticky matcher from `/log\.(?:error|warn|info|debug)\s*\(/y` to `/(?:log\.(?:error|warn|info|debug)|logAdminOutcome)\s*\(/y` (with the same leading-ident-boundary guard so `xlogAdminOutcome(` is not matched), and add a case to `tests/messages/stripLogEmissionCalls.test.ts`. After this, EVERY new outcome code literal lives inside a stripped emission span (`log.*` OR `logAdminOutcome`), so NONE is registered in §12.4 or the internal-code-enum.
 
-```ts
-export const ADMIN_OUTCOME_CODES = {
-  STAGE_APPLIED: "STAGE_APPLIED",
-  STAGE_APPROVED: "STAGE_APPROVED",
-  STAGE_UNAPPROVED: "STAGE_UNAPPROVED",
-  STAGE_DISCARDED: "STAGE_DISCARDED",
-  SHOW_FINALIZED: "SHOW_FINALIZED",
-} as const;
-```
-
-(These are literals; when referenced as `code: ADMIN_OUTCOME_CODES.STAGE_APPLIED` the value is a computed member access, which `stripLogEmissionCalls` still strips because the WHOLE `log.info(...)` span is removed — the code literal lives inside the stripped span. Verified: `stripLogEmissionCalls` removes the entire balanced-paren call, not just string literals.)
+**No constants module.** The outcome codes are plain string literals at each `logAdminOutcome` call site (now stripped) — e.g. `await logAdminOutcome({ code: "STAGE_APPLIED", … })`. The single source of truth for enforcement is the **meta-test registry** (§6), which lives in `tests/` — scanned by NEITHER producer scanner (`ACTIVE_PRODUCER_ROOTS` is `["app","lib"]`; the enum roots are `lib/parser`/`lib/sync`/`app/api`/`supabase/migrations`/gated-`lib`). The sanctioned codes: `STAGE_APPLIED`, `STAGE_APPROVED`, `STAGE_UNAPPROVED`, `STAGE_DISCARDED`, `SHOW_FINALIZED`. A route whose literal drifts from the registry fails the meta-test. **Tested invariant (belt + suspenders):** the meta-test asserts none of these five codes appears in `codeProducerLiterals()` (the live §12.4 producer set), turning "needs no §12.4 registration" from a regex argument into a CI-enforced fact.
 
 ## 4. Surface-by-surface instrumentation
 
@@ -141,15 +131,16 @@ For each, capture the outcome (via the §3 outcome-ref pattern) at the terminal 
 | `SYNC_INFRA_ERROR` | error | `sync.applyStaged` | §4.4 (mirrors existing §12.4 code) |
 | `GEOCODE_CACHE_FAULT` | warn | `geocoding/cache` | §4.5 |
 
-All are literals inside `log.<level>(...)` spans → excluded from §12.4 + internal-enum scanners by `stripLogEmissionCalls`. `ADMIN_OUTCOME_CODES` (info-level, §4.1) are the only ones referenced by the enforcement meta-test.
+All are literals inside `log.<level>(...)` OR `logAdminOutcome(...)` spans → excluded from the §12.4 + internal-enum scanners by the extended `stripLogEmissionCalls` (§3). The five `STAGE_*`/`SHOW_FINALIZED` codes are the ones the enforcement meta-test registry pins.
 
 ## 6. Enforcement meta-test
 
-New **`tests/log/_metaAdminOutcomeContract.test.ts`** — a registry-walk pin (modeled on `tests/auth/_metaInfraContract.test.ts`):
-- **Registry:** the 6 mutation routes (§4.1) as an explicit `AUDITABLE_MUTATIONS` array of `{ file, code }`.
-- **Assertion 1:** each registry route's source imports `logAdminOutcome` AND contains a `logAdminOutcome(` call carrying its expected `ADMIN_OUTCOME_CODES.*` code. A new mutation route added to the registry with no outcome log fails the test.
-- **Assertion 2:** `applyStaged.ts` — every `return { outcome: "infra_error"` line has a `log.` call within the preceding ~12 lines (its catch), pinning §4.4's class-sweep.
-- **Assertion 3 (convention guard):** `ADMIN_OUTCOME_CODES` values are all SHOUTY_SNAKE_CASE and each appears in exactly one registry route (no orphan codes, no code reused across routes).
+New **`tests/log/_metaAdminOutcomeContract.test.ts`** — a registry-walk pin (modeled on `tests/auth/_metaInfraContract.test.ts`; lives in `tests/`, scanned by neither producer scanner):
+- **Registry:** the 6 mutation routes (§4.1) as an explicit `AUDITABLE_MUTATIONS: Array<{ file: string; code: string }>`, and `SANCTIONED_CODES = new Set(["STAGE_APPLIED","STAGE_APPROVED","STAGE_UNAPPROVED","STAGE_DISCARDED","SHOW_FINALIZED"])`. This registry is the canonical source of truth for the outcome codes.
+- **Assertion 1 (coverage):** each registry route's RAW source (NOT stripped — we want to find the call) imports `logAdminOutcome` AND contains a `logAdminOutcome(` call whose `code:` literal equals the registry `code`. A mutation route added to the registry with no outcome log fails.
+- **Assertion 2 (applyStaged class-sweep):** in `lib/sync/applyStaged.ts`, every `return { outcome: "infra_error"` line has a `log.` call within the preceding ~12 lines (its catch). Pins §4.4 so a future 10th infra_error site can't silently skip.
+- **Assertion 3 (convention guard):** every registry `code` ∈ `SANCTIONED_CODES` and is SHOUTY_SNAKE_CASE; every `SANCTIONED_CODES` member is used by ≥1 registry route (`SHOW_FINALIZED` is intentionally shared by finalize + finalize-cas — so the guard is set-membership + no-orphan, NOT one-code-per-route).
+- **Assertion 4 (scanner-safety invariant — Codex spec-R3):** none of `SANCTIONED_CODES` appears in `codeProducerLiterals()` (imported from / replicated against `tests/cross-cutting/codes.test.ts`'s producer scan over `["app","lib"]`). This CI-enforces the "no §12.4 registration" claim: if a future refactor emits an outcome code OUTSIDE a stripped `log.*`/`logAdminOutcome` span, it appears in the producer set and this assertion fails. (Companion: `tests/messages/stripLogEmissionCalls.test.ts` gains a case proving a `logAdminOutcome(...)` span is stripped.)
 - New call sites EITHER add a registry row OR carry an inline `// not-subject-to-admin-outcome: <reason>` (mirrors the `_metaInfraContract` opt-out convention).
 
 ## 7. Testing (TDD per surface)
@@ -160,7 +151,8 @@ New **`tests/log/_metaAdminOutcomeContract.test.ts`** — a registry-walk pin (m
 - **applyStaged** (`tests/sync/applyStaged*.test.ts`): force each infra_error branch; assert `log.error` fired with `code: SYNC_INFRA_ERROR` + the caught error in the reserved `error` field. Assert the return value is unchanged (`{ outcome: "infra_error", code: SYNC_INFRA_ERROR }`).
 - **agenda / geocoding / lock-skip**: assert the new durable logs fire with their codes on the relevant branch; assert the excluded queue-poll branches do NOT emit a coded log.
 - **Meta-test**: negative control — a fixture string with a mutation-route shape lacking `logAdminOutcome` must fail Assertion 1; the AST/grep must not false-positive on a `// logAdminOutcome` comment.
-- **Anti-tautology:** every `actorHash` assertion derives the expected value from `hashForLog(fixtureEmail)` at test time, never a hardcoded hex. Every code assertion references `ADMIN_OUTCOME_CODES.*`, not a string literal that could drift from the impl.
+- **`stripLogEmissionCalls` extension** (`tests/messages/stripLogEmissionCalls.test.ts`): add a case asserting a `logAdminOutcome({ code: "STAGE_APPLIED" })` span is fully stripped (so the code literal is invisible to the producer scanners), and that a `xlogAdminOutcome(` (ident-prefixed) is NOT matched. Plus the existing `codes.test.ts` (x1) + internal-code-enum gen must stay green (run them) — the real proof that no registration leaked.
+- **Anti-tautology:** every `actorHash` assertion derives the expected value from `hashForLog(fixtureEmail)` at test time, never a hardcoded hex. Every route's code assertion compares the route source against the meta-test registry's `code` (Assertion 1), and Assertion 4 independently proves the code is absent from the §12.4 producer set — so a drifted or scanner-visible code fails CI rather than passing silently.
 
 ## 8. Plan-wide invariants honored
 
