@@ -99,9 +99,22 @@ export type Step3Row = {
   lastFinalizeFailureCode?: string | null;
 };
 
+export type Step3PublishCounts = {
+  // Clean rows currently CHECKED (optimistic) → published Live on finish.
+  publishCount: number;
+  // Clean rows currently UNCHECKED (optimistic) → kept as Held drafts.
+  uncheckedCleanCount: number;
+};
+
 type Step3ReviewProps = {
   wizardSessionId: string;
   rows: Step3Row[];
+  // Reports the live, OPTIMISTIC publish-intent counts up to the wizard chrome
+  // so the FinalizeButton label ("Publish N shows & finish setup") tracks the
+  // checkboxes with zero delay. Without this, the count was server-derived and
+  // lagged the boxes by a POST round-trip + router.refresh() (the publish-count
+  // lag bug). Fired from an effect whenever the optimistic counts change.
+  onCountsChange?: (counts: Step3PublishCounts) => void;
 };
 
 type ActionLabel = "retry" | "defer" | "ignore";
@@ -614,7 +627,7 @@ function hasReviewablePreview(row: Step3Row): boolean {
   return pr != null && typeof pr === "object" && !!(pr as ParseResult).show;
 }
 
-export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
+export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3ReviewProps) {
   const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
@@ -735,6 +748,22 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
   const appliedCount = selectableRows.filter(isChecked).length;
   const cleanCount = selectableRows.length;
   const allChecked = cleanCount > 0 && appliedCount === cleanCount;
+
+  // Publish-intent counts for the wizard chrome's FinalizeButton, derived from the
+  // SAME optimistic overlay the boxes use (not server truth) so the "Publish N
+  // shows" label never lags the checkboxes. Computed over ALL clean rows
+  // (publishRows = staged|applied), so a corrupt/demoted clean row — which has no
+  // checkbox and stays unchecked → Held — counts as unchecked, exactly as the
+  // server's `status === 'staged'` derivation did. publishCount + uncheckedCleanCount
+  // == publishRows.length.
+  const optimisticPublishCount = publishRows.filter(isChecked).length;
+  const optimisticUncheckedCleanCount = publishRows.length - optimisticPublishCount;
+  useEffect(() => {
+    onCountsChange?.({
+      publishCount: optimisticPublishCount,
+      uncheckedCleanCount: optimisticUncheckedCleanCount,
+    });
+  }, [onCountsChange, optimisticPublishCount, optimisticUncheckedCleanCount]);
 
   async function postApproval(driveFileId: string, next: boolean): Promise<boolean> {
     const action = next ? "approve" : "unapprove";
