@@ -563,7 +563,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     const transportation = await this.one<ParseResult["transportation"]>(
       `
         select driver_name, driver_phone, driver_email, vehicle, license_plate, color,
-               parking, schedule, notes
+               parking, schedule, notes, loadout_name, loadout_phone, loadout_email
           from public.transportation
          where show_id = $1
          limit 1
@@ -1364,9 +1364,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
       `
         insert into public.transportation (
           show_id, driver_name, driver_phone, driver_email, vehicle, license_plate,
-          color, parking, schedule, notes
+          color, parking, schedule, notes, loadout_name, loadout_phone, loadout_email
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)
       `,
       [
         showId,
@@ -1379,6 +1379,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
         row.parking,
         row.schedule,
         row.notes,
+        row.loadout_name,
+        row.loadout_phone,
+        canonicalize(row.loadout_email),
       ],
     );
   }
