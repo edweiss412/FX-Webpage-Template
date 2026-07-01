@@ -83,17 +83,31 @@ Replace the current lazy, warnings-only anchor path with an unconditional best-e
 
 ```
 let sourceAnchors: Record<string, SourceAnchor> = {};
-let resolveGids = () => listSheetGids(file.driveFileId);   // lazy fallback for attachWarningAnchors
+let resolveGids = () => listSheetGids(file.driveFileId);   // lazy default (only if bytes missing)
 if (bytes) {
   try {
     const titleToGid = await listSheetGids(file.driveFileId);
-    resolveGids = () => Promise.resolve(titleToGid);        // reuse — no second fetch
-    sourceAnchors = extractSourceAnchors(bytes, titleToGid);
-  } catch { /* best-effort: leave {} + lazy resolveGids */ }
+    resolveGids = () => Promise.resolve(titleToGid);        // reuse — no second fetch; set BEFORE extract
+    try {
+      sourceAnchors = extractSourceAnchors(bytes, titleToGid);
+    } catch {
+      sourceAnchors = {};                                  // region-extract failed, but KEEP the valid
+                                                           // titleToGid resolver for warning anchors
+    }
+  } catch {
+    // gid FETCH failed → {} + an EMPTY-map resolver so attachWarningAnchors degrades link-less
+    // WITHOUT a second (also-failing) fetch (avoids the double-call; warnings still safe).
+    sourceAnchors = {};
+    resolveGids = () => Promise.resolve(new Map<string, number>());
+  }
 }
-await attachWarningAnchors(parseResult.warnings, bytes, resolveGids, sourceAnchors);
+try {
+  await attachWarningAnchors(parseResult.warnings, bytes, resolveGids, sourceAnchors);
+} catch { /* attachWarningAnchors is contractually no-throw; belt-and-suspenders best-effort */ }
 return { file, kind: "sheet", binding, parseResult, sourceAnchors };
 ```
+
+The inner/outer split matters: a gid fetch that SUCCEEDS but a region extract that THROWS must still hand `attachWarningAnchors` the real `titleToGid` (else valid cell-anchored warnings lose their links). Only a gid-fetch FAILURE uses the empty-map resolver.
 
 - `attachWarningAnchors` already accepts a precomputed `regionAnchors` 4th arg and uses it in lieu of self-computing (`attachWarningAnchors.ts:27,49`) — so passing `sourceAnchors` avoids double work; the warning-attachment **output** is otherwise unchanged. (The *timing* does change: `attachWarningAnchors` today skips `resolveGids` entirely for a warning-free sheet, `attachWarningAnchors.ts:29`; `prepareOne` now fetches gids eagerly for every sheet — see the "new cost" note below.)
 - **New cost:** the gid fetch (`listSheetGids`) now runs for **every** sheet, not just sheets with cell-anchored warnings. This is one lightweight Sheets `spreadsheets.get` per sheet, parallelized under `ONBOARDING_PREPARE_CONCURRENCY`, on top of the XLSX export scan already performs. Marginal at scan; removes ~20s/sheet from finalize.

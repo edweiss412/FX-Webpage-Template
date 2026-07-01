@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import { prepareOnboardingFiles } from "@/lib/sync/runOnboardingScan";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
-import type { ParseResult, ParsedSheet } from "@/lib/parser/types";
+import { normalizeDate } from "@/lib/parser/blocks/_helpers";
+import type { ParseResult, ParsedSheet, ParseWarning } from "@/lib/parser/types";
 import type { DriveListedFile } from "@/lib/drive/list";
 
 // Pass-through mock so ONE test can force extractSourceAnchors to throw deterministically
@@ -112,5 +113,47 @@ describe("prepareOnboardingFiles — region source anchors persisted for finaliz
     const row = prepared[0]!;
     if (row.kind !== "sheet") throw new Error("expected sheet"); // did NOT throw → scan continued
     expect(row.sourceAnchors).toEqual({});
+  });
+
+  it("region extract failure with a SUCCESSFUL gid fetch keeps cell-anchored warnings linked (whole-diff R1)", async () => {
+    // gid fetch succeeds, but extractSourceAnchors (region) throws. The valid titleToGid map MUST
+    // still reach attachWarningAnchors, so a cell-anchored warning keeps its sourceCell.
+    vi.mocked(extractSourceAnchors).mockImplementationOnce(() => {
+      throw new Error("region boom");
+    });
+    const iso = normalizeDate("5/12/2026")!;
+    const scheduleWarning: ParseWarning = {
+      severity: "warn",
+      code: "SCHEDULE_TIME_UNPARSED",
+      message: `SHOW DAY ${iso} TIME cell …`,
+      blockRef: { kind: "dates", index: 1, iso },
+    };
+    const datesBytes = xlsxBuffer(
+      [
+        ["DATES", "", "", "", ""],
+        ["", "SHOW DAY 1", "", "5/11/2026", "8:00 AM - Registration"],
+        ["", "SHOW DAY 2", "", "5/12/2026", "GS: … - 6:00 PM"],
+      ],
+      "Main",
+    );
+    const prepared = await prepareOnboardingFiles(
+      "folder-1",
+      deps({
+        fetchMarkdownWithBinding: vi.fn(async () => ({
+          binding: { bindingToken: "t", modifiedTime: "2026-05-08T12:00:00.000Z" },
+          markdown: "md",
+          bytes: datesBytes,
+        })),
+        enrichWithDrivePins: vi.fn(
+          async () => ({ warnings: [scheduleWarning] }) as unknown as ParseResult,
+        ),
+        listSheetGids: vi.fn(async () => new Map([["Main", 4242]])),
+      }),
+    );
+    const row = prepared[0]!;
+    if (row.kind !== "sheet") throw new Error("expected sheet");
+    expect(row.sourceAnchors).toEqual({}); // region extract failed → no region anchors
+    // …but the cell-anchored warning still got its link from the preserved gid map.
+    expect(row.parseResult.warnings[0]!.sourceCell).toEqual({ title: "Main", gid: 4242, a1: "E3" });
   });
 });

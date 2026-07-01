@@ -962,11 +962,18 @@ export async function prepareOnboardingFiles(
       try {
         const titleToGid = await listSheetGids(file.driveFileId);
         // Cache → attachWarningAnchors reuses the SAME map, no second fetch (keeps the existing
-        // "listSheetGids called once" contract for cell-anchored sheets).
+        // "listSheetGids called once" contract for cell-anchored sheets). Set BEFORE the extract
+        // so a region-extract failure never strips the valid map from warning attachment.
         resolveGids = () => Promise.resolve(titleToGid);
-        sourceAnchors = extractSourceAnchors(bytes, titleToGid);
+        try {
+          sourceAnchors = extractSourceAnchors(bytes, titleToGid);
+        } catch {
+          // Region extraction failed but the gids are valid → {} region anchors, and KEEP the real
+          // titleToGid resolver so attachWarningAnchors can still place cell anchors (whole-diff R1).
+          sourceAnchors = {};
+        }
       } catch {
-        // gids/extract failed → {} anchors, and hand attachWarningAnchors an EMPTY map so it
+        // The gid fetch itself failed → {} anchors, and hand attachWarningAnchors an EMPTY map so it
         // degrades link-less WITHOUT a second (also-failing) network fetch.
         sourceAnchors = {};
         resolveGids = () => Promise.resolve(new Map<string, number>());
