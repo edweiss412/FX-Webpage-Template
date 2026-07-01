@@ -181,6 +181,7 @@ export async function applyParseResult(
       attachSourceCellAnchors(args.parseResult.warnings, {
         showDay: [],
         crewRole: [],
+        unknownField: [],
         region: args.sourceAnchors ?? {},
       });
     }
