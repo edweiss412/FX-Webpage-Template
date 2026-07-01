@@ -161,7 +161,17 @@ export type FinalizeErrorResponse = { ok: false; code: string; per_row?: CasPerR
 export type FinalizeResponse = FinalizeBatchResponse | FinalizeErrorResponse;
 
 export type FinalizeCasResponse =
-  | { status: "finalize_complete"; wizard_session_id: string; watched_folder_id: string }
+  | {
+      status: "finalize_complete";
+      wizard_session_id: string;
+      watched_folder_id: string;
+      // The server success object may also carry these (both IGNORED by the client): `idempotent`
+      // on the already-finalized replay path, and `per_row` discarded-by-choice confirmations.
+      // Widened vs the pre-move FinalizeButton type so the Task 3 stream `emit({type:"result",
+      // body: result})` assigns the runFinalizeCas success arm cleanly under tsc.
+      idempotent?: boolean;
+      per_row?: CasPerRowEntry[];
+    }
   | FinalizeErrorResponse;
 
 // ---- /finalize batch stream ----
