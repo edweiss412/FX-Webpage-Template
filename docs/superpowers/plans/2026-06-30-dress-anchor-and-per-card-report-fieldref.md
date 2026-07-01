@@ -24,7 +24,8 @@ Spec: `docs/superpowers/specs/2026-06-30-dress-anchor-and-per-card-report-fieldr
 ## File structure
 
 - `lib/sheet-links/buildSheetDeepLink.ts` — **modify**: add `"dress"` to `REGION_IDS`; add `dress` to `REGION_ANCHOR_SPEC`; repoint `CARD_REGION_MAP["today-dress"]`.
-- `components/crew/primitives/CardReportTrigger.tsx` — **create** (client): recessive report button + `ReportModal` mount; exports `CardReportContext` type + `DEFAULT_CARD_REPORT`.
+- `lib/crew/cardReportContext.ts` — **create** (non-client): `CardReportContext` type, `DEFAULT_CARD_REPORT` const, and `buildCardReportContext` (Task 5). Server-safe home so server components read the const/type without a client-module boundary.
+- `components/crew/primitives/CardReportTrigger.tsx` — **create** (client): recessive report button + `ReportModal` mount.
 - `components/crew/primitives/CardHeaderActions.tsx` — **create** (server): renders `SourceLink` + `CardReportTrigger`.
 - `components/crew/sections/{Today,Venue,Gear,Travel,Schedule,Budget,Crew}Section.tsx` — **modify**: swap `action={<SourceLink…/>}` → `action={<CardHeaderActions…/>}`; add optional `cardReport?: CardReportContext` prop (default `DEFAULT_CARD_REPORT`), forward to each `CardHeaderActions`.
 - `app/show/[slug]/[shareToken]/_CrewShell.tsx` — **modify**: compute the `cardReport` bundle once in `renderOne` (crew vs admin-preview), pass to each section.
@@ -111,17 +112,21 @@ describe("dress region (deep-link fix, spec §3)", () => {
 
 ---
 
-### Task 2: Part B — `CardReportTrigger` + `CardReportContext`
+### Task 2: Part B — `cardReportContext` module + `CardReportTrigger`
+
+**RSC boundary (Codex plan-R2):** `CardReportContext` (type) and `DEFAULT_CARD_REPORT` (runtime const) must NOT live in the `"use client"` `CardReportTrigger.tsx`, because server components (`CardHeaderActions`, the 7 sections, `_CrewShell`) import them as a type + runtime value. The established pattern imports client *components* into server parents, never runtime constants out of a client module. So the type + const live in a plain (non-client) module `lib/crew/cardReportContext.ts`; only the `CardReportTrigger` *component* is imported from the client file.
 
 **Files:**
-- Create: `components/crew/primitives/CardReportTrigger.tsx`
+- Create: `lib/crew/cardReportContext.ts` (non-client: type + `DEFAULT_CARD_REPORT`; `buildCardReportContext` added in Task 5)
+- Create: `components/crew/primitives/CardReportTrigger.tsx` (`"use client"`)
 - Test: `tests/components/crew/CardReportTrigger.test.tsx`
 
 **Interfaces:**
-- Consumes: `ReportModal`, `ReportAutocapture`, `ReportSurface` from `@/components/shared/ReportModal`; `CardId`, `RegionId`, `CARD_REGION_MAP` from `@/lib/sheet-links/buildSheetDeepLink`.
-- Produces:
+- Consumes: `ReportModal`, `ReportAutocapture`, `ReportSurface` from `@/components/shared/ReportModal`; `CardId`, `RegionId` from `@/lib/sheet-links/buildSheetDeepLink`.
+- Produces (in `lib/crew/cardReportContext.ts`):
   - `type CardReportContext = { surface: ReportSurface; surfaceIdScope: string; extraContext: ReportAutocapture }`.
   - `const DEFAULT_CARD_REPORT: CardReportContext = { surface: "crew", surfaceIdScope: "crew-card", extraContext: {} }`.
+- Produces (in `CardReportTrigger.tsx`):
   - `function CardReportTrigger(props: { cardId: CardId; region: RegionId; showId: string; cardReport?: CardReportContext }): ReactNode`.
 
 - [ ] **Step 1: Write the failing test** `tests/components/crew/CardReportTrigger.test.tsx`. Mirror the fetch-body pattern in `tests/components/report/ReportButton.test.tsx`.
@@ -201,17 +206,10 @@ it("renders nothing when showId is empty (defense-in-depth)", () => {
 
 - [ ] **Step 2: Run to verify failure.** `pnpm vitest run tests/components/crew/CardReportTrigger.test.tsx` → FAIL (module missing).
 
-- [ ] **Step 3: Implement** `components/crew/primitives/CardReportTrigger.tsx`:
+- [ ] **Step 3a: Implement the non-client module** `lib/crew/cardReportContext.ts`:
 
-```tsx
-"use client";
-import { useState, type ReactNode } from "react";
-import {
-  ReportModal,
-  type ReportAutocapture,
-  type ReportSurface,
-} from "@/components/shared/ReportModal";
-import type { CardId, RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
+```ts
+import type { ReportAutocapture, ReportSurface } from "@/components/shared/ReportModal";
 
 export type CardReportContext = {
   surface: ReportSurface;
@@ -224,6 +222,19 @@ export const DEFAULT_CARD_REPORT: CardReportContext = {
   surfaceIdScope: "crew-card",
   extraContext: {},
 };
+// buildCardReportContext(...) is added to this same module in Task 5.
+```
+
+  (Importing the two `type`s from the `"use client"` `ReportModal.tsx` is fine — `import type` is erased at build time and creates no client boundary.)
+
+- [ ] **Step 3b: Implement the client component** `components/crew/primitives/CardReportTrigger.tsx`:
+
+```tsx
+"use client";
+import { useState, type ReactNode } from "react";
+import { ReportModal, type ReportAutocapture } from "@/components/shared/ReportModal";
+import type { CardId, RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 
 /** Flag glyph — thin-stroke family matching SheetIcon; ~14px. */
 function FlagIcon(): ReactNode {
@@ -339,11 +350,8 @@ it("still renders the report trigger when there is no source sheet (SourceLink n
 ```tsx
 import type { ReactNode } from "react";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
-import {
-  CardReportTrigger,
-  DEFAULT_CARD_REPORT,
-  type CardReportContext,
-} from "@/components/crew/primitives/CardReportTrigger";
+import { CardReportTrigger } from "@/components/crew/primitives/CardReportTrigger";
+import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import {
   CARD_REGION_MAP,
   type CardId,
@@ -391,7 +399,8 @@ Note: the walker's existing render helper is `renderAllSections(data: ShowForVie
 
 ```tsx
 it("(d) every source-backed card exposes a report trigger; out-of-scope cards do not", () => {
-  const { container } = renderAllSections(data); // `data` = the file's populated fixture
+  const data = fullFixture(); // the file's existing populated-fixture helper (sourceLinkCoverage.test.tsx:84)
+  const { container } = renderAllSections(data);
   container.querySelectorAll("[data-card-id]").forEach((cardEl) => {
     const id = cardEl.getAttribute("data-card-id")!;
     const hasTrigger = cardEl.querySelector('[data-slot="card-report-trigger"]') !== null;
@@ -408,6 +417,7 @@ it("(d) every source-backed card exposes a report trigger; out-of-scope cards do
 
 ```tsx
 it("gear-scope card keeps its dynamic gear_scope link after the CardHeaderActions migration", () => {
+  const data = fullFixture();
   const { container } = renderAllSections(data);
   const card = container.querySelector('[data-card-id="gear-scope-audio"]')!;
   const href = card.querySelector('a[data-slot="source-link"]')!.getAttribute("href");
@@ -420,7 +430,7 @@ it("gear-scope card keeps its dynamic gear_scope link after the CardHeaderAction
 - [ ] **Step 2: Run to verify failure.** `pnpm vitest run tests/components/crew/sourceLinkCoverage.test.tsx` → FAIL on assertion (d) (no trigger yet).
 
 - [ ] **Step 3: Implement.** In each of the 7 section files:
-  1. Import `CardHeaderActions` and the type: `import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions"; import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/components/crew/primitives/CardReportTrigger";`
+  1. Import `CardHeaderActions` and the type: `import { CardHeaderActions } from "@/components/crew/primitives/CardHeaderActions"; import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";`
   2. Add `cardReport?: CardReportContext` to the section's `Props` type and destructure it with `cardReport = DEFAULT_CARD_REPORT`.
   3. Replace each `action={<SourceLink driveFileId={X} anchor={Y} />}` with `action={<CardHeaderActions cardId="<the literal already used in CARD_REGION_MAP[...] at this site>" driveFileId={X} anchor={Y} showId={showId} cardReport={cardReport} />}`. **Copy `X` (driveFileId) and `Y` (anchor) verbatim** — including GearSection's gear-scope ternary (`GearSection.tsx:319-328`). Remove the now-unused `SourceLink` import if no longer referenced (keep it if any non-card SourceLink remains — there are none, so drop it).
   4. The 23 sites: BudgetSection ×1 (`budget-main`), CrewSection ×2 (`crew-roster`, `crew-contacts`), GearSection ×6 (`gear-scope-<id>`, `gear-pack-list`, `gear-tech-specs`, `gear-room-details`, `gear-keynote`, `gear-opening-reel`), ScheduleSection ×2 (`schedule-days`, `schedule-call-times`), TodaySection ×6 (`today-tonight`, `today-where`, `today-contact`, `today-key-times`, `today-dress`, `today-run-of-show`), TravelSection ×3 (`travel-getting-there`, `travel-hotels`, `travel-flight`), VenueSection ×3 (`venue-where`, `venue-facilities`, `venue-status`). The `cardId` at each site is the literal already inside the existing `CARD_REGION_MAP[...]` lookup.
@@ -466,15 +476,17 @@ it("admin_preview → admin surface, admin-preview-card scope, crewPreview conte
 
 - [ ] **Step 2: Run to verify failure.** `pnpm vitest run tests/app/crewShellCardReport.test.tsx` → FAIL (helper missing).
 
-- [ ] **Step 3: Implement.** Create `lib/crew/cardReportContext.ts`:
+- [ ] **Step 3: Implement.** Add `buildCardReportContext` to the existing `lib/crew/cardReportContext.ts` (created in Task 2 — `CardReportContext` is already defined in this same module, so no cross-module type import). Add the `Viewer` import at the top:
 
 ```ts
-import type { CardReportContext } from "@/components/crew/primitives/CardReportTrigger";
 import type { Viewer } from "@/lib/data/getShowForViewer";
+// (CardReportContext + DEFAULT_CARD_REPORT already defined above in this file)
 
 export function buildCardReportContext(
   viewer: Viewer, viewerName: string | null, viewerRole: string | null,
 ): CardReportContext {
+  // Note: a plain `admin` viewer (non-preview) falls into the crew branch —
+  // matches the footer, which only special-cases admin_preview (_CrewShell.tsx:359,372).
   if (viewer.kind === "admin_preview") {
     return {
       surface: "admin",
