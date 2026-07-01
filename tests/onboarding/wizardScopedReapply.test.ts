@@ -1,4 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
+
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+
 import type {
   WizardStagedRouteDeps,
   WizardStagedRouteTx,
@@ -200,6 +204,87 @@ describe("wizard-scoped staged apply/discard routes", () => {
       staged_modified_time: "2026-05-18T12:01:00.000Z",
       code: "STAGED_PARSE_RESTAGED_INLINE",
     });
+  });
+
+  test("apply logs STAGE_APPLIED outcome (reapplied) after a wizard_applied commit", async () => {
+    logAdminOutcomeMock.mockClear();
+    const routeDeps = deps(new FakeWizardStagedTx());
+
+    const response = await handleWizardStagedApply(applyRequest(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "STAGE_APPLIED",
+        source: "api.admin.onboarding.staged.apply",
+        actorEmail: "doug@example.com",
+        result: "reapplied",
+        driveFileId: "file-1",
+        wizardSessionId: W1,
+      }),
+    );
+  });
+
+  test("apply logs STAGE_APPLIED outcome (restaged_inline) after a restaged_inline commit", async () => {
+    logAdminOutcomeMock.mockClear();
+    const response = await handleWizardStagedApply(
+      applyRequest(),
+      context,
+      deps(new FakeWizardStagedTx(), {
+        applyStaged: vi.fn(async () => ({
+          outcome: "restaged_inline" as const,
+          code: "STAGED_PARSE_RESTAGED_INLINE" as const,
+          wizardSessionId: W1,
+          driveFileId: "file-1",
+          stagedId: "33333333-3333-4333-8333-333333333333",
+          stagedModifiedTime: "2026-05-18T12:01:00.000Z",
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "STAGE_APPLIED",
+        source: "api.admin.onboarding.staged.apply",
+        actorEmail: "doug@example.com",
+        result: "restaged_inline",
+        driveFileId: "file-1",
+        wizardSessionId: W1,
+      }),
+    );
+  });
+
+  test("apply does NOT log an outcome when applyStaged returns skipped (409 SHOW_BUSY_RETRY)", async () => {
+    logAdminOutcomeMock.mockClear();
+    const response = await handleWizardStagedApply(
+      applyRequest(),
+      context,
+      deps(new FakeWizardStagedTx(), {
+        applyStaged: vi.fn(async () => ({ skipped: true }) as never),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "SHOW_BUSY_RETRY" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  test("apply does NOT log an outcome when applyStaged throws — proves the log is post-resolve", async () => {
+    logAdminOutcomeMock.mockClear();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await handleWizardStagedApply(applyRequest(), context, {
+      ...deps(new FakeWizardStagedTx()),
+      applyStaged: vi.fn(async () => {
+        throw new Error("kaboom: corrupt parse_result deref");
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   test("apply rejects unsupported reviewer choice versions before locking", async () => {
