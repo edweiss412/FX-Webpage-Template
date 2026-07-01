@@ -51,6 +51,7 @@ import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { log } from "@/lib/log";
 import {
   BASE_SECTION_IDS,
   resolveActiveSection,
@@ -164,7 +165,10 @@ export async function CrewShell({
         },
       });
     } catch (e) {
-      console.warn("[CrewShell] projection-alert upsert failed (fail-quiet):", e);
+      void log.warn("projection-alert upsert failed (fail-quiet):", {
+        source: "crew.shell",
+        error: e,
+      });
     }
   }
 

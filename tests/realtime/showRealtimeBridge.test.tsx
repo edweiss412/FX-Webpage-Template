@@ -28,8 +28,8 @@
  *   - Stale-generation guards on every status / system / disconnect callback.
  *   - JWT-renewal sequence on `system.disconnected` (also CHANNEL_ERROR /
  *     TIMED_OUT / CLOSED): mint new JWT → setAuth → removeChannel → re-subscribe
- *     → version catch-up; logs `SHOW_REALTIME_JWT_RENEWED outcome:'success'`.
- *   - Renewal mint failure: log `SHOW_REALTIME_BROADCAST_AUTH_FAILED`, no
+ *     → version catch-up; logs `JWT renew outcome success` (via clientLog).
+ *   - Renewal mint failure: log `JWT renew outcome failed (mint_failed)`, no
  *     retry-loop, single failed initial subscribe also no retry-loop.
  *   - The bridge renders `null` (no visual deliverable; bridge is invisible).
  *
@@ -536,7 +536,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(routerMock.state.refreshCalls).toBe(0);
   });
 
-  test("renewal flow on system.disconnected: mint → setAuth → removeChannel → re-subscribe → version catch-up; logs SHOW_REALTIME_JWT_RENEWED outcome:success", async () => {
+  test("renewal flow on system.disconnected: mint → setAuth → removeChannel → re-subscribe → version catch-up; logs `JWT renew outcome success`", async () => {
     const consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
 
     let mintCount = 0;
@@ -584,7 +584,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     await flushPromises();
     // Renewal log was emitted.
     const loggedRenewal = consoleInfoSpy.mock.calls.some((args) =>
-      args.some((a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED")),
+      args.some((a) => typeof a === "string" && a.includes("JWT renew outcome success")),
     );
     expect(loggedRenewal).toBe(true);
 
@@ -1032,7 +1032,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
   });
 
-  test("renewal mint failure: logs SHOW_REALTIME_BROADCAST_AUTH_FAILED, no retry-loop", async () => {
+  test("renewal mint failure: logs `JWT renew outcome failed (mint_failed)`, no retry-loop", async () => {
     const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     let mintCount = 0;
@@ -1077,7 +1077,9 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // No new subscribe calls beyond the initial one.
     expect(subscribeMock.state.subscribeCalls.length).toBe(baselineSubscribeCount);
     const loggedFailure = consoleWarnSpy.mock.calls.some((args) =>
-      args.some((a) => typeof a === "string" && a.includes("SHOW_REALTIME_BROADCAST_AUTH_FAILED")),
+      args.some(
+        (a) => typeof a === "string" && a.includes("JWT renew outcome failed (mint_failed)"),
+      ),
     );
     expect(loggedFailure).toBe(true);
 
@@ -1104,9 +1106,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // Bridge logged a warn but did NOT retry repeatedly.
     expect(subscribeMock.state.subscribeCalls.length).toBeLessThanOrEqual(1);
     const loggedWarn = consoleWarnSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("[ShowRealtimeBridge] subscription failed"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("subscription failed")),
     );
     expect(loggedWarn).toBe(true);
 
@@ -1165,14 +1165,14 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
   // === Important 1 (Task 4.16 Checkpoint B code-quality review) ===
   // The component's file-header doc promises that every renewal-failure
-  // path emits `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'`. These three
+  // path emits `JWT renew outcome failed (<reason>)` via clientLog. These three
   // tests pin the contract — without them, a future refactor that drops
   // the failed-outcome log would silently regress the logging contract
   // (the prior renewal-mint-failure test only asserted the
   // `BROADCAST_AUTH_FAILED` log fired, leaving the `outcome: failed` peer
   // unverified).
 
-  test("renewal mint failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
+  test("renewal mint failure emits `JWT renew outcome failed` log", async () => {
     const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     let mintCount = 0;
@@ -1211,9 +1211,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     }
 
     const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("JWT renew outcome failed")),
     );
     expect(loggedFailedOutcome).toBe(true);
     // Reason tag specifically identifies mint failure.
@@ -1230,7 +1228,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleWarnSpy.mockRestore();
   });
 
-  test("renewal setAuth failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
+  test("renewal setAuth failure emits `JWT renew outcome failed` log", async () => {
     const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     // Force setAuth to throw on the SECOND call (the renewal call;
@@ -1255,9 +1253,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     }
 
     const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("JWT renew outcome failed")),
     );
     expect(loggedFailedOutcome).toBe(true);
     const taggedSetAuthThrew = consoleWarnSpy.mock.calls.some((args) =>
@@ -1273,7 +1269,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleWarnSpy.mockRestore();
   });
 
-  test("renewal subscribe failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
+  test("renewal subscribe failure emits `JWT renew outcome failed` log", async () => {
     const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await mountBridgeAndAwaitSubscribe();
@@ -1292,9 +1288,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     }
 
     const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("JWT renew outcome failed")),
     );
     expect(loggedFailedOutcome).toBe(true);
     const taggedSubscribeThrew = consoleWarnSpy.mock.calls.some((args) =>
@@ -1572,9 +1566,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // No SHOW_REALTIME_JWT_RENEWED outcome:success log fired (renewal is
     // still in flight; the new channel has not reached SUBSCRIBED).
     const loggedSuccess = consoleInfoSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: success"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("JWT renew outcome success")),
     );
     expect(loggedSuccess).toBe(false);
 
@@ -1634,9 +1626,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     // No success log fired — the renewal did NOT mark itself successful.
     const loggedSuccess = consoleInfoSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: success"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("JWT renew outcome success")),
     );
     expect(loggedSuccess).toBe(false);
 

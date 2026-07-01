@@ -4,7 +4,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
 import { promoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
-import { deriveRequestId, runWithRequestContext } from "@/lib/log";
+import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -26,7 +26,7 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
   try {
     supabase = await createSupabaseServerClient();
   } catch (error) {
-    console.error("[/api/admin/staged/[fileId]/apply] server client construction failed", error);
+    log.error("server client construction failed", { source: "api.admin.staged.apply", error });
     return { kind: "infra_error" };
   }
 
@@ -37,11 +37,11 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
     data = response.data;
     error = response.error;
   } catch (cause) {
-    console.error("[/api/admin/staged/[fileId]/apply] getUser threw", cause);
+    log.error("getUser threw", { source: "api.admin.staged.apply", error: cause });
     return { kind: "infra_error" };
   }
   if (error) {
-    console.error("[/api/admin/staged/[fileId]/apply] getUser failed", error.message);
+    log.error("getUser failed", { source: "api.admin.staged.apply", errorMessage: error.message });
     return { kind: "infra_error" };
   }
   const email = canonicalize(data.user?.email);
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
         scheduleAfterResponse(
           async () =>
             await promoteSnapshotUpload(result.snapshotRevisionId!).catch((error) => {
-              console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
+              log.error("snapshot promotion failed", { source: "api.admin.staged.apply", error });
             }),
         );
         return NextResponse.json(

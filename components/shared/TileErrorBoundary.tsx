@@ -19,6 +19,8 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { captureBoundaryError } from "@/lib/observe/captureBoundaryError";
+
 import { TileErrorFallback } from "./TileErrorFallback";
 
 type TileErrorBoundaryProps = {
@@ -42,14 +44,13 @@ export class TileErrorBoundary extends Component<TileErrorBoundaryProps, State> 
   }
 
   override componentDidCatch(error: Error, info: ErrorInfo) {
-    // Best-effort console log. Sentry / external error reporting wires
-    // up at the top level (app/layout.tsx) — this boundary is the
-    // per-tile leaf so the whole page survives a single tile crash.
-    console.error(
-      `[TileErrorBoundary] tile=${this.props.tileId ?? "unknown"} caught:`,
-      error.message,
-      info.componentStack,
-    );
+    // Sentry (tagged with tileId) + the app_events mirror, via the single guarded entry point.
+    // This boundary is the per-tile leaf so the whole page survives a single tile crash.
+    // info.componentStack is `string | null` → spread only when present (exactOptionalPropertyTypes).
+    captureBoundaryError(error, "tile", {
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+      tileId: this.props.tileId ?? "unknown",
+    });
   }
 
   override render() {

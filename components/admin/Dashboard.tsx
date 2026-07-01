@@ -445,27 +445,28 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           DESIGN §7). NB: the columns must NOT also set h-full — height:100% on a
           flex child is a non-auto cross-size that SUPPRESSES align-items:stretch
           (the real-browser layout test caught this). Stacks on mobile. */}
-      {/* Two-col split gated at min-[1080px], NOT min-[720px]. This <main> is
-          now full-width; the admin layout wrapper caps content at max-w-[1600px]
-          (M12.4 item D2 — was max-w-6xl/1152px), so usable content now fills the
-          desktop viewport up to 1600px before centering.
-          The shows col must host ShowsTable's fixed tracks (8+5+12+1.25rem +
-          gaps ≈ 484px) AND a usable minmax(0,1fr) title track after the inbox col
-          is subtracted. The inbox is 320px (w-80) through the TIGHT split band
-          (1080–1279px) and only widens to 360px at ≥1280px where the uncapped
-          layout has slack — so the worst-case overhead at the 1080px activation
-          width is unchanged (~862px), keeping the title track comfortably above
-          the 120px floor. The band-sweep layout test (TITLE_BANDS up to 1280px)
-          pins this; do NOT widen the inbox at the 1080–1152 bands or lower the
-          split breakpoint without re-running it — either re-collapses the title. */}
+      {/* Two-col split gated at min-[1240px] (was min-[1080px]), NOT min-[720px].
+          The admin layout wrapper caps content at max-w-[1600px], so usable content
+          fills the desktop viewport up to 1600px before centering.
+          The shows col must host ShowsTable's fixed tracks AND a usable minmax(0,1fr)
+          title track after the inbox is subtracted. Since the Status column added a
+          6th track (active at ≥960px), the 6-col grid is live throughout the two-col
+          band — so the split was raised 1080→1240: at the old 1080 two-col band the
+          shows col (~680px) starved the ~120px title track. At 1240 (inbox 320px)
+          the shows col is ~840px, title ~180px. The inbox stays w-80 (320px) through
+          1240–1399 and only widens to w-[480px] at ≥1400px — a 480px inbox at 1280
+          would drop the shows col to ~720px and starve the title. The band-sweep
+          layout test (TITLE_BANDS incl. 1240/1400/1520) pins this; do NOT lower the
+          split or widen the inbox earlier without re-running it — either re-collapses
+          the title. */}
       <div
         data-testid="dashboard-split"
-        className="flex flex-col gap-tile-gap min-[1080px]:flex-row min-[1080px]:items-stretch"
+        className="flex flex-col gap-tile-gap min-[1240px]:flex-row min-[1240px]:items-stretch"
       >
         <section
           data-testid="dashboard-shows-col"
           aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
-          className="flex min-w-0 flex-col gap-3 min-[1080px]:flex-1"
+          className="flex min-w-0 flex-col gap-3 min-[1240px]:flex-1"
         >
           {/* M12.4 item D4: for the ACTIVE bucket the "Active shows" title, the
               Find input, AND the segmented control share ONE header row, owned by
@@ -551,7 +552,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[1080px]:w-80 min-[1080px]:shrink-0 min-[1280px]:w-[480px]"
+          className="flex flex-col gap-3 min-[1240px]:w-80 min-[1240px]:shrink-0 min-[1400px]:w-[480px]"
         >
           <NeedsAttentionSummaryCard
             totalCount={result.needsAttention.totalCount}

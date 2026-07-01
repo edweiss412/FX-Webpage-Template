@@ -39,6 +39,7 @@ import type { AgendaExtraction } from "@/lib/agenda/types";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
 import { EXTRACTOR_VERSION, AGENDA_MAX_PDFS_PER_SHEET } from "@/lib/agenda/constants";
 import { driveErrorStatus } from "@/lib/drive/fetch";
+import { log } from "@/lib/log";
 
 function warn(code: string, message: string): ParseWarning {
   return { severity: "warn", code, message };
@@ -156,12 +157,13 @@ export async function enrichAgenda(
         fileMeta = await driveClient.getFile(link.fileId);
       } catch (error) {
         const status = driveErrorStatus(error);
-        console.warn("[agenda-enrich] getFile threw", {
+        log.warn("getFile threw", {
+          source: "sync.enrichAgenda",
           fileId: link.fileId,
           ordinal: i,
           status,
           verdict: status === 404 || status === 400 ? "known_stale" : "unknown",
-          error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+          error,
         });
         if (status === 404 || status === 400) {
           warnings.push(
@@ -229,7 +231,8 @@ export async function enrichAgenda(
         link.fileId,
         signal !== undefined ? { signal } : undefined,
       );
-      console.log("[agenda-enrich] download", {
+      log.info("download", {
+        source: "sync.enrichAgenda",
         fileId: link.fileId,
         ordinal: i,
         kind: download.kind,
@@ -308,7 +311,8 @@ export async function enrichAgenda(
         typeof payload.sourceRevision === "string" &&
         revAfter === payload.sourceRevision;
 
-      console.log("[agenda-enrich] extracted", {
+      log.info("extracted", {
+        source: "sync.enrichAgenda",
         fileId: link.fileId,
         ordinal: i,
         bytes: download.bytes.byteLength,
@@ -370,9 +374,10 @@ export async function enrichAgenda(
     // Best-effort: never break the scan. A getFile/extract throw leaves the link
     // as-is; prior `extracted` payloads are preserved (we mutate after the reads).
     // Logged (previously swallowed) so an unexpected throw is diagnosable.
-    console.error("[agenda-enrich] threw (link left as-is)", {
+    log.error("threw (link left as-is)", {
+      source: "sync.enrichAgenda",
       spreadsheetId,
-      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      error: err,
     });
   }
 
