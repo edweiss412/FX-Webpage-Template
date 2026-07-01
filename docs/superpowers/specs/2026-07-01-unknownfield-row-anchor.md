@@ -74,13 +74,25 @@ and **remove** `w.code === "UNKNOWN_FIELD" ||` from the region-fallback branch (
 
 ### 5.2 Part B — under-count fix (falls out of Part C; no dedup change)
 
-No change to `lib/parser/dataGaps.ts`. After Part C:
+**No dedup-key change** in `operatorActionableWarnings`. (Part D adds a sibling helper to the same file, but the dedup key itself is untouched.) After Part C:
 - **Unique label** → distinct label-cell `a1` per row → the dedup key differs → all rows survive.
 - **Ambiguous / no match** → `sourceCell` is `null` → no `a1` → dedup skips it (`dataGaps.ts:162 if (a1)`) → all such rows survive.
 
-Either way the admin count equals the Step-3 count. We deliberately **do not** widen the dedup key with `rawSnippet`, so genuine same-cell cascades for the sibling region-anchored codes still collapse as intended. The dedup's documented invariant "no actionable row is ever hidden" (`dataGaps.ts:147-150`) becomes **true** for `UNKNOWN_FIELD`.
+Either way the admin count equals the Step-3 count for freshly-parsed shows; Part D extends the same outcome to already-persisted (legacy) shows. We deliberately **do not** widen the dedup key with `rawSnippet`, so genuine same-cell cascades for the sibling region-anchored codes still collapse as intended. The dedup's documented invariant "no actionable row is ever hidden" (`dataGaps.ts:147-150`) becomes **true** for `UNKNOWN_FIELD`.
 
-### 5.3 Part A — label surfacing (UI; both surfaces)
+### 5.3 Part D — legacy read-time compatibility shim (fixes already-persisted shows)
+
+**Why:** Parts C/B only take effect when a show is (re-)parsed. The reported repro is an **already-published** show whose `shows_internal.parse_warnings` already stores two `UNKNOWN_FIELD` warnings carrying the **stale block-region anchor** (`sourceCell = { gid, a1: <A55 range> }`) and **no** `blockRef.name`. Because the admin page reads and dedups the persisted warnings as-is (`app/admin/show/[slug]/page.tsx:291,325`), the count would stay `1` and the A55 link would keep rendering until a re-parse rewrites the JSONB — which never happens for an unchanged sheet (`last_seen_modified_time` gating; no global cursor). A code-only fix therefore would **not** fix the live defect. This shim makes stale rows self-heal at read time, on deploy, with no migration and no forced re-sync.
+
+**Shim:** `export function stripLegacyUnknownFieldAnchors(warnings: ParseWarning[]): ParseWarning[]` (co-located with `operatorActionableWarnings` in `lib/parser/dataGaps.ts`). For each warning where `w.code === "UNKNOWN_FIELD" && !w.blockRef?.name` (the unambiguous legacy signature — every **new** warning sets `blockRef.name` in Part C), return a shallow copy with `sourceCell` cleared (`sourceCell: null`). All other warnings pass through untouched (identity-preserving where possible).
+
+**Apply at both persisted-warning read boundaries**, as early as possible so both the dedup and the link render see normalized warnings:
+- Admin: immediately after `warnings = Array.isArray(...) ? ... : []` (`app/admin/show/[slug]/page.tsx:291`).
+- Step-3: immediately after `const warnings = arr(pr.warnings)` (`components/admin/wizard/Step3SheetCard.tsx:1493`).
+
+**Effect on a legacy row:** stale `sourceCell` cleared → `operatorActionableWarnings` sees no `a1` → not deduped → **both rows show** (count = 2, matching Step-3); the component's `w.sourceCell ? buildSheetDeepLink(...)` → `null` → **no A55 link**; Part A still renders each row's label from `rawSnippet`. **Forward-safe:** after any re-parse, warnings carry `blockRef.name`, the shim is a no-op, and Part C provides precise per-row links. This shim is a compatibility bridge, not a permanent substitute for the parse-time anchor.
+
+### 5.4 Part A — label surfacing (UI; both surfaces)
 
 In `components/admin/wizard/Step3SheetCard.tsx` `WarningsBreakdown` (~`:805-873`) and `components/admin/PerShowActionableWarnings.tsx`: when the warning is a cataloged code that carries a `rawSnippet`, render the row **label** as a muted secondary line beneath the title. The label is `rawSnippet` up to the **first** `" | "` (the value may itself contain `" | "`), trimmed. Shared extraction helper `labelFromRawSnippet(rawSnippet?: string | null): string | null` (co-located, e.g. in a small `lib/messages` or component-local util) that returns `null` for absent/blank input. Plain display text routed the same way the components already render `w.message` (through `renderEmphasis`); the label is **sheet content, not an error code**, so invariant 5 is satisfied. No catalog / §12.4 change.
 
@@ -90,7 +102,7 @@ Placement/copy: below the existing title `<span>` (Step3 `:841`; PerShow `:44`),
 
 | Input / state | Behavior |
 |---|---|
-| `blockRef.name` absent (legacy warning persisted before this change) | `resolveUnknownFieldCell` → `null` → no link; Part A shows nothing extra; row still renders. Backward-compatible. |
+| `blockRef.name` absent (legacy warning persisted before this change) | Part D's shim (`stripLegacyUnknownFieldAnchors`) clears the stale `sourceCell` at read time → not deduped (both rows show) and no stale A55 link; Part A still shows each label from `rawSnippet`. On next parse the warning gains `blockRef.name` and Part C anchors it precisely. |
 | Label matches **zero** grid rows | `null` → no link; row shows with its label (Part A). |
 | Label matches **≥2** grid rows (duplicate label in block) | `null` (exactly-one guard) → no link; both rows show with the same label. |
 | `kind` present but no such block on the sheet | header not found → no anchors for that kind → `null`. |
@@ -104,6 +116,8 @@ Placement/copy: below the existing title `<span>` (Step3 `:841`; PerShow `:44`),
 
 `blockRef.name` rides the existing jsonb columns unchanged: `shows_internal.parse_warnings` (published; written raw by postgres.js in `upsertShowsInternal`, read via `Array.isArray(...) as ParseWarning[]` cast in `app/admin/show/[slug]/page.tsx:281-291` and `lib/admin/loadHeldShows.ts:144-145`) and `pending_syncs.parse_result.warnings` (staged; `asParseResult` in `lib/db/coerceJsonbObject.ts` validates only that `warnings` is an array, no per-field check). No zod, no coercer edit, no `tests/db/coerceJsonbObject.test.ts` change (it mirrors top-level `ParseResult` fields only). This matches the existing `sourceCell` precedent (`types.ts:16-19`).
 
+**Legacy rows (persisted before this change)** carry `blockRef: { kind }` without `name` and a stale block-region `sourceCell`. No migration rewrites them; instead Part D's read-time shim neutralizes the stale anchor on every render, and any subsequent re-parse (cron sync on sheet change, or manual "Re-sync from Drive") rewrites them to precise per-row anchors via the normal `attachWarningAnchors` path (no new write path).
+
 ## 8. Class-sweep result
 
 `UNKNOWN_FIELD` is emitted only by `venue.ts` and `event.ts` → only the **venue** and **details** blocks. The other region-fallback codes (`FIELD_UNREADABLE`, `COLUMN_HEADER_AUTOCORRECTED`, `SECTION_HEADER_AUTOCORRECTED`, `FIELD_LABEL_AUTOCORRECTED`, `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE`) keep their region anchor and intended cascade-collapse — explicitly **out of scope**. No evidence they produce the confusing multi-distinct-row collapse for a header-block region in a way that harms the operator; changing them risks un-collapsing intended cascades.
@@ -113,6 +127,7 @@ Placement/copy: below the existing title `<span>` (Step3 `:841`; PerShow `:44`),
 - **`lib/drive/unknownFieldAnchors.ts` unit tests (new):** exactly-one match → anchor; duplicate label → `null`; kind-scoping (same label in venue + details resolves per-kind, no cross-block collision); no-match → `null`; missing INFO / gid → `[]`; throw → degrade (via `safe()` at the wiring test); anchor points at the **label cell** (assert the exact `a1`, e.g. `A56`, derived from a fixture grid, not hardcoded to the repro sheet).
 - **`attachSourceCellAnchors` dispatch test:** an `UNKNOWN_FIELD` warning with `blockRef.name` resolves to the per-label single-cell anchor and **not** the region rect; removing it from the region branch is pinned (a `UNKNOWN_FIELD` with no matching `unknownField` source → `sourceCell` stays undefined, i.e. no region fallback).
 - **`tests/parser/operatorActionableWarnings.test.ts`:** update expected counts — two distinct-label `UNKNOWN_FIELD` warnings with distinct label-cell anchors now both survive (no longer collapse); membership pin unchanged (`UNKNOWN_FIELD` still in `OPERATOR_ACTIONABLE_ANCHORED`).
+- **Part D legacy-shim regression (new):** construct two **persisted-legacy** `UNKNOWN_FIELD` warnings sharing the SAME block-region `sourceCell.a1` (the A55 range) and lacking `blockRef.name`; assert `stripLegacyUnknownFieldAnchors` clears their `sourceCell`, that `operatorActionableWarnings` then returns **2** (not collapsed), and that the render (or a component test) produces **no** deep link for them while still showing each label. This directly reproduces the live defect on stored data and proves the shim fixes it without a re-parse. Assert the shim is a **no-op** for a new-format `UNKNOWN_FIELD` warning that has `blockRef.name` + a valid single-cell anchor.
 - **Persistence round-trip:** if a warning-shape test exists, assert `blockRef.name` survives; otherwise a focused test that `emitUnknownField` sets `blockRef.name`.
 - **UI (both surfaces), anti-tautology:** assert the **label text** renders per entry and that the two Step-3 entries are **distinguishable** (different label lines). Derive expected labels from the fixture warnings' `rawSnippet`, not from hardcoded strings. When scanning rendered DOM for a label, scope extraction so an unrelated sibling can't satisfy the assertion.
 - **Live-sheet fidelity:** re-parse the real "AII/III - Consultants Roundtable 2025" INFO tab (via gsheets MCP) and confirm the two unrecognized DETAILS rows each resolve to their own label cell and produce distinct working deep links.
@@ -140,4 +155,5 @@ Placement/copy: below the existing title `<span>` (Step3 `:841`; PerShow `:44`),
 - **`blockRef.name` reuse, not a new `ParseWarning` field.** `name?: string` already exists (`types.ts:12`) and is already the semantic-key channel for crew-role resolution (`showDayTimeAnchors.ts:129`). No type/migration/coercer change is by design, not an omission.
 - **Sibling region-anchored codes out of scope (§8).** `FIELD_UNREADABLE` / `*_AUTOCORRECTED` / `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` intentionally keep region anchoring. `UNKNOWN_FIELD` is the only reported defect and the only code with a clean per-row label key.
 - **Parser↔extractor block-boundary divergence is safe by construction.** If the extractor's `headerBlock` bound differs from the parser's block bound for some row, resolution yields `null` (exactly-one-match guard) → link-less-but-labelled, never a wrong-cell link. This is the same safety posture as `resolveCrewRoleCell`.
+- **Part D shim is a compatibility bridge, deliberately at the read boundary (not a migration).** Round-1 [high] correctly flagged that a code-only fix leaves already-persisted shows broken. Part D resolves this at read time (`stripLegacyUnknownFieldAnchors`) so the live repro is fixed on deploy with no migration, no forced re-sync, and no new write path. The legacy discriminator is `w.code === "UNKNOWN_FIELD" && !w.blockRef?.name` (absent **or** empty name — intentional: an empty-label warning can't be precisely anchored anyway, so treating it as unanchored is safe). Do not "promote" this to a DB backfill migration — the validation project's `supabase db push` is blocked (Phase-0 divergence) and a jsonb rewrite migration is higher-risk than a self-healing read shim that a future re-parse supersedes.
 - **Reviewer is REVIEWER ONLY.** Surface findings; do not propose or apply fixes — repairs happen in a separate implementer dispatch.
