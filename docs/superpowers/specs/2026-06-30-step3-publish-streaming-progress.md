@@ -256,7 +256,7 @@ Tailwind v4 does not default `.flex` to `align-items: stretch` (project invarian
 | progress panel | `<progress>` bar | bar spans full panel width, fixed height | `className="h-2 w-full"` (matches `components/admin/wizard/Step2Verify.tsx:423`) |
 | `wizard-finalize` container | button (idle) vs panel (running) | **no HORIZONTAL shift; panel width == container width** | panel root is a full-width block in the column flex; `data-testid="wizard-finalize-progress"`. Vertical growth IS expected and accepted — the panel (bar + count line + status line) is taller than the idle button; the morph is honest about replacing the button, not pretending to be the same height. The container's left edge and width do not change. |
 
-Real-browser (Playwright) layout assertion required (jsdom insufficient): with the panel rendered, assert (a) `<progress>` `getBoundingClientRect().width` equals the panel's content width (±0.5px), (b) the panel width equals the `wizard-finalize` container width (±0.5px), and (c) the panel's `getBoundingClientRect().left` equals the container's `left` (±0.5px) — i.e. NO horizontal shift. Height equality is explicitly NOT asserted (the panel is legitimately taller than the button).
+**Verification mechanism — jsdom structural assertion (NOT a real-browser gate).** `wizard-finalize` is NOT a fixed-dimension parent: it is an auto-height `flex flex-col` whose children are full-width blocks. The project's layout-gate rule mandates a real-browser `getBoundingClientRect()` assertion ONLY for a *fixed-height/width parent containing flex/grid children that must stretch to fill it* — and the Tailwind-v4 "no default `align-items: stretch`" hazard is a flex-ROW concern. Here the bar's width comes from `w-full` (an explicit `width:100%`, independent of `align-items`) on a block child in a COLUMN, so there is no stretch relationship at risk and jsdom is sufficient. The layout test therefore asserts, in jsdom/RTL: (a) the `<progress>` element carries the `w-full` class, (b) the progress panel root and the `<progress>` carry their `data-testid`s and the panel is a block-level `flex flex-col` (not an inline/row container that could shrink-wrap the bar), and (c) while `running`, the panel is rendered and the idle button is NOT (the morph). No Playwright `getBoundingClientRect` test is warranted for this surface; this is a deliberate, documented right-sizing, not a coverage gap.
 
 ## 8. Guard conditions (every prop / input / event field)
 
@@ -319,7 +319,7 @@ Client — `tests/components/admin/FinalizeButton.test.tsx` (MIGRATED):
 - stream interruption (reader returns `done` before a terminal `result`) → generic error, no raw code. **Catches:** silent hang / raw-code leak.
 - Existing assertions preserved: disabled prop, label text, soft-confirm flow.
 
-Layout — `tests/components/admin/finalizeButtonLayout.browser.test.ts` (NEW, real-browser/Playwright): §7 invariants.
+Layout — folded into `tests/components/admin/FinalizeButton.test.tsx` (jsdom): the §7 structural invariants — `<progress>` carries `w-full`; panel root is a block `flex flex-col` with `data-testid="wizard-finalize-progress"`; while `running` the panel renders and the idle button does not. **Catches:** accidental removal of `w-full` / wrapping the bar in a shrink-wrapping container / the morph not hiding the button.
 
 ## 13. Numeric sweep / self-consistency
 
