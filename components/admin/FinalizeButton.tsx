@@ -150,8 +150,7 @@ export function FinalizeButton({
       alertRef.current?.focus();
     }
     // Keyed on state.kind only: focus the panel ONCE on entering `running` (not on every batch/cas
-    // phase tick, which would yank focus mid-progress).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // phase tick, which would yank focus mid-progress). Refs are stable; setState is not read here.
   }, [state.kind]);
 
   // Read one /finalize batch response. Streaming (Accept: NDJSON) → parse listed/row progress into
