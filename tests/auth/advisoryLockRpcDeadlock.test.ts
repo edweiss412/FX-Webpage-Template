@@ -291,7 +291,10 @@ describe("advisory-lock RPC deadlock guard", () => {
     for (const { file, handlerName } of [
       {
         file: "app/api/admin/onboarding/finalize/route.ts",
-        handlerName: "handleOnboardingFinalize",
+        // The lock + the app_settings FOR UPDATE both live in the shared batch core
+        // `executeFinalizeBatch`, which BOTH the non-streaming `handleOnboardingFinalize` and the
+        // streaming `handleOnboardingFinalizeStream` delegate to (single lock holder, one topology).
+        handlerName: "executeFinalizeBatch",
       },
       { file: "app/api/admin/onboarding/finalize-cas/route.ts", handlerName: "runFinalizeCas" },
     ]) {
