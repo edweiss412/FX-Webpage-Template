@@ -43,7 +43,7 @@
 | `components/admin/wizard/Step3SheetCard.tsx` | Apply shim at Step-3 read; surface label (Part A) | Modify (:1496, WarningsBreakdown :826-848) |
 | `components/admin/PerShowActionableWarnings.tsx` | Surface label (Part A) | Modify (:44) |
 
-Tests: `tests/parser/rawSnippet.test.ts` (new), `tests/parser/warnings.test.ts`, `tests/drive/unknownFieldAnchors.test.ts` (new), `tests/sync/attachWarningAnchors.test.ts`, `tests/drive/showDayTimeAnchors.test.ts`, `tests/parser/operatorActionableWarnings.test.ts`, `tests/parser/dataGaps.test.ts`, `tests/components/admin/perShowDataQualityActionable.test.tsx`, `tests/components/step3SheetCard.test.tsx`.
+Tests: `tests/parser/rawSnippet.test.ts` (new), `tests/parser/warnings.test.ts`, `tests/drive/unknownFieldAnchors.test.ts` (new), `tests/sync/attachWarningAnchors.test.ts`, `tests/drive/showDayTimeAnchors.test.ts`, `tests/parser/operatorActionableWarnings.test.ts`, `tests/parser/dataGaps.test.ts`, `tests/app/admin/perShowPage.test.tsx` (real-RSC admin boundary), `tests/components/admin/perShowDataQualityActionable.test.tsx`, `tests/components/step3SheetCard.test.tsx`.
 
 ---
 
@@ -750,38 +750,42 @@ git commit --no-verify -m "feat(parser): stripLegacyUnknownFieldAnchors + select
 
 ---
 
-## Task 7: apply the seam at the admin read boundary
+## Task 7: apply the seam at the admin read boundary (tested via the real page RSC)
 
 **Files:**
 - Modify: `app/admin/show/[slug]/page.tsx:325` (+ import)
-- Test: covered by Task 6's `selectActionableForDisplay` tests; add a render assertion here for the end-to-end panel behavior.
+- Test: `tests/app/admin/perShowPage.test.tsx` — this suite renders the ACTUAL page server component (`await mod.default(...)` via its `renderPage()` helper) with a mocked Supabase whose `shows_internal.maybeSingle` returns `state.showsInternal`. Seeding `state.showsInternal.parse_warnings` and asserting the rendered Data-quality panel tests page.tsx's real read boundary — it goes RED if page.tsx does not apply the shim (resolves the R1/R2 admin tautology: a test that passes only because it re-implements the composition is replaced by one that drives the page's own code path).
 
 **Interfaces:**
 - Consumes: `selectActionableForDisplay` (Task 6).
 
-- [ ] **Step 1: Write the failing test** (append to `tests/components/admin/perShowDataQualityActionable.test.tsx`)
+- [ ] **Step 1: Write the failing test** (append to `tests/app/admin/perShowPage.test.tsx`, using the file's existing `state`/`renderPage()` harness; `state.showsInternal` is what `shows_internal.maybeSingle` returns — see `perShowPage.test.tsx:116-125`)
 
 ```tsx
-import { selectActionableForDisplay } from "@/lib/parser/dataGaps";
-import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
-
-it("admin boundary: legacy A55-range UNKNOWN_FIELD pair renders 2 items, no link", () => {
-  const items = selectActionableForDisplay([
-    { code: "UNKNOWN_FIELD", severity: "warn", message: "a", rawSnippet: "Floor Plan | LINK", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
-    { code: "UNKNOWN_FIELD", severity: "warn", message: "b", rawSnippet: "GS Podium Type | (2) Acrylic", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
-  ] as any);
-  render(<PerShowActionableWarnings items={items} driveFileId="drive123" />);
-  expect(screen.getAllByTestId("per-show-actionable-item")).toHaveLength(2);
-  expect(screen.queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
+it("Data quality: legacy A55-range UNKNOWN_FIELD pair renders 2 items with NO Open-in-Sheet link", async () => {
+  state.showsInternal = {
+    parse_warnings: [
+      { code: "UNKNOWN_FIELD", severity: "warn", message: "Unrecognized event_details row label: 'Floor Plan'",
+        rawSnippet: "Floor Plan | LINK", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+      { code: "UNKNOWN_FIELD", severity: "warn", message: "Unrecognized event_details row label: 'GS Podium Type'",
+        rawSnippet: "GS Podium Type | (2) Acrylic", sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    ],
+  };
+  await renderPage();
+  const panel = screen.getByTestId("per-show-actionable-warnings");
+  // Without the shim, operatorActionableWarnings collapses these to ONE item and
+  // PerShowActionableWarnings renders the stale A55 link → this fails.
+  expect(within(panel).getAllByTestId("per-show-actionable-item")).toHaveLength(2);
+  expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx -t "admin boundary"`
-Expected: FAIL if the component/import isn't wired; PASS proves the seam produces the right items. (This asserts the seam's end-to-end render; the page wiring in Step 3 makes the real page use it.)
+Run: `pnpm vitest run tests/app/admin/perShowPage.test.tsx -t "legacy A55-range"`
+Expected: FAIL — the real page currently calls `operatorActionableWarnings(dataQuality.actionable)`, so the two range-anchored warnings collapse to 1 item and the A55 link renders.
 
-- [ ] **Step 3: Write minimal implementation** — in `app/admin/show/[slug]/page.tsx`, change the import at the top (currently `import { operatorActionableWarnings } from "@/lib/parser/dataGaps"` — extend it) and the call at line 325:
+- [ ] **Step 3: Write minimal implementation** — in `app/admin/show/[slug]/page.tsx`, change the import at the top (currently `import { operatorActionableWarnings } from "@/lib/parser/dataGaps"` — swap to the seam) and the call at line 325:
 
 ```ts
 import { selectActionableForDisplay } from "@/lib/parser/dataGaps";
@@ -795,13 +799,13 @@ import { selectActionableForDisplay } from "@/lib/parser/dataGaps";
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm vitest run tests/components/admin/perShowDataQualityActionable.test.tsx` then `pnpm typecheck`
-Expected: PASS; typecheck clean.
+Run: `pnpm vitest run tests/app/admin/perShowPage.test.tsx` then `pnpm typecheck`
+Expected: PASS; typecheck clean (remove the now-unused `operatorActionableWarnings` import if nothing else in `page.tsx` uses it — grep the file; typecheck flags an unused import).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add "app/admin/show/[slug]/page.tsx" tests/components/admin/perShowDataQualityActionable.test.tsx
+git add "app/admin/show/[slug]/page.tsx" tests/app/admin/perShowPage.test.tsx
 git commit --no-verify -m "fix(admin): route Data-quality actionable warnings through selectActionableForDisplay (Part D)"
 ```
 
@@ -1007,4 +1011,4 @@ git commit --no-verify -m "fix(admin): impeccable critique/audit findings on row
 1. **Spec coverage:** Part A (Tasks 8-9) ✓; Part B (Task 5) ✓; Part C (Tasks 2-4) ✓; Part D (Tasks 6-7 admin, Task 8 Step-3) ✓; §5.1.1 provenance incl. outside-bound impostor → Task 3 tests ✓; live-sheet (Task 10) ✓; impeccable (Task 11) ✓.
 2. **Placeholder scan:** every code step carries real code; harness-adaptation notes are explicit, not placeholders.
 3. **Type consistency:** `normalizeCellKey` (Task 3) used consistently; `UnknownFieldAnchor` shape identical Tasks 3-4; `labelFromRawSnippet`/`valueFromRawSnippet` signatures identical Tasks 1/4/8/9; `stripLegacyUnknownFieldAnchors` + `selectActionableForDisplay` identical Tasks 6/7/8; `WarningAnchorSources.unknownField` added in Task 4 and consumed there; `attachSourceCellAnchors` callers updated (Task 4 Step 3 note).
-4. **TDD honesty:** Task 4 is one inseparable unit (source+dispatch) with an end-to-end test; Tasks 6-7 test the real read-boundary seam (`selectActionableForDisplay`), not a re-implementation; Task 8's shim test drives the real component and asserts no stale link.
+4. **TDD honesty:** Task 4 is one inseparable unit (source+dispatch) with an end-to-end test; Task 6 tests the `selectActionableForDisplay` seam; **Task 7 tests page.tsx's real boundary by rendering the page RSC with seeded legacy `parse_warnings` (goes red if the shim isn't applied — not a re-implementation);** Task 8's Step-3 shim test drives the real component and asserts no stale link.
