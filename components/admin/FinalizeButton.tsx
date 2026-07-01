@@ -214,6 +214,9 @@ export function FinalizeButton({
       }
       if (done) break;
     }
+    // Release the body reader promptly once the terminal result is in hand (the server closes
+    // right after it; cancel() is a clean no-op if the stream is already closed).
+    await reader.cancel().catch(() => {});
     if (!terminal) {
       const tail = buffer.trim();
       if (tail) handle(tail);
@@ -267,6 +270,9 @@ export function FinalizeButton({
       }
       if (done) break;
     }
+    // Release the body reader promptly once the terminal result is in hand (the server closes
+    // right after it; cancel() is a clean no-op if the stream is already closed).
+    await reader.cancel().catch(() => {});
     if (!terminal) {
       const tail = buffer.trim();
       if (tail) handle(tail);
