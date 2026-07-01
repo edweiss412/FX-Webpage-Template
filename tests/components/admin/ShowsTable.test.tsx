@@ -206,6 +206,30 @@ describe("ShowsTable", () => {
     );
   });
 
+  it("clicking the Status header sorts by state severity (asc: publishing < held < live < published) — §5", () => {
+    const order = () =>
+      screen
+        .getAllByTestId(/^shows-table-row-/)
+        .map((el) => (el.getAttribute("data-testid") ?? "").replace("shows-table-row-", ""));
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "pubd", published: true, isLive: false }), // published → rank 3
+          row({ slug: "pubg", published: false, isLive: false, finalizeOwned: true }), // publishing → 0
+          row({ slug: "held", published: false, isLive: false, finalizeOwned: false }), // held → 1
+          row({ slug: "live", published: true, isLive: true }), // live → 2
+        ]}
+        now={now}
+        activeCount={4}
+        overflowCount={0}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("shows-sort-status")); // asc
+    expect(order()).toEqual(["pubg", "held", "live", "pubd"]);
+    fireEvent.click(screen.getByTestId("shows-sort-status")); // desc reverses
+    expect(order()).toEqual(["pubd", "live", "held", "pubg"]);
+  });
+
   it("overflowCount>0 -> 'showing first N of M' overflow notice renders", () => {
     render(
       <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={600} overflowCount={599} />,

@@ -67,7 +67,7 @@ const ROW_GRID =
 // M12.10 — sortable columns. `null` = the server's incoming order (live-first),
 // preserved until the user picks a column. Nulls (no dates / never-synced)
 // always sort LAST regardless of direction; ties break by title for stability.
-type SortKey = "title" | "dates" | "crew" | "sync";
+type SortKey = "title" | "dates" | "crew" | "sync" | "status";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
 function sortValue(row: ActiveShowRow, key: SortKey): string | number | null {
@@ -89,12 +89,26 @@ function sortValue(row: ActiveShowRow, key: SortKey): string | number | null {
       const { bucket, label } = syncStatusBucket(row.lastSyncStatus);
       return `${SYNC_SORT_RANK[bucket]}|${label}`;
     }
+    case "status":
+      // Each status state has exactly ONE label, so the rank fully determines
+      // order — no |label suffix needed (§5). Equal ranks fall through to the
+      // title tiebreak below. Never null, so status rows never sort "last".
+      return STATUS_SORT_RANK[statusState(row)];
   }
 }
 
 // Severity order for the Sync column sort — most-attention-first (problems
 // before healthy). Matches the visible dot color + label grouping.
 const SYNC_SORT_RANK: Record<SyncBucket, number> = { warn: 0, review: 1, idle: 2, positive: 3 };
+
+// Status column sort severity (attention-first, §5): in-flight/held before settled.
+// `statusState`/`STATUS_SORT_RANK` are defined below near StatePill (hoisted fn/const).
+const STATUS_SORT_RANK: Record<StatusState, number> = {
+  publishing: 0,
+  held: 1,
+  live: 2,
+  published: 3,
+};
 
 function sortRows(rows: ActiveShowRow[], sort: SortState): ActiveShowRow[] {
   if (!sort) return rows;
@@ -391,6 +405,9 @@ export function ShowsTable({
             {sortHeader("dates", "Dates")}
             {sortHeader("crew", "Crew")}
             {sortHeader("sync", "Sync status")}
+            {/* Status header — the 5th grid cell, present only in the 6-col grid
+                (hidden <960px so it drops out of the 5-track header). */}
+            <span className="hidden min-[960px]:block">{sortHeader("status", "Status")}</span>
             <span aria-hidden="true" />
           </div>
 
