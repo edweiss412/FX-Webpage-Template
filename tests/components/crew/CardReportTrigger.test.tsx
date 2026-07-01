@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CardReportTrigger } from "@/components/crew/primitives/CardReportTrigger";
+import { CardReportTrigger } from "@/components/shared/CardReportTrigger";
 
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const fetchMock = vi.fn();

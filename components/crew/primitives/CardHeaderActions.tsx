@@ -12,7 +12,7 @@
  */
 import type { ReactNode } from "react";
 import { SourceLink } from "@/components/crew/primitives/SourceLink";
-import { CardReportTrigger } from "@/components/crew/primitives/CardReportTrigger";
+import { CardReportTrigger } from "@/components/shared/CardReportTrigger";
 import { DEFAULT_CARD_REPORT, type CardReportContext } from "@/lib/crew/cardReportContext";
 import {
   CARD_REGION_MAP,

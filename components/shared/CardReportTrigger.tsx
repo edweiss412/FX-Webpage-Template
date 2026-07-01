@@ -1,9 +1,14 @@
 "use client";
 /**
- * components/crew/primitives/CardReportTrigger.tsx
+ * components/shared/CardReportTrigger.tsx
  *
  * A recessive, icon-only per-card "report a problem" affordance that lives in a
- * SectionCard header `action` slot beside `SourceLink`. On click it opens the
+ * SectionCard header `action` slot beside `SourceLink`. It is a CLIENT island
+ * (uses `useState` + opens `ReportModal`), so it lives under `components/shared`
+ * with the rest of the report family — NOT under `components/crew/primitives`,
+ * which is reserved for the pure Server Components that `<WrappedSection>`
+ * direct-invokes (`tests/components/tiles/_pureRenderCompliance.test.ts`). It is
+ * rendered as a leaf by the server `CardHeaderActions`. On click it opens the
  * shared `ReportModal` stamped with `fieldRef: { cardId, region }` so the filed
  * GitHub issue self-identifies which card + sheet region it is about (issue
  * #207 class). Styling mirrors `SourceLink`'s recessive treatment so it never
