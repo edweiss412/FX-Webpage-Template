@@ -27,6 +27,7 @@ import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
@@ -81,10 +82,10 @@ export async function AlertBanner() {
   try {
     supabase = await createSupabaseServerClient();
   } catch (err) {
-    console.error(
-      "[AlertBanner] supabase client construction threw:",
-      err instanceof Error ? err.message : String(err),
-    );
+    log.error("supabase client construction threw", {
+      source: "admin.alertBanner",
+      error: err,
+    });
     detailFailed = true;
   }
 
@@ -124,16 +125,19 @@ export async function AlertBanner() {
         // network failure, mis-applied migration). Task 1.3: this is now
         // fail-VISIBLE — set detailFailed so the degraded banner renders
         // instead of silently hiding a broken read.
-        console.error("[AlertBanner] admin_alerts SELECT failed:", result.error.message);
+        log.error("admin_alerts SELECT failed", {
+          source: "admin.alertBanner",
+          error: result.error.message,
+        });
         detailFailed = true;
       } else {
         data = result.data as Array<Record<string, unknown>> | null;
       }
     } catch (err) {
-      console.error(
-        "[AlertBanner] admin_alerts SELECT threw:",
-        err instanceof Error ? err.message : String(err),
-      );
+      log.error("admin_alerts SELECT threw", {
+        source: "admin.alertBanner",
+        error: err,
+      });
       detailFailed = true;
     }
   }
@@ -201,7 +205,10 @@ export async function AlertBanner() {
   const showSlug = show?.slug ?? null;
   const isPerShowAlert = alert.show_id !== null;
   if (isPerShowAlert && !showSlug) {
-    console.error("[AlertBanner] per-show alert missing show slug:", alert.id);
+    log.error("per-show alert missing show slug", {
+      source: "admin.alertBanner",
+      alertId: alert.id,
+    });
   }
 
   // RECON-1 T3 (spec §3.3): the collapsed summary line renders the catalog

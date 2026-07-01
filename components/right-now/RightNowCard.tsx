@@ -123,6 +123,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 
+import { clientLog } from "@/lib/observe/clientLog";
 import { usePrefersReducedMotion } from "@/lib/a11y/usePrefersReducedMotion";
 import {
   daysBetween,
@@ -513,8 +514,10 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // only diagnostic — never surfaced to user-visible UI text.
   useEffect(() => {
     if (rawTreatment === "unreachable") {
-      console.error(
-        `[RightNowCard] §8.2 unreachable transition fired: ${effectivePrev} → ${effectiveCurrent}. ` +
+      clientLog(
+        "error",
+        "client.crew",
+        `RightNowCard §8.2 unreachable transition fired: ${effectivePrev} → ${effectiveCurrent}. ` +
           `This violates lib/time/rightNowTransitions.ts assumptions; please open a bug.`,
       );
     }

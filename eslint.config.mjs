@@ -21,6 +21,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Documentation is not source — markdown + prototype/asset scripts (e.g. the agenda
+    // extractor-prototype .mjs files) are not linted (and the Phase 4 no-console rule must not
+    // flag those prototypes' console output).
+    "docs/**",
     // Claude Code worktrees — full repo checkouts that would double-scan
     // every source file and OOM the eslint process when bare `pnpm lint`
     // runs from the main checkout.
@@ -51,6 +55,9 @@ const eslintConfig = defineConfig([
       },
     },
     rules: {
+      // Phase 4: runtime logging flows through lib/log (server) / clientLog (client). Raw console
+      // is forbidden in app/lib/components; the 5 sanctioned-console surfaces are exempt below.
+      "no-console": "error",
       // Note: catches direct string literals + recognized utility callees
       // (`clsx`/`cn`/`cva`/...). Array-style patterns like
       // `className={[ "...", "..." ].filter(Boolean).join(" ")}` are NOT
@@ -79,6 +86,19 @@ const eslintConfig = defineConfig([
       "lib/audit/email-boundaries.generated.ts",
     ],
     rules: {},
+  },
+  // Phase 4: sanctioned-console surfaces — exempt from no-console. scripts/tests = non-runtime;
+  // lib/log/logger.ts = the sink's own console[level] output; lib/log/persist.ts = the fallback
+  // when app_events is unwritable; lib/observe/clientLog.ts = the sanctioned client console wrapper.
+  {
+    files: [
+      "scripts/**",
+      "tests/**",
+      "lib/log/logger.ts",
+      "lib/log/persist.ts",
+      "lib/observe/clientLog.ts",
+    ],
+    rules: { "no-console": "off" },
   },
   // Must be last: disables ESLint rules that conflict with Prettier formatting.
   prettier,

@@ -11,6 +11,7 @@ import {
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
+import { log } from "@/lib/log";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -52,7 +53,7 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
 
   const result = await selectIdentityCore({ slug, shareToken, crewMemberId });
   if (!result.ok && result.code === "PICKER_IDENTITY_CLAIMED") {
-    console.warn(
+    log.warn(
       JSON.stringify({
         event: "picker.identity_claimed",
         tamper: true,
@@ -60,6 +61,7 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
         crewMemberId,
         reason: "hand_crafted_post_bypassed_deactivated_row",
       }),
+      { source: "auth.picker.selectIdentity" },
     );
     redirect(
       `/auth/sign-in?next=${encodeURIComponent(buildShowReturnUrl(slug, shareToken, { s }))}`,

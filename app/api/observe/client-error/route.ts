@@ -1,8 +1,21 @@
 import { log } from "@/lib/log";
 import { runWithRequestContext, deriveRequestId } from "@/lib/log/requestContext";
 
-const AREAS = new Set(["crew", "admin", "root"]);
-const CAPS = { message: 1000, stack: 8000, componentStack: 8000, digest: 200, url: 2000 } as const;
+const ALLOWED_SOURCES = new Set([
+  "client.crew",
+  "client.admin",
+  "client.root",
+  "client.tile",
+  "client.realtime",
+]);
+const CAPS = {
+  message: 1000,
+  stack: 8000,
+  componentStack: 8000,
+  digest: 200,
+  url: 2000,
+  tileId: 200,
+} as const;
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 20;
 const counters = new Map<string, { count: number; resetAt: number; warned: boolean }>();
@@ -37,11 +50,11 @@ function cap(v: unknown, n: number): string | undefined {
 }
 
 // Best-effort per-instance backstop. Returns { ok } and, on the FIRST drop of a window, { warn:true }
-// so the caller emits exactly ONE rate-cap warning per window per area (spec §3 "logged once").
-function allow(area: string, now: number): { ok: boolean; warn: boolean } {
-  const c = counters.get(area);
+// so the caller emits exactly ONE rate-cap warning per window per source (spec §3 "logged once").
+function allow(source: string, now: number): { ok: boolean; warn: boolean } {
+  const c = counters.get(source);
   if (!c || now >= c.resetAt) {
-    counters.set(area, { count: 1, resetAt: now + WINDOW_MS, warned: false });
+    counters.set(source, { count: 1, resetAt: now + WINDOW_MS, warned: false });
     return { ok: true, warn: false };
   }
   if (c.count >= MAX_PER_WINDOW) {
@@ -69,33 +82,50 @@ export async function handleClientError(req: Request): Promise<Response> {
     return Response.json({ ok: false }, { status: 400 });
   }
   const body = parsed as Record<string, unknown>;
-  const area = body.area;
+  const source = body.source;
+  const level = body.level === undefined ? "error" : body.level;
   const rawMessage = typeof body.message === "string" ? body.message.trim() : "";
-  if (typeof area !== "string" || !AREAS.has(area) || rawMessage === "") {
+  if (
+    typeof source !== "string" ||
+    !ALLOWED_SOURCES.has(source) ||
+    (level !== "warn" && level !== "error") ||
+    rawMessage === ""
+  ) {
     return Response.json({ ok: false }, { status: 400 });
   }
   // Best-effort per-instance backstop (acknowledged weak in serverless; client dedup is primary).
-  const gate = allow(area, Date.now());
+  const gate = allow(source, Date.now()); // rate-key by source (was area)
   if (!gate.ok) {
     if (gate.warn) {
       await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
         safeLog(() =>
-          log.warn("client-error mirror rate cap hit", { source: "observe.client-error", area }),
+          log.warn("client-error mirror rate cap hit", {
+            source: "observe.client-error",
+            capped: source,
+          }),
         ),
       );
     }
     return Response.json({ ok: true }, { status: 202 });
   }
-  // AWAIT the write (log.error returns the emit promise) inside safeLog so a rejected sink/persist
+  // Conditional spreads so an absent optional never materializes as `{ stack: undefined }`
+  // (exactOptionalPropertyTypes); `cap()` returns string | undefined.
+  const s = cap(body.stack, CAPS.stack);
+  const cs = cap(body.componentStack, CAPS.componentStack);
+  const dg = cap(body.digest, CAPS.digest);
+  const u = cap(body.url, CAPS.url);
+  const ti = cap(body.tileId, CAPS.tileId);
+  // AWAIT the write (log.* returns the emit promise) inside safeLog so a rejected sink/persist
   // is caught here and can never escape as an unhandled rejection (fail-open: never 5xx).
   await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
     safeLog(() =>
-      log.error(rawMessage.slice(0, CAPS.message), {
-        source: `client.${area}`,
-        stack: cap(body.stack, CAPS.stack),
-        componentStack: cap(body.componentStack, CAPS.componentStack),
-        digest: cap(body.digest, CAPS.digest),
-        url: cap(body.url, CAPS.url),
+      log[level](rawMessage.slice(0, CAPS.message), {
+        source,
+        ...(s ? { stack: s } : {}),
+        ...(cs ? { componentStack: cs } : {}),
+        ...(dg ? { digest: dg } : {}),
+        ...(u ? { url: u } : {}),
+        ...(ti ? { tileId: ti } : {}),
       }),
     ),
   );

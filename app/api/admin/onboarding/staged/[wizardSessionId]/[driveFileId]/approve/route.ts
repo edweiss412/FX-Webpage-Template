@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -251,12 +252,10 @@ export async function handleWizardStagedApprove(
       });
     });
   } catch (error) {
-    console.error(
-      `wizard approve: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    log.error("wizard approve: unexpected failure", {
+      source: "api.admin.onboarding.staged.approve",
       error,
-    );
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

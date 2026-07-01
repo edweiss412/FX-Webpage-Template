@@ -13,7 +13,7 @@ import { hashForLog } from "@/lib/email/hashForLog";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { deriveRequestId, runWithRequestContext } from "@/lib/log";
+import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
 
 const ROUTE = "/api/auth/picker-bootstrap";
 const MAX_AGE_SEC = 7_776_000;
@@ -81,7 +81,8 @@ async function emitResolveShowFailure(input: { slug: string; error: unknown }): 
       },
     });
   } catch {
-    console.error("[picker-bootstrap] resolve-show alert emission failed", {
+    log.error("resolve-show alert emission failed", {
+      source: "api.auth.pickerBootstrap",
       slug: input.slug,
       rpcErrorCode: errorCode(input.error),
     });
@@ -101,7 +102,8 @@ async function emitClaimFailure(input: { canonicalEmail: string; error: unknown 
       },
     });
   } catch (alertErr) {
-    console.error("[picker-bootstrap] claim alert emission failed", {
+    log.error("claim alert emission failed", {
+      source: "api.auth.pickerBootstrap",
       emailHash: hashForLog(input.canonicalEmail),
       rpcErrorCode: errorCode(input.error),
       alertError:

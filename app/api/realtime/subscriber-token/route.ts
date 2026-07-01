@@ -30,6 +30,7 @@
  * be cacheable + replayable, which is wrong for credentialed minting.
  */
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/log";
 import { SignJWT } from "jose";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
@@ -158,9 +159,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     // to mint with the same misconfiguration code (the client cannot
     // distinguish missing-env from short-secret — that's intentional;
     // operators see the full picture in logs).
-    console.error(
-      "[/api/realtime/subscriber-token] SUPABASE_JWT_SECRET is shorter than 32 bytes; refusing to mint HS256 JWT",
-    );
+    log.error("SUPABASE_JWT_SECRET is shorter than 32 bytes; refusing to mint HS256 JWT", {
+      source: "api.realtime.subscriberToken",
+    });
     return NextResponse.json({ error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" }, { status: 500 });
   }
 

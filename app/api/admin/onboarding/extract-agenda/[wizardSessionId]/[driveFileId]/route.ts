@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 
@@ -412,7 +413,10 @@ export async function handleExtractAgenda(
       // never-rendered server fault (the card shows its generic error copy on any
       // non-2xx). Discriminability for ops comes from the console.error + HTTP 500.
       // The outer finally still fires after this return and releases the lease + slot.
-      console.error("[extract-agenda] unexpected error in extract/merge region:", extractErr);
+      log.error("unexpected error in extract/merge region:", {
+        source: "api.admin.onboarding.extractAgenda",
+        error: extractErr,
+      });
       return NextResponse.json({ status: "error" }, { status: 500 });
     }
   } catch (preExtractErr) {
@@ -424,7 +428,10 @@ export async function handleExtractAgenda(
     // and classified — NOT a bare framework 500 (invariant 9). The `finally` below
     // still releases the lease (if claimed) + the in-memory slot. Together with the
     // inner extract-region catch, EVERY post-auth throw path returns the typed 500.
-    console.error("[extract-agenda] unexpected error before extraction:", preExtractErr);
+    log.error("unexpected error before extraction:", {
+      source: "api.admin.onboarding.extractAgenda",
+      error: preExtractErr,
+    });
     return NextResponse.json({ status: "error" }, { status: 500 });
   } finally {
     // Lease-release boundary (round-1): every post-claim early exit

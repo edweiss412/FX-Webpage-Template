@@ -18,6 +18,7 @@ import {
   EXTRACTOR_VERSION,
 } from "@/lib/agenda/constants";
 import type { AgendaExtraction, AgendaDay, AgendaSession } from "@/lib/agenda/types";
+import { log } from "@/lib/log";
 
 type Line = { p: number; y: number; text: string; font: string; size: number; len: number };
 type Meridiem = "AM" | "PM";
@@ -169,7 +170,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     }).promise;
 
     if (doc.numPages > AGENDA_MAX_PAGES) {
-      console.warn("[agenda-extract] too-many-pages", {
+      log.warn("too-many-pages", {
+        source: "agenda.extract",
         bytes: pdfBytes.byteLength,
         numPages: doc.numPages,
         max: AGENDA_MAX_PAGES,
@@ -538,7 +540,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       // note-only ("No schedule detected in this PDF"), indistinguishable from a genuinely
       // scheduleless PDF without this breadcrumb. `bytes` correlates with the
       // "[agenda-enrich] download" line that carries the fileId.
-      console.warn("[agenda-extract] low-confidence", {
+      log.warn("low-confidence", {
+        source: "agenda.extract",
         bytes: pdfBytes.byteLength,
         numPages: doc.numPages,
         lineCount: lines.length,
@@ -578,7 +581,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       }
     }
 
-    console.log("[agenda-extract] high", {
+    log.info("high", {
+      source: "agenda.extract",
       bytes: pdfBytes.byteLength,
       numPages: doc.numPages,
       days: days.length,
@@ -588,9 +592,10 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
   } catch (err) {
     // Previously swallowed silently — the #1 reason a serverless extraction failure
     // was indistinguishable from "no schedule" in production.
-    console.error("[agenda-extract] pdfjs threw", {
+    log.error("pdfjs threw", {
+      source: "agenda.extract",
       bytes: pdfBytes.byteLength,
-      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      error: err,
     });
     return LOW();
   }

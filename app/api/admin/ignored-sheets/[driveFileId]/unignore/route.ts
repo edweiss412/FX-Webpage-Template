@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import type { ConcurrentSyncSkipped } from "@/lib/sync/lockedShowTx";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
@@ -80,10 +81,10 @@ export async function handleUnignore(
     });
     return NextResponse.json({ status: "unignored" });
   } catch (error) {
-    console.error(
-      `un-ignore: unexpected failure: ${error instanceof Error ? error.message : String(error)}`,
+    log.error("un-ignore: unexpected failure", {
+      source: "api.admin.ignoredSheets.unignore",
       error,
-    );
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

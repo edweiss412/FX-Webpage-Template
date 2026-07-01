@@ -109,3 +109,27 @@ export function emitUnknownSection(agg: ParseAggregator | undefined, headerText:
     rawSnippet: headerText,
   });
 }
+
+/**
+ * Emit an UNKNOWN_FIELD operator-review warning + a structured raw_unrecognized
+ * entry for a row whose label resolved to no known field inside a block scope.
+ * `block` names the source (diagnostic message + raw_unrecognized.block); `kind`
+ * is the deep-link RegionId (usually == block; event-details uses 'details').
+ * Mirrors emitFieldUnreadable/emitUnknownSection. (unknown-label coverage)
+ */
+export function emitUnknownField(
+  agg: ParseAggregator | undefined,
+  opts: { block: string; kind: string; key: string; value: string },
+): void {
+  if (!agg) return;
+  const key = opts.key.trim();
+  const value = opts.value ?? "";
+  agg.warnings.push({
+    severity: "warn",
+    code: "UNKNOWN_FIELD",
+    message: `Unrecognized ${opts.block} row label: '${key}'`,
+    blockRef: { kind: opts.kind },
+    rawSnippet: `${key} | ${value}`,
+  });
+  agg.rawUnrecognized.push({ block: opts.block, key, value });
+}

@@ -11,12 +11,21 @@ afterEach(() => {
 });
 
 describe("captureBoundaryError", () => {
-  test("calls BOTH Sentry and the mirror with area + derived digest", () => {
+  test("(error,'crew') no extra → Sentry captureException(error, undefined) + mirror area=crew, derived digest, NO tileId", () => {
     const err = Object.assign(new Error("x"), { digest: "d1" });
     captureBoundaryError(err, "crew");
-    expect(captureException).toHaveBeenCalledWith(err);
+    expect(captureException).toHaveBeenCalledWith(err, undefined);
+    const arg = reportClientError.mock.calls[0]![0];
+    expect(arg).toMatchObject({ error: err, area: "crew", digest: "d1" });
+    expect(arg.tileId).toBeUndefined();
+    expect(arg.componentStack).toBeUndefined();
+  });
+  test("(error,'tile',{componentStack,tileId}) → Sentry tag {tileId} + mirror area=tile w/ componentStack + tileId", () => {
+    const err = new Error("boom");
+    captureBoundaryError(err, "tile", { componentStack: "CS", tileId: "t1" });
+    expect(captureException).toHaveBeenCalledWith(err, { tags: { tileId: "t1" } });
     expect(reportClientError).toHaveBeenCalledWith(
-      expect.objectContaining({ error: err, area: "crew", digest: "d1" }),
+      expect.objectContaining({ error: err, area: "tile", componentStack: "CS", tileId: "t1" }),
     );
   });
   test("Sentry throwing does NOT block the mirror (and never throws)", () => {
