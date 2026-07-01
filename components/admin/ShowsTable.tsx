@@ -12,7 +12,7 @@
 // recomputed here), Publishing badge iff !published. The Sync column is HEALTH
 // only via syncStatusBucket (decoupled from live/publishing, R1).
 //
-// Mobile (<md=720px): the Dates/Crew/Sync columns collapse into a stacked
+// Mobile (<768px): the Dates/Crew/Sync columns collapse into a stacked
 // sub-line under the title; the Live/Publishing pill stays with the title.
 "use client";
 
@@ -55,14 +55,16 @@ type ShowsTableProps = {
 // ("12/31/26 → 12/31/26") measures ~140px, which 8rem (128px) truncated. The
 // 1fr Show track lets long titles WRAP (no truncation) while the row stays
 // vertically centered (items-center). Crew/Sync wrap within their tracks too.
-// Two column templates: the original 5-track grid at min-[720px] (Show/Dates/Crew/Sync/
-// chevron) and a 6-track grid at min-[960px] that inserts a 6rem STATUS track before the
-// chevron. The Status header/cell are `hidden min-[960px]:block`, so below 960px they drop
-// out of grid flow and 5 cells map to the 5 tracks; at ≥960px the 6th cell re-enters and
-// 6 cells map to the 6 tracks. Status is gated at 960 (not 720) because the 720px grid is
-// already at the title `minmax(0,1fr)` track's floor — a 6th column there starves it.
+// Two column templates: a 5-track grid at min-[768px] (Show/Dates/Crew/Sync/chevron) and a
+// 6-track grid at min-[960px] that inserts a 6rem STATUS track before the chevron. The Status
+// header/cell are `hidden min-[960px]:block`, so below 960px they drop out of grid flow and 5
+// cells map to the 5 tracks; at ≥960px the 6th cell re-enters and 6 cells map to the 6 tracks.
+// The 5-col grid activates at 768 (NOT the app-wide 720): at 720px the `minmax(0,1fr)` title
+// track resolves to ~106px, below the 120px band-sweep floor (a wide data table needs to stack
+// earlier than the nav). Below 768px the row is flex-col stacked (mobile sub-line). Status
+// stays gated at 960 so the 6th column never worsens the 768–959 5-col band.
 const ROW_GRID =
-  "min-[720px]:grid min-[720px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem] min-[720px]:items-center min-[720px]:gap-4";
+  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4";
 
 // M12.10 — sortable columns. `null` = the server's incoming order (live-first),
 // preserved until the user picks a column. Nulls (no dates / never-synced)
@@ -444,7 +446,7 @@ export function ShowsTable({
                       {/* Mobile stacked meta sub-line (hidden ≥md) */}
                       <div
                         data-testid={`shows-meta-mobile-${row.slug}`}
-                        className="flex flex-col gap-1 text-sm text-text-subtle min-[720px]:hidden"
+                        className="flex flex-col gap-1 text-sm text-text-subtle min-[768px]:hidden"
                       >
                         {dates ? <span className="tabular-nums">{dates}</span> : null}
                         <span className="tabular-nums">{crewLabel}</span>
@@ -458,16 +460,16 @@ export function ShowsTable({
                         All vertically centered via the grid's items-center. */}
                     <span
                       data-testid={`shows-dates-${row.slug}`}
-                      className="hidden whitespace-nowrap text-sm text-text-subtle tabular-nums min-[720px]:block"
+                      className="hidden whitespace-nowrap text-sm text-text-subtle tabular-nums min-[768px]:block"
                     >
                       {dates ?? "—"}
                     </span>
-                    <span className="hidden text-sm text-text-subtle tabular-nums min-[720px]:block">
+                    <span className="hidden text-sm text-text-subtle tabular-nums min-[768px]:block">
                       {crewLabel}
                     </span>
                     <span
                       data-testid={`shows-sync-${row.slug}`}
-                      className="hidden text-sm min-[720px]:block"
+                      className="hidden text-sm min-[768px]:block"
                     >
                       <SyncCell row={row} now={now} />
                     </span>
@@ -482,7 +484,7 @@ export function ShowsTable({
                     <span
                       data-testid={`shows-chevron-${row.slug}`}
                       aria-hidden="true"
-                      className="hidden text-text-faint min-[720px]:block"
+                      className="hidden text-text-faint min-[768px]:block"
                     >
                       <ChevronRight size={16} />
                     </span>

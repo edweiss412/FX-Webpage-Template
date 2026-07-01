@@ -206,6 +206,26 @@ describe("ShowsTable", () => {
     );
   });
 
+  it("5-col grid + cells + mobile sub-line gate at min-[768px] (not 720); Status stays min-[960px] — 720→768 fix", () => {
+    const { container } = render(
+      <ShowsTable rows={[row({ slug: "bp" })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    const header = screen.getByTestId("shows-table-header");
+    // 5-col grid now activates at 768; the 6-col Status grid still at 960
+    expect(header.className).toContain("min-[768px]:grid");
+    expect(header.className).toContain(
+      "min-[768px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem]",
+    );
+    expect(header.className).toContain(
+      "min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem]",
+    );
+    // the mobile sub-line hides at 768; a desktop cell shows at 768
+    expect(screen.getByTestId("shows-meta-mobile-bp").className).toContain("min-[768px]:hidden");
+    expect(screen.getByTestId("shows-sync-bp").className).toContain("min-[768px]:block");
+    // COMPREHENSIVE partial-miss guard: NO min-[720px] survives anywhere in the rendered table
+    expect(container.innerHTML).not.toContain("min-[720px]");
+  });
+
   it("clicking the Status header sorts by state severity (asc: publishing < held < live < published) — §5", () => {
     const order = () =>
       screen

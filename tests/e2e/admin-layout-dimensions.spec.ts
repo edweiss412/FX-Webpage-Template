@@ -147,14 +147,14 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
   // ── Responsive band sweep (R-fix: dashboard two-col split must not collapse
   // the ShowsTable title track). The original gate tested only 1200px + 390px;
   // it never swept the intermediate band where the active split narrows the
-  // shows col while ShowsTable's grid (min-[720px]) is simultaneously active,
-  // starving the minmax(0,1fr) title track to ~0px (titles vanish, Show/Dates
-  // headers overlap). Breakpoint-agnostic by design: at every band the first
-  // show-title cell must stay >= MIN_TITLE_PX with no horizontal overflow and
-  // no header/title overlap, regardless of whether the split is on or off at
-  // that width. Fails at the collapse band on pre-fix code; passes once the
-  // split is gated late enough that the activation width still affords the
-  // title track. ──
+  // shows col while ShowsTable's grid is simultaneously active, starving the
+  // minmax(0,1fr) title track to ~0px (titles vanish, Show/Dates headers overlap).
+  // Design: at every GRID-ON band (>= 768px, where the ShowsTable grid is active)
+  // the first show-title cell must stay >= MIN_TITLE_PX with no horizontal overflow
+  // and no header/title overlap; at STACKED bands (< 768px) the row is flex-col and
+  // the assertion instead pins the stacked presentation (mobile sub-line visible,
+  // desktop cells hidden). The ShowsTable 5-col grid is gated at min-[768px] (raised
+  // from 720, where the title starved to ~106px). ──
   // Sweep across the split-off band (single-column, full-width table) AND the
   // split-on band (two-col, narrowed shows col), including the exact split
   // activation width (1080px) where the title track is narrowest in two-col
@@ -163,7 +163,9 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
   // Bands ≥960 are OWNED by the Status column (6-col grid): each must clear the
   // floor. 1240 = two-col split activation; 1400 = inbox widen; 1520 = well into
   // the widened band. 720/810 exercise the UNCHANGED 5-col grid (baseline's domain).
-  const TITLE_BANDS = [720, 810, 960, 1024, 1080, 1100, 1152, 1240, 1280, 1400, 1520];
+  // 720 is now a STACKED band (the 5-col grid activates at min-[768px]); 768 is the
+  // activation band (title ~154px). 810+ are grid-on; 960+ add the Status column.
+  const TITLE_BANDS = [720, 768, 810, 960, 1024, 1080, 1100, 1152, 1240, 1280, 1400, 1520];
   const MIN_TITLE_PX = 120;
 
   for (const width of TITLE_BANDS) {
@@ -184,30 +186,32 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
       // truth), not a child's getBoundingClientRect (a flex/min-w-0 child can
       // report 0 even when the track is non-zero). minmax(0,1fr) lets the title
       // track starve to ~0px when the fixed tracks + a narrowed shows col exceed
-      // the available width — that is the collapse this gate must catch. Header
-      // grid is active at >= 720px, so all bands resolve to px tracks.
+      // the available width — that is the collapse this gate must catch. The 5-col
+      // grid is active at >= 768px; bands < 768 resolve `none` (flex-col stacked).
       const titleTrack = await firstRow.evaluate((el) => {
         const cols = getComputedStyle(el).gridTemplateColumns;
-        if (!cols || cols === "none") return -1; // not in grid mode (< 720px)
+        if (!cols || cols === "none") return -1; // not in grid mode (< 768px = stacked)
         return Number.parseFloat(cols.split(" ")[0] ?? "0");
       });
-      if (width >= 810) {
+      if (titleTrack === -1) {
+        // Grid off (< 768px): the row is flex-col stacked, so the title is a full-width
+        // flex child and can never be starved. Pin the intended STACKED presentation (not
+        // merely "not grid"): the mobile sub-line is visible and the desktop chevron is
+        // hidden. (The 5-col grid was raised 720→768 because at 720 the minmax(0,1fr) title
+        // track resolved to ~106px, below MIN_TITLE_PX — a wide data table stacks earlier
+        // than the app-wide 720 nav breakpoint. Resolves BL-SHOWSTABLE-720-TITLE-FLOOR.)
+        const mobileMetaVisible = await firstRow
+          .locator("[data-testid^='shows-meta-mobile-']")
+          .isVisible();
+        const desktopChevronHidden = !(await firstRow
+          .locator("[data-testid^='shows-chevron-']")
+          .isVisible());
+        expect(mobileMetaVisible, `mobile sub-line visible (stacked) at ${width}px`).toBe(true);
+        expect(desktopChevronHidden, `desktop chevron hidden (stacked) at ${width}px`).toBe(true);
+      } else {
         expect(titleTrack, `title grid track width at ${width}px`).toBeGreaterThanOrEqual(
           MIN_TITLE_PX,
         );
-      } else {
-        // 720px is the 5-col grid ACTIVATION width; the minmax(0,1fr) title track
-        // resolves to ~106px here on BOTH this branch AND origin/main (verified at the
-        // merge-base) — a PRE-EXISTING gap in the unchanged 5-col grid, NOT introduced by
-        // the Status column (which is gated ≥960px and leaves the 5-col grid byte-identical;
-        // the structural non-regression test pins that). Fixing it means changing the 5-col
-        // grid's activation, out of this change's scope — tracked as
-        // BL-SHOWSTABLE-720-TITLE-FLOOR in BACKLOG.md. We still assert (below) the title
-        // did not COLLAPSE (regression tripwire) + no overflow + no header overlap.
-        expect(
-          titleTrack,
-          `720px title track pre-existing baseline value (regression tripwire, not the 120 floor)`,
-        ).toBeGreaterThanOrEqual(90);
       }
 
       // (b) No horizontal overflow on the row (collapsed tracks push content out).
@@ -215,7 +219,8 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
       expect(overflow, `row horizontal overflow at ${width}px`).toBeLessThanOrEqual(TOL);
 
       // (c) Header "Show" label must not overlap the "Dates" label (the visible
-      // symptom of a collapsed title track). Header grid is active at >= 720px.
+      // symptom of a collapsed title track). Header grid is active at >= 768px
+      // (below that the header is hidden/stacked → cells report 0, no overlap).
       const headerOverlap = await page.getByTestId("shows-table-header").evaluate((el) => {
         const cells = el.children;
         if (cells.length < 2) return -1; // header not in grid mode at this width
