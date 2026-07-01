@@ -189,6 +189,9 @@ function parseV4Transport(
   let driverName: string | null = null;
   let driverPhone: string | null = null;
   let driverEmail: string | null = null;
+  let loadoutName: string | null = null;
+  let loadoutPhone: string | null = null;
+  let loadoutEmail: string | null = null;
   if (hm[1] !== undefined) {
     driverName = presence(clean(hm[1]));
     driverPhone = hm[2] !== undefined ? presence(clean(hm[2])) : null;
@@ -260,8 +263,20 @@ function parseV4Transport(
       continue;
     }
 
-    // Skip load-out secondary driver row (col0 like "Load Out:")
-    if (/^load\s+out\s*:/i.test(col0)) continue;
+    // Load-out secondary transporter (col0 like "Load Out:"). Capture name/phone/email
+    // mirroring the driver body-row read; canonicalize the email at this parser boundary
+    // (AGENTS.md invariant 3). It is a contact, not a schedule leg — continue after.
+    // FIRST-NON-EMPTY-WINS: the first "Load Out:" row that carries any value latches
+    // (guard true only while all three stay null), so a later row cannot overwrite a
+    // populated one AND a fully-blank first row does NOT suppress a later populated one.
+    if (/^load\s+out\s*:/i.test(col0)) {
+      if (loadoutName === null && loadoutPhone === null && loadoutEmail === null) {
+        loadoutName = presence(clean(cells[1] ?? ""));
+        loadoutPhone = presence(clean(cells[2] ?? ""));
+        loadoutEmail = canonicalize(clean(cells[3] ?? ""));
+      }
+      continue;
+    }
 
     // Skip blank rows
     if (!col0 && !col1) continue;
@@ -295,6 +310,9 @@ function parseV4Transport(
     driver_name: driverName,
     driver_phone: driverPhone,
     driver_email: driverEmail,
+    loadout_name: loadoutName,
+    loadout_phone: loadoutPhone,
+    loadout_email: loadoutEmail,
     vehicle,
     license_plate: licensePlate,
     color,
@@ -406,6 +424,9 @@ function parseV2Transport(
     driver_name: driverName,
     driver_phone: driverPhone,
     driver_email: null,
+    loadout_name: null,
+    loadout_phone: null,
+    loadout_email: null,
     vehicle,
     license_plate: null,
     color: null,
@@ -497,6 +518,9 @@ function parseV1Transport(
     driver_name: driverName,
     driver_phone: driverPhone,
     driver_email: null,
+    loadout_name: null,
+    loadout_phone: null,
+    loadout_email: null,
     vehicle,
     license_plate: null,
     color: null,

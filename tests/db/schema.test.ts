@@ -256,3 +256,35 @@ describe("M10 pending_syncs last finalize failure schema migration", () => {
     );
   });
 });
+
+describe("transportation loadout_* migration", () => {
+  // Static parse of the migration SQL (no DB). Scoped per-table so a public-only
+  // migration fails the dev case — dev-schema parity is genuinely test-first.
+  const loadoutMigrationPath = join(
+    process.cwd(),
+    "supabase/migrations/20260630000001_transportation_loadout_contact.sql",
+  );
+  const sql = existsSync(loadoutMigrationPath)
+    ? readFileSync(loadoutMigrationPath, "utf8").replace(/\s+/g, " ")
+    : "";
+
+  for (const schema of ["public", "dev"] as const) {
+    test(`adds loadout_{name,phone,email} + canonical CHECK to ${schema}.transportation`, () => {
+      const addBlock = new RegExp(
+        `alter table ${schema}\\.transportation add column if not exists loadout_name text, ` +
+          `add column if not exists loadout_phone text, ` +
+          `add column if not exists loadout_email text`,
+        "i",
+      );
+      expect(sql, `missing loadout_* add-column block for ${schema}`).toMatch(addBlock);
+
+      const check = new RegExp(
+        `alter table ${schema}\\.transportation add constraint transportation_loadout_email_canonical ` +
+          `check \\( loadout_email is null or \\(loadout_email = lower\\(trim\\(loadout_email\\)\\) ` +
+          `and loadout_email <> ''\\)`,
+        "i",
+      );
+      expect(sql, `missing canonical CHECK for ${schema}`).toMatch(check);
+    });
+  }
+});

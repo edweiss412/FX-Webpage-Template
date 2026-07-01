@@ -36,7 +36,7 @@ function canonicalPath(cell: string): string {
     return "RLS policies that compare auth.email to crew_members.email";
   }
   if (!cell.includes("lib/") && cell.includes("crew_members.email")) {
-    return "crew_members.email, transportation.driver_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable";
+    return "crew_members.email, transportation.driver_email, transportation.loadout_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable";
   }
   const codeValues = Array.from(cell.matchAll(/`([^`]+)`/g), (match) => match[1] ?? "");
   if (codeValues.length === 0) return normalizeCell(cell);
@@ -145,7 +145,7 @@ export function extractSpecEmailBoundaryKeys(
       keys.add(
         key(
           "Schema",
-          "crew_members.email, transportation.driver_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable",
+          "crew_members.email, transportation.driver_email, transportation.loadout_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable",
         ),
       );
       continue;

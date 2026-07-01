@@ -249,6 +249,75 @@ describe("parseTransportation — assigned_names synthetic fixture", () => {
   });
 });
 
+// ── v4 Load Out secondary transporter (transport-loadout-contact) ────────────
+describe("parseV4Transport — Load Out secondary transporter (loadout coverage)", () => {
+  // Header drives the driver (hm[1]); the Load Out row is a separate body row the
+  // main loop reaches at the ":264" skip site (before the DATE header).
+  const v4 = (loadoutRow: string) =>
+    `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@example.com | LICENSE |
+| :---: | :---: | :---: | :---: | :---: |
+${loadoutRow}
+| | DATE | TIME | Passengers | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | | |
+`;
+
+  it("captures name/phone/email and canonicalizes the email", () => {
+    const t = parseTransportation(
+      v4("| Load Out: | Carlos Pineda | 610-618-0111 | Carlosmpdal@GMAIL.com | |"),
+      "v4",
+    );
+    expect(t!.loadout_name).toBe("Carlos Pineda");
+    expect(t!.loadout_phone).toBe("610-618-0111");
+    expect(t!.loadout_email).toBe("carlosmpdal@gmail.com"); // canonicalized (lowercased)
+    // driver (from the slash header) is unaffected
+    expect(t!.driver_name).toBe("Test Driver");
+  });
+
+  it("name-only load-out (exporter-xlsx corpus case): phone/email null", () => {
+    const t = parseTransportation(v4("| Load Out: | Carlos Pineda | | | |"), "v4");
+    expect(t!.loadout_name).toBe("Carlos Pineda");
+    expect(t!.loadout_phone).toBeNull();
+    expect(t!.loadout_email).toBeNull();
+  });
+
+  it("no load-out row: all three null", () => {
+    const t = parseTransportation(v4("| Vehicle | Test Van | | | |"), "v4");
+    expect(t!.loadout_name).toBeNull();
+    expect(t!.loadout_phone).toBeNull();
+    expect(t!.loadout_email).toBeNull();
+  });
+
+  it("multiple populated Load Out rows: first-non-empty-wins (later row cannot overwrite)", () => {
+    const t = parseTransportation(
+      v4(
+        "| Load Out: | Carlos Pineda | 610-618-0111 | a@b.com | |\n| Load Out: | Second Person | 999-999-9999 | c@d.com | |",
+      ),
+      "v4",
+    );
+    expect(t!.loadout_name).toBe("Carlos Pineda");
+    expect(t!.loadout_email).toBe("a@b.com");
+  });
+
+  it("a fully-blank first Load Out row does NOT suppress a later populated one (first-non-empty-wins)", () => {
+    const t = parseTransportation(
+      v4("| Load Out: | | | |\n| Load Out: | Carlos Pineda | 610-618-0111 | a@b.com | |"),
+      "v4",
+    );
+    expect(t!.loadout_name).toBe("Carlos Pineda");
+    expect(t!.loadout_phone).toBe("610-618-0111");
+    expect(t!.loadout_email).toBe("a@b.com");
+  });
+
+  it("v2 return carries loadout_* = null (type totality)", () => {
+    const md = readFileSync("fixtures/shows/raw/2025-10-consultants-roundtable.md", "utf8");
+    const t = parseTransportation(md, "v2");
+    expect(t).not.toBeNull();
+    expect(t!.loadout_name).toBeNull();
+    expect(t!.loadout_phone).toBeNull();
+    expect(t!.loadout_email).toBeNull();
+  });
+});
+
 // ── v4 transport block scoping (Codex round-6 finding) ───────────────────────
 describe("parseTransportation — v4 block scoping (Codex round-6)", () => {
   it("2026-04 transport schedule does not contain COI/contacts/event-details rows", () => {

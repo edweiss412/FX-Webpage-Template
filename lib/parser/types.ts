@@ -187,6 +187,9 @@ export type TransportationRow = {
   driver_name: string | null;
   driver_phone: string | null;
   driver_email: string | null; // canonicalized per §4.1.1
+  loadout_name: string | null;
+  loadout_phone: string | null;
+  loadout_email: string | null; // canonicalized per §4.1.1, mirror of driver_email
   vehicle: string | null;
   license_plate: string | null;
   color: string | null;

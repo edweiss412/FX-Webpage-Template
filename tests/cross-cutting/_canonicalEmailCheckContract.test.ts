@@ -25,6 +25,7 @@ type ParsedCheck = {
 const expectedBoundaryChecks: readonly ExpectedBoundaryCheck[] = [
   { table: "crew_members", column: "email", nullability: "nullable" },
   { table: "transportation", column: "driver_email", nullability: "nullable" },
+  { table: "transportation", column: "loadout_email", nullability: "nullable" },
   { table: "contacts", column: "email", nullability: "nullable" },
   { table: "sync_audit", column: "applied_by", nullability: "not-null" },
   { table: "app_settings", column: "watched_folder_set_by_email", nullability: "nullable" },
