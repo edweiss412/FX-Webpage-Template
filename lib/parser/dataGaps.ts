@@ -168,3 +168,37 @@ export function operatorActionableWarnings(
   }
   return out;
 }
+
+/**
+ * Read-time compatibility shim (Part D). Warnings persisted BEFORE per-row
+ * anchoring carry a stale block-RANGE sourceCell (encode_range → contains ":") and
+ * no per-row identity; the admin surface would keep collapsing them and rendering
+ * the wrong block-header link until a re-parse rewrites the jsonb (which never
+ * happens for an unchanged sheet). Clear that stale anchor at read time so legacy
+ * rows behave like ambiguous rows: not deduped (count corrects) and link-less.
+ * NO-OP once re-parsed — Part C anchors are single cells (encode_cell → no ":")
+ * and ambiguous rows are null, so the range-":" fingerprint is the exact legacy
+ * signature (never misfires on a new single-cell/null anchor, incl. empty name).
+ */
+export function stripLegacyUnknownFieldAnchors(
+  warnings: readonly ParseWarning[] | null | undefined,
+): ParseWarning[] {
+  if (!warnings) return [];
+  return warnings.map((w) =>
+    w.code === "UNKNOWN_FIELD" && typeof w.sourceCell?.a1 === "string" && w.sourceCell.a1.includes(":")
+      ? { ...w, sourceCell: null }
+      : w,
+  );
+}
+
+/**
+ * The read-boundary seam for persisted parse_warnings feeding the operator-
+ * actionable Data-quality panel: neutralize stale legacy UNKNOWN_FIELD anchors,
+ * THEN filter+dedup. Both persisted-read call sites use this one function so the
+ * legacy behavior is defined (and tested) in exactly one place.
+ */
+export function selectActionableForDisplay(
+  warnings: readonly ParseWarning[] | null | undefined,
+): ParseWarning[] {
+  return operatorActionableWarnings(stripLegacyUnknownFieldAnchors(warnings));
+}
