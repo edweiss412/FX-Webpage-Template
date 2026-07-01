@@ -223,12 +223,10 @@ export async function handleWizardStagedApply(
     // coercer's shape gate doesn't cover, or a DB fault) must still return a typed
     // JSON body, not a body-less 500 (Codex R5 — the structural backstop that makes
     // field-by-field shape completeness non-load-bearing for the empty-500 contract).
-    log.error(
-      `wizard staged apply: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { source: "api.admin.onboarding.staged.apply", error },
-    );
+    log.error("wizard staged apply: unexpected failure", {
+      source: "api.admin.onboarding.staged.apply",
+      error,
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

@@ -252,12 +252,10 @@ export async function handleWizardStagedApprove(
       });
     });
   } catch (error) {
-    log.error(
-      `wizard approve: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { source: "api.admin.onboarding.staged.approve", error },
-    );
+    log.error("wizard approve: unexpected failure", {
+      source: "api.admin.onboarding.staged.approve",
+      error,
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

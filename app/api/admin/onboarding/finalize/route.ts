@@ -1199,12 +1199,10 @@ export async function handleOnboardingFinalize(
     // JSON error, and the underlying message is logged so the next failure is
     // diagnosable from logs rather than a truncated TypeError. (M12 Phase 0.F
     // smoke-3 structural defense.)
-    log.error(
-      `onboarding finalize: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { source: "api.admin.onboarding.finalize", error },
-    );
+    log.error("onboarding finalize: unexpected failure", {
+      source: "api.admin.onboarding.finalize",
+      error,
+    });
     return errorResponse(500, ONBOARDING_FINALIZE_INTERNAL_ERROR);
   }
 }

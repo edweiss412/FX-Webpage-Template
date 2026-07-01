@@ -147,12 +147,10 @@ export async function handleWizardStagedUnapprove(
       });
     });
   } catch (error) {
-    log.error(
-      `wizard un-approve: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      { source: "api.admin.onboarding.staged.unapprove", error },
-    );
+    log.error("wizard un-approve: unexpected failure", {
+      source: "api.admin.onboarding.staged.unapprove",
+      error,
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

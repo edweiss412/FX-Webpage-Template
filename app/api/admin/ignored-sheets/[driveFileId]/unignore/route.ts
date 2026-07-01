@@ -81,10 +81,10 @@ export async function handleUnignore(
     });
     return NextResponse.json({ status: "unignored" });
   } catch (error) {
-    log.error(
-      `un-ignore: unexpected failure: ${error instanceof Error ? error.message : String(error)}`,
-      { source: "api.admin.ignoredSheets.unignore", error },
-    );
+    log.error("un-ignore: unexpected failure", {
+      source: "api.admin.ignoredSheets.unignore",
+      error,
+    });
     return errorResponse(500, "SYNC_INFRA_ERROR");
   }
 }

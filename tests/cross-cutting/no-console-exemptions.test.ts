@@ -40,15 +40,21 @@ function findConsoleCalls(filePath: string, source: string): number[] {
 }
 
 describe("no-console exemptions (Phase 4)", () => {
-  test("eslint config: no-console error + the EXACT 5-file exemption", () => {
+  test("eslint config: no-console error + the EXACT 5-file exemption (no more, no less)", () => {
     const cfg = readFileSync("eslint.config.mjs", "utf8");
     expect(cfg).toMatch(/"no-console":\s*"error"/);
-    // the no-console:off override block names exactly the 5 sanctioned surfaces
-    const off = cfg.slice(
-      cfg.indexOf('rules: { "no-console": "off" }') - 400,
-      cfg.indexOf('rules: { "no-console": "off" }'),
-    );
-    for (const g of EXEMPT_GLOBS) expect(off).toContain(`"${g}"`);
+    // Extract the exact `files: [...]` array of the no-console:off override block and assert it
+    // EQUALS the sanctioned 5. A presence check (toContain) would let a 6th exemption slip through
+    // — the whole point of the structural guard (Codex whole-diff R1 MEDIUM).
+    const offIdx = cfg.indexOf('rules: { "no-console": "off" }');
+    expect(offIdx).toBeGreaterThan(-1);
+    const filesOpen = cfg.lastIndexOf("files: [", offIdx);
+    const filesClose = cfg.indexOf("]", filesOpen);
+    expect(filesOpen).toBeGreaterThan(-1);
+    expect(filesClose).toBeLessThan(offIdx); // the array closes before this block's rules
+    const arrayText = cfg.slice(filesOpen + "files: [".length, filesClose);
+    const globs = [...arrayText.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(globs).toEqual([...EXEMPT_GLOBS]);
   });
 
   test("AST negative control: a `// console.log` comment is NOT a call; a real call IS", () => {
