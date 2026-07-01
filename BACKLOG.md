@@ -4,14 +4,6 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
-### BL-SHOWSTABLE-720-TITLE-FLOOR — 5-col shows-table title track collapses at exactly 720px
-
-**Status:** open · **Severity:** low (single edge width; titles get tight, not lost) · **Class:** PRE-EXISTING layout gap
-
-Surfaced 2026-06-30 while running the real-browser band-sweep (`tests/e2e/admin-layout-dimensions.spec.ts`) for the Status-column change. At the 5-col grid's ACTIVATION width (`min-[720px]`), the `minmax(0,1fr)` title track resolves to ~106px — below the `MIN_TITLE_PX = 120` floor the gate asserts. **Verified pre-existing** at the merge-base: `origin/main` fails band 720 identically (the Status column is gated ≥960px and leaves the 5-col grid byte-identical; only band 720 is affected, 810+ pass). This e2e is NOT in PR CI (crew-e2e.yml runs only `crew-section-toggle.spec.ts`), so it has been silently red at 720. The band-sweep now gates its ≥120 floor to `width >= 810` and keeps a `>= 90` regression tripwire + the overflow/overlap checks at 720. **Fix options (out of scope for the Status column):** raise the 5-col grid activation `min-[720px]`→`~min-[760px]` (720–759px would stack — changes existing Dates/Crew/Sync responsive behavior), or trim a fixed track / the row gap at the 720 band. Either touches the shared 5-col grid, so it needs its own change + a re-run of the full band-sweep.
-
----
-
 ## INFO-tab data-fidelity audit (2026-06-29)
 
 The seven items below were surfaced by a parser → review-modal → crew-page audit of the **AII/III - Consultants Roundtable** show (source sheet `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4`). Every finding carries verified `file:line` evidence (parser re-run on `fixtures/shows/exporter-xlsx/consultants.md`). Full field-by-field table + evidence: **`docs/info-tab-fidelity-audit-2026-06-29.md`**. Suggested order: parser-only cluster first (DRESS, ROOM-DEDUP, TITLE — GS-dims was investigated and is NOT a live parse drop, folded into BL-ROOM-DETAIL-UNRENDERED as render-only) → render surfaces (Opus + impeccable v3) → review-modal completeness.
