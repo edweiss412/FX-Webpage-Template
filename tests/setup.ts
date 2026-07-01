@@ -1,4 +1,35 @@
 import { vi } from "vitest";
+import * as logModule from "@/lib/log";
+
+// lib/log default-sink teardown-safety (Phase 4 console.* → lib/log migration).
+// The default sink lazily `await import("./persist")` → `@/lib/supabase/server`
+// → @supabase/ssr whenever a record persists (every error/warn, and info+code).
+// Callers emit fire-and-forget (`void log.error(...)`), so in a unit test that
+// dynamic import can resolve AFTER the jsdom/node environment has torn down —
+// vitest raises `EnvironmentTeardownError` ("Cannot load @supabase/ssr ... after
+// the environment was torn down"). It is CI-only: a warm local module cache wins
+// the race that a cold CI import loses. Install a SYNCHRONOUS, console-only sink
+// that mirrors the default sink's console line but NEVER touches persist/Supabase.
+// Test files that assert on emitted records install their OWN sink (this is
+// overridden per-file); files that exercise the real persist path call
+// `persistAppEvent` directly or `resetLogSink()`. Guarded because files that
+// `vi.mock("@/lib/log")` may not re-export `setLogSink` (and don't need it — a
+// fully-mocked log never reaches the default sink).
+if (typeof logModule.setLogSink === "function") {
+  logModule.setLogSink((record) => {
+    const compact: Record<string, unknown> = {
+      level: record.level,
+      code: record.code,
+      requestId: record.requestId,
+      showId: record.showId,
+      driveFileId: record.driveFileId,
+      actorHash: record.actorHash,
+      ...record.context,
+    };
+    for (const k of Object.keys(compact)) if (compact[k] == null) delete compact[k];
+    console[record.level](`[${record.source}] ${record.message}`, compact);
+  });
+}
 
 // R41 P-R11 Fix-2: lib/email/hashForLog.ts throws at module load without a
 // 32+ char pepper. Tests use a fixed value so hash bytes are deterministic.
