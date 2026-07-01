@@ -7,10 +7,18 @@
  * lib/messages/lookup.ts; the route must emit cataloged codes only).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
+const logMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 import { handleReapStaleSessions } from "@/app/api/admin/onboarding/reap-stale-sessions/route";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  logMock.error.mockReset();
 });
 
 describe("POST /api/admin/onboarding/reap-stale-sessions", () => {
@@ -69,7 +77,6 @@ describe("POST /api/admin/onboarding/reap-stale-sessions", () => {
     // exactly when destructive cleanup fails — and losing the DB/lock/
     // permission context that makes the failure diagnosable.
     const cause = new Error("connection reset");
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const response = await handleReapStaleSessions(new Request("http://test"), {
       requireAdminIdentity: async () => ({ email: "admin@example.com" }),
       reapStaleOnboardingSessions: async () => {
@@ -78,6 +85,9 @@ describe("POST /api/admin/onboarding/reap-stale-sessions", () => {
     });
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ ok: false, code: "REAP_STALE_SESSIONS_FAILED" });
-    expect(consoleError).toHaveBeenCalledWith("reap-stale-sessions failed", cause);
+    expect(logMock.error).toHaveBeenCalledWith("reap-stale-sessions failed", {
+      source: "api.admin.onboarding.reap",
+      error: cause,
+    });
   });
 });
