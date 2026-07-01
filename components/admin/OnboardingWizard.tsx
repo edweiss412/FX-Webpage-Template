@@ -30,12 +30,8 @@ import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { messageFor } from "@/lib/messages/lookup";
 import { Step1Share } from "@/components/admin/wizard/Step1Share";
 import { Step2Verify } from "@/components/admin/wizard/Step2Verify";
-import {
-  Step3Review,
-  type Step3Row,
-  type Step3ManifestStatus,
-} from "@/components/admin/wizard/Step3Review";
-import { FinalizeButton } from "@/components/admin/FinalizeButton";
+import type { Step3Row, Step3ManifestStatus } from "@/components/admin/wizard/Step3Review";
+import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import type { ParseResult } from "@/lib/parser/types";
@@ -395,21 +391,21 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
   // clean rows left unchecked (status 'staged' → Held). The label reads
   // "Publish N shows & finish setup" and a soft confirm fires when any clean
   // row is unchecked. Only clean rows participate (blocking rows never count).
+  //
+  // These are the SEED values only. <Step3ReviewWithFinalize> keeps the live
+  // label in sync with the optimistic checkbox overlay so it no longer lags the
+  // boxes by a POST round-trip + router.refresh() (the publish-count lag bug).
   const publishCount = result.rows.filter((r) => r.status === "applied").length;
   const uncheckedCleanCount = result.rows.filter((r) => r.status === "staged").length;
 
   return (
-    <div className="flex flex-col gap-section-gap">
-      <Step3Review wizardSessionId={wizardSessionId} rows={result.rows} />
-      {result.rows.length > 0 ? (
-        <FinalizeButton
-          wizardSessionId={wizardSessionId}
-          disabled={!result.finishable}
-          publishCount={publishCount}
-          uncheckedCleanCount={uncheckedCleanCount}
-        />
-      ) : null}
-    </div>
+    <Step3ReviewWithFinalize
+      wizardSessionId={wizardSessionId}
+      rows={result.rows}
+      finishable={result.finishable}
+      initialPublishCount={publishCount}
+      initialUncheckedCleanCount={uncheckedCleanCount}
+    />
   );
 }
 
