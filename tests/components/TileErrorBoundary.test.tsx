@@ -15,11 +15,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
+const captureBoundaryError = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/observe/captureBoundaryError", () => ({ captureBoundaryError }));
 import { TileErrorBoundary } from "@/components/shared/TileErrorBoundary";
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  captureBoundaryError.mockReset();
 });
 
 beforeEach(() => {
@@ -72,14 +75,18 @@ describe("TileErrorBoundary — client render-time error isolation", () => {
     expect(screen.queryByTestId("tile-error-fallback")).toBeNull();
   });
 
-  test("componentDidCatch logs the tileId tag when provided", () => {
-    const errSpy = vi.spyOn(console, "error");
+  test("componentDidCatch routes the throw to captureBoundaryError with the tileId tag", () => {
     render(
       <TileErrorBoundary tileId="lodging-tile">
         <ExplodingChild shouldExplode />
       </TileErrorBoundary>,
     );
-    const logged = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
-    expect(logged).toContain("tile=lodging-tile");
+    expect(captureBoundaryError).toHaveBeenCalledTimes(1);
+    const [err, area, extra] = captureBoundaryError.mock.calls[0]!;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("synthetic descendant render error");
+    expect(area).toBe("tile");
+    expect(extra).toMatchObject({ tileId: "lodging-tile" });
+    expect(typeof (extra as { componentStack?: unknown }).componentStack).toBe("string");
   });
 });

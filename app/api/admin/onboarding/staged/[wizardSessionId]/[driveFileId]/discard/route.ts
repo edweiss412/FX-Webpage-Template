@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import {
   discardStaged_unlocked as defaultDiscardStagedUnlocked,
   type DiscardStagedDeps,
@@ -151,7 +152,10 @@ export async function handleWizardStagedDiscard(
           },
         });
       } catch (alertError) {
-        console.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", alertError);
+        log.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", {
+          source: "api.admin.onboarding.staged.discard",
+          error: alertError,
+        });
       }
       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
     }

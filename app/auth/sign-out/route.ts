@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_NAME as PICKER_COOKIE_NAME } from "@/lib/auth/picker/cookieEnvelope";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 /**
  * R12 #2 (round-11 §A+§B): /me submits sign-out as a plain HTML form
@@ -100,12 +101,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.signOut();
     if (error) {
-      console.error("signOut: Supabase signOut failed", error);
+      void log.error("signOut: Supabase signOut failed", { source: "auth.signOut", error });
     } else {
       supabaseSignedOut = true;
     }
   } catch (error) {
-    console.error("signOut: Supabase signOut failed", error);
+    void log.error("signOut: Supabase signOut failed", { source: "auth.signOut", error });
   }
 
   if (!supabaseSignedOut) {

@@ -1,7 +1,19 @@
-import { test, expect, vi } from "vitest";
+import { test, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
 const bytes = (f: string) => new Uint8Array(readFileSync(`fixtures/agenda/${f}`));
+beforeEach(() => {
+  logMock.info.mockClear();
+  logMock.warn.mockClear();
+  logMock.error.mockClear();
+});
 
 test("RFI: high confidence, all times, breakout tracks", async () => {
   const x = await extractAgendaSchedule(bytes("rfi.pdf"));
@@ -88,28 +100,22 @@ test("page cap: >AGENDA_MAX_PAGES → low confidence, no per-page parse, extract
 // outcome must leave a greppable log so a degraded serverless parse is distinguishable
 // from a genuinely scheduleless PDF in production. Concrete failure mode caught: a
 // silent `LOW()`/throw that renders "No schedule detected" with no diagnostic trace.
-test("breadcrumb: high-confidence parse logs [agenda-extract] high", async () => {
-  const log = vi.spyOn(console, "log").mockImplementation(() => {});
-  try {
-    await extractAgendaSchedule(bytes("rfi.pdf"));
-    expect(log.mock.calls.some((c) => String(c[0]).includes("[agenda-extract] high"))).toBe(true);
-  } finally {
-    log.mockRestore();
-  }
+test("breadcrumb: high-confidence parse logs agenda.extract `high` via lib/log", async () => {
+  await extractAgendaSchedule(bytes("rfi.pdf"));
+  expect(logMock.info).toHaveBeenCalledWith(
+    "high",
+    expect.objectContaining({ source: "agenda.extract" }),
+  );
 });
-test("breadcrumb: a pdfjs throw logs [agenda-extract] pdfjs threw (not swallowed)", async () => {
-  const err = vi.spyOn(console, "error").mockImplementation(() => {});
-  try {
-    const x = await extractAgendaSchedule(new Uint8Array([0]));
-    expect(x.confidence).toBe("low"); // still defensively low
-    expect(err.mock.calls.some((c) => String(c[0]).includes("[agenda-extract] pdfjs threw"))).toBe(
-      true,
-    );
-  } finally {
-    err.mockRestore();
-  }
+test("breadcrumb: a pdfjs throw logs agenda.extract `pdfjs threw` (not swallowed)", async () => {
+  const x = await extractAgendaSchedule(new Uint8Array([0]));
+  expect(x.confidence).toBe("low"); // still defensively low
+  expect(logMock.error).toHaveBeenCalledWith(
+    "pdfjs threw",
+    expect.objectContaining({ source: "agenda.extract" }),
+  );
 });
-test("breadcrumb: low-confidence gate logs [agenda-extract] low-confidence with metrics", async () => {
+test("breadcrumb: low-confidence gate logs agenda.extract `low-confidence` with metrics", async () => {
   // Mock a valid 1-page doc whose only text is a non-time line → n=0 sessions → gate
   // fails on minSessions → returns low WITHOUT throwing (exercises the gate, not the catch).
   vi.resetModules();
@@ -131,19 +137,15 @@ test("breadcrumb: low-confidence gate logs [agenda-extract] low-confidence with 
       }),
     }),
   }));
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
     const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
     const x = await extract(new Uint8Array([1, 2, 3]));
     expect(x.confidence).toBe("low");
-    const call = warn.mock.calls.find((c) =>
-      String(c[0]).includes("[agenda-extract] low-confidence"),
-    );
+    const call = logMock.warn.mock.calls.find((c) => c[0] === "low-confidence");
     expect(call).toBeDefined();
     // metrics payload present (not just a bare string) — the diagnostic value
-    expect(call![1]).toMatchObject({ sessions: 0, numPages: 1 });
+    expect(call![1]).toMatchObject({ source: "agenda.extract", sessions: 0, numPages: 1 });
   } finally {
-    warn.mockRestore();
     vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
     vi.resetModules();
   }

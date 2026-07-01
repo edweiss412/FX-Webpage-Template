@@ -23,6 +23,7 @@
 import type { HotelReservationRow } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
+import { log } from "@/lib/log";
 
 const MAX_HOTELS = 4; // cardinality cap §10
 
@@ -31,7 +32,7 @@ function warn(msg: string): void {
   // warnings are surfaced as console.warn in dev; the full ParseResult warnings
   // array is assembled at the top-level parser (Task 1.11).
 
-  console.warn(`[hotels] ${msg}`);
+  log.warn(msg, { source: "parser.hotels" });
 }
 
 export function parseHotels(

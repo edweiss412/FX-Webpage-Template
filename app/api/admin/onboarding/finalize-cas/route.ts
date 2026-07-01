@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log } from "@/lib/log";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
 import type { DriveListedFile } from "@/lib/drive/list";
@@ -785,12 +786,10 @@ export async function handleOnboardingFinalizeCas(
     // Never leak an empty 500: the final-CAS step parses shadow payloads and runs DB work that
     // may fault. Any unexpected throw becomes a typed JSON error + console.error, mirroring
     // handleOnboardingFinalize.
-    console.error(
-      `onboarding finalize-cas: unexpected failure: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    log.error("onboarding finalize-cas: unexpected failure", {
+      source: "api.admin.onboarding.finalizeCas",
       error,
-    );
+    });
     return errorResponse(500, "ONBOARDING_FINALIZE_INTERNAL_ERROR");
   }
 }

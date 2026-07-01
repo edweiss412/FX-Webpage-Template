@@ -19,6 +19,13 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
+const logMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 
 const KEY = "0".repeat(64);
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
@@ -48,6 +55,7 @@ function formData(input: Partial<{ slug: string; shareToken: string; crewMemberI
 }
 
 beforeEach(() => {
+  logMock.warn.mockClear();
   process.env.PICKER_COOKIE_SIGNING_KEY = KEY;
   existingCookie = undefined;
   rpcError = null;
@@ -165,8 +173,6 @@ describe("selectIdentity FormData entry", () => {
       out_observed_at_millis: null,
       out_rejection_code: "PICKER_IDENTITY_CLAIMED",
     };
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
     await expect(
       selectIdentity(formData({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID })),
     ).rejects.toMatchObject({
@@ -175,8 +181,11 @@ describe("selectIdentity FormData entry", () => {
       ),
     });
 
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    const logged = JSON.parse(warnSpy.mock.calls[0]![0] as string) as Record<string, unknown>;
+    expect(logMock.warn).toHaveBeenCalledTimes(1);
+    // The tamper signal flows through lib/log; the message payload is a JSON envelope,
+    // the reserved `source` rides the fields arg.
+    expect(logMock.warn.mock.calls[0]![1]).toMatchObject({ source: "auth.picker.selectIdentity" });
+    const logged = JSON.parse(logMock.warn.mock.calls[0]![0] as string) as Record<string, unknown>;
     expect(logged).toMatchObject({
       event: "picker.identity_claimed",
       tamper: true,
@@ -184,6 +193,5 @@ describe("selectIdentity FormData entry", () => {
       crewMemberId: CREW_ID,
     });
     expect(logged).not.toHaveProperty("shareToken");
-    warnSpy.mockRestore();
   });
 });
