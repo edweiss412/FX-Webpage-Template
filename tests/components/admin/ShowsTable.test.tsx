@@ -131,6 +131,39 @@ describe("ShowsTable", () => {
     expect(pills.length).toBe(rows.filter((r) => r.isLive).length);
   });
 
+  // ── Status column (published/unpublished) — spec 2026-06-30-admin-shows-status-column ──
+  it("Published pill renders inline for a published, non-live row (status-positive) — §3", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "pubd", published: true, isLive: false })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const pill = screen.getByTestId("shows-published-pill-pubd");
+    expect(pill.textContent).toMatch(/Published/);
+    // right VISUAL token, not just the right text (status-positive/teal) — §3
+    expect(pill.className).toContain("border-status-positive");
+    expect(pill.className).toContain("text-status-positive-text");
+    expect(pill.querySelector(".bg-status-positive")).not.toBeNull();
+    // mutually exclusive: no other inline state pill for this row
+    expect(screen.queryByTestId("shows-live-pill-pubd")).toBeNull();
+    expect(screen.queryByTestId("shows-held-pill-pubd")).toBeNull();
+  });
+
+  it("inline Held pill keeps the verbose 'Held — not published' copy (place=inline) — §3.1", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "h", published: false, isLive: false, finalizeOwned: false })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    expect(screen.getByTestId("shows-held-pill-h").textContent).toMatch(/Held — not published/);
+  });
+
   it("overflowCount>0 -> 'showing first N of M' overflow notice renders", () => {
     render(
       <ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={600} overflowCount={599} />,

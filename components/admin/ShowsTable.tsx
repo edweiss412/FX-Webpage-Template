@@ -105,45 +105,75 @@ function sortRows(rows: ActiveShowRow[], sort: SortState): ActiveShowRow[] {
   });
 }
 
-function StatePill({ row }: { row: ActiveShowRow }) {
-  if (row.isLive) {
-    return (
-      <span
-        data-testid={`shows-live-pill-${row.slug}`}
-        className="inline-flex items-center gap-1 rounded-pill border border-status-live px-2 py-0.5 text-xs font-semibold text-status-live-text"
-      >
-        <span aria-hidden="true" className="size-1.5 rounded-full bg-status-live" />
-        Live
-      </span>
-    );
-  }
-  if (!row.published) {
-    // §3.2 pill split: a finalize-owned in-flight row → "Publishing…" (warn);
-    // a Held row (post-Unarchive, finalizeOwned=false) → "Held — not published"
-    // (neutral/idle — NOT a new hue, NOT warn). Color is never the sole carrier
-    // (DESIGN color-blind floor): each pill pairs its dot with a text label.
-    if (row.finalizeOwned) {
-      return (
-        <span
-          data-testid={`shows-publishing-${row.slug}`}
-          className="inline-flex items-center gap-1 rounded-pill border border-status-warn px-2 py-0.5 text-xs font-semibold text-status-warn-text"
-        >
-          <span aria-hidden="true" className="size-1.5 rounded-full bg-status-warn" />
-          Publishing…
-        </span>
-      );
-    }
-    return (
-      <span
-        data-testid={`shows-held-pill-${row.slug}`}
-        className="inline-flex items-center gap-1 rounded-pill border border-status-idle px-2 py-0.5 text-xs font-semibold text-status-idle-text"
-      >
-        <span aria-hidden="true" className="size-1.5 rounded-full bg-status-idle" />
-        Held — not published
-      </span>
-    );
-  }
-  return null;
+type PillPlace = "inline" | "column";
+type StatusState = "live" | "published" | "publishing" | "held";
+
+// Single source of the status precedence (spec §3): Live → Published → Publishing… → Held.
+// Used by BOTH StatePill (to pick the branch) and the "status" column sort. A total
+// function — every row resolves to a state (partial/edit-time data fails toward "held").
+function statusState(row: ActiveShowRow): StatusState {
+  if (row.isLive) return "live";
+  if (row.published) return "published";
+  if (row.finalizeOwned) return "publishing";
+  return "held";
+}
+
+// Literal class strings (NOT template-built) so Tailwind v4's content scan emits them.
+// `held` deliberately uses the neutral `status-idle` tone (§3). Color is never the sole
+// carrier — every pill pairs its dot with a text label (DESIGN color-blind floor).
+const PILL_TONE: Record<StatusState, { border: string; text: string; dot: string }> = {
+  live: { border: "border-status-live", text: "text-status-live-text", dot: "bg-status-live" },
+  published: {
+    border: "border-status-positive",
+    text: "text-status-positive-text",
+    dot: "bg-status-positive",
+  },
+  publishing: { border: "border-status-warn", text: "text-status-warn-text", dot: "bg-status-warn" },
+  held: { border: "border-status-idle", text: "text-status-idle-text", dot: "bg-status-idle" },
+};
+
+// Per-place testid namespace (§4.1): the INLINE pill keeps the EXISTING testids every
+// current test targets (`shows-live-pill` / `shows-publishing` / `shows-held-pill`); the
+// COLUMN pill uses a distinct `shows-statuscol-*` namespace so the two DOM-coexisting
+// render sites never collide in a getByTestId.
+const INLINE_TESTID: Record<StatusState, string> = {
+  live: "shows-live-pill",
+  published: "shows-published-pill",
+  publishing: "shows-publishing",
+  held: "shows-held-pill",
+};
+const COLUMN_TESTID: Record<StatusState, string> = {
+  live: "shows-statuscol-live",
+  published: "shows-statuscol-published",
+  publishing: "shows-statuscol-publishing",
+  held: "shows-statuscol-held",
+};
+const STATE_LABEL: Record<StatusState, string> = {
+  live: "Live",
+  published: "Published",
+  publishing: "Publishing…",
+  held: "Held", // overridden to the verbose "Held — not published" for place="inline"
+};
+
+// `place` selects BOTH the Held label compaction AND the testid namespace (§3.1/§4.1):
+// place="inline" → verbose "Held — not published" + shows-{state}-pill;
+// place="column" → compact "Held" + shows-statuscol-{state}. No animation — the dot is
+// static (the pulsing animate-ping lives only in StatusIndicator, the Sync cell).
+function StatePill({ row, place }: { row: ActiveShowRow; place: PillPlace }) {
+  const state = statusState(row);
+  const tone = PILL_TONE[state];
+  const testId = `${(place === "column" ? COLUMN_TESTID : INLINE_TESTID)[state]}-${row.slug}`;
+  const label =
+    state === "held" && place === "inline" ? "Held — not published" : STATE_LABEL[state];
+  return (
+    <span
+      data-testid={testId}
+      className={`inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-xs font-semibold ${tone.border} ${tone.text}`}
+    >
+      <span aria-hidden="true" className={`size-1.5 rounded-full ${tone.dot}`} />
+      {label}
+    </span>
+  );
 }
 
 function SyncCell({ row, now }: { row: ActiveShowRow; now: Date }) {
@@ -378,7 +408,7 @@ export function ShowsTable({
                         <span className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong">
                           {rowTitle(row)}
                         </span>
-                        <StatePill row={row} />
+                        <StatePill row={row} place="inline" />
                       </div>
                       {/* Mobile stacked meta sub-line (hidden ≥md) */}
                       <div
