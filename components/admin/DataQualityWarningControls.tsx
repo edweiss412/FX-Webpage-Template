@@ -24,7 +24,13 @@ const RING_OFFSET: Record<"active" | "ignored", string> = {
   ignored: "focus-visible:ring-offset-surface-sunken",
 };
 
-export function DataQualityWarningControls({ slug, showId, warning, mode, reportSurfaceId }: Props) {
+export function DataQualityWarningControls({
+  slug,
+  showId,
+  warning,
+  mode,
+  reportSurfaceId,
+}: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: "idle" });
   const ignorable = hasIgnorableSnippet(warning);
@@ -37,11 +43,14 @@ export function DataQualityWarningControls({ slug, showId, warning, mode, report
   async function run() {
     setState({ kind: "running" });
     try {
-      const res = await fetch(`/api/admin/show/${encodeURIComponent(slug)}/data-quality/${action}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code: warning.code, rawSnippet: warning.rawSnippet ?? "" }),
-      });
+      const res = await fetch(
+        `/api/admin/show/${encodeURIComponent(slug)}/data-quality/${action}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ code: warning.code, rawSnippet: warning.rawSnippet ?? "" }),
+        },
+      );
       const json = (await res.json().catch(() => ({}))) as { status?: string };
       if (res.ok && (json.status === "ignored" || json.status === "unignored")) {
         router.refresh();

@@ -9,8 +9,12 @@ function fakeSupabase(behavior: "ok" | "returned-error" | "throw") {
           return {
             eq() {
               if (behavior === "throw") throw new Error("boom");
-              if (behavior === "returned-error") return Promise.resolve({ data: null, error: { message: "bad" } });
-              return Promise.resolve({ data: [{ fingerprint: "fp1" }, { fingerprint: "fp2" }], error: null });
+              if (behavior === "returned-error")
+                return Promise.resolve({ data: null, error: { message: "bad" } });
+              return Promise.resolve({
+                data: [{ fingerprint: "fp1" }, { fingerprint: "fp2" }],
+                error: null,
+              });
             },
           };
         },

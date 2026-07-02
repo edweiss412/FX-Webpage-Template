@@ -320,15 +320,21 @@ export default async function AdminShowPage({
     return { messages, actionable: warnings, failed: false };
   };
 
-  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now, ignoredResult] =
-    await Promise.all([
-      readFeed(),
-      readCrew(),
-      readToken(),
-      readDataQuality(),
-      nowDate(),
-      loadIgnoredWarnings(show.id),
-    ]);
+  const [
+    { feed, feedInfraError },
+    { crew, crewLookupFailed },
+    token,
+    dataQuality,
+    now,
+    ignoredResult,
+  ] = await Promise.all([
+    readFeed(),
+    readCrew(),
+    readToken(),
+    readDataQuality(),
+    nowDate(),
+    loadIgnoredWarnings(show.id),
+  ]);
 
   // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
   // JSX condition and again in the component — whole-diff R1). selectActionableForDisplay

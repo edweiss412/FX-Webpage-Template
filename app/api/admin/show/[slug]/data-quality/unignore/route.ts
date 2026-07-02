@@ -20,7 +20,9 @@ function databaseUrl(): string {
   }
   return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 }
-function txAdapter(rawTx: { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }): UnignoreTx {
+function txAdapter(rawTx: {
+  unsafe(sql: string, params?: unknown[]): Promise<unknown[]>;
+}): UnignoreTx {
   return {
     async queryOne<T>(sql: string, params: unknown[]) {
       return ((await rawTx.unsafe(sql, params)) as T[])[0] ?? null;
@@ -60,7 +62,8 @@ export async function handleUnignore(
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
-    if (code === "ADMIN_SESSION_LOOKUP_FAILED") return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    if (code === "ADMIN_SESSION_LOOKUP_FAILED")
+      return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     return errorResponse(403, "ADMIN_FORBIDDEN");
   }
   let body: { code?: unknown; rawSnippet?: unknown };

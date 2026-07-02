@@ -47,7 +47,9 @@ describe("ignored_warnings schema", () => {
 
 describe("ignored_warnings RLS (Pattern A: admin_only, no REVOKE)", () => {
   test("RLS enabled + admin_only FOR ALL policy using is_admin()", () => {
-    const rls = runPsql(`select relrowsecurity from pg_class where oid='public.ignored_warnings'::regclass;`);
+    const rls = runPsql(
+      `select relrowsecurity from pg_class where oid='public.ignored_warnings'::regclass;`,
+    );
     expect(rls).toBe("t");
     const policy = runPsql(`
       select policyname || '|' || cmd || '|' || coalesce(qual,'') || '|' || coalesce(with_check,'')

@@ -14,8 +14,18 @@ function MountProbe({ label }: { label: string }) {
   return <span data-testid={`probe-${label}`}>{seq}</span>;
 }
 // SAME code, different content → the subtle "reconcile-in-place" index bug (B inherits A's fiber).
-const A: ParseWarning = { severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "Alpha" };
-const B: ParseWarning = { severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "Bravo" };
+const A: ParseWarning = {
+  severity: "warn",
+  code: "UNKNOWN_FIELD",
+  message: "m",
+  rawSnippet: "Alpha",
+};
+const B: ParseWarning = {
+  severity: "warn",
+  code: "UNKNOWN_FIELD",
+  message: "m",
+  rawSnippet: "Bravo",
+};
 const controls = (w: ParseWarning) => <MountProbe label={w.rawSnippet!} />;
 
 describe("PerShowActionableWarnings key stability (compound-transition guarantee)", () => {
@@ -24,7 +34,9 @@ describe("PerShowActionableWarnings key stability (compound-transition guarantee
       <PerShowActionableWarnings items={[A, B]} driveFileId="df" renderItemControls={controls} />,
     );
     const bSeqBefore = screen.getByTestId("probe-Bravo").textContent; // e.g. "2"
-    rerender(<PerShowActionableWarnings items={[B]} driveFileId="df" renderItemControls={controls} />); // A ignored
+    rerender(
+      <PerShowActionableWarnings items={[B]} driveFileId="df" renderItemControls={controls} />,
+    ); // A ignored
     // With index keys, B is reconciled into A's slot and shows A's mount seq → would FAIL.
     // With stableWarningKeys, B's fiber persists → same seq → PASSES.
     expect(screen.getByTestId("probe-Bravo").textContent).toBe(bSeqBefore);

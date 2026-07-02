@@ -6,7 +6,9 @@ import type { ParseWarning } from "@/lib/parser/types";
 
 afterEach(() => cleanup());
 
-const items: ParseWarning[] = [{ severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "Storage | x" }];
+const items: ParseWarning[] = [
+  { severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "Storage | x" },
+];
 
 describe("PerShowActionableWarnings renderItemControls", () => {
   test("AC-8: WITHOUT the prop → no controls (StagedReviewCard usage unchanged)", () => {

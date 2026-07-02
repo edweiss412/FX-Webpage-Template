@@ -31,7 +31,8 @@ export async function loadIgnoredWarnings(
       .from("ignored_warnings")
       .select("fingerprint")
       .eq("show_id", showId);
-    if (error) return { kind: "infra_error", message: `ignored_warnings query failed: ${error.message}` };
+    if (error)
+      return { kind: "infra_error", message: `ignored_warnings query failed: ${error.message}` };
     return { kind: "ok", fingerprints: new Set((data ?? []).map((r) => r.fingerprint as string)) };
   } catch (err) {
     return {
