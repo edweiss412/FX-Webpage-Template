@@ -57,10 +57,18 @@ import {
   isDataQualityWarning,
   selectActionableForDisplay,
   OPERATOR_ACTIONABLE_ANCHORED,
+  DATA_GAP_CLASS_LABELS,
 } from "@/lib/parser/dataGaps";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
+import {
+  BulkIgnoreControls,
+  type BulkIgnoreGroupWithLabel,
+} from "@/components/admin/BulkIgnoreControls";
 import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
+import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 
@@ -361,6 +369,22 @@ export default async function AdminShowPage({
   const { active: activeActionable, ignored: ignoredActionable } = partitionByIgnored(
     displayWarnings,
     ignoredFingerprints,
+  );
+  // DQIGNORE-2 — bulk "Ignore all N of this type": for any code with >=2 distinct-content
+  // ACTIVE ignorable warnings, offer a single action that fans out one precise
+  // per-fingerprint ignore. The label is the plain-language type (catalog title, else the
+  // data-gap class label) — never the raw §12.4 code (invariant 5). Empty when no code has
+  // a bulk-eligible group; BulkIgnoreControls then renders nothing.
+  const bulkGroupLabel = (code: string): string | null => {
+    const title = isMessageCode(code) ? messageFor(code as MessageCode).title : null;
+    if (title) return title;
+    if (code in DATA_GAP_CLASS_LABELS) {
+      return DATA_GAP_CLASS_LABELS[code as keyof typeof DATA_GAP_CLASS_LABELS];
+    }
+    return null;
+  };
+  const bulkIgnoreGroups: BulkIgnoreGroupWithLabel[] = groupIgnorableByCode(activeActionable).map(
+    (group) => ({ ...group, label: bulkGroupLabel(group.code) }),
   );
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
@@ -840,6 +864,10 @@ export default async function AdminShowPage({
               </p>
             </HoverHelp>
           </div>
+          {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
+              acts on. Renders nothing unless a code has >=2 distinct-content active
+              ignorable warnings. */}
+          <BulkIgnoreControls slug={show.slug} groups={bulkIgnoreGroups} />
           {/* Every ACTIVE data-quality warning as a per-warning card: the data-gap
               digest (unknown section / removed block) leads, followed by the
               operator-actionable warnings (role/day/schedule/field) with a source-

@@ -845,3 +845,35 @@ describe("per-show Data quality: digest-group Report/Ignore (DQIGNORE-1)", () =>
     );
   });
 });
+
+// DQIGNORE-2 — bulk "Ignore all N of this type": a per-code control appears above the
+// active cards when a code has >=2 distinct-content ignorable active warnings.
+describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => {
+  // No sourceCell → operatorActionableWarnings never dedups these, so two distinct
+  // rawSnippets stay two active cards (the bulk threshold).
+  const uf = (raw: string) => ({
+    severity: "warn" as const,
+    code: "UNKNOWN_FIELD",
+    message: `Unrecognized event_details row label: '${raw}'`,
+    rawSnippet: raw,
+  });
+
+  it("shows an 'Ignore all N' control when a code has >=2 distinct-content active warnings", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [uf("Storage | dock"), uf("Floor Plan | link")],
+    };
+    await renderPage();
+    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    expect(btn.textContent).toMatch(/Ignore all 2/);
+    // Plain-language type label (catalog title), never the raw §12.4 code (invariant 5).
+    expect(btn.textContent).toContain("Unrecognized row in sheet");
+    expect(btn.textContent).not.toContain("UNKNOWN_FIELD");
+  });
+
+  it("does NOT show a bulk control for a lone warning of a type", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
+    await renderPage();
+    expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull();
+  });
+});
