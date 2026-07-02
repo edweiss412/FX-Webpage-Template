@@ -8,6 +8,7 @@ export {
   runWithRequestContext,
   setCronInFlight,
   setRequestShowId,
+  snapshotCronInFlight,
 } from "./requestContext";
 export type { LogFields, LogLevel, LogRecord, Sink } from "./types";
 export type { RequestContext } from "./requestContext";

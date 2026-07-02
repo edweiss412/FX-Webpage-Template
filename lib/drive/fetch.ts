@@ -2,6 +2,7 @@ import type { drive_v3 } from "googleapis";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { snapshotCronInFlight, type CronInFlightSnapshot } from "@/lib/log/requestContext";
 
 export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
 export const XLSX_EXPORT_MIME_TYPE =
@@ -303,6 +304,20 @@ async function fetchXlsxExportBytes(
 // Raw Drive files.get with transient-retry. A NAMED helper (not an inline arrow)
 // so the single-sheet scope-check contract attributes the .files.get to one
 // exemptable site (callers that PROCESS sheets still scope-check the result).
+/**
+ * Attach an immutable cron attribution snapshot (captured at Drive-call time) to a
+ * thrown error as `syncRunContext`, WITHOUT clobbering one already present (the
+ * richer runScheduledCronSync S1 attach wins if the error later traverses it). Lets
+ * runCronRoute attribute a DETACHED Drive rejection to the operation that created
+ * it, immune to later mutation of the shared ALS (audit #4 PR-1, whole-diff R1).
+ */
+function attachCronContext<T>(err: T, ctx: CronInFlightSnapshot | undefined): T {
+  if (ctx && err !== null && typeof err === "object" && !("syncRunContext" in err)) {
+    (err as { syncRunContext?: unknown }).syncRunContext = ctx;
+  }
+  return err;
+}
+
 function driveFilesGet(
   drive: drive_v3.Drive,
   params: drive_v3.Params$Resource$Files$Get,
@@ -316,12 +331,24 @@ function driveFilesGet(
   // The per-call gaxios `timeout` bounds the stall; `retry: false` keeps
   // withDriveRetry as the single retry layer (so the budget is exactly timeoutMs
   // per attempt, not multiplied by gaxios's own internal retry).
+  //
+  // Snapshot the in-flight cron context NOW — synchronously, at call time = the
+  // correct operation — and attach it to any error, so a detached rejection that
+  // surfaces after the shared ALS has advanced is still attributed to THIS call
+  // rather than the stale ALS read at throw time (whole-diff R1).
+  const cronAtCall = snapshotCronInFlight();
   // Fail fast on an empty/blank fileId (before spending any retry budget) so it
   // never reaches Google as an opaque `File not found: .` 404 (audit #4 PR-1).
-  assertNonEmptyDriveFileId((params as { fileId?: unknown }).fileId);
+  try {
+    assertNonEmptyDriveFileId((params as { fileId?: unknown }).fileId);
+  } catch (err) {
+    throw attachCronContext(err, cronAtCall);
+  }
   const driveFilesGetCall = () =>
     drive.files.get({ ...params, supportsAllDrives: true }, { timeout: timeoutMs, retry: false });
-  return withDriveRetry(driveFilesGetCall, retry);
+  return withDriveRetry(driveFilesGetCall, retry).catch((err: unknown) => {
+    throw attachCronContext(err, cronAtCall);
+  });
 }
 
 function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {

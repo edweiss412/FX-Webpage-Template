@@ -5,6 +5,7 @@ import {
   fetchDriveFileMetadata,
   InvalidDriveFileIdError,
 } from "@/lib/drive/fetch";
+import { runWithRequestContext, setCronInFlight } from "@/lib/log/requestContext";
 
 describe("assertNonEmptyDriveFileId / InvalidDriveFileIdError", () => {
   test("throws InvalidDriveFileIdError (and instanceof DriveFetchError) for empty/blank/nullish", () => {
@@ -48,5 +49,56 @@ describe("assertNonEmptyDriveFileId / InvalidDriveFileIdError", () => {
     await fetchDriveFileMetadata("1Valid", { drive: fakeDrive });
     expect(filesGet).toHaveBeenCalledTimes(1);
     expect((filesGet.mock.calls[0] as unknown[])[0]).toMatchObject({ fileId: "1Valid" });
+  });
+
+  test("empty-id guard error carries the call-time cron snapshot", async () => {
+    const filesGet = vi.fn();
+    const fakeDrive = { files: { get: filesGet } } as never;
+    let caught: unknown;
+    await runWithRequestContext(
+      {
+        requestId: "r",
+        cronPhase: "file-loop",
+        cronInFlightDriveFileId: "showA",
+        cronProcessedCount: 4,
+      },
+      async () => {
+        caught = await fetchDriveFileMetadata("", { drive: fakeDrive }).catch((e) => e);
+      },
+    );
+    expect(caught).toBeInstanceOf(InvalidDriveFileIdError);
+    expect(
+      (caught as { syncRunContext?: { phase?: string; inFlightDriveFileId?: string } })
+        .syncRunContext,
+    ).toMatchObject({ phase: "file-loop", inFlightDriveFileId: "showA", processedBeforeThrow: 4 });
+    expect(filesGet).not.toHaveBeenCalled();
+  });
+
+  test("detached Drive rejection carries the CALL-TIME snapshot, not the advanced ALS", async () => {
+    // The failing operation was created under driveFileId "A"; the shared ALS then
+    // advances to "B" before the rejection surfaces. The error must attribute to "A".
+    let rejectGet!: (e: unknown) => void;
+    const filesGet = vi.fn(() => new Promise((_resolve, reject) => (rejectGet = reject)));
+    const fakeDrive = { files: { get: filesGet } } as never;
+    let caught: unknown;
+    await runWithRequestContext(
+      {
+        requestId: "r",
+        cronPhase: "file-loop",
+        cronInFlightDriveFileId: "A",
+        cronProcessedCount: 1,
+      },
+      async () => {
+        const p = fetchDriveFileMetadata("1Valid", { drive: fakeDrive }); // snapshot A captured now
+        await Promise.resolve(); // let driveFilesGet invoke the fake (rejectGet assigned)
+        setCronInFlight({ driveFileId: "B", processedCount: 2 }); // shared ALS advances past A
+        rejectGet(new DriveFetchError("gone", 404)); // 404 = non-transient → no retry
+        caught = await p.catch((e) => e);
+      },
+    );
+    expect(
+      (caught as { syncRunContext?: { phase?: string; inFlightDriveFileId?: string } })
+        .syncRunContext,
+    ).toMatchObject({ phase: "file-loop", inFlightDriveFileId: "A" }); // the operation that created it, not "B"
   });
 });

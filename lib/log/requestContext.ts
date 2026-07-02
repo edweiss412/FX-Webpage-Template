@@ -47,3 +47,31 @@ export function setCronInFlight(patch: {
   if (patch.driveFileId !== undefined) store.cronInFlightDriveFileId = patch.driveFileId; // null = clear
   if (patch.processedCount !== undefined) store.cronProcessedCount = patch.processedCount;
 }
+
+/** Immutable cron attribution snapshot (syncRunContext-shaped). */
+export type CronInFlightSnapshot = {
+  phase: string;
+  inFlightDriveFileId: string | null;
+  processedBeforeThrow?: number;
+};
+
+/**
+ * Capture an IMMUTABLE copy of the current cron in-flight context. Taken at the
+ * moment a Drive call is initiated (synchronously, under the correct operation),
+ * it is attached to the resulting error so a DETACHED rejection surfacing LATER
+ * is attributed to the operation that created it — not to whatever the single
+ * shared ALS object was mutated to by the time the rejection is read at throw
+ * time (whole-diff R1). Returns undefined unless a cron phase is active; excludes
+ * a non-finite processedCount via Number.isFinite.
+ */
+export function snapshotCronInFlight(): CronInFlightSnapshot | undefined {
+  const store = als.getStore();
+  if (!store || typeof store.cronPhase !== "string") return undefined;
+  return {
+    phase: store.cronPhase,
+    inFlightDriveFileId: store.cronInFlightDriveFileId ?? null,
+    ...(Number.isFinite(store.cronProcessedCount)
+      ? { processedBeforeThrow: store.cronProcessedCount as number }
+      : {}),
+  };
+}
