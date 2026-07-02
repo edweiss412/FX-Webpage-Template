@@ -124,7 +124,7 @@ update public.shows
 | Emailed-link consume (JS) | refuses (this section — NEW, was missing pre-feature) |
 | `_archive_show_core` via token path | path deleted (the archive-mirror consume is replaced) |
 | Auto-publish tails (cron first-seen / staged apply) | upstream-owned: only fire on wizard/cron flows that themselves own or exclude the finalize checkpoint — untouched |
-| `unarchive_show` | does not touch `published`; untouched |
+| `unarchive_show` | DOES write `published = false` (archived→Held transition, `20260602000002_b2_r8_unarchive_returns_transition_flag.sql:36-39` — the live redefinition, NOT the older `20260601000000:84` body). No finalize-owned refusal needed because archived∧finalize-owned is structurally unreachable: `archive_show` refuses finalize-owned shows (`20260601000000:75-77`) and the finalize-CAS path refuses archived shows (WM-R9 guard, `app/api/admin/onboarding/finalize-cas/route.ts:397`, pinned by `tests/onboarding/finalizeCasArchivedGuard.db.test.ts`). Untouched by this feature; invariant already test-pinned |
 
 **Lock-holder topology (invariant 2, declared here for the plan):** `hashtext('show:'||drive_file_id)` acquires at exactly one layer per path — admin toggle OFF → in-RPC (`unpublish_show`), admin toggle ON → in-RPC (`publish_show`, existing), emailed link → JS-side `withShowLock` (existing, mutation stays inline SQL — it does NOT call the new RPC, precisely so no second layer ever acquires). Register `unpublish_show` in `tests/sync/_advisoryLockSingleHolderContract.test.ts`. (`tests/auth/advisoryLockRpcDeadlock.test.ts` guards finalize-lock handlers — `tryFinalizeLock` call sites, `:291-319` — and is NOT in scope.)
 
@@ -174,7 +174,7 @@ The sweep is BROAD (R5): `rg -i "undo auto-publish|undo within|24 hours|republis
 
 | Flag | Storage | Write paths | Read paths | Effect |
 |---|---|---|---|---|
-| `shows.published` | initial schema :26 | `publish_show` RPC (ON); **new** `unpublish_show` RPC + softened token-consume UPDATE (OFF); `_archive_show_core` (OFF, unchanged); first-seen insert (`runScheduledCronSync.ts:1176-1183`) | `resolveShowPageAccess.ts:182`, `getShowForViewer.ts:319`, admin page pill/gating (`page.tsx:331,362,368`), `_publish_show_core` idempotency, `readfinalizeowned_b2` | Crew-link liveness; drives toggle state |
+| `shows.published` | initial schema :26 | `publish_show` RPC (ON); **new** `unpublish_show` RPC + softened token-consume UPDATE (OFF); `_archive_show_core` (OFF, unchanged); `unarchive_show` (OFF on archived→Held, `20260602000002:36-39`, unchanged); first-seen insert (`runScheduledCronSync.ts:1176-1183`) | `resolveShowPageAccess.ts:182`, `getShowForViewer.ts:319`, admin page pill/gating (`page.tsx:331,362,368`), `_publish_show_core` idempotency, `readfinalizeowned_b2` | Crew-link liveness; drives toggle state |
 | `shows.unpublish_token(+_expires_at)` | 20260512082710 | minted: cron :2601-2605 / applyStaged :1247-1256 (unchanged); cleared: expiry-clear, consume, `_archive_show_core`, **new** `_unpublish_show_core` | emailed-link flow; ~~admin page `undoWindowOpen`~~ (removed) | emailed 24 h undo only — no longer renders any in-app affordance |
 | `app_settings.auto_publish_clean_first_seen` | 20260601000000:6 | unchanged | unchanged | unchanged (settings copy tweak only) |
 
