@@ -117,7 +117,13 @@ export function extractUnknownFieldAnchors(
     for (let r = headerRow + 1; r <= grid.maxRow; r++) {
       const first = firstNonBlank(grid, r);
       if (!first) continue; // internal blank row — over-inclusive: keep scanning
-      if (TERMINATORS.has(first.text.toUpperCase())) break; // next section
+      // Terminate on the FIRST LINE of the raw cell: section headers like
+      // "GENERAL SESSION\nGRAND BALLROOM A/B\n8th Floor" are merged multi-line title
+      // cells, so the collapsed text never exact-matches. First-line-exact-match
+      // catches them without prefix false-positives (a "VENUE NAME" field row's
+      // first line is "VENUE NAME", not "VENUE"). (live-sheet fidelity, 2026-07-01)
+      const firstLine = (grid.cell(r, first.col).split(/\r?\n/)[0] ?? "").trim().toUpperCase();
+      if (TERMINATORS.has(firstLine)) break; // next section
       const value = nextNonBlankAfter(grid, r, first.col);
       out.push({
         kind,
