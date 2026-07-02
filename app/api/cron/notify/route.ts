@@ -37,7 +37,7 @@ function statusFor(result: NotifyRunResult): number {
 
 // §4.3 notify classification: any recorded infra/toggle fault (delivery or maintenance) → infra;
 // otherwise ok. (No `partial` arm for notify — a recorded fault is the scheduler-visible signal.)
-function summarizeNotify(result: NotifyRunResult): CronRunSummary {
+export function summarizeNotify(result: NotifyRunResult): CronRunSummary {
   const deliveryFault =
     result.delivery.kind === "infra_error" || recordsToggleFault(result.delivery);
   const maintenanceFault = result.maintenance.some(
@@ -48,6 +48,10 @@ function summarizeNotify(result: NotifyRunResult): CronRunSummary {
     counts: {
       sent: result.delivery.kind === "ok" ? result.delivery.sent : 0,
       maintenanceSteps: result.maintenance.length,
+    },
+    detail: {
+      deliveryKind: result.delivery.kind,
+      ...(result.delivery.kind === "skipped" ? { deliverySkipReason: result.delivery.reason } : {}),
     },
   };
 }
