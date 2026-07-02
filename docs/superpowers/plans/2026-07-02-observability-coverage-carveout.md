@@ -469,19 +469,32 @@ return NextResponse.json({ ok: true, result });
 - Modify: `app/api/admin/pending-ingestions/[id]/retry/route.ts`
 - Test: `tests/api/…` retry route test (grep `handleLivePendingIngestionRetry`)
 
-**Interfaces:** import `logAdminOutcome` + `AdminOutcome` type. Capture `const admin = await deps.requireAdminIdentity()` (`:321` currently discards it). `driveFileId` at `:330`. **Gate on the applied outcome, NOT `appliedShowId`.**
+**Interfaces:** import `logAdminOutcome` + `AdminOutcome` type. Capture the admin email into a **function-scoped** variable (the `:320-327` auth try is a separate block from the `withRowTryLock` callback + post-lock emit that consume it — a `const admin` inside the try would be out of scope, Codex plan R3 HIGH). `driveFileId` at `:330`. **Gate on the applied outcome, NOT `appliedShowId`.**
+
+> **Same-vector scoping sweep (all 5 routes):** R1 `admin` is a `const` in the handler body (`:134`), visible at the `:168-199` emits ✓. R2 uses a function-scoped `let admin` (`:140`, already consumed at `:169`) ✓. R3 `email` sits at the top of the single `runWithRequestContext` callback, visible at `:86` ✓. R4 (this task) + R5 (Task 11) needed the fix — email captured at a scope visible to the emit. All five audited; only R4/R5 required a change.
 
 - [ ] **Step 1: Write the failing test** — (a) manual-sync `applied` → `logAdminOutcome({ code: "PENDING_INGESTION_RETRIED", source: "api.admin.pending-ingestions.retry", actorEmail, driveFileId, showId })` called once; (b) a `source_gone`/`parse_error` outcome that maps to `still_failed` but carries a showId → `logAdminOutcome` NOT called (the over-log guard); (c) first-seen `applied` → called; (d) `parsed_pending_review`/`deferred` → NOT called.
 
 - [ ] **Step 2: Run test to verify it fails** — FAIL.
 
-- [ ] **Step 3: Implement** — declare beside `appliedShowId` (`:337`): `let outcome: Omit<AdminOutcome, "code"> | null = null;`. In the manual-sync path, after `:376` (the `appliedShowId` capture), add a TIGHTER, outcome-gated assignment:
+- [ ] **Step 3: Implement** — capture the admin email at function scope. Declare `let adminEmail: string;` before the auth try (`:320`), and inside the try assign it (replacing the discarded call at `:321`):
+
+```ts
+let adminEmail: string;
+try {
+  adminEmail = (await deps.requireAdminIdentity()).email; // canonical
+} catch (error) {
+  // ...existing catch: ADMIN_SESSION_LOOKUP_FAILED → 500, else 403 (both return)...
+}
+```
+
+(The catch always returns, so `adminEmail` is definitely assigned past the try; if TS's definite-assignment analysis still flags it, use `let adminEmail!: string;`.) Declare beside `appliedShowId` (`:337`): `let outcome: Omit<AdminOutcome, "code"> | null = null;`. In the manual-sync path, after `:376` (the `appliedShowId` capture), add a TIGHTER, outcome-gated assignment:
 
 ```ts
 if (syncResult.outcome === "applied") {
   outcome = {
     source: "api.admin.pending-ingestions.retry",
-    actorEmail: admin.email,
+    actorEmail: adminEmail,
     driveFileId: row.drive_file_id,
     showId: syncResult.showId,
   };
@@ -494,7 +507,7 @@ In the first-seen path, alongside `:397` (`if (stageResult.outcome === "applied"
 if (stageResult.outcome === "applied") {
   outcome = {
     source: "api.admin.pending-ingestions.retry",
-    actorEmail: admin.email,
+    actorEmail: adminEmail,
     driveFileId: row.drive_file_id,
     showId: stageResult.showId,
   };
@@ -506,8 +519,6 @@ After the lock resolves, beside `revalidateShow` (`:405`), before `return result
 ```ts
 if (outcome) await logAdminOutcome({ code: "PENDING_INGESTION_RETRIED", ...outcome });
 ```
-
-Capture the admin: `:321` `const admin = await deps.requireAdminIdentity();` (keep the existing catch). `admin.email` is canonical.
 
 - [ ] **Step 4: Run tests + typecheck** → PASS/clean. Confirm the `Omit<AdminOutcome,"code">` ref carries NO `code` field (scanner-safety; the literal rides only the emit call).
 
