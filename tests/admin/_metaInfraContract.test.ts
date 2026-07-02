@@ -228,6 +228,12 @@ const infraRegistry = [
       "Ignored-sheets view (Task E2): deferred_ingestions read (wizard_session_id IS NULL, deferred_kind='permanent_ignore'); client construction + .from() throw → { kind:'infra_error' } (table-specific 'threw' message)",
   },
   {
+    helper: "loadIgnoredWarnings",
+    path: "lib/admin/loadIgnoredWarnings.ts",
+    contract:
+      "ignored_warnings read (show partition; .eq('show_id')); client construction throw + .from() query throw + returned {error} → { kind: 'infra_error' } (table-specific 'failed'/'threw' message); the page.tsx caller treats infra_error as an EMPTY ignore set (warnings stay visible)",
+  },
+  {
     helper: "loadNeedsAttentionCount",
     path: "lib/admin/needsAttentionCount.ts",
     contract:
