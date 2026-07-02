@@ -23,7 +23,7 @@
 
 ## Meta-test inventory (EXTENDS)
 
-`tests/db/b2-lifecycle-rpc-meta.test.ts` (T1) · `tests/showLifecycle/callers.test.ts` (T2) · `tests/sync/_advisoryLockSingleHolderContract.test.ts` (T8 — plain-`unpublishShow` holder row removed) · `tests/components/admin/transitionAudit.test.tsx` (T8) · `tests/messages/_metaAdminAlertCatalog.test.ts` — no change expected: its `SHOW_UNPUBLISHED` producer pattern (`:199-201`) matches `lib/sync/unpublishShow.ts`, which keeps upserting; the SQL-side producer lives in migrations, outside the scan. CREATES: none.
+`tests/db/b2-lifecycle-rpc-meta.test.ts` (T1) · `tests/showLifecycle/callers.test.ts` (T2) · `tests/sync/_advisoryLockSingleHolderContract.test.ts` (T8 — plain-`unpublishShow` holder row removed) · `tests/components/admin/transitionAudit.test.tsx` (T8) · `tests/messages/_metaAdminAlertCatalog.test.ts` (T1 — its `SHOW_UNPUBLISHED` registry entry `:195-202` pins only the `lib/sync/unpublishShow.ts` producer; Task 1 Step 5 adds a documented second-producer note + a migration-file pattern assertion so the SQL-side `upsert_admin_alert` producer is structurally pinned, not silently exempt). CREATES: none.
 
 ## Advisory-lock holder topology (hashkey `show:<drive_file_id>`)
 
@@ -39,7 +39,8 @@
 
 **Files:**
 - Create: `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql`
-- Test: `tests/db/unpublish_show_rpc.test.ts` (new), `tests/db/b2-lifecycle-rpc-meta.test.ts` (extend)
+- Modify: `tests/db/_b2Helpers.ts:33-38` — add `"unpublish_show"` to the `AdminRpcFn` union (part of the failing-test setup; without it the new test fails typecheck before reaching the missing-RPC failure)
+- Test: `tests/db/unpublish_show_rpc.test.ts` (new), `tests/db/b2-lifecycle-rpc-meta.test.ts` (extend), `tests/messages/_metaAdminAlertCatalog.test.ts` (extend, Step 5)
 
 **Interfaces:**
 - Produces: RPC `public.unpublish_show(p_show_id uuid)` — raises `42501` non-admin, `P0002 ADMIN_LINK_SHOW_NOT_FOUND`, `P0001 SHOW_ARCHIVED_IMMUTABLE`, `P0001 FINALIZE_OWNED_SHOW`; idempotent no-op when already unpublished. `viewer_version_token` now ends with `:<true|false>` (published).
@@ -213,7 +214,7 @@ Apply locally: `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -
 
 - [ ] **Step 4: Run tests to verify pass** — `pnpm vitest run tests/db/unpublish_show_rpc.test.ts` → PASS.
 
-- [ ] **Step 5: Extend `tests/db/b2-lifecycle-rpc-meta.test.ts`** — add `unpublish_show`/`_unpublish_show_core` to the psql assertion set exactly parallel to `archive_show`/`_archive_show_core` (wrapper takes lock + authenticated-only; core lockless + revoked from all). Run: `pnpm vitest run tests/db/b2-lifecycle-rpc-meta.test.ts` → PASS.
+- [ ] **Step 5: Extend the meta-tests** — (a) `tests/db/b2-lifecycle-rpc-meta.test.ts`: add `unpublish_show`/`_unpublish_show_core` to the psql assertion set exactly parallel to `archive_show`/`_archive_show_core` (wrapper takes lock + authenticated-only; core lockless + revoked from all). (b) `tests/messages/_metaAdminAlertCatalog.test.ts`: extend the `SHOW_UNPUBLISHED` registry entry (`:195-202`) with a second producer — a `readFileSync` pattern assertion that `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql` contains `upsert_admin_alert(p_show_id, 'SHOW_UNPUBLISHED'` — plus a comment documenting the two-producer topology (JS emailed path + SQL RPC core). Run: `pnpm vitest run tests/db/b2-lifecycle-rpc-meta.test.ts tests/messages/_metaAdminAlertCatalog.test.ts` → PASS.
 
 - [ ] **Step 6: Commit** — `git add -A && git commit --no-verify -m "feat(db): unpublish_show RPC (pure unpublish) + published component in viewer_version_token"`
 
@@ -299,8 +300,8 @@ Barrel: add `export { setShowPublishedAction } from "./setPublished";` to `_acti
 ### Task 4: Soften the emailed-link engine + finalize-owned guard
 
 **Files:**
-- Modify: `lib/sync/unpublishShow.ts`, `lib/sync/runManualSyncForShow.ts:113` (widen one param type)
-- Test: `tests/sync/unpublishShow.test.ts` + `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (update fakes/assertions), `tests/sync/unpublishArchiveParity.test.ts` → REWRITE as unpublish parity
+- Modify: `lib/sync/unpublishShow.ts`, `lib/sync/runManualSyncForShow.ts:113` (widen one param type), `tests/sync/_secondCopyApplyTripwire.test.ts:71-72` — the allowlist names `async archiveAndConsumeUnpublishToken(` and THROWS on a missing allowlisted symbol (`:87-89`); rename the entry to `async unpublishAndConsumeUnpublishToken(` (the softened body still contains `update public.shows`, so the allowlist row must survive, not be dropped)
+- Test: `tests/sync/unpublishShow.test.ts` + `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (update fakes/assertions), `tests/sync/unpublishArchiveParity.test.ts` → REWRITE as unpublish parity, `tests/sync/_secondCopyApplyTripwire.test.ts` (run with the sync suites)
 
 **Interfaces:**
 - Produces: `UnpublishShowResult` gains `{ outcome: "finalize_owned"; status: 409; showId: string }`; tx method renamed `unpublishAndConsumeUnpublishToken(showId, token): Promise<boolean>`. Plain `unpublishShow`/`unpublishShow_unlocked`/`readUnpublishTokenForSlug` remain ALIVE until Task 8 (the in-app action still imports them).
@@ -355,7 +356,7 @@ if (await readFinalizeOwnershipGuard_unlocked(tx, show.driveFileId)) {
 ```
 
 (import from `@/lib/sync/runManualSyncForShow`; widen that function's tx param as noted in Interfaces). Update interface member name + all fakes.
-- [ ] **Step 4: Verify pass** — engine + concurrency + parity suites, run individually.
+- [ ] **Step 4: Verify pass** — engine + concurrency + parity suites + `pnpm vitest run tests/sync/_secondCopyApplyTripwire.test.ts`, run individually.
 - [ ] **Step 5: Commit** — `feat(sync): emailed undo becomes pure unpublish with finalize-owned refusal`
 
 ---
@@ -469,7 +470,7 @@ Page dispatch: `case "unpublished": return <ShowUnavailable />;` (replace `notFo
 - Modify: `app/admin/show/[slug]/page.tsx` — (1) widen `finalizeOwned` computation gate `:351` from `if (!published && !archived)` to `if (!archived)` and update its comment; (2) mount toggle at top of Share & access section (after the intro `<p>`, `:667`); (3) Held lifecycle section `:528-531`: drop `PublishShowButton`, repoint `held-disclosure` copy to "Held — not published. Turn on Published in Share &amp; access to make it live."; (4) delete footer undo block `:855-861` + `undoWindowOpen` computation `:338-340`; (5) drop `undoWindowOpen`/`undoAutoPublishAction` props from `PerShowAlertSection` usage `:480-489`
 - Modify: `components/admin/PerShowAlertSection.tsx` (remove props `:64-65,166-167`, import `:21`, render block `:300-303`)
 - Delete: `components/admin/UndoAutoPublishButton.tsx`, `app/admin/show/[slug]/_actions/undoAutoPublish.ts` (+ barrel export), `lib/sync/unpublishShow.ts` plain legs (`unpublishShow` `:367-384`, `unpublishShow_unlocked` `:271-290`, `readUnpublishTokenForSlug` `:341-352`), tests `tests/app/admin/undo-auto-publish-action.test.ts`, `tests/components/admin/UndoAutoPublishButton.test.tsx`, `tests/components/admin/undo-auto-publish-alert-row.test.tsx`, `tests/components/admin/undo-auto-publish-affordances.test.tsx`
-- Modify: `tests/sync/_advisoryLockSingleHolderContract.test.ts` (remove the plain-`unpublishShow` holder row; keep `unpublishShowViaEmailedLink`), `tests/components/admin/transitionAudit.test.tsx` (add `components/admin/PublishedToggle.tsx` to the scanned file list `:33+`), `tests/e2e/admin-lifecycle-transitions.spec.ts:55` surface registry (keep `PublishShowButton.tsx`, add `PublishedToggle.tsx`)
+- Modify: `tests/sync/_advisoryLockSingleHolderContract.test.ts` (remove the plain-`unpublishShow` holder row; keep `unpublishShowViaEmailedLink`), `tests/components/admin/transitionAudit.test.tsx` (in the `SERVER_RENDERED`/scanned file registry `:32-40`: REMOVE the `components/admin/UndoAutoPublishButton.tsx` row — the file is deleted and the registry `readFileSync`s every entry — and ADD `components/admin/PublishedToggle.tsx`), `tests/e2e/admin-lifecycle-transitions.spec.ts:55` surface registry (keep `PublishShowButton.tsx`, add `PublishedToggle.tsx`)
 - Test: `tests/components/admin/PublishedToggle.test.tsx` (new), `tests/components/admin/per-show-lifecycle.test.tsx` (update Held expectations + ADD the R3 page-level case: published + `shows_pending_changes` finalize-owned → toggle rendered ON-disabled)
 
 **Interfaces:**
