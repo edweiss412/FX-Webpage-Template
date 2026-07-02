@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/log";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
 import { isAllowedDiagramMime, resolveCurrentDiagrams } from "@/lib/data/diagrams";
@@ -53,6 +54,9 @@ function showUnavailable(): Response {
 // Cache-Control as success/410 — auth and infra failures MUST NOT be
 // cached by a private intermediary (browser HTTP cache, service worker).
 function infraError(code: string): Response {
+  // `code` is the helper PARAMETER (a runtime variable), never a literal —
+  // scanner-safe. Covers GET + HEAD + every infraError call site.
+  void log.error("asset infra fault", { source: "api.asset.diagram", code });
   return NextResponse.json(
     { error: code },
     { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
