@@ -16,6 +16,6 @@ describe("summarizeNotify", () => {
   test("ok delivery → deliveryKind ok, no skip reason", () => {
     const s = summarizeNotify({ delivery: { kind: "ok", sent: 2 }, maintenance: [] } as never);
     expect(s.detail).toMatchObject({ deliveryKind: "ok" });
-    expect((s.detail as any).deliverySkipReason).toBeUndefined();
+    expect((s.detail as Record<string, unknown>).deliverySkipReason).toBeUndefined();
   });
 });

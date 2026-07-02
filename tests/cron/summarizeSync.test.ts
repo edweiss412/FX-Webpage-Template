@@ -71,14 +71,18 @@ describe("summarizeSync", () => {
   test("partial → detail.failuresFingerprint is sorted/order-independent", () => {
     const a = summarizeSync({ processed: [p2("z", "hard_fail"), p2("a", "hard_fail")] } as never);
     const b = summarizeSync({ processed: [p2("a", "hard_fail"), p2("z", "hard_fail")] } as never);
-    expect((a.detail as any).failuresFingerprint).toBe((b.detail as any).failuresFingerprint);
-    expect((a.detail as any).failuresFingerprint).toContain("a|hard_fail");
+    expect((a.detail as Record<string, unknown>).failuresFingerprint).toBe(
+      (b.detail as Record<string, unknown>).failuresFingerprint,
+    );
+    expect((a.detail as Record<string, unknown>).failuresFingerprint).toContain("a|hard_fail");
   });
   test("beyond-cap composition change → fingerprint differs (uncapped)", () => {
     const base = Array.from({ length: 30 }, (_, i) => p2(`f${i}`, "hard_fail"));
     const changed = base.map((x, i) => (i === 27 ? p2("f27", "parse_error") : x));
-    const fA = (summarizeSync({ processed: base } as never).detail as any).failuresFingerprint;
-    const fB = (summarizeSync({ processed: changed } as never).detail as any).failuresFingerprint;
+    const fA = (summarizeSync({ processed: base } as never).detail as Record<string, unknown>)
+      .failuresFingerprint;
+    const fB = (summarizeSync({ processed: changed } as never).detail as Record<string, unknown>)
+      .failuresFingerprint;
     expect(fA).not.toBe(fB);
   });
   test("heartbeat-only partial → failuresFingerprint 'heartbeat'", () => {
@@ -87,7 +91,7 @@ describe("summarizeSync", () => {
       maintenanceFaults: { syncCronHeartbeat: "infra_error" },
     } as never);
     expect(s.outcome).toBe("partial");
-    expect((s.detail as any).failuresFingerprint).toBe("heartbeat");
+    expect((s.detail as Record<string, unknown>).failuresFingerprint).toBe("heartbeat");
   });
 });
 

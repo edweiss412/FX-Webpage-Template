@@ -19,7 +19,7 @@ describe("cron.sync throw attribution", () => {
         },
       } as never),
     ).rejects.toThrow("lock boom");
-    const ctx = (boom as { syncRunContext?: any }).syncRunContext;
+    const ctx = (boom as { syncRunContext?: Record<string, unknown> }).syncRunContext;
     expect(ctx).toMatchObject({ phase: "missing-shows", inFlightDriveFileId: "missing-1" });
   });
   test("throw before the loops (folder resolve) → phase set, no inFlight id, processedBeforeThrow 0", async () => {
@@ -31,13 +31,13 @@ describe("cron.sync throw attribution", () => {
         },
       } as never),
     ).rejects.toThrow("folder boom");
-    const ctx = (boom as { syncRunContext?: any }).syncRunContext;
+    const ctx = (boom as { syncRunContext?: Record<string, unknown> }).syncRunContext;
     expect(ctx).toMatchObject({
       phase: "resolve-folder",
       inFlightDriveFileId: null,
       processedBeforeThrow: 0,
     });
-    expect(ctx.failures).toEqual([]);
+    expect(ctx?.failures).toEqual([]);
   });
   test("throw during the finish phase (heartbeat write) attaches syncRunContext.phase 'finish'", async () => {
     const boom = new Error("hb boom");
@@ -51,7 +51,7 @@ describe("cron.sync throw attribution", () => {
         },
       } as never),
     ).rejects.toThrow("hb boom");
-    const ctx = (boom as { syncRunContext?: any }).syncRunContext;
+    const ctx = (boom as { syncRunContext?: Record<string, unknown> }).syncRunContext;
     // Without `return await finishCompletedRun(...)` the heartbeat rejection escapes the
     // outer catch and ctx is undefined — this asserts the await is present.
     expect(ctx).toMatchObject({ phase: "finish", processedBeforeThrow: 0 });

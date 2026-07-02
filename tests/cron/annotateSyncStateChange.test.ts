@@ -13,7 +13,7 @@ import { annotateSyncStateChange } from "@/lib/cron/annotateSyncStateChange";
 
 const partial = (fp: string) => ({
   outcome: "partial" as const,
-  counts: { processed: 1 } as any,
+  counts: { processed: 1 } as never,
   detail: { failuresFingerprint: fp },
 });
 // NOTE: block body (returns undefined) — an arrow-expression `() => mockLimit.mockReset()`
@@ -26,7 +26,7 @@ beforeEach(() => {
 
 describe("annotateSyncStateChange", () => {
   test("non-partial passes through with NO read", async () => {
-    const ok = { outcome: "ok" as const, counts: { processed: 3 } as any };
+    const ok = { outcome: "ok" as const, counts: { processed: 3 } as never };
     expect(await annotateSyncStateChange(ok)).toBe(ok);
     expect(mockLimit).not.toHaveBeenCalled();
   });
@@ -49,13 +49,13 @@ describe("annotateSyncStateChange", () => {
     });
     const out = await annotateSyncStateChange(partial("b|y"));
     expect(out.detail).toMatchObject({ stateChanged: true });
-    expect((out.detail as any).unchangedSinceRuns).toBeUndefined();
+    expect((out.detail as Record<string, unknown>).unchangedSinceRuns).toBeUndefined();
   });
   test("returned {error} → canonical fail-open (fingerprint preserved, stateChanged true), no throw", async () => {
     mockLimit.mockResolvedValue({ data: null, error: { message: "down" } });
     const out = await annotateSyncStateChange(partial("a|x"));
     expect(out.detail).toMatchObject({ stateChanged: true, failuresFingerprint: "a|x" });
-    expect((out.detail as any).unchangedSinceRuns).toBeUndefined();
+    expect((out.detail as Record<string, unknown>).unchangedSinceRuns).toBeUndefined();
   });
   test("thrown read → identical canonical fail-open", async () => {
     mockLimit.mockRejectedValue(new Error("boom"));
