@@ -1243,24 +1243,48 @@ Failure mode caught: leaking interactive controls onto the staged-review preview
   2. **Change the `<li>` key from the index-based `${w.code}-${i}` to an order-independent stable key** (Codex plan-R1 HIGH): compute `const keys = stableWarningKeys(items);` (import from `@/lib/dataQuality/warningIdentity`) before the `.map`, and use `key={keys[i]}` on each `<li>`. This ensures an ignore-driven refresh does not remount surviving siblings (preserving an open Report modal).
   3. Inside the `.map((w, i) => …)`, after the `Open in Sheet` `<a>` block and before `</li>`, add `{renderItemControls ? renderItemControls(w, i) : null}`.
 
-- [ ] **Step 3b: Add a key-stability test** to `tests/admin/perShowActionableRenderControls.test.tsx`:
+- [ ] **Step 3b: Add a REAL mount-preservation test** (NOT a helper-equality tautology; Codex plan-R2). This renders the actual component and proves that removing an earlier sibling does not remount a later card's child — the exact condition that keeps an open Report modal alive. It FAILS with the current index key and PASSES only with `stableWarningKeys`. Do NOT expose `warningIdentityKey` in a DOM attribute (it contains raw content — the spec hashes it; the React `key` prop is not rendered to the DOM, so `key={keys[i]}` leaks nothing).
 
 ```tsx
-test("stable <li> key survives removal of an earlier sibling (no remount)", () => {
-  // render [A, B] with a stateful child, capture B's DOM node identity; re-render [B] (A ignored);
-  // assert B's rendered node is preserved (same key) — e.g. via a data-key attr set to keys[i].
-  // Minimal form: assert the component emits data-testid/data-key derived from stableWarningKeys,
-  // and that keys([A,B])[1] === keys([B])[0].
+// tests/admin/perShowActionableKeyStability.test.tsx
+import { render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { describe, expect, test } from "vitest";
+import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import type { ParseWarning } from "@/lib/parser/types";
+
+let mountSeq = 0;
+// A child whose per-MOUNT sequence is fixed at mount time; if it remounts, the number changes.
+function MountProbe({ label }: { label: string }) {
+  const [seq] = useState(() => ++mountSeq);
+  return <span data-testid={`probe-${label}`}>{seq}</span>;
+}
+// SAME code, different content → the subtle "reconcile-in-place" index bug (B inherits A's fiber).
+const A: ParseWarning = { severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "Alpha" };
+const B: ParseWarning = { severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet: "Bravo" };
+const controls = (w: ParseWarning) => <MountProbe label={w.rawSnippet!} />;
+
+describe("PerShowActionableWarnings key stability (compound-transition guarantee)", () => {
+  test("removing an earlier sibling does NOT remount the later card's child", () => {
+    const { rerender } = render(<PerShowActionableWarnings items={[A, B]} driveFileId="df" renderItemControls={controls} />);
+    const bSeqBefore = screen.getByTestId("probe-Bravo").textContent; // e.g. "2"
+    rerender(<PerShowActionableWarnings items={[B]} driveFileId="df" renderItemControls={controls} />); // A ignored
+    // With index keys, B is reconciled into A's slot and shows A's mount seq (remounted/repurposed) → FAILS.
+    // With stableWarningKeys, B's fiber persists → same seq → PASSES.
+    expect(screen.getByTestId("probe-Bravo").textContent).toBe(bSeqBefore);
+  });
 });
 ```
+
+Failure mode caught: the exact round-1 bug — an ignore refresh remounting a surviving card and destroying its open Report modal/draft. This is not tautological: it exercises the real component's `key` wiring, and an index-key implementation fails it.
 
 - [ ] **Step 4: Run — verify pass.** Also run the existing `pnpm vitest run tests/admin/perShowDataQualityActionable.test.tsx` to confirm no regression on the shared component.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/admin/PerShowActionableWarnings.tsx tests/admin/perShowActionableRenderControls.test.tsx
-git commit --no-verify -m "feat(admin): PerShowActionableWarnings renderItemControls render-prop"
+git add components/admin/PerShowActionableWarnings.tsx tests/admin/perShowActionableRenderControls.test.tsx tests/admin/perShowActionableKeyStability.test.tsx
+git commit --no-verify -m "feat(admin): PerShowActionableWarnings render-prop + stable keys"
 ```
 
 ---
@@ -1320,7 +1344,7 @@ git commit --no-verify -m "feat(admin): wire Report/Ignore + Ignored(N) into the
 Body includes the spec's Transition Inventory table (§7.6). Assert:
 1. Each conditional/ternary render in `DataQualityWarningControls` is deliberate: the error `<p role="alert">` appears only in `error` state; the button label swaps on `running`; no `AnimatePresence`/motion props (transitions are instant by design — D9).
 2. The `<details>` uses only a `transition-transform` chevron (grep the component/page source), no `max-height` animation.
-3. **Compound transition (Codex plan-R1):** ignoring an earlier sibling must NOT remount a later card. Force a parent re-render with a **shifted list** — render active `[A, B]`, then re-render active `[B]` (A ignored). Assert: `stableWarningKeys([A,B])[1] === stableWarningKeys([B])[0]` (B's key unchanged) AND `buildReportSurfaceId(slug, B)` is identical before/after (surfaceId unchanged). This is the property that keeps B's open `ReportButton` modal + draft alive across an ignore refresh. An index-based key/surfaceId implementation FAILS this test — that is the point of the assertion (it would have caught the index bug).
+3. **Compound transition (Codex plan-R1/R2):** the load-bearing proof is the **real mount-preservation test in Task 12 Step 3b** (renders the actual component, removes an earlier sibling, asserts the later card's child did not remount) — it FAILS with index keys and PASSES only with `stableWarningKeys`. Do not substitute a helper-equality assertion for it. As a *supplementary* helper-level check (not a replacement), assert `buildReportSurfaceId(slug, B)` is byte-identical when B is at position 1 vs position 0 (order-independence of the surfaceId that scopes B's `ReportModal` sessionStorage). Together these prove B's open Report modal + draft survive an ignore refresh.
 
 Failure mode caught: an unintended animation on the instant transitions; a compound-state bug where an ignore action disrupts an in-progress report on another card.
 
