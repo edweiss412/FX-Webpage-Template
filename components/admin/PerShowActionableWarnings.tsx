@@ -4,6 +4,8 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import type { ParseWarning } from "@/lib/parser/types";
+import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
+import type { ReactNode } from "react";
 
 /**
  * Operator-actionable parse warnings (SCHEDULE_TIME_UNPARSED, UNKNOWN_ROLE_TOKEN,
@@ -20,11 +22,17 @@ import type { ParseWarning } from "@/lib/parser/types";
 export function PerShowActionableWarnings({
   items,
   driveFileId,
+  renderItemControls,
 }: {
   items: ParseWarning[];
   driveFileId: string | null;
+  /** Optional per-item controls slot (per-show admin panel only; absent on StagedReviewCard). */
+  renderItemControls?: (w: ParseWarning, i: number) => ReactNode;
 }) {
   if (items.length === 0) return null;
+  // Order-independent keys so an ignore-driven refresh does not remount surviving
+  // cards (which would drop an open Report modal). See lib/dataQuality/warningIdentity.
+  const keys = stableWarningKeys(items);
   return (
     <ul className="flex flex-col gap-2" data-testid="per-show-actionable-warnings">
       {items.map((w, i) => {
@@ -38,7 +46,7 @@ export function PerShowActionableWarnings({
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
         return (
           <li
-            key={`${w.code}-${i}`}
+            key={keys[i]}
             data-testid="per-show-actionable-item"
             className="flex flex-col gap-0.5 rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
           >
@@ -70,6 +78,7 @@ export function PerShowActionableWarnings({
                 Open in Sheet <span aria-hidden="true">↗</span>
               </a>
             ) : null}
+            {renderItemControls ? renderItemControls(w, i) : null}
           </li>
         );
       })}
