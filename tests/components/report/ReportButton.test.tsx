@@ -112,4 +112,40 @@ describe("ReportButton", () => {
     expect(JSON.parse(sessionStorage.getItem("fxav-report-attempt-surf-a")!).draft).toBe("from A");
     expect(sessionStorage.getItem("fxav-report-attempt-surf-b")).toBeNull();
   });
+
+  test("ringOffset maps to the matching focus ring-offset class (DQIGNORE-5)", () => {
+    const { rerender } = render(
+      <ReportButton surface="admin" variant="text" surfaceId="ro" showId={SHOW_ID} />,
+    );
+    expect(screen.getByTestId("report-button-trigger").className).toContain(
+      "focus-visible:ring-offset-bg",
+    );
+    rerender(
+      <ReportButton
+        surface="admin"
+        variant="text"
+        surfaceId="ro"
+        showId={SHOW_ID}
+        ringOffset="warning-bg"
+      />,
+    );
+    const btn = screen.getByTestId("report-button-trigger");
+    expect(btn.className).toContain("focus-visible:ring-offset-warning-bg");
+    expect(btn.className).not.toContain("focus-visible:ring-offset-bg");
+  });
+
+  test("messageOptional flows to the modal (Submit enabled with an empty note)", () => {
+    render(
+      <ReportButton
+        surface="admin"
+        variant="text"
+        surfaceId="mo"
+        showId={SHOW_ID}
+        messageOptional
+      />,
+    );
+    fireEvent.click(screen.getByTestId("report-button-trigger"));
+    const submit = screen.getByTestId("report-modal-submit") as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+  });
 });

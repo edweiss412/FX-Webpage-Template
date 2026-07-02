@@ -72,6 +72,8 @@ export function DataQualityWarningControls({
           label="Report"
           showId={showId}
           surfaceId={reportSurfaceId}
+          ringOffset={mode === "active" ? "warning-bg" : "surface-sunken"}
+          messageOptional
           autocapture={{
             parseWarnings: [warning],
             fieldRef: {

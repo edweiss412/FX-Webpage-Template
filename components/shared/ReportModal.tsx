@@ -60,6 +60,14 @@ export type ReportModalProps = {
   showId: string;
   autocapture?: ReportAutocapture;
   /**
+   * When true, the freeform note is OPTIONAL — Submit is enabled with an empty
+   * textarea. Use for surfaces whose autocapture IS the report content (e.g. a
+   * data-quality warning report, where the warning code + rawSnippet + sourceCell
+   * fully identify the issue). Default false: the note is required (crew/staged
+   * reports, where the note is the only substantive content).
+   */
+  messageOptional?: boolean;
+  /**
    * Network timeout in milliseconds for POST /api/report. The default
    * (30s) covers normal GitHub-create latency (~1-15s per Pin-stop
    * caveat) with headroom for venue Wi-Fi jitter; an aborted request
@@ -163,6 +171,7 @@ export function ReportModal(props: ReportModalProps) {
     surfaceId,
     showId,
     autocapture,
+    messageOptional = false,
     submitTimeoutMs = 30_000,
   } = props;
 
@@ -259,7 +268,7 @@ export function ReportModal(props: ReportModalProps) {
   function handleTextareaKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      if (draft.trim().length === 0 || status === "submitting") return;
+      if ((!messageOptional && draft.trim().length === 0) || status === "submitting") return;
       void submitOnce();
     }
   }
@@ -349,7 +358,7 @@ export function ReportModal(props: ReportModalProps) {
   }
 
   function handleSubmit() {
-    if (draft.trim().length === 0) return;
+    if (!messageOptional && draft.trim().length === 0) return;
     void submitOnce();
   }
 
@@ -391,7 +400,7 @@ export function ReportModal(props: ReportModalProps) {
     setStatus("failed-retryable");
   }
 
-  const submitDisabled = draft.trim().length === 0 || status === "submitting";
+  const submitDisabled = (!messageOptional && draft.trim().length === 0) || status === "submitting";
   const showResumeBanner = mountedFromResume && status === "failed-retryable";
   const showStartFreshWarning = status === "new-report-warning";
 
