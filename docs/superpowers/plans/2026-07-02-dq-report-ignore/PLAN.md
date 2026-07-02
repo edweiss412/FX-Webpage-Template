@@ -327,9 +327,10 @@ import { warningIdentityKey, stableWarningKeys } from "@/lib/dataQuality/warning
 import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import type { ParseWarning } from "@/lib/parser/types";
 
-const w = (code: string, rawSnippet?: string, gid?: number, a1?: string): ParseWarning => ({
+const w = (code: string, rawSnippet?: string, gid?: number, a1?: string, blockRef?: ParseWarning["blockRef"]): ParseWarning => ({
   severity: "warn", code, message: "m", rawSnippet,
   sourceCell: gid === undefined ? null : { title: "STAGE", gid, a1 },
+  blockRef,
 });
 
 describe("warningIdentityKey / buildReportSurfaceId (AC-14)", () => {
@@ -344,6 +345,13 @@ describe("warningIdentityKey / buildReportSurfaceId (AC-14)", () => {
     expect(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "a"))).not.toBe(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "b")));
     expect(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "a", 1))).not.toBe(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "a", 2)));
     expect(buildReportSurfaceId("rpas", w("A", "x"))).not.toBe(buildReportSurfaceId("rpas", w("B", "x")));
+  });
+  test("no-content reportable warnings (AGENDA_*) stay distinct via blockRef.index", () => {
+    // no rawSnippet, no sourceCell — only blockRef distinguishes them (Codex plan-R3)
+    const g0 = w("AGENDA_GRID_MALFORMED", undefined, undefined, undefined, { kind: "agenda", index: 0 });
+    const g1 = w("AGENDA_GRID_MALFORMED", undefined, undefined, undefined, { kind: "agenda", index: 1 });
+    expect(buildReportSurfaceId("rpas", g0)).not.toBe(buildReportSurfaceId("rpas", g1));
+    expect(new Set(stableWarningKeys([g0, g1])).size).toBe(2);
   });
   test("stableWarningKeys: per-render unique; removing a DIFFERENT-identity sibling does not change a later key", () => {
     const A = w("UNKNOWN_FIELD", "A | 1"); const B = w("UNKNOWN_FIELD", "B | 2");
@@ -372,18 +380,25 @@ Failure mode caught: (1) an index-based key/surfaceId remounting a sibling on an
 import type { ParseWarning } from "@/lib/parser/types";
 import { normalizeSnippet } from "./ignorableSnippet";
 
-export function warningIdentityKey(w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">): string {
+export type IdentityFields = Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet" | "blockRef">;
+
+export function warningIdentityKey(w: IdentityFields): string {
   const cell = w.sourceCell ? `${w.sourceCell.gid}:${w.sourceCell.a1 ?? ""}` : "";
   const snippet = typeof w.rawSnippet === "string" ? normalizeSnippet(w.rawSnippet) : "";
-  return `${w.code}|${cell}|${snippet}`;
+  // blockRef distinguishes reportable-but-NOT-ignorable no-content warnings (AGENDA_*,
+  // BLOCK_DISAPPEARED have no rawSnippet/sourceCell — only a blockRef). Stable within a
+  // session (from the persisted parse_warnings; router.refresh() does not re-parse). This is
+  // the REPORT/key identity; the IGNORE fingerprint (Task 2) stays content-only by design.
+  const br = w.blockRef
+    ? `${w.blockRef.kind}:${w.blockRef.index ?? ""}:${w.blockRef.iso ?? ""}:${w.blockRef.name ?? ""}`
+    : "";
+  return `${w.code}|${cell}|${snippet}|${br}`;
 }
 
 /** Per-render UNIQUE React keys; identity + occurrence suffix for perfect duplicates.
  *  Distinguishable items always get suffix 0, so removing a different-identity sibling
  *  never changes another item's key (stability across an ignore refresh). */
-export function stableWarningKeys(
-  items: readonly Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">[],
-): string[] {
+export function stableWarningKeys(items: readonly IdentityFields[]): string[] {
   const seen = new Map<string, number>();
   return items.map((w) => {
     const base = warningIdentityKey(w);
@@ -397,13 +412,10 @@ export function stableWarningKeys(
 Append to `lib/dataQuality/warningFingerprint.ts` (already server-only, already imports `sha256Base64Url`):
 
 ```ts
-import { warningIdentityKey } from "./warningIdentity";
+import { warningIdentityKey, type IdentityFields } from "./warningIdentity";
 
 /** Order-independent, opaque, stable per-warning-identity surfaceId. SERVER-ONLY. */
-export function buildReportSurfaceId(
-  slug: string,
-  w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">,
-): string {
+export function buildReportSurfaceId(slug: string, w: IdentityFields): string {
   return `admin-dq-${slug}-${sha256Base64Url(Buffer.from(warningIdentityKey(w), "utf8"))}`;
 }
 ```

@@ -272,15 +272,22 @@ A **display-index-based** key/surfaceId satisfies (1) but VIOLATES (2) (index sh
 ```ts
 // lib/dataQuality/warningIdentity.ts  (client-safe: pure string, no node:*)
 import { normalizeSnippet } from "./ignorableSnippet";
-export function warningIdentityKey(w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">): string {
+export type IdentityFields = Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet" | "blockRef">;
+export function warningIdentityKey(w: IdentityFields): string {
   const cell = w.sourceCell ? `${w.sourceCell.gid}:${w.sourceCell.a1 ?? ""}` : "";
   const snippet = typeof w.rawSnippet === "string" ? normalizeSnippet(w.rawSnippet) : "";
-  return `${w.code}|${cell}|${snippet}`;
+  // blockRef distinguishes reportable-but-NOT-ignorable, no-content warnings
+  // (AGENDA_*, BLOCK_DISAPPEARED carry no rawSnippet/sourceCell — only a blockRef).
+  // It is stable within a session (from the persisted parse_warnings blob; router.refresh()
+  // does not re-parse). NOTE: this is the REPORT/key identity — the IGNORE fingerprint (§5.1)
+  // deliberately excludes location/blockRef so a moved row stays ignored.
+  const br = w.blockRef ? `${w.blockRef.kind}:${w.blockRef.index ?? ""}:${w.blockRef.iso ?? ""}:${w.blockRef.name ?? ""}` : "";
+  return `${w.code}|${cell}|${snippet}|${br}`;
 }
 /** Per-render UNIQUE React keys: identity + a within-render occurrence suffix for the rare
  *  perfect-duplicate case. Distinguishable items always get suffix 0, so removing a
  *  different-identity sibling never changes another item's key (stability). */
-export function stableWarningKeys(items: readonly Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">[]): string[] {
+export function stableWarningKeys(items: readonly IdentityFields[]): string[] {
   const seen = new Map<string, number>();
   return items.map((w) => {
     const base = warningIdentityKey(w);
@@ -293,7 +300,7 @@ export function stableWarningKeys(items: readonly Pick<ParseWarning, "code" | "s
 ```ts
 // buildReportSurfaceId — SERVER module (hashes the identity so no raw content lands in a DOM attr);
 // lives in lib/dataQuality/warningFingerprint.ts (already server-only, imports sha256Base64Url).
-export function buildReportSurfaceId(slug: string, w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">): string {
+export function buildReportSurfaceId(slug: string, w: IdentityFields): string {
   return `admin-dq-${slug}-${sha256Base64Url(Buffer.from(warningIdentityKey(w), "utf8"))}`;
 }
 ```
