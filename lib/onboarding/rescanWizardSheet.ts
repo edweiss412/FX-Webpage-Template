@@ -356,19 +356,22 @@ export async function rescanWizardSheet(
       [wizardSessionId, driveFileId],
     );
     // Re-openable checkpoint so the next /finalize re-processes the re-opened row.
-    // A re-opened checkpoint (count > 0) means a finalize batch ALREADY completed and this is a
+    // A re-opened checkpoint (>=1 row) means a finalize batch ALREADY completed and this is a
     // BLOCKER HEAL (Flow B, e.g. a STAGED_PARSE_OUTDATED-blocked shadow): the manifest must stay
     // 'staged' so the sheet re-enters the batch (publish_intent preserved). When nothing re-opens,
     // this is a PRE-FINALIZE clean re-approval (Flow A / the C2/C6 scenario) and the manifest is
-    // restored to 'applied' below so the Step-3 checkbox stays truthful.
+    // restored to 'applied' below so the Step-3 checkbox stays truthful. RETURNING makes the result
+    // a per-updated-row array so `.length` is the re-opened count (tx.unsafe is typed unknown[],
+    // so a bare `.count` does not type-check under `next build`).
     const checkpointReopen = await tx.unsafe(
       `update public.wizard_finalize_checkpoints
           set status = 'in_progress'
         where wizard_session_id = $1::uuid
-          and status in ('all_batches_complete', 'final_cas_done')`,
+          and status in ('all_batches_complete', 'final_cas_done')
+        returning wizard_session_id`,
       [wizardSessionId],
     );
-    const isBlockerHeal = (checkpointReopen.count ?? 0) > 0;
+    const isBlockerHeal = checkpointReopen.length > 0;
 
     // (c) clean rule (§6).
     const { dirty, decisionItems } = computeRescanDecision(
