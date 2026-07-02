@@ -157,15 +157,18 @@ export async function enrichAgenda(
         fileMeta = await driveClient.getFile(link.fileId);
       } catch (error) {
         const status = driveErrorStatus(error);
-        log.warn("getFile threw", {
-          source: "sync.enrichAgenda",
-          fileId: link.fileId,
-          ordinal: i,
-          status,
-          verdict: status === 404 || status === 400 ? "known_stale" : "unknown",
-          error,
-        });
         if (status === 404 || status === 400) {
+          // Definitive-gone is an EXPECTED steady-state (a deleted/invalid agenda
+          // PDF), not a fault: log at INFO with a forensic code and NO error payload
+          // so it does not trip the cry-wolf WARN stream.
+          log.info("agenda link gone", {
+            source: "sync.enrichAgenda",
+            fileId: link.fileId,
+            ordinal: i,
+            status,
+            verdict: "known_stale",
+            code: "AGENDA_GETFILE_GONE",
+          });
           warnings.push(
             warn(
               "AGENDA_PDF_UNREADABLE",
@@ -178,6 +181,17 @@ export async function enrichAgenda(
             verdict: "known_stale",
           });
         } else {
+          // Ambiguous/transient fault (403/429/5xx/timeout): WARN with the error
+          // payload for diagnosis; leave-existing ("unknown") — next sync re-checks.
+          log.warn("getFile threw", {
+            source: "sync.enrichAgenda",
+            fileId: link.fileId,
+            ordinal: i,
+            status,
+            verdict: "unknown",
+            error,
+            code: "AGENDA_GETFILE_FAULT",
+          });
           perLink.push({
             ordinal: i,
             ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),

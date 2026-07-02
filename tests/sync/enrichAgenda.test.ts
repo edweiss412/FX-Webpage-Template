@@ -342,6 +342,56 @@ describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-d
       expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("unknown");
     }
   });
+
+  // Cry-wolf split: definitive-gone (404) is an EXPECTED steady-state, not a fault —
+  // it logs at INFO with the AGENDA_GETFILE_GONE forensic code and NO error field, and
+  // must NOT trip the WARN stream (which pages on cry-wolf noise).
+  test("getFile 404 → log.info AGENDA_GETFILE_GONE, verdict known_stale, no error field; no warn", async () => {
+    const result = makeResult([
+      {
+        label: "AGENDA LINK - RFI",
+        fileId: "F-DELETED",
+        extracted: highExtraction({ sourceRevision: "rev-OLD" }),
+      },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("not found", 404);
+      },
+    });
+    await enrichAgenda(result, client, "s");
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "AGENDA_GETFILE_GONE", verdict: "known_stale" }),
+    );
+    // The gone breadcrumb carries no error payload (it is not a fault).
+    const infoFields = logMock.info.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(infoFields).not.toHaveProperty("error");
+    // Definitive-gone must not fire the WARN stream.
+    expect(logMock.warn).not.toHaveBeenCalled();
+  });
+
+  // Cry-wolf split: transient/ambiguous faults (503 here) DO warrant a WARN with the
+  // AGENDA_GETFILE_FAULT forensic code AND the error payload for diagnosis.
+  test("getFile 503 → log.warn AGENDA_GETFILE_FAULT, verdict unknown, with error", async () => {
+    const result = makeResult([
+      { label: "AGENDA LINK - RFI", fileId: "F-T", extracted: highExtraction() },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("server error", 503);
+      },
+    });
+    await enrichAgenda(result, client, "s");
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "getFile threw",
+      expect.objectContaining({
+        code: "AGENDA_GETFILE_FAULT",
+        verdict: "unknown",
+        error: expect.anything(),
+      }),
+    );
+  });
 });
 
 describe("enrichAgenda — verdict vs rendering orthogonality (Codex whole-diff R7)", () => {
