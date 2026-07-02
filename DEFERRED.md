@@ -206,11 +206,9 @@ Per-code "Ignore all N" bulk control (`components/admin/BulkIgnoreControls.tsx` 
 - **Why deferred:** dormant rows are harmless (no visible effect) and are the desired behavior for recurrence — if the same warning re-appears it stays ignored. GC adds a cleanup surface with no user-visible benefit in v1. Spec §5.2 orphan policy.
 - **Trigger:** `ignored_warnings` row counts grow large enough to matter operationally, OR a "reset ignored warnings" admin affordance is requested. Then add a GC pass (e.g. on apply, prune fingerprints not present in the new `parse_warnings`) or an admin bulk-clear.
 
-### DQIGNORE-4 — [P3] No `logAdminOutcome` telemetry for ignore/un-ignore
+### DQIGNORE-4 — ✅ RESOLVED (feat/dq-followups-backend)
 
-- **What:** the ignore/un-ignore POST routes emit no `logAdminOutcome` forensic code.
-- **Why deferred:** v1 scope decision, consistent with the two closest precedents (the alert-resolve and sheet-unignore routes emit none and are absent from `AUDITABLE_MUTATIONS`). Ignoring an advisory warning does not mutate published show content. Spec D7.
-- **Trigger:** an audit requirement to trace who ignored which warning. Then add a sanctioned forensic code (e.g. `WARNING_IGNORED`) + an `AUDITABLE_MUTATIONS`/`SANCTIONED_CODES` registry row in `tests/log/_metaAdminOutcomeContract.test.ts`, keeping the code OUT of §12.4.
+The ignore/un-ignore routes now emit `WARNING_IGNORED` / `WARNING_UNIGNORED` forensic outcomes post-commit (actorHash + showId + warningCode + fingerprint), registered in `tests/log/_metaAdminOutcomeContract.test.ts` (`AUDITABLE_MUTATIONS` + `SANCTIONED_CODES`); Assertion 4 pins them OUT of the §12.4 producer set. Placement is post-commit (never in the tx); `log.*` never throws over the caller (invariant 9), so the plain `await` can't turn a committed ignore into a 500.
 
 ### DQIGNORE-5 — ✅ RESOLVED (feat/dq-ignore-followups)
 
