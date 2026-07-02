@@ -39,7 +39,7 @@
 
 **Files:**
 - Create: `supabase/migrations/20260701000000_published_toggle_unpublish_show.sql`
-- Modify: `tests/db/_b2Helpers.ts:33-38` — add `"unpublish_show"` to the `AdminRpcFn` union (part of the failing-test setup; without it the new test fails typecheck before reaching the missing-RPC failure)
+- Modify: `tests/db/_b2Helpers.ts:33-38` — add `"unpublish_show"` to the `AdminRpcFn` union (part of the failing-test setup; without it the new test fails typecheck before reaching the missing-RPC failure); add `callUnpublishShowAsNonAdmin` mirroring `callReadFinalizeOwnedAsNonAdmin` (`:369-376`)
 - Test: `tests/db/unpublish_show_rpc.test.ts` (new), `tests/db/b2-lifecycle-rpc-meta.test.ts` (extend), `tests/messages/_metaAdminAlertCatalog.test.ts` (extend, Step 5)
 
 **Interfaces:**
@@ -125,7 +125,20 @@ describe("unpublish_show RPC", () => {
   it("unknown id → ADMIN_LINK_SHOW_NOT_FOUND; non-admin → 42501", async () => {
     await expect(asAdminRpc("unpublish_show", { p_show_id: crypto.randomUUID() }))
       .rejects.toThrow(/ADMIN_LINK_SHOW_NOT_FOUND/);
-    // non-admin call: reuse archive_show_rpc.test.ts's non-admin client pattern verbatim.
+  });
+
+  it("non-admin caller → 42501", async () => {
+    const s = await seedLiveShowWithToken();
+    // Mirror callReadFinalizeOwnedAsNonAdmin (tests/db/_b2Helpers.ts:369-376): authenticated role
+    // + non-admin JWT claims inside one tx. Add a sibling helper callUnpublishShowAsNonAdmin to
+    // _b2Helpers.ts with this exact body (NON_ADMIN_CLAIMS is module-private there):
+    //   await sql.begin(async (tx) => {
+    //     await tx`select set_config('role', 'authenticated', true)`;
+    //     await tx`select set_config('request.jwt.claims', ${NON_ADMIN_CLAIMS}, true)`;
+    //     await tx.unsafe(`select public.unpublish_show($1::uuid)`, [showId]);
+    //   });
+    await expect(callUnpublishShowAsNonAdmin(s.showId)).rejects.toThrow(/forbidden|permission denied/);
+    expect((await readShow(s.showId)).published).toBe(true); // gate fired before any mutation
   });
 
   it("publish_show → viewer_version_token flips back (inequality both directions)", async () => {
@@ -319,7 +332,7 @@ Barrel: add `export { setShowPublishedAction } from "./setPublished";` to `_acti
 - Test: `tests/sync/unpublishShow.test.ts` + `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (update fakes/assertions), `tests/sync/unpublishArchiveParity.test.ts` → REWRITE as unpublish parity, `tests/sync/_secondCopyApplyTripwire.test.ts` (run with the sync suites)
 
 **Interfaces:**
-- Produces: `UnpublishShowResult` gains `{ outcome: "finalize_owned"; status: 409; showId: string }`; tx method renamed `unpublishAndConsumeUnpublishToken(showId, token): Promise<boolean>`. Plain `unpublishShow`/`unpublishShow_unlocked`/`readUnpublishTokenForSlug` remain ALIVE until Task 8 (the in-app action still imports them).
+- Produces: `UnpublishShowResult` gains `{ outcome: "finalize_owned"; status: 409; showId: string }`; tx method renamed `unpublishAndConsumeUnpublishToken(showId, token): Promise<boolean>`. Plain `unpublishShow`/`unpublishShow_unlocked`/`readUnpublishTokenForSlug` remain ALIVE until Task 8 (the in-app action still imports them) — and BECAUSE the shared consume path can now return `finalize_owned`, the still-live `undoAutoPublishAction` gets an interim mapping in THIS task (its switch at `app/admin/show/[slug]/_actions/undoAutoPublish.ts:74-81` covers only success/expired/consumed/not_found and would return `undefined`): map `finalize_owned` → the action's existing `infra_error`-shaped retry outcome (transient, retryable — honest copy for the ~one-task window; the whole action dies in Task 8). Extend `tests/app/admin/undo-auto-publish-action.test.ts` with that case in Step 1.
 - Consumes: `readFinalizeOwnershipGuard_unlocked` — widen its tx param from `LockedShowTx<SyncPipelineTx>` to `LockedShowTx<{ queryOne<T>(sql: string, params: unknown[]): Promise<T> }>` (both `SyncPipelineTx` and `UnpublishShowTx` satisfy it; `PostgresUnpublishTx.queryOne` at `unpublishShow.ts:84-86`).
 
 - [ ] **Step 1: Failing tests.** (a) In the engine unit tests: emailed-link consume on a NON-finalize-owned show still succeeds via a fake whose `queryOne` returns `{first_seen_owned:false, existing_show_owned:false}` (pins R8: no admin-RPC dependency); finalize-owned fake (`existing_show_owned:true`) → `{outcome:"finalize_owned", status:409}` AND `unpublishAndConsumeUnpublishToken` never called AND token untouched. (b) Parity rewrite:
