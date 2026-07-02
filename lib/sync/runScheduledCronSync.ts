@@ -186,7 +186,7 @@ export type ProcessOneFileResult =
   | { outcome: "skipped"; reason: string }
   | { outcome: "asset_recovery" }
   | { outcome: "stage"; stagedId: string }
-  | { outcome: "hard_fail"; code: string }
+  | { outcome: "hard_fail"; code: string; showId?: string | null }
   | {
       outcome: "applied";
       showId: string;
@@ -775,17 +775,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return { stagedId: upserted?.staged_id ?? row.stagedId ?? "" };
   }
 
-  async updateShowParseError(driveFileId: string, error: { code: string; message: string }) {
-    await this.rows(
+  async updateShowParseError(
+    driveFileId: string,
+    error: { code: string; message: string },
+  ): Promise<string | null> {
+    // `returning id`: the id of the existing shows row this UPDATE touched (used by phase1 to
+    // carry showId onto the hard_fail result so the crew cache tag is busted). null when the
+    // WHERE matched no row — a first-seen hard-fail writes nothing here. (idx17/#102)
+    const rows = await this.rows<{ id: string }>(
       `
         update public.shows
            set last_sync_status = 'parse_error',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
+        returning id
       `,
       [driveFileId, error.code],
     );
+    return rows[0]?.id ?? null;
   }
 
   async updateShowPendingReview(driveFileId: string) {
@@ -2681,7 +2689,14 @@ export async function processOneFile_unlocked(
     txDeps,
   );
   if (phase1.outcome === "hard_fail") {
-    const result = { outcome: "hard_fail" as const, code: phase1.code };
+    // Carry phase1's showId through: an EXISTING-show hard_fail committed
+    // shows.last_sync_status='parse_error', so revalidateShowFromResult (file-loop, post-commit)
+    // must bust the crew cache tag. null for a first-seen hard_fail (nothing written). (idx17/#102)
+    const result = {
+      outcome: "hard_fail" as const,
+      code: phase1.code,
+      showId: phase1.showId ?? null,
+    };
     await logSync(txDeps, driveFileId, result);
     const show = await tx.readShowForPhase1(driveFileId);
     if (show?.showId) {
@@ -2972,9 +2987,10 @@ export async function runScheduledCronSync(
         // cache tag HERE — post-commit — never inside processOneFile_unlocked /
         // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
         // would expose a stale-read window). showId-presence gate: busts on applied
-        // AND on the parse_error/source_gone recovery outcomes (which carry showId +
-        // commit last_sync_status). No-op on skipped/stale/revision_race/stage/
-        // hard_fail (no showId). The catch-built parse_error below carries no showId.
+        // AND on the parse_error/source_gone recovery outcomes AND on an EXISTING-show
+        // hard_fail (all of which carry showId + commit last_sync_status). No-op on
+        // skipped/stale/revision_race/stage and a first-seen hard_fail (no showId — nothing
+        // written to `shows`). The catch-built parse_error below carries no showId.
         const result = await runOne(file.driveFileId, "cron", file, processDeps);
         revalidateShowFromResult(result);
         processed.push({
