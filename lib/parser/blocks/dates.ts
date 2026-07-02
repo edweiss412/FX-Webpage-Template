@@ -72,7 +72,14 @@ export function parseDates(
   // a present-but-unparsed one look identical to the caller. Re-probe for a DATES
   // header row and fail loud when one exists but no date resolved (e.g. trailing
   // free-text qualifiers like "- AFTER 8PM" defeated every row).
-  const datesEmpty = !out.travelIn && !out.set && out.showDays.length === 0 && !out.travelOut;
+  const datesEmpty =
+    !out.travelIn &&
+    !out.set &&
+    out.showDays.length === 0 &&
+    !out.travelOut &&
+    !out.loadIn &&
+    !out.setupTime &&
+    !out.setAgendaRaw;
   const hasDatesHeader = parseTableRows(markdown).some(
     (r) => clean(r[0] ?? "").toUpperCase() === "DATES",
   );
