@@ -12,7 +12,7 @@
 import type { AgendaEntry, ParseWarning, RunOfShow, ScheduleDay, ShowRow } from "../types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { scheduleTimeUnparsed } from "./agendaWarnings";
-import { parseTableRows, clean, normalizeDate } from "./_helpers";
+import { parseTableRows, clean, normalizeDate, decodeEntities } from "./_helpers";
 
 // ── Clock tokenizer ────────────────────────────────────────────────────────────
 
@@ -144,7 +144,11 @@ export function parseScheduleTimes(
   const cells = readShowDayTimeCells(markdown);
 
   cells.forEach(({ iso, raw }, index) => {
-    const cell = raw.replace(/\s+/g, " ").trim();
+    // Decode exporter entities (`&#10;` LF / `&#9;` tab) BEFORE tokenizing: this
+    // module uses no `&#10;` structural delimiter, so early decode is safe and stops
+    // both `&#`-residue in crew-visible titles and phantom `10:30`-style clocks that
+    // the permissive `;`-separator would read out of an undecoded `&#10;30` (audit idx48/#70).
+    const cell = decodeEntities(raw).replace(/\s+/g, " ").trim();
     if (!cell) return; // empty → nothing
 
     const toks = tokenize(cell);
