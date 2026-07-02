@@ -21,6 +21,10 @@ export interface AdminOutcome {
 // commits (post-wrapper), never inside the advisory-lock tx.
 export async function logAdminOutcome(o: AdminOutcome): Promise<void> {
   await log.info(o.code, {
+    // `extra` is spread FIRST so it can NEVER override the reserved telemetry
+    // fields below — the persisted code always equals the outcome code, and actor
+    // attribution derives only from hashForLog(actorEmail).
+    ...(o.extra ?? {}),
     code: o.code,
     source: o.source,
     ...(o.actorEmail ? { actorHash: hashForLog(o.actorEmail) } : {}),
@@ -28,6 +32,5 @@ export async function logAdminOutcome(o: AdminOutcome): Promise<void> {
     ...(o.showId ? { showId: o.showId } : {}),
     ...(o.wizardSessionId ? { wizardSessionId: o.wizardSessionId } : {}),
     ...(o.result ? { result: o.result } : {}),
-    ...(o.extra ?? {}),
   });
 }

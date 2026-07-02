@@ -1108,12 +1108,9 @@ async function executeFinalizeBatch(
       }
 
       if (checkpoint.status === "final_cas_done") {
-        outcome = {
-          source: "api.admin.onboarding.finalize",
-          actorEmail: finalizerEmail,
-          wizardSessionId,
-          result: "all_batches_complete",
-        };
+        // Idempotent re-poll: already fully finalized in a PRIOR request. No mutation
+        // commits here, so DO NOT stage an outcome log (would be a false audit entry on
+        // retries — Codex whole-diff HIGH).
         return NextResponse.json({
           status: "all_batches_complete",
           wizard_session_id: wizardSessionId,
@@ -1130,12 +1127,9 @@ async function executeFinalizeBatch(
         approvedRows.length === 0 &&
         unresolved === 0
       ) {
-        outcome = {
-          source: "api.admin.onboarding.finalize",
-          actorEmail: finalizerEmail,
-          wizardSessionId,
-          result: "all_batches_complete",
-        };
+        // Idempotent re-poll: session was ALREADY all_batches_complete with nothing left.
+        // No mutation commits here → no outcome log (Codex whole-diff HIGH: avoid false
+        // audit entries on re-polls).
         return NextResponse.json({
           status: "all_batches_complete",
           wizard_session_id: wizardSessionId,

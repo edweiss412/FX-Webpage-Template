@@ -840,6 +840,26 @@ describe("POST /api/admin/onboarding/finalize", () => {
       errorSpy.mockRestore();
     });
 
+    test("(4) an idempotent re-poll of an already-finalized session does NOT emit SHOW_FINALIZED", async () => {
+      // Codex whole-diff HIGH: the final_cas_done / already-all_batches_complete returns commit no
+      // finalize mutation THIS request — logging there would create a FALSE audit entry on every
+      // re-poll. Drive the final_cas_done branch (no approved rows, checkpoint already done) and
+      // assert the terminal all_batches_complete response STILL returns but NO outcome is logged.
+      logAdminOutcomeMock.mockClear();
+      const db = new FakeFinalizeDb();
+      db.checkpoint = { wizard_session_id: W1, status: "final_cas_done", batches_completed: 3 };
+      db.approved = [];
+
+      const response = await handleOnboardingFinalize(request(), deps(db));
+
+      expect(response.status).toBe(200);
+      expect(await json(response)).toMatchObject({
+        status: "all_batches_complete",
+        wizard_session_id: W1,
+      });
+      expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    });
+
     test("(4) a mid-batch 409 (CONCURRENT_FINALIZE_IN_FLIGHT) does NOT emit SHOW_FINALIZED", async () => {
       logAdminOutcomeMock.mockClear();
       const db = new FakeFinalizeDb();
