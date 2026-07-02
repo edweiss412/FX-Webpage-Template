@@ -166,7 +166,6 @@ export function VenueSection({
     factRows.push({
       k: "Loading dock",
       v: loadingDock,
-      sub: "Service entrance",
       icon: <DockIcon />,
     });
   }
