@@ -430,6 +430,160 @@ describe("sourceAnchors pipeline (Task 5)", () => {
   });
 });
 
+// ── sourceAnchors fetch-failure preservation (audit idx12 + idx63) ────────────
+//
+// Bug: when the prepare-stage sheets-list fetch (driveClient.listSpreadsheetSheets)
+// FAILS transiently, the outer `sheets` is caught to undefined → titleToGid is empty
+// → extractSourceAnchors(xlsxBytes, emptyMap) returns a DEFINED `{}`. That `{}` flows
+// through the guarded cron spread and the persist writes coalesce({}::jsonb, ...) → {}
+// DURABLY WIPES the show's previously-good source_anchors.
+//
+// Fix: distinguish a genuine fetch FAILURE (emit undefined → coalesce preserves) from a
+// successful fetch that genuinely yields no anchors (emit {} → still overwrites/clears).
+//
+// Realistic window: the explicit prepare-stage fetch hits a transient blip; the enrich
+// retry (extractEmbeddedImages re-calls listSpreadsheetSheets when ctx.sheets is absent)
+// succeeds, so prepare still reaches `ready` with the OUTER sheets === undefined — exactly
+// the state that produced the wipe.
+describe("sourceAnchors fetch-failure preservation (audit idx12+idx63)", () => {
+  test("transient sheets-list fetch failure must NOT wipe stored source_anchors (sourceAnchors === undefined)", async () => {
+    const DRIVE_FILE_ID = "file-transient-sheets-fault";
+
+    // First (explicit prepare-stage) call throws transiently; enrich's retry succeeds so
+    // prepare still reaches `ready`. Outer `sheets` stays undefined → empty titleToGid.
+    let listCalls = 0;
+    const flakyListSpreadsheetSheets = vi
+      .fn<(id: string) => Promise<SpreadsheetSheet[]>>()
+      .mockImplementation(async () => {
+        listCalls += 1;
+        if (listCalls === 1) throw new Error("transient sheets-list fetch failure");
+        return SHEETS_RESPONSE;
+      });
+
+    const deps: ProcessOneFileDeps = {
+      captureBinding: async () => BINDING,
+      fetchMarkdownAtRevision: async () => "",
+      fetchXlsxBytes: async () => VENUE_BYTES, // bytes still resolve
+      parseSheet: () => emptyParsedSheet(),
+      driveClient: {
+        async getFile() {
+          return {
+            driveFileId: DRIVE_FILE_ID,
+            headRevisionId: "rev-1",
+            md5Checksum: "a".repeat(32),
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            modifiedTime: "2026-01-01T00:00:00.000Z",
+          };
+        },
+        async listFolder() {
+          return { folderId: "folder-1", files: [] };
+        },
+        listSpreadsheetSheets: flakyListSpreadsheetSheets,
+      },
+      // NO enrichWithDrivePins override — drive the REAL sheets-fetch block.
+    };
+
+    const prepared = await prepareProcessOneFile(
+      DRIVE_FILE_ID,
+      "cron",
+      makeFileMeta(DRIVE_FILE_ID),
+      deps,
+      async () => null,
+    );
+
+    expect(prepared.kind, "pipeline should still reach ready state").toBe("ready");
+    if (prepared.kind !== "ready") return;
+
+    // The load-bearing assertion: a transient sheets-list fetch failure must yield
+    // `undefined` (NOT `{}`), so the persist coalesce receives null and PRESERVES the
+    // show's stored source_anchors instead of durably wiping them to {}.
+    expect(
+      prepared.sourceAnchors,
+      "transient sheets-list fetch failure must emit undefined (not {}) so coalesce preserves",
+    ).toBeUndefined();
+  });
+
+  test("successful sheets fetch with anchors → non-empty sourceAnchors (still overwrites as before)", async () => {
+    const DRIVE_FILE_ID = "file-sheets-ok-anchors";
+    const deps: ProcessOneFileDeps = {
+      captureBinding: async () => BINDING,
+      fetchMarkdownAtRevision: async () => "",
+      fetchXlsxBytes: async () => VENUE_BYTES,
+      parseSheet: () => emptyParsedSheet(),
+      driveClient: {
+        async getFile() {
+          return {
+            driveFileId: DRIVE_FILE_ID,
+            headRevisionId: "rev-1",
+            md5Checksum: "a".repeat(32),
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            modifiedTime: "2026-01-01T00:00:00.000Z",
+          };
+        },
+        async listFolder() {
+          return { folderId: "folder-1", files: [] };
+        },
+        listSpreadsheetSheets: async () => SHEETS_RESPONSE,
+      },
+    };
+
+    const prepared = await prepareProcessOneFile(
+      DRIVE_FILE_ID,
+      "cron",
+      makeFileMeta(DRIVE_FILE_ID),
+      deps,
+      async () => null,
+    );
+
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") return;
+    expect(prepared.sourceAnchors).toBeDefined();
+    expect(prepared.sourceAnchors?.venue?.gid, "venue.gid must equal 0 (INFO tab sheetId=0)").toBe(
+      0,
+    );
+  });
+
+  test("successful sheets fetch with genuinely no anchors → {} (real 'no anchors' clear still works)", async () => {
+    const DRIVE_FILE_ID = "file-sheets-ok-empty";
+    const EMPTY_BYTES = makeXlsx([{ name: "INFO", rows: [] }]);
+    const deps: ProcessOneFileDeps = {
+      captureBinding: async () => BINDING,
+      fetchMarkdownAtRevision: async () => "",
+      fetchXlsxBytes: async () => EMPTY_BYTES,
+      parseSheet: () => emptyParsedSheet(),
+      driveClient: {
+        async getFile() {
+          return {
+            driveFileId: DRIVE_FILE_ID,
+            headRevisionId: "rev-1",
+            md5Checksum: "a".repeat(32),
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            modifiedTime: "2026-01-01T00:00:00.000Z",
+          };
+        },
+        async listFolder() {
+          return { folderId: "folder-1", files: [] };
+        },
+        listSpreadsheetSheets: async () => SHEETS_RESPONSE,
+      },
+    };
+
+    const prepared = await prepareProcessOneFile(
+      DRIVE_FILE_ID,
+      "cron",
+      makeFileMeta(DRIVE_FILE_ID),
+      deps,
+      async () => null,
+    );
+
+    expect(prepared.kind).toBe("ready");
+    if (prepared.kind !== "ready") return;
+    // A successful fetch that genuinely finds no anchors stays defined ({}), NOT undefined —
+    // a real clear still overwrites, distinct from the fetch-failure preserve path.
+    expect(prepared.sourceAnchors).toEqual({});
+  });
+});
+
 // ── Task 6: real-DB persistence test ─────────────────────────────────────────
 //
 // Probes the real PostgresPipelineTx.applyShowSnapshot UPDATE arm against the
