@@ -69,7 +69,11 @@ NEW `components/observe/GlobalErrorListener.tsx` — a `'use client'` component 
 
 **Files:** `app/api/asset/agenda/[show]/[id]/route.ts`, `app/api/asset/diagram/[show]/[rev]/[key]/route.ts`, `app/api/asset/reel/[show]/route.ts`.
 
-At each route's genuine **infra-fault** 500 return (Supabase read fail, Drive/Storage fetch fail — NOT the 404/not-found/expected-auth paths), add a `void log.error("<asset> fetch failed", { source: "api.asset.<kind>", code: "ASSET_<KIND>_FETCH_FAILED", showId?: <slug/id if resolvable>, error: <the underlying error> })` before returning the 500. Codes: `ASSET_AGENDA_FETCH_FAILED`, `ASSET_DIAGRAM_FETCH_FAILED`, `ASSET_REEL_FETCH_FAILED`. Each lives inside a dotted `log.error(...)` span → §12.4-exempt. `error`+ code always persists. Do NOT log 404/expected paths (over-logging).
+**Instrument the shared `infraError(code)` helper (covers GET AND HEAD — Codex R3 MEDIUM).** Each route funnels EVERY infra-500 through a single `infraError(code: string): Response` helper (agenda `:118`, reel `:162`, diagram: the analogous helper — plan verifies), called from both the shared preflight (reached by GET+HEAD) and the GET body. Add `void log.error("asset infra fault", { source: "api.asset.<kind>", code, ... })` **inside that helper**, reusing the `code` it already receives (`AGENDA_ASSET_LOOKUP_FAILED` / `REEL_ASSET_LOOKUP_FAILED` / diagram's + the shared `ADMIN_SESSION_LOOKUP_FAILED`). This single point covers GET, HEAD, and every call site with no duplication.
+
+- **No new codes for S3** — reuse the existing per-route codes the helper is already passed. `code` is the helper's **parameter (a variable)**, not a `code: "LITERAL"`, so it's scanner-safe regardless; and the existing `infraError("…")` call-site literals are POSITIONAL args (not `code:` properties) → already non-producers, unchanged.
+- Only the infra-500 paths route through `infraError` — 404/benign-absence/expected paths do NOT (no over-logging). `error`+code always persists.
+- **Tests must cover BOTH GET and HEAD** infra faults per route (the helper-level instrumentation makes both pass with one change; assert the emitted `code` for each verb).
 
 ---
 
@@ -94,10 +98,10 @@ Each is inside a dotted `log.error(...)` span → §12.4-exempt. The **left-alon
 | `unarchive.ts` | `SHOW_UNARCHIVED_BY_ADMIN` | `if (result.ok)` (`:33`) | switch (`:27`) | `resolved.show.id` (+ `driveFileId=resolved.show.driveFileId`) |
 | `undoAutoPublish.ts` | `SHOW_UNPUBLISHED_BY_ADMIN` | `case "success"` (`:82`) | switch (`:59`) | `result.showId` |
 
-- **DIRECT emit (no outcome-ref):** each mutation fn (`publishShow`/`archiveShow`/`unarchiveShow` via the `showLifecycle` RPC chokepoint; `unpublishShow` owns `withShowLock`+`sql.begin` internally) resolves AFTER commit, so `logAdminOutcome` goes in the outer-scope `if (result.ok)` / `case "success"` block. `LifecycleResult` carries no showId → use `resolved.show.id` (available in the admin action).
+- **DIRECT emit (no outcome-ref), MUST be `await`ed (Codex R3 HIGH):** each mutation fn (`publishShow`/`archiveShow`/`unarchiveShow` via the `showLifecycle` RPC chokepoint; `unpublishShow` owns `withShowLock`+`sql.begin` internally) resolves AFTER commit, so `await logAdminOutcome(...)` goes in the outer-scope `if (result.ok)` / `case "success"` block. **`await` is load-bearing:** a fire-and-forget `logAdminOutcome(...)` in a Server Action lets the function freeze/terminate after return before the async persist completes → dropped audit row (`logAdminOutcome` is "awaited for durability", `logAdminOutcome.ts:19`; all existing callers await). `LifecycleResult` carries no showId → use `resolved.show.id` (available in the admin action).
 - **Actor-identity — KEEP `requireAdmin()` + ADD `requireAdminIdentity()` (the proven #220-R3/R5 pattern; do NOT replace).** `requireAdmin()` (`requireAdmin.ts:294`) runs the `x-help-force-infra-fail` header block (`:306-311`) that `requireAdminIdentity()` (`:279-292`) does NOT — both call `maybeForceTestInfraFail` (`:289`, `:304`; the `:303` "Honored by BOTH helpers" comment refers to *that* hook, not the `x-help` block). So replacing the gate would silently drop the `x-help` hook. Instead keep `await requireAdmin()` as the gate and add `const { email } = await requireAdminIdentity()` for the canonical email (`resolveAdminIdentity` is React-`cache()`-wrapped at `:236`, so the second call reuses the same request's resolution — no extra DB hit). `email` is already `canonicalize()`'d (`:208`). This is behavior-transparent (zero hook change) and matches #220 exactly.
 - **Name-collision guard (verified):** `catalog.ts` already defines `SHOW_UNPUBLISHED` (`:962`), `SHOW_ARCHIVED_BY_ADMIN` (`:1565`), `SHOW_UNARCHIVED` (`:1577`), `SHOW_PUBLISHED_BY_ADMIN` (`:1589`), `WEBHOOK_HEADERS_MISSING` (`:2969`). The 4 chosen codes (`SHOW_PUBLISHED`, `SHOW_ARCHIVED`, `SHOW_UNARCHIVED_BY_ADMIN`, `SHOW_UNPUBLISHED_BY_ADMIN`) are all 0-hit verified.
-- **Meta-test:** add the 4 `{file, code}` rows to `AUDITABLE_MUTATIONS` + the 4 codes to `SANCTIONED_CODES` (`tests/log/_metaAdminOutcomeContract.test.ts:13,34`), lockstep. Assertion 1 requires each file to import from exactly `@/lib/log/logAdminOutcome`, call `logAdminOutcome(`, and contain the quoted code.
+- **Meta-test:** add the 4 `{file, code}` rows to `AUDITABLE_MUTATIONS` + the 4 codes to `SANCTIONED_CODES` (`tests/log/_metaAdminOutcomeContract.test.ts:13,34`), lockstep. **Tighten Assertion 1** from `/logAdminOutcome\(/` to require the **awaited** form `/await\s+logAdminOutcome\(/` (guards the R3-HIGH unawaited-drop class; verified all existing registered rows already use `await logAdminOutcome(`, so tightening is non-breaking). Assertion 1 still requires the exact import specifier `@/lib/log/logAdminOutcome` + the quoted code.
 
 ---
 
@@ -135,7 +139,7 @@ This makes visible the "reprocesses every cron run until a human re-defers" cond
 2. **The client route (`log[level](`, computed) is NOT stripped** → its `code` must be a variable (`cap(body.code)`), never a literal (§2.2).
 3. No new code in any `NextResponse.json` body / plain object literal / doc comment.
 4. `pnpm gen:internal-code-enums` + `pnpm gen:spec-codes` must be no-ops.
-5. Meta-test: S6's 4 admin codes → `AUDITABLE_MUTATIONS`+`SANCTIONED_CODES`; the other ~17 plain-log/client codes → `NEW_FORENSIC_CODES` leak-guard. x1 `codes.test.ts` is the global backstop.
+5. Meta-test: S6's 4 admin codes → `AUDITABLE_MUTATIONS`+`SANCTIONED_CODES`; the other 14 plain-log/client codes → `NEW_FORENSIC_CODES` leak-guard. x1 `codes.test.ts` is the global backstop.
 
 ---
 
@@ -169,10 +173,10 @@ This makes visible the "reprocesses every cron run until a human re-defers" cond
 
 ## 11. Numeric / self-consistency sweep
 
-- **6** surfaces; **21** new codes total (S2/S4: 3; S3: 3; S5: 4; S6: 4; S7: 6; S8: 1), all 0-hit verified, **0** catalog changes.
-- Meta-test: `AUDITABLE_MUTATIONS` +4 rows, `SANCTIONED_CODES` +4, `NEW_FORENSIC_CODES` +17.
+- **6** surfaces; **18** new codes total (S2/S4: 3; **S3: 0 — reuses the existing `infraError` codes**; S5: 4; S6: 4; S7: 6; S8: 1), all 0-hit verified, **0** catalog changes.
+- Meta-test: `AUDITABLE_MUTATIONS` +4 rows, `SANCTIONED_CODES` +4, `NEW_FORENSIC_CODES` +14 (the 18 minus the 4 admin codes).
 - **0** DB migrations; **0** advisory-lock changes; **0** new Supabase call sites.
-- **2** new files: `components/observe/GlobalErrorListener.tsx`, and the webhook/watch test files. **2** structural try/catch additions (webhook infra, watch infra).
+- **3** new files: `components/observe/GlobalErrorListener.tsx` (1 component) + `tests/drive/webhook.test.ts` + `tests/drive/watch.test.ts` (2 test files). **2** structural try/catch additions (webhook infra, watch infra).
 - **UI-surface files (invariant-8 disposition — Codex R2 CRITICAL):** invariant 8 defines a UI surface by PATH — `components/observe/GlobalErrorListener.tsx` (new) and `app/layout.tsx` (mount line) both qualify, regardless of rendered output. Since `GlobalErrorListener` returns `null` (zero rendered pixels) and the layout change is a single non-visual `<GlobalErrorListener/>` mount, `/impeccable critique` + `/impeccable audit` have **no visual surface to evaluate**. Per invariant 8's disposition rule, this milestone adds a **`DEFERRED.md` entry** documenting the impeccable-gate deferral for these two files with that rationale (a zero-render error-listener + a non-visual mount produce no visual findings). The plan includes a task to write that DEFERRED.md entry in close-out. (Not a silent N/A — an explicit, cited deferral.)
 
 ---
