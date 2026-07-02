@@ -60,7 +60,7 @@ Two in-flight feature branches (spec/plan stage, no implementation code yet) wil
 ### 2.2 `summarizeAssetRecovery` (`lib/cron/summarizeAssetRecovery.ts`) — the mirror, with a KEY ASYMMETRY
 
 - **Asymmetry (do NOT copy S1 verbatim):** the asset-recovery processed element is `Array<{ showId: string; result: AssetRecoveryResult }>` (`lib/sync/assetRecovery.ts:118`) — it exposes **`showId`, NOT `driveFileId`**. The mirror breadcrumb element is `{ showId: string; outcome: string; code?: string }`. **Do not invent a `driveFileId` here.**
-- **`code` genuinely optional here:** asset-recovery `partial_failure` and `no_op` carry NO `code` (`lib/sync/assetRecovery.ts:104,115`); `revision_drift`/`drift_cooldown`/`bytes_exceeded`/`infra_error` do. So `(r as { code?: string }).code` may be `undefined` — omit the key when absent (`...(code ? { code } : {})`).
+- **`code` genuinely optional here:** asset-recovery `partial_failure` and `no_op` carry NO `code` (`lib/sync/assetRecovery.ts:105,115`); `revision_drift`/`drift_cooldown`/`bytes_exceeded`/`infra_error` do. So `(r as { code?: string }).code` may be `undefined` — omit the key when absent (`...(code ? { code } : {})`).
 - **Which items:** `PARTIAL`-set ∪ `infra_error` ∪ unknown (the `failed++` arms at `lib/cron/summarizeAssetRecovery.ts:16-27`). Loop widening `{ result: r }` → `{ showId, result: r }`.
 - **Net-new detail:** the mirror currently returns NO `detail` (`:28`). Adding one is net-new; guard `failures.length > 0` so `ok`-outcome runs stay `detail`-free (exactOptionalPropertyTypes: omit, not `undefined`).
 
