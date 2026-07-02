@@ -264,10 +264,11 @@ export async function handleOnboardingScan(
             folderName: folder.folderName,
           }),
         });
-      } catch {
+      } catch (error) {
         void log.error("onboarding scan failed", {
           source: "admin/onboarding/scan",
           requestId: scanRequestId,
+          error,
         });
         emit({ type: "result", body: { ok: false, code: null } });
       } finally {
