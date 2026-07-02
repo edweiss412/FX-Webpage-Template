@@ -328,7 +328,7 @@ async function readReportShowContext(showId: string): Promise<ReportShowContextR
 }
 
 function pickString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null; // canonicalize-exempt: generic non-empty-string coercion for issue-summary formatting, not email normalization.
 }
 
 // The row label from a "<label> | <value>" rawSnippet — the part before the first pipe.
