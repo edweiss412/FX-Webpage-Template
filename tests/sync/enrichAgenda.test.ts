@@ -330,6 +330,10 @@ describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-d
         Object.assign(new TypeError("fetch failed"), { cause: { code: "ESOMETHINGELSE" } }),
       ),
     ).toBeNull();
+    // Boundary preserved: a TOP-LEVEL socket string code with NO `.cause` keeps its
+    // pre-existing non-retry contract (the walk starts BELOW the top-level error;
+    // only the timeout codes map top-level). A bare `{ code: 'ENOTFOUND' }` → null.
+    expect(driveErrorStatus({ code: "ENOTFOUND" })).toBeNull();
   });
 
   // audit idx31/#132: end-to-end — an ECONNRESET-shaped undici failure must be

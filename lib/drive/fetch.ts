@@ -159,10 +159,16 @@ export function driveErrorStatus(error: unknown): number | null {
   // down (undici wraps the socket Error, and gaxios may wrap that again). None of
   // the top-level checks above see it, so a transient socket blip would classify
   // null and withDriveRetry would rethrow WITHOUT retrying — aborting the whole
-  // sync/scan pass on a single hiccup. Walk the bounded `.cause` chain looking for
-  // a code in the transient-network set and map it to 503 (a
+  // sync/scan pass on a single hiccup. Walk the bounded `.cause` chain (starting
+  // BELOW the top-level error, so a bare top-level string `code` keeps its
+  // existing non-retry contract — only the timeout codes above map top-level)
+  // looking for a code in the transient-network set, and map it to 503 (a
   // TRANSIENT_DRIVE_STATUSES value) so withDriveRetry retries it.
-  for (let node: unknown = error, depth = 0; node != null && depth < 5; depth += 1) {
+  for (
+    let node: unknown = (error as { cause?: unknown })?.cause, depth = 0;
+    node != null && depth < 5;
+    depth += 1
+  ) {
     const nodeCode = (node as { code?: unknown }).code;
     if (typeof nodeCode === "string" && TRANSIENT_NETWORK_CODES.has(nodeCode)) {
       return 503;
