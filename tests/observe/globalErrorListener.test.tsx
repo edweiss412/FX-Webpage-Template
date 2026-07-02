@@ -79,7 +79,9 @@ describe("GlobalErrorListener", () => {
         <GlobalErrorListener />
       </>,
     );
-    window.dispatchEvent(new ErrorEvent("error", { message: "single", filename: "f.js", lineno: 1 }));
+    window.dispatchEvent(
+      new ErrorEvent("error", { message: "single", filename: "f.js", lineno: 1 }),
+    );
     expect(clientLogMock).toHaveBeenCalledTimes(1);
   });
 });

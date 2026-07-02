@@ -557,9 +557,10 @@ describe("runManualSyncForShow", () => {
       resetLogSink();
     });
 
-    function txWithDeferral(
-      deferredKind: "permanent_ignore" | "defer_until_modified" | null,
-    ): { tx: LockedShowTx<FakeTx>; state: { deleteCalls: number } } {
+    function txWithDeferral(deferredKind: "permanent_ignore" | "defer_until_modified" | null): {
+      tx: LockedShowTx<FakeTx>;
+      state: { deleteCalls: number };
+    } {
       const raw = fakeTx(true);
       const state = { deleteCalls: 0 };
       raw.readLiveDeferral = async () =>
@@ -586,8 +587,7 @@ describe("runManualSyncForShow", () => {
       });
     }
 
-    const emitted = () =>
-      records.filter((r) => r.code === "MANUAL_RESYNC_CLEARED_STANDING_IGNORE");
+    const emitted = () => records.filter((r) => r.code === "MANUAL_RESYNC_CLEARED_STANDING_IGNORE");
 
     test("clearing a permanent_ignore that still hard_fails warns exactly once", async () => {
       const { tx, state } = txWithDeferral("permanent_ignore");
