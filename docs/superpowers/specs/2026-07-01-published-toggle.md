@@ -128,7 +128,19 @@ update public.shows
 
 **Parity contract:** `tests/sync/unpublishArchiveParity.test.ts` is rewritten as `unpublishParity`: token-consume path ↔ `unpublish_show` RPC reach the SAME end-state (published=false, token pair null, share_token UNrotated, picker_epoch UNbumped, scratch rows intact, archived untouched, SHOW_UNPUBLISHED alert present) — AND the same refusal: live+finalize-owned show → RPC raises `FINALIZE_OWNED_SHOW` / emailed path returns `finalize_owned` with token intact (R3).
 
-**Confirm-page copy** (`app/show/[slug]/unpublish/copy.ts`): `CONFIRM_CONSEQUENCE`, `NEUTRAL_BODY`, `SUCCESS_*` lines currently describe archive-flavored recovery ("archive it from the admin", "republish"); reword to toggle-flavored ("turn Published back on from the show's page"). Same for `lib/notify/templates/autoPublishUndo.ts` body copy and `lib/sync/unpublishConfirmPage.ts` strings if they restate the effect. The action-state machine, statuses, and neutral-oracle rules (`copy.ts:10-16`) are unchanged.
+**`finalize_owned` is a first-class public contract (R4)** — every layer names it explicitly; no default-case fallthrough:
+
+| Layer | Change |
+|---|---|
+| Engine union | `UnpublishShowResult` (`lib/sync/unpublishShow.ts:42-46`) gains `{ outcome: "finalize_owned"; status: 409; showId: string }` |
+| Confirm action | `app/show/[slug]/unpublish/actions.ts` switch gains an explicit `finalize_owned` case → new `{ status: "busy" }` member of `ConfirmUnpublishActionState` (`copy.ts:10-16`) |
+| Confirm form | `ConfirmUnpublishForm.tsx` renders the `busy` state with `BUSY_HEADING`/`BUSY_BODY` |
+| API route | `app/api/show/[slug]/unpublish/route.ts` maps `finalize_owned` → HTTP 409 with the busy body (today it collapses non-success/non-expired to 404 — that collapse must NOT swallow the new outcome) |
+| Tests | engine (token intact, nothing mutated), action (busy state returned), form (busy copy rendered), route (409 + token intact re-read) — `tests/show/unpublishConfirmAction.test.ts`, `tests/api/show-unpublish-route*.test.ts` extended |
+
+The neutral-oracle rules are otherwise unchanged: `busy` renders only AFTER recipient binding + token compare succeed (same position as `expired`), so it discloses nothing to unbound holders — pre-binding failures stay neutral 404.
+
+**Confirm-page copy** (`app/show/[slug]/unpublish/copy.ts`): `CONFIRM_CONSEQUENCE`, `NEUTRAL_BODY`, `SUCCESS_*` lines currently describe archive-flavored recovery ("archive it from the admin", "republish"); reword to toggle-flavored ("turn Published back on from the show's page"). Same for `lib/notify/templates/autoPublishUndo.ts` body copy and `lib/sync/unpublishConfirmPage.ts` strings if they restate the effect.
 
 ### 3.5 Crew "unavailable" page (D5)
 
