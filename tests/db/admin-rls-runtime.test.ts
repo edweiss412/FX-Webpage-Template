@@ -109,7 +109,7 @@ function nonAdminJwtClaims(): string {
 
 describe("Class A runtime RLS behavioral parity (M9 C9.0.5 — closes M2-D2)", () => {
   test("derived table count matches the 18 admin_only FOR ALL tables", () => {
-    expect(CLASS_A_TABLES).toHaveLength(18);
+    expect(CLASS_A_TABLES).toHaveLength(19);
   });
 
   test("zero drift from baseline (M2-D2 regression gate)", () => {
