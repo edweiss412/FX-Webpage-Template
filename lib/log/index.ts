@@ -6,6 +6,7 @@ export {
   deriveRequestId,
   getRequestContext,
   runWithRequestContext,
+  setCronInFlight,
   setRequestShowId,
 } from "./requestContext";
 export type { LogFields, LogLevel, LogRecord, Sink } from "./types";
