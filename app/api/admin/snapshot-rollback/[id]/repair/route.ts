@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { repairSnapshotRollback } from "@/lib/sync/promoteSnapshot";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -30,6 +31,7 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
   }
 
   try {
+    const { email } = await requireAdminIdentity(); // cache-backed; auth already passed
     const supabase = createSupabaseServiceRoleClient();
     const { data, error } = (await supabase
       .from("pending_snapshot_uploads")
@@ -52,6 +54,13 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
     if (result.outcome === "promote_in_flight") {
       return NextResponse.json({ error: "PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT" }, { status: 409 });
     }
+    await logAdminOutcome({
+      code: "SNAPSHOT_ROLLBACK_REPAIRED",
+      source: "api.admin.snapshot-rollback.repair",
+      actorEmail: email,
+      driveFileId: data.drive_file_id,
+      extra: { snapshotRevisionId: result.snapshotRevisionId },
+    });
     return NextResponse.json({ ok: true, result });
   } catch {
     return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
