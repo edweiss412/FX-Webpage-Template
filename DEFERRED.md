@@ -188,6 +188,38 @@ This closes the entire untimed-Drive-read class: export fetch (#128), `files.get
 - **Why deferred (not a blocker; pattern-level + pre-existing):** (1) the deficiency is **shared with the already-shipped `SourceLink`** in the same header `action` slot (`SourceLink.tsx:52`, `inline-flex h-fit shrink-0`), which passed prior impeccable gates — the new trigger deliberately MATCHES that established recessive-header-affordance pattern; sizing only the new button to 44px would create a visible asymmetry in a two-item cluster. (2) A 44×44 hit area on either clustered affordance would **overlap its sibling** (14px glyphs separated by an 8px gap) causing mis-taps, and/or **grow the header row**, violating the header dimensional invariant verified in `tests/e2e/source-link-dimensional.spec.ts` (affordance height ≤ header band). (3) The most safety-critical PRODUCT.md constraints ARE met: the trigger is always-visible (no hover-only), carries `aria-label="Report a problem with this card"`, and meets AA-large contrast. The residual is target SIZE, shared with the sibling.
 - **Trigger:** any follow-up that reworks the card-header affordance cluster (e.g. collapsing `SourceLink` + report into one control, or a header-actions redesign). At that point, size BOTH affordances to ≥44×44 uniformly — likely via out-of-flow pseudo-element hit-area overlays that don't grow the header box or overlap each other (revisit the `source-link-dimensional` invariant to assert "header ROW height unchanged" rather than "affordance box ≤ header height"). Alternatively promote a per-section (not per-card) report entry point if cluster crowding proves the driver.
 
+## Data quality Report + Ignore (2026-07-02)
+
+### DQIGNORE-1 — [P3] Report/Ignore not available on the plain-text data-gap digest group
+
+- **What:** the Report + Ignore controls attach only to the operator-actionable Data-quality cards (`PerShowActionableWarnings`). The plain-text data-gap digest (`UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`) rendered directly in `app/admin/show/[slug]/page.tsx` stays read-only.
+- **Why deferred (deliberate v1 boundary):** `readDataQuality` flattens the digest to `string[]` (dropping `code`/`rawSnippet`), so neither the ignore fingerprint nor the report autocapture can be built from it without widening the return shape; and `BLOCK_DISAPPEARED` carries no `rawSnippet` so is not content-fingerprintable at all. The user's target surface (the "Unrecognized row" + autocorrect cards) is 100% actionable cards. Spec `docs/superpowers/specs/2026-07-02-dq-report-ignore.md` D8.
+- **Trigger:** an operator wants to Report/Ignore an "Unrecognized section" (`UNKNOWN_SECTION_HEADER`) warning. Then widen `readDataQuality` to return the digest as `ParseWarning[]` objects and render digest items through the same per-warning card + `DataQualityWarningControls` slot; `BLOCK_DISAPPEARED` remains Report-only (no Ignore).
+
+### DQIGNORE-2 — [P3] No bulk "Ignore all N of this type"
+
+- **What:** ignore is per-warning only. A show with four "Unrecognized row" cards requires four Ignore clicks.
+- **Why deferred:** v1 scope decision (per-warning content-fingerprint keying); bulk-ignore is a convenience layer, not a correctness requirement, and its semantics (ignore-all-current vs ignore-all-future-of-code) are a separate design choice. Spec §11.
+- **Trigger:** operators report repetitive per-card ignoring on high-volume shows. Then add a per-code "Ignore all (N)" action that inserts one `ignored_warnings` row per current fingerprint (NOT a coarse code-level ignore, which would mask future distinct rows).
+
+### DQIGNORE-3 — [P3] Orphaned ignore rows are not garbage-collected
+
+- **What:** an `ignored_warnings` row whose warning is no longer emitted (the underlying issue was fixed) becomes a dormant row. It has no render match and no output effect, but it persists.
+- **Why deferred:** dormant rows are harmless (no visible effect) and are the desired behavior for recurrence — if the same warning re-appears it stays ignored. GC adds a cleanup surface with no user-visible benefit in v1. Spec §5.2 orphan policy.
+- **Trigger:** `ignored_warnings` row counts grow large enough to matter operationally, OR a "reset ignored warnings" admin affordance is requested. Then add a GC pass (e.g. on apply, prune fingerprints not present in the new `parse_warnings`) or an admin bulk-clear.
+
+### DQIGNORE-4 — [P3] No `logAdminOutcome` telemetry for ignore/un-ignore
+
+- **What:** the ignore/un-ignore POST routes emit no `logAdminOutcome` forensic code.
+- **Why deferred:** v1 scope decision, consistent with the two closest precedents (the alert-resolve and sheet-unignore routes emit none and are absent from `AUDITABLE_MUTATIONS`). Ignoring an advisory warning does not mutate published show content. Spec D7.
+- **Trigger:** an audit requirement to trace who ignored which warning. Then add a sanctioned forensic code (e.g. `WARNING_IGNORED`) + an `AUDITABLE_MUTATIONS`/`SANCTIONED_CODES` registry row in `tests/log/_metaAdminOutcomeContract.test.ts`, keeping the code OUT of §12.4.
+
+### DQIGNORE-5 — [P3] Report link focus-ring offset shows page-bg on warning-bg cards (impeccable MEDIUM)
+
+- **What:** the reused `ReportButton variant="text"` (`components/shared/ReportButton.tsx`) bakes `focus-visible:ring-offset-bg` into its text-variant className. On the Data-quality cards it now renders on `bg-warning-bg`, so a keyboard-focused "Report" link draws its 2px ring-offset gap in the page background color, not the card's warning-bg. The sibling Ignore/Un-ignore button correctly uses `ring-offset-warning-bg`. Surfaced by the impeccable v3 critique (Assessment A, MEDIUM).
+- **Why deferred (not a gate; shared-component change):** it is a 2px cosmetic offset mismatch on keyboard focus only — the focus ring itself is fully visible and AA-compliant, so it is not a functional a11y failure and does not gate the ship (invariant 8 gates HIGH/CRITICAL). The clean fix adds a `ringOffset` prop to the shared M8 `ReportButton` (used by the crew footer, staged-review card, and preview banner), which is a broader change than this feature warrants and would want its own review across those surfaces.
+- **Trigger:** any follow-up touching `ReportButton`, OR a focus-visible a11y sweep. Then add an optional `ringOffset?: "bg" | "surface" | "warning-bg"` prop (full literal class strings via a lookup map so Tailwind v4 JIT resolves them) defaulting to the current per-variant value, and pass `ringOffset="warning-bg"` from `DataQualityWarningControls`.
+
 ## Observability coverage completion — impeccable gate (2026-07-02)
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/observability-coverage-completion`. This milestone is additive observability instrumentation; its only UI-path touches are a zero-render listener + a single mount line, which produce no visual surface for `/impeccable critique` + `/impeccable audit` to evaluate.

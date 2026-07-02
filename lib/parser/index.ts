@@ -29,6 +29,7 @@ import { parseDress, mergeDressCode } from "./blocks/dress";
 import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams, extractLinkedFolder } from "./diagrams";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { extractOpeningReel } from "./opening-reel";
 import { parseAgenda } from "./blocks/agenda";
 import { parseScheduleTimes } from "./blocks/scheduleTimes";
@@ -402,7 +403,11 @@ export function mergeGearIntoRooms(parsed: RoomRow[], gear: GearRoom[]): RoomRow
     const match = result.find((r) => r.kind === g.kind && gearNameToken(r.name) === token);
     if (match) {
       for (const col of GEAR_COLUMNS) {
-        if (match[col] == null && g[col] != null) match[col] = g[col];
+        // Fill when the INFO column is null OR holds a hide-set sentinel ("-", "—",
+        // "N/A", "TBD", "TBA"): the render layer hides those sentinels, so leaving
+        // one in place instead of the real GEAR value silently drops the gear.
+        if ((match[col] == null || shouldHideGenericOptional(match[col])) && g[col] != null)
+          match[col] = g[col];
       }
     } else {
       result.push({

@@ -149,6 +149,37 @@ describe("deriveScheduleBookends — strike derivation", () => {
   });
 });
 
+describe("deriveScheduleBookends — same-day strikes sort chronologically (audit idx61/sweep)", () => {
+  // failure mode: same-day strike groups sorted by a.time.localeCompare(b.time) —
+  // lexicographic on verbatim 12h clock strings — so "10:00 PM" sorts BEFORE
+  // "9:00 PM" ('1' < '9') and any PM sorts before AM. Contradicts the ratified
+  // "strikes sort by time ascending".
+  const strikeStarts = (day: ScheduleDay | undefined): string[] =>
+    (day?.entries ?? []).filter((e) => e.kind === "strike").map((e) => e.start);
+
+  it("orders 9:00 PM before 10:00 PM on the same date (not lexicographic '10' < '9')", () => {
+    const d = dates({ showDays: ["2025-05-14"] });
+    const rooms = [
+      room("Ballroom", "gs", "5/14 @ 10:00 PM"),
+      room("Lasalle", "breakout", "5/14 @ 9:00 PM"),
+    ];
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
+    // chronological: 21:00 (9 PM) before 22:00 (10 PM) — lexicographic would reverse
+    expect(strikeStarts(runOfShow!["2025-05-14"])).toEqual(["9:00 PM", "10:00 PM"]);
+  });
+
+  it("orders 9:00 AM before 2:00 PM on the same date (AM sorts before PM)", () => {
+    const d = dates({ showDays: ["2025-05-14"] });
+    const rooms = [
+      room("Ballroom", "gs", "5/14 @ 2:00 PM"),
+      room("Lasalle", "breakout", "5/14 @ 9:00 AM"),
+    ];
+    const { runOfShow } = deriveScheduleBookends(undefined, d, null, rooms, "2025");
+    // chronological: 09:00 (9 AM) before 14:00 (2 PM) — lexicographic '2' < '9' would reverse
+    expect(strikeStarts(runOfShow!["2025-05-14"])).toEqual(["9:00 AM", "2:00 PM"]);
+  });
+});
+
 describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
   const transport = (schedule: TransportScheduleEntry[]): TransportationRow => ({
     driver_name: null,

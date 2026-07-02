@@ -279,6 +279,30 @@ describe("parseHotels — split slash-separated guests in a Names cell", () => {
   });
 });
 
+// ── Stray 20xx cell token must not override show-context year (audit idx0/#40) ─
+describe("parseHotels — show-context year beats a stray 20xx street number", () => {
+  // failure mode: a bare 4-digit 20xx token in the cell (here the "2015" street
+  // number in "2015 K St NW") is captured as the reservation YEAR, mis-dating a
+  // yearless "Check In: 3/1" to 2015-03-01 instead of the show's context year.
+  // The DATES row's "3/1/26" makes inferShowYear(markdown) resolve contextYear=2026.
+  const md = [
+    "| DATES |  |",
+    "| :---: | :---: |",
+    "| Show Days | 3/1/26 |",
+    "| Hotel Reservations | Marriott Hotel 2015 K St NW Check In: 3/1 Check Out: 3/2 |",
+  ].join("\n");
+  const hotels = parseHotels(md, "v2");
+
+  it("resolves check_in/check_out to the 2026 context year, not the 2015 street number", () => {
+    expect(hotels).toHaveLength(1);
+    // context year 2026 (from DATES "3/1/26"), NOT the 2015 street number
+    expect(hotels[0]!.check_in).toBe("2026-03-01");
+    expect(hotels[0]!.check_out).toBe("2026-03-02");
+    expect(hotels[0]!.check_in).not.toBe("2015-03-01");
+    expect(hotels[0]!.check_out).not.toBe("2015-03-02");
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseHotels — corpus coverage (every fixture returns array)", () => {
   for (const path of ALL_FIXTURES) {
