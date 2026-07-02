@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
 import type { DriveListedFile } from "@/lib/drive/list";
@@ -64,6 +65,11 @@ type ShadowApplyResult =
   | {
       drive_file_id: string;
       code: typeof OK_CODE;
+      // The live show id this shadow committed against (live.id === row.show_id). Populated ONLY
+      // when the row durably applied (core.outcome === "applied") — the caller's post-commit
+      // SHOW_FINALIZED outcome log fires per committed show and needs the id. A
+      // discarded_by_reviewer_choice OK carries NO showId (nothing was applied to a live show).
+      showId?: string;
       // Response metadata, NOT an error code (no §12.4 row; invariant 5 unaffected — OK rows
       // never render through the error catalog). Mirrors the live MI-12 reject contract.
       disposition?: "discarded_by_reviewer_choice";
@@ -456,7 +462,9 @@ async function applyShadow(
   // The shadow applied to the live show (crew/show/children mutated). Record its id for the
   // POST-COMMIT revalidate (live.id === row.show_id; the apply ran against the existing live row).
   affectedShowIds.add(live.id);
-  return { drive_file_id: row.drive_file_id, code: OK_CODE };
+  // Surface the committed show id so the caller can emit the per-committed-row SHOW_FINALIZED
+  // outcome log AFTER this row's withRowTx resolves (post-commit) — see runFinalizeCas loop.
+  return { drive_file_id: row.drive_file_id, code: OK_CODE, showId: live.id };
 }
 
 /**
@@ -657,6 +665,10 @@ async function runFinalizeCas(
   // mutates — applied existing-show shadows + the first-seen publish flip. The handler revalidates
   // each AFTER deps.withTx resolves (post-commit), never inside this transaction.
   affectedShowIds: Set<string>,
+  // Outcome-ref: the canonical admin identity (requireAdminIdentity()'s email) bound by the
+  // handler, threaded so the per-committed-row SHOW_FINALIZED log can attribute the actor. Logged
+  // right after each row's withRowTx resolves (post-commit) — never inside the row tx.
+  actorEmail: string,
   // Optional progress sink (streaming only). Emits the in-transaction phases (applying →
   // publishing); the post-commit `subscribing` phase is emitted by the streaming handler.
   onPhase?: (p: FinalizeCasPhase) => void,
@@ -726,7 +738,29 @@ async function runFinalizeCas(
       applyShadow(rowTx, pipelineTx, row, affectedShowIds),
     );
     if (result.code === "OK") {
-      shadowResults.push(result);
+      // Outcome-ref (per-committed-row): this row's withRowTx has RESOLVED, so its independent
+      // row transaction COMMITTED durably. Emit SHOW_FINALIZED here — right after the commit —
+      // so the log is robust to every downstream case: a later sibling that 409-blocks or an
+      // unexpected throw out of this loop leaves THIS row's log already fired, and a post-commit
+      // path (publish/revalidate/subscribe/response) that throws cannot un-fire it. Only rows
+      // that durably applied to a live show carry `showId` (discarded_by_reviewer_choice OK rows
+      // do not), so this logs exactly the committed set — the same set that entered
+      // affectedShowIds. Awaited for durability; it never mutates the CAS path.
+      const { showId, ...responseRow } = result;
+      if (showId) {
+        await logAdminOutcome({
+          code: "SHOW_FINALIZED",
+          source: "api.admin.onboarding.finalize-cas",
+          actorEmail,
+          showId,
+          wizardSessionId,
+          result: "final_cas",
+        });
+      }
+      // `showId` is a caller-only signal (drives the log); strip it so it never leaks into the
+      // per_row response body — a stable client contract where OK rows are exactly
+      // { drive_file_id, code } (+ optional disposition), never a show id.
+      shadowResults.push(responseRow);
       continue;
     }
     const parsed = parseShadowPayloadForApply(row.payload);
@@ -765,8 +799,9 @@ export async function handleOnboardingFinalizeCas(
   routeDeps: FinalizeCasRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let admin: { email: string };
   try {
-    await deps.requireAdminIdentity();
+    admin = await deps.requireAdminIdentity();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -781,7 +816,9 @@ export async function handleOnboardingFinalizeCas(
   // the OLD fan-out (spec §4.2).
   const affectedShowIds = new Set<string>();
   try {
-    const result = await deps.withTx((tx) => runFinalizeCas(tx, deps, affectedShowIds));
+    const result = await deps.withTx((tx) =>
+      runFinalizeCas(tx, deps, affectedShowIds, admin.email),
+    );
     // POST-COMMIT: per-row shadow applies commit via their OWN `withRowTx` (independent of the
     // outer result), so a MIXED batch can durably apply early rows and THEN return a 409 for a
     // later blocked sibling. Revalidate every committed show BEFORE the Response check — whole-diff
@@ -815,8 +852,9 @@ export async function handleOnboardingFinalizeCasStream(
   routeDeps: FinalizeCasRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let admin: { email: string };
   try {
-    await deps.requireAdminIdentity();
+    admin = await deps.requireAdminIdentity();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -840,7 +878,9 @@ export async function handleOnboardingFinalizeCasStream(
       const affectedShowIds = new Set<string>();
       try {
         const result = await deps.withTx((tx) =>
-          runFinalizeCas(tx, deps, affectedShowIds, (p) => emit({ type: "phase", phase: p })),
+          runFinalizeCas(tx, deps, affectedShowIds, admin.email, (p) =>
+            emit({ type: "phase", phase: p }),
+          ),
         );
         // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): a mixed batch may have
         // committed early shadow applies via their own withRowTx, so bust their caches before the
