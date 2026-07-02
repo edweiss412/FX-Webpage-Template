@@ -107,6 +107,37 @@ export class DriveFetchError extends Error {
   }
 }
 
+/**
+ * An empty/blank `fileId` reaching `drive.files.get` yields Google's opaque
+ * `File not found: .` 404 with a minified googleapis stack. This typed subtype
+ * (still an `instanceof DriveFetchError`, so existing Drive-fault handlers keep
+ * classifying it) fails fast at the chokepoint with a stack pointing at the real
+ * caller, so a detached/mystery empty-id call self-identifies. See
+ * docs/superpowers/specs/2026-07-02-cron-empty-id-throw-attribution-design.md.
+ */
+export class InvalidDriveFileIdError extends DriveFetchError {
+  readonly rawFileId: string;
+  constructor(received: unknown) {
+    const raw = (() => {
+      try {
+        return (JSON.stringify(received) ?? String(received)).slice(0, 80);
+      } catch {
+        return String(received).slice(0, 80);
+      }
+    })();
+    super(`Drive files.get called with an empty or blank fileId (received ${raw})`);
+    this.name = "InvalidDriveFileIdError";
+    this.rawFileId = raw;
+  }
+}
+
+/** Throws InvalidDriveFileIdError unless `fileId` is a non-empty, non-whitespace string. */
+export function assertNonEmptyDriveFileId(fileId: unknown): asserts fileId is string {
+  if (typeof fileId !== "string" || fileId.trim() === "") {
+    throw new InvalidDriveFileIdError(fileId);
+  }
+}
+
 // BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY: a single transient Drive failure
 // (rate limit / gateway / server error) otherwise aborts the whole onboarding
 // folder scan — and a cron / manual sync pass. Retry those (and ONLY those) with
@@ -285,6 +316,9 @@ function driveFilesGet(
   // The per-call gaxios `timeout` bounds the stall; `retry: false` keeps
   // withDriveRetry as the single retry layer (so the budget is exactly timeoutMs
   // per attempt, not multiplied by gaxios's own internal retry).
+  // Fail fast on an empty/blank fileId (before spending any retry budget) so it
+  // never reaches Google as an opaque `File not found: .` 404 (audit #4 PR-1).
+  assertNonEmptyDriveFileId((params as { fileId?: unknown }).fileId);
   const driveFilesGetCall = () =>
     drive.files.get({ ...params, supportsAllDrives: true }, { timeout: timeoutMs, retry: false });
   return withDriveRetry(driveFilesGetCall, retry);
