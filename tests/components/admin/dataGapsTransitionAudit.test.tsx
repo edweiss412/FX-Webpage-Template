@@ -17,7 +17,7 @@
 //   | ------------------------------- | ------------------------------------ | --------- |
 //   | Data-gaps chip (ShowsTable)     | early-return null when total===0     | INSTANT   |
 //   | Step-3 per-class detail         | `dataGapDetails.length > 0 ? … : null` | INSTANT |
-//   | Per-show "Data quality" panel   | `failed ? … : messages.length>0 ? … : null` | INSTANT |
+//   | Per-show "Data quality" panel   | `failed ? … : active/ignored.length>0 ? … : null` | INSTANT |
 //   | First-published alert sub-line  | `dataGapsDigest ? … : null`          | INSTANT   |
 //
 // Compound transitions: each surface lives in a different component, reads a
@@ -119,16 +119,14 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     // present iff there's a data gap, gone otherwise — instant, no AnimatePresence/
     // motion wrapper.
     expect(step3).toMatch(/\{dataGapDetails\.length > 0 \? \(/);
-    // Per-show panel: failed → calm notice; else (data-gap messages OR ACTIVE
-    // operator-actionable warnings OR IGNORED warnings) → section; else null. Still
-    // a plain ternary-to-null (instant present/absent, no AnimatePresence) — the
-    // condition is compound because the panel hosts the operator-actionable deep-link
-    // subsection AND the collapsible "Ignored (N)" subsection (data-quality Ignore).
+    // Per-show panel: failed → calm notice; else (ACTIVE displayable warnings OR
+    // IGNORED warnings) → section; else null. Still a plain ternary-to-null (instant
+    // present/absent, no AnimatePresence) — the condition is compound because the panel
+    // hosts every data-quality warning as a per-warning card (the data-gap digest folded
+    // into the same list, DQIGNORE-1) AND the collapsible "Ignored (N)" subsection.
     const page = src("app/admin/show/[slug]/page.tsx");
     expect(page).toMatch(/\{dataQuality\.failed \? \(/);
-    expect(page).toMatch(
-      /: dataQuality\.messages\.length > 0 \|\|\s+activeActionable\.length > 0 \|\|\s+ignoredActionable\.length > 0 \? \(/,
-    );
+    expect(page).toMatch(/: activeActionable\.length > 0 \|\| ignoredActionable\.length > 0 \? \(/);
     expect(src("components/admin/PerShowAlertSection.tsx")).toMatch(/\{dataGapsDigest \? \(/);
   });
 

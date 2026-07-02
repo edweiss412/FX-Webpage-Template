@@ -782,3 +782,66 @@ describe("AdminShowPage — Data quality: legacy UNKNOWN_FIELD anchors (Part D)"
     expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
   });
 });
+
+// DQIGNORE-1 — the plain-text data-gap digest (UNKNOWN_SECTION_HEADER,
+// BLOCK_DISAPPEARED) now renders through the SAME per-warning card +
+// DataQualityWarningControls slot as the operator-actionable warnings, so an
+// operator can Report every data-quality warning and Ignore the ones that carry
+// a content fingerprint. UNKNOWN_SECTION_HEADER carries a rawSnippet (the header
+// text) → ignorable; BLOCK_DISAPPEARED carries no rawSnippet → Report-only.
+describe("per-show Data quality: digest-group Report/Ignore (DQIGNORE-1)", () => {
+  const unknownSection = {
+    severity: "warn" as const,
+    code: "UNKNOWN_SECTION_HEADER",
+    message: 'Unrecognized section "Craft Services" — its rows were not parsed.',
+    rawSnippet: "Craft Services",
+    blockRef: { kind: "unknown_section" },
+  };
+  const blockDisappeared = {
+    severity: "warn" as const,
+    code: "BLOCK_DISAPPEARED",
+    message: "The Hotel section was present last time but is now empty — 3 entries dropped.",
+    blockRef: { kind: "hotel" },
+  };
+
+  it("UNKNOWN_SECTION_HEADER renders as a card with BOTH Report and Ignore controls (ignorable)", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [unknownSection] };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-data-quality");
+    // Rendered as a per-warning card (not the old plain-text digest <li>).
+    const card = within(panel).getByTestId("per-show-actionable-item");
+    expect(card.textContent).toContain("Craft Services");
+    // Report control present…
+    expect(within(card).getByTestId("report-button-trigger")).toBeInTheDocument();
+    // …and an Ignore control, because it carries a content rawSnippet.
+    expect(within(card).getByRole("button", { name: "Ignore" })).toBeInTheDocument();
+    // The old plain-text digest item is gone.
+    expect(within(panel).queryByTestId("per-show-data-quality-item")).toBeNull();
+  });
+
+  it("BLOCK_DISAPPEARED renders as a card with Report but NO Ignore (no content fingerprint)", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [blockDisappeared] };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-data-quality");
+    const card = within(panel).getByTestId("per-show-actionable-item");
+    expect(card.textContent).toContain("Hotel section was present last time");
+    expect(within(card).getByTestId("report-button-trigger")).toBeInTheDocument();
+    // Not fingerprintable → no Ignore affordance (Report-only).
+    expect(within(card).queryByRole("button", { name: "Ignore" })).toBeNull();
+  });
+
+  it("an ignored UNKNOWN_SECTION_HEADER digest warning moves into the Ignored (N) subsection", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [unknownSection] };
+    // fingerprint derived from the fixture (anti-tautology — not hardcoded).
+    state.ignoredFingerprints = [
+      warningFingerprint({ code: unknownSection.code, rawSnippet: unknownSection.rawSnippet })!,
+    ];
+    await renderPage();
+    const details = screen.getByTestId("per-show-ignored-warnings");
+    expect(screen.getByTestId("per-show-ignored-summary").textContent).toMatch(/Ignored \(1\)/);
+    // The digest warning renders INSIDE the ignored subsection (scoped — anti-tautology).
+    expect(within(details).getByTestId("per-show-actionable-item").textContent).toContain(
+      "Craft Services",
+    );
+  });
+});
