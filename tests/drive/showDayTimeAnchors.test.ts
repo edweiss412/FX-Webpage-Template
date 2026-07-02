@@ -281,16 +281,26 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
-  it("resolves UNKNOWN_FIELD by its venue region (like FIELD_UNREADABLE)", () => {
+  it("UNKNOWN_FIELD no longer region-falls-back: with no per-row anchor source it stays link-less (never the venue region)", () => {
+    // Behavior change (row-precise anchoring): UNKNOWN_FIELD resolves per-row via
+    // sources.unknownField, NOT to the whole-block venue region. A no-match leaves
+    // sourceCell undefined (spec §5.1.1: correct cell or null, never a block link).
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "x", blockRef: { kind: "venue" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "venue", name: "Foo" },
+        rawSnippet: "Foo | bar",
+      },
     ];
     attachSourceCellAnchors(ws, {
       showDay: [],
       crewRole: [],
+      unknownField: [],
       region: { venue: { title: "INFO", gid: 0, a1: "A5" } },
     });
-    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A5" });
+    expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
   it("UNKNOWN_FIELD with no venue region → no link", () => {
@@ -376,5 +386,65 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
       hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }]),
     ).toBe(false);
     expect(hasCellAnchoredWarning([])).toBe(false);
+  });
+});
+
+describe("attachSourceCellAnchors — UNKNOWN_FIELD per-row anchor", () => {
+  it("UNKNOWN_FIELD resolves to the per-row cell, not the block region", () => {
+    const warnings = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "details", name: "GS Podium Type" },
+        rawSnippet: "GS Podium Type | (2) Acrylic Podium",
+      },
+    ] as ParseWarning[];
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      unknownField: [
+        {
+          kind: "details",
+          label: "gs podium type",
+          value: "(2) acrylic podium",
+          anchor: { title: "INFO", gid: 0, a1: "A8" },
+        },
+      ],
+      region: { details: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    });
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A8" });
+  });
+
+  it("UNKNOWN_FIELD with no matching per-row anchor gets NO region fallback", () => {
+    const warnings = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "details", name: "Mystery" },
+        rawSnippet: "Mystery | val",
+      },
+    ] as ParseWarning[];
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      unknownField: [],
+      region: { details: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    });
+    expect(warnings[0]!.sourceCell).toBeUndefined();
+  });
+
+  it("FIELD_UNREADABLE still uses the region fallback (unchanged)", () => {
+    const warnings = [
+      { severity: "warn", code: "FIELD_UNREADABLE", message: "x", blockRef: { kind: "details" } },
+    ] as ParseWarning[];
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      unknownField: [],
+      region: { details: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    });
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A55:B74" });
   });
 });

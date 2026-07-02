@@ -62,7 +62,12 @@ import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { summarizeDataGaps, dataGapClassDetails } from "@/lib/parser/dataGaps";
+import {
+  summarizeDataGaps,
+  dataGapClassDetails,
+  stripLegacyUnknownFieldAnchors,
+} from "@/lib/parser/dataGaps";
+import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
@@ -843,6 +848,21 @@ function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWa
                   {isWarn ? "warn" : "info"}
                 </span>
               </span>
+              {(() => {
+                // The offending row label (from rawSnippet "<label> | <value>"): the
+                // catalog title is generic ("Unrecognized row in sheet"), so this is
+                // the only per-row discriminator — makes otherwise-identical entries
+                // scannable and identifies the row when the deep link is absent.
+                const rowLabel = labelFromRawSnippet(w.rawSnippet);
+                return rowLabel ? (
+                  <span
+                    data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                    className="pl-3 text-xs text-text-subtle"
+                  >
+                    {rowLabel}
+                  </span>
+                ) : null;
+              })()}
               {context ? (
                 <p className="pl-3 text-xs text-text-subtle">{renderEmphasis(context)}</p>
               ) : null}
@@ -1493,7 +1513,7 @@ export function Step3SheetCard({
   const hotels = arr(pr.hotelReservations);
   const pullSheet = arr(pr.pullSheet);
   const ros: RunOfShow = pr.runOfShow ?? {};
-  const warnings = arr(pr.warnings);
+  const warnings = stripLegacyUnknownFieldAnchors(arr(pr.warnings));
   // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
   // per-class data-gap breakdown (single-sourced via summarizeDataGaps) so the
   // operator sees WHAT dropped, not just a count, before ticking the publish

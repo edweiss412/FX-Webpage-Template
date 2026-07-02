@@ -697,3 +697,32 @@ describe("per-show Data quality panel (Task 12, §6.5)", () => {
     expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
   });
 });
+
+describe("AdminShowPage — Data quality: legacy UNKNOWN_FIELD anchors (Part D)", () => {
+  it("legacy A55-range UNKNOWN_FIELD pair renders 2 items with NO Open-in-Sheet link", async () => {
+    state.showsInternal = {
+      parse_warnings: [
+        {
+          code: "UNKNOWN_FIELD",
+          severity: "warn",
+          message: "Unrecognized event_details row label: 'Floor Plan'",
+          rawSnippet: "Floor Plan | LINK",
+          sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+        },
+        {
+          code: "UNKNOWN_FIELD",
+          severity: "warn",
+          message: "Unrecognized event_details row label: 'GS Podium Type'",
+          rawSnippet: "GS Podium Type | (2) Acrylic",
+          sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+        },
+      ],
+    };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-actionable-warnings");
+    // Without the shim, operatorActionableWarnings collapses these to ONE item and
+    // PerShowActionableWarnings renders the stale A55 link → this fails.
+    expect(within(panel).getAllByTestId("per-show-actionable-item")).toHaveLength(2);
+    expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
+  });
+});
