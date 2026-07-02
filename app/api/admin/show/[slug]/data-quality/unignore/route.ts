@@ -87,6 +87,7 @@ export async function handleUnignore(
   const { slug } = await context.params;
   const actorEmail = canonicalize(admin.email);
   let showId: string;
+  let mutated = false;
   try {
     const result = await withTx(async (tx) => {
       const show = await tx.queryOne<{ id: string }>(
@@ -94,27 +95,35 @@ export async function handleUnignore(
         [slug],
       );
       if (!show) return { kind: "not_found" as const };
-      await tx.run(
-        `delete from public.ignored_warnings where show_id = $1::uuid and fingerprint = $2`,
+      // RETURNING distinguishes a real delete from a 0-row no-op (un-ignoring a warning that was
+      // never ignored / already un-ignored): the forensic outcome must reflect an ACTUAL mutation
+      // (whole-diff review P1).
+      const deleted = await tx.queryOne<{ fingerprint: string }>(
+        `delete from public.ignored_warnings where show_id = $1::uuid and fingerprint = $2
+         returning fingerprint`,
         [show.id, fingerprint],
       );
-      return { kind: "unignored" as const, showId: show.id };
+      return { kind: "unignored" as const, showId: show.id, mutated: deleted !== null };
     });
     if (result.kind === "not_found") return errorResponse(404, "SHOW_NOT_FOUND");
     showId = result.showId;
+    mutated = result.mutated;
   } catch {
     return errorResponse(500, "DATA_QUALITY_INFRA_ERROR");
   }
   // DQIGNORE-4 — forensic audit trail (WHO un-ignored WHICH warning). POST-COMMIT, never inside
   // the tx; forensic app_events span (stripped, NOT §12.4). log.* never throws over the caller
-  // (invariant 9), so a plain await cannot turn an already-committed delete into a 500.
-  await logAdminOutcome({
-    code: "WARNING_UNIGNORED",
-    source: "api.admin.data-quality.unignore",
-    ...(actorEmail ? { actorEmail } : {}),
-    showId,
-    extra: { warningCode: body.code, fingerprint },
-  });
+  // (invariant 9), so a plain await cannot turn an already-committed delete into a 500. Logged
+  // ONLY on a real mutation — an idempotent no-op still returns 200 but records no forensic event.
+  if (mutated) {
+    await logAdminOutcome({
+      code: "WARNING_UNIGNORED",
+      source: "api.admin.data-quality.unignore",
+      ...(actorEmail ? { actorEmail } : {}),
+      showId,
+      extra: { warningCode: body.code, fingerprint },
+    });
+  }
   return NextResponse.json({ status: "unignored" });
 }
 

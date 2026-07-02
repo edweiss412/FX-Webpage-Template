@@ -11,6 +11,9 @@ const admin = async () => ({ email: "a@b.com" });
 function fakeTx(
   captured: { sql: string; params: unknown[] }[],
   show: { id: string } | null = { id: "sid" },
+  // The DELETE ... RETURNING result: a row = a real delete (mutation), null = a 0-row no-op
+  // (the warning was never ignored). Default: a real delete.
+  deleteRow: { fingerprint: string } | null = { fingerprint: "fp" },
 ) {
   return async <R>(
     fn: (tx: {
@@ -21,7 +24,9 @@ function fakeTx(
     fn({
       async queryOne<T>(sql: string, params: unknown[]) {
         captured.push({ sql, params });
-        return (/from public\.shows/.test(sql) ? show : null) as T | null;
+        if (/from public\.shows/.test(sql)) return show as T | null;
+        if (/delete from public\.ignored_warnings/.test(sql)) return deleteRow as T | null;
+        return null as T | null;
       },
       async run(sql: string, params: unknown[]) {
         captured.push({ sql, params });
@@ -85,6 +90,20 @@ describe("handleUnignore", () => {
       withTx: fakeTx([], null),
     });
     expect(res.status).toBe(404);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  test("DQIGNORE-4: un-ignoring an already-active warning (0-row delete) returns 200 but logs NO outcome", async () => {
+    // Failure mode (whole-diff review P1): a forensic "un-ignored" event for a delete that
+    // matched no row.
+    logAdminOutcomeMock.mockClear();
+    const res = await handleUnignore(
+      req({ code: "UNKNOWN_FIELD", rawSnippet: "Storage | x" }),
+      ctx(),
+      { requireAdminIdentity: admin, withTx: fakeTx([], { id: "sid" }, null) }, // delete → 0 rows
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "unignored" });
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });

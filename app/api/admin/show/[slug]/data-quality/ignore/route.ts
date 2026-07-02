@@ -87,6 +87,7 @@ export async function handleIgnore(
   const { slug } = await context.params;
   const actorEmail = canonicalize(admin.email);
   let showId: string;
+  let mutated = false;
   try {
     const result = await withTx(async (tx) => {
       const show = await tx.queryOne<{ id: string }>(
@@ -94,30 +95,38 @@ export async function handleIgnore(
         [slug],
       );
       if (!show) return { kind: "not_found" as const };
-      await tx.run(
+      // RETURNING distinguishes a real insert from an ON CONFLICT DO NOTHING no-op (e.g. a
+      // duplicate ignore of the same fingerprint by another admin): the forensic outcome must
+      // reflect an ACTUAL mutation, not a no-op request (whole-diff review P1).
+      const inserted = await tx.queryOne<{ fingerprint: string }>(
         `insert into public.ignored_warnings (show_id, fingerprint, code, ignored_by)
          values ($1::uuid, $2, $3, $4)
-         on conflict (show_id, fingerprint) do nothing`,
+         on conflict (show_id, fingerprint) do nothing
+         returning fingerprint`,
         [show.id, fingerprint, body.code, actorEmail],
       );
-      return { kind: "ignored" as const, showId: show.id };
+      return { kind: "ignored" as const, showId: show.id, mutated: inserted !== null };
     });
     if (result.kind === "not_found") return errorResponse(404, "SHOW_NOT_FOUND");
     showId = result.showId;
+    mutated = result.mutated;
   } catch {
     return errorResponse(500, "DATA_QUALITY_INFRA_ERROR");
   }
   // DQIGNORE-4 — forensic audit trail (WHO ignored WHICH warning). POST-COMMIT, never inside
   // the tx; logAdminOutcome persists to app_events under a stripped span (forensic, NOT §12.4).
   // log.* never throws over the caller (invariant 9 / lib/log persist+logger guards), so a plain
-  // await cannot turn an already-committed ignore into a 500.
-  await logAdminOutcome({
-    code: "WARNING_IGNORED",
-    source: "api.admin.data-quality.ignore",
-    ...(actorEmail ? { actorEmail } : {}),
-    showId,
-    extra: { warningCode: body.code, fingerprint },
-  });
+  // await cannot turn an already-committed ignore into a 500. Logged ONLY on a real mutation —
+  // an idempotent no-op still returns 200 to the caller but records no forensic event.
+  if (mutated) {
+    await logAdminOutcome({
+      code: "WARNING_IGNORED",
+      source: "api.admin.data-quality.ignore",
+      ...(actorEmail ? { actorEmail } : {}),
+      showId,
+      extra: { warningCode: body.code, fingerprint },
+    });
+  }
   return NextResponse.json({ status: "ignored" });
 }
 

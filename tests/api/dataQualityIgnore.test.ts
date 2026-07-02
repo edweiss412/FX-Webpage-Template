@@ -12,6 +12,9 @@ const admin = async () => ({ email: "Admin@Example.com" });
 function fakeTx(
   captured: { sql: string; params: unknown[] }[],
   show: { id: string } | null = { id: "sid" },
+  // The INSERT ... ON CONFLICT DO NOTHING RETURNING result: a row = a real insert (mutation),
+  // null = the ON CONFLICT no-op (already ignored). Default: a real insert.
+  insertRow: { fingerprint: string } | null = { fingerprint: "fp" },
 ) {
   return async <R>(
     fn: (tx: {
@@ -22,7 +25,9 @@ function fakeTx(
     fn({
       async queryOne<T>(sql: string, params: unknown[]) {
         captured.push({ sql, params });
-        return (/from public\.shows/.test(sql) ? show : null) as T | null;
+        if (/from public\.shows/.test(sql)) return show as T | null;
+        if (/insert into public\.ignored_warnings/.test(sql)) return insertRow as T | null;
+        return null as T | null;
       },
       async run(sql: string, params: unknown[]) {
         captured.push({ sql, params });
@@ -131,6 +136,20 @@ describe("handleIgnore", () => {
       withTx: fakeTx([], null),
     });
     expect(res.status).toBe(404);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  test("DQIGNORE-4: a duplicate ignore (ON CONFLICT no-op) returns 200 but logs NO outcome", async () => {
+    // Failure mode (whole-diff review P1): a second admin ignoring the same fingerprint records a
+    // forensic "ignored" event even though no row changed.
+    logAdminOutcomeMock.mockClear();
+    const res = await handleIgnore(
+      req({ code: "UNKNOWN_FIELD", rawSnippet: "Storage | x" }),
+      ctx(),
+      { requireAdminIdentity: admin, withTx: fakeTx([], { id: "sid" }, null) }, // insert → no-op
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "ignored" });
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });
