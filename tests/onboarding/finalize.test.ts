@@ -782,11 +782,7 @@ describe("POST /api/admin/onboarding/finalize", () => {
       const db = new FakeFinalizeDb();
       db.approved = [pending("stream-seen-1")];
 
-      const res = await handleOnboardingFinalizeStream(
-        request(),
-        // No-op source-anchor fetch so the first-seen apply never attempts a real Drive read.
-        deps(db, { fetchOnboardingSourceAnchors: vi.fn(async () => ({})) }),
-      );
+      const res = await handleOnboardingFinalizeStream(request(), deps(db));
       expect(res.status).toBe(200);
       const msgs = await readNdjson(res);
       const result = msgs.find((m) => m.type === "result") as
