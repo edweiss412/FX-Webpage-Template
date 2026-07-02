@@ -100,7 +100,7 @@ const lockHolderRegistry = [
     path: "lib/sync/retrySingleFile.ts",
     holder: "retrySingleFile",
     layer:
-      "takes withPostgresSyncPipelineLock TWICE (Lock#1 preflight, Lock#2 finalize) with the pre-lock Drive prepare + own-connection scan BETWEEN them; preflight/finalize never lock — the scan no longer nests the same show key inside the retry lock",
+      "takes withPostgresSyncPipelineLock TWICE (Lock#1 preflight, Lock#2 finalize) with only the slow Drive prepare PRE-LOCK between them; the scan runs INSIDE Lock#2 on the SAME locked connection (PostgresOnboardingScanTx bound to the held tx via holdPort; passthrough withShowLock — no second connection, no second lock); preflight/finalize never lock (they receive the already-locked tx and only assert it is held), so the show key is never re-acquired/nested",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
