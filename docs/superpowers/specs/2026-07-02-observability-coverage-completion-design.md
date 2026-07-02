@@ -95,7 +95,7 @@ Each is inside a dotted `log.error(...)` span → §12.4-exempt. The **left-alon
 | `undoAutoPublish.ts` | `SHOW_UNPUBLISHED_BY_ADMIN` | `case "success"` (`:82`) | switch (`:59`) | `result.showId` |
 
 - **DIRECT emit (no outcome-ref):** each mutation fn (`publishShow`/`archiveShow`/`unarchiveShow` via the `showLifecycle` RPC chokepoint; `unpublishShow` owns `withShowLock`+`sql.begin` internally) resolves AFTER commit, so `logAdminOutcome` goes in the outer-scope `if (result.ok)` / `case "success"` block. `LifecycleResult` carries no showId → use `resolved.show.id` (available in the admin action).
-- **Actor-identity migration:** `requireAdmin()` returns void; switch to `const { email } = await requireAdminIdentity()` (`requireAdmin.ts:279`, canonical email at `:208`). Same behavior-transparency note as #220 R3/R5: `requireAdmin` runs the `x-help-force-infra-fail` hook that `requireAdminIdentity` doesn't — but these admin *actions* (not routes) don't use that test hook, and the scout confirms the identity call is the clean source. Verify no test relies on the void `requireAdmin` shape in these 4 files; if the switch drops a hook a test needs, keep `await requireAdmin()` as the gate and add `requireAdminIdentity()` for the email (the #220-R3/R5 pattern).
+- **Actor-identity — KEEP `requireAdmin()` + ADD `requireAdminIdentity()` (the proven #220-R3/R5 pattern; do NOT replace).** `requireAdmin()` (`requireAdmin.ts:294`) runs the `x-help-force-infra-fail` header block (`:306-311`) that `requireAdminIdentity()` (`:279-292`) does NOT — both call `maybeForceTestInfraFail` (`:289`, `:304`; the `:303` "Honored by BOTH helpers" comment refers to *that* hook, not the `x-help` block). So replacing the gate would silently drop the `x-help` hook. Instead keep `await requireAdmin()` as the gate and add `const { email } = await requireAdminIdentity()` for the canonical email (`resolveAdminIdentity` is React-`cache()`-wrapped at `:236`, so the second call reuses the same request's resolution — no extra DB hit). `email` is already `canonicalize()`'d (`:208`). This is behavior-transparent (zero hook change) and matches #220 exactly.
 - **Name-collision guard (verified):** `catalog.ts` already defines `SHOW_UNPUBLISHED` (`:962`), `SHOW_ARCHIVED_BY_ADMIN` (`:1565`), `SHOW_UNARCHIVED` (`:1577`), `SHOW_PUBLISHED_BY_ADMIN` (`:1589`), `WEBHOOK_HEADERS_MISSING` (`:2969`). The 4 chosen codes (`SHOW_PUBLISHED`, `SHOW_ARCHIVED`, `SHOW_UNARCHIVED_BY_ADMIN`, `SHOW_UNPUBLISHED_BY_ADMIN`) are all 0-hit verified.
 - **Meta-test:** add the 4 `{file, code}` rows to `AUDITABLE_MUTATIONS` + the 4 codes to `SANCTIONED_CODES` (`tests/log/_metaAdminOutcomeContract.test.ts:13,34`), lockstep. Assertion 1 requires each file to import from exactly `@/lib/log/logAdminOutcome`, call `logAdminOutcome(`, and contain the quoted code.
 
@@ -149,6 +149,8 @@ This makes visible the "reprocesses every cron run until a human re-defers" cond
 6. **Actor migration `requireAdmin`→`requireAdminIdentity`** in S6 mirrors #220 R3/R5; if a test needs the void gate + the hook, keep `requireAdmin()` + add `requireAdminIdentity()`.
 7. **New forensic codes need NO §12.4 registration** — confirmed via the strip machinery.
 8. **S7 infra logging requires NEW try/catch blocks** (webhook + watch sweeps) — this is a stated control-flow change, not just added log lines.
+9. **`requireAdmin` DOES have the `x-help-force-infra-fail` block that `requireAdminIdentity` lacks** (verified: `requireAdmin.ts:306-311` inside `requireAdmin` at `:294`; absent from `requireAdminIdentity` at `:279-292`). Both call `maybeForceTestInfraFail` (`:289`,`:304`) — that is a DIFFERENT hook (the `:303` "Honored by BOTH helpers" comment). This is why S6 KEEPS `requireAdmin()` + ADDS `requireAdminIdentity()` (never replaces). Do not relitigate as a "false claim" — read `:306-311`.
+10. **Impeccable gate for the S4 listener is DEFERRED via DEFERRED.md, not silently N/A** — `GlobalErrorListener` returns `null` (no visual surface); the DEFERRED.md entry is the sanctioned disposition per invariant 8.
 
 ---
 
@@ -161,6 +163,7 @@ This makes visible the "reprocesses every cron run until a human re-defers" cond
 - **S7:** NEW webhook/watch tests via `setLogSink` — receipt→info+code; headers-incomplete→warn; channel-inactive→warn; infra fault→error (and the new catch preserves the 500); renewal-failure→warn; ignored resource-states do NOT log; dispatch does NOT double-log.
 - **S8:** re-sync that clears a permanent_ignore and still hard_fails → warn+code; a re-sync that succeeds (or clears a non-permanent deferral) does NOT emit.
 - **Global:** `pnpm gen:internal-code-enums` + `gen:spec-codes` no-op; x1 `codes.test.ts` green; full typecheck + `format:check` + targeted suites green.
+- **Close-out:** write the `DEFERRED.md` entry disposing the impeccable gate for `GlobalErrorListener.tsx` + the `app/layout.tsx` mount (invariant-8, §11).
 
 ---
 
@@ -170,7 +173,7 @@ This makes visible the "reprocesses every cron run until a human re-defers" cond
 - Meta-test: `AUDITABLE_MUTATIONS` +4 rows, `SANCTIONED_CODES` +4, `NEW_FORENSIC_CODES` +17.
 - **0** DB migrations; **0** advisory-lock changes; **0** new Supabase call sites.
 - **2** new files: `components/observe/GlobalErrorListener.tsx`, and the webhook/watch test files. **2** structural try/catch additions (webhook infra, watch infra).
-- **1** UI-adjacent file: `app/layout.tsx` (mounting `<GlobalErrorListener/>`, a null-rendering listener — no visual change; invariant-8 impeccable gate is **N/A** since nothing renders. `GlobalErrorListener.tsx` returns `null`).
+- **UI-surface files (invariant-8 disposition — Codex R2 CRITICAL):** invariant 8 defines a UI surface by PATH — `components/observe/GlobalErrorListener.tsx` (new) and `app/layout.tsx` (mount line) both qualify, regardless of rendered output. Since `GlobalErrorListener` returns `null` (zero rendered pixels) and the layout change is a single non-visual `<GlobalErrorListener/>` mount, `/impeccable critique` + `/impeccable audit` have **no visual surface to evaluate**. Per invariant 8's disposition rule, this milestone adds a **`DEFERRED.md` entry** documenting the impeccable-gate deferral for these two files with that rationale (a zero-render error-listener + a non-visual mount produce no visual findings). The plan includes a task to write that DEFERRED.md entry in close-out. (Not a silent N/A — an explicit, cited deferral.)
 
 ---
 
