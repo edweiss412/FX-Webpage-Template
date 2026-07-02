@@ -200,11 +200,9 @@ Digest data-gap warnings (`UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`) now ren
 
 Per-code "Ignore all N" bulk control (`components/admin/BulkIgnoreControls.tsx` + `lib/dataQuality/bulkIgnoreGroups.ts`) fans out one precise per-fingerprint POST to the existing `/data-quality/ignore` route per distinct content — never a coarse code-level ignore. Shown only when a code has ≥2 distinct-content active ignorable warnings.
 
-### DQIGNORE-3 — [P3] Orphaned ignore rows are not garbage-collected
+### DQIGNORE-3 — ✅ RESOLVED (feat/dq-orphan-gc)
 
-- **What:** an `ignored_warnings` row whose warning is no longer emitted (the underlying issue was fixed) becomes a dormant row. It has no render match and no output effect, but it persists.
-- **Why deferred:** dormant rows are harmless (no visible effect) and are the desired behavior for recurrence — if the same warning re-appears it stays ignored. GC adds a cleanup surface with no user-visible benefit in v1. Spec §5.2 orphan policy.
-- **Trigger:** `ignored_warnings` row counts grow large enough to matter operationally, OR a "reset ignored warnings" admin affordance is requested. Then add a GC pass (e.g. on apply, prune fingerprints not present in the new `parse_warnings`) or an admin bulk-clear.
+Prune-on-apply GC: `PostgresPipelineTx.upsertShowsInternal` (the single shared Postgres apply chokepoint, in the holder's locked tx — single-holder, no new advisory lock) now deletes `ignored_warnings` rows whose content fingerprint is no longer present in the freshly-written `parse_warnings`. A still-present warning keeps its fingerprint, so its ignore survives (recurrence preserved); only vanished fingerprints are pruned (empty active set → all pruned, same `not (x = any($2))` semantics as `deleteCrewMembersNotIn`). The one behavior change is a fixed-then-reappearing ignored warning re-surfaces (user-chosen). Real-DB test: `tests/sync/ignoredWarningsOrphanGc.db.test.ts`. Folded into the Postgres impl (no `ApplyParseResultTx` interface change) to avoid the required-method fake-update blast radius.
 
 ### DQIGNORE-4 — ✅ RESOLVED (feat/dq-followups-backend)
 
