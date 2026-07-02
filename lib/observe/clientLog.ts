@@ -7,11 +7,21 @@ export function clientLog(
   source: string,
   message: string,
   context?: unknown,
+  code?: string,
+  detail?: string,
 ): void {
   // This file IS the sanctioned console wrapper — exempt from no-console in eslint.config.mjs.
   if (context === undefined) console[level](message);
   else console[level](message, context);
   if (level === "warn" || level === "error") {
-    clientErrorTransport({ source, level, message });
+    // Forward ONLY code/detail to the mirror (categorization + bounded forensics); `context`
+    // is console-only and NEVER mirrored.
+    clientErrorTransport({
+      source,
+      level,
+      message,
+      ...(code !== undefined ? { code } : {}),
+      ...(detail !== undefined ? { detail } : {}),
+    });
   }
 }

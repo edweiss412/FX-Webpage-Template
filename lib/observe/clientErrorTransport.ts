@@ -7,6 +7,8 @@ const CAPS = {
   digest: 200,
   url: 2000,
   tileId: 200,
+  code: 80,
+  detail: 500,
 } as const;
 
 export function __resetClientTransportDedupForTests(): void {
@@ -21,6 +23,8 @@ export function clientErrorTransport(input: {
   componentStack?: string;
   digest?: string;
   tileId?: string;
+  code?: string;
+  detail?: string;
 }): void {
   try {
     if (typeof fetch === "undefined") return;
@@ -34,6 +38,8 @@ export function clientErrorTransport(input: {
       payload.componentStack = input.componentStack.slice(0, CAPS.componentStack);
     if (input.digest) payload.digest = input.digest.slice(0, CAPS.digest);
     if (input.tileId) payload.tileId = input.tileId.slice(0, CAPS.tileId);
+    if (input.code) payload.code = input.code.slice(0, CAPS.code);
+    if (input.detail) payload.detail = input.detail.slice(0, CAPS.detail);
     if (typeof location !== "undefined") payload.url = location.href.slice(0, CAPS.url);
     void fetch("/api/observe/client-error", {
       method: "POST",
