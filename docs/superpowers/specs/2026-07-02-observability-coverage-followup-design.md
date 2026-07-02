@@ -73,7 +73,7 @@ No zombie flags: every field is written and read (the consumer for `stateChanged
 - Empty `failures` but `partial` (e.g. heartbeat-only fault): fingerprint = `""` sentinel `"heartbeat"` derived from `detail.maintenanceFaults` presence, so a heartbeat fault vs a show-failure are distinct fingerprints.
 
 ### Meta-test inventory
-`annotateSyncStateChange` is a **new Supabase read boundary** → register it in the analogous call-boundary meta-test surface (invariant 9). If `tests/auth/_metaInfraContract.test.ts` is auth-scoped only, add an inline `// not-subject-to-meta: cron summary annotation, fail-open by contract (returns input summary on any fault)` comment at the call site AND a dedicated unit test asserting the fail-open behavior (returned-error path and thrown path both yield the unchanged summary). Declared here so the plan carries the task.
+`annotateSyncStateChange` is a **new Supabase read boundary** → register it in the analogous call-boundary meta-test surface (invariant 9). If `tests/auth/_metaInfraContract.test.ts` is auth-scoped only, add an inline `// not-subject-to-meta: cron summary annotation, fail-open by contract (returns the canonical fail-open shape on any fault)` comment at the call site AND a dedicated unit test asserting the canonical fail-open shape on BOTH the returned-`{error}` path and the thrown path: the input `summary` and its `detail` are preserved (incl. the `failuresFingerprint` from `summarizeSync`), `detail.stateChanged === true`, no `unchangedSinceRuns`, and the cron does not throw. Declared here so the plan carries the task.
 
 ---
 
@@ -110,7 +110,7 @@ Unit test: mock `process.env.VERCEL_GIT_COMMIT_SHA`, assert the JSON body carrie
 ## Cross-cutting
 
 ### Files touched (all `lib/**` + `app/api/**` — no UI, no DB schema)
-- `lib/cron/summarizeSync.ts` (extract reducer) + new `lib/cron/syncFailureBreadcrumbs.ts`
+- `lib/cron/summarizeSync.ts` (refactor to consume the shared classifier + set `detail.failuresFingerprint` on partial) + new `lib/cron/classifyProcessed.ts` (the single shared `classifyProcessed` helper)
 - `lib/sync/runScheduledCronSync.ts` (phase/id tracking + try/catch attach)
 - `lib/cron/withCronRunSummary.ts` (catch reads `syncRunContext`)
 - `lib/cron/annotateSyncStateChange.ts` (new) + `app/api/cron/sync/route.ts` (await annotate)
