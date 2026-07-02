@@ -12,6 +12,13 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
+// Task (telemetry): the route emits durable coded logs at its terminal decision
+// branches. Mock the log module so those emissions are observable and assert-able.
+vi.mock("@/lib/log", () => ({
+  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
+import { log } from "@/lib/log";
 import {
   handleExtractAgenda,
   type ExtractAgendaDeps,
@@ -82,6 +89,8 @@ afterEach(async () => {
        SET pending_wizard_session_id = NULL, pending_wizard_session_at = NULL,
            pending_folder_id = NULL
      WHERE id = 'default'`;
+  vi.mocked(log.warn).mockClear();
+  vi.mocked(log.error).mockClear();
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -771,5 +780,127 @@ describe("extract-agenda — pre-extraction DB faults", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ status: "error" });
     expect(begins).toBeGreaterThanOrEqual(2); // tx#1a + tx#1b both attempted
+  });
+});
+
+// ─── durable coded logs on terminal decision branches (telemetry) ──────────────
+// Every currently-unlogged TERMINAL decision return now emits a durable coded log
+// (warn/error → persisted to app_events). The high-frequency admit-queue outcomes
+// (in_progress / queued) are deliberately NOT logged — they poll frequently and
+// would flood app_events.
+describe("extract-agenda — terminal-branch telemetry", () => {
+  const warnMock = () => vi.mocked(log.warn);
+  const errorMock = () => vi.mocked(log.error);
+
+  test("before-fence stale → 409 emits AGENDA_EXTRACT_STALE (warn)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-stale";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({
+        fetchMeta: metaSpy("2026-06-02T00:00:00.000Z", [FOLDER]), // revision changed
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect(warnMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_STALE",
+        source: "api.admin.agenda.extract",
+        driveFileId: dfid,
+        wizardSessionId: wiz,
+      }),
+    );
+  });
+
+  test("superseded session → 409 emits AGENDA_EXTRACT_SESSION_GONE result=superseded (warn)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-superseded";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
+    await pool`UPDATE public.app_settings SET pending_wizard_session_id = ${randomUUID()}::uuid WHERE id = 'default'`;
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy(STAGED_ISO, [FOLDER]) }),
+    );
+    expect(res.status).toBe(409);
+    expect(warnMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_SESSION_GONE",
+        source: "api.admin.agenda.extract",
+        result: "superseded",
+        driveFileId: dfid,
+        wizardSessionId: wiz,
+      }),
+    );
+  });
+
+  test("missing staged row → 200 emits AGENDA_EXTRACT_SESSION_GONE result=missing (warn)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-missing";
+    // Active session set, but NO pending_syncs row for this (wiz,dfid).
+    await pool`UPDATE public.app_settings SET pending_wizard_session_id = ${wiz}::uuid, pending_folder_id = ${FOLDER} WHERE id = 'default'`;
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy(STAGED_ISO, [FOLDER]) }),
+    );
+    expect(res.status).toBe(200);
+    expect(warnMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_SESSION_GONE",
+        source: "api.admin.agenda.extract",
+        result: "missing",
+        driveFileId: dfid,
+        wizardSessionId: wiz,
+      }),
+    );
+  });
+
+  test("admin session lookup failure → 500 emits ADMIN_SESSION_LOOKUP_FAILED (error, bound error)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-lookup";
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({
+        requireAdminIdentity: async () => {
+          const e = new Error("auth backend down") as Error & { code: string };
+          e.code = "ADMIN_SESSION_LOOKUP_FAILED";
+          throw e;
+        },
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(errorMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        source: "api.admin.agenda.extract",
+        error: expect.any(Error),
+      }),
+    );
+  });
+
+  test("queued poll (global cap full) → 202 emits NO coded log (would flood app_events)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-queued";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
+    for (let i = 0; i < K; i++) await insertLiveLease(`xa-log-queued-filler-${i}`);
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy(STAGED_ISO, [FOLDER]) }),
+    );
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ status: "pending", reason: "queued" });
+    // No terminal-branch telemetry on the high-frequency admit-queue path.
+    expect(warnMock()).not.toHaveBeenCalled();
+    expect(errorMock()).not.toHaveBeenCalled();
+    await pool`DELETE FROM public.agenda_extract_leases WHERE drive_file_id LIKE 'xa-log-queued-filler-%'`;
   });
 });

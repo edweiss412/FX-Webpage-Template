@@ -199,6 +199,11 @@ export async function handleExtractAgenda(
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
+      log.error("agenda extract admin session lookup failed", {
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        source: "api.admin.agenda.extract",
+        error,
+      });
       return NextResponse.json({ code: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
     }
     return NextResponse.json({ code: "ADMIN_FORBIDDEN" }, { status: 403 });
@@ -261,12 +266,30 @@ export async function handleExtractAgenda(
          WHERE ps.drive_file_id = ${driveFileId}
            AND ps.wizard_session_id = ${wizardSessionId}::uuid
       `;
-      if (rows.length === 0) return { kind: "missing" };
+      if (rows.length === 0) {
+        log.warn("agenda extract session gone", {
+          code: "AGENDA_EXTRACT_SESSION_GONE",
+          source: "api.admin.agenda.extract",
+          result: "missing",
+          driveFileId,
+          wizardSessionId,
+        });
+        return { kind: "missing" };
+      }
       const r = rows[0]!;
       // Superseded session OR finalize-consumed (active session cleared/rotated)
       // → no longer the active wizard session. Approved rows (wizard_approved=true)
       // are NOT stale — wizard_approved is deliberately not part of this guard.
-      if (!r.session_active) return { kind: "superseded" };
+      if (!r.session_active) {
+        log.warn("agenda extract session gone", {
+          code: "AGENDA_EXTRACT_SESSION_GONE",
+          source: "api.admin.agenda.extract",
+          result: "superseded",
+          driveFileId,
+          wizardSessionId,
+        });
+        return { kind: "superseded" };
+      }
       return {
         kind: "ok",
         stagedId: r.staged_id,
@@ -291,6 +314,12 @@ export async function handleExtractAgenda(
       // ── before-fence (Drive metadata, NO DB connection held). ──
       const beforeMeta = await fetchMeta(driveFileId);
       if (!fencePasses(beforeMeta, read.stagedModifiedTime, read.pendingFolderId)) {
+        log.warn("agenda extract stale revision", {
+          code: "AGENDA_EXTRACT_STALE",
+          source: "api.admin.agenda.extract",
+          driveFileId,
+          wizardSessionId,
+        });
         return staleResponse(); // 409, NO Drive download
       }
 
@@ -391,6 +420,12 @@ export async function handleExtractAgenda(
       });
 
       if (persist.kind === "stale") {
+        log.warn("agenda extract stale revision", {
+          code: "AGENDA_EXTRACT_STALE",
+          source: "api.admin.agenda.extract",
+          driveFileId,
+          wizardSessionId,
+        });
         return staleResponse(); // 409 — lease NOT released in tx; finally releases it.
       }
 
