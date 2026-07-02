@@ -5,6 +5,8 @@ import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
 import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
+import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -139,6 +141,9 @@ export type PreparedOnboardingFile =
       kind: "sheet";
       binding: Phase1Binding;
       parseResult: ParseResult;
+      // Region source anchors computed at scan (best-effort {}), persisted to
+      // pending_syncs.source_anchors so finalize reads them instead of re-exporting the XLSX.
+      sourceAnchors: Record<string, SourceAnchor>;
     };
 
 export type RunOnboardingScanDeps = {
@@ -398,7 +403,7 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
-          staged_id, source_kind, warning_summary, wizard_session_id
+          staged_id, source_kind, warning_summary, wizard_session_id, source_anchors
         )
         select $1,
                coalesce(
@@ -406,7 +411,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
                  (select s.last_seen_modified_time from public.shows s where s.drive_file_id = $1)
                ),
                $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
-               coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid
+               coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid,
+               coalesce($12::jsonb, '{}'::jsonb)
         where exists (
           select 1 from public.app_settings
            where id = 'default'
@@ -423,7 +429,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
           prior_last_sync_error = excluded.prior_last_sync_error,
           staged_id = excluded.staged_id,
           source_kind = excluded.source_kind,
-          warning_summary = excluded.warning_summary
+          warning_summary = excluded.warning_summary,
+          source_anchors = excluded.source_anchors
          where public.pending_syncs.wizard_session_id = $11::uuid
         returning staged_id
       `,
@@ -439,6 +446,9 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
         "onboarding_scan",
         row.warningSummary,
         this.wizardSessionId,
+        // Raw object to $12::jsonb (postgres.js serializes; never JSON.stringify). Unconditional
+        // refresh on conflict so a re-stage (rescan) clears/updates stale anchors (spec §5.3/§5.4).
+        row.sourceAnchors ?? null,
       ],
     );
     return { stagedId: upserted?.staged_id ?? "" };
@@ -589,6 +599,9 @@ async function scanPreparedFileWithTx(
       parseResult,
       binding,
       wizardSessionId,
+      // Required field on the sheet variant (always present, possibly {}), forwarded so the
+      // staging upsert persists pending_syncs.source_anchors.
+      sourceAnchors: prepared.sourceAnchors,
     });
     if (result.outcome === "pass") {
       await callTx("logSync", () =>
@@ -936,15 +949,45 @@ export async function prepareOnboardingFiles(
       fileMeta: toDriveFileMeta(file),
       binding,
     });
-    // Best-effort exact-cell deep links: ONLY when a cell-anchored warning is
-    // present (rare) do we pay the extra tab-gid fetch. Any failure leaves the
-    // warnings link-less — never breaks the scan.
-    // Best-effort exact-cell/region deep links on BOTH ingestion paths via the
-    // shared helper (pure raw-workbook read; gated internally so a warning-free
-    // sheet pays no extra fetch). Onboarding passes a lazy gids fetch; the helper
-    // self-computes region anchors.
-    await attachWarningAnchors(parseResult.warnings, bytes, () => listSheetGids(file.driveFileId));
-    return { file, kind: "sheet", binding, parseResult };
+    // Compute region source anchors ONCE from the already-fetched bytes (best-effort) and
+    // reuse them for BOTH warning attachment AND persistence (spec §5.1). The tab-gid fetch
+    // now runs for EVERY sheet (not just cell-anchored-warning sheets) so finalize can read
+    // pending_syncs.source_anchors instead of re-exporting the XLSX — moved off the finalize
+    // critical path onto this already-parallelized prepare phase.
+    let sourceAnchors: Record<string, SourceAnchor> = {};
+    // Default resolver: the lazy fetch (only reached if a cell-anchored warning exists AND the
+    // eager fetch below did not run — e.g. bytes missing).
+    let resolveGids = () => listSheetGids(file.driveFileId);
+    if (bytes) {
+      try {
+        const titleToGid = await listSheetGids(file.driveFileId);
+        // Cache → attachWarningAnchors reuses the SAME map, no second fetch (keeps the existing
+        // "listSheetGids called once" contract for cell-anchored sheets). Set BEFORE the extract
+        // so a region-extract failure never strips the valid map from warning attachment.
+        resolveGids = () => Promise.resolve(titleToGid);
+        try {
+          sourceAnchors = extractSourceAnchors(bytes, titleToGid);
+        } catch {
+          // Region extraction failed but the gids are valid → {} region anchors, and KEEP the real
+          // titleToGid resolver so attachWarningAnchors can still place cell anchors (whole-diff R1).
+          sourceAnchors = {};
+        }
+      } catch {
+        // The gid fetch itself failed → {} anchors, and hand attachWarningAnchors an EMPTY map so it
+        // degrades link-less WITHOUT a second (also-failing) network fetch.
+        sourceAnchors = {};
+        resolveGids = () => Promise.resolve(new Map<string, number>());
+      }
+    }
+    // attachWarningAnchors is contractually no-throw (attachWarningAnchors.ts:14-15), but wrap it
+    // anyway so anchor work can NEVER wedge the scan (plan-wide best-effort invariant), keeping
+    // warning-anchor degradation independent of any region-anchor failure.
+    try {
+      await attachWarningAnchors(parseResult.warnings, bytes, resolveGids, sourceAnchors);
+    } catch {
+      /* belt-and-suspenders: best-effort, never wedges the scan */
+    }
+    return { file, kind: "sheet", binding, parseResult, sourceAnchors };
   };
 
   return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne, (info) =>

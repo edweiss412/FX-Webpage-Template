@@ -15,7 +15,7 @@ process.env.TZ = "America/Chicago";
 import { describe, expect, test } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { formatDateRange } from "@/lib/admin/showDisplay";
+import { formatDateRange, formatShortDate } from "@/lib/admin/showDisplay";
 
 describe("formatDateRange — timezone-correct date-only formatting", () => {
   test("date-only range renders the literal calendar dates (not one-day-early)", () => {
@@ -35,6 +35,24 @@ describe("formatDateRange — timezone-correct date-only formatting", () => {
   test("year boundary date-only value does not slip to the previous year", () => {
     // 2026-01-01 in a UTC-negative zone with local getters → Dec 31, 2025.
     expect(formatDateRange("2026-01-01", "2026-01-01")).toBe("1/1/26 → 1/1/26");
+  });
+});
+
+// formatShortDate is the single-date formatter the split Start/End columns
+// render (ShowsTable). It owns the UTC-safe toShort logic that formatDateRange
+// now delegates to, so it must be timezone-correct on its own and map null→null
+// (the "—" empty-cell case).
+describe("formatShortDate — single date-only value, timezone-correct", () => {
+  test("renders the literal calendar date (not one-day-early in a US zone)", () => {
+    expect(formatShortDate("2026-06-14")).toBe("6/14/26");
+  });
+
+  test("year-boundary value does not slip to the previous year", () => {
+    expect(formatShortDate("2026-01-01")).toBe("1/1/26");
+  });
+
+  test("null input returns null (the Start/End '—' empty-cell case)", () => {
+    expect(formatShortDate(null)).toBeNull();
   });
 });
 

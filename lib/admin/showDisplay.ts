@@ -49,20 +49,24 @@ export type ActiveShowRow = {
   dataGaps?: DataGapsSummary;
 };
 
+// Single date-only ISO ('YYYY-MM-DD') → short "M/D/YY", or null for a null input.
+// Show dates are date-only ISO, which `new Date` parses as UTC midnight. Use UTC
+// getters so the displayed calendar date matches the sheet value regardless of
+// server/runtime timezone — local getters render one day earlier in US zones
+// (e.g. 2026-06-14 → "6/13" in America/Chicago). M12.3 adversarial R3.
+// Owns the toShort logic for BOTH the combined range (below) and the split
+// Start/End columns in ShowsTable, so the UTC-safe formatting lives in one place.
+export function formatShortDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(-2)}`;
+}
+
 export function formatDateRange(start: string | null, end: string | null): string | null {
   if (!start && !end) return null;
-  const toShort = (iso: string) => {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    // Show dates are date-only ISO ('YYYY-MM-DD'), which `new Date` parses as UTC
-    // midnight. Use UTC getters so the displayed calendar date matches the sheet
-    // value regardless of server/runtime timezone — local getters render one day
-    // earlier in US zones (e.g. 2026-06-14 → "6/13" in America/Chicago). M12.3
-    // adversarial R3.
-    return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(-2)}`;
-  };
-  if (start && end) return `${toShort(start)} → ${toShort(end)}`;
-  return toShort((start ?? end)!);
+  if (start && end) return `${formatShortDate(start)} → ${formatShortDate(end)}`;
+  return formatShortDate(start ?? end)!;
 }
 
 export function formatRelative(iso: string | null, now: Date): string {

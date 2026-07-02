@@ -411,6 +411,7 @@ function rescanDeps(refreshedParse: Record<string, unknown>): RescanDeps {
       {
         file: meta,
         kind: "sheet",
+        sourceAnchors: {},
         binding: { bindingToken: RESCAN_MODIFIED, modifiedTime: RESCAN_MODIFIED },
         parseResult: refreshedParse as unknown as ParseResult,
       },

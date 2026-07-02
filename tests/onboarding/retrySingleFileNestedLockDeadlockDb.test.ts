@@ -150,6 +150,7 @@ function preparedSheet(): PreparedOnboardingFile[] {
     {
       file: listedMetadata(),
       kind: "sheet",
+      sourceAnchors: {},
       binding: { bindingToken: "dlk-tok", modifiedTime: MODIFIED },
       parseResult: makeParseResult(),
     },

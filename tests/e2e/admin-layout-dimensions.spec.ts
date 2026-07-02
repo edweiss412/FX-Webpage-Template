@@ -101,10 +101,10 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
         .split(" ")
         .map((v) => Number.parseFloat(v));
       expect(row.length).toBe(header.length);
-      // The four FIXED tracks (10rem/5rem/12rem/1.25rem; Dates widened to 10rem
-      // in M12.10 so the range fits one line) must align exactly —
-      // those are what keep the dates/crew/sync/chevron columns lined up between
-      // the header and every row. The first (minmax(0,1fr)) title track differs
+      // The FIXED tracks (Start 4.5rem / End 4.5rem / Crew 5rem / Sync 12rem /
+      // chevron 1.25rem; the former single 10rem Dates track was split into
+      // Start+End) must align exactly — those are what keep the start/end/crew/
+      // sync/chevron columns lined up between the header and every row. The first (minmax(0,1fr)) title track differs
       // by ~2px because each row carries a 1px border the header does not, so
       // the flexible track absorbs the border-box delta. Tolerate only that 1fr
       // delta; everything else is exact.
@@ -218,17 +218,17 @@ test.describe("admin layout dimensions (real browser, §9)", () => {
       const overflow = await firstRow.evaluate((el) => el.scrollWidth - el.clientWidth);
       expect(overflow, `row horizontal overflow at ${width}px`).toBeLessThanOrEqual(TOL);
 
-      // (c) Header "Show" label must not overlap the "Dates" label (the visible
+      // (c) Header "Show" label must not overlap the next label ("Start", the
       // symptom of a collapsed title track). Header grid is active at >= 768px
       // (below that the header is hidden/stacked → cells report 0, no overlap).
       const headerOverlap = await page.getByTestId("shows-table-header").evaluate((el) => {
         const cells = el.children;
         if (cells.length < 2) return -1; // header not in grid mode at this width
         const show = cells[0]!.getBoundingClientRect();
-        const dates = cells[1]!.getBoundingClientRect();
-        return show.right - dates.left; // <= 0 ⇒ no overlap
+        const nextCol = cells[1]!.getBoundingClientRect();
+        return show.right - nextCol.left; // <= 0 ⇒ no overlap
       });
-      expect(headerOverlap, `header Show/Dates overlap at ${width}px`).toBeLessThanOrEqual(TOL);
+      expect(headerOverlap, `header Show/Start overlap at ${width}px`).toBeLessThanOrEqual(TOL);
     });
   }
 

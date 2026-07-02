@@ -198,26 +198,27 @@ describe("ShowsTable", () => {
     expect(cell.className).toContain("min-[960px]:block");
   });
 
-  it("ROW_GRID defines a 6-track template at min-[960px] (Status before chevron)", () => {
+  it("ROW_GRID defines a 7-track template at min-[960px] (Status before chevron; Dates split into Start+End)", () => {
     render(<ShowsTable rows={[row({ slug: "g" })]} now={now} activeCount={1} overflowCount={0} />);
     const header = screen.getByTestId("shows-table-header");
     expect(header.className).toContain(
-      "min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem]",
+      "min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem]",
     );
   });
 
-  it("5-col grid + cells + mobile sub-line gate at min-[768px] (not 720); Status stays min-[960px] — 720→768 fix", () => {
+  it("6-col grid + cells + mobile sub-line gate at min-[768px] (not 720); Status stays min-[960px] — 720→768 fix", () => {
     const { container } = render(
       <ShowsTable rows={[row({ slug: "bp" })]} now={now} activeCount={1} overflowCount={0} />,
     );
     const header = screen.getByTestId("shows-table-header");
-    // 5-col grid now activates at 768; the 6-col Status grid still at 960
+    // 6-col grid now activates at 768 (Show/Start/End/Crew/Sync/chevron); the
+    // 7-col Status grid still at 960.
     expect(header.className).toContain("min-[768px]:grid");
     expect(header.className).toContain(
-      "min-[768px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem]",
+      "min-[768px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_1.25rem]",
     );
     expect(header.className).toContain(
-      "min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem]",
+      "min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem]",
     );
     // the mobile sub-line hides at 768; a desktop cell shows at 768
     expect(screen.getByTestId("shows-meta-mobile-bp").className).toContain("min-[768px]:hidden");
@@ -308,12 +309,13 @@ describe("ShowsTable", () => {
   });
 
   // ── M12.3 item 10: clean table structure (header + light row dividers) ──
-  it("renders a header row (SHOW/DATES/CREW/SYNC STATUS) sharing the row grid", () => {
+  it("renders a header row (SHOW/START/END/CREW/SYNC STATUS) sharing the row grid", () => {
     render(<ShowsTable rows={[row({ slug: "a" })]} now={now} activeCount={1} overflowCount={0} />);
     const header = screen.getByTestId("shows-table-header");
     const text = (header.textContent ?? "").toLowerCase();
     expect(text).toContain("show");
-    expect(text).toContain("dates");
+    expect(text).toContain("start");
+    expect(text).toContain("end");
     expect(text).toContain("crew");
     expect(text).toContain("sync status");
   });
@@ -514,7 +516,7 @@ describe("ShowsTable", () => {
     expect(rowOrder()).toEqual(["one", "two", "ten"]);
   });
 
-  it("rows with no dates sort LAST regardless of direction (nulls last)", () => {
+  it("rows with no start sort LAST on the Start column regardless of direction (nulls last)", () => {
     render(
       <ShowsTable
         rows={[
@@ -527,31 +529,34 @@ describe("ShowsTable", () => {
         overflowCount={0}
       />,
     );
-    fireEvent.click(screen.getByTestId("shows-sort-dates")); // asc
+    fireEvent.click(screen.getByTestId("shows-sort-start")); // asc
     expect(rowOrder()).toEqual(["early", "late", "nodate"]);
-    fireEvent.click(screen.getByTestId("shows-sort-dates")); // desc — nulls STILL last
+    fireEvent.click(screen.getByTestId("shows-sort-start")); // desc — nulls STILL last
     expect(rowOrder()).toEqual(["late", "early", "nodate"]);
   });
 
-  it("Dates sort uses the END date when start is null (matches the rendered fallback), not 'nulls last'", () => {
-    // formatDateRange shows a value when EITHER bound exists, so an end-only row
-    // is a VISIBLE date and must sort by that date — never forced last.
+  it("Start and End are INDEPENDENT sort columns, each by its own bound (start-only/end-only rows sort last on the other's column)", () => {
+    // Now that Dates is split, each column sorts strictly by its own bound: a
+    // row missing that bound renders "—" and sorts LAST there, even if its other
+    // bound is present.
     render(
       <ShowsTable
         rows={[
           row({ slug: "endOnly", showDateStart: null, showDateEnd: "2026-06-15" }),
-          row({ slug: "earlyStart", showDateStart: "2026-01-01", showDateEnd: "2026-01-02" }),
-          row({ slug: "trulyNull", showDateStart: null, showDateEnd: null }),
+          row({ slug: "startOnly", showDateStart: "2026-03-10", showDateEnd: null }),
+          row({ slug: "full", showDateStart: "2026-01-01", showDateEnd: "2026-12-31" }),
         ]}
         now={now}
         activeCount={3}
         overflowCount={0}
       />,
     );
-    fireEvent.click(screen.getByTestId("shows-sort-dates")); // asc: earlyStart(1/1) < endOnly(6/15) < null
-    expect(rowOrder()).toEqual(["earlyStart", "endOnly", "trulyNull"]);
-    fireEvent.click(screen.getByTestId("shows-sort-dates")); // desc: endOnly > earlyStart, null still last
-    expect(rowOrder()).toEqual(["endOnly", "earlyStart", "trulyNull"]);
+    // Start asc: full(1/1) < startOnly(3/10) < endOnly(no start → last)
+    fireEvent.click(screen.getByTestId("shows-sort-start"));
+    expect(rowOrder()).toEqual(["full", "startOnly", "endOnly"]);
+    // End asc: endOnly(6/15) < full(12/31) < startOnly(no end → last)
+    fireEvent.click(screen.getByTestId("shows-sort-end"));
+    expect(rowOrder()).toEqual(["endOnly", "full", "startOnly"]);
   });
 
   it("Sync sort orders by the VISIBLE health (problems first), not the hidden timestamp", () => {
@@ -663,17 +668,23 @@ describe("ShowsTable", () => {
     expect(screen.queryByTestId("help-affordance--dashboard-restage--legend")).toBeNull();
   });
 
-  it("the sort header is a real 44px tap target (min-h-tap-min) and the dates cell never wraps/truncates", () => {
+  it("the sort headers are real 44px tap targets (min-h-tap-min) and the Start/End cells never wrap/truncate", () => {
     render(
       <ShowsTable rows={[row({ slug: "rpas" })]} now={now} activeCount={1} overflowCount={0} />,
     );
-    expect(screen.getByTestId("shows-sort-dates").className).toContain("min-h-tap-min");
-    // title wraps (no truncate); dates are nowrap and not truncated
+    expect(screen.getByTestId("shows-sort-start").className).toContain("min-h-tap-min");
+    expect(screen.getByTestId("shows-sort-end").className).toContain("min-h-tap-min");
+    // title wraps (no truncate); each date cell holds a single short date, is
+    // nowrap and not truncated.
     const link = screen.getByTestId("shows-table-row-rpas");
     expect(link.innerHTML).not.toContain("truncate");
-    const datesCell = screen.getByTestId("shows-dates-rpas");
-    expect(datesCell.textContent).toBe("6/1/26 → 6/5/26");
-    expect(datesCell.className).toContain("whitespace-nowrap");
-    expect(datesCell.className).not.toContain("truncate");
+    const startCell = screen.getByTestId("shows-start-rpas");
+    const endCell = screen.getByTestId("shows-end-rpas");
+    expect(startCell.textContent).toBe("6/1/26");
+    expect(endCell.textContent).toBe("6/5/26");
+    for (const cell of [startCell, endCell]) {
+      expect(cell.className).toContain("whitespace-nowrap");
+      expect(cell.className).not.toContain("truncate");
+    }
   });
 });
