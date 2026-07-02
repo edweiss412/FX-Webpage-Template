@@ -1,5 +1,6 @@
 import { test, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { AGENDA_MAX_PAGES } from "@/lib/agenda/constants";
 const logMock = vi.hoisted(() => ({
   info: vi.fn(),
   warn: vi.fn(),
@@ -145,6 +146,85 @@ test("breadcrumb: low-confidence gate logs agenda.extract `low-confidence` with 
     expect(call).toBeDefined();
     // metrics payload present (not just a bare string) — the diagnostic value
     expect(call![1]).toMatchObject({ source: "agenda.extract", sessions: 0, numPages: 1 });
+  } finally {
+    vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.resetModules();
+  }
+});
+
+// Forensic codes (Task 5): every non-rendering / durable outcome carries a greppable
+// `code` on its log row so the durable stream is self-triageable. Concrete failure mode
+// caught: a log row lands with a message string but no `code`, so it is invisible to the
+// code-filtered observability queries. Codes are the literals under implementation — the
+// `>AGENDA_MAX_PAGES` threshold is derived from the constant, not hardcoded.
+test("forensic code: too-many-pages emits code AGENDA_TOO_MANY_PAGES", async () => {
+  const getPage = vi.fn();
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({ numPages: AGENDA_MAX_PAGES + 1, getPage }),
+    }),
+  }));
+  try {
+    const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+    await extract(new Uint8Array([1, 2, 3]));
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "too-many-pages",
+      expect.objectContaining({ source: "agenda.extract", code: "AGENDA_TOO_MANY_PAGES" }),
+    );
+  } finally {
+    vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.resetModules();
+  }
+});
+test("forensic code: high-confidence parse emits code AGENDA_SCHEDULE_HIGH_CONFIDENCE (durable)", async () => {
+  await extractAgendaSchedule(bytes("rfi.pdf"));
+  expect(logMock.info).toHaveBeenCalledWith(
+    "high",
+    expect.objectContaining({ source: "agenda.extract", code: "AGENDA_SCHEDULE_HIGH_CONFIDENCE" }),
+  );
+});
+test("forensic code: a pdfjs throw emits code AGENDA_PDFJS_THREW with the error preserved", async () => {
+  await extractAgendaSchedule(new Uint8Array([0]));
+  expect(logMock.error).toHaveBeenCalledWith(
+    "pdfjs threw",
+    expect.objectContaining({
+      source: "agenda.extract",
+      code: "AGENDA_PDFJS_THREW",
+      error: expect.anything(),
+    }),
+  );
+});
+test("forensic code: low-confidence gate reuses cataloged code AGENDA_SCHEDULE_LOW_CONFIDENCE", async () => {
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({
+        numPages: 1,
+        getPage: async () => ({
+          getTextContent: async () => ({
+            items: [
+              {
+                str: "Welcome to the conference",
+                transform: [10, 0, 0, 10, 50, 700],
+                fontName: "g_d0_f1",
+              },
+            ],
+          }),
+        }),
+      }),
+    }),
+  }));
+  try {
+    const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+    await extract(new Uint8Array([1, 2, 3]));
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "low-confidence",
+      expect.objectContaining({
+        source: "agenda.extract",
+        code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+      }),
+    );
   } finally {
     vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
     vi.resetModules();

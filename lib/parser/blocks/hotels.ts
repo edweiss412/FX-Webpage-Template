@@ -32,7 +32,7 @@ function warn(msg: string): void {
   // warnings are surfaced as console.warn in dev; the full ParseResult warnings
   // array is assembled at the top-level parser (Task 1.11).
 
-  log.warn(msg, { source: "parser.hotels" });
+  log.warn(msg, { source: "parser.hotels", code: "HOTELS_PARSE_WARNING" });
 }
 
 export function parseHotels(

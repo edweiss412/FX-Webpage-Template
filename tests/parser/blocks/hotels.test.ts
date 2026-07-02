@@ -1,7 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { detectVersion } from "@/lib/parser/schema";
+
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 
 // ── Fixture paths ─────────────────────────────────────────────────────────────
 const ALL_FIXTURES = [
@@ -216,6 +224,29 @@ describe("parseHotels — cardinality cap (synthetic)", () => {
   });
   it("ordinals are 1..4", () => {
     expect(hotels.map((h) => h.ordinal)).toEqual([1, 2, 3, 4]);
+  });
+});
+
+// ── Forensic code on the cardinality warn (HOTELS_PARSE_WARNING) ──────────────
+describe("parseHotels — HOTELS_PARSE_WARNING forensic code", () => {
+  it("cardinality-exceeded warn carries source + code", () => {
+    logMock.warn.mockClear();
+    // 5 inline reservation groups (each with a delimited guest) → buildInlineReservations
+    // returns 5 rows → cap() exceeds MAX_HOTELS (4) → the local warn(msg) fires once.
+    const md =
+      "| Hotel Reservations | Grand Hotel Doug Larson - 1001 Check In: 3/1 Check Out: 3/2 " +
+      "Eric Weiss - 1002 Check In: 3/1 Check Out: 3/2 " +
+      "John Carleo - 1003 Check In: 3/1 Check Out: 3/2 " +
+      "Jane Doe - 1004 Check In: 3/1 Check Out: 3/2 " +
+      "Bob Smith - 1005 Check In: 3/1 Check Out: 3/2 |";
+    const hotels = parseHotels(md, "v2");
+    // truncated to the cardinality cap
+    expect(hotels).toHaveLength(4);
+    // failure mode: a code-less warn is un-triageable in the durable log stream
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining("HOTEL_CARDINALITY_EXCEEDED"),
+      expect.objectContaining({ source: "parser.hotels", code: "HOTELS_PARSE_WARNING" }),
+    );
   });
 });
 

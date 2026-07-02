@@ -65,3 +65,52 @@ describe("summarizeSync", () => {
     expect(s.counts).toMatchObject({ skipped: 1, failed: 0 });
   });
 });
+
+const proc = (driveFileId: string, result: unknown) => ({ driveFileId, result });
+
+describe("summarizeSync — failure breadcrumb", () => {
+  test("hard_fail item appears in detail.failures with driveFileId+outcome+code", () => {
+    const s = summarizeSync({
+      processed: [
+        proc("f-ok", { outcome: "applied", showId: "s1" }),
+        proc("f-bad", { outcome: "hard_fail", code: "MI-3_NO_VALID_DATES" }),
+      ],
+    } as never);
+    expect(s.outcome).toBe("partial");
+    expect(s.counts?.failed).toBe(1);
+    expect(s.detail?.failures).toEqual([
+      { driveFileId: "f-bad", outcome: "hard_fail", code: "MI-3_NO_VALID_DATES" },
+    ]);
+  });
+
+  test("ok run omits detail.failures entirely (exactOptionalPropertyTypes)", () => {
+    const s = summarizeSync({
+      processed: [proc("f", { outcome: "applied", showId: "s" })],
+    } as never);
+    expect(s.outcome).toBe("ok");
+    expect(s.detail).toBeUndefined();
+  });
+
+  test("ConcurrentSyncSkipped + skipped are excluded from failures", () => {
+    const s = summarizeSync({
+      processed: [
+        proc("f-lock", { skipped: "CONCURRENT_SYNC_SKIPPED" }),
+        proc("f-skip", { outcome: "skipped" }),
+        proc("f-bad", { outcome: "parse_error", code: "SYNC_INFRA_ERROR" }),
+      ],
+    } as never);
+    expect(s.detail?.failures).toEqual([
+      { driveFileId: "f-bad", outcome: "parse_error", code: "SYNC_INFRA_ERROR" },
+    ]);
+  });
+
+  test("truncates at 25 with failuresTruncated:true; counts.failed keeps true total", () => {
+    const processed = Array.from({ length: 30 }, (_, i) =>
+      proc(`f${i}`, { outcome: "hard_fail", code: "MI-3_NO_VALID_DATES" }),
+    );
+    const s = summarizeSync({ processed } as never);
+    expect(s.counts?.failed).toBe(30);
+    expect((s.detail?.failures as unknown[]).length).toBe(25);
+    expect(s.detail?.failuresTruncated).toBe(true);
+  });
+});
