@@ -130,4 +130,21 @@ describe("extractUnknownFieldAnchors", () => {
     // "Details Notes" (above the header) is never scanned as a details row.
     expect(resolveUnknownFieldCell(anchors, "details", "Details Notes", "some note")).toBeNull();
   });
+
+  it("#217 regression: an EVENT DETAILS block OPENING with a 'DIagrams' row still anchors the rows below it (DIAGRAMS/DRESS are known field labels, not details terminators)", () => {
+    const { buffer, gids } = buildInfoWorkbook([
+      ["EVENT DETAILS", "EVENT DETAILS"], // A1 header (v4 template shape)
+      ["DIagrams", "LINK"], // A2 real field row — must NOT terminate the scan
+      ["LED", "N/A"], // A3
+      ["GS Podium Type", "Truss Podium"], // A4 — below DIagrams; must still resolve
+      ["Dress", "Black Tie"], // A5 — DRESS is a field too, not a terminator
+      ["Notes", "kept"], // A6 — below Dress; must still resolve
+    ]);
+    const anchors = extractUnknownFieldAnchors(buffer, gids);
+    expect(resolveUnknownFieldCell(anchors, "details", "DIagrams", "LINK")?.a1).toBe("A2");
+    expect(resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "Truss Podium")?.a1).toBe(
+      "A4",
+    );
+    expect(resolveUnknownFieldCell(anchors, "details", "Notes", "kept")?.a1).toBe("A6");
+  });
 });

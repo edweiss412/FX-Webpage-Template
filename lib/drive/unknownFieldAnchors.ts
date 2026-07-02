@@ -59,6 +59,18 @@ const TERMINATORS = new Set([
   "TO DO",
 ]);
 
+// TERMINATORS entries that are ALSO known EVENT DETAILS field labels
+// (lib/parser/blocks/event.ts CANONICAL_KEY_MAP: `diagrams`, `dress`; event.ts
+// documents diagrams as a field, NOT a terminator). Inside a 'details' block these
+// are FIELD rows, not section openers, so they must not terminate the scan. v4
+// template EVENT DETAILS blocks OPEN with a 'DIagrams' row (fixtures/shows/
+// exporter-xlsx/{fintech,fixed-income,rpas}.md), so treating DIAGRAMS as a
+// terminator broke the scan at headerRow+1 and yielded ZERO details anchors (#217).
+// They stay terminators for 'venue'. Over-inclusion past a real DIAGRAMS/DRESS
+// section is safe by the module's exactly-one-match guard, so excluding them for
+// 'details' can never produce a wrong cell.
+const DETAILS_NON_TERMINATOR_FIELDS = new Set(["DIAGRAMS", "DRESS"]);
+
 /** Normalize a sheet cell for matching. canonicalize-exempt: sheet field text,
  *  not an email (AGENTS.md invariant 3 N/A). Applied identically to grid cells
  *  and to the label/value from the warning, so the two sides compare equal. */
@@ -131,7 +143,12 @@ export function extractUnknownFieldAnchors(
       // first line is "VENUE NAME", not "VENUE"). (live-sheet fidelity, 2026-07-01)
       const rawHeaderLine = grid.cell(r, first.col).split(/\r?\n/)[0] ?? "";
       const firstLine = rawHeaderLine.trim().toUpperCase(); // canonicalize-exempt: sheet section header, not an email
-      if (TERMINATORS.has(firstLine)) break; // next section
+      // DIAGRAMS/DRESS open sections for 'venue' but are field rows for 'details'.
+      if (
+        TERMINATORS.has(firstLine) &&
+        !(kind === "details" && DETAILS_NON_TERMINATOR_FIELDS.has(firstLine))
+      )
+        break; // next section
       const value = nextNonBlankAfter(grid, r, first.col);
       out.push({
         kind,
