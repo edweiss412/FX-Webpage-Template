@@ -37,8 +37,13 @@ export type ValidationActionResult = { ok: true; count: number } | { ok: false; 
 // ---------------------------------------------------------------------------
 // resetValidationDataAction
 //
-// Calls the reset_validation_data() RPC (session client so RLS + is_admin()
-// apply at the DB layer too). Returns the count of cleared shows on success.
+// Calls the reset_validation_data() RPC via the SERVICE-ROLE client. The RPC is
+// now service-role-only (EXECUTE granted to service_role, revoked from
+// authenticated/anon — migration 20260622000002) and gated by the
+// destructive_reset_gate table, NOT by is_admin()/RLS (the is_admin() check was
+// dropped in that migration). The admin/gate check still runs at the DB layer,
+// but earlier and separately, via the session-client assert_destructive_reset_enabled
+// call (Gate 3 below). Returns the count of cleared shows on success.
 // ---------------------------------------------------------------------------
 export async function resetValidationDataAction(): Promise<ValidationActionResult> {
   // Gate 1: auth
