@@ -59,7 +59,6 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
         "help-affordance--settings-drive-health-badge--tooltip",
         "help-affordance--settings-maintenance--tooltip",
         "help-affordance--settings-preferences--tooltip",
-        "help-affordance--unpublished-page--tooltip",
         "help-affordance--wizard-step1--tooltip",
         "help-affordance--wizard-step2--tooltip",
         "help-affordance--wizard-step3--tooltip",
@@ -86,18 +85,19 @@ describe("app/help/_affordanceMatrix.ts shape", () => {
     }
   });
 
-  it("pins the 22 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
+  it("pins the 21 concrete rows incl. renames, the legend row, and the step-3 redesign views", () => {
     const concrete = AFFORDANCE_MATRIX.filter((r) => r.kind === "concrete");
     // 20 base + 2 step-3 redesign views (Unpublished / Ignored sheets) − 1 removed
     // per-show re-stage tooltip (moot since Phase 6 swapped that mount for ChangesFeed)
-    // + 1 per-show Data-quality panel tooltip (parse-data-quality-warnings).
-    expect(concrete).toHaveLength(22);
+    // + 1 per-show Data-quality panel tooltip (parse-data-quality-warnings)
+    // − 1 removed Unpublished (Held shows) page (folded into the dashboard list).
+    expect(concrete).toHaveLength(21);
     const ids = concrete.map((r) => r.testid);
     expect(ids).toContain("help-affordance--per-show-data-quality--tooltip");
     expect(ids).toContain("help-affordance--settings-maintenance--tooltip");
     expect(ids).toContain("help-affordance--dashboard-restage--legend");
     expect(ids).toContain("help-affordance--dashboard-needs-attention--tooltip");
-    expect(ids).toContain("help-affordance--unpublished-page--tooltip");
+    expect(ids).not.toContain("help-affordance--unpublished-page--tooltip");
     expect(ids).toContain("help-affordance--ignored-sheets-page--tooltip");
     expect(ids).not.toContain("help-affordance--dashboard-pending-ingestion--tooltip");
     expect(ids).not.toContain("help-affordance--dashboard-restage-badge--tooltip");

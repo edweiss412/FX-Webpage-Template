@@ -42,10 +42,11 @@ export type ActiveShowRow = {
   // null for active-segment rows.
   archivedAt: string | null;
   // parse-data-quality-warnings §6.2b (Task 9) — OPTIONAL per-show data-gaps
-  // summary, populated ONLY by loadHeldShows (the /admin/unpublished view) from
-  // shows_internal.parse_warnings. Other producers (fetchDashboardData, archived
-  // rows) omit it → undefined → ShowsTable renders no chip. `total > 0` →
-  // ShowsTable's data-gaps chip near the row's Publish action.
+  // summary from shows_internal.parse_warnings. Producers omit it → undefined →
+  // ShowsTable renders no chip; when a producer supplies it and `total > 0`,
+  // ShowsTable renders its data-gaps chip near the row's action. (The former
+  // /admin/unpublished loader that populated this was removed; Held shows now
+  // live in the dashboard's Active-shows list, which does not set this field.)
   dataGaps?: DataGapsSummary;
 };
 
