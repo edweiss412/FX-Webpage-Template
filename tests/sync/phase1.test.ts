@@ -10,6 +10,7 @@ import type {
 } from "@/lib/parser/types";
 
 type FakeShowRow = {
+  id?: string;
   driveFileId: string;
   lastSeenModifiedTime: string | null;
   lastSyncStatus: string | null;
@@ -200,13 +201,20 @@ class FakePhase1Tx {
     return { stagedId };
   }
 
-  async updateShowParseError(driveFileId: string, error: { code: string; message: string }) {
+  async updateShowParseError(
+    driveFileId: string,
+    error: { code: string; message: string },
+  ): Promise<string | null> {
     this.operations.push(`updateShowParseError:${driveFileId}`);
     const row = this.shows.get(driveFileId);
     if (row) {
       row.lastSyncStatus = "parse_error";
       row.lastSyncError = `${error.code}: ${error.message}`;
+      // Mirror the real impl's `returning id`: an existing row was updated.
+      return row.id ?? null;
     }
+    // No existing show row was updated (first-seen hard-fail writes nothing).
+    return null;
   }
 
   async updateShowPendingReview(driveFileId: string) {
@@ -488,6 +496,7 @@ describe("runPhase1 routing and writes", () => {
   test("existing-show hard fail is status-only and does not advance last_seen_modified_time", async () => {
     const tx = new FakePhase1Tx();
     tx.shows.set("file-1", {
+      id: "show-file-1",
       driveFileId: "file-1",
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "ok",
@@ -498,12 +507,29 @@ describe("runPhase1 routing and writes", () => {
     const result = await runWith(tx, parseResult({ rooms: [] }));
 
     expect(result).toMatchObject({ outcome: "hard_fail", code: "MI-5_NO_ROOMS" });
+    // idx17/#102: an existing-show hard_fail commits shows.last_sync_status='parse_error'
+    // (projected to crew via getShowForViewer). It MUST carry the updated show's id so the
+    // sync caller's revalidateShowFromResult busts the crew cache tag instead of leaving the
+    // stale sync-status live for the 300s cache TTL.
+    expect(result).toMatchObject({ showId: "show-file-1" });
     expect(tx.shows.get("file-1")).toMatchObject({
       lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
       lastSyncStatus: "parse_error",
     });
     expect(tx.pendingSyncs).toEqual([]);
     expect(tx.pendingIngestions).toEqual([]);
+  });
+
+  test("first-seen hard fail carries no showId (nothing written to shows → nothing to bust)", async () => {
+    const tx = new FakePhase1Tx();
+
+    const result = await runWith(tx, parseResult({ rooms: [] }));
+
+    expect(result).toMatchObject({ outcome: "hard_fail", code: "MI-5_NO_ROOMS" });
+    // No existing shows row → updateShowParseError never runs → showId is null/absent, so
+    // revalidateShowFromResult correctly no-ops.
+    expect((result as { showId?: string | null }).showId ?? null).toBeNull();
+    expect(tx.pendingIngestions).toHaveLength(1);
   });
 
   test("cron MI-8 financial collapse defers while Drive modifiedTime is unstable", async () => {

@@ -57,12 +57,14 @@ export function revalidateOnApplied(
 /**
  * Sync revalidate gate: bust the show's cache tag for ANY result carrying a
  * non-empty `showId` — POST-COMMIT only. Over-busting is safe; the showId-carrying
- * outcomes are exactly `applied` + `parse_error` + `source_gone` (the
- * getShowForViewer-projected `shows.last_sync_status` writers). Outcomes that
- * carry NO showId (`skipped` / `stale` / `revision_race` / `stage` / `hard_fail` /
+ * outcomes are exactly `applied` + `parse_error` + `source_gone` + an EXISTING-show
+ * `hard_fail` (the getShowForViewer-projected `shows.last_sync_status` writers — an
+ * existing-show hard_fail commits `last_sync_status='parse_error'` and now carries the
+ * updated show's id, idx17/#102). Outcomes that carry NO showId (`skipped` / `stale` /
+ * `revision_race` / `stage` / a FIRST-SEEN `hard_fail` (nothing written to `shows`) /
  * `ConcurrentSyncSkipped`) correctly no-op. This SUPERSEDES `revalidateOnApplied`
  * for sync callers, whose applied-only gate missed the last_sync_status writes on
- * `parse_error` / `source_gone`.
+ * `parse_error` / `source_gone` / existing-show `hard_fail`.
  */
 export function revalidateShowFromResult(
   // Accepts the full sync result UNION — including members that lack `showId`
