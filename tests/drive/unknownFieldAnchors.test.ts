@@ -115,4 +115,19 @@ describe("extractUnknownFieldAnchors", () => {
     const anchors = extractUnknownFieldAnchors(buffer, gids);
     expect(anchors.find((a) => a.label === "notes")?.anchor.a1).toBe("A4");
   });
+
+  it("EXACT header: a field row starting with 'Details' is NOT mistaken for the DETAILS header (never a false-early scan)", () => {
+    const { buffer, gids } = buildInfoWorkbook([
+      ["Details Notes", "some note"], // prefix-only regex would false-match this as the header
+      ["", ""],
+      ["DETAILS", ""], // the real header
+      ["Floor Plan", "LINK"],
+    ]);
+    const anchors = extractUnknownFieldAnchors(buffer, gids);
+    // The real detail row anchors to its real cell (A4) — proving the scan started at
+    // the real DETAILS header, not the "Details Notes" field row above it.
+    expect(resolveUnknownFieldCell(anchors, "details", "Floor Plan", "LINK")?.a1).toBe("A4");
+    // "Details Notes" (above the header) is never scanned as a details row.
+    expect(resolveUnknownFieldCell(anchors, "details", "Details Notes", "some note")).toBeNull();
+  });
 });

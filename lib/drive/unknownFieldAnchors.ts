@@ -14,10 +14,17 @@ export type UnknownFieldAnchor = {
 };
 
 // The two blocks whose parsers call emitUnknownField (venue.ts, event.ts). Headers
-// mirror REGION_ANCHOR_SPEC (lib/sheet-links/buildSheetDeepLink.ts) exactly.
+// mirror REGION_ANCHOR_SPEC (lib/sheet-links/buildSheetDeepLink.ts) but are anchored
+// EXACT at both ends ($). REGION_ANCHOR_SPEC's details header is prefix-only, which is
+// fine for a whole-block region rect; here a FALSE-EARLY header match (e.g. a field
+// row "Details Notes") would start the scan at the wrong row and could, under a
+// (kind,label,value) coincidence, yield a wrong-cell link. For the never-wrong-cell
+// guarantee (spec §5.1.1) a MISSED header degrades to null (safe) while a false-early
+// one does not — so exact matching is strictly safer. The real headers are standalone
+// "DETAILS" / "EVENT DETAILS" / "GS DETAILS" cells, which all match exactly.
 const BLOCKS: { kind: string; header: RegExp }[] = [
   { kind: "venue", header: /^VENUE$/i },
-  { kind: "details", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)/i },
+  { kind: "details", header: /^(EVENT\s+DETAILS|DETAILS|GS\s+DETAILS)$/i },
 ];
 
 // A row whose first non-blank cell (upper-cased) is one of these ENDS the block.
