@@ -29,6 +29,18 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
   },
   { file: "app/api/admin/onboarding/finalize/route.ts", code: "SHOW_FINALIZED" },
   { file: "app/api/admin/onboarding/finalize-cas/route.ts", code: "SHOW_FINALIZED" },
+  // Carve-out (2026-07-02): live-show mutation telemetry.
+  { file: "app/api/admin/staged/[fileId]/apply/route.ts", code: "SHOW_APPLIED" },
+  { file: "app/api/admin/show/staged/[stagedId]/apply/route.ts", code: "SHOW_APPLIED" },
+  { file: "app/api/admin/sync/[slug]/route.ts", code: "SHOW_SYNCED_MANUAL" },
+  {
+    file: "app/api/admin/pending-ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_RETRIED",
+  },
+  {
+    file: "app/api/admin/snapshot-rollback/[id]/repair/route.ts",
+    code: "SNAPSHOT_ROLLBACK_REPAIRED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -37,6 +49,11 @@ const SANCTIONED_CODES = new Set([
   "STAGE_UNAPPROVED",
   "STAGE_DISCARDED",
   "SHOW_FINALIZED",
+  // Carve-out (2026-07-02).
+  "SHOW_APPLIED",
+  "SHOW_SYNCED_MANUAL",
+  "PENDING_INGESTION_RETRIED",
+  "SNAPSHOT_ROLLBACK_REPAIRED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -48,6 +65,16 @@ const NEW_FORENSIC_CODES = new Set([
   ...SANCTIONED_CODES,
   "AGENDA_EXTRACT_STALE",
   "AGENDA_EXTRACT_SESSION_GONE",
+  // Carve-out (2026-07-02) plain-log forensic codes (inside log.* spans; NOT cataloged).
+  // AGENDA_SCHEDULE_LOW_CONFIDENCE is deliberately EXCLUDED — it is a REUSED §12.4
+  // catalog code, so it is (correctly) a producer and must not be leak-checked here.
+  "AGENDA_GETFILE_GONE",
+  "AGENDA_GETFILE_FAULT",
+  "AGENDA_TOO_MANY_PAGES",
+  "AGENDA_PDFJS_THREW",
+  "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
+  "HOTELS_PARSE_WARNING",
+  "ADMIN_ACCESS_DENIED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
