@@ -3,9 +3,9 @@
  * (parse-data-quality-warnings §6).
  *
  * The three data-quality ParseWarning codes (FIELD_UNREADABLE,
- * UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) are surfaced at six operator
- * surfaces (staged card, wizard Step 3, /admin/unpublished chip, changes feed,
- * SHOW_FIRST_PUBLISHED digest, per-show panel). Every surface derives its count
+ * UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) are surfaced at the operator
+ * surfaces (staged card, wizard Step 3, changes feed, SHOW_FIRST_PUBLISHED
+ * digest, per-show panel). Every surface derives its count
  * from THIS helper so the logic is single-sourced — tests assert against the
  * helper's input array (the data source), never the rendered output.
  *
@@ -74,8 +74,8 @@ export function summarizeDataGaps(
 
 /**
  * Human, operator-facing label for each data-quality class — used by the
- * per-class detail rendered on the Step-3 card, the /admin/unpublished chip,
- * and the per-show panel. These are PLAIN-LANGUAGE labels, never the raw code
+ * per-class detail rendered on the Step-3 card and the per-show panel. These
+ * are PLAIN-LANGUAGE labels, never the raw code
  * literal (invariant 5: no raw §12.4 codes in UI). Single-sourced here so every
  * surface reads the same wording.
  */

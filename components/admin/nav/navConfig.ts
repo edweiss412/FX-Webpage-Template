@@ -1,8 +1,8 @@
-import { Activity, EyeOff, FileX, Inbox, LayoutGrid, Settings } from "lucide-react";
+import { Activity, FileX, Inbox, LayoutGrid, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 
 export type NavItem = {
-  id: "dashboard" | "attention" | "unpublished" | "ignored-sheets" | "settings" | "observability";
+  id: "dashboard" | "attention" | "ignored-sheets" | "settings" | "observability";
   label: string;
   short: string;
   href: string;
@@ -23,19 +23,11 @@ export const NAV: NavItem[] = [
     Icon: Inbox,
     mobileOnly: true,
   },
-  // Task E1 (spec §5) — the Held-shows view. A first-class top-nav destination
-  // (NOT a dashboard segment) so it never drifts the active/archived counts.
-  {
-    id: "unpublished",
-    label: "Unpublished",
-    short: "Held",
-    href: "/admin/unpublished",
-    Icon: EyeOff,
-  },
   // Task E2 (spec §6.3) — durably-ignored sheets, with a per-row un-ignore.
   // A management/recovery surface reachable on both desktop and mobile (Doug
-  // works mostly on desktop). With `attention` desktop-hidden, the desktop bar
-  // stays at 4 items (Dashboard / Unpublished / Ignored / Settings).
+  // works mostly on desktop). Unpublished (Held) shows are no longer a separate
+  // destination — they appear in the dashboard's Active-shows list with a "Held"
+  // status pill (fetchDashboardData reads archived=false, incl. unpublished).
   {
     id: "ignored-sheets",
     label: "Ignored sheets",
@@ -66,22 +58,18 @@ export function shouldRenderOverflow(destinationCount: number): boolean {
 }
 
 // Settings owns /admin/settings*; Attention owns /admin/needs-attention*;
-// Unpublished owns /admin/unpublished*; Dashboard owns /admin and everything
-// else under /admin (incl. /admin/show/*).
+// Dashboard owns /admin and everything else under /admin (incl. /admin/show/*).
 export function isNavItemActive(id: NavItem["id"], pathname: string): boolean {
   const inSettings = pathname === "/admin/settings" || pathname.startsWith("/admin/settings/");
   const inAttention =
     pathname === "/admin/needs-attention" || pathname.startsWith("/admin/needs-attention/");
-  const inUnpublished =
-    pathname === "/admin/unpublished" || pathname.startsWith("/admin/unpublished/");
   const inIgnoredSheets =
     pathname === "/admin/ignored-sheets" || pathname.startsWith("/admin/ignored-sheets/");
   const inObservability =
     pathname === "/admin/observability" || pathname.startsWith("/admin/observability/");
   if (id === "settings") return inSettings;
   if (id === "attention") return inAttention;
-  if (id === "unpublished") return inUnpublished;
   if (id === "ignored-sheets") return inIgnoredSheets;
   if (id === "observability") return inObservability;
-  return !inSettings && !inAttention && !inUnpublished && !inIgnoredSheets && !inObservability;
+  return !inSettings && !inAttention && !inIgnoredSheets && !inObservability;
 }
