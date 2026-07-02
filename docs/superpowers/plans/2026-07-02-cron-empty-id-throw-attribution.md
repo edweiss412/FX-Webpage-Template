@@ -2,9 +2,9 @@
 
 > **For agentic workers:** TDD per task — failing test → minimal impl → passing test → commit. Steps use `- [ ]`.
 
-**Goal:** Stop the recurring `cron.sync` `File not found: .` (empty-ID Drive `files.get`) from being an anonymous, unattributable throw — by guarding both Drive `files.get` chokepoints with a typed `InvalidDriveFileIdError` and hoisting throw-attribution to the request-context ALS so any detached/route-tail cron.sync throw carries which-record context.
+**Goal:** Stop the recurring `cron.sync` `File not found: .` (empty-ID Drive `files.get`) from being an anonymous, unattributable throw — by guarding the Drive metadata `files.get` chokepoint (`driveFilesGet`) with a typed `InvalidDriveFileIdError` and hoisting throw-attribution to the request-context ALS so any detached/route-tail cron.sync throw carries which-record context.
 
-**Architecture:** Two runtime-only changes: (1) a shared `assertNonEmptyDriveFileId` guard at the two `drive.files.get` chokepoints (`lib/drive/fetch.ts` `driveFilesGet`, `lib/drive/agendaDrive.ts` byte-download); (2) an additive ALS shadow of `runScheduledCronSync`'s in-flight `phase`/`driveFileId`/`processedCount`, read as a fallback in `runCronRoute`'s throw-catch when `err.syncRunContext` is absent, stamped `detail.source`.
+**Architecture:** Two runtime-only changes: (1) an `assertNonEmptyDriveFileId` guard at the metadata `drive.files.get` chokepoint (`lib/drive/fetch.ts` `driveFilesGet` — through which every metadata/sheet fetch AND `driveClient.getFile` routes; the agenda byte-download `files.get` needs no guard, see Task 1); (2) an additive ALS shadow of `runScheduledCronSync`'s in-flight `phase`/`driveFileId`/`processedCount`, read as a fallback in `runCronRoute`'s throw-catch when `err.syncRunContext` is absent, stamped `detail.source`.
 
 **Tech Stack:** TypeScript (strict, `exactOptionalPropertyTypes`), Next.js 16, Vitest, `postgres`, googleapis Drive v3.
 
@@ -21,8 +21,7 @@
 
 ## File Structure
 
-- `lib/drive/fetch.ts` — add `InvalidDriveFileIdError` + `assertNonEmptyDriveFileId`; call it at the top of `driveFilesGet`. (Task 1)
-- `lib/drive/agendaDrive.ts` — call `assertNonEmptyDriveFileId(fileId)` at the top of the byte-download `try`. (Task 1)
+- `lib/drive/fetch.ts` — add `InvalidDriveFileIdError` + `assertNonEmptyDriveFileId`; call it at the top of `driveFilesGet`. (Task 1) — the agenda byte-download (`agendaDrive.ts`) is intentionally NOT modified (already benign; see Task 1 note).
 - `lib/log/requestContext.ts` — extend `RequestContext` + add `setCronInFlight`. (Task 2)
 - `lib/log/index.ts` — re-export `setCronInFlight`. (Task 2)
 - `lib/sync/runScheduledCronSync.ts` — `setPhase`/`setInFlightId` closures mirroring to the ALS. (Task 3)
@@ -385,6 +384,39 @@ git commit -m "feat(sync): mirror cron in-flight phase/driveFileId to the reques
     });
   });
 
+  test("non-object syncRunContext (string) → rejected, falls back to ALS", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        { requestId: "r1", cronPhase: "list-folder", cronInFlightDriveFileId: "df-a", cronProcessedCount: 0 },
+        async () => {
+          const err = Object.assign(new Error("strctx"), { syncRunContext: "not-an-object" });
+          await expect(runCronRoute("sync", req(), async () => { throw err; })).rejects.toThrow("strctx");
+        },
+      );
+      expect(sink[0]!.context).toMatchObject({ detail: { phase: "list-folder", source: "als-fallback" } });
+    });
+  });
+
+  test("NaN cronProcessedCount → processedBeforeThrow omitted (not NaN); phase+source still present", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        { requestId: "r1", cronPhase: "file-loop", cronInFlightDriveFileId: "df-n", cronProcessedCount: Number.NaN },
+        async () => {
+          await expect(
+            runCronRoute("sync", req(), async () => { throw new Error("nanboom"); }),
+          ).rejects.toThrow("nanboom");
+        },
+      );
+      const detail = (sink[0]!.context as { detail?: Record<string, unknown> }).detail!;
+      expect(detail).toMatchObject({ phase: "file-loop", source: "als-fallback" });
+      expect("processedBeforeThrow" in detail).toBe(false); // NaN excluded, never logged as NaN
+    });
+  });
+
   test("stale-id no-leak: ALS id cleared to null → threw row driveFileId is null", async () => {
     await withCapture(async (sink) => {
       const { runWithRequestContext } = await import("@/lib/log/requestContext");
@@ -416,8 +448,8 @@ function cronCtxFromALS(store: RequestContext | undefined) {
   return {
     phase: store.cronPhase,
     inFlightDriveFileId: store.cronInFlightDriveFileId ?? null,
-    ...(typeof store.cronProcessedCount === "number"
-      ? { processedBeforeThrow: store.cronProcessedCount }
+    ...(Number.isFinite(store.cronProcessedCount) // excludes undefined AND NaN
+      ? { processedBeforeThrow: store.cronProcessedCount as number }
       : {}),
   };
 }
@@ -438,8 +470,14 @@ type SyncRunContext = {
   - Restructure the catch (:22-64): REMOVE the `const ctx = (...)?.syncRunContext` computed at :24-34 (currently OUTSIDE the try). INSIDE the `try {` (at :36), select the ctx robustly — reject a malformed `syncRunContext`, and derive `source` only from the ctx actually chosen:
 
 ```ts
-      const rawSync = (err as { syncRunContext?: SyncRunContext } | null)?.syncRunContext;
-      const syncCtx = rawSync && typeof rawSync.phase === "string" ? rawSync : undefined; // reject malformed
+      const rawSync: unknown = (err as { syncRunContext?: unknown } | null)?.syncRunContext;
+      // reject a malformed syncRunContext (non-object, or object without a string phase)
+      const syncCtx =
+        rawSync !== null &&
+        typeof rawSync === "object" &&
+        typeof (rawSync as { phase?: unknown }).phase === "string"
+          ? (rawSync as SyncRunContext)
+          : undefined;
       const alsCtx = syncCtx ? undefined : cronCtxFromALS(getRequestContext());
       const ctx = syncCtx ?? alsCtx;
       const attributionSource = syncCtx ? "sync-body" : alsCtx ? "als-fallback" : undefined;
@@ -448,20 +486,26 @@ type SyncRunContext = {
   - In the `log.error(...)` call, keep the existing `driveFileId`/`detail` conditional spreads but add `source` **inside** the `detail` object via conditional spread (so `source` appears iff a real ctx was chosen — never a spurious `"als-fallback"` when `ctx` is undefined):
 
 ```ts
-        ...(ctx?.phase || ctx?.failures?.length || ctx?.folderId || typeof ctx?.processedBeforeThrow === "number"
+        ...(attributionSource ||
+        ctx?.phase ||
+        ctx?.failures?.length ||
+        ctx?.folderId ||
+        Number.isFinite(ctx?.processedBeforeThrow)
           ? {
               detail: {
                 ...(ctx?.phase ? { phase: ctx.phase } : {}),
                 ...(ctx?.folderId ? { folderId: ctx.folderId } : {}),
                 ...(ctx?.failures?.length ? { failures: ctx.failures } : {}),
-                ...(typeof ctx?.processedBeforeThrow === "number"
-                  ? { processedBeforeThrow: ctx.processedBeforeThrow }
+                ...(Number.isFinite(ctx?.processedBeforeThrow)
+                  ? { processedBeforeThrow: ctx!.processedBeforeThrow }
                   : {}),
                 ...(attributionSource ? { source: attributionSource } : {}),
               },
             }
           : {}),
 ```
+
+  Because a chosen `ctx` (from either source) always has a string `phase`, `attributionSource` is present ⟺ `ctx` exists ⟺ the detail branch fires — so `source` is emitted for every attributed throw and never spuriously. Gating the branch on `attributionSource ||` makes that invariant explicit (belt-and-suspenders) rather than relying on "ctx always has phase".
 
   `cronCtxFromALS` must type `processedBeforeThrow` via conditional spread (already shown above) so it is never `undefined`. The whole `rawSync`/`syncCtx`/`alsCtx`/`ctx`/`attributionSource` + `log.error` stays inside the existing `try { ... } catch { /* swallow */ }`, so a malformed store or mapper bug can never mask the cron error.
 
@@ -483,7 +527,7 @@ git commit -m "fix(cron): attribute detached/route-tail cron.sync throws via ALS
 **Not a code change — the integration gate before adversarial review.**
 
 - [ ] `cd /Users/ericweiss/fxav-emptyid-attribution && pnpm typecheck` — 0 errors (esp. exactOptional on the new fields + mapper).
-- [ ] `pnpm exec eslint lib/drive/fetch.ts lib/drive/agendaDrive.ts lib/log/requestContext.ts lib/log/index.ts lib/sync/runScheduledCronSync.ts lib/cron/withCronRunSummary.ts tests/drive/invalidDriveFileId.test.ts tests/log/requestContext.test.ts tests/sync/cronSyncThrowAttribution.test.ts tests/cron/withCronRunSummary.test.ts` — no `no-explicit-any`/errors.
+- [ ] `pnpm exec eslint lib/drive/fetch.ts lib/log/requestContext.ts lib/log/index.ts lib/sync/runScheduledCronSync.ts lib/cron/withCronRunSummary.ts tests/drive/invalidDriveFileId.test.ts tests/log/requestContext.test.ts tests/sync/cronSyncThrowAttribution.test.ts tests/cron/withCronRunSummary.test.ts` — no `no-explicit-any`/errors.
 - [ ] `pnpm format:check` (or `prettier --check` the changed files) — clean.
 - [ ] Targeted suites green: `npx vitest run tests/drive/invalidDriveFileId.test.ts tests/log/requestContext.test.ts tests/sync/cronSyncThrowAttribution.test.ts tests/cron/withCronRunSummary.test.ts`.
 - [ ] Scanner-safety regression (exact, all three exist under `tests/cross-cutting/`): `npx vitest run tests/cross-cutting/cron-run-summary-scanner-safety.test.ts tests/cross-cutting/codes.test.ts tests/cross-cutting/no-raw-codes.test.ts` — confirms `CRON_RUN_SUMMARY` stays literal + no new §12.4 producer.
