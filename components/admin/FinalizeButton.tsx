@@ -301,7 +301,17 @@ export function FinalizeButton({
         setState({ kind: "error", copy: GENERIC_ERROR, code: null });
         return;
       }
-      const read = await readFinalizeBatch(response);
+      let read: Awaited<ReturnType<typeof readFinalizeBatch>>;
+      try {
+        read = await readFinalizeBatch(response);
+      } catch {
+        // A mid-stream reader.read() rejection (connection drop) or a non-stream
+        // response.json() parse failure escapes here; map it to the same generic
+        // error the clean-EOF interruption sentinel uses so the panel never
+        // freezes on kind:'running' (unguarded, it escaped `void runLoop()`).
+        setState({ kind: "error", copy: GENERIC_ERROR, code: null });
+        return;
+      }
       if ("interrupted" in read) {
         setState({ kind: "error", copy: GENERIC_ERROR, code: null });
         return;
@@ -346,7 +356,13 @@ export function FinalizeButton({
       setState({ kind: "error", copy: GENERIC_ERROR, code: null });
       return;
     }
-    const casRead = await readFinalizeCas(casResponse);
+    let casRead: Awaited<ReturnType<typeof readFinalizeCas>>;
+    try {
+      casRead = await readFinalizeCas(casResponse);
+    } catch {
+      setState({ kind: "error", copy: GENERIC_ERROR, code: null });
+      return;
+    }
     if ("interrupted" in casRead) {
       setState({ kind: "error", copy: GENERIC_ERROR, code: null });
       return;

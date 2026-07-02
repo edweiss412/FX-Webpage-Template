@@ -394,6 +394,9 @@ export function deps(
       modifiedTime: "2026-05-08T12:00:00.000Z",
       parents: ["folder-1"],
     })),
+    // Streaming handler defers its post-commit revalidate through deps.deferRevalidate (after());
+    // real after() has no request scope in vitest — run inline so the streamed tests are deterministic.
+    deferRevalidate: (fn: () => void) => fn(),
     ...overrides,
   };
 }

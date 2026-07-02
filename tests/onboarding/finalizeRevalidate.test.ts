@@ -20,12 +20,18 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { revalidateTag } from "next/cache";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 import type { FinalizeRouteDeps, FinalizeRouteTx } from "@/app/api/admin/onboarding/finalize/route";
-import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import {
+  handleOnboardingFinalize,
+  handleOnboardingFinalizeStream,
+} from "@/app/api/admin/onboarding/finalize/route";
 import type {
   FinalizeCasRouteDeps,
   FinalizeCasRouteTx,
 } from "@/app/api/admin/onboarding/finalize-cas/route";
-import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import {
+  handleOnboardingFinalizeCas,
+  handleOnboardingFinalizeCasStream,
+} from "@/app/api/admin/onboarding/finalize-cas/route";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 const order: string[] = [];
@@ -315,6 +321,31 @@ describe("onboarding finalize (first-seen) post-commit revalidate", () => {
     );
     expect(response.status).toBe(200);
     expect(revalidateTag).not.toHaveBeenCalled();
+  });
+});
+
+describe("onboarding finalize STREAM defers revalidate through after()", () => {
+  test("streaming handler routes the post-commit revalidate through deferRevalidate (after), not a bare in-core call", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [pending("first-seen-1")];
+
+    const captured: Array<() => void> = [];
+    const res = await handleOnboardingFinalizeStream(
+      new Request("https://x/finalize", { method: "POST" }),
+      { ...finalizeDeps(db), deferRevalidate: (fn: () => void) => captured.push(fn) },
+    );
+    await res.text(); // drain the NDJSON so start() runs to completion
+    expect(res.status).toBe(200);
+    expect(db.firstSeenApplied).toEqual(["first-seen-1"]);
+
+    // FIX PROOF (fails pre-fix): the fixed streaming handler routes its revalidate through
+    // deferRevalidate(after); the pre-fix bare in-core loop never calls deferRevalidate.
+    expect(captured).toHaveLength(1);
+    // ...and it is DEFERRED — revalidateTag has NOT fired during the stream (pre-fix it would have).
+    expect(order.filter((o) => o.startsWith("revalidate:"))).toHaveLength(0);
+
+    for (const fn of captured) fn();
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-first-seen"), { expire: 0 });
   });
 });
 
@@ -612,5 +643,40 @@ describe("onboarding finalize-cas post-commit revalidate", () => {
     expect(
       (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
     ).not.toContain(showCacheTag("blocked-show-1"));
+  });
+});
+
+describe("onboarding finalize-cas STREAM defers revalidate through after()", () => {
+  test("streaming handler routes the post-commit revalidate through deferRevalidate (after), not a bare in-stream call", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = [];
+    db.publishedShowIds = [];
+
+    const captured: Array<() => void> = [];
+    const res = await handleOnboardingFinalizeCasStream(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      { ...casDeps(db), deferRevalidate: (fn: () => void) => captured.push(fn) },
+    );
+    await res.text(); // drain the NDJSON so start() runs to completion
+    expect(res.status).toBe(200);
+
+    // FIX PROOF (fails pre-fix): the fixed streaming handler routes its post-commit revalidate
+    // through deferRevalidate(after); the pre-fix bare in-stream loop never calls it.
+    expect(captured).toHaveLength(1);
+    // ...and it is DEFERRED — revalidateTag has NOT fired during the stream (pre-fix it would have).
+    expect(order.filter((o) => o.startsWith("revalidate:"))).toHaveLength(0);
+
+    for (const fn of captured) fn();
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("existing-show-1"), { expire: 0 });
   });
 });

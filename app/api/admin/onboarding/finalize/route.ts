@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { log } from "@/lib/log";
 import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
@@ -57,6 +57,8 @@ export type FinalizeRouteDeps = {
   ) => Promise<R>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   batchCap?: number;
+  // See finalize-cas/route.ts: streaming-only post-response revalidation deferral (after()).
+  deferRevalidate?: (fn: () => void) => void;
 };
 
 /**
@@ -202,6 +204,18 @@ function depsWithDefaults(deps: FinalizeRouteDeps) {
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? defaultFetchDriveFileMetadata,
     batchCap: deps.batchCap ?? BATCH_CAP,
+    // Default schedules post-response via after(); try/catch falls back to synchronous (today's
+    // orphaned-enqueue behavior, never a 500). Only the streaming handler passes this to
+    // executeFinalizeBatch's scheduleRevalidate; the non-streaming path uses the synchronous default.
+    deferRevalidate:
+      deps.deferRevalidate ??
+      ((fn: () => void) => {
+        try {
+          after(fn);
+        } catch {
+          fn();
+        }
+      }),
   };
 }
 
@@ -1058,6 +1072,11 @@ async function executeFinalizeBatch(
   runtime: ReturnType<typeof depsWithDefaults>,
   finalizerEmail: string,
   callbacks?: FinalizeProgressCallbacks,
+  // Streaming callers pass runtime.deferRevalidate (after()) so the post-commit revalidate loop —
+  // which runs inside the ReadableStream start() body, after Next flushed pending revalidations —
+  // is re-registered post-response. Non-streaming callers use the default (synchronous), whose
+  // revalidate fires before the handler resolves and flushes correctly.
+  scheduleRevalidate: (fn: () => void) => void = (fn) => fn(),
 ): Promise<Response> {
   // nav-perf tag-caching (Task 6): first-seen apply created-show ids, collected DURING the apply
   // (inside the per-row txns) and revalidated AFTER deps.withTx resolves (post-commit) — never
@@ -1234,10 +1253,14 @@ async function executeFinalizeBatch(
     });
     // POST-COMMIT: deps.withTx has resolved (the outer finalize transaction committed), so the
     // first-seen shows are durably visible. Revalidate each show's data-cache tag now, before the
-    // Response — a pre-commit revalidate would re-cache the OLD fan-out (spec §4.2).
-    for (const showId of appliedShowIds) {
-      revalidateShow(showId);
-    }
+    // Response — a pre-commit revalidate would re-cache the OLD fan-out (spec §4.2). scheduleRevalidate
+    // is synchronous for the non-streaming handler (flushes at handler resolution) but deferred via
+    // after() for the streaming handler (this core runs inside its ReadableStream start()).
+    scheduleRevalidate(() => {
+      for (const showId of appliedShowIds) {
+        revalidateShow(showId);
+      }
+    });
     // POST-COMMIT durable telemetry: withTx has resolved, so the finalize batch's mutations are
     // committed. Emit SHOW_FINALIZED here — never inside the tx (pre-commit) and never on an
     // error/409/rollback (outcome stays null on those paths). Awaited for durability.
@@ -1302,10 +1325,16 @@ export async function handleOnboardingFinalizeStream(
         }
       };
       try {
-        const response = await executeFinalizeBatch(runtime, email, {
-          onListed: (total) => emit({ type: "listed", total }),
-          onRow: (e) => emit({ type: "row", ...e }),
-        });
+        const response = await executeFinalizeBatch(
+          runtime,
+          email,
+          {
+            onListed: (total) => emit({ type: "listed", total }),
+            onRow: (e) => emit({ type: "row", ...e }),
+          },
+          // Defer the post-commit revalidate: this core runs inside start(), after Next flushed.
+          runtime.deferRevalidate,
+        );
         emit({ type: "result", body: (await response.json()) as FinalizeResultBody });
       } catch {
         emit({ type: "result", body: { ok: false, code: ONBOARDING_FINALIZE_INTERNAL_ERROR } });

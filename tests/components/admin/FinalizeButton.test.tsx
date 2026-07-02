@@ -768,6 +768,7 @@ function controllableNdjson() {
     response,
     push: (obj: unknown) => controller.enqueue(enc.encode(JSON.stringify(obj) + "\n")),
     close: () => controller.close(),
+    error: (err: unknown) => controller.error(err),
   };
 }
 
@@ -910,6 +911,56 @@ describe("FinalizeButton — streaming progress panel", () => {
     });
     const err = await findByTestId("wizard-finalize-error");
     expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
+    expect(container.textContent ?? "").not.toContain("undefined");
+  });
+
+  test("mid-stream reader rejection (connection drop) surfaces the generic error, not a frozen bar", async () => {
+    // Distinct from clean EOF above: here reader.read() REJECTS mid-stream. The
+    // rejection must be caught and mapped to the error state, not escape
+    // `void runLoop()` as an unhandled rejection leaving the panel on kind:'running'.
+    const batch = controllableNdjson();
+    fetchMock.mockResolvedValueOnce(batch.response);
+    const { getByTestId, findByTestId, queryByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await act(async () => {
+      batch.push({ type: "listed", total: 1 });
+      batch.error(new Error("network drop mid-stream"));
+    });
+    const err = await findByTestId("wizard-finalize-error");
+    expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
+    // The frozen-bar symptom: the running panel must be gone.
+    expect(queryByTestId("wizard-finalize-progress")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("undefined");
+  });
+
+  test("mid-stream reader rejection during /finalize-cas surfaces the generic error, not a frozen Finishing-setup bar", async () => {
+    const cas = controllableNdjson();
+    fetchMock
+      .mockResolvedValueOnce(
+        mockNdjsonResponse([
+          { type: "listed", total: 1 },
+          { type: "result", body: allBatchesDone() },
+        ]),
+      )
+      .mockResolvedValueOnce(cas.response);
+    const { getByTestId, findByTestId, queryByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} publishCount={1} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    // Batch completed via the closed mockNdjson stream; now blocked in the CAS reader.
+    await act(async () => {
+      cas.push({ type: "phase", phase: "publishing" });
+      cas.error(new Error("network drop mid-stream (cas)"));
+    });
+    const err = await findByTestId("wizard-finalize-error");
+    expect(err.textContent ?? "").toMatch(/could not complete|try again/i);
+    expect(queryByTestId("wizard-finalize-progress")).toBeNull();
     expect(container.textContent ?? "").not.toContain("undefined");
   });
 

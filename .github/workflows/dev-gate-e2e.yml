@@ -83,6 +83,25 @@ jobs:
           # workflow header + playwright.config.ts filter. Without this, all five
           # servers cold-build and contend on the with-admin-dev-flag lock.
           DEV_GATE_ONLY: "1"
+          # Build- + server-critical env for the :3001/:3002/:3003 webServers, which
+          # carry NO `env:` block in playwright.config.ts and so inherit ONLY this
+          # runner env for their `pnpm build` + `next start`. `next build` evaluates
+          # app/api/auth/picker-bootstrap/route.ts -> lib/email/hashForLog.ts, which
+          # THROWS at module eval unless HASH_FOR_LOG_PEPPER >= 32 chars; the
+          # /admin/settings render (requireAdmin) and /api/test-auth/set-session
+          # create Supabase server/service-role clients (lib/supabase/server.ts) that
+          # throw without the Supabase env. Demo local keys copied verbatim from
+          # crew-e2e.yml (the proven-green no-env-block-webServer parallel, :3000).
+          HASH_FOR_LOG_PEPPER: "fxav-r41-test-pepper-32-chars-min-deterministic"
+          NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+          SUPABASE_URL: "http://127.0.0.1:54321"
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+          SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+          SUPABASE_SECRET_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+          SUPABASE_SERVICE_ROLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
+          JWT_SIGNING_SECRET: "redeem-link-test-secret-32-bytes-min"
+          GOOGLE_SERVICE_ACCOUNT_JSON: '{"client_email":"walker-fixture@seed-mode.iam.gserviceaccount.com"}'
         # prod-runtime-flip depends on prod-build depends on dev-build, so naming
         # all three runs them in that serialized dependency order.
         run: pnpm exec playwright test --project=dev-build --project=prod-build --project=prod-runtime-flip

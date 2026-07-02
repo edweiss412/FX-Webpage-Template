@@ -298,6 +298,21 @@ export async function rescanWizardSheet(
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
         [wizardSessionId, driveFileId],
       );
+      // Demote any retained Flow-A approval: a hard-failing re-scan writes only the manifest +
+      // pending_ingestions, so an approved pending_syncs row survives with choices keyed to the OLD
+      // staged item ids. A later Step-3 Retry re-stages fresh sentinel ids while upsertLivePendingSync
+      // preserves wizard_approved/wizard_reviewer_choices, so those stale choices would fail
+      // validateReviewerChoices (EXTRA_REVIEWER_CHOICE → invalid_request) and wedge the whole finalize
+      // batch with an uncaught ONBOARDING_FINALIZE_INTERNAL_ERROR. Revert to unapproved (CHECK-satisfying
+      // null payload) so the retried row re-enters the normal review path (audit C3).
+      await tx.unsafe(
+        `update public.pending_syncs
+            set wizard_approved = false, wizard_approved_by_email = null, wizard_approved_at = null,
+                wizard_reviewer_choices = null, wizard_reviewer_choices_version = null,
+                last_finalize_failure_code = $3
+          where wizard_session_id = $1::uuid and drive_file_id = $2`,
+        [wizardSessionId, driveFileId, RESCAN_REVIEW_REQUIRED],
+      );
       const errRows = (await tx.unsafe(
         `select last_error_code from public.pending_ingestions
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
@@ -341,13 +356,22 @@ export async function rescanWizardSheet(
       [wizardSessionId, driveFileId],
     );
     // Re-openable checkpoint so the next /finalize re-processes the re-opened row.
-    await tx.unsafe(
+    // A re-opened checkpoint (>=1 row) means a finalize batch ALREADY completed and this is a
+    // BLOCKER HEAL (Flow B, e.g. a STAGED_PARSE_OUTDATED-blocked shadow): the manifest must stay
+    // 'staged' so the sheet re-enters the batch (publish_intent preserved). When nothing re-opens,
+    // this is a PRE-FINALIZE clean re-approval (Flow A / the C2/C6 scenario) and the manifest is
+    // restored to 'applied' below so the Step-3 checkbox stays truthful. RETURNING makes the result
+    // a per-updated-row array so `.length` is the re-opened count (tx.unsafe is typed unknown[],
+    // so a bare `.count` does not type-check under `next build`).
+    const checkpointReopen = await tx.unsafe(
       `update public.wizard_finalize_checkpoints
           set status = 'in_progress'
         where wizard_session_id = $1::uuid
-          and status in ('all_batches_complete', 'final_cas_done')`,
+          and status in ('all_batches_complete', 'final_cas_done')
+        returning wizard_session_id`,
       [wizardSessionId],
     );
+    const isBlockerHeal = checkpointReopen.length > 0;
 
     // (c) clean rule (§6).
     const { dirty, decisionItems } = computeRescanDecision(
@@ -389,6 +413,21 @@ export async function rescanWizardSheet(
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
         [wizardSessionId, driveFileId, prior.priorApprovedByEmail, choices],
       );
+      // Restore the manifest to 'applied' to match the retained approval — but ONLY for a
+      // pre-finalize clean re-approval (Flow A, the C2/C6 scenario), NOT a blocker heal. The
+      // line-354 heal reset it to 'staged'; a re-stamped CHECKED row that never went through a
+      // finalize batch MUST stay 'applied' or the Step-3 UI (checked-state = status==='applied')
+      // renders it unchecked/Held while finalize still publishes it Live off wizard_approved=true
+      // (audit C2/C6). For a BLOCKER HEAL (a finalize batch already completed and was re-opened
+      // above, Flow B), the heal's 'staged' MUST stand so the sheet re-enters the batch.
+      if (!isBlockerHeal) {
+        await tx.unsafe(
+          `update public.onboarding_scan_manifest
+              set status = 'applied', transitioned_at = now()
+            where wizard_session_id = $1::uuid and drive_file_id = $2`,
+          [wizardSessionId, driveFileId],
+        );
+      }
       return { status: "updated", needsReview: false, changed };
     }
 
