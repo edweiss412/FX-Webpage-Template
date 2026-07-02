@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
@@ -39,6 +39,12 @@ export type FinalizeCasRouteDeps = {
     fn: (tx: FinalizeCasRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
   ) => Promise<R>;
   subscribeToWatchedFolder?: (folderId: string) => Promise<unknown>;
+  // Streaming-only post-response revalidation deferral. The streaming handler's post-commit
+  // revalidate loop runs INSIDE the ReadableStream start() body, which executes AFTER the handler
+  // returned new Response(stream) and Next flushed pending tag revalidations — a bare revalidateShow
+  // there is orphaned. after() re-registers the loop post-response. Injected so tests (no Next
+  // request scope, where after() throws E468) run it inline. Mirrors drive/webhook/route.ts deps.defer.
+  deferRevalidate?: (fn: () => void) => void;
 };
 
 type SessionRow = {
@@ -155,6 +161,20 @@ function depsWithDefaults(deps: FinalizeCasRouteDeps) {
     withTx: deps.withTx ?? defaultWithTx,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
     subscribeToWatchedFolder: deps.subscribeToWatchedFolder ?? defaultSubscribeToWatchedFolder,
+    // Default: schedule the callback post-response via after(). The try/catch is a safety net —
+    // if after() ever throws E468 (no request scope inside start()), fall back to running it
+    // synchronously, which is byte-for-byte today's behavior (orphaned enqueue, silent stale) and
+    // NEVER a 500. So this change is strictly >= current behavior: fixed when after() works,
+    // status-quo otherwise. Tests inject their own deferRevalidate and never reach this default.
+    deferRevalidate:
+      deps.deferRevalidate ??
+      ((fn: () => void) => {
+        try {
+          after(fn);
+        } catch {
+          fn();
+        }
+      }),
   };
 }
 
@@ -884,8 +904,12 @@ export async function handleOnboardingFinalizeCasStream(
         );
         // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): a mixed batch may have
         // committed early shadow applies via their own withRowTx, so bust their caches before the
-        // terminal event regardless of the outcome.
-        for (const showId of affectedShowIds) revalidateShow(showId);
+        // terminal event regardless of the outcome. Deferred through after() because this loop runs
+        // inside the ReadableStream start() body — Next already flushed pending tag revalidations
+        // when the handler returned new Response(stream), so a bare revalidateShow here is orphaned.
+        deps.deferRevalidate(() => {
+          for (const showId of affectedShowIds) revalidateShow(showId);
+        });
         if (result instanceof Response) {
           emit({ type: "result", body: (await result.json()) as FinalizeCasResultBody });
         } else {
