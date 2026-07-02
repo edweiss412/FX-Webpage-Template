@@ -384,9 +384,10 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       // space. We assert the grid's computed align-items POSITIVELY: a regression
       // that drops `min-[720px]:items-start` would otherwise still pass the ratio
       // + side-by-side checks (CSS grid defaults to align-items:normal, which
-      // renders as stretch) while reintroducing the dead-space bug. Chromium
-      // reports `start` for items-start, `stretch` for the old items-stretch, and
-      // `normal` for the unset default — so `toBe("start")` catches both regressions.
+      // renders as stretch) while reintroducing the dead-space bug. Tailwind
+      // compiles `items-start` → `align-items: flex-start`, so browsers report
+      // `flex-start` for items-start, `stretch` for the old items-stretch, and
+      // `normal` for the unset default — so `toBe("flex-start")` catches both regressions.
       // The grid is the column's direct parent (both `*-column` divs are direct
       // children of the `grid-cols-[1.6fr_1fr]` container).
       const align = await colsWide
@@ -395,7 +396,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       expect(
         align,
         `@1000px ${section} split-wide grid must be items-start (natural height), not stretched; got align-items=${align}`,
-      ).toBe("start");
+      ).toBe("flex-start");
       assertedSideBySide = true;
     } else if (expectTwoColumns) {
       throw new Error(
@@ -560,14 +561,15 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
       Math.abs(left.width - expectedLeft),
       `@1000px Today Mode A left (run-of-show) must be ≈1.6× the right (quick-cards); left=${left.width} right=${right.width} ratio=${(left.width / right.width).toFixed(4)}`,
     ).toBeLessThanOrEqual(TOL_PX);
-    // Natural height: assert items-start POSITIVELY (Chromium reports `start` for
-    // items-start, `stretch`/`normal` for the regression) so dropping
-    // `min-[720px]:items-start` can't pass on ratio + side-by-side alone.
+    // Natural height: assert items-start POSITIVELY (Tailwind compiles items-start
+    // → align-items: flex-start, so browsers report `flex-start`; `stretch`/`normal`
+    // for the regression) so dropping `min-[720px]:items-start` can't pass on ratio
+    // + side-by-side alone.
     const alignA = await grid.evaluate((el) => getComputedStyle(el as HTMLElement).alignItems);
     expect(
       alignA,
       `@1000px Today Mode A grid must be items-start (natural height), not stretched; got align-items=${alignA}`,
-    ).toBe("start");
+    ).toBe("flex-start");
 
     // 390px: stacked, single full-width column, no horizontal overflow.
     await page.setViewportSize({ width: 390, height: 844 });
@@ -685,7 +687,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
     expect(
       alignB,
       `@1000px Today Mode B grid must be items-start (natural height), not stretched; got align-items=${alignB}`,
-    ).toBe("start");
+    ).toBe("flex-start");
 
     // 390px: stacked, single full-width column, no horizontal overflow.
     await page.setViewportSize({ width: 390, height: 844 });
@@ -821,7 +823,7 @@ test.describe("crew layout dimensions — split-wide ratio + natural height (Tas
   // with two show days of differing content the columns WILL differ in height, so
   // the shorter column NOT being stretched to the taller's height produces a
   // measurable difference (>2px). This complements the existing
-  // `assertSplitWide` check which reads `getComputedStyle.alignItems === "start"`.
+  // `assertSplitWide` check which reads `getComputedStyle.alignItems === "flex-start"`.
   test("§5.5 schedule split-wide grid is items-start (natural height, NOT stretch) at ≥720px", async ({
     page,
   }, testInfo) => {
