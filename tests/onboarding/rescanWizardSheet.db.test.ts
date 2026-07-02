@@ -472,6 +472,14 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
       expect(code).toBe(ing.last_error_code);
       expect(await manifestStatus()).toBe("hard_failed");
       expect(await countRows("shows_pending_changes")).toBe(0); // orphan shadow deleted
+      // The retained Flow-A approval MUST be demoted (audit C3): otherwise a later Step-3 Retry
+      // re-stages fresh item ids under the stale approval/choices and wedges the finalize batch
+      // with an uncaught EXTRA_REVIEWER_CHOICE 500.
+      const row = await readPending();
+      expect(row.wizard_approved).toBe(false);
+      expect(row.wizard_approved_by_email).toBeNull();
+      expect(row.wizard_reviewer_choices).toBeNull();
+      expect(row.last_finalize_failure_code).toBe(RESCAN_REVIEW_REQUIRED);
     },
   );
 

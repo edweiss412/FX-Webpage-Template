@@ -298,6 +298,21 @@ export async function rescanWizardSheet(
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
         [wizardSessionId, driveFileId],
       );
+      // Demote any retained Flow-A approval: a hard-failing re-scan writes only the manifest +
+      // pending_ingestions, so an approved pending_syncs row survives with choices keyed to the OLD
+      // staged item ids. A later Step-3 Retry re-stages fresh sentinel ids while upsertLivePendingSync
+      // preserves wizard_approved/wizard_reviewer_choices, so those stale choices would fail
+      // validateReviewerChoices (EXTRA_REVIEWER_CHOICE → invalid_request) and wedge the whole finalize
+      // batch with an uncaught ONBOARDING_FINALIZE_INTERNAL_ERROR. Revert to unapproved (CHECK-satisfying
+      // null payload) so the retried row re-enters the normal review path (audit C3).
+      await tx.unsafe(
+        `update public.pending_syncs
+            set wizard_approved = false, wizard_approved_by_email = null, wizard_approved_at = null,
+                wizard_reviewer_choices = null, wizard_reviewer_choices_version = null,
+                last_finalize_failure_code = $3
+          where wizard_session_id = $1::uuid and drive_file_id = $2`,
+        [wizardSessionId, driveFileId, RESCAN_REVIEW_REQUIRED],
+      );
       const errRows = (await tx.unsafe(
         `select last_error_code from public.pending_ingestions
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
