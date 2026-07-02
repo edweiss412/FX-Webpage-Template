@@ -53,6 +53,7 @@ import { readBoundedWebStream } from "@/lib/sync/boundedBytes";
 import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { revalidateShow, revalidateShowFromResult } from "@/lib/data/showCacheTag";
+import { classifyProcessed } from "@/lib/cron/classifyProcessed";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
@@ -2745,118 +2746,152 @@ export async function runScheduledCronSync(
     };
   };
 
-  const folderResult = deps.folderId
-    ? { folderId: deps.folderId }
-    : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
-  if ("kind" in folderResult) {
-    if (folderResult.kind === "no_folder_configured") {
+  let inFlightPhase:
+    | "resolve-folder"
+    | "list-folder"
+    | "list-live-shows"
+    | "missing-shows"
+    | "file-loop"
+    | "finish" = "resolve-folder";
+  let inFlightDriveFileId: string | null = null;
+  let resolvedFolderId: string | null = null;
+  const processed: RunScheduledCronSyncResult["processed"] = []; // HOISTED for throw attribution
+
+  try {
+    const folderResult = deps.folderId
+      ? { folderId: deps.folderId }
+      : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
+    if ("kind" in folderResult) {
+      if (folderResult.kind === "no_folder_configured") {
+        await deps.logSync?.({
+          driveFileId: null,
+          outcome: "skipped",
+          code: "no_folder_configured",
+          payload: {
+            kind: "cron_no_folder_configured",
+            skip_reason: "no_folder_configured",
+          },
+        });
+        return finishCompletedRun({
+          processed: [],
+          summary: { outcome: "skipped", skipReason: "no_folder_configured" },
+        });
+      }
       await deps.logSync?.({
         driveFileId: null,
-        outcome: "skipped",
-        code: "no_folder_configured",
-        payload: {
-          kind: "cron_no_folder_configured",
-          skip_reason: "no_folder_configured",
-        },
+        outcome: "parse_error",
+        code: SYNC_INFRA_ERROR,
+        payload: errorPayload(folderResult.cause),
       });
-      return finishCompletedRun({
-        processed: [],
-        summary: { outcome: "skipped", skipReason: "no_folder_configured" },
-      });
+      return { processed: [], summary: { outcome: "parse_error", code: SYNC_INFRA_ERROR } };
     }
-    await deps.logSync?.({
-      driveFileId: null,
-      outcome: "parse_error",
-      code: SYNC_INFRA_ERROR,
-      payload: errorPayload(folderResult.cause),
-    });
-    return { processed: [], summary: { outcome: "parse_error", code: SYNC_INFRA_ERROR } };
-  }
 
-  const folderId = folderResult.folderId;
-  const listFolder = deps.listFolder ?? listDriveFolder;
-  const runOne = deps.processOneFile ?? processOneFile;
-  const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
-  const files = await listFolder(folderId);
-  const processed: RunScheduledCronSyncResult["processed"] = [];
-  const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
-  const liveShows = deps.listLiveShows
-    ? await deps.listLiveShows()
-    : deps.listFolder
-      ? []
-      : await listPostgresLiveShows();
-  const missingShows = liveShows.filter(
-    (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
-  );
-  const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
-
-  for (const show of missingShows) {
-    const result = await lockMissingShow(show.driveFileId, (lockedTx) =>
-      markMissingShow_unlocked(lockedTx, show),
+    const folderId = folderResult.folderId;
+    resolvedFolderId = folderId;
+    const listFolder = deps.listFolder ?? listDriveFolder;
+    const runOne = deps.processOneFile ?? processOneFile;
+    const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
+    inFlightPhase = "list-folder";
+    const files = await listFolder(folderId);
+    const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
+    inFlightPhase = "list-live-shows";
+    const liveShows = deps.listLiveShows
+      ? await deps.listLiveShows()
+      : deps.listFolder
+        ? []
+        : await listPostgresLiveShows();
+    const missingShows = liveShows.filter(
+      (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
     );
-    if ("skipped" in result) {
-      await log.info("missing-show sync skipped on lock contention", {
-        source: "cron/sync",
-        code: "CONCURRENT_SYNC_SKIPPED",
-        driveFileId: show.driveFileId,
-        persist: true,
-      });
-      processed.push({
-        driveFileId: show.driveFileId,
-        result,
-      });
-      continue;
-    }
-    // nav-perf tag-caching (Task 5): only a source_gone result means
-    // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
-    // inside the now-resolved lock — post-commit here, so revalidate the show's
-    // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
-    // without writing the shows row, so it is explicitly excluded.
-    // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
-    // showCacheRevalidateCoverage regexes scan for.)
-    if (result.outcome === "source_gone") {
-      revalidateShow(show.showId);
-    }
-    processed.push({
-      driveFileId: show.driveFileId,
-      result,
-    });
-  }
+    const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
 
-  for (const file of files) {
-    try {
-      // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
-      // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
-      // this await resolves the apply tx has COMMITTED. Revalidate the show's
-      // cache tag HERE — post-commit — never inside processOneFile_unlocked /
-      // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
-      // would expose a stale-read window). showId-presence gate: busts on applied
-      // AND on the parse_error/source_gone recovery outcomes (which carry showId +
-      // commit last_sync_status). No-op on skipped/stale/revision_race/stage/
-      // hard_fail (no showId). The catch-built parse_error below carries no showId.
-      const result = await runOne(file.driveFileId, "cron", file, processDeps);
-      revalidateShowFromResult(result);
+    inFlightPhase = "missing-shows";
+    for (const show of missingShows) {
+      inFlightDriveFileId = show.driveFileId;
+      const result = await lockMissingShow(show.driveFileId, (lockedTx) =>
+        markMissingShow_unlocked(lockedTx, show),
+      );
+      if ("skipped" in result) {
+        await log.info("missing-show sync skipped on lock contention", {
+          source: "cron/sync",
+          code: "CONCURRENT_SYNC_SKIPPED",
+          driveFileId: show.driveFileId,
+          persist: true,
+        });
+        processed.push({
+          driveFileId: show.driveFileId,
+          result,
+        });
+        inFlightDriveFileId = null; // benign completion
+        continue;
+      }
+      // nav-perf tag-caching (Task 5): only a source_gone result means
+      // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
+      // inside the now-resolved lock — post-commit here, so revalidate the show's
+      // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
+      // without writing the shows row, so it is explicitly excluded.
+      // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
+      // showCacheRevalidateCoverage regexes scan for.)
+      if (result.outcome === "source_gone") {
+        revalidateShow(show.showId);
+      }
       processed.push({
-        driveFileId: file.driveFileId,
+        driveFileId: show.driveFileId,
         result,
       });
-    } catch (error) {
-      const result = {
-        outcome: "parse_error" as const,
-        code: classifySyncFailure(error),
+      inFlightDriveFileId = null; // benign completion
+    }
+
+    inFlightPhase = "file-loop";
+    for (const file of files) {
+      inFlightDriveFileId = file.driveFileId;
+      try {
+        // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
+        // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
+        // this await resolves the apply tx has COMMITTED. Revalidate the show's
+        // cache tag HERE — post-commit — never inside processOneFile_unlocked /
+        // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
+        // would expose a stale-read window). showId-presence gate: busts on applied
+        // AND on the parse_error/source_gone recovery outcomes (which carry showId +
+        // commit last_sync_status). No-op on skipped/stale/revision_race/stage/
+        // hard_fail (no showId). The catch-built parse_error below carries no showId.
+        const result = await runOne(file.driveFileId, "cron", file, processDeps);
+        revalidateShowFromResult(result);
+        processed.push({
+          driveFileId: file.driveFileId,
+          result,
+        });
+      } catch (error) {
+        const result = {
+          outcome: "parse_error" as const,
+          code: classifySyncFailure(error),
+        };
+        await deps.logSync?.({
+          driveFileId: file.driveFileId,
+          outcome: result.outcome,
+          code: result.code,
+          payload: errorPayload(error),
+        });
+        processed.push({
+          driveFileId: file.driveFileId,
+          result,
+        });
+      }
+      inFlightDriveFileId = null; // reached only if neither try nor catch re-threw
+    }
+
+    inFlightPhase = "finish";
+    return finishCompletedRun({ processed });
+  } catch (err) {
+    if (err && typeof err === "object") {
+      (err as { syncRunContext?: unknown }).syncRunContext = {
+        phase: inFlightPhase,
+        folderId: resolvedFolderId,
+        inFlightDriveFileId,
+        processedBeforeThrow: processed.length,
+        failures: classifyProcessed(processed).breadcrumbs,
       };
-      await deps.logSync?.({
-        driveFileId: file.driveFileId,
-        outcome: result.outcome,
-        code: result.code,
-        payload: errorPayload(error),
-      });
-      processed.push({
-        driveFileId: file.driveFileId,
-        result,
-      });
     }
+    throw err; // preserve semantics; wrapper is the sole emitter (no double-log)
   }
-
-  return finishCompletedRun({ processed });
 }

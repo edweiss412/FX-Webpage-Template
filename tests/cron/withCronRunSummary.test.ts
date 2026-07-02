@@ -135,4 +135,48 @@ describe("runCronRoute", () => {
     expect(src).toMatch(/log\.warn\s*\(/);
     expect(src).toMatch(/log\.info\s*\(/);
   });
+
+  test("threw with syncRunContext → driveFileId column + context.detail.failures", async () => {
+    await withCapture(async (sink) => {
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      const err = Object.assign(new Error("kaboom"), {
+        syncRunContext: {
+          phase: "missing-shows",
+          inFlightDriveFileId: "df-9",
+          processedBeforeThrow: 2,
+          failures: [{ driveFileId: "df-1", outcome: "hard_fail", code: "X" }],
+        },
+      });
+      await expect(
+        runCronRoute("sync", req(), async () => {
+          throw err;
+        }),
+      ).rejects.toThrow("kaboom");
+      expect(sink[0]!.level).toBe("error");
+      expect(sink[0]!.code).toBe("CRON_RUN_SUMMARY");
+      expect(sink[0]!.driveFileId).toBe("df-9"); // reserved → indexed column
+      expect(sink[0]!.context).toMatchObject({
+        outcome: "threw",
+        detail: {
+          phase: "missing-shows",
+          processedBeforeThrow: 2,
+          failures: [{ driveFileId: "df-1" }],
+        },
+      });
+    });
+  });
+  test("threw with a NON-OBJECT error → still logs outcome:threw, no crash", async () => {
+    await withCapture(async (sink) => {
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await expect(
+        runCronRoute("sync", req(), async () => {
+          throw "boom-string";
+        }),
+      ).rejects.toBe("boom-string");
+      expect(sink[0]!.context).toMatchObject({ outcome: "threw" });
+      // buildRecord (lib/log/logger.ts:46) coerces an absent driveFileId to null (the
+      // "no correlation" sentinel), so the captured LogRecord column is null, not undefined.
+      expect(sink[0]!.driveFileId).toBeNull();
+    });
+  });
 });
