@@ -1,7 +1,9 @@
 // M12.2 Phase A Task 5 — ShowsTable (spec §5.2). M12.3 items 10/14: restyled to
 // the design's CLEAN TABLE — a single bordered/rounded container with a header
-// row (SHOW / DATES / CREW / SYNC STATUS) and light row dividers, denser rows
-// (NOT heavy per-row boxed cards). Whole row links to /admin/show/{slug}.
+// row (SHOW / START / END / CREW / SYNC STATUS) and light row dividers, denser
+// rows (NOT heavy per-row boxed cards). Whole row links to /admin/show/{slug}.
+// The former single DATES column is split into Start + End on desktop; mobile
+// keeps the combined range on the stacked sub-line.
 //
 // M12.3 item 10 — working "Find" search: a client-side, case-insensitive
 // substring filter over the show title (slug fallback when title is null).
@@ -19,7 +21,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronRight, ChevronsUpDown, Search } from "lucide-react";
-import { formatDateRange, formatRelative, type ActiveShowRow } from "@/lib/admin/showDisplay";
+import {
+  formatDateRange,
+  formatRelative,
+  formatShortDate,
+  type ActiveShowRow,
+} from "@/lib/admin/showDisplay";
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
@@ -50,36 +57,42 @@ type ShowsTableProps = {
 // gridTemplateColumns and the labels wouldn't align (the real-browser layout
 // test caught this). Fixed lengths + a 1fr title track make every grid resolve
 // to identical tracks at the same container width.
-// M12.10: the Dates track is 10rem (was 8rem) so the full "M/D/YY → M/D/YY"
-// range always fits on ONE line (whitespace-nowrap) — the longest range
-// ("12/31/26 → 12/31/26") measures ~140px, which 8rem (128px) truncated. The
-// 1fr Show track lets long titles WRAP (no truncation) while the row stays
+// The Dates column is SPLIT into two tracks — Start (4.5rem) + End (4.5rem).
+// Each holds a single "M/D/YY" short date (longest "12/31/26" ≈ 58px < 72px);
+// whitespace-nowrap keeps it on one line. The pair sums to 9rem and, with the
+// one extra 16px (gap-4) grid gap the split introduces between them, occupies
+// the SAME width the old single 10rem Dates track did — so the minmax(0,1fr)
+// title track (and every band-sweep floor) is unchanged by the split. The 1fr
+// Show track lets long titles WRAP (no truncation) while the row stays
 // vertically centered (items-center). Crew/Sync wrap within their tracks too.
-// Two column templates: a 5-track grid at min-[768px] (Show/Dates/Crew/Sync/chevron) and a
-// 6-track grid at min-[960px] that inserts a 6rem STATUS track before the chevron. The Status
-// header/cell are `hidden min-[960px]:block`, so below 960px they drop out of grid flow and 5
-// cells map to the 5 tracks; at ≥960px the 6th cell re-enters and 6 cells map to the 6 tracks.
-// The 5-col grid activates at 768 (NOT the app-wide 720): at 720px the `minmax(0,1fr)` title
+// Two column templates: a 6-track grid at min-[768px] (Show/Start/End/Crew/Sync/chevron) and a
+// 7-track grid at min-[960px] that inserts a 6rem STATUS track before the chevron. The Status
+// header/cell are `hidden min-[960px]:block`, so below 960px they drop out of grid flow and 6
+// cells map to the 6 tracks; at ≥960px the 7th cell re-enters and 7 cells map to the 7 tracks.
+// The grid activates at 768 (NOT the app-wide 720): at 720px the `minmax(0,1fr)` title
 // track resolves to ~106px, below the 120px band-sweep floor (a wide data table needs to stack
 // earlier than the nav). Below 768px the row is flex-col stacked (mobile sub-line). Status
-// stays gated at 960 so the 6th column never worsens the 768–959 5-col band.
+// stays gated at 960 so the extra column never worsens the 768–959 band.
 const ROW_GRID =
-  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_10rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4";
+  "min-[768px]:grid min-[768px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_1.25rem] min-[960px]:grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_12rem_6rem_1.25rem] min-[768px]:items-center min-[768px]:gap-4";
 
 // M12.10 — sortable columns. `null` = the server's incoming order (live-first),
 // preserved until the user picks a column. Nulls (no dates / never-synced)
 // always sort LAST regardless of direction; ties break by title for stability.
-type SortKey = "title" | "dates" | "crew" | "sync" | "status";
+type SortKey = "title" | "start" | "end" | "crew" | "sync" | "status";
 type SortState = { key: SortKey; dir: "asc" | "desc" } | null;
 
 function sortValue(row: ActiveShowRow, key: SortKey): string | number | null {
   switch (key) {
     case "title":
       return rowTitle(row).toLowerCase();
-    case "dates":
-      // Match the RENDERED date: formatDateRange shows a value when EITHER
-      // bound exists, so an end-only row must sort by its end (not as null).
-      return row.showDateStart ?? row.showDateEnd; // ISO 'YYYY-MM-DD' or null
+    case "start":
+      // Sort the Start column by the start date; rows without a start (the cell
+      // renders "—") sort LAST via the null handling in sortRows.
+      return row.showDateStart; // ISO 'YYYY-MM-DD' or null
+    case "end":
+      // Sort the End column by the end date; end-less rows ("—") sort LAST.
+      return row.showDateEnd; // ISO 'YYYY-MM-DD' or null
     case "crew":
       return row.crewCount ?? 0;
     case "sync": {
@@ -408,7 +421,8 @@ export function ShowsTable({
             style={{ letterSpacing: "var(--tracking-eyebrow)" }}
           >
             {sortHeader("title", "Show")}
-            {sortHeader("dates", "Dates")}
+            {sortHeader("start", "Start")}
+            {sortHeader("end", "End")}
             {sortHeader("crew", "Crew")}
             {sortHeader("sync", "Sync status")}
             {/* Status header — the 5th grid cell, present only in the 6-col grid
@@ -419,7 +433,12 @@ export function ShowsTable({
 
           <ul className="divide-y divide-border">
             {visible.map((row) => {
+              // Mobile keeps the combined range on one sub-line; desktop splits
+              // it into the Start / End columns (each a single short date, "—"
+              // when that bound is absent).
               const dates = formatDateRange(row.showDateStart, row.showDateEnd);
+              const startText = formatShortDate(row.showDateStart);
+              const endText = formatShortDate(row.showDateEnd);
               const crewLabel = `${row.crewCount ?? 0} crew`;
               return (
                 <li key={row.id}>
@@ -454,15 +473,23 @@ export function ShowsTable({
                       </div>
                     </div>
 
-                    {/* Desktop columns (hidden <md). M12.10: NO truncation.
-                        Dates never wrap (whitespace-nowrap) and fit the widened
-                        10rem track; Crew is short; Sync wraps within its track.
-                        All vertically centered via the grid's items-center. */}
+                    {/* Desktop columns (hidden <md). NO truncation. Start/End
+                        each hold a single short date, never wrap
+                        (whitespace-nowrap), and fit their 4.5rem tracks; Crew is
+                        short; Sync wraps within its track. All vertically
+                        centered via the grid's items-center. A missing bound
+                        renders "—". */}
                     <span
-                      data-testid={`shows-dates-${row.slug}`}
+                      data-testid={`shows-start-${row.slug}`}
                       className="hidden whitespace-nowrap text-sm text-text-subtle tabular-nums min-[768px]:block"
                     >
-                      {dates ?? "—"}
+                      {startText ?? "—"}
+                    </span>
+                    <span
+                      data-testid={`shows-end-${row.slug}`}
+                      className="hidden whitespace-nowrap text-sm text-text-subtle tabular-nums min-[768px]:block"
+                    >
+                      {endText ?? "—"}
                     </span>
                     <span className="hidden text-sm text-text-subtle tabular-nums min-[768px]:block">
                       {crewLabel}
