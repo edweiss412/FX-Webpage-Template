@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { FINALIZE_OWNED_SHOW, runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ slug: string }>;
@@ -55,6 +56,7 @@ async function readDriveFileIdForSlug(
 export async function POST(_request: NextRequest, context: RouteContext): Promise<Response> {
   return runWithRequestContext({ requestId: deriveRequestId(_request.headers) }, async () => {
     await requireAdmin();
+    const { email } = await requireAdminIdentity();
     const { slug } = await context.params;
 
     const resolved = await readDriveFileIdForSlug(slug);
@@ -83,6 +85,15 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
       );
     }
 
+    if (result.outcome === "applied") {
+      await logAdminOutcome({
+        code: "SHOW_SYNCED_MANUAL",
+        source: "api.admin.sync",
+        actorEmail: email,
+        driveFileId: resolved.driveFileId,
+        showId: result.showId,
+      });
+    }
     return NextResponse.json({ ok: true, result });
   });
 }
