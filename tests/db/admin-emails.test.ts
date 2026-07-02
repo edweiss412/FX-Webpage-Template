@@ -330,11 +330,13 @@ describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", (
       values (${sqlString(email)}, null, now());
       set local role authenticated;
       set local request.jwt.claims = '{"email":"${email}"}';
-      select 'count_ge_3=' || (count(*) >= 3) from public.admin_emails;
+      select 'count_ge_2=' || (count(*) >= 2) from public.admin_emails;
       rollback;
     `);
-    // Two seed admins + the inserted row = 3+. The admin sees them all.
-    expect(out).toContain("count_ge_3=true");
+    // One seed admin (edweiss412) + the inserted row = 2+. The admin sees
+    // them all, including the seed row that doesn't match their JWT email —
+    // proving RLS isn't filtering an admin down to only their own row.
+    expect(out).toContain("count_ge_2=true");
   });
 });
 
