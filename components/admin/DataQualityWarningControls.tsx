@@ -16,7 +16,13 @@ type Props = {
 type State = { kind: "idle" } | { kind: "running" } | { kind: "error"; copy: string };
 
 const NEUTRAL_BTN =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg";
+  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
+// Ring-offset color must match the CARD background the button sits on: warning-bg for
+// active cards, surface-sunken for the muted Ignored (N) cards (impeccable audit P2).
+const RING_OFFSET: Record<"active" | "ignored", string> = {
+  active: "focus-visible:ring-offset-warning-bg",
+  ignored: "focus-visible:ring-offset-surface-sunken",
+};
 
 export function DataQualityWarningControls({ slug, showId, warning, mode, reportSurfaceId }: Props) {
   const router = useRouter();
@@ -75,7 +81,7 @@ export function DataQualityWarningControls({ slug, showId, warning, mode, report
             data-testid={`dq-${action}-${reportSurfaceId}`}
             onClick={run}
             disabled={state.kind === "running"}
-            className={NEUTRAL_BTN}
+            className={`${NEUTRAL_BTN} ${RING_OFFSET[mode]}`}
           >
             {mode === "active"
               ? state.kind === "running"
