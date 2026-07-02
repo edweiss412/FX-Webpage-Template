@@ -305,3 +305,36 @@ describe("resolveKeyTimes — synthetic strike/loadout entries are not show anch
     expect(a.shows?.[0]?.time).toBe("9:00 AM");
   });
 });
+
+describe("resolveKeyTimes — terminal-titled entries are not show anchors (design 4.1 step 6)", () => {
+  it("a wrap/conclusion-only day does not promote its END clock to the Show anchor", () => {
+    // Parser output for cell '4:15pm - Meeting Concludes' (Fixed Income SHOW DAY 2):
+    // entry KEPT, showStart null via the terminal guard.
+    const runOfShow: RunOfShow = {
+      "2025-05-14": {
+        entries: [{ start: "4:15PM", title: "Meeting Concludes" }],
+        showStart: null,
+        window: null,
+      },
+    };
+    // No room show_time / showStart / window -> anchor must OMIT, NOT re-promote 4:15PM.
+    const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
+    expect(a.shows?.some((s) => s.time === "4:15PM")).toBeFalsy();
+    expect(a.shows).toBeUndefined();
+  });
+
+  it("still derives the anchor from a real session that follows a terminal entry", () => {
+    const runOfShow: RunOfShow = {
+      "2025-05-14": {
+        entries: [
+          { start: "4:15PM", title: "Meeting Concludes" },
+          { start: "9:00 AM", title: "General Session" },
+        ],
+        showStart: null,
+        window: null,
+      },
+    };
+    const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
+    expect(a.shows?.[0]?.time).toBe("9:00 AM"); // skips terminal, picks the real session
+  });
+});

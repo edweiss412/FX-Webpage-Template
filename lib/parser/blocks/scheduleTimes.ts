@@ -20,9 +20,10 @@ import { parseTableRows, clean, normalizeDate } from "./_helpers";
 // Requires either minutes OR an AM/PM suffix (or both) — bare integers not clocks.
 const CLOCK_RE = /\b(\d{1,2})(?:[:;](\d{2}))?\s*([AaPp][Mm])?\b/g;
 
-// Terminal-event words: entries with these titles do NOT promote showStart.
-// Excludes clos* intentionally (per spec).
-const TERMINAL_RE =
+// Terminal-event words: entries with these titles do NOT promote showStart
+// (parser) and are NOT eligible as a resolveKeyTimes show anchor (crew layer).
+// Excludes clos* intentionally (per spec). Exported for the anchor resolver.
+export const TERMINAL_RE =
   /\b(conclude|concludes|concluded|ends?|ended|adjourn|wrap|dismiss|load\s*out|strike|depart)\b/i;
 
 // Placeholder sentinels: presence of these in the lead prefix means
