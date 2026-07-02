@@ -3,6 +3,7 @@ import { extractFirstClock } from "./scheduleTimes";
 import { extractClockTimeTokens } from "./dates";
 import { strikeDateOffSchedule } from "./agendaWarnings";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { clockToMinutes } from "@/lib/time/clockToMinutes";
 import type {
   RoomKind,
   ScheduleDay,
@@ -143,10 +144,22 @@ export function deriveScheduleBookends(
     if (!g.rooms.includes(name)) g.rooms.push(name);
     groups.set(key, g);
   }
+  // Chronological (minute-of-day) comparison of two verbatim 12h clock strings.
+  // A lexicographic compare on the raw strings is WRONG ("10:00 PM" < "9:00 PM",
+  // every PM < every AM); resolve each to minutes and compare numerically. Nulls
+  // (unparseable clocks) sort last, with a lexicographic tiebreak when both fail.
+  const byClock = (x: string, y: string): number => {
+    const xm = clockToMinutes(x);
+    const ym = clockToMinutes(y);
+    if (xm === null && ym === null) return x.localeCompare(y);
+    if (xm === null) return 1;
+    if (ym === null) return -1;
+    return xm - ym;
+  };
   const sorted = [...groups.values()].sort(
     (a, b) =>
       a.iso.localeCompare(b.iso) ||
-      a.time.localeCompare(b.time) ||
+      byClock(a.time, b.time) ||
       a.rooms.join().localeCompare(b.rooms.join()),
   );
   for (const g of sorted) {
