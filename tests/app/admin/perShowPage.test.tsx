@@ -6,6 +6,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 
 const state = vi.hoisted(() => ({
   show: {} as Record<string, unknown>,
@@ -35,6 +36,8 @@ const state = vi.hoisted(() => ({
   showsInternal: null as Record<string, unknown> | null,
   throwOnFromTable: null as string | null,
   errorOnFromTable: null as string | null,
+  // ignored_warnings.fingerprint rows returned by loadIgnoredWarnings (data-quality ignore).
+  ignoredFingerprints: [] as string[],
 }));
 
 // Async Server Component children can't be client-rendered by RTL — stub them.
@@ -125,7 +128,13 @@ vi.mock("@/lib/supabase/server", () => ({
       });
       (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
         const data =
-          table === "crew_members" ? state.crew : table === "pending_syncs" ? state.pending : [];
+          table === "crew_members"
+            ? state.crew
+            : table === "pending_syncs"
+              ? state.pending
+              : table === "ignored_warnings"
+                ? state.ignoredFingerprints.map((f) => ({ fingerprint: f }))
+                : [];
         return onf({ data: tableError ? null : data, error: tableError });
       };
       return builder;
@@ -190,6 +199,7 @@ beforeEach(() => {
   state.showsInternal = null;
   state.throwOnFromTable = null;
   state.errorOnFromTable = null;
+  state.ignoredFingerprints = [];
 });
 afterEach(() => {
   cleanup();
@@ -695,6 +705,52 @@ describe("per-show Data quality panel (Task 12, §6.5)", () => {
     await renderPage();
     expect(screen.getByTestId("per-show-data-quality-error")).toBeInTheDocument();
     expect(screen.queryByTestId("per-show-data-quality")).toBeNull();
+  });
+});
+
+describe("per-show Data quality: Report + Ignore (Task 13)", () => {
+  const actionableW = {
+    severity: "warn" as const,
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized venue row label: 'Storage'",
+    rawSnippet: "Storage | back dock",
+    sourceCell: { title: "STAGE", gid: 5, a1: "B12" },
+  };
+
+  it("actionable warning renders active by default; no Ignored subsection", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    await renderPage();
+    expect(screen.getByTestId("per-show-data-quality")).toBeInTheDocument();
+    expect(screen.getByTestId("per-show-actionable-warnings")).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-ignored-warnings")).toBeNull();
+  });
+
+  it("AC-3/AC-9: an ignored-fingerprint warning moves into the Ignored (N) subsection; panel still renders", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    // fingerprint derived from the fixture (anti-tautology — not hardcoded)
+    state.ignoredFingerprints = [
+      warningFingerprint({ code: actionableW.code, rawSnippet: actionableW.rawSnippet })!,
+    ];
+    await renderPage();
+    // panel present even though the only warning is ignored (AC-9)
+    const panel = screen.getByTestId("per-show-data-quality");
+    expect(panel).toBeInTheDocument();
+    const details = screen.getByTestId("per-show-ignored-warnings");
+    expect(screen.getByTestId("per-show-ignored-summary").textContent).toMatch(/Ignored \(1\)/);
+    // the warning renders INSIDE the ignored subsection (scoped — anti-tautology)
+    expect(within(details).getByTestId("per-show-actionable-item")).toBeInTheDocument();
+    // ...and there is NO separate active list outside the details
+    const lists = screen.getAllByTestId("per-show-actionable-warnings");
+    expect(lists).toHaveLength(1);
+    expect(details).toContainElement(lists[0]);
+  });
+
+  it("AC-7: loadIgnoredWarnings infra_error → warning stays VISIBLE as active (fail toward visible)", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    state.errorOnFromTable = "ignored_warnings"; // the ignore read returns an error
+    await renderPage();
+    expect(screen.getByTestId("per-show-actionable-warnings")).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-ignored-warnings")).toBeNull();
   });
 });
 

@@ -59,6 +59,10 @@ import {
   OPERATOR_ACTIONABLE_ANCHORED,
 } from "@/lib/parser/dataGaps";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
+import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
+import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
+import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 
 export const dynamic = "force-dynamic";
 
@@ -316,8 +320,15 @@ export default async function AdminShowPage({
     return { messages, actionable: warnings, failed: false };
   };
 
-  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =
-    await Promise.all([readFeed(), readCrew(), readToken(), readDataQuality(), nowDate()]);
+  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now, ignoredResult] =
+    await Promise.all([
+      readFeed(),
+      readCrew(),
+      readToken(),
+      readDataQuality(),
+      nowDate(),
+      loadIgnoredWarnings(show.id),
+    ]);
 
   // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
   // JSX condition and again in the component — whole-diff R1). selectActionableForDisplay
@@ -325,6 +336,16 @@ export default async function AdminShowPage({
   // already-persisted shows self-heal at read time. The per-show Data Quality panel
   // renders these with source-sheet deep links below the data-gap digest.
   const actionableItems = selectActionableForDisplay(dataQuality.actionable);
+  // Partition actionable warnings into active vs ignored by content fingerprint. A
+  // loadIgnoredWarnings infra_error → empty set → every warning shows active (fail toward
+  // VISIBLE — never hide a warning on a read fault). Ignore state lives in a side table, so
+  // it survives the parse_warnings full-replace on each sync.
+  const ignoredFingerprints =
+    ignoredResult.kind === "ok" ? ignoredResult.fingerprints : new Set<string>();
+  const { active: activeActionable, ignored: ignoredActionable } = partitionByIgnored(
+    actionableItems,
+    ignoredFingerprints,
+  );
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
@@ -777,7 +798,9 @@ export default async function AdminShowPage({
             again.
           </p>
         </section>
-      ) : dataQuality.messages.length > 0 || actionableItems.length > 0 ? (
+      ) : dataQuality.messages.length > 0 ||
+        activeActionable.length > 0 ||
+        ignoredActionable.length > 0 ? (
         <section
           data-testid="per-show-data-quality"
           aria-labelledby="per-show-data-quality-heading"
@@ -819,7 +842,54 @@ export default async function AdminShowPage({
           {/* Operator-actionable parse warnings (role/day/schedule/field) with a
               source-sheet deep link to the offending cell when the scan resolved
               it. Renders nothing when there are none. */}
-          <PerShowActionableWarnings items={actionableItems} driveFileId={show.drive_file_id} />
+          <PerShowActionableWarnings
+            items={activeActionable}
+            driveFileId={show.drive_file_id}
+            renderItemControls={(w) => (
+              <DataQualityWarningControls
+                slug={show.slug}
+                showId={show.id}
+                warning={w}
+                driveFileId={show.drive_file_id}
+                mode="active"
+                reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+              />
+            )}
+          />
+          {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive
+              re-sync. Native <details>: chevron transform only, body instant (D9). */}
+          {ignoredActionable.length > 0 ? (
+            <details data-testid="per-show-ignored-warnings" className="group">
+              <summary
+                data-testid="per-show-ignored-summary"
+                className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+              >
+                Ignored ({ignoredActionable.length}){" "}
+                <span
+                  aria-hidden="true"
+                  className="ml-1 inline-block transition-transform group-open:rotate-90"
+                >
+                  ▸
+                </span>
+              </summary>
+              <div className="mt-3" data-testid="per-show-ignored-list">
+                <PerShowActionableWarnings
+                  items={ignoredActionable}
+                  driveFileId={show.drive_file_id}
+                  renderItemControls={(w) => (
+                    <DataQualityWarningControls
+                      slug={show.slug}
+                      showId={show.id}
+                      warning={w}
+                      driveFileId={show.drive_file_id}
+                      mode="ignored"
+                      reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+                    />
+                  )}
+                />
+              </div>
+            </details>
+          ) : null}
         </section>
       ) : null}
 
