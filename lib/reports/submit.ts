@@ -327,6 +327,71 @@ async function readReportShowContext(showId: string): Promise<ReportShowContextR
   }
 }
 
+function pickString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+// The row label from a "<label> | <value>" rawSnippet — the part before the first pipe.
+// Inlined (not the parser's labelFromRawSnippet) to keep the reports layer decoupled from
+// the parser; the format is a stable one-liner and the fallback is graceful.
+function rowLabelFromSnippet(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  return pickString(raw.split("|")[0]);
+}
+
+function sourceCellFrom(
+  fieldRef: RequestBody["fieldRef"],
+  warning: Record<string, unknown> | null,
+): { tab: string | null; a1: string | null } | null {
+  const candidates = [fieldRef?.sourceCell, warning?.sourceCell];
+  for (const cell of candidates) {
+    if (cell && typeof cell === "object") {
+      const a1 = pickString((cell as Record<string, unknown>).a1);
+      if (a1) return { tab: pickString((cell as Record<string, unknown>).title), a1 };
+    }
+  }
+  return null;
+}
+
+// A one-line, self-identifying headline for the top of the admin GitHub issue so a dev can
+// triage at a glance (what / which row / which show / where) without reading the whole body.
+// Prefers the autocaptured warning's human message; degrades to code + row label, then to a
+// bare "<surface> report" for non-data-quality reports. Never emits "undefined"/"null".
+// not-subject-to-meta: pure formatter; no Supabase/database/GitHub call.
+export function issueSummaryLine(body: RequestBody, showContext?: ReportShowContextInput): string {
+  const warning =
+    Array.isArray(body.parseWarnings) &&
+    body.parseWarnings[0] &&
+    typeof body.parseWarnings[0] === "object"
+      ? (body.parseWarnings[0] as Record<string, unknown>)
+      : null;
+  const code = pickString(warning?.code) ?? pickString(body.fieldRef?.code);
+  const message = pickString(warning?.message);
+  const rowLabel = rowLabelFromSnippet(body.rawSnippet);
+  const cell = sourceCellFrom(body.fieldRef, warning);
+  const show = foundShowContext(showContext);
+  const showTitle = show?.title ?? pickString(body.showTitle);
+
+  const subject = message
+    ? code
+      ? `${message} (${code})`
+      : message
+    : code
+      ? rowLabel
+        ? `${code} — "${rowLabel}"`
+        : code
+      : rowLabel
+        ? `Reported: "${rowLabel}"`
+        : `${pickString(body.surface) ?? "report"} report`;
+
+  const locationParts: string[] = [];
+  if (showTitle) locationParts.push(showTitle);
+  if (cell?.a1)
+    locationParts.push(cell.tab ? `sheet ${cell.tab} cell ${cell.a1}` : `cell ${cell.a1}`);
+
+  return locationParts.length > 0 ? `${subject} — ${locationParts.join(" · ")}` : subject;
+}
+
 // not-subject-to-meta: pure markdown formatter; no Supabase, database, or GitHub call.
 export function buildAdminIssueBody(
   auth: Extract<ReportAuthContext, { kind: "admin" }>,
@@ -336,6 +401,8 @@ export function buildAdminIssueBody(
 ): string {
   const driveFileId = showDriveFileId(body, showContext);
   return [
+    `**Summary:** ${issueSummaryLine(body, showContext)}`,
+    "",
     `**Reported by:** ${auth.email}`,
     `**Show:** ${showContextLine(body, showContext)}`,
     `**Surface:** ${body.surface ?? "unknown"}`,
