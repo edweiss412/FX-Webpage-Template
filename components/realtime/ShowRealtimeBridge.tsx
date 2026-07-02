@@ -656,7 +656,14 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           // branch is unreachable, but Supabase may deliver an unenumerated
           // event at runtime. We log without crashing.
           const unknownEvent = e as unknown as { event?: unknown };
-          clientLog("warn", "client.realtime", "unknown system event", unknownEvent);
+          clientLog(
+            "warn",
+            "client.realtime",
+            "unknown system event",
+            unknownEvent,
+            "REALTIME_UNKNOWN_SYSTEM_EVENT",
+            String(unknownEvent.event ?? "").slice(0, 120),
+          );
           return;
         }
       }
