@@ -42,6 +42,14 @@ export function PerShowActionableWarnings({
     tone === "muted"
       ? "flex flex-col gap-0.5 rounded-sm border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
       : "flex flex-col gap-0.5 rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text";
+  // The "Open in Sheet" link's focus ring-offset must match the card background it sits on,
+  // or the 2px gap renders Tailwind v4's default (white) on the tinted card (same class the
+  // DQIGNORE-5 button ringOffset work fixed; impeccable audit class-sweep). Full literal
+  // strings so the JIT resolves each.
+  const linkOffsetClass =
+    tone === "muted"
+      ? "focus-visible:ring-offset-surface-sunken"
+      : "focus-visible:ring-offset-warning-bg";
   return (
     <ul className="flex flex-col gap-2" data-testid="per-show-actionable-warnings">
       {items.map((w, i) => {
@@ -78,7 +86,7 @@ export function PerShowActionableWarnings({
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className={`self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${linkOffsetClass}`}
               >
                 Open in Sheet <span aria-hidden="true">↗</span>
               </a>

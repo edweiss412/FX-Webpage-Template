@@ -190,17 +190,15 @@ This closes the entire untimed-Drive-read class: export fetch (#128), `files.get
 
 ## Data quality Report + Ignore (2026-07-02)
 
-### DQIGNORE-1 — [P3] Report/Ignore not available on the plain-text data-gap digest group
+DQIGNORE-1, DQIGNORE-2, and DQIGNORE-5 shipped on branch `feat/dq-ignore-followups` (2026-07-02). DQIGNORE-3 and DQIGNORE-4 remain (PR B). DQIGNORE-6 opened from the follow-up's impeccable dual-gate.
 
-- **What:** the Report + Ignore controls attach only to the operator-actionable Data-quality cards (`PerShowActionableWarnings`). The plain-text data-gap digest (`UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`) rendered directly in `app/admin/show/[slug]/page.tsx` stays read-only.
-- **Why deferred (deliberate v1 boundary):** `readDataQuality` flattens the digest to `string[]` (dropping `code`/`rawSnippet`), so neither the ignore fingerprint nor the report autocapture can be built from it without widening the return shape; and `BLOCK_DISAPPEARED` carries no `rawSnippet` so is not content-fingerprintable at all. The user's target surface (the "Unrecognized row" + autocorrect cards) is 100% actionable cards. Spec `docs/superpowers/specs/2026-07-02-dq-report-ignore.md` D8.
-- **Trigger:** an operator wants to Report/Ignore an "Unrecognized section" (`UNKNOWN_SECTION_HEADER`) warning. Then widen `readDataQuality` to return the digest as `ParseWarning[]` objects and render digest items through the same per-warning card + `DataQualityWarningControls` slot; `BLOCK_DISAPPEARED` remains Report-only (no Ignore).
+### DQIGNORE-1 — ✅ RESOLVED (feat/dq-ignore-followups)
 
-### DQIGNORE-2 — [P3] No bulk "Ignore all N of this type"
+Digest data-gap warnings (`UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`) now render through the same `PerShowActionableWarnings` card + `DataQualityWarningControls` slot as operator-actionable warnings; `readDataQuality` returns the digest as `ParseWarning[]`. `BLOCK_DISAPPEARED` stays Report-only (no `rawSnippet` → `warningFingerprint` null → never ignorable, always active).
 
-- **What:** ignore is per-warning only. A show with four "Unrecognized row" cards requires four Ignore clicks.
-- **Why deferred:** v1 scope decision (per-warning content-fingerprint keying); bulk-ignore is a convenience layer, not a correctness requirement, and its semantics (ignore-all-current vs ignore-all-future-of-code) are a separate design choice. Spec §11.
-- **Trigger:** operators report repetitive per-card ignoring on high-volume shows. Then add a per-code "Ignore all (N)" action that inserts one `ignored_warnings` row per current fingerprint (NOT a coarse code-level ignore, which would mask future distinct rows).
+### DQIGNORE-2 — ✅ RESOLVED (feat/dq-ignore-followups)
+
+Per-code "Ignore all N" bulk control (`components/admin/BulkIgnoreControls.tsx` + `lib/dataQuality/bulkIgnoreGroups.ts`) fans out one precise per-fingerprint POST to the existing `/data-quality/ignore` route per distinct content — never a coarse code-level ignore. Shown only when a code has ≥2 distinct-content active ignorable warnings.
 
 ### DQIGNORE-3 — [P3] Orphaned ignore rows are not garbage-collected
 
@@ -214,11 +212,20 @@ This closes the entire untimed-Drive-read class: export fetch (#128), `files.get
 - **Why deferred:** v1 scope decision, consistent with the two closest precedents (the alert-resolve and sheet-unignore routes emit none and are absent from `AUDITABLE_MUTATIONS`). Ignoring an advisory warning does not mutate published show content. Spec D7.
 - **Trigger:** an audit requirement to trace who ignored which warning. Then add a sanctioned forensic code (e.g. `WARNING_IGNORED`) + an `AUDITABLE_MUTATIONS`/`SANCTIONED_CODES` registry row in `tests/log/_metaAdminOutcomeContract.test.ts`, keeping the code OUT of §12.4.
 
-### DQIGNORE-5 — [P3] Report link focus-ring offset shows page-bg on warning-bg cards (impeccable MEDIUM)
+### DQIGNORE-5 — ✅ RESOLVED (feat/dq-ignore-followups)
 
-- **What:** the reused `ReportButton variant="text"` (`components/shared/ReportButton.tsx`) bakes `focus-visible:ring-offset-bg` into its text-variant className. On the Data-quality cards it now renders on `bg-warning-bg`, so a keyboard-focused "Report" link draws its 2px ring-offset gap in the page background color, not the card's warning-bg. The sibling Ignore/Un-ignore button correctly uses `ring-offset-warning-bg`. Surfaced by the impeccable v3 critique (Assessment A, MEDIUM).
-- **Why deferred (not a gate; shared-component change):** it is a 2px cosmetic offset mismatch on keyboard focus only — the focus ring itself is fully visible and AA-compliant, so it is not a functional a11y failure and does not gate the ship (invariant 8 gates HIGH/CRITICAL). The clean fix adds a `ringOffset` prop to the shared M8 `ReportButton` (used by the crew footer, staged-review card, and preview banner), which is a broader change than this feature warrants and would want its own review across those surfaces.
-- **Trigger:** any follow-up touching `ReportButton`, OR a focus-visible a11y sweep. Then add an optional `ringOffset?: "bg" | "surface" | "warning-bg"` prop (full literal class strings via a lookup map so Tailwind v4 JIT resolves them) defaulting to the current per-variant value, and pass `ringOffset="warning-bg"` from `DataQualityWarningControls`.
+Added a `ringOffset` prop to the shared `ReportButton` (full-literal class lookup map: `bg` / `surface` / `warning-bg` / `surface-sunken`, so Tailwind v4 JIT resolves each) defaulting to the prior per-variant value; `DataQualityWarningControls` passes `warning-bg` (active card) / `surface-sunken` (ignored card). The same follow-up's audit class-sweep also fixed the "Open in Sheet" link offset in `PerShowActionableWarnings` (tone-matched) and the bulk control offset (`bg`).
+
+### DQIGNORE-6 — [P1 critique → deferred] Bulk "Ignore all N" is spatially divorced from the cards it ignores
+
+- **What:** the per-code bulk control (`components/admin/BulkIgnoreControls.tsx`) stacks at the top of the Data-quality panel, while the cards it ignores are interleaved by code in the list below (`app/admin/show/[slug]/page.tsx`). The button names the count + type ("Ignore all 2 · Unrecognized row in sheet") but the cards do not repeat that type label, so on a ~390px phone Doug can commit an ignore covering cards he never scrolled to. Surfaced by the follow-up's impeccable critique (Assessment A, P1).
+- **Why deferred (not a gate blocker):** the action is fully reversible — the ignored warnings drop into the collapsible "Ignored (N)" subsection, each with Un-ignore — so it is a scope-legibility concern, not data loss; and the common case is a single dominant code (one button, and every card below it is that type). The proper fix (group the active `PerShowActionableWarnings` list by code and render each bulk control as that group's header, OR add a type-label eyebrow to every card, OR an undo toast) is a card-list restructure whose test blast-radius is disproportionate to a P3-tier convenience feature. The cheap related risks were fixed in-branch (honest partial-failure copy; the stuck-disabled bug; aria-busy).
+- **Trigger:** operators report ignoring the wrong warnings, OR multi-code high-volume shows are common in real data, OR the next Data-quality panel touch. Then group the active card list by code with the bulk control as each group's header (or add per-card type eyebrows), and pin the grouping with a render test.
+
+### DQIGNORE — accepted (no defer)
+
+- Digest-as-cards visual weight (Assessment A P2): intentional. Uniform per-warning cards with controls are the whole point of DQIGNORE-1; the prior plain amber bullet list had no Report/Ignore affordance.
+- Report (quiet underlined text link) vs Ignore (neutral bordered button) visual-weight difference (Assessment A P3): the deliberate hierarchy from the per-card report affordance (PR #222) — Report is the understated affordance, Ignore is the first-class neutral action. Kept.
 
 ## Observability coverage completion — impeccable gate (2026-07-02)
 

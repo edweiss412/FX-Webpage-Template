@@ -196,6 +196,19 @@ describe("A. Submit body shape", () => {
     fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "x" } });
     expect(submit.disabled).toBe(false);
   });
+
+  test("messageOptional → Submit is ENABLED with an empty note and submits message=''", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { ok: true, status: "created" }));
+    const { getByTestId } = render(<ReportModal {...defaultProps({ messageOptional: true })} />);
+    const submit = getByTestId("report-modal-submit") as HTMLButtonElement;
+    // Empty textarea, but Submit is enabled — the autocaptured warning is the content.
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    const body = JSON.parse(init.body as string) as { message?: string };
+    expect(body.message).toBe(""); // empty note POSTed; issue is self-identifying via autocapture
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

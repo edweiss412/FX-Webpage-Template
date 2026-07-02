@@ -72,6 +72,8 @@ export function DataQualityWarningControls({
           label="Report"
           showId={showId}
           surfaceId={reportSurfaceId}
+          ringOffset={mode === "active" ? "warning-bg" : "surface-sunken"}
+          messageOptional
           autocapture={{
             parseWarnings: [warning],
             fieldRef: {
@@ -90,6 +92,7 @@ export function DataQualityWarningControls({
             data-testid={`dq-${action}-${reportSurfaceId}`}
             onClick={run}
             disabled={state.kind === "running"}
+            aria-busy={state.kind === "running"}
             className={`${NEUTRAL_BTN} ${RING_OFFSET[mode]}`}
           >
             {mode === "active"

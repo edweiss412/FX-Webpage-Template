@@ -57,10 +57,18 @@ import {
   isDataQualityWarning,
   selectActionableForDisplay,
   OPERATOR_ACTIONABLE_ANCHORED,
+  DATA_GAP_CLASS_LABELS,
 } from "@/lib/parser/dataGaps";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
+import {
+  BulkIgnoreControls,
+  type BulkIgnoreGroupWithLabel,
+} from "@/components/admin/BulkIgnoreControls";
 import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
+import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
 import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 
@@ -271,7 +279,7 @@ export default async function AdminShowPage({
   // kept DISTINCT from a failure: messages=[], failed=false → panel simply
   // absent. Resolves to a typed local result and never rejects (Promise.all-safe).
   const readDataQuality = async (): Promise<{
-    messages: string[];
+    digest: ParseWarning[];
     actionable: ParseWarning[];
     failed: boolean;
   }> => {
@@ -290,7 +298,7 @@ export default async function AdminShowPage({
           source: "admin.show",
           error: error.message,
         });
-        return { messages: [], actionable: [], failed: true };
+        return { digest: [], actionable: [], failed: true };
       }
       warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
     } catch (err) {
@@ -298,7 +306,7 @@ export default async function AdminShowPage({
         source: "admin.show",
         error: err,
       });
-      return { messages: [], actionable: [], failed: true };
+      return { digest: [], actionable: [], failed: true };
     }
     // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
     // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
@@ -310,14 +318,18 @@ export default async function AdminShowPage({
     // deep link (strictly better). The digest keeps the non-actionable data gaps
     // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
     // impeccable critique flagged.
-    const messages = warnings
-      .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
-      .map((w) => w.message)
-      .filter((m): m is string => typeof m === "string" && m.length > 0);
-    // Carry the full warnings through so the panel can render the operator-actionable subset WITH
-    // their source-sheet deep links (the component filters + dedups via operatorActionableWarnings);
-    // the messages list stays the data-gap-only `.message` digest.
-    return { messages, actionable: warnings, failed: false };
+    // The data-gap digest (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) — the DQ codes that are
+    // NOT operator-actionable-anchored. Kept as full ParseWarning objects (not flattened to
+    // `.message`) so the panel can render each through the same per-warning card +
+    // Report/Ignore controls as the operator-actionable warnings (DQIGNORE-1). The gate stays
+    // isDataQualityWarning FIRST, preserving the invariant-5 protection against rendering a
+    // non-DQ warn warning whose `.message` IS its raw §12.4 code.
+    const digest = warnings.filter(
+      (w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code),
+    );
+    // Carry the full warnings through too so the panel can render the operator-actionable subset
+    // WITH their source-sheet deep links (selectActionableForDisplay filters + dedups).
+    return { digest, actionable: warnings, failed: false };
   };
 
   const [
@@ -342,15 +354,37 @@ export default async function AdminShowPage({
   // already-persisted shows self-heal at read time. The per-show Data Quality panel
   // renders these with source-sheet deep links below the data-gap digest.
   const actionableItems = selectActionableForDisplay(dataQuality.actionable);
-  // Partition actionable warnings into active vs ignored by content fingerprint. A
+  // DQIGNORE-1 — every data-quality warning renders as a per-warning card with Report/Ignore
+  // controls. The data-gap digest (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) leads (preserving
+  // the prior visual order: data gaps above operator-actionable rows), followed by the deduped
+  // operator-actionable warnings. The two sets are disjoint by code, so no warning double-renders.
+  const displayWarnings = [...dataQuality.digest, ...actionableItems];
+  // Partition displayable warnings into active vs ignored by content fingerprint. A
   // loadIgnoredWarnings infra_error → empty set → every warning shows active (fail toward
   // VISIBLE — never hide a warning on a read fault). Ignore state lives in a side table, so
-  // it survives the parse_warnings full-replace on each sync.
+  // it survives the parse_warnings full-replace on each sync. BLOCK_DISAPPEARED has no content
+  // fingerprint (warningFingerprint → null), so it can never be ignored — it is always active.
   const ignoredFingerprints =
     ignoredResult.kind === "ok" ? ignoredResult.fingerprints : new Set<string>();
   const { active: activeActionable, ignored: ignoredActionable } = partitionByIgnored(
-    actionableItems,
+    displayWarnings,
     ignoredFingerprints,
+  );
+  // DQIGNORE-2 — bulk "Ignore all N of this type": for any code with >=2 distinct-content
+  // ACTIVE ignorable warnings, offer a single action that fans out one precise
+  // per-fingerprint ignore. The label is the plain-language type (catalog title, else the
+  // data-gap class label) — never the raw §12.4 code (invariant 5). Empty when no code has
+  // a bulk-eligible group; BulkIgnoreControls then renders nothing.
+  const bulkGroupLabel = (code: string): string | null => {
+    const title = isMessageCode(code) ? messageFor(code as MessageCode).title : null;
+    if (title) return title;
+    if (code in DATA_GAP_CLASS_LABELS) {
+      return DATA_GAP_CLASS_LABELS[code as keyof typeof DATA_GAP_CLASS_LABELS];
+    }
+    return null;
+  };
+  const bulkIgnoreGroups: BulkIgnoreGroupWithLabel[] = groupIgnorableByCode(activeActionable).map(
+    (group) => ({ ...group, label: bulkGroupLabel(group.code) }),
   );
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
@@ -804,9 +838,7 @@ export default async function AdminShowPage({
             again.
           </p>
         </section>
-      ) : dataQuality.messages.length > 0 ||
-        activeActionable.length > 0 ||
-        ignoredActionable.length > 0 ? (
+      ) : activeActionable.length > 0 || ignoredActionable.length > 0 ? (
         <section
           data-testid="per-show-data-quality"
           aria-labelledby="per-show-data-quality-heading"
@@ -832,22 +864,16 @@ export default async function AdminShowPage({
               </p>
             </HoverHelp>
           </div>
-          {dataQuality.messages.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {dataQuality.messages.map((message, i) => (
-                <li
-                  key={i}
-                  data-testid="per-show-data-quality-item"
-                  className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
-                >
-                  {message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {/* Operator-actionable parse warnings (role/day/schedule/field) with a
-              source-sheet deep link to the offending cell when the scan resolved
-              it. Renders nothing when there are none. */}
+          {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
+              acts on. Renders nothing unless a code has >=2 distinct-content active
+              ignorable warnings. */}
+          <BulkIgnoreControls slug={show.slug} groups={bulkIgnoreGroups} />
+          {/* Every ACTIVE data-quality warning as a per-warning card: the data-gap
+              digest (unknown section / removed block) leads, followed by the
+              operator-actionable warnings (role/day/schedule/field) with a source-
+              sheet deep link when the scan resolved the cell. Each card carries a
+              Report control and (when the warning is content-fingerprintable) an
+              Ignore control. Renders nothing when there are none. */}
           <PerShowActionableWarnings
             items={activeActionable}
             driveFileId={show.drive_file_id}
