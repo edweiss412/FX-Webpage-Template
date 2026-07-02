@@ -33,6 +33,7 @@ import {
   summarizeDataGaps,
   isDataQualityWarning,
   operatorActionableWarnings,
+  OPERATOR_ACTIONABLE_ANCHORED,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -163,11 +164,19 @@ function summaryFromParseResult(parseResult: LiveFirstSeenRow["parse_result"]): 
 function warningSummaryFor(row: LiveFirstSeenRow): string {
   const warnings = row.parse_result?.warnings;
   if (!Array.isArray(warnings)) return "";
-  return warnings
-    .filter(isDataQualityWarning)
-    .map((w) => w.message)
-    .filter((m): m is string => typeof m === "string" && m.length > 0)
-    .join("; ");
+  return (
+    warnings
+      .filter(isDataQualityWarning)
+      // Exclude operator-actionable codes (e.g. FIELD_UNREADABLE, which is in BOTH
+      // DATA_GAP_CODES and OPERATOR_ACTIONABLE_ANCHORED): they render below as titled
+      // actionable cards WITH a source-sheet deep link via <PerShowActionableWarnings>,
+      // so joining them here too would double-render them on the staged card. Mirrors
+      // the per-show digest at app/admin/show/[slug]/page.tsx (audit idx90/#154).
+      .filter((w) => !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
+      .map((w) => w.message)
+      .filter((m): m is string => typeof m === "string" && m.length > 0)
+      .join("; ")
+  );
 }
 
 /**
