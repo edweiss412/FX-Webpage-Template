@@ -521,20 +521,22 @@ Capture the admin: `:321` `const admin = await deps.requireAdminIdentity();` (ke
 - Modify: `app/api/admin/snapshot-rollback/[id]/repair/route.ts`
 - Test: `tests/api/admin-snapshot-rollback-repair.test.ts`
 
-**Interfaces:** KEEP `requireAdmin()` (`:19`) as the gate; ADD `requireAdminIdentity()` for the email inside the same try (both throw `AdminInfraError` → the `instanceof AdminInfraError` catch at `:21` stays valid; do NOT replace `requireAdmin`, which runs the extra `x-help-force-infra-fail` hook). import `logAdminOutcome`. `driveFileId = data.drive_file_id` (`:34-38`). NO showId; pass `snapshotRevisionId` via `extra`.
+**Interfaces:** KEEP `requireAdmin()` in the auth try (`:18-25`, preserves the `x-help-force-infra-fail` hook). Read the email as the FIRST line INSIDE the SEPARATE repair try (`:32+`), NOT in the auth try — the two trys are distinct blocks, so a `const email` declared in the auth try (`:18-25`) is out of scope at the `:55` emit (Codex plan R2 HIGH). Reading it inside the repair try keeps `email` visible at the emit and protected by the existing `:56` catch; it's cache-backed (auth already resolved the identity via `requireAdmin`, so `requireAdminIdentity()` returns the cached `{email}` without re-throwing). import `logAdminOutcome`. `driveFileId = data.drive_file_id` (`:34-38`). NO showId; pass `snapshotRevisionId` via `extra`.
 
 - [ ] **Step 1: Write the failing test** — drive `repairSnapshotRollback` → `{ outcome: "repaired", snapshotRevisionId: "r1" }`; assert `logAdminOutcome({ code: "SNAPSHOT_ROLLBACK_REPAIRED", source: "api.admin.snapshot-rollback.repair", actorEmail, driveFileId, extra: { snapshotRevisionId: "r1" } })`. Assert `not_found`/`not_stuck` outcomes do NOT emit.
 
 - [ ] **Step 2: Run test to verify it fails** — FAIL.
 
-- [ ] **Step 3: Implement** — `:2` import both: `import { AdminInfraError, requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";`. At `:19`, inside the existing try, keep the gate and add the email read:
+- [ ] **Step 3: Implement** — `:2` import both: `import { AdminInfraError, requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";`. Leave the auth try (`:18-25`) unchanged (`await requireAdmin();`). Inside the SEPARATE repair try (`:32`), add the email read as the first statement:
 
 ```ts
-await requireAdmin();
-const { email } = await requireAdminIdentity();
+try {
+  const { email } = await requireAdminIdentity(); // cache-backed; auth already passed
+  const supabase = createSupabaseServiceRoleClient();
+  // ...existing ledger select → data...
 ```
 
-Capture `data.drive_file_id` from the ledger select. Before `:55` `return NextResponse.json({ ok: true, result })`:
+`email` is now in scope for the emit at `:55`. Before `:55` `return NextResponse.json({ ok: true, result })`:
 
 ```ts
 await logAdminOutcome({
