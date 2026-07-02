@@ -35,6 +35,7 @@ export type CronRunOutcomeRead = "ok" | "partial" | "infra" | "threw";
 export type CronHealthRow = {
   jobName: string;
   label: string;
+  description: string;
   cadence: string;
   staleAfterMs: number;
   lastRunAt: string | null;
