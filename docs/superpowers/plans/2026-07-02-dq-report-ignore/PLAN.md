@@ -48,14 +48,14 @@
 - Create `lib/dataQuality/ignorableSnippet.ts` — client-safe: `normalizeSnippet`, `hasIgnorableSnippet`. No `node:*`.
 - Create `lib/dataQuality/warningFingerprint.ts` — server-only: `warningFingerprint` (imports `node:crypto` via `sha256Base64Url`).
 - Create `lib/dataQuality/partitionByIgnored.ts` — server: `partitionByIgnored(warnings, ignoredFps)` → `{ active, ignored }`.
-- Create `lib/dataQuality/reportSurfaceId.ts` — client-safe: `buildReportSurfaceId(slug, list, w, i)`.
+- Create `lib/dataQuality/warningIdentity.ts` — client-safe: `warningIdentityKey`, `stableWarningKeys` (order-independent React keys). `buildReportSurfaceId` is added to the server `warningFingerprint.ts`.
 - Create `lib/admin/loadIgnoredWarnings.ts` — Supabase read helper (RLS session client).
 - Create `supabase/migrations/20260702120000_ignored_warnings.sql` — table DDL.
 - Create `supabase/migrations/20260702120100_ignored_warnings_rls.sql` — RLS + grants.
 - Create `app/api/admin/show/[slug]/data-quality/ignore/route.ts` — POST ignore.
 - Create `app/api/admin/show/[slug]/data-quality/unignore/route.ts` — POST un-ignore.
 - Create `components/admin/DataQualityWarningControls.tsx` — `"use client"` controls.
-- Modify `components/admin/PerShowActionableWarnings.tsx` — add optional `renderItemControls` prop.
+- Modify `components/admin/PerShowActionableWarnings.tsx` — add optional `renderItemControls` prop + switch `<li>` keys to order-independent `stableWarningKeys`.
 - Modify `app/admin/show/[slug]/page.tsx` — load ignored fingerprints, partition, render controls + "Ignored (N)" subsection, panel visibility.
 - Modify `lib/audit/trustDomains.ts` — two route rows.
 - Modify `tests/admin/_metaInfraContract.test.ts` — one `infraRegistry` row.
@@ -305,74 +305,116 @@ git commit --no-verify -m "feat(data-quality): partitionByIgnored (active vs ign
 
 ---
 
-### Task 4: Report surface-id builder (client-safe)
+### Task 4: Warning identity + report surfaceId (ORDER-INDEPENDENT stable)
+
+Two identity requirements interact (see spec §7.2): (1) uniqueness — distinguishable cards must not share a `ReportModal` `surfaceId`; (2) stability — an ignore-driven `router.refresh()` must NOT change a surviving sibling's React key or surfaceId, or its open Report modal remounts and its draft is lost (Codex plan-R1 HIGH). Both are met by an **order-independent** identity derived from content + location — NOT the display index.
 
 **Files:**
-- Create: `lib/dataQuality/reportSurfaceId.ts`
-- Test: `tests/dataQuality/reportSurfaceId.test.ts`
+- Create: `lib/dataQuality/warningIdentity.ts` — client-safe: `warningIdentityKey`, `stableWarningKeys`.
+- Modify: `lib/dataQuality/warningFingerprint.ts` — add server `buildReportSurfaceId` (hashes the identity).
+- Test: `tests/dataQuality/warningIdentity.test.ts`
 
 **Interfaces:**
-- Produces: `buildReportSurfaceId(slug: string, list: "active" | "ignored", w: Pick<ParseWarning, "sourceCell">, i: number): string`. Pure, client-safe.
+- Produces (client-safe): `warningIdentityKey(w: Pick<ParseWarning, "code"|"sourceCell"|"rawSnippet">): string`; `stableWarningKeys(items): string[]`.
+- Produces (server): `buildReportSurfaceId(slug: string, w: Pick<ParseWarning, "code"|"sourceCell"|"rawSnippet">): string`.
 
 - [ ] **Step 1: Write the failing test** (AC-14)
 
 ```ts
-// tests/dataQuality/reportSurfaceId.test.ts
+// tests/dataQuality/warningIdentity.test.ts
 import { describe, expect, test } from "vitest";
-import { buildReportSurfaceId } from "@/lib/dataQuality/reportSurfaceId";
+import { warningIdentityKey, stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
+import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import type { ParseWarning } from "@/lib/parser/types";
 
-const w = (gid?: number, a1?: string): Pick<ParseWarning, "sourceCell"> => ({
+const w = (code: string, rawSnippet?: string, gid?: number, a1?: string): ParseWarning => ({
+  severity: "warn", code, message: "m", rawSnippet,
   sourceCell: gid === undefined ? null : { title: "STAGE", gid, a1 },
 });
 
-describe("buildReportSurfaceId", () => {
-  test("AC-14: distinct ids for identical (code,sourceCell) at different indices", () => {
-    const s0 = buildReportSurfaceId("rpas", "active", w(0, "A1"), 0);
-    const s1 = buildReportSurfaceId("rpas", "active", w(0, "A1"), 1);
-    expect(s0).not.toBe(s1);
+describe("warningIdentityKey / buildReportSurfaceId (AC-14)", () => {
+  test("STABLE: same identity regardless of position; independent of index", () => {
+    const a = w("UNKNOWN_FIELD", "Storage | x", 5, "A1");
+    expect(warningIdentityKey(a)).toBe(warningIdentityKey({ ...a }));
+    expect(buildReportSurfaceId("rpas", a)).toBe(buildReportSurfaceId("rpas", { ...a }));
+    // whitespace-only diff normalizes to the same identity
+    expect(warningIdentityKey(w("UNKNOWN_FIELD", "Storage | x"))).toBe(warningIdentityKey(w("UNKNOWN_FIELD", "Storage  |  x")));
   });
-
-  test("AC-14: distinct across the active vs ignored list at the same index", () => {
-    expect(buildReportSurfaceId("rpas", "active", w(0, "A1"), 0)).not.toBe(
-      buildReportSurfaceId("rpas", "ignored", w(0, "A1"), 0),
-    );
+  test("UNIQUE: distinct when code / sourceCell / content differ", () => {
+    expect(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "a"))).not.toBe(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "b")));
+    expect(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "a", 1))).not.toBe(buildReportSurfaceId("rpas", w("UNKNOWN_FIELD", "a", 2)));
+    expect(buildReportSurfaceId("rpas", w("A", "x"))).not.toBe(buildReportSurfaceId("rpas", w("B", "x")));
   });
-
-  test("constructible with a null sourceCell (uses `na` placeholders)", () => {
-    expect(buildReportSurfaceId("rpas", "active", w(undefined), 2)).toBe("admin-dq-rpas-active-2-na-na");
+  test("stableWarningKeys: per-render unique; removing a DIFFERENT-identity sibling does not change a later key", () => {
+    const A = w("UNKNOWN_FIELD", "A | 1"); const B = w("UNKNOWN_FIELD", "B | 2");
+    const both = stableWarningKeys([A, B]);
+    const afterIgnoreA = stableWarningKeys([B]); // A removed
+    expect(new Set(both).size).toBe(2);           // unique within the render
+    expect(afterIgnoreA[0]).toBe(both[1]);        // B's key is unchanged (stability)
+  });
+  test("perfect duplicates get an occurrence suffix in keys but SHARE a surfaceId", () => {
+    const d = w("UNKNOWN_FIELD", "dup"); // no sourceCell → indistinguishable
+    const keys = stableWarningKeys([d, { ...d }]);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(buildReportSurfaceId("rpas", d)).toBe(buildReportSurfaceId("rpas", { ...d }));
   });
 });
 ```
 
-Failure mode caught: two cards sharing a `ReportModal` sessionStorage/idempotency scope → leaked drafts or wrong-report dedup (Codex R1 HIGH). Expected values derived from the input indices, not hardcoded surface ids.
+Failure mode caught: (1) an index-based key/surfaceId remounting a sibling on an ignore refresh and destroying its open Report modal (plan-R1 HIGH); (2) two distinguishable cards sharing a `ReportModal` scope (spec-R1 HIGH). Expected values derived from fixture identities, not hardcoded ids/indices.
 
 - [ ] **Step 2: Run — verify fail.**
 
-- [ ] **Step 3: Write minimal implementation**
+- [ ] **Step 3: Write implementations**
 
 ```ts
-// lib/dataQuality/reportSurfaceId.ts
+// lib/dataQuality/warningIdentity.ts  (client-safe — pure string, no node:*)
 import type { ParseWarning } from "@/lib/parser/types";
+import { normalizeSnippet } from "./ignorableSnippet";
 
-/** GLOBALLY UNIQUE per rendered card. Separate from the ignore fingerprint. */
-export function buildReportSurfaceId(
-  slug: string,
-  list: "active" | "ignored",
-  w: Pick<ParseWarning, "sourceCell">,
-  i: number,
-): string {
-  return `admin-dq-${slug}-${list}-${i}-${w.sourceCell?.gid ?? "na"}-${w.sourceCell?.a1 ?? "na"}`;
+export function warningIdentityKey(w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">): string {
+  const cell = w.sourceCell ? `${w.sourceCell.gid}:${w.sourceCell.a1 ?? ""}` : "";
+  const snippet = typeof w.rawSnippet === "string" ? normalizeSnippet(w.rawSnippet) : "";
+  return `${w.code}|${cell}|${snippet}`;
+}
+
+/** Per-render UNIQUE React keys; identity + occurrence suffix for perfect duplicates.
+ *  Distinguishable items always get suffix 0, so removing a different-identity sibling
+ *  never changes another item's key (stability across an ignore refresh). */
+export function stableWarningKeys(
+  items: readonly Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">[],
+): string[] {
+  const seen = new Map<string, number>();
+  return items.map((w) => {
+    const base = warningIdentityKey(w);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}#${n}`;
+  });
 }
 ```
 
-- [ ] **Step 4: Run — verify pass.**
+Append to `lib/dataQuality/warningFingerprint.ts` (already server-only, already imports `sha256Base64Url`):
+
+```ts
+import { warningIdentityKey } from "./warningIdentity";
+
+/** Order-independent, opaque, stable per-warning-identity surfaceId. SERVER-ONLY. */
+export function buildReportSurfaceId(
+  slug: string,
+  w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">,
+): string {
+  return `admin-dq-${slug}-${sha256Base64Url(Buffer.from(warningIdentityKey(w), "utf8"))}`;
+}
+```
+
+- [ ] **Step 4: Run — verify pass.** `pnpm vitest run tests/dataQuality/warningIdentity.test.ts`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/dataQuality/reportSurfaceId.ts tests/dataQuality/reportSurfaceId.test.ts
-git commit --no-verify -m "feat(data-quality): unique per-card report surfaceId builder"
+git add lib/dataQuality/warningIdentity.ts lib/dataQuality/warningFingerprint.ts tests/dataQuality/warningIdentity.test.ts
+git commit --no-verify -m "feat(data-quality): order-independent warning identity + report surfaceId"
 ```
 
 ---
@@ -1196,7 +1238,21 @@ Failure mode caught: leaking interactive controls onto the staged-review preview
 
 - [ ] **Step 2: Run — verify fail.**
 
-- [ ] **Step 3: Modify the component** — add the prop and render slot. Add to the props type: `renderItemControls?: (w: ParseWarning, i: number) => ReactNode;` (import `ReactNode` from `react`). Inside the `.map((w, i) => …)`, after the `Open in Sheet` `<a>` block and before `</li>`, add `{renderItemControls ? renderItemControls(w, i) : null}`.
+- [ ] **Step 3: Modify the component** — three edits:
+  1. Add to the props type: `renderItemControls?: (w: ParseWarning, i: number) => ReactNode;` (import `ReactNode` from `react`).
+  2. **Change the `<li>` key from the index-based `${w.code}-${i}` to an order-independent stable key** (Codex plan-R1 HIGH): compute `const keys = stableWarningKeys(items);` (import from `@/lib/dataQuality/warningIdentity`) before the `.map`, and use `key={keys[i]}` on each `<li>`. This ensures an ignore-driven refresh does not remount surviving siblings (preserving an open Report modal).
+  3. Inside the `.map((w, i) => …)`, after the `Open in Sheet` `<a>` block and before `</li>`, add `{renderItemControls ? renderItemControls(w, i) : null}`.
+
+- [ ] **Step 3b: Add a key-stability test** to `tests/admin/perShowActionableRenderControls.test.tsx`:
+
+```tsx
+test("stable <li> key survives removal of an earlier sibling (no remount)", () => {
+  // render [A, B] with a stateful child, capture B's DOM node identity; re-render [B] (A ignored);
+  // assert B's rendered node is preserved (same key) — e.g. via a data-key attr set to keys[i].
+  // Minimal form: assert the component emits data-testid/data-key derived from stableWarningKeys,
+  // and that keys([A,B])[1] === keys([B])[0].
+});
+```
 
 - [ ] **Step 4: Run — verify pass.** Also run the existing `pnpm vitest run tests/admin/perShowDataQualityActionable.test.tsx` to confirm no regression on the shared component.
 
@@ -1242,8 +1298,8 @@ Failure mode caught: full-replace defeating ignore; hiding warnings on a read fa
   - In the existing `Promise.all`, add `loadIgnoredWarnings(show.id)`.
   - After `const actionableItems = selectActionableForDisplay(dataQuality.actionable);`, compute `const ignoredFps = ignoredResult.kind === "ok" ? ignoredResult.fingerprints : new Set<string>();` then `const { active, ignored } = partitionByIgnored(actionableItems, ignoredFps);`.
   - Change the panel render condition to `dataQuality.messages.length > 0 || active.length > 0 || ignored.length > 0` (plus the existing `failed` branch).
-  - Pass `renderItemControls={(w, i) => <DataQualityWarningControls slug={slug} showId={show.id} warning={w} driveFileId={show.drive_file_id} mode="active" reportSurfaceId={buildReportSurfaceId(slug, "active", w, i)} />}` to `<PerShowActionableWarnings items={active} … />`.
-  - Below it, when `ignored.length > 0`, render the `<details data-testid="per-show-ignored-warnings" className="group">` with a `per-show-ignored-summary` `Ignored ({ignored.length})` + chevron, and a `<ul>` mapping `ignored` through the same card skin (muted: `opacity-75`) with `mode="ignored"` controls and `buildReportSurfaceId(slug, "ignored", w, i)`. Use the exact marker-suppression + chevron classes from spec §7.4.
+  - Pass `renderItemControls={(w) => <DataQualityWarningControls slug={slug} showId={show.id} warning={w} driveFileId={show.drive_file_id} mode="active" reportSurfaceId={buildReportSurfaceId(slug, w)} />}` to `<PerShowActionableWarnings items={active} … />`. (`buildReportSurfaceId` is server-only and takes only `(slug, w)` — no index/list.)
+  - Below it, when `ignored.length > 0`, render the `<details data-testid="per-show-ignored-warnings" className="group">` with a `per-show-ignored-summary` `Ignored ({ignored.length})` + chevron, and a `<ul>` keyed by `stableWarningKeys(ignored)` mapping `ignored` through the same card skin (muted: `opacity-75`) with `mode="ignored"` controls and `reportSurfaceId={buildReportSurfaceId(slug, w)}`. Use the exact marker-suppression + chevron classes from spec §7.4.
 
 - [ ] **Step 4: Run — verify pass.** Then run the pre-existing `pnpm vitest run tests/app/admin/perShowPage.test.tsx tests/admin/perShowDataQualityActionable.test.tsx` to confirm no regression.
 
@@ -1264,7 +1320,7 @@ git commit --no-verify -m "feat(admin): wire Report/Ignore + Ignored(N) into the
 Body includes the spec's Transition Inventory table (§7.6). Assert:
 1. Each conditional/ternary render in `DataQualityWarningControls` is deliberate: the error `<p role="alert">` appears only in `error` state; the button label swaps on `running`; no `AnimatePresence`/motion props (transitions are instant by design — D9).
 2. The `<details>` uses only a `transition-transform` chevron (grep the component/page source), no `max-height` animation.
-3. **Compound transition:** clicking Ignore on one card does not close an open `ReportModal` on a sibling card — since each `ReportButton` owns its own `useState`-mounted modal keyed by a distinct `reportSurfaceId`, and `router.refresh()` re-renders server output without unmounting the sibling's client modal. Assert two controls rows have distinct `reportSurfaceId`s and that triggering the ignore fetch on one does not alter the other's mounted state.
+3. **Compound transition (Codex plan-R1):** ignoring an earlier sibling must NOT remount a later card. Force a parent re-render with a **shifted list** — render active `[A, B]`, then re-render active `[B]` (A ignored). Assert: `stableWarningKeys([A,B])[1] === stableWarningKeys([B])[0]` (B's key unchanged) AND `buildReportSurfaceId(slug, B)` is identical before/after (surfaceId unchanged). This is the property that keeps B's open `ReportButton` modal + draft alive across an ignore refresh. An index-based key/surfaceId implementation FAILS this test — that is the point of the assertion (it would have caught the index bug).
 
 Failure mode caught: an unintended animation on the instant transitions; a compound-state bug where an ignore action disrupts an in-progress report on another card.
 

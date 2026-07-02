@@ -243,7 +243,7 @@ type Props = {
   warning: ParseWarning;     // full (serializable) object → complete autocapture + fingerprint input
   driveFileId: string | null;
   mode: "active" | "ignored";
-  reportSurfaceId: string;   // GLOBALLY UNIQUE per rendered card (built by page.tsx, §7.2)
+  reportSurfaceId: string;   // STABLE + unique per warning IDENTITY (built by page.tsx via buildReportSurfaceId, §7.2)
 };
 ```
 
@@ -255,20 +255,52 @@ Internally: `const ignorable = hasIgnorableSnippet(warning)` (imported from the 
 - In-flight lock: single `useState` discriminated union `{ kind:"idle" } | { kind:"running" } | { kind:"error" }` (mirror `PerShowAlertResolveButton.tsx:38-91`). `disabled` while running. On failure set `error` and **re-enable**.
 - `ring-offset-warning-bg` because the buttons sit on `bg-warning-bg` cards (the token exists for exactly this — `AccentButton` `ringOffset:'warning-bg'`).
 
-### 7.2 Card integration via render-prop (D10)
+### 7.2 Card integration via render-prop (D10) — ORDER-INDEPENDENT stable identity
 
 Add to `PerShowActionableWarnings`:
 ```ts
 renderItemControls?: (w: ParseWarning, i: number) => ReactNode;
 ```
-The render-prop receives BOTH the warning and its display index `i` (Codex R1 finding — `i` was previously out of scope). Inside each `<li>`, after the "Open in Sheet" link: `{renderItemControls ? renderItemControls(w, i) : null}`. `StagedReviewCard.tsx:579` does **not** pass it (unchanged, read-only). `page.tsx` passes a closure returning `<DataQualityWarningControls mode="active" warning={w} … reportSurfaceId={buildReportSurfaceId(slug, "active", w, i)} />`.
+Inside each `<li>`, after the "Open in Sheet" link: `{renderItemControls ? renderItemControls(w, i) : null}`. `StagedReviewCard.tsx:579` does **not** pass it (unchanged, read-only). `page.tsx` passes a closure returning `<DataQualityWarningControls mode="active" warning={w} … reportSurfaceId={buildReportSurfaceId(slug, w)} />`.
 
-**`reportSurfaceId` must be GLOBALLY UNIQUE per rendered card** (Codex R1 finding): the `ReportModal` scopes its sessionStorage draft + idempotency key by `surfaceId`, so two cards sharing a surfaceId would leak drafts/autocapture or dedupe the wrong report. It is **separate from the ignore fingerprint** (which is deliberately content-collapsing). Construction:
+**Two identity requirements that INTERACT (Codex plan-R1 HIGH + spec-R1 HIGH):**
+1. **Uniqueness** — two *distinguishable* cards must not share a `ReportModal` `surfaceId` (its sessionStorage draft + idempotency key are scoped by `surfaceId`, `ReportButton.tsx:21`), else drafts leak / the wrong report dedups.
+2. **Stability across `router.refresh()`** — ignoring warning A shrinks the active list, so any *sibling* B must keep the SAME React key **and** the SAME `surfaceId`, or B's `<li>` (and the open `ReportButton` modal inside it) remounts and loses its draft. The spec's compound-transition guarantee (§7.6) requires this.
+
+A **display-index-based** key/surfaceId satisfies (1) but VIOLATES (2) (index shifts on refresh). The fix is an **order-independent stable identity** derived from the warning's content + location, used for BOTH the React key and the surfaceId:
+
 ```ts
-const buildReportSurfaceId = (slug: string, list: "active" | "ignored", w: ParseWarning, i: number) =>
-  `admin-dq-${slug}-${list}-${i}-${w.sourceCell?.gid ?? "na"}-${w.sourceCell?.a1 ?? "na"}`;
+// lib/dataQuality/warningIdentity.ts  (client-safe: pure string, no node:*)
+import { normalizeSnippet } from "./ignorableSnippet";
+export function warningIdentityKey(w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">): string {
+  const cell = w.sourceCell ? `${w.sourceCell.gid}:${w.sourceCell.a1 ?? ""}` : "";
+  const snippet = typeof w.rawSnippet === "string" ? normalizeSnippet(w.rawSnippet) : "";
+  return `${w.code}|${cell}|${snippet}`;
+}
+/** Per-render UNIQUE React keys: identity + a within-render occurrence suffix for the rare
+ *  perfect-duplicate case. Distinguishable items always get suffix 0, so removing a
+ *  different-identity sibling never changes another item's key (stability). */
+export function stableWarningKeys(items: readonly Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((w) => {
+    const base = warningIdentityKey(w);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}#${n}`;
+  });
+}
 ```
-The `list` + `i` tiebreaker guarantees uniqueness even when two warnings share a `(code, sourceCell)` or have no `sourceCell`; `sourceCell` adds within-session stability so a mid-draft report stays attached to its card across a re-render.
+```ts
+// buildReportSurfaceId — SERVER module (hashes the identity so no raw content lands in a DOM attr);
+// lives in lib/dataQuality/warningFingerprint.ts (already server-only, imports sha256Base64Url).
+export function buildReportSurfaceId(slug: string, w: Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet">): string {
+  return `admin-dq-${slug}-${sha256Base64Url(Buffer.from(warningIdentityKey(w), "utf8"))}`;
+}
+```
+
+- **`PerShowActionableWarnings` MUST key its `<li>`s with `stableWarningKeys(items)`** (not `${w.code}-${i}`), so an ignore-driven refresh does not remount surviving siblings. This is a change to the shared component; it is harmless on `StagedReviewCard` (which re-renders fully anyway).
+- **`buildReportSurfaceId` omits the display index and the list.** A warning is in exactly one of {active, ignored} at a time, and its identity is order-independent, so the surfaceId is stable across a sibling ignore. Two *perfect-duplicate* cards (same code + content + null `sourceCell`) intentionally share a surfaceId — they are indistinguishable to the user and the ignore fingerprint already collapses them (ignoring one ignores both, so they never separate). The React key still disambiguates them via the occurrence suffix.
+- The surfaceId is **separate from the ignore fingerprint** (different salt/shape); it is derived server-side and passed as an opaque string to the client (which never hashes).
 
 ### 7.3 Failure copy (plain sentence, D6)
 
@@ -318,7 +350,7 @@ Render the panel when `failed || digestMessages.length>0 || activeActionable.len
 | `<details>` `collapsed ↔ expanded` | summary toggle | Chevron rotates via `transition-transform group-open:rotate-90` (a transform, DESIGN-compliant); disclosure **body appears instantly** (matches me-page Past + `HelpTooltip`; no `max-height` animation in v1 — D9). |
 | Report modal `closed ↔ open` | Report click / dismiss | Owned by the existing `ReportModal` (bottom-sheet/dialog) — unchanged, not in scope. |
 
-**Compound transitions:** clicking Ignore while a *different* warning's Report modal is open — independent state (Report modal owns its own lifecycle keyed by `surfaceId`; Ignore is a separate server round-trip). The `router.refresh()` re-renders the list but does not force-close an open modal instance (each modal is conditionally mounted by its own `ReportButton`'s local `useState`). No interaction bug expected; the transition-audit task must assert the Ignore refresh does not disturb an open Report modal on a sibling card.
+**Compound transitions:** clicking Ignore while a *different* warning's Report modal is open. `router.refresh()` re-renders the active list, which now shrinks by one. Because each `<li>` is keyed by `stableWarningKeys` (order-independent) and each `ReportButton`'s `surfaceId` is `buildReportSurfaceId` (order-independent), the surviving sibling B keeps its React key AND its `surfaceId` — so React does NOT remount B's `<li>`, and B's open modal + in-progress draft are preserved (§7.2). **This preservation is the reason index-based keys/surfaceIds are forbidden.** The transition-audit task (Task 14) MUST force a parent re-render with a shifted list (ignore an earlier sibling) and assert the later sibling's key + surfaceId are unchanged; an index-based implementation fails this test.
 
 ### 7.7 Flag lifecycle (the ignore "flag")
 
@@ -423,7 +455,7 @@ The UI never renders a machine code. Ignore/un-ignore failures render plain sent
 - **AC-11 (schema/RLS):** `ignored_warnings` exists with the `(show_id,fingerprint)` unique, `on delete cascade`, `admin_only` RLS, email-canonical CHECK; manifest regenerated; validation project superset holds; and the table has **no `raw_snippet` column** (manifest lists exactly `[code, fingerprint, id, ignored_at, ignored_by, show_id]`). Catches: migration/validation drift (the silently-drifting class) + accidental PII persistence.
 - **AC-12 (admin-rls baseline):** `admin-rls-runtime` derives 19 class-A tables including `ignored_warnings`; baseline + count updated. Catches: forgetting the Pattern-A lockstep.
 - **AC-13 (client-bundle boundary):** the structural test asserts `DataQualityWarningControls.tsx` (and any other `"use client"` file that renders these controls) imports `hasIgnorableSnippet` from `@/lib/dataQuality/ignorableSnippet` and never imports `@/lib/dataQuality/warningFingerprint`, `@/lib/crypto/sha256`, `node:crypto`, or a bare `sha256`. Catches: re-introducing a `node:crypto` import into a `"use client"` bundle (Codex R1 CRITICAL) — a jsdom unit test would pass while the real client build breaks, so this is a source-grep structural assertion.
-- **AC-14 (report surfaceId uniqueness):** `buildReportSurfaceId` returns distinct ids for two warnings with identical `(code, sourceCell)` at different display indices, and for the same warning in the `active` vs `ignored` list. Catches: two cards sharing a `ReportModal` sessionStorage/idempotency scope → leaked drafts or wrong-report dedup (Codex R1 HIGH). Derived from the fixture indices, not hardcoded ids.
+- **AC-14 (report surfaceId + key: stable AND unique):** (a) `buildReportSurfaceId` / `warningIdentityKey` return the **same** value for the same warning regardless of its position/index in the list (stability); (b) **distinct** values for warnings differing in `code`, `sourceCell`, or normalized `rawSnippet` (uniqueness for distinguishable cards); (c) `stableWarningKeys` returns per-render-unique keys and — critically — removing an earlier, different-identity item does NOT change a later item's key (the compound-transition property). Catches: (1) two cards sharing a `ReportModal` scope → leaked drafts/wrong-report dedup (spec-R1 HIGH); (2) an index-based key/surfaceId remounting a sibling and destroying its open Report modal on an ignore refresh (plan-R1 HIGH). Expected values derived from fixture identities, not hardcoded ids or indices.
 
 ---
 
