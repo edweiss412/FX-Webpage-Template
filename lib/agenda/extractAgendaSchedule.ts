@@ -175,6 +175,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
         bytes: pdfBytes.byteLength,
         numPages: doc.numPages,
         max: AGENDA_MAX_PAGES,
+        code: "AGENDA_TOO_MANY_PAGES",
       });
       return LOW();
     }
@@ -557,6 +558,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
           minTitlePct: AGENDA_CONFIDENCE.minTitlePct,
           minRoomPct: AGENDA_CONFIDENCE.minRoomPct,
         },
+        code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
       });
       return { confidence: "low", corrections, days: [], extractorVersion: EXTRACTOR_VERSION };
     }
@@ -587,6 +589,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       numPages: doc.numPages,
       days: days.length,
       sessions: n,
+      code: "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
     });
     return { confidence: "high", corrections, days, extractorVersion: EXTRACTOR_VERSION };
   } catch (err) {
@@ -596,6 +599,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       source: "agenda.extract",
       bytes: pdfBytes.byteLength,
       error: err,
+      code: "AGENDA_PDFJS_THREW",
     });
     return LOW();
   }
