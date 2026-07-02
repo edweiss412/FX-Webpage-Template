@@ -44,3 +44,25 @@ describe("ignored_warnings schema", () => {
     expect(check).toContain("<> ''");
   });
 });
+
+describe("ignored_warnings RLS (Pattern A: admin_only, no REVOKE)", () => {
+  test("RLS enabled + admin_only FOR ALL policy using is_admin()", () => {
+    const rls = runPsql(`select relrowsecurity from pg_class where oid='public.ignored_warnings'::regclass;`);
+    expect(rls).toBe("t");
+    const policy = runPsql(`
+      select policyname || '|' || cmd || '|' || coalesce(qual,'') || '|' || coalesce(with_check,'')
+        from pg_policies where schemaname='public' and tablename='ignored_warnings';
+    `);
+    expect(policy).toMatch(/^admin_only\|ALL\|.*is_admin.*\|.*is_admin/);
+  });
+
+  test("DML granted to authenticated (Pattern A, not REVOKE-locked)", () => {
+    const grants = runPsql(`
+      select string_agg(privilege_type, ',' order by privilege_type)
+        from information_schema.role_table_grants
+       where table_schema='public' and table_name='ignored_warnings' and grantee='authenticated';
+    `);
+    expect(grants).toContain("INSERT");
+    expect(grants).toContain("DELETE");
+  });
+});
