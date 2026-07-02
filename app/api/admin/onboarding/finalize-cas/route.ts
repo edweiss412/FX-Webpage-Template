@@ -918,7 +918,14 @@ export async function handleOnboardingFinalizeCasStream(
           await deps.subscribeToWatchedFolder(result.watched_folder_id);
           emit({ type: "result", body: result });
         }
-      } catch {
+      } catch (error) {
+        // Mirror the non-streaming sibling (handleOnboardingFinalizeCas): bind + log the
+        // caught error so an unexpected failure on the wizard's PRIMARY (streaming) path is
+        // diagnosable server-side. Emitted client body is unchanged; only the log meta is added.
+        log.error("onboarding finalize-cas: unexpected failure (stream)", {
+          source: "api.admin.onboarding.finalizeCas",
+          error,
+        });
         emit({ type: "result", body: { ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" } });
       } finally {
         try {
