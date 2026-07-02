@@ -14,7 +14,7 @@ describe("hasIgnorableSnippet", () => {
     expect(hasIgnorableSnippet({ rawSnippet: "Storage | x" })).toBe(true);
     expect(hasIgnorableSnippet({ rawSnippet: "   " })).toBe(false);
     expect(hasIgnorableSnippet({ rawSnippet: "" })).toBe(false);
-    expect(hasIgnorableSnippet({ rawSnippet: undefined })).toBe(false);
+    expect(hasIgnorableSnippet({})).toBe(false);
     // @ts-expect-error non-string guard
     expect(hasIgnorableSnippet({ rawSnippet: 123 })).toBe(false);
   });

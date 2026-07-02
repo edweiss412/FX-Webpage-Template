@@ -65,7 +65,7 @@ export function DataQualityWarningControls({ slug, showId, warning, mode, report
               sourceCell: warning.sourceCell ?? null,
               blockRef: warning.blockRef ?? null,
             },
-            rawSnippet: warning.rawSnippet ?? undefined,
+            ...(warning.rawSnippet ? { rawSnippet: warning.rawSnippet } : {}),
             viewerVisibleSection: "data-quality",
           }}
         />

@@ -3,7 +3,12 @@ import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import type { ParseWarning } from "@/lib/parser/types";
 
-const w = (code: string, rawSnippet?: string): ParseWarning => ({ severity: "warn", code, message: `${code} msg`, rawSnippet });
+const w = (code: string, rawSnippet?: string): ParseWarning => ({
+  severity: "warn",
+  code,
+  message: `${code} msg`,
+  ...(rawSnippet !== undefined ? { rawSnippet } : {}),
+});
 
 describe("partitionByIgnored", () => {
   test("AC-3: a warning whose fingerprint is stored lands in `ignored`; others in `active`", () => {

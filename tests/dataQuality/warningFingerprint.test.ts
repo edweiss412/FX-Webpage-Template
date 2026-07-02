@@ -20,6 +20,6 @@ describe("warningFingerprint", () => {
   test("AC-2: null (not ignorable) when snippet is missing or blank", () => {
     expect(warningFingerprint({ code: "AGENDA_GRID_MALFORMED" })).toBeNull();
     expect(warningFingerprint({ code: "X", rawSnippet: "   " })).toBeNull();
-    expect(warningFingerprint({ code: "X", rawSnippet: undefined })).toBeNull();
+    expect(warningFingerprint({ code: "X" })).toBeNull();
   });
 });

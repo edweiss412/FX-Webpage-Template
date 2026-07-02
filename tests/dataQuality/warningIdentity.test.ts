@@ -4,9 +4,12 @@ import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 import type { ParseWarning } from "@/lib/parser/types";
 
 const w = (code: string, rawSnippet?: string, gid?: number, a1?: string, blockRef?: ParseWarning["blockRef"]): ParseWarning => ({
-  severity: "warn", code, message: "m", rawSnippet,
-  sourceCell: gid === undefined ? null : { title: "STAGE", gid, a1 },
-  blockRef,
+  severity: "warn",
+  code,
+  message: "m",
+  ...(rawSnippet !== undefined ? { rawSnippet } : {}),
+  sourceCell: gid === undefined ? null : { title: "STAGE", gid, ...(a1 !== undefined ? { a1 } : {}) },
+  ...(blockRef !== undefined ? { blockRef } : {}),
 });
 
 describe("warningIdentityKey / buildReportSurfaceId (AC-14)", () => {

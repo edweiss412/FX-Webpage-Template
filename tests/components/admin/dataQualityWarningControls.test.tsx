@@ -10,7 +10,12 @@ vi.mock("next/navigation", () => ({
 
 afterEach(() => cleanup());
 
-const w = (rawSnippet?: string): ParseWarning => ({ severity: "warn", code: "UNKNOWN_FIELD", message: "m", rawSnippet });
+const w = (rawSnippet?: string): ParseWarning => ({
+  severity: "warn",
+  code: "UNKNOWN_FIELD",
+  message: "m",
+  ...(rawSnippet !== undefined ? { rawSnippet } : {}),
+});
 const base = { slug: "rpas", showId: "00000000-0000-0000-0000-000000000001", driveFileId: "df", reportSurfaceId: "sid-1" } as const;
 
 describe("DataQualityWarningControls", () => {
