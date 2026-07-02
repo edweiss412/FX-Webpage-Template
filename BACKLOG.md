@@ -72,3 +72,15 @@ The modal body is exactly 6 BreakdownSections + Agenda + Warnings (`Step3SheetCa
 4. Regression: commit an approve/unapprove AFTER `selectFinishableCleanRows` but BEFORE `processApprovedRow` takes the show lock; assert finalize honors the latest intent (publishes the checked, Holds the unchecked).
 
 **Reference:** `app/api/admin/onboarding/finalize/route.ts` (`selectFinishableCleanRows` ~:346, `processApprovedRow` ~:710 incl. the agenda re-read ~:729); approve `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts:125`.
+
+## BL-WATCH-RECONCILE-BACKOFF — dedicated reconcile cron + backoff state for watch channels
+
+**Status:** OPEN · **Severity:** low (Approach A ships hourly reconcile; this is the richer variant) · **Surfaced:** watch-channel-health brainstorming (2026-07-01), user-ratified as backlog
+
+Approach B from `docs/superpowers/specs/2026-07-01-watch-channel-health-design.md` §2/D1: a dedicated `fxav_cron_reconcile_watch` (`*/15`) plus a `drive_watch_reconcile_state` table (attempts, `next_attempt_at`, last error class) giving precise exponential backoff and faster recovery than the shipped hourly reconcile pass. Adopt if the hourly cadence proves too slow in practice (e.g., renewal failures near show start) or if escalation cadence needs sub-hour precision. Costs: new cron + migration + validation-parity surface + cronJobsParity/pg-cron registrations + more tests.
+
+## BL-COPY-CRON-SWEEP — de-jargon "cron" across the remaining catalog codes
+
+**Status:** OPEN · **Severity:** low (copy quality; admin-facing) · **Surfaced:** watch-channel-health spec §3.5 (2026-07-01)
+
+`WATCH_CHANNEL_ORPHANED` copy was de-jargoned in the watch-channel-health feature. The same "cron" implementation jargon remains in four other catalog entries: `STAGED_PARSE_SUPERSEDED` (`lib/messages/catalog.ts:555,558`), `NO_FOLDER_CONFIGURED` (`:677,680`), `MISSING_PENDING_INGESTION_MODTIME` (`:1833,1836`), `SYNC_DELAYED_SEVERE` (`:1929-1936`). Each edit is a §12.4 three-way-lockstep change (spec prose + `pnpm gen:spec-codes` + catalog.ts, x1 gate). Line numbers verified 2026-07-01; re-grep before executing.
