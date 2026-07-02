@@ -51,8 +51,8 @@
 ```ts
 import { describe, it, expect } from "vitest";
 import {
-  asAdminRpc, readShow, readShareToken, scratchCount, pendingSyncCount,
-  seedLiveShowWithToken, seedArchivedShow, sqlClient,
+  asAdminRpc, callUnpublishShowAsNonAdmin, readShow, readShareToken, scratchCount,
+  pendingSyncCount, seedLiveShowWithToken, seedArchivedShow, sqlClient,
 } from "@/tests/db/_b2Helpers";
 
 async function versionToken(showId: string): Promise<string> {
@@ -325,11 +325,22 @@ Barrel: add `export { setShowPublishedAction } from "./setPublished";` to `_acti
 
 ---
 
-### Task 4: Soften the emailed-link engine + finalize-owned guard
+### Task 4: Soften the emailed-link engine + finalize-owned guard + ALL public-surface mappings (one commit)
+
+> Task 5's surfaces are folded in here (plan R4): the `finalize_owned` outcome and EVERY live consumer of `UnpublishShowResult` land in ONE commit — otherwise the Task-4 commit leaves `confirmUnpublishAction` returning `undefined` (`app/show/[slug]/unpublish/actions.ts:57-74` switches only success/expired/consumed/not_found) and the API route emitting 404 instead of the spec's 409 (`route.ts:56` fallthrough).
 
 **Files:**
+- Modify: `app/show/[slug]/unpublish/copy.ts` — `ConfirmUnpublishActionState` gains `{ status: "busy" }`; new constants (exact copy):
+
+```ts
+export const BUSY_HEADING = "This show is being updated";
+export const BUSY_BODY =
+  "Changes are being finalized right now. Nothing has changed — try again in a few minutes.";
+```
+
+- Modify: `app/show/[slug]/unpublish/actions.ts` (explicit `finalize_owned` case → `{ status: "busy" }`), `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx` (busy render — same block shape as the existing `infra` state, BUSY constants), `app/api/show/[slug]/unpublish/route.ts` (insert `if (result.outcome === "finalize_owned") return NextResponse.json({ ok: false }, { status: 409 });` ABOVE the trailing 404 return at `:56`)
 - Modify: `lib/sync/unpublishShow.ts`, `lib/sync/runManualSyncForShow.ts:113` (widen one param type), `tests/sync/_secondCopyApplyTripwire.test.ts:71-72` — the allowlist names `async archiveAndConsumeUnpublishToken(` and THROWS on a missing allowlisted symbol (`:87-89`); rename the entry to `async unpublishAndConsumeUnpublishToken(` (the softened body still contains `update public.shows`, so the allowlist row must survive, not be dropped)
-- Test: `tests/sync/unpublishShow.test.ts` + `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (update fakes/assertions), `tests/sync/unpublishArchiveParity.test.ts` → REWRITE as unpublish parity, `tests/sync/_secondCopyApplyTripwire.test.ts` (run with the sync suites)
+- Test: `tests/sync/unpublishShow.test.ts` + `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (update fakes/assertions), `tests/sync/unpublishArchiveParity.test.ts` → REWRITE as unpublish parity, `tests/sync/_secondCopyApplyTripwire.test.ts` (run with the sync suites), `tests/show/unpublishConfirmAction.test.ts` (busy state), `tests/api/show-unpublish-route.test.ts` (+realdb variant: 409 + token-intact re-read)
 
 **Interfaces:**
 - Produces: `UnpublishShowResult` gains `{ outcome: "finalize_owned"; status: 409; showId: string }`; tx method renamed `unpublishAndConsumeUnpublishToken(showId, token): Promise<boolean>`. Plain `unpublishShow`/`unpublishShow_unlocked`/`readUnpublishTokenForSlug` remain ALIVE until Task 8 (the in-app action still imports them) — and BECAUSE the shared consume path can now return `finalize_owned`, the still-live `undoAutoPublishAction` gets an interim mapping in THIS task (its switch at `app/admin/show/[slug]/_actions/undoAutoPublish.ts:74-81` covers only success/expired/consumed/not_found and would return `undefined`): map `finalize_owned` → the action's existing `infra_error`-shaped retry outcome (transient, retryable — honest copy for the ~one-task window; the whole action dies in Task 8). Extend `tests/app/admin/undo-auto-publish-action.test.ts` with that case in Step 1.
@@ -351,7 +362,7 @@ it("token Unpublish reaches the same UNPUBLISHED end-state as admin unpublish_sh
 });
 ```
 
-Add `unpublishedStateSnapshot` to `tests/db/_b2Helpers.ts` (mirror `archivedStateSnapshot:254` but asserting the D1 negative set). For `bindingFor`, reuse the r-derivation already used by `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (`mintIdFor` + binding builder from `lib/sync/unpublishBinding.ts`). Add a second parity case: live+finalize-owned seed → RPC rejects `FINALIZE_OWNED_SHOW` and emailed path returns `finalize_owned` with token still present.
+Add `unpublishedStateSnapshot` to `tests/db/_b2Helpers.ts` (mirror `archivedStateSnapshot:254` but asserting the D1 negative set). For `bindingFor`, reuse the r-derivation already used by `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (`mintIdFor` + binding builder from `lib/sync/unpublishBinding.ts`). Add a second parity case: live+finalize-owned seed → RPC rejects `FINALIZE_OWNED_SHOW` and emailed path returns `finalize_owned` with token still present. (c) Public-surface cases (from folded Task 5): `confirmUnpublishAction` returns `{status:"busy"}` for `finalize_owned`; `ConfirmUnpublishForm` renders `BUSY_HEADING`+`BUSY_BODY` (query scoped inside the form's own container testid); route returns 409 (not the 404 fallthrough) with token surviving (realdb re-read).
 - [ ] **Step 2: Verify fail** — `pnpm vitest run tests/sync/unpublishShow.test.ts tests/sync/unpublishArchiveParity.test.ts`.
 - [ ] **Step 3: Implement.** In `lib/sync/unpublishShow.ts`: (a) add the union member; (b) rename + soften the mutation:
 
@@ -384,40 +395,14 @@ if (await readFinalizeOwnershipGuard_unlocked(tx, show.driveFileId)) {
 ```
 
 (import from `@/lib/sync/runManualSyncForShow`; widen that function's tx param as noted in Interfaces). Update interface member name + all fakes.
-- [ ] **Step 4: Verify pass** — engine + concurrency + parity suites + `pnpm vitest run tests/sync/_secondCopyApplyTripwire.test.ts`, run individually.
-- [ ] **Step 5: Commit** — `feat(sync): emailed undo becomes pure unpublish with finalize-owned refusal`
+- [ ] **Step 4: Verify pass** — engine + concurrency + parity + tripwire + `tests/show/unpublishConfirmAction.test.ts` + `tests/api/show-unpublish-route*.test.ts`, run individually.
+- [ ] **Step 5: Commit (ONE commit — engine + every consumer)** — `feat(sync): emailed undo becomes pure unpublish; finalize-owned refusal through confirm page + API`
 
 ---
 
-### Task 5: `finalize_owned` through the public surfaces (busy / 409)
+### Task 5: (folded into Task 4 — plan R4)
 
-**Files:**
-- Modify: `app/show/[slug]/unpublish/copy.ts` (+`BUSY_HEADING`/`BUSY_BODY`, `ConfirmUnpublishActionState` gains `{ status: "busy" }`), `app/show/[slug]/unpublish/actions.ts` (explicit `finalize_owned` case), `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx` (busy render), `app/api/show/[slug]/unpublish/route.ts` (409 mapping BEFORE the 404 fallthrough at `:56`)
-- Test: `tests/show/unpublishConfirmAction.test.ts`, `tests/api/show-unpublish-route.test.ts` (+ realdb variant if it enumerates outcomes)
-
-**Interfaces:**
-- Consumes: Task 4's `finalize_owned` outcome.
-- Produces: copy constants:
-
-```ts
-export const BUSY_HEADING = "This show is being updated";
-export const BUSY_BODY =
-  "Changes are being finalized right now. Nothing has changed — try again in a few minutes.";
-```
-
-- [ ] **Step 1: Failing tests** — action returns `{status:"busy"}` for `finalize_owned`; form renders `BUSY_HEADING`+`BUSY_BODY` (scope the query inside the form's own container testid, not the page); route returns `{ ok: false }` with status 409 and does NOT hit the 404 fallthrough; a token re-read in the realdb route test proves the token survived.
-- [ ] **Step 2: Verify fail.**
-- [ ] **Step 3: Implement** — action switch: `case "finalize_owned": return { status: "busy" };` route (insert ABOVE the trailing 404 return):
-
-```ts
-if (result.outcome === "finalize_owned") {
-  return NextResponse.json({ ok: false }, { status: 409 });
-}
-```
-
-Form: render busy exactly like the existing `infra` state block but with the BUSY constants (same styling classes).
-- [ ] **Step 4: Verify pass.**
-- [ ] **Step 5: Commit** — `feat(show): busy (409) confirm-page state for finalize-owned unpublish`
+The `finalize_owned` public-surface mappings ship in Task 4's single commit; no separate task remains.
 
 ---
 
