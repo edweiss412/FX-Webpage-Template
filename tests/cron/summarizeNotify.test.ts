@@ -8,7 +8,10 @@ describe("summarizeNotify", () => {
       maintenance: [],
     } as never);
     expect(s.outcome).toBe("ok");
-    expect(s.detail).toMatchObject({ deliveryKind: "skipped", deliverySkipReason: "config_invalid" });
+    expect(s.detail).toMatchObject({
+      deliveryKind: "skipped",
+      deliverySkipReason: "config_invalid",
+    });
   });
   test("ok delivery → deliveryKind ok, no skip reason", () => {
     const s = summarizeNotify({ delivery: { kind: "ok", sent: 2 }, maintenance: [] } as never);
