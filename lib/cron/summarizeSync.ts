@@ -16,12 +16,15 @@ const FAILED = new Set([
 // never silently benign (§4.4 exhaustiveness).
 const SKIPPED = new Set(["skipped", "asset_recovery"]);
 
+const MAX_FAILURE_BREADCRUMBS = 25;
+
 export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummary {
   let applied = 0,
     staged = 0,
     skipped = 0,
     failed = 0;
-  for (const { result: r } of result.processed) {
+  const failures: Array<{ driveFileId: string; outcome: string; code?: string }> = [];
+  for (const { driveFileId, result: r } of result.processed) {
     // ConcurrentSyncSkipped has shape { skipped: CONCURRENT_SYNC_SKIPPED } — NO `outcome` field
     // (lib/sync/lockedShowTx.ts:16-18). A benign lock-contention skip; count as skipped, not failed.
     if ((r as { skipped?: string }).skipped === CONCURRENT_SYNC_SKIPPED) {
@@ -32,8 +35,13 @@ export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummar
     if (outcome === "applied") applied++;
     else if (outcome === "stage") staged++;
     else if (outcome && SKIPPED.has(outcome)) skipped++;
-    else if (outcome && FAILED.has(outcome)) failed++;
-    else failed++; // UNKNOWN/unforeseen outcome → conservative failure (never silently benign)
+    else {
+      failed++; // FAILED-set OR conservative unknown (never silently benign)
+      if (failures.length < MAX_FAILURE_BREADCRUMBS) {
+        const code = (r as { code?: string }).code;
+        failures.push({ driveFileId, outcome: outcome ?? "unknown", ...(code ? { code } : {}) });
+      }
+    }
   }
   const counts = { processed: result.processed.length, applied, staged, skipped, failed };
 
@@ -42,9 +50,14 @@ export function summarizeSync(result: RunScheduledCronSyncResult): CronRunSummar
   }
   const heartbeatFault = result.maintenanceFaults?.syncCronHeartbeat === "infra_error";
   if (failed > 0 || heartbeatFault) {
-    // exactOptionalPropertyTypes: omit `detail` rather than assign `undefined`.
-    return result.maintenanceFaults
-      ? { outcome: "partial", counts, detail: { maintenanceFaults: result.maintenanceFaults } }
+    // exactOptionalPropertyTypes: omit each key rather than assign `undefined`.
+    const detail = {
+      ...(result.maintenanceFaults ? { maintenanceFaults: result.maintenanceFaults } : {}),
+      ...(failures.length > 0 ? { failures } : {}),
+      ...(failures.length > 0 && failed > failures.length ? { failuresTruncated: true } : {}),
+    };
+    return Object.keys(detail).length > 0
+      ? { outcome: "partial", counts, detail }
       : { outcome: "partial", counts };
   }
   if (result.summary?.outcome === "skipped") {
