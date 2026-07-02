@@ -139,13 +139,16 @@ describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", (
     expect(out).toBe("1|1|1|1|1|1|1");
   });
 
-  test("seed inserts the two literal admins (idempotent)", () => {
+  test("seed inserts the single literal admin (idempotent)", () => {
     const out = runPsql(`
       select string_agg(email, ',' order by email)
         from public.admin_emails
-       where email in ('dlarson@fxav.net', 'edweiss412@gmail.com');
+       where email in ('dlarson@fxav.net', 'edweiss412@gmail.com')
+         and revoked_at is null;
     `);
-    expect(out).toBe("dlarson@fxav.net,edweiss412@gmail.com");
+    // dlarson@fxav.net is no longer a deploy seed; only edweiss412 is
+    // seeded active on a fresh reset.
+    expect(out).toBe("edweiss412@gmail.com");
   });
 
   test("CHECK rejects non-canonical email (mixed-case, leading/trailing whitespace)", () => {
@@ -573,11 +576,13 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
   });
 
   test("R2 CRITICAL: non-admin direct revoke leaves target row active", () => {
+    // Targets edweiss412@gmail.com — the remaining seeded active admin
+    // (dlarson@fxav.net is no longer a deploy seed).
     try {
       runPsql(`
         set role authenticated;
         set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000033","email":"attacker@example.com"}';
-        select public.revoke_admin_email_rpc('dlarson@fxav.net');
+        select public.revoke_admin_email_rpc('edweiss412@gmail.com');
       `);
     } catch {
       // expected
@@ -585,7 +590,7 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     const out = runPsql(`
       reset role;
       reset request.jwt.claims;
-      select 'active=' || (revoked_at is null) from public.admin_emails where email = 'dlarson@fxav.net';
+      select 'active=' || (revoked_at is null) from public.admin_emails where email = 'edweiss412@gmail.com';
     `);
     expect(out).toContain("active=true");
   });
@@ -641,9 +646,10 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
       runPsql(
         `delete from public.admin_emails where email in (${sqlString(alpha)}, ${sqlString(beta)});`,
       );
-      // Restore the seed admins as active.
+      // Restore the seed admin as active (edweiss412@gmail.com is the
+      // only deploy seed; dlarson@fxav.net is intentionally not restored).
       runPsql(
-        `update public.admin_emails set revoked_at = null, revoked_by = null where email in ('dlarson@fxav.net', 'edweiss412@gmail.com');`,
+        `update public.admin_emails set revoked_at = null, revoked_by = null where email = 'edweiss412@gmail.com';`,
       );
     }
   });

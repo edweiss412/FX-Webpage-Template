@@ -109,14 +109,18 @@ create policy admin_only on public.admin_emails
   using (public.is_admin());
 
 -- 3. Seed --------------------------------------------------------------------
--- Insert the literal seed admins so deployments aren't admin-less after
+-- Insert the literal seed admin so deployments aren't admin-less after
 -- a fresh `supabase db reset`. ON CONFLICT DO NOTHING makes this safe
 -- to re-apply (idempotent). added_by = NULL marks the row as a seed,
 -- which the UI surfaces as "Seed admin · Added at deploy".
+--
+-- dlarson@fxav.net was previously seeded here but is intentionally no
+-- longer a deploy seed. Existing deployments keep their historical row
+-- (already revoked, audit trail preserved); this only stops fresh
+-- resets from re-seeding it as an active admin.
 
 insert into public.admin_emails (email, added_by, added_at)
 values
-  ('dlarson@fxav.net', null, now()),
   ('edweiss412@gmail.com', null, now())
 on conflict (email) do nothing;
 
