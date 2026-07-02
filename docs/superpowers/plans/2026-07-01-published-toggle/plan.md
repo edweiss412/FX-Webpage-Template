@@ -23,7 +23,7 @@
 
 ## Meta-test inventory (EXTENDS)
 
-`tests/db/b2-lifecycle-rpc-meta.test.ts` (T1) · `tests/showLifecycle/callers.test.ts` (T2) · `tests/sync/_advisoryLockSingleHolderContract.test.ts` (T8 — plain-`unpublishShow` holder row removed) · `tests/components/admin/transitionAudit.test.tsx` (T8) · `tests/messages/_metaAdminAlertCatalog.test.ts` (T1 — its `SHOW_UNPUBLISHED` registry entry `:195-202` pins only the `lib/sync/unpublishShow.ts` producer; Task 1 Step 5 adds a documented second-producer note + a migration-file pattern assertion so the SQL-side `upsert_admin_alert` producer is structurally pinned, not silently exempt). CREATES: none.
+`tests/db/b2-lifecycle-rpc-meta.test.ts` (T1) · `tests/showLifecycle/callers.test.ts` (T2) · `tests/sync/_advisoryLockSingleHolderContract.test.ts` (T2 — standalone in-RPC topology test for `unpublish_show`; T8 — plain-`unpublishShow` holder row removed) · `tests/components/admin/transitionAudit.test.tsx` (T8) · `tests/messages/_metaAdminAlertCatalog.test.ts` (T1 — its `SHOW_UNPUBLISHED` registry entry `:195-202` pins only the `lib/sync/unpublishShow.ts` producer; Task 1 Step 5 adds a documented second-producer note + a migration-file pattern assertion so the SQL-side `upsert_admin_alert` producer is structurally pinned, not silently exempt). CREATES: none.
 
 ## Advisory-lock holder topology (hashkey `show:<drive_file_id>`)
 
@@ -224,7 +224,7 @@ Apply locally: `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -
 
 **Files:**
 - Create: `lib/showLifecycle/unpublishShow.ts`
-- Test: `tests/showLifecycle/callers.test.ts` (extend)
+- Test: `tests/showLifecycle/callers.test.ts` (extend), `tests/sync/_advisoryLockSingleHolderContract.test.ts` (extend — see Step 3a)
 
 **Interfaces:**
 - Produces: `unpublishShow(showId: string, deps?: { rpc?: LifecycleRpc }): Promise<LifecycleResult>` (NOTE: deliberate name twin of `lib/sync/unpublishShow.ts`'s token-flow export — different module, different path; spec §3.2).
@@ -247,7 +247,22 @@ export async function unpublishShow(
 }
 ```
 
-- [ ] **Step 4: Verify pass** — same command → PASS.
+- [ ] **Step 3a: Register the in-RPC holder topology (spec §3.4/§8).** The contract test's file-walk registry covers only `lib/**` JS holders (`_advisoryLockSingleHolderContract.test.ts:158`), so the RPC gets an explicit standalone test in that file (alongside the existing topology tests at `:448-474`):
+
+```ts
+test("unpublish_show admin path holds the lock in-RPC only (single-holder)", () => {
+  const migration = read("supabase/migrations/20260701000000_published_toggle_unpublish_show.sql");
+  // Wrapper takes the show lock; the private core takes none.
+  expect(migration).toMatch(/create or replace function public\.unpublish_show[\s\S]*?pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'/);
+  expect(migration.split("_unpublish_show_core")[1]).not.toBeUndefined();
+  // JS caller must NOT add a second layer: no advisory SQL, no withShowLock.
+  const caller = read("lib/showLifecycle/unpublishShow.ts");
+  expect(caller).not.toMatch(/pg_(?:try_)?advisory_xact_lock|withShowLock/);
+});
+```
+
+(Use the file's existing `read()` helper; if `read` resolves relative to `lib/`, inline `readFileSync(join(root, ...))` the way the neighboring topology tests do. The core-lockless assertion stays in `tests/db/b2-lifecycle-rpc-meta.test.ts` (Task 1 Step 5a) — this test pins the LAYERING, the psql test pins the DB truth.)
+- [ ] **Step 4: Verify pass** — `pnpm vitest run tests/showLifecycle/callers.test.ts tests/sync/_advisoryLockSingleHolderContract.test.ts` → PASS.
 - [ ] **Step 5: Commit** — `feat(admin): unpublishShow lifecycle caller`
 
 ---
