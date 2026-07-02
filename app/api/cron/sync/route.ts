@@ -4,6 +4,8 @@ import { runScheduledCronSync } from "@/lib/sync/runScheduledCronSync";
 import { writeSyncLog } from "@/lib/sync/syncLog";
 import { runCronRoute } from "@/lib/cron/withCronRunSummary";
 import { summarizeSync } from "@/lib/cron/summarizeSync";
+// not-subject-to-meta: cron summary annotation, fail-open by contract
+import { annotateSyncStateChange } from "@/lib/cron/annotateSyncStateChange";
 
 export async function GET(request: NextRequest): Promise<Response> {
   const rejected = rejectUnauthorizedCron(request);
@@ -12,7 +14,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     const result = await runScheduledCronSync({ logSync: writeSyncLog });
     return {
       response: NextResponse.json({ ok: true, processed: result.processed }),
-      summary: summarizeSync(result),
+      summary: await annotateSyncStateChange(summarizeSync(result)),
     };
   });
 }

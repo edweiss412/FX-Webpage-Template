@@ -156,6 +156,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/cron/sync/route.ts", chain: "cron" },
   { path: "app/api/drive/webhook/route.ts", chain: "public" },
   { path: "app/api/observe/client-error/route.ts", chain: "public" },
+  // Public build-metadata health endpoint (deploy-liveness): returns only
+  // VERCEL_GIT_COMMIT_SHA/ref/env, no auth, no data access — intentionally public.
+  { path: "app/api/health/route.ts", chain: "public" },
   { path: "app/api/test-auth/set-session/route.ts", chain: "public" },
   { path: "middleware.ts", chain: "auth-library-exception" },
 ];

@@ -21,15 +21,42 @@ export async function runCronRoute(
       outcome = await handler();
     } catch (err) {
       const durationMs = Date.now() - startedAt;
+      const ctx = (
+        err as {
+          syncRunContext?: {
+            phase?: string;
+            folderId?: string | null;
+            inFlightDriveFileId?: string | null;
+            processedBeforeThrow?: number;
+            failures?: Array<{ driveFileId: string; outcome: string; code?: string }>;
+          };
+        } | null
+      )?.syncRunContext;
       // best-effort; never let a logging fault mask the cron error
       try {
         await log.error(`cron ${jobName} run`, {
           source,
-          code: CRON_RUN_SUMMARY,
+          code: CRON_RUN_SUMMARY, // LITERAL — scanner-safe
           jobName,
           outcome: "threw",
           durationMs,
           error: err,
+          ...(ctx?.inFlightDriveFileId ? { driveFileId: ctx.inFlightDriveFileId } : {}),
+          ...(ctx?.phase ||
+          ctx?.failures?.length ||
+          ctx?.folderId ||
+          typeof ctx?.processedBeforeThrow === "number"
+            ? {
+                detail: {
+                  ...(ctx?.phase ? { phase: ctx.phase } : {}),
+                  ...(ctx?.folderId ? { folderId: ctx.folderId } : {}),
+                  ...(ctx?.failures?.length ? { failures: ctx.failures } : {}),
+                  ...(typeof ctx?.processedBeforeThrow === "number"
+                    ? { processedBeforeThrow: ctx.processedBeforeThrow }
+                    : {}),
+                },
+              }
+            : {}),
         });
       } catch {
         /* swallow logging fault */
