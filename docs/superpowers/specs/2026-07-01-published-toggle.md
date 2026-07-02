@@ -38,21 +38,25 @@ Replaces the window-gated "Undo auto-publish" actions and the Held-show Publish 
 
 New migration `supabase/migrations/<ts>_published_toggle_unpublish_show.sql` mirroring the `archive_show` shape exactly (same file even documents the pattern):
 
-- `_unpublish_show_core(p_show_id uuid)` — lockless, private (`revoke all` from everyone): 
+- `_unpublish_show_core(p_show_id uuid)` — lockless, private (`revoke all` from everyone); declares its own locals (R2 finding — wrapper locals are not visible here):
   ```sql
-  update public.shows
-     set published = false,
-         unpublish_token = null,
-         unpublish_token_expires_at = null
-   where id = p_show_id;
-  perform public.upsert_admin_alert(p_show_id, 'SHOW_UNPUBLISHED',
-          jsonb_build_object('drive_file_id', v_drive, 'sheet_name', v_title));
-  perform public.publish_show_invalidation(p_show_id);
+  declare v_drive text; v_title text;
+  begin
+    select drive_file_id, title into v_drive, v_title from public.shows where id = p_show_id;
+    update public.shows
+       set published = false,
+           unpublish_token = null,
+           unpublish_token_expires_at = null
+     where id = p_show_id;
+    perform public.upsert_admin_alert(p_show_id, 'SHOW_UNPUBLISHED',
+            jsonb_build_object('drive_file_id', v_drive, 'sheet_name', v_title));
+    perform public.publish_show_invalidation(p_show_id);
+  end
   ```
   Explicitly ABSENT (D1): `archived`/`archived_at`, `picker_epoch` bump, `show_share_tokens` rotation, scratch-table deletes.
-- `unpublish_show(p_show_id uuid)` — admin-gated, self-locking: `is_admin()` gate → read `drive_file_id` (immutable, safe pre-lock) → `P0002 ADMIN_LINK_SHOW_NOT_FOUND` when missing → `pg_advisory_xact_lock(hashtext('show:'||v_drive))` → **post-lock re-read** of `archived`/`published` → `archived` raises `P0001 SHOW_ARCHIVED_IMMUTABLE` → already-unpublished returns (idempotent no-op, no alert spam) → `_unpublish_show_core`. `revoke all` + `grant execute to authenticated`.
+- `unpublish_show(p_show_id uuid)` — admin-gated, self-locking: `is_admin()` gate → read `drive_file_id` (immutable, safe pre-lock) → `P0002 ADMIN_LINK_SHOW_NOT_FOUND` when missing → `pg_advisory_xact_lock(hashtext('show:'||v_drive))` → **post-lock re-read** of `archived`/`published` → `archived` raises `P0001 SHOW_ARCHIVED_IMMUTABLE` → already-unpublished returns (idempotent no-op, no alert spam) → **finalize-owned refusal**: `if public.readfinalizeowned_b2(p_show_id) then raise P0001 FINALIZE_OWNED_SHOW` (R2 finding — the predicate's `shows_pending_changes` branch, `20260601000000_b2_show_lifecycle.sql:28-34`, is NOT constrained to unpublished shows, so a live show can be finalize-owned mid-pending-changes-finalize; matches `archive_show:75-77`) → `_unpublish_show_core`. `revoke all` + `grant execute to authenticated`.
 - Clearing the token pair satisfies `shows_unpublish_token_pair_check` (both null) and kills any outstanding emailed undo link the moment an admin manually unpublishes — a later manual re-publish does NOT re-mint a token (minting stays exclusive to the auto-publish tails, §2).
-- No `readfinalizeowned_b2` refusal needed in the OFF direction: a finalize-owned show is by definition `published=false` (`20260601000000_b2_show_lifecycle.sql:23` predicate), so it lands on the idempotent no-op branch.
+- Ordering note: the idempotent already-unpublished early-return sits BEFORE the finalize-owned refusal (matching `archive_show`'s idempotency-first shape) — a finalize-owned Held show no-ops rather than erroring.
 
 **DDL idempotency:** `create or replace function` throughout; migration is safe to re-apply. Post-migration checklist (AGENTS.md): local apply + tests → `pnpm gen:schema-manifest` (commit if the manifest changes — RPC-only migrations may be a manifest no-op; run it regardless) → surgical apply to validation project (`supabase db query --linked` or psql `$TEST_DATABASE_URL`) + `notify pgrst, 'reload schema'`.
 
@@ -73,10 +77,13 @@ Props: `{ slug, published: boolean, finalizeOwned: boolean, setPublished: (next:
 
 | Page state | Toggle renders | Notes |
 |---|---|---|
-| Live (`published && !archived`) | ON, enabled | Sub-line: "Crew link is active." |
+| Live (`published && !archived && !finalizeOwned`) | ON, enabled | Sub-line: "Crew link is active." |
 | Held (`!published && !archived && !finalizeOwned`) | OFF, enabled | Sub-line: "Crew link is off — nobody can open this show." |
-| Publishing… (`finalizeOwned && !published`) | OFF, **disabled** | Explainer: publish is finishing; the switch unlocks when it's done. |
+| Publishing… (`finalizeOwned && !published && !archived`) | OFF, **disabled** | Explainer: publish is finishing; the switch unlocks when it's done. |
+| Live + finalize-owned (`finalizeOwned && published && !archived`) | ON, **disabled** | R2 finding: a pending-changes finalize can own a LIVE show. Explainer: changes are being finalized; the switch unlocks when it's done. |
 | Archived | **Not rendered** | Archived surface keeps its existing disclosure + Unarchive (`page.tsx:498-527`). |
+
+The disable condition is `finalizeOwned` alone — never `finalizeOwned && !published`.
 
 **Guard conditions:** `published`/`finalizeOwned` are server-computed booleans (`page.tsx:331,350-356`) — never null/undefined at the callsite; the island takes plain booleans, no degraded read state exists (unlike `AutoPublishToggle`'s `infra_error` initial — the page 404s before rendering if the show read fails).
 
@@ -86,7 +93,7 @@ Props: `{ slug, published: boolean, finalizeOwned: boolean, setPublished: (next:
 
 **Removed from the page:** footer undo render + `undoWindowOpen` computation (`page.tsx:338-340,855-861`), `PerShowAlertSection`'s `undoWindowOpen`/`undoAutoPublishAction` props and alert-row undo wiring (`page.tsx:480-489`, `components/admin/PerShowAlertSection.tsx`), Held-section `PublishShowButton` (`page.tsx:528-531`; the `held-disclosure` copy repoints at the toggle: "Held — not published. Turn on Published in Share & access to make it live."). **Deleted components:** `UndoAutoPublishButton.tsx` only. `PublishShowButton.tsx` survives for `/admin/unpublished` (see §3.2) but loses its show-page callsite; the e2e lifecycle-surface registry (`tests/e2e/admin-lifecycle-transitions.spec.ts:55`) keeps its row and gains the toggle's. `ArchiveShowButton`, `UnarchiveShowButton`, Re-sync, rotate/reset all unchanged.
 
-**Transition inventory** (4 render states; N·(N−1)/2 = 6 pairs — ALL instant, no animation; the switch keeps `AutoPublishToggle`'s built-in knob `transition-transform` only): ON↔OFF (instant re-render via `router.refresh`), ON↔disabled (server state change, instant), ON↔hidden (archive action navigates/refreshes, instant), OFF↔disabled (instant), OFF↔hidden (instant), disabled↔hidden (instant). Compound: flipping the switch while an archive/finalize lands concurrently → the action returns the typed refusal, inline copy renders, `router.refresh()` reconciles. No `AnimatePresence` anywhere in scope; register the new conditionals in `tests/components/admin/transitionAudit.test.tsx`.
+**Transition inventory** (5 render states; N·(N−1)/2 = 10 pairs — ALL instant, no animation; the switch keeps `AutoPublishToggle`'s built-in knob `transition-transform` only): every pair among {ON-enabled, OFF-enabled, OFF-disabled, ON-disabled, hidden} is an instant server re-render (`router.refresh` / navigation) — no pair animates. Compound: flipping the switch while an archive/finalize lands concurrently → the action returns the typed refusal, inline copy renders, `router.refresh()` reconciles. No `AnimatePresence` anywhere in scope; register the new conditionals in `tests/components/admin/transitionAudit.test.tsx`.
 
 **Dimensional invariants:** none — the toggle row is auto-height in a flex column; no fixed-dimension parent (the two-col split's equal-height stretch at `page.tsx:539-545` is unaffected). No real-browser layout task required.
 
@@ -171,7 +178,7 @@ Single-domain feature — matrix is layer×surface:
 
 ## 7. Testing (anti-tautology notes inline)
 
-1. **DB (`tests/db/`)**: `unpublish_show` — admin gate (42501 non-admin), P0002 unknown id, archived → `SHOW_ARCHIVED_IMMUTABLE`, idempotent no-op on already-unpublished (asserting NO duplicate `SHOW_UNPUBLISHED` alert row), happy path asserts the FULL negative set from D1 (share_token byte-identical pre/post, picker_epoch unchanged, pending_syncs row survives, archived=false, archived_at null, token pair null) — derived from seeded fixture state, not hardcoded. Register in `tests/db/b2-lifecycle-rpc-meta.test.ts`.
+1. **DB (`tests/db/`)**: `unpublish_show` — admin gate (42501 non-admin), P0002 unknown id, archived → `SHOW_ARCHIVED_IMMUTABLE`, **published show with finalize-owned `shows_pending_changes` → `FINALIZE_OWNED_SHOW`** (R2), idempotent no-op on already-unpublished (asserting NO duplicate `SHOW_UNPUBLISHED` alert row), happy path asserts the FULL negative set from D1 (share_token byte-identical pre/post, picker_epoch unchanged, pending_syncs row survives, archived=false, archived_at null, token pair null) — derived from seeded fixture state, not hardcoded. Register in `tests/db/b2-lifecycle-rpc-meta.test.ts`.
 2. **Parity**: rewritten `unpublishParity` test (§3.4) comparing RPC vs token-consume end-state snapshots (`tests/db/_b2Helpers.ts` gains an `unpublishedStateSnapshot`).
 3. **Lock topology**: `_advisoryLockSingleHolderContract` row for `unpublish_show` (in-RPC holder); emailed path stays JS-holder — the test proves the softened mutation still runs under `assertShowLockHeld` (`unpublishShow.ts:278,316`).
 4. **Lifecycle caller**: register `lib/showLifecycle/unpublishShow.ts` in `tests/showLifecycle/callers.test.ts` (chokepoint + infra_error mapping).
