@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
 import {
@@ -668,7 +669,7 @@ async function finalizeBatchTailResponse(input: {
   remainingCount: number;
   unresolvedManifestCount: number;
   perRow: PerRowResult[];
-}): Promise<Response> {
+}): Promise<{ response: Response; status: "all_batches_complete" | "batch_complete" }> {
   const hasPerRowFailures = input.perRow.some((row) => row.code !== OK_CODE);
   const status =
     input.remainingCount === 0 && input.unresolvedManifestCount === 0 && !hasPerRowFailures
@@ -679,13 +680,14 @@ async function finalizeBatchTailResponse(input: {
     input.wizardSessionId,
     status === "all_batches_complete" ? "all_batches_complete" : "in_progress",
   );
-  return NextResponse.json({
+  const response = NextResponse.json({
     status,
     wizard_session_id: input.wizardSessionId,
     remaining_count: input.remainingCount,
     unresolved_manifest_count: input.unresolvedManifestCount,
     per_row: input.perRow,
   });
+  return { response, status };
 }
 
 async function processApprovedRow(input: {
@@ -1069,6 +1071,14 @@ async function executeFinalizeBatch(
   // (inside the per-row txns) and revalidated AFTER deps.withTx resolves (post-commit) — never
   // inside the tx (pre-commit revalidate = stale cache bug, spec §4.2).
   const appliedShowIds = new Set<string>();
+  // OUTCOME-REF (durable finalize telemetry): capture the terminal, committed-success outcome
+  // inside the withTx callback (immediately before each committed return, once the batch's
+  // mutations are staged in the tx), but EMIT it only AFTER runtime.withTx resolves (post-commit).
+  // 409/500/rollback paths leave this null: the error returns use errorResponse (never set it) and
+  // a post-callback commit fault throws out of withTx into the outer catch, which returns the typed
+  // 500 WITHOUT reaching the emit below — so a rolled-back batch never logs SHOW_FINALIZED. Both the
+  // streaming and non-streaming handlers funnel through this one core, so this single emit covers both.
+  let outcome: AdminOutcome | null = null;
   try {
     const response = await runtime.withTx(async (tx) => {
       // R25-1/R29-1 lock order: discover the candidate session WITHOUT a row lock, acquire
@@ -1098,6 +1108,13 @@ async function executeFinalizeBatch(
       }
 
       if (checkpoint.status === "final_cas_done") {
+        outcome = {
+          code: "SHOW_FINALIZED",
+          source: "api.admin.onboarding.finalize",
+          actorEmail: finalizerEmail,
+          wizardSessionId,
+          result: "all_batches_complete",
+        };
         return NextResponse.json({
           status: "all_batches_complete",
           wizard_session_id: wizardSessionId,
@@ -1114,6 +1131,13 @@ async function executeFinalizeBatch(
         approvedRows.length === 0 &&
         unresolved === 0
       ) {
+        outcome = {
+          code: "SHOW_FINALIZED",
+          source: "api.admin.onboarding.finalize",
+          actorEmail: finalizerEmail,
+          wizardSessionId,
+          result: "all_batches_complete",
+        };
         return NextResponse.json({
           status: "all_batches_complete",
           wizard_session_id: wizardSessionId,
@@ -1129,13 +1153,21 @@ async function executeFinalizeBatch(
       }
 
       if (approvedRows.length === 0) {
-        return await finalizeBatchTailResponse({
+        const tail = await finalizeBatchTailResponse({
           tx,
           wizardSessionId,
           remainingCount: 0,
           unresolvedManifestCount: 0,
           perRow: [],
         });
+        outcome = {
+          code: "SHOW_FINALIZED",
+          source: "api.admin.onboarding.finalize",
+          actorEmail: finalizerEmail,
+          wizardSessionId,
+          result: tail.status,
+        };
+        return tail.response;
       }
 
       const perRow: PerRowResult[] = [];
@@ -1212,13 +1244,26 @@ async function executeFinalizeBatch(
 
       const remainingCount = await countRemainingCleanRows(tx, wizardSessionId);
       const unresolvedAfterBatch = await unresolvedManifestCount(tx, wizardSessionId);
-      return await finalizeBatchTailResponse({
+      const tail = await finalizeBatchTailResponse({
         tx,
         wizardSessionId,
         remainingCount,
         unresolvedManifestCount: unresolvedAfterBatch,
         perRow,
       });
+      // Terminal committed-success of a real batch (all_batches_complete | batch_complete). A
+      // batch_complete carries `result: "batch_complete"`; the plan's example enumerates
+      // all_batches_complete | batch_complete | in_progress — in_progress is the checkpoint's
+      // internal advance state, never a terminal HTTP status, so the durable result mirrors the
+      // response body's `status`, not the checkpoint column.
+      outcome = {
+        code: "SHOW_FINALIZED",
+        source: "api.admin.onboarding.finalize",
+        actorEmail: finalizerEmail,
+        wizardSessionId,
+        result: tail.status,
+      };
+      return tail.response;
     });
     // POST-COMMIT: deps.withTx has resolved (the outer finalize transaction committed), so the
     // first-seen shows are durably visible. Revalidate each show's data-cache tag now, before the
@@ -1226,6 +1271,10 @@ async function executeFinalizeBatch(
     for (const showId of appliedShowIds) {
       revalidateShow(showId);
     }
+    // POST-COMMIT durable telemetry: withTx has resolved, so the finalize batch's mutations are
+    // committed. Emit SHOW_FINALIZED here — never inside the tx (pre-commit) and never on an
+    // error/409/rollback (outcome stays null on those paths). Awaited for durability.
+    if (outcome) await logAdminOutcome(outcome);
     return response;
   } catch (error) {
     // Never leak an empty 500 (Next returns no body for an uncaught throw → the
