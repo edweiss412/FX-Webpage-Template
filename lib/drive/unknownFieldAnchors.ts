@@ -122,7 +122,8 @@ export function extractUnknownFieldAnchors(
       // cells, so the collapsed text never exact-matches. First-line-exact-match
       // catches them without prefix false-positives (a "VENUE NAME" field row's
       // first line is "VENUE NAME", not "VENUE"). (live-sheet fidelity, 2026-07-01)
-      const firstLine = (grid.cell(r, first.col).split(/\r?\n/)[0] ?? "").trim().toUpperCase();
+      const rawHeaderLine = grid.cell(r, first.col).split(/\r?\n/)[0] ?? "";
+      const firstLine = rawHeaderLine.trim().toUpperCase(); // canonicalize-exempt: sheet section header, not an email
       if (TERMINATORS.has(firstLine)) break; // next section
       const value = nextNonBlankAfter(grid, r, first.col);
       out.push({
