@@ -40,6 +40,7 @@ import {
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { log } from "@/lib/log";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import {
   PostgresOnboardingScanTx,
@@ -1037,13 +1038,23 @@ async function applyAssetReviewEffects(
   }
 
   if (!show?.showId) {
+    log.error("applyStaged infra fault", {
+      code: SYNC_INFRA_ERROR,
+      source: "sync.applyStaged",
+      reason: "missing_show_id",
+    });
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
 
   if (unavailable) {
     try {
       await retryEmbeddedRevisionAvailability(unavailable.spreadsheet_id);
-    } catch {
+    } catch (error) {
+      log.error("applyStaged infra fault", {
+        code: SYNC_INFRA_ERROR,
+        source: "sync.applyStaged",
+        error,
+      });
       return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
     }
   }
@@ -1181,6 +1192,11 @@ export async function applyStaged_unlocked(
   }
 
   if (!deps.liveDriveReverify) {
+    log.error("applyStaged infra fault", {
+      code: SYNC_INFRA_ERROR,
+      source: "sync.applyStaged",
+      reason: "live_drive_reverify_unavailable",
+    });
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
   if (deps.liveDriveReverify.outcome === "source_gone") {
@@ -1231,7 +1247,14 @@ export async function applyStaged_unlocked(
   }
 
   const assetAdjusted = deps.liveAssetReviewEffects;
-  if (!assetAdjusted) return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+  if (!assetAdjusted) {
+    log.error("applyStaged infra fault", {
+      code: SYNC_INFRA_ERROR,
+      source: "sync.applyStaged",
+      reason: "asset_not_adjusted",
+    });
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+  }
 
   const snapshotAssetsForApply =
     show?.showId && tx.insertPendingSnapshotUpload
@@ -1425,6 +1448,11 @@ async function verifyLiveApplyDriveScope(
     metadata = await fetchMetadata(driveFileId);
   } catch (error) {
     if (!isApplySourceGone(error)) {
+      log.error("applyStaged infra fault", {
+        code: SYNC_INFRA_ERROR,
+        source: "sync.applyStaged",
+        error,
+      });
       return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
     }
     return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
@@ -1439,6 +1467,11 @@ async function verifyLiveApplyDriveScope(
   }
 
   if (!isValidTimestamp(metadata.modifiedTime)) {
+    log.error("applyStaged infra fault", {
+      code: SYNC_INFRA_ERROR,
+      source: "sync.applyStaged",
+      reason: "invalid_modified_time",
+    });
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
 
@@ -1498,6 +1531,11 @@ async function verifyWizardApplyDriveScope(
     metadata = await fetchMetadata(driveFileId);
   } catch (error) {
     if (!isApplySourceGone(error)) {
+      log.error("applyStaged infra fault", {
+        code: SYNC_INFRA_ERROR,
+        source: "sync.applyStaged",
+        error,
+      });
       return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
     }
     return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE, pendingFolderId };
@@ -1516,6 +1554,11 @@ async function verifyWizardApplyDriveScope(
   }
 
   if (!isValidTimestamp(metadata.modifiedTime)) {
+    log.error("applyStaged infra fault", {
+      code: SYNC_INFRA_ERROR,
+      source: "sync.applyStaged",
+      reason: "invalid_modified_time",
+    });
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
 
@@ -1615,6 +1658,11 @@ async function stageWizardRestageInline(
     });
   }
   if (scan.outcome === "schema_missing") {
+    log.error("applyStaged infra fault", {
+      code: SYNC_INFRA_ERROR,
+      source: "sync.applyStaged",
+      reason: "schema_missing",
+    });
     return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
 

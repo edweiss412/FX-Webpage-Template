@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DriveListedFile } from "@/lib/drive/list";
@@ -25,6 +25,14 @@ import {
   type ApplyStagedDeps,
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
+
+const logMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -1939,5 +1947,95 @@ describe("applyStaged live-scope", () => {
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.approveWizardPendingSync).toHaveBeenCalled();
     expect(syncDeps.markWizardManifestApplied).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyStaged typed infra_error path is durably logged", () => {
+  beforeEach(() => {
+    logMock.error.mockClear();
+  });
+
+  test("catch-based branch (Drive metadata fault) logs the infra fault with source before returning", async () => {
+    // Wrapper live path → verifyLiveApplyDriveScope catches a non-source-gone Drive
+    // fault (503, not 404/410) → returns the typed infra_error (the catch-based site).
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const transient = Object.assign(new Error("drive unavailable"), { status: 503 });
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      fetchDriveFileMetadata: vi.fn(async () => {
+        throw transient;
+      }),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "SYNC_INFRA_ERROR", source: "sync.applyStaged" }),
+    );
+    // catch-based site forwards the bound error for observability
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ error: transient }),
+    );
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  test("plain-guard branch (missing liveDriveReverify) logs the infra fault with source before returning", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({ liveDriveReverify: undefined });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "SYNC_INFRA_ERROR", source: "sync.applyStaged" }),
+    );
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  test("plain-guard branch (asset review effects unavailable) logs the infra fault with source before returning", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({ liveAssetReviewEffects: undefined });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(logMock.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "SYNC_INFRA_ERROR", source: "sync.applyStaged" }),
+    );
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 });
