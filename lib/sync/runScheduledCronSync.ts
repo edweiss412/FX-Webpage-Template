@@ -17,6 +17,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { log } from "@/lib/log";
 import { runInvariants } from "@/lib/parser/invariants";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
@@ -1438,6 +1439,21 @@ class PostgresPipelineTx implements SyncPipelineTx {
         payload.raw_unrecognized,
         payload.run_of_show,
       ],
+    );
+    // DQIGNORE-3 — prune ignored_warnings orphaned by this parse: any standing ignore whose content
+    // fingerprint is NO LONGER present in the freshly-written parse_warnings (the warning it silenced
+    // has been fixed/removed). Runs in the SAME locked apply tx as the parse_warnings replace above —
+    // single-holder rule (no new advisory lock). A still-present warning keeps its fingerprint here,
+    // so its ignore SURVIVES (recurrence preserved); only vanished fingerprints are removed. Empty
+    // active set (no ignorable warnings this parse) → every standing ignore is orphaned → all pruned
+    // (same `not (x = any($2))` empty-array semantics as deleteCrewMembersNotIn). The fingerprint is
+    // the SAME content key the ignore route stored (lib/dataQuality/warningFingerprint).
+    const activeFingerprints = (payload.parse_warnings ?? [])
+      .map((w) => warningFingerprint(w))
+      .filter((fp): fp is string => fp !== null);
+    await this.rows(
+      "delete from public.ignored_warnings where show_id = $1 and not (fingerprint = any($2))",
+      [showId, activeFingerprints],
     );
   }
 }
