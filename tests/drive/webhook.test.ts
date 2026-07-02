@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { resetLogSink, setLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 
 const syncLogMock = vi.hoisted(() => ({
@@ -372,6 +374,166 @@ describe("/api/drive/webhook", () => {
         operation: "listFolder",
       }),
     });
+  });
+});
+
+describe("/api/drive/webhook observability logging", () => {
+  let calls: Array<{ record: LogRecord; persist: boolean }>;
+
+  beforeEach(() => {
+    syncLogMock.writeSyncLog.mockClear();
+    calls = [];
+    setLogSink((record, persist) => {
+      calls.push({ record, persist });
+    });
+  });
+
+  afterEach(() => {
+    resetLogSink();
+  });
+
+  const records = (): LogRecord[] => calls.map((entry) => entry.record);
+  const byCode = (code: string): LogRecord[] => records().filter((record) => record.code === code);
+
+  test("a dispatching add/update receipt emits one persisted DRIVE_WEBHOOK_RECEIVED info", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    const response = await handleDriveWebhook(
+      request(headers({ "X-Goog-Resource-State": "add" })),
+      {
+        tx,
+        listFolder: vi.fn(async () => [listedFile("file-1")]),
+        runPushSyncForShow: vi.fn(async () => ({
+          outcome: "applied" as const,
+          showId: "show-1",
+          parseWarnings: [],
+        })),
+        defer: () => undefined,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const received = byCode("DRIVE_WEBHOOK_RECEIVED");
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      level: "info",
+      source: "drive.webhook",
+      context: { channelId: "channel-1", resourceState: "add" },
+    });
+    // info persists ONLY because it carries a code (logger shouldPersist rule)
+    const receiptCall = calls.find((entry) => entry.record.code === "DRIVE_WEBHOOK_RECEIVED");
+    expect(receiptCall?.persist).toBe(true);
+  });
+
+  test("missing headers emit a DRIVE_WEBHOOK_HEADERS_INCOMPLETE warn and no receipt", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+    const requestHeaders = headers();
+    delete requestHeaders["X-Goog-Channel-ID"];
+
+    const response = await handleDriveWebhook(request(requestHeaders), { tx });
+
+    expect(response.status).toBe(400);
+    const warns = byCode("DRIVE_WEBHOOK_HEADERS_INCOMPLETE");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({ level: "warn", source: "drive.webhook" });
+    expect(byCode("DRIVE_WEBHOOK_RECEIVED")).toHaveLength(0);
+  });
+
+  test("an inactive channel (410) emits DRIVE_WEBHOOK_CHANNEL_INACTIVE warn and no receipt", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => null),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    const response = await handleDriveWebhook(request(headers()), { tx });
+
+    expect(response.status).toBe(410);
+    const warns = byCode("DRIVE_WEBHOOK_CHANNEL_INACTIVE");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({
+      level: "warn",
+      source: "drive.webhook",
+      context: { channelId: "channel-1" },
+    });
+    expect(byCode("DRIVE_WEBHOOK_RECEIVED")).toHaveLength(0);
+  });
+
+  test.each(["sync", "trash", "remove", "untrash"])(
+    "an ignored resource-state (%s) emits no log records",
+    async (state) => {
+      const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+      const tx = {
+        readActiveWatchChannel: vi.fn(async () => activeChannel()),
+        upsertAdminAlert: vi.fn(async () => undefined),
+      };
+
+      const response = await handleDriveWebhook(
+        request(headers({ "X-Goog-Resource-State": state })),
+        { tx },
+      );
+
+      expect(response.status).toBe(200);
+      expect(records()).toHaveLength(0);
+    },
+  );
+
+  test("an injected DriveWebhookInfraError logs DRIVE_WEBHOOK_INFRA_FAULT error and preserves the 500 propagation", async () => {
+    const route = await import("@/app/api/drive/webhook/route");
+    const { handleDriveWebhook, DriveWebhookInfraError } = route;
+    const rootCause = new Error("db offline");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => {
+        throw rootCause;
+      }),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    // Behavior is preserved: the infra fault still propagates (Next converts the
+    // uncaught throw into the same bare 500). The new catch only adds the log.
+    await expect(handleDriveWebhook(request(headers()), { tx })).rejects.toBeInstanceOf(
+      DriveWebhookInfraError,
+    );
+
+    const errs = byCode("DRIVE_WEBHOOK_INFRA_FAULT");
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatchObject({
+      level: "error",
+      source: "drive.webhook",
+      context: expect.objectContaining({ operation: "drive_watch_channels.read_active" }),
+    });
+  });
+
+  test("running the deferred dispatch does not emit a second DRIVE_WEBHOOK_RECEIVED", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const deferred: Array<() => Promise<void>> = [];
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    await handleDriveWebhook(request(headers({ "X-Goog-Resource-State": "add" })), {
+      tx,
+      listFolder: vi.fn(async () => [listedFile("file-1")]),
+      runPushSyncForShow: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+      })),
+      defer: (task) => deferred.push(task),
+    });
+
+    expect(byCode("DRIVE_WEBHOOK_RECEIVED")).toHaveLength(1);
+    await deferred[0]?.();
+    expect(byCode("DRIVE_WEBHOOK_RECEIVED")).toHaveLength(1);
   });
 });
 
