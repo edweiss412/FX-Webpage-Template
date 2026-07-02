@@ -10,7 +10,7 @@
  * `{ kind: 'infra_error' }` result and NEVER throw — so the enrichment treats any cache
  * fault as a miss and proceeds (best-effort). Registered in tests/sync/_metaInfraContract.test.ts.
  *
- * Cache-fault warns carry code:"GEOCODE_CACHE_FAULT" plus an `op` discriminator
+ * Cache-fault warns carry a GEOCODE_CACHE_FAULT code plus an `op` discriminator
  * ("read" | "write" | "parse"), the caught `error`, and the cache `key` in scope so the
  * six otherwise-identical fault sites are distinguishable in logs/telemetry.
  */

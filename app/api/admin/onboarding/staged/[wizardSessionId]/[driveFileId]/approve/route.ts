@@ -221,7 +221,10 @@ export async function handleWizardStagedApprove(
     // locked tx callback (at the success point) but emitted AFTER withRowTx
     // resolves (post-commit). Emitting inside the callback would extend the
     // per-show advisory lock and could log a success the tx then rolls back.
-    let outcome: AdminOutcome | null = null;
+    // `code` is NOT stored in the ref object: a bare `code: "…"` literal outside a
+    // logAdminOutcome(...) span would register as a §12.4 producer. It rides the
+    // logAdminOutcome CALL below (a stripped span) instead.
+    let outcome: Omit<AdminOutcome, "code"> | null = null;
     const response = await deps.withRowTx(driveFileId, async (tx) => {
       // Read review items + the demotion code under the active-session guard FIRST. A
       // null result means the session was superseded (or the row is gone) — refuse
@@ -253,7 +256,6 @@ export async function handleWizardStagedApprove(
       }
       await markManifestApplied(tx, wizardSessionId, driveFileId);
       outcome = {
-        code: "STAGE_APPROVED",
         source: "api.admin.onboarding.staged.approve",
         actorEmail: adminEmail,
         driveFileId,
@@ -268,7 +270,14 @@ export async function handleWizardStagedApprove(
     // Post-commit: withRowTx has resolved (the tx committed). Only NOW is the
     // outcome durable to log. A superseded/rescan-guard return leaves `outcome`
     // null → no log; a rejected withRowTx (commit failure) never reaches here.
-    if (outcome) await logAdminOutcome(outcome);
+    if (outcome) {
+      // `outcome` is closure-assigned inside withRowTx, so TS control-flow narrows it to
+      // `never` in this guard (the assignment isn't tracked past the callback) — assert back
+      // to the ref type so the spread typechecks. `code` rides the CALL (a stripped span),
+      // keeping the outcome literal out of the §12.4 producer scan.
+      const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
+      await logAdminOutcome({ code: "STAGE_APPROVED", ...outcomeRef });
+    }
     return response;
   } catch (error) {
     log.error("wizard approve: unexpected failure", {
