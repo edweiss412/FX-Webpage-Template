@@ -285,7 +285,7 @@ test("unpublish_show admin path holds the lock in-RPC only (single-holder)", () 
 **Files:**
 - Create: `app/admin/show/[slug]/_actions/setPublished.ts`
 - Modify: `app/admin/show/[slug]/_actions/index.ts` (add export; leave `publishShowAction`/`undoAutoPublishAction` exports for now — removals happen in Task 8)
-- Modify: `tests/db/showCacheRevalidateCoverage.test.ts` — (a) `REVALIDATE_REGISTRY` gains `{ file: "app/admin/show/[slug]/_actions/setPublished.ts", siteCount: 0, disposition: "revalidate", reason: "publish_show/unpublish_show dispatcher; revalidateShow(id) on ok" }`; (b) `WRITING_RPCS` (`:403-411`) gains `{ rpc: "unpublish_show", wrapperFile: "app/admin/show/[slug]/_actions/setPublished.ts" }` AND `{ rpc: "publish_show", wrapperFile: "app/admin/show/[slug]/_actions/setPublished.ts" }` (the wrapper-honesty assertion greps the file for the rpc name — both names appear via the lifecycle callers' import, so cite the actual call chain in the reason if the grep needs the literal string; verify with the test run)
+- Modify: `tests/db/showCacheRevalidateCoverage.test.ts` — (a) `REVALIDATE_REGISTRY` gains `{ file: "app/admin/show/[slug]/_actions/setPublished.ts", siteCount: 0, disposition: "revalidate", reason: "publish_show/unpublish_show dispatcher; revalidateShow(id) on ok" }`; (b) `WRITING_RPCS` (`:403-411`) gains `{ rpc: "unpublish_show", wrapperFile: "app/admin/show/[slug]/_actions/setPublished.ts" }` AND `{ rpc: "publish_show", wrapperFile: "app/admin/show/[slug]/_actions/setPublished.ts" }` (the wrapper-honesty assertion at `:403-411` greps the registered file for the LITERAL rpc string — `setPublished.ts`'s header comment names both RPCs verbatim, same pattern as `_actions/publish.ts`'s header naming `publish_show`; the Step-1 test run proves it)
 - Test: `tests/app/admin/set-published-action.test.ts` (new; mirror `tests/app/admin/show-lifecycle-actions.test.ts` mocking style)
 
 **Interfaces:**
@@ -298,6 +298,14 @@ test("unpublish_show admin path holds the lock in-RPC only (single-holder)", () 
 
 ```ts
 "use server";
+/**
+ * app/admin/show/[slug]/_actions/setPublished.ts — the Published-toggle dispatcher.
+ * next=true → the self-locking `publish_show` RPC (via lib/showLifecycle/publishShow);
+ * next=false → the self-locking `unpublish_show` RPC (via lib/showLifecycle/unpublishShow).
+ * These literal RPC names are load-bearing: tests/db/showCacheRevalidateCoverage.test.ts's
+ * WRITING_RPCS honesty check greps this file for "publish_show"/"unpublish_show" (same
+ * pattern as _actions/publish.ts's header naming its RPC).
+ */
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
