@@ -2324,8 +2324,13 @@ export type PreparedProcessOneFile =
       resolvedMode: Exclude<ResolvedSyncMode, "asset_recovery">;
       binding: Phase1Binding;
       parseResult: ParseResult;
-      /** Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call). */
-      sourceAnchors: Record<string, SourceAnchor>;
+      /**
+       * Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call).
+       * audit idx12+idx63: `undefined` ONLY when the sheets-list fetch failed transiently — the
+       * omit-on-undefined chain + persist coalesce then PRESERVE the stored source_anchors rather
+       * than wiping them to `{}`. A successful extract (incl. genuinely-no-anchors) stays `{}`.
+       */
+      sourceAnchors?: Record<string, SourceAnchor>;
     };
 
 function defaultCooldownReader(
@@ -2459,14 +2464,21 @@ export async function prepareProcessOneFile(
   // extractSourceAnchors consume the same result — no second API call.
   const driveClient = deps.driveClient ?? defaultDriveClient();
   let sheets: SpreadsheetSheet[] | undefined;
+  // audit idx12+idx63: distinguish a genuine sheets-list FETCH FAILURE from the mock/no-op
+  // path (both leave `sheets` undefined). On a real fetch failure we must emit `undefined`
+  // source-anchors below so the persist coalesce PRESERVES the stored value instead of
+  // wiping it to `{}` (an empty titleToGid makes every region miss → a DEFINED `{}`).
+  let sheetsListFailed = false;
   if (!deps.enrichWithDrivePins && driveClient.listSpreadsheetSheets) {
     // Real path: fetch the sheet list once; pass into enrich via ctx.sheets so
     // extractEmbeddedImages does NOT re-call the API.
     try {
       sheets = await driveClient.listSpreadsheetSheets(driveFileId);
     } catch {
-      // Non-fatal: extractEmbeddedImages falls back gracefully when sheets is undefined.
+      // Non-fatal for enrich (extractEmbeddedImages falls back gracefully), but the empty
+      // titleToGid would otherwise produce a DEFINED `{}` that durably wipes source_anchors.
       sheets = undefined;
+      sheetsListFailed = true;
     }
   }
 
@@ -2522,14 +2534,27 @@ export async function prepareProcessOneFile(
       .filter((s): s is SpreadsheetSheet & { sheetId: number } => typeof s.sheetId === "number")
       .map((s) => [s.title, s.sheetId]),
   );
-  const sourceAnchors: Record<string, SourceAnchor> =
-    xlsxBytes !== undefined ? extractSourceAnchors(xlsxBytes, titleToGid) : {};
+  // audit idx12+idx63: on a genuine sheets-list fetch failure, emit `undefined` (NOT `{}`)
+  // so the downstream omit-on-undefined chain + persist coalesce PRESERVE the stored anchors.
+  // The mock/no-op path (sheets undefined but NOT failed) and a successful fetch that finds no
+  // anchors both still yield a DEFINED `{}` (unchanged behaviour — a real clear still overwrites).
+  const sourceAnchors: Record<string, SourceAnchor> | undefined = sheetsListFailed
+    ? undefined
+    : xlsxBytes !== undefined
+      ? extractSourceAnchors(xlsxBytes, titleToGid)
+      : {};
 
   // Populate per-warning source-cell/region deep-link anchors on the cron path
   // (parse-warning deep links). Pure raw-workbook read inside the existing prepare
   // stage — no new lock (invariant 2). Reuse the already-computed titleToGid +
-  // sourceAnchors (no extra fetch / recompute).
-  await attachWarningAnchors(enriched.warnings, xlsxBytes, async () => titleToGid, sourceAnchors);
+  // sourceAnchors (no extra fetch / recompute). attachWarningAnchors needs a defined map;
+  // on a sheets-list failure there are no anchors to attach anyway, so pass `{}`.
+  await attachWarningAnchors(
+    enriched.warnings,
+    xlsxBytes,
+    async () => titleToGid,
+    sourceAnchors ?? {},
+  );
 
   let currentBinding: Phase1Binding;
   try {
@@ -2562,7 +2587,11 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: enriched,
-    sourceAnchors,
+    // audit idx12+idx63: OMIT on a genuine sheets-list fetch failure (exactOptionalPropertyTypes
+    // forbids an explicit `undefined` on an optional field). The guarded cron spread
+    // (`pipeline.sourceAnchors !== undefined`) reads an absent property identically → coalesce
+    // receives null → the stored source_anchors are PRESERVED, not wiped to `{}`.
+    ...(sourceAnchors !== undefined ? { sourceAnchors } : {}),
   };
 }
 
