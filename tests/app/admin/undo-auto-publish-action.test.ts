@@ -24,7 +24,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const requireAdmin = vi.fn(async () => undefined);
-vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: () => requireAdmin() }));
+const SEEDED_ADMIN = "admin@fxav.test"; // already-canonical (requireAdminIdentity returns canonicalize()'d)
+const requireAdminIdentity = vi.fn(async () => ({ email: SEEDED_ADMIN }));
+vi.mock("@/lib/auth/requireAdmin", () => ({
+  requireAdmin: () => requireAdmin(),
+  requireAdminIdentity: () => requireAdminIdentity(),
+}));
+
+// Task 10 — durable admin-outcome telemetry sink (SHOW_UNPUBLISHED_BY_ADMIN).
+const logAdminOutcome = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome }));
 
 type UnpublishResult =
   | { outcome: "success"; status: 200; showId: string }
@@ -60,6 +69,7 @@ import { showCacheTag } from "@/lib/data/showCacheTag";
 beforeEach(() => {
   vi.clearAllMocks();
   requireAdmin.mockImplementation(async () => undefined);
+  requireAdminIdentity.mockResolvedValue({ email: SEEDED_ADMIN });
   readUnpublishTokenForSlug.mockResolvedValue("tok-stored");
   unpublishShow.mockResolvedValue({ outcome: "success", status: 200, showId: "s1" });
 });
@@ -148,5 +158,46 @@ describe("undoAutoPublishAction (Task 12, spec §6.2)", () => {
     unpublishShow.mockRejectedValue(new Error("tx failed"));
     const res = await undoAutoPublishAction("rpas");
     expect(res).toEqual({ outcome: "infra_error" });
+  });
+
+  it("Task 10: committed success emits SHOW_UNPUBLISHED_BY_ADMIN admin-outcome telemetry once", async () => {
+    unpublishShow.mockResolvedValue({ outcome: "success", status: 200, showId: "s1" });
+    const res = await undoAutoPublishAction("rpas");
+    expect(res).toEqual({ outcome: "success" });
+    // actorEmail derives from the seeded admin identity; showId from result.showId.
+    expect(logAdminOutcome).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcome).toHaveBeenCalledWith({
+      code: "SHOW_UNPUBLISHED_BY_ADMIN",
+      source: "admin.show.undoAutoPublish",
+      actorEmail: SEEDED_ADMIN,
+      showId: "s1",
+    });
+  });
+
+  it.each([
+    ["expired", { outcome: "expired", status: 400, code: "UNPUBLISH_TOKEN_EXPIRED", showId: "s1" }],
+    [
+      "consumed",
+      { outcome: "consumed", status: 400, code: "UNPUBLISH_TOKEN_CONSUMED", showId: "s1" },
+    ],
+    ["not_found", { outcome: "not_found", status: 404 }],
+  ] as const)("Task 10: %s outcome does NOT emit admin-outcome telemetry", async (_label, r) => {
+    unpublishShow.mockResolvedValue(r as UnpublishResult);
+    await undoAutoPublishAction("rpas");
+    expect(logAdminOutcome).not.toHaveBeenCalled();
+  });
+
+  it("Task 10: token-vanished (read → null) does NOT emit admin-outcome telemetry", async () => {
+    readUnpublishTokenForSlug.mockResolvedValue(null);
+    await undoAutoPublishAction("rpas");
+    expect(logAdminOutcome).not.toHaveBeenCalled();
+  });
+
+  it("Task 10: infra faults (token read / unpublishShow throw) do NOT emit admin-outcome telemetry", async () => {
+    readUnpublishTokenForSlug.mockRejectedValue(new Error("db reset"));
+    await undoAutoPublishAction("rpas");
+    unpublishShow.mockRejectedValue(new Error("tx failed"));
+    await undoAutoPublishAction("rpas");
+    expect(logAdminOutcome).not.toHaveBeenCalled();
   });
 });

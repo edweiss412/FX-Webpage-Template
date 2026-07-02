@@ -41,6 +41,11 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/snapshot-rollback/[id]/repair/route.ts",
     code: "SNAPSHOT_ROLLBACK_REPAIRED",
   },
+  // Completion (2026-07-02): publish/archive/unpublish lifecycle telemetry.
+  { file: "app/admin/show/[slug]/_actions/publish.ts", code: "SHOW_PUBLISHED" },
+  { file: "app/admin/show/[slug]/_actions/archive.ts", code: "SHOW_ARCHIVED" },
+  { file: "app/admin/show/[slug]/_actions/unarchive.ts", code: "SHOW_UNARCHIVED_BY_ADMIN" },
+  { file: "app/admin/show/[slug]/_actions/undoAutoPublish.ts", code: "SHOW_UNPUBLISHED_BY_ADMIN" },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -54,6 +59,11 @@ const SANCTIONED_CODES = new Set([
   "SHOW_SYNCED_MANUAL",
   "PENDING_INGESTION_RETRIED",
   "SNAPSHOT_ROLLBACK_REPAIRED",
+  // Completion (2026-07-02).
+  "SHOW_PUBLISHED",
+  "SHOW_ARCHIVED",
+  "SHOW_UNARCHIVED_BY_ADMIN",
+  "SHOW_UNPUBLISHED_BY_ADMIN",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -75,6 +85,23 @@ const NEW_FORENSIC_CODES = new Set([
   "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
   "HOTELS_PARSE_WARNING",
   "ADMIN_ACCESS_DENIED",
+  // Completion (2026-07-02) plain-log + client forensic codes (inside log.*/clientLog spans
+  // or components/ (unscanned) or runtime variables; NOT cataloged). The 4 SHOW_* lifecycle
+  // codes are admin-outcome (already in SANCTIONED above via spread).
+  "REALTIME_UNKNOWN_SYSTEM_EVENT",
+  "CLIENT_WINDOW_ERROR",
+  "CLIENT_UNHANDLED_REJECTION",
+  "OAUTH_CLAIM_RPC_FAILED",
+  "OAUTH_CLAIM_STAMP_FAILED",
+  "AGENDA_EXTRACT_REGION_FAILED",
+  "AGENDA_EXTRACT_PREEXTRACT_FAILED",
+  "DRIVE_WEBHOOK_RECEIVED",
+  "DRIVE_WEBHOOK_HEADERS_INCOMPLETE",
+  "DRIVE_WEBHOOK_CHANNEL_INACTIVE",
+  "DRIVE_WEBHOOK_INFRA_FAULT",
+  "DRIVE_WATCH_RENEWAL_FAILED",
+  "DRIVE_WATCH_INFRA_FAULT",
+  "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
@@ -86,7 +113,9 @@ describe("_metaAdminOutcomeContract", () => {
       expect(src, `${file} must import logAdminOutcome`).toContain(
         'from "@/lib/log/logAdminOutcome"',
       );
-      expect(src, `${file} must call logAdminOutcome(`).toMatch(/logAdminOutcome\(/);
+      // Must be AWAITED — a fire-and-forget logAdminOutcome in a Server Action can be
+      // frozen/terminated after return before the async persist completes → dropped audit row.
+      expect(src, `${file} must AWAIT logAdminOutcome(`).toMatch(/await\s+logAdminOutcome\(/);
       expect(src, `${file} must carry code "${code}"`).toContain(`"${code}"`);
     }
   });

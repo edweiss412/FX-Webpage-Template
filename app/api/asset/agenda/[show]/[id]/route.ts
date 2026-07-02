@@ -30,6 +30,7 @@
 import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { log } from "@/lib/log";
 import { getDriveClient } from "@/lib/drive/client";
 import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -116,6 +117,9 @@ function showUnavailable(): Response {
 // service worker). Per RFC 9111 §5.2 — `private, max-age=0,
 // must-revalidate` matches the rest of the asset proxy surface.
 function infraError(code: string): Response {
+  // `code` is the helper PARAMETER (a runtime variable), never a literal —
+  // scanner-safe. Covers GET + HEAD + every infraError call site.
+  void log.error("asset infra fault", { source: "api.asset.agenda", code });
   return NextResponse.json(
     { error: code },
     { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },

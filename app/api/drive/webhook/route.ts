@@ -13,6 +13,7 @@ import {
   type RunPushSyncForShowDeps,
 } from "@/lib/sync/runPushSyncForShow";
 import { writeSyncLog } from "@/lib/sync/syncLog";
+import { log } from "@/lib/log";
 
 export const WEBHOOK_HEADERS_MISSING = "WEBHOOK_HEADERS_MISSING" as const;
 export const WEBHOOK_CHANNEL_INACTIVE = "WEBHOOK_CHANNEL_INACTIVE" as const;
@@ -250,6 +251,10 @@ export async function handleDriveWebhook(
   const resourceState = header(request, "X-Goog-Resource-State");
 
   if (!channelId || !channelToken || !resourceId || !resourceState) {
+    void log.warn("drive webhook headers incomplete", {
+      source: "drive.webhook",
+      code: "DRIVE_WEBHOOK_HEADERS_INCOMPLETE",
+    });
     return NextResponse.json({ ok: false, code: WEBHOOK_HEADERS_MISSING }, { status: 400 });
   }
 
@@ -258,6 +263,11 @@ export async function handleDriveWebhook(
       tx.readActiveWatchChannel(channelId),
     );
     if (!channel) {
+      void log.warn("drive webhook channel inactive", {
+        source: "drive.webhook",
+        code: "DRIVE_WEBHOOK_CHANNEL_INACTIVE",
+        channelId,
+      });
       return NextResponse.json({ ok: false, code: WEBHOOK_CHANNEL_INACTIVE }, { status: 410 });
     }
 
@@ -285,6 +295,16 @@ export async function handleDriveWebhook(
       return NextResponse.json({ ok: true, ignored: resourceState });
     }
 
+    // Receipt log rides the dispatch branch (add/update only): the ignored
+    // resource-states (sync/trash/change/exists…) are high-cardinality and must
+    // NOT log per spec §116 / §167. info persists BECAUSE it carries a code.
+    void log.info("drive webhook received", {
+      source: "drive.webhook",
+      code: "DRIVE_WEBHOOK_RECEIVED",
+      channelId,
+      resourceState,
+    });
+
     deferWebhookDispatch(async () => {
       await dispatchDriveWebhookFiles(channel, deps);
     }, deps);
@@ -292,8 +312,22 @@ export async function handleDriveWebhook(
     return NextResponse.json({ ok: true, queued: true });
   };
 
-  if (deps.tx) return await run(deps.tx);
-  return await withDefaultTx(run);
+  try {
+    if (deps.tx) return await run(deps.tx);
+    return await withDefaultTx(run);
+  } catch (err) {
+    // Structural infra catch: log the fault, then re-throw so the existing
+    // uncaught-throw → bare 500 behavior is preserved exactly (no status change).
+    if (err instanceof DriveWebhookInfraError) {
+      void log.error("drive webhook infra fault", {
+        source: "drive.webhook",
+        code: "DRIVE_WEBHOOK_INFRA_FAULT",
+        error: err.rootCause,
+        operation: err.operation,
+      });
+    }
+    throw err;
+  }
 }
 
 export async function POST(request: NextRequest): Promise<Response> {

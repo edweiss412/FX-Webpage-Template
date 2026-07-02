@@ -15,13 +15,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { archiveShow, type LifecycleResult } from "@/lib/showLifecycle/archiveShow";
 import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
 
 export async function archiveShowAction(slug: string): Promise<LifecycleResult> {
   await requireAdmin();
+  const { email } = await requireAdminIdentity();
   const resolved = await resolveShowBySlug(slug);
   // R7: a Supabase outage during resolution surfaces as infra_error (retry copy), NOT as a missing show.
   if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
@@ -34,6 +36,15 @@ export async function archiveShowAction(slug: string): Promise<LifecycleResult> 
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");
+    // Durable forensic telemetry: emitted ONLY on the committed-success branch (post-RPC-commit),
+    // never on a refusal/no-op. `await` is load-bearing — the record must persist before the
+    // action returns. The code literal rides the logAdminOutcome(...) call (stripped → not a §12.4 producer).
+    await logAdminOutcome({
+      code: "SHOW_ARCHIVED",
+      source: "admin.show.archive",
+      actorEmail: email,
+      showId: resolved.show.id,
+    });
   }
   return result;
 }

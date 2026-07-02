@@ -33,8 +33,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { readUnpublishTokenForSlug, unpublishShow } from "@/lib/sync/unpublishShow";
 
 /** UI-facing outcome of the in-app undo. The button maps each to its render state. */
@@ -57,6 +58,7 @@ export async function undoAutoPublishAction(
   _formData?: FormData,
 ): Promise<UndoAutoPublishOutcome> {
   await requireAdmin();
+  const { email } = await requireAdminIdentity();
 
   let storedToken: string | null;
   try {
@@ -86,6 +88,14 @@ export async function undoAutoPublishAction(
       revalidateShow(result.showId);
       revalidatePath(`/admin/show/${slug}`);
       revalidatePath("/admin");
+      // Durable admin-outcome telemetry (post-commit): unpublishShow owns its own
+      // lock/tx and has committed by the time it resolves, so this await is safe.
+      await logAdminOutcome({
+        code: "SHOW_UNPUBLISHED_BY_ADMIN",
+        source: "admin.show.undoAutoPublish",
+        actorEmail: email,
+        showId: result.showId,
+      });
       return { outcome: "success" };
     case "expired":
       return { outcome: "expired" };

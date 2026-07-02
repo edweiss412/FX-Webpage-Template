@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { LogRecord } from "@/lib/log/types";
 
 const showId = "11111111-1111-4111-8111-111111111111";
 
@@ -304,6 +305,19 @@ async function headReel(init?: { headers?: Record<string, string> }): Promise<Re
     : new NextRequest(url);
   return await HEAD(req, { params: Promise.resolve({ show: showId }) });
 }
+
+// Task 5: capture emitted log records on the SAME post-reset @/lib/log
+// instance the route imports (dynamic import AFTER the resetModules
+// beforeEach above). A synchronous sink also spares every 500 test the
+// default-sink persist path.
+let assetLogRecords: LogRecord[] = [];
+beforeEach(async () => {
+  assetLogRecords = [];
+  const { setLogSink } = await import("@/lib/log");
+  setLogSink((record) => {
+    assetLogRecords.push(record);
+  });
+});
 
 describe("/api/asset/reel/[show]", () => {
   test("rejects unauthenticated requests before Drive metadata", async () => {
@@ -913,5 +927,39 @@ describe("/api/asset/reel/[show]", () => {
     } | null;
     expect(postGetOptionsB?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
+  });
+});
+
+describe("/api/asset/reel/[show] — infra-500 logging (Task 5)", () => {
+  const infraErrors = () =>
+    assetLogRecords.filter((r) => r.level === "error" && r.source === "api.asset.reel");
+
+  test("GET infra fault emits log.error carrying the route's infra code", async () => {
+    routeMock.supabaseError = { code: "PGRST500", message: "infra fault" };
+    const res = await getReel();
+    expect(res.status).toBe(500);
+    // Derive the expected code from the 500 body (the infraError param) —
+    // never hardcode; the log code MUST equal the body's error code.
+    const body = (await res.json()) as { error: string };
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.code).toBe(body.error);
+    expect(emitted[0]!.code).toBe("REEL_ASSET_LOOKUP_FAILED");
+  });
+
+  test("HEAD infra fault emits the same log.error", async () => {
+    routeMock.supabaseError = { code: "PGRST500", message: "infra fault" };
+    const res = await headReel();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.code).toBe("REEL_ASSET_LOOKUP_FAILED");
+  });
+
+  test("benign unusable-pin row → 410 and does NOT emit an infra log.error", async () => {
+    routeMock.show = { ...routeMock.show, opening_reel_drive_file_id: null };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(infraErrors()).toEqual([]);
   });
 });

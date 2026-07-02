@@ -34,4 +34,21 @@ describe("ShowRealtimeBridge console.* → clientLog migration (structural)", ()
     }
     expect(new Set(messages).size).toBe(4); // 4 distinct literals → 4 distinct dedup signatures
   });
+
+  test("Task 3 — the unknown-system-event default branch forwards REALTIME_UNKNOWN_SYSTEM_EVENT + the runtime event-name detail", () => {
+    // Isolate the default-branch clientLog call by its unique message so the
+    // assertion cannot be satisfied by any of the other 14 clientLog sites.
+    const defaultBranchCall = SRC.match(
+      /clientLog\(\s*"warn",\s*"client\.realtime",\s*"unknown system event",[\s\S]*?\);/,
+    )?.[0];
+    expect(defaultBranchCall).toBeTruthy();
+    // The forensic code rides the clientLog(...) span (components/ is unscanned).
+    expect(defaultBranchCall).toContain('"REALTIME_UNKNOWN_SYSTEM_EVENT"');
+    // The detail is DERIVED from the runtime event name, not hardcoded — the
+    // 6th arg reads unknownEvent.event so dashboards see which event arrived.
+    expect(defaultBranchCall).toMatch(/unknownEvent\.event/);
+    // The mechanical count is unchanged — this is an in-place enrichment of an
+    // existing site, not a new clientLog call.
+    expect(SRC.match(/clientLog\(/g) ?? []).toHaveLength(15);
+  });
 });

@@ -12,13 +12,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { publishShow, type LifecycleResult } from "@/lib/showLifecycle/publishShow";
 import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
 
 export async function publishShowAction(slug: string): Promise<LifecycleResult> {
   await requireAdmin();
+  const { email } = await requireAdminIdentity();
   const resolved = await resolveShowBySlug(slug);
   // R7: a Supabase outage during resolution surfaces as infra_error (retry copy), NOT as a missing show.
   if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
@@ -31,6 +33,14 @@ export async function publishShowAction(slug: string): Promise<LifecycleResult> 
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");
+    // Task 7: durable admin-outcome telemetry — POST-COMMIT (publishShow's RPC has
+    // committed by resolve time). Code literal rides the logAdminOutcome span (stripped → exempt).
+    await logAdminOutcome({
+      code: "SHOW_PUBLISHED",
+      source: "admin.show.publish",
+      actorEmail: email,
+      showId: resolved.show.id,
+    });
   }
   return result;
 }
