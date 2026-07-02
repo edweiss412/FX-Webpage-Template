@@ -32,7 +32,7 @@ describe("scrubSentryEvent (finding C12: share-token + email scrubbing)", () => 
     const ev = {
       transaction: "GET /show/rpas/LiveTok99",
       breadcrumbs: [{ category: "navigation", data: { url: "/show/rpas/LiveTok99?s=schedule" } }],
-    } as ErrorEvent;
+    } as unknown as ErrorEvent;
     const out = scrubSentryEvent(ev);
     expect(out.transaction).toBe("GET /show/rpas/[shareToken-redacted]");
     expect((out.breadcrumbs![0]!.data as { url: string }).url).toBe(
