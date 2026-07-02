@@ -187,3 +187,49 @@ describe("CI speedup — Playwright browser binaries are cached on the e2e workf
     },
   );
 });
+
+describe("CI e2e workflows that boot a no-env-block webServer supply build-critical env at the runner level", () => {
+  // crew-e2e (:3000) and dev-gate-e2e (:3001-:3003) each boot Playwright webServers
+  // that carry NO `env:` block in playwright.config.ts, so the runner env is the
+  // ONLY source for their `pnpm build` + `next start`. `next build` evaluates
+  // app/api/auth/picker-bootstrap/route.ts -> lib/email/hashForLog.ts, which THROWS
+  // at module eval when HASH_FOR_LOG_PEPPER < 32 chars; the /admin render + the
+  // /api/test-auth/set-session endpoint create Supabase server/service-role clients
+  // (lib/supabase/server.ts) that throw without the Supabase env. help-affordances
+  // (:3004) is EXCLUDED — its webServer carries an inline env block with fallbacks.
+  const BARE_RUNNER_WEBSERVER_WORKFLOWS = ["crew-e2e.yml", "dev-gate-e2e.yml"];
+  const REQUIRED_ENV = [
+    "HASH_FOR_LOG_PEPPER",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ];
+  // Anchored: the key must start after a newline + indent, so "NEXT_PUBLIC_SUPABASE_URL:"
+  // does NOT satisfy a "SUPABASE_URL" row (a plain .includes would false-pass).
+  const has = (yaml: string, name: string) => new RegExp(`\\n\\s+${name}:`).test(yaml);
+
+  // Anti-vacuity: crew-e2e.yml is the proven-green parallel; it MUST already satisfy
+  // every row, so a broken list/discovery cannot false-green the guard.
+  it("crew-e2e.yml (proven-green parallel) already supplies every required var", () => {
+    const yaml = readWorkflow("crew-e2e.yml");
+    for (const name of REQUIRED_ENV)
+      expect(has(yaml, name), `crew-e2e.yml missing ${name}`).toBe(true);
+  });
+
+  const cases: Array<[string, string]> = BARE_RUNNER_WEBSERVER_WORKFLOWS.flatMap((file) =>
+    REQUIRED_ENV.map((name): [string, string] => [file, name]),
+  );
+  it.each(cases)(
+    "%s sets %s at the runner level (no-env-block webServer inherits it)",
+    (file, name) => {
+      expect(
+        has(readWorkflow(file), name),
+        `${file} boots a webServer with no \`env:\` block in playwright.config.ts, so it must set ` +
+          `${name} at the runner level — else \`pnpm build\`/\`next start\` inherits nothing and ` +
+          `fails (HASH_FOR_LOG_PEPPER: hashForLog.ts module-eval throw; Supabase: server/` +
+          `service-role clients throw).`,
+      ).toBe(true);
+    },
+  );
+});
