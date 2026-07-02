@@ -178,13 +178,13 @@ Group order: The show, People, Schedule, Logistics, Gear, Money, Checks. Ops/"Bi
 
 ### 6.2 Rail item anatomy (two-pane)
 
-`<button>` per section: icon (`text-text-subtle`; active `text-accent-on-bg`), label (`text-sm font-medium`), count (`tabular-nums text-text-faint`, only for rows with a Count above), status dot. Active item: `bg-surface-sunken` + a `w-1 rounded-r-pill bg-accent` left indicator (4px spacing-scale, replaces the mock's 3px). Group labels: eyebrow style (`text-xs font-semibold uppercase text-text-faint`, `letterSpacing: var(--tracking-eyebrow)`).
+`<button>` per section, full rail width, `min-h-tap-min` (44px hit area, §15): icon (`text-text-subtle`; active `text-accent-on-bg`), label (`text-sm font-medium`), count (`tabular-nums text-text-faint`, only for rows with a Rail count above), status dot. Active item: `bg-surface-sunken` + a `w-1 rounded-r-pill bg-accent` left indicator (4px spacing-scale, replaces the mock's 3px). Group labels: eyebrow style (`text-xs font-semibold uppercase text-text-faint`, `letterSpacing: var(--tracking-eyebrow)`).
 
 Status dot: `size-2 rounded-pill` (8px, replaces mock's 7px); flagged → `bg-status-review`, clean → `bg-status-positive` (tokens `app/globals.css:78-81`). The `warnings` rail entry dot: `bg-status-review` when `warnings.length > 0` else `bg-status-positive`.
 
 ### 6.3 Chip rail (popup + sheet modes)
 
-Same registry, rendered as pill chips in one horizontal row: icon + label + status dot (counts hidden, matching the mock's `@container` collapse). Pinned above the content (`shrink-0` row in the flex column — not `position: sticky`, since the content pane below is the scroll container). Chip: `rounded-pill border border-border bg-surface`; active chip: `bg-surface-sunken border-transparent`. (The mock's `--accent-wash` active fill has no repo token; a washed-accent chip is not added — no new color tokens, §14.6.)
+Same registry, rendered as pill chips in one horizontal row: icon + label + status dot (counts hidden, matching the mock's `@container` collapse). Pinned above the content (`shrink-0` row in the flex column — not `position: sticky`, since the content pane below is the scroll container). Chip: `rounded-pill border border-border bg-surface min-h-tap-min` (44px hit height, §15 — chips are the touch-mode navigation); active chip: `bg-surface-sunken border-transparent`. (The mock's `--accent-wash` active fill has no repo token; a washed-accent chip is not added — no new color tokens, §14.6.)
 
 ### 6.4 Section heading row (content pane)
 
@@ -226,7 +226,7 @@ Global rules: preserve each body's existing data logic verbatim — caps, `overf
 | Body | Restyle |
 | --- | --- |
 | Venue, Event details, Transport (fields), Billing & docs | Field-list grammar: each row `grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-4 py-2 border-b border-border last:border-0`; key = eyebrow style; value = `text-sm text-text`. Missing values keep today's copy, rendered `text-warning-text italic` where the body already flags gaps. |
-| Crew | Avatar rows: `Avatar` atom (`components/atoms/Avatar.tsx:70` — existing neutral styling, NOT the mock's 12-hue palette, §14.2) + name (`text-sm font-medium text-text-strong`) + role/partial-attendance subline (`text-xs text-text-subtle`). Trailing icon actions per member: `tel:` link when `hasContent(m.phone)`, `mailto:` when `hasContent(m.email)` — `size-8` bordered icon buttons (lucide `Phone`/`Mail`, `aria-label` "Call {name}" / "Email {name}"). Cap/overflow note unchanged (`CREW_CAP` 30). |
+| Crew | Avatar rows: `Avatar` atom (`components/atoms/Avatar.tsx:70` — existing neutral styling, NOT the mock's 12-hue palette, §14.2) + name (`text-sm font-medium text-text-strong`) + role/partial-attendance subline (`text-xs text-text-subtle`). Trailing icon actions per member: `tel:` link when `hasContent(m.phone)`, `mailto:` when `hasContent(m.email)` — `size-8` VISUAL bordered icon buttons (lucide `Phone`/`Mail`, `aria-label` "Call {name}" / "Email {name}") whose hit area is expanded to 44px via the established negative-margin pattern (`-m-1.5 p-1.5` on a `size-8` visual = 44px, same trick as `PublishCheckbox`, `Step3SheetCard.tsx:977-978`), with `gap-3` (12px) between the two buttons so expanded hit areas abut without overlapping. Cap/overflow note unchanged (`CREW_CAP` 30). |
 | Contacts | Stacked rows: kind eyebrow + tag row ("Primary" chip for the primary client contact if the body distinguishes one today — it does not, so NO Primary tag is added; §14.5), name + org line, meta line with phone/email (icons, `text-xs text-text-subtle`). Gap rows keep today's copy + warning color. |
 | Schedule | Day header (`text-xs font-semibold text-text-strong`) + per-day 2-track grid exactly as today (`grid-cols-[auto_1fr] items-baseline`, `Step3SheetCard.tsx:459-526` invariants preserved, incl. synthetic-bookend styling and "Show all M times" disclosure). |
 | Agenda | Reused `AgendaBreakdown` unchanged (its own states/caps/throttle); the modal only supplies the new panel chrome around it. |
@@ -280,7 +280,7 @@ On `requestSetChecked(true)` from the modal: modal closes (unmount, §11 T2); th
 
 Constants (JS module constants in `Step3ReviewModal.tsx`): `DRAG_DISMISS_THRESHOLD_PX = 110`.
 
-- Grab strip: full-width `<button>` (height from spacing scale, `h-7`), pill affordance `h-1 w-10 rounded-pill bg-border-strong` (today's affordance, `Step3DetailsDialog.tsx:110-113`), `aria-label="Drag down or tap to close"`, `touch-action: none`.
+- Grab strip: full-width `<button>` with a `min-h-tap-min` (44px) hit area; the visual affordance stays the small inner pill `h-1 w-10 rounded-pill bg-border-strong` (today's affordance, `Step3DetailsDialog.tsx:110-113`), centered. `aria-label="Drag down or tap to close"`, `touch-action: none`. (Mock's 26px strip is a deviation, §14.11; the Playwright suite asserts `grab.height ≥ 44` per §16.)
 - `onPointerDown`: capture pointer, record `startY`, set panel `transition: none`.
 - `onPointerMove`: `translateY(max(0, clientY − startY))` on the panel (transform only, `DESIGN.md:242-246`).
 - `onPointerUp/Cancel`: if `dy > DRAG_DISMISS_THRESHOLD_PX` → set `transition: transform var(--duration-normal) var(--ease-out-quart)`, `translateY(100%)`, close on `transitionend` (with a `--duration-normal`-matched timeout fallback); else same transition back to `translateY(0)`.
@@ -358,6 +358,7 @@ Compound transitions:
 8. **Close button visible in all modes** (§3.6).
 9. **No publish-anyway confirm flow, no toast** (§3.7, §3.8).
 10. **No dark-mode-specific work:** tokens are already theme-aware (`app/globals.css` runtime blocks).
+11. **Grab strip is 44px tall** (mock: 26px) and mock-denser controls (34px chips, 32px contact buttons, ~33px rail rows) all get ≥44px hit areas — the §15 tap-target contract outranks mock fidelity.
 
 ---
 
@@ -365,7 +366,7 @@ Compound transitions:
 
 - `role="dialog" aria-modal="true"`, `aria-label` = `Review {title}`; focus trap + initial focus on close button + restore-to-trigger via `useDialogFocus` (`lib/a11y/dialogFocus.ts:41-88`); Esc closes (dialog-owned, hook contract `:13-14`); scrim = tap-out close, `tabIndex={-1}`, NOT aria-hidden (pattern carried from `Step3DetailsDialog.tsx:86-99`); body scroll locked while open (`:56-62`).
 - Rail: `<nav aria-label="Review sections">`; items are buttons with `aria-current="true"` on the active item.
-- All interactive targets ≥ 44px (`min-h-tap-min`/`size-tap-min` tokens).
+- All interactive targets have a ≥44px hit area (`min-h-tap-min`/`size-tap-min` tokens, or the negative-margin expansion pattern where the visual must stay smaller — `PublishCheckbox` precedent `Step3SheetCard.tsx:977-978`). This covers: close button, grab strip (§10), rail items (§6.2), chips (§6.3), footer buttons (§9.1), crew tel/mailto actions (§8), pack-list `<details>` summary rows and "Show all M times" disclosure buttons (both get `min-h-tap-min`). Sole exemption: inline text links inside sentences/rows ("Open in Sheet ↗", `fl`-style value links) per the WCAG 2.5.8 inline exception.
 - Drag strip is a labeled button; keyboard users get close button + Esc (drag is pointer-only enhancement).
 - `aria-live` publish announcement (§9.3); `aria-busy` on re-scan preserved.
 - Section headings are `<h3>` (dialog title is the `<h2>`-equivalent labelled node); warnings rows keep their existing semantics.
@@ -374,7 +375,7 @@ Compound transitions:
 
 - **Unit (pure):** `lib/admin/step3SectionStatus.ts` — every §7 mapping row, unknown-kind fallback, info-severity non-flagging, agenda-not-rendered redirection, empty input. Derive expectations from fixture warnings' own `blockRef.kind` values, never hardcoded indices (anti-tautology).
 - **Component (jsdom/RTL):** rail renders registry order/groups/counts/dots from a fixture whose flagged sections are COMPUTED via the mapping lib (not restated literals); footer publish → `onToggleChecked(true)` + close (controlled) and optimistic POST + revert (uncontrolled, fetch mocked, incl. HTTP-200 `{ok:false}`); dirty-rescan footer swap; Esc/scrim/close; focus trap initial focus; chip-vs-rail conditional render is CSS/viewport-driven so jsdom asserts BOTH structures exist with mode classes (real hiding verified in Playwright); transition-audit test per the global rules (every conditional render pair in §11 present-or-declared-instant). DOM label scans clone the tree and strip siblings that also render the label (e.g. section heading vs rail item share a label — scope queries to `…-review-rail` / `…-review-section-<id>` testids).
-- **Real-browser (Playwright, pinned image):** every §5.1 invariant, at 390px (sheet), 800px (popup), 1280px (two-pane); drag-to-dismiss (pointer synthesis past/below threshold); scroll-spy activates the correct rail item after `scrollTo`. Template: `tests/e2e/step3-card-dimensions.spec.ts` (synthetic-HTML harness) — but the modal spec renders the REAL component tree via the existing e2e route pattern if available; otherwise the plan adds a fixture page. jsdom is not sufficient for any §5.1 assertion.
+- **Real-browser (Playwright, pinned image):** every §5.1 invariant, at 390px (sheet), 800px (popup), 1280px (two-pane); drag-to-dismiss (pointer synthesis past/below threshold); scroll-spy activates the correct rail item after `scrollTo`; tap-target audit — assert `getBoundingClientRect().height ≥ 44` (± 0.5px) for the grab strip, each chip, each rail item, footer buttons, and the effective hit area of one crew tel/mailto action (§15 list). Template: `tests/e2e/step3-card-dimensions.spec.ts` (synthetic-HTML harness) — but the modal spec renders the REAL component tree via the existing e2e route pattern if available; otherwise the plan adds a fixture page. jsdom is not sufficient for any §5.1 assertion.
 - **Concrete failure modes:** each test names the bug it catches (e.g. "rail height ≠ main height catches the Tailwind v4 items-stretch collapse", "unknown kind → null catches a future parser kind silently flagging the wrong section").
 
 ## 17. Flag lifecycle
