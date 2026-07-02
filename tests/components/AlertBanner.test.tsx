@@ -893,7 +893,37 @@ describe("AlertBanner", () => {
     const { container } = render(await AlertBanner());
     const panel = container.querySelector("[data-testid=admin-alert-panel]")!;
     expect(panel.querySelector("[data-testid=admin-alert-raised-at]")).not.toBeNull();
-    // no crash; HelpAffordance simply rendered nothing
+    // no crash; the panel simply omits the helpful-context paragraph
+    expect(panel.querySelector("[data-testid=admin-alert-helpful-context]")).toBeNull();
+  });
+
+  test("cataloged code → panel surfaces helpfulContext inline, with NO 'What does this mean?' disclosure and NO 'Learn more →' link", async () => {
+    // The former <HelpAffordance> nested a "What does this mean?" <details> and a
+    // "Learn more →" link in the panel. Both are removed: the panel IS the Details
+    // disclosure, so the explanatory copy is surfaced directly. Anti-tautology:
+    // derive the expected string from the catalog, not a hardcoded literal.
+    const CODE = "WATCH_CHANNEL_ORPHANED" satisfies MessageCode;
+    const expected = MESSAGE_CATALOG[CODE].helpfulContext!;
+    expect(expected).toBeTruthy(); // precondition: this code has helpfulContext
+    setRows([
+      {
+        id: "help-inline-1",
+        code: CODE,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const panel = container.querySelector("[data-testid=admin-alert-panel]")!;
+    const helpful = panel.querySelector("[data-testid=admin-alert-helpful-context]");
+    expect(helpful).not.toBeNull();
+    expect(helpful!.textContent).toBe(expected);
+    // the nested disclosure and the learn-more link are gone
+    expect(panel.querySelector("[data-testid=help-affordance]")).toBeNull();
+    expect(panel.querySelector("[data-testid=help-affordance-trigger]")).toBeNull();
+    expect(panel.textContent).not.toContain("What does this mean?");
+    expect(panel.textContent).not.toContain("Learn more");
   });
 
   test("count infra-error → treated as 1: calm banner still renders, no badge, no +N more (§5)", async () => {
