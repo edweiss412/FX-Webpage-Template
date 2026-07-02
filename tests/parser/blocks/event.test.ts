@@ -415,7 +415,7 @@ describe("parseEventDetails — unknown-label coverage", () => {
     const uf = ufWarns(agg);
     expect(uf).toHaveLength(1);
     expect(uf[0]!.severity).toBe("warn");
-    expect(uf[0]!.blockRef).toEqual({ kind: "details" });
+    expect(uf[0]!.blockRef).toEqual({ kind: "details", name: "Rigging" });
     expect(uf[0]!.rawSnippet).toContain("Rigging");
     expect(agg.rawUnrecognized).toContainEqual({
       block: "event_details",

@@ -128,7 +128,7 @@ export function emitUnknownField(
     severity: "warn",
     code: "UNKNOWN_FIELD",
     message: `Unrecognized ${opts.block} row label: '${key}'`,
-    blockRef: { kind: opts.kind },
+    blockRef: { kind: opts.kind, name: key },
     rawSnippet: `${key} | ${value}`,
   });
   agg.rawUnrecognized.push({ block: opts.block, key, value });

@@ -5,6 +5,8 @@ import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor, RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { resolveCrewRoleCell, type CrewRoleAnchor } from "@/lib/drive/crewRoleAnchors";
+import { resolveUnknownFieldCell, type UnknownFieldAnchor } from "@/lib/drive/unknownFieldAnchors";
+import { valueFromRawSnippet } from "@/lib/parser/rawSnippet";
 
 /** The codes that carry a source-cell/region anchor. SAME OBJECT the render
  *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render cannot
@@ -98,6 +100,10 @@ export function resolveSourceCell(
 export type WarningAnchorSources = {
   showDay: ShowDayTimeAnchor[];
   crewRole: CrewRoleAnchor[];
+  // Optional so the many existing `{ showDay, crewRole, region }` call sites still
+  // typecheck; both production callers (attachWarningAnchors, applyParseResult)
+  // populate it explicitly, and the dispatch reads `?? []` (safe degradation).
+  unknownField?: UnknownFieldAnchor[];
   region: Record<string, SourceAnchor>;
 };
 
@@ -127,6 +133,15 @@ export function attachSourceCellAnchors(
       w.code === "ROLE_TOKEN_AUTOCORRECTED"
     ) {
       cell = resolveCrewRoleCell(sources.crewRole, w.blockRef?.name);
+    } else if (w.code === "UNKNOWN_FIELD") {
+      // Per-row cell by (kind,label,value); no region fallback — a no/ambiguous
+      // match leaves the warning link-less (spec §5.1.1: correct cell or null).
+      cell = resolveUnknownFieldCell(
+        sources.unknownField ?? [],
+        w.blockRef?.kind,
+        w.blockRef?.name,
+        valueFromRawSnippet(w.rawSnippet),
+      );
     } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
       // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
       // in-set codes (the CELL_ANCHORED_CODES gate above). Any future code added to
@@ -135,7 +150,6 @@ export function attachSourceCellAnchors(
       cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
     } else if (
       w.code === "FIELD_UNREADABLE" ||
-      w.code === "UNKNOWN_FIELD" ||
       w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
       w.code === "SECTION_HEADER_AUTOCORRECTED" ||
       w.code === "FIELD_LABEL_AUTOCORRECTED" ||

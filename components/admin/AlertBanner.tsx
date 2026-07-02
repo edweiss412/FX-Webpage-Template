@@ -31,7 +31,6 @@ import { log } from "@/lib/log";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
-import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
@@ -252,6 +251,16 @@ export async function AlertBanner() {
   // **bold**, *em*, and word-boundary _em_ while keeping the wrapped text.
   const collapsedText = stripEmphasis(firstSentence(topMessage?.dougFacing ?? ""));
 
+  // Expanded-panel explanatory copy. Previously hosted by <HelpAffordance> as
+  // a nested "What does this mean?" disclosure; now surfaced directly in the
+  // expanded panel (the panel itself is already the Details disclosure, so a
+  // second nested toggle was redundant). The §5.6 "Learn more →" link is
+  // dropped too — it pointed at /help/errors#<CODE>, which repeats this same
+  // helpfulContext string and offers nothing further. `topMessage` already
+  // carries the interpolated `helpfulContext` (messageFor result), so no extra
+  // catalog lookup is needed; unknown codes → topMessage null → no copy.
+  const helpfulContext = topMessage?.helpfulContext ?? null;
+
   // RECON-1 T3 (review cleanup #2): the JSONB-context → MessageParams cast is
   // identical for ErrorExplainer + HelpAffordance — extract once so the two
   // cannot drift. messageFor only consumes primitive values; runtime
@@ -354,10 +363,19 @@ export async function AlertBanner() {
           {/* full (un-truncated) message — ErrorExplainer again, no truncation wrapper */}
           <ErrorExplainer code={alert.code} surface="admin" {...contextParams} />
           {/*
-              Phase G.3: HelpAffordance hosts the §9.0.1 "What does this mean?"
-              disclosure AND the §5.6 template-family `Learn more →` link.
+              Explanatory copy, surfaced inline in the expanded panel. Replaces
+              the former <HelpAffordance> nested "What does this mean?" disclosure
+              + "Learn more →" link — both redundant here (the panel is already
+              the disclosure; the link repeated this same text).
             */}
-          <HelpAffordance code={alert.code} {...contextParams} />
+          {helpfulContext != null ? (
+            <p
+              data-testid="admin-alert-helpful-context"
+              className="mt-2 max-w-prose text-sm text-text-subtle"
+            >
+              {helpfulContext}
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle">
             <p data-testid="admin-alert-raised-at" className="tabular-nums">
               Raised{" "}

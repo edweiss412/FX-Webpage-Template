@@ -34,8 +34,9 @@ const DERIVED_BASE_SLUG = "2026-05-finalize-publish-db-fixture";
 const STAGED_INSTANT = "2026-05-09T03:44:06.040Z";
 const TITLE = "Finalize Publish DB Fixture";
 
-// Deterministic deep-link anchors injected via the fetchOnboardingSourceAnchors dep (no Drive I/O
-// in tests). gid 0 (venue/INFO) is deliberately included to pin that 0 round-trips through jsonb.
+// Deterministic deep-link anchors seeded into pending_syncs.source_anchors (finalize reads the
+// column; no Drive I/O). gid 0 (venue/INFO) is deliberately included to pin that 0 round-trips
+// through jsonb.
 const KNOWN_ANCHORS = {
   schedule: { title: "AGENDA", gid: 1490737099, a1: "A1:X999" },
   venue: { title: "INFO", gid: 0, a1: "A1:E10" },
@@ -153,8 +154,12 @@ async function activateSession(): Promise<void> {
   );
 }
 
-// Drive the REAL writer over real postgres.js (the exact production write path).
-async function writeViaRealWriter(parseResult: unknown): Promise<void> {
+// Drive the REAL writer over real postgres.js (the exact production write path). Optionally seeds
+// pending_syncs.source_anchors so finalize can read them back (finalize no longer computes anchors).
+async function writeViaRealWriter(
+  parseResult: unknown,
+  sourceAnchors?: Record<string, unknown>,
+): Promise<void> {
   await sql!.begin(async (rawTx) => {
     const tx = new PostgresOnboardingScanTx(
       rawTx as unknown as PostgresTransaction,
@@ -172,6 +177,9 @@ async function writeViaRealWriter(parseResult: unknown): Promise<void> {
       priorLastSyncError: null,
       sourceKind: "onboarding_scan",
       warningSummary: "",
+      ...(sourceAnchors !== undefined
+        ? { sourceAnchors: sourceAnchors as Record<string, never> }
+        : {}),
     });
   });
 }
@@ -295,22 +303,23 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
   );
 
   test.skipIf(!dbUp)(
-    "first-seen finalize persists the computed source_anchors on the created show (deep-link fix)",
+    "first-seen finalize copies the PERSISTED source_anchors onto the created show (deep-link fix)",
     async () => {
-      await writeViaRealWriter(PARSE_RESULT);
+      // Anchors are seeded into pending_syncs.source_anchors at scan time; finalize READS the
+      // column (no Drive export). gid 0 (venue/INFO) is deliberately included to pin that 0
+      // round-trips through jsonb. Asserted against the DATA SOURCE (the seeded map), not derived
+      // from the route, so a no-op implementation cannot pass by accident.
+      await writeViaRealWriter(PARSE_RESULT, KNOWN_ANCHORS);
       await approveStagedRow();
 
       const response = await handleOnboardingFinalize(
         new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
-        { ...finalizeDeps(), fetchOnboardingSourceAnchors: async () => KNOWN_ANCHORS },
+        finalizeDeps(),
       );
       expect(response.status).toBe(200);
       const body = (await response.json()) as { per_row: Array<{ code: string }> };
       expect(body.per_row[0]?.code).toBe("OK");
 
-      // The created show carries the anchors the dep computed — NOT the {} default that makes
-      // "In sheet" deep links open the wrong tab. Asserted against the DATA SOURCE (the dep's
-      // return), not derived from the route, so a no-op implementation cannot pass by accident.
       const rows = await sql!.unsafe(
         `select source_anchors from public.shows where drive_file_id = $1`,
         [DRIVE_FILE_ID],
@@ -321,22 +330,17 @@ describe("onboarding finalize publish — real postgres.js write→read→publis
   );
 
   test.skipIf(!dbUp)(
-    "best-effort: a source-anchor computation failure does NOT block materialization (show created, anchors {})",
+    "empty persisted anchors ('{}') does NOT block materialization (show created, anchors {})",
     async () => {
+      // No anchors seeded → the column defaults to '{}'; the created show stays {} and the #gid=0
+      // fallback keeps "In sheet" safe until the next full sync / backfill.
       await writeViaRealWriter(PARSE_RESULT);
       await approveStagedRow();
 
       const response = await handleOnboardingFinalize(
         new Request("https://crew.fxav.test/api/admin/onboarding/finalize", { method: "POST" }),
-        {
-          ...finalizeDeps(),
-          fetchOnboardingSourceAnchors: async () => {
-            throw new Error("drive boom");
-          },
-        },
+        finalizeDeps(),
       );
-      // The Drive failure is swallowed (best-effort) — the show still materializes; anchors stay {}
-      // and the #gid=0 fallback keeps the link safe until the next full sync / backfill.
       expect(response.status).toBe(200);
       const body = (await response.json()) as { per_row: Array<{ code: string }> };
       expect(body.per_row[0]?.code).toBe("OK");

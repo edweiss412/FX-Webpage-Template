@@ -16,13 +16,13 @@ async function readNdjson(res: Response): Promise<Array<Record<string, unknown>>
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-// Streaming deps: inject a deterministic no-op source-anchor fetch so the first-seen apply
-// never attempts a real Drive read (which the default would).
+// Streaming deps: finalize reads pending_syncs.source_anchors from the (fake) locked row and no
+// longer performs a Drive read, so no anchor-fetch dep is needed (a missing column coerces to {}).
 function streamDeps(
   db: FakeFinalizeDb,
   overrides: Partial<FinalizeRouteDeps> = {},
 ): FinalizeRouteDeps {
-  return deps(db, { fetchOnboardingSourceAnchors: vi.fn(async () => ({})), ...overrides });
+  return deps(db, overrides);
 }
 
 describe("handleOnboardingFinalizeStream", () => {

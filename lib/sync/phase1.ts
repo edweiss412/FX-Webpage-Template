@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DriveListedFile } from "@/lib/drive/list";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { runInvariants } from "@/lib/parser/invariants";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { MI8_DEBOUNCE_MS } from "@/lib/sync/constants";
@@ -39,6 +40,10 @@ export type Phase1PendingSyncRow = {
   stagedId: string;
   sourceKind: string;
   warningSummary: string;
+  // Onboarding-scan region source anchors persisted to pending_syncs.source_anchors (spec §5).
+  // Optional: only the onboarding scan supplies it; other staging callers omit it and the DB
+  // column defaults to '{}'.
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
 
 export type Phase1PendingIngestionRow = {
@@ -74,6 +79,8 @@ export type Phase1Args = {
   parseResult: ParseResult;
   binding: Phase1Binding;
   wizardSessionId?: string;
+  // Region source anchors computed at scan (onboarding path only); forwarded into the staging row.
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
 
 export type Phase1Result =
@@ -370,6 +377,7 @@ export async function runPhase1(
         priorLastSyncError,
         sourceKind: sourceKindForMode(args.mode),
         warningSummary: warningSummary(args.parseResult),
+        ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
       }),
     );
     if (show) {

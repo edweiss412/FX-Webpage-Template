@@ -95,7 +95,7 @@ describe("emitUnknownField", () => {
         severity: "warn",
         code: "UNKNOWN_FIELD",
         message: "Unrecognized event_details row label: 'Rigging'",
-        blockRef: { kind: "details" },
+        blockRef: { kind: "details", name: "Rigging" },
         rawSnippet: "Rigging | 2 motors",
       },
     ]);
