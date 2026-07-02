@@ -222,25 +222,6 @@ const infraRegistry = [
       "pending_ingestions/pending_syncs/shows await throws + construction throw → infra_error",
   },
   {
-    helper: "loadHeldShows",
-    path: "lib/admin/loadHeldShows.ts",
-    contract:
-      "Held-shows view (Task E1): shows read (archived=false, published=false) + finalize-owned RPC fan-out; client construction + .from() throw → { kind:'infra_error' } (table-specific 'threw' message); the per-call finalize-owned RPC fails toward Held (.catch → null), never aborting the loader",
-  },
-  {
-    // parse-data-quality-warnings Task 9 (§6.6, R10 F1) — the NEW
-    // shows_internal.parse_warnings read in loadHeldShows is its OWN registry
-    // row, distinct from the `shows` read above. Unlike the finalize-owned RPC
-    // (fails toward-Held), this read FAILS VISIBLE: a returned error OR a thrown
-    // error → discriminable infra_error, NEVER a silent {total:0} (that would
-    // recreate the silent-drop the feature kills). Behavioral coverage of the
-    // throw path is in the loadHeldShows describe block below.
-    helper: "shows_internal",
-    path: "lib/admin/loadHeldShows.ts",
-    contract:
-      "Held-shows data-gaps read: shows_internal.parse_warnings (.in show_id); { data, error } destructure; returned-error → infra_error (message includes 'shows_internal'); thrown → infra_error ('shows_internal...threw'); absent/empty parse_warnings → {total:0} (no chip), kept distinct from a read failure",
-  },
-  {
     helper: "loadIgnoredSheets",
     path: "lib/admin/loadIgnoredSheets.ts",
     contract:
@@ -666,44 +647,6 @@ describe("META §B Supabase call-boundary contract", () => {
         expect(result).toEqual({ kind: "infra_error" });
       },
     );
-  });
-
-  // Held-shows view loader (Task E1, spec §5). Construction throw + the shows
-  // read throw both surface the typed infra_error. The finalize-owned RPC
-  // fan-out fails toward Held on a per-call fault and never aborts the loader.
-  describe("loadHeldShows", () => {
-    test("server-client construction throw → typed infra_error", async () => {
-      infraMock.throwOnConstruct = true;
-      const { loadHeldShows } = await import("@/lib/admin/loadHeldShows");
-      const result = await loadHeldShows();
-      expect(result).toMatchObject({ kind: "infra_error" });
-    });
-
-    test("from('shows') throw → typed infra_error with table-specific message", async () => {
-      infraMock.throwOnFromTable = "shows";
-      const { loadHeldShows } = await import("@/lib/admin/loadHeldShows");
-      const result = await loadHeldShows();
-      expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(/shows.*threw/);
-    });
-
-    // parse-data-quality-warnings Task 9 (§6.6, R10 F1) — the NEW
-    // shows_internal.parse_warnings read FAILS VISIBLE. The read fires only when
-    // the shows query returned candidates, so seed one shows row, then throw on
-    // the shows_internal .from(). A regression that swallowed the throw to a
-    // silent {total:0} would fail this (no infra_error / wrong message).
-    test("from('shows_internal') throw (with seeded shows row) → typed infra_error", async () => {
-      infraMock.dataByTable = {
-        shows: [{ id: "s1", slug: "alpha", drive_file_id: "df-1" }],
-      };
-      infraMock.throwOnFromTable = "shows_internal";
-      const { loadHeldShows } = await import("@/lib/admin/loadHeldShows");
-      const result = await loadHeldShows();
-      expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /shows_internal.*threw/,
-      );
-    });
   });
 
   describe("loadIgnoredSheets", () => {
