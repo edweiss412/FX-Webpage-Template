@@ -336,6 +336,8 @@ describe("runManualSyncForShow", () => {
         code: "MI-4_NO_CREW",
         failedCodes: ["MI-4_NO_CREW"],
         message: "Crew missing",
+        // Existing-show hard_fail: phase1 carries the updated show's id (idx17/#102).
+        showId: "show-1",
       })),
     } as unknown as ProcessOneFileDeps;
 
@@ -347,7 +349,9 @@ describe("runManualSyncForShow", () => {
       processDeps,
     });
 
-    expect(result).toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW" });
+    // processOneFile threads phase1.showId onto the hard_fail result so the manual path's
+    // revalidateShowFromResult busts the crew cache tag for this existing-show parse_error.
+    expect(result).toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW", showId: "show-1" });
     expect(tx.alerts.filter((alert) => alert.code === "PARSE_ERROR_LAST_GOOD")).toHaveLength(1);
     expect(tx.alerts).toContainEqual({
       showId: "show-1",

@@ -61,6 +61,8 @@ describe("PARSE_ERROR_LAST_GOOD producer", () => {
         code: "MI-4_NO_CREW",
         failedCodes: ["MI-4_NO_CREW"],
         message: "Crew missing",
+        // Existing-show hard_fail: phase1 carries the updated show's id (idx17/#102).
+        showId: "show-1",
       })),
     } as unknown as ProcessOneFileDeps;
 
@@ -73,7 +75,9 @@ describe("PARSE_ERROR_LAST_GOOD producer", () => {
     );
     const result = await processOneFile_unlocked(tx, "drive-file-1", "cron", file, deps, prepared);
 
-    expect(result).toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW" });
+    // processOneFile threads phase1.showId onto the hard_fail result so the file-loop's
+    // revalidateShowFromResult busts the crew cache tag for this existing-show parse_error.
+    expect(result).toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW", showId: "show-1" });
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "PARSE_ERROR_LAST_GOOD",
