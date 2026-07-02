@@ -32,7 +32,7 @@ import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   summarizeDataGaps,
   isDataQualityWarning,
-  operatorActionableWarnings,
+  selectActionableForDisplay,
   OPERATOR_ACTIONABLE_ANCHORED,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -197,7 +197,11 @@ export function stagedRowFromLiveFirstSeen(row: LiveFirstSeenRow): StagedRow {
     baseModifiedTime: row.base_modified_time,
     warningSummary: warningSummaryFor(row),
     dataGaps: summarizeDataGaps(warnings as ParseWarning[]),
-    operatorActionable: operatorActionableWarnings(warnings as ParseWarning[]),
+    // Route through the shim-applying wrapper (strips stale legacy block-range
+    // UNKNOWN_FIELD anchors before filter+dedup) so all three persisted-read surfaces
+    // — per-show, live first-seen staged, wizard reapply — behave identically on legacy
+    // rows (audit idx45/#217).
+    operatorActionable: selectActionableForDisplay(warnings as ParseWarning[]),
     triggeredReviewItems: parsedReviewItems.ok ? parsedReviewItems.items : [],
     reviewItemsCorrupt: !parsedReviewItems.ok,
     ...(summaryLine !== undefined ? { parseSummaryLine: summaryLine } : {}),

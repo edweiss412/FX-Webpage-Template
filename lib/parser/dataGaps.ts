@@ -209,8 +209,11 @@ export function stripLegacyUnknownFieldAnchors(
 /**
  * The read-boundary seam for persisted parse_warnings feeding the operator-
  * actionable Data-quality panel: neutralize stale legacy UNKNOWN_FIELD anchors,
- * THEN filter+dedup. Both persisted-read call sites use this one function so the
- * legacy behavior is defined (and tested) in exactly one place.
+ * THEN filter+dedup. All three persisted-read surfaces use this one function —
+ * the per-show page (app/admin/show/[slug]/page.tsx), the live first-seen staged
+ * page (app/admin/show/staged/[stagedId]/page.tsx), and the wizard reapply page
+ * (app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx) — so the
+ * legacy behavior is defined (and tested) in exactly one place (audit idx45/#217).
  */
 export function selectActionableForDisplay(
   warnings: readonly ParseWarning[] | null | undefined,

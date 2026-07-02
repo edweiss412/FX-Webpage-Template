@@ -29,7 +29,7 @@
 import { cache } from "react";
 import Link from "next/link";
 import type { ParseWarning } from "@/lib/parser/types";
-import { operatorActionableWarnings } from "@/lib/parser/dataGaps";
+import { selectActionableForDisplay } from "@/lib/parser/dataGaps";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
@@ -231,7 +231,11 @@ export default async function WizardStagedReapplyPage({ params }: PageProps) {
     stagedModifiedTime: row.staged_modified_time,
     baseModifiedTime: row.base_modified_time,
     warningSummary: "",
-    operatorActionable: operatorActionableWarnings(
+    // Route through the shim-applying wrapper (strips stale legacy block-range
+    // UNKNOWN_FIELD anchors before filter+dedup) so all three persisted-read surfaces
+    // — per-show, live first-seen staged, wizard reapply — behave identically on legacy
+    // rows (audit idx45/#217).
+    operatorActionable: selectActionableForDisplay(
       Array.isArray(row.parse_result?.warnings) ? row.parse_result!.warnings : [],
     ),
     triggeredReviewItems: reviewItems ?? [],

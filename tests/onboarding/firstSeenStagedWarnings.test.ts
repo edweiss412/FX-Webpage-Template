@@ -109,6 +109,41 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
     expect(staged.dataGaps?.total).toBe(1);
   });
 
+  // audit idx45/#217: the staged surface must route its operator-actionable read
+  // through selectActionableForDisplay (which applies stripLegacyUnknownFieldAnchors
+  // BEFORE filter+dedup), matching the per-show surface. Two LEGACY UNKNOWN_FIELD
+  // warnings carrying a stale block-RANGE anchor (a1 contains ":") would, via the bare
+  // operatorActionableWarnings path, collapse to ONE row (shared a1 dedup) AND keep the
+  // wrong block-header deep link. The shim clears the stale anchor so both distinct rows
+  // survive (count corrects) and neither carries a wrong link.
+  test("routes operatorActionable through the legacy-anchor shim (selectActionableForDisplay)", () => {
+    const legacyAnchor = { title: "INFO", gid: 7, a1: "A1:D5" }; // block RANGE (contains ":")
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized INFO row label: 'Podium'",
+        rawSnippet: "Podium | (2)",
+        sourceCell: legacyAnchor,
+      },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized INFO row label: 'Riser'",
+        rawSnippet: "Riser | (1)",
+        sourceCell: legacyAnchor,
+      },
+    ];
+    const staged = stagedRowFromLiveFirstSeen(
+      liveRow({ parse_result: { show: { title: "X" }, warnings } }),
+    );
+    // Shim strips the stale block-range anchor → both distinct legacy rows survive
+    // (bare operatorActionableWarnings would dedup them to ONE by their shared a1).
+    expect(staged.operatorActionable).toHaveLength(2);
+    // …and neither keeps the wrong block-header deep link (sourceCell cleared to null).
+    expect(staged.operatorActionable?.every((w) => w.sourceCell == null)).toBe(true);
+  });
+
   test("no warnings → empty warningSummary and total:0 dataGaps (no chip)", () => {
     const staged = stagedRowFromLiveFirstSeen(liveRow());
     expect(staged.warningSummary).toBe("");
