@@ -2772,7 +2772,9 @@ export async function runScheduledCronSync(
             skip_reason: "no_folder_configured",
           },
         });
-        return finishCompletedRun({
+        // `await` so a heartbeat-write rejection is caught by the outer catch (attributed),
+        // not returned as an unawaited rejecting promise that bypasses it.
+        return await finishCompletedRun({
           processed: [],
           summary: { outcome: "skipped", skipReason: "no_folder_configured" },
         });
@@ -2881,7 +2883,9 @@ export async function runScheduledCronSync(
     }
 
     inFlightPhase = "finish";
-    return finishCompletedRun({ processed });
+    // `await` (not a bare promise return) so a heartbeat-write rejection is caught by the
+    // outer catch and attributed with phase "finish", instead of bypassing it.
+    return await finishCompletedRun({ processed });
   } catch (err) {
     if (err && typeof err === "object") {
       (err as { syncRunContext?: unknown }).syncRunContext = {

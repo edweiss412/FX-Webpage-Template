@@ -39,4 +39,21 @@ describe("cron.sync throw attribution", () => {
     });
     expect(ctx.failures).toEqual([]);
   });
+  test("throw during the finish phase (heartbeat write) attaches syncRunContext.phase 'finish'", async () => {
+    const boom = new Error("hb boom");
+    await expect(
+      runScheduledCronSync({
+        folderId: "folder-1",
+        listFolder: async () => [], // no files → loops complete → reaches finishCompletedRun
+        listLiveShows: async () => [], // no missing shows
+        writeSyncCronHeartbeat: async () => {
+          throw boom;
+        },
+      } as never),
+    ).rejects.toThrow("hb boom");
+    const ctx = (boom as { syncRunContext?: any }).syncRunContext;
+    // Without `return await finishCompletedRun(...)` the heartbeat rejection escapes the
+    // outer catch and ctx is undefined — this asserts the await is present.
+    expect(ctx).toMatchObject({ phase: "finish", processedBeforeThrow: 0 });
+  });
 });
