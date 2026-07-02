@@ -113,6 +113,20 @@ export class DriveFetchError extends Error {
 // bounded exponential backoff; non-transient errors (revision races, omitted
 // metadata, 4xx other than 429) propagate immediately so callers still fail fast.
 const TRANSIENT_DRIVE_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Low-level socket/network error codes that a native-fetch (undici) failure
+// surfaces on the nested `.cause` of a `TypeError: fetch failed`. Treated as
+// transient so a single-blip connection reset is retried, not fatal.
+const TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 const DEFAULT_MAX_DRIVE_RETRIES = 3;
 
 export function driveErrorStatus(error: unknown): number | null {
@@ -137,7 +151,33 @@ export function driveErrorStatus(error: unknown): number | null {
     (error as { response?: { status?: unknown } })?.response?.status ??
     (error as { status?: unknown })?.status ??
     (error as { code?: unknown })?.code;
-  return typeof candidate === "number" ? candidate : null;
+  if (typeof candidate === "number") return candidate;
+
+  // undici double-wrap: gaxios 7 uses native fetch, which throws a bare
+  // `TypeError: fetch failed` whose OWN `.code` is undefined — the real socket
+  // error code (ECONNRESET/ENOTFOUND/…) is nested one (or more) `.cause` levels
+  // down (undici wraps the socket Error, and gaxios may wrap that again). None of
+  // the top-level checks above see it, so a transient socket blip would classify
+  // null and withDriveRetry would rethrow WITHOUT retrying — aborting the whole
+  // sync/scan pass on a single hiccup. Walk the bounded `.cause` chain (starting
+  // BELOW the top-level error, so a bare top-level string `code` keeps its
+  // existing non-retry contract — only the timeout codes above map top-level)
+  // looking for a code in the transient-network set, and map it to 503 (a
+  // TRANSIENT_DRIVE_STATUSES value) so withDriveRetry retries it.
+  for (
+    let node: unknown = (error as { cause?: unknown })?.cause, depth = 0;
+    node != null && depth < 5;
+    depth += 1
+  ) {
+    const nodeCode = (node as { code?: unknown }).code;
+    if (typeof nodeCode === "string" && TRANSIENT_NETWORK_CODES.has(nodeCode)) {
+      return 503;
+    }
+    const cause = (node as { cause?: unknown }).cause;
+    if (cause === node) break; // cycle guard
+    node = cause;
+  }
+  return null;
 }
 
 /**

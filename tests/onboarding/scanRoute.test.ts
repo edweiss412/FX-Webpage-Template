@@ -6,6 +6,7 @@ import type {
   ScanRouteDeps,
 } from "@/app/api/admin/onboarding/scan/route";
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
+import { log } from "@/lib/log";
 import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 
@@ -534,10 +535,16 @@ describe("POST /api/admin/onboarding/scan", () => {
   });
 
   test("mid-run throw becomes a terminal {ok:false, code:null} on a 200 stream", async () => {
+    // audit idx85/#115: the stream catch used to log ONLY { source, requestId },
+    // dropping the caught error — so a scan failure was undiagnosable from logs
+    // (diverging from finalize/route.ts which logs { source, error }). Failure mode
+    // this pins: revert the binding and the error no longer reaches log.error meta.
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(async () => {});
+    const boom = new Error("drive exploded");
     const db = new FakeScanDb();
     const routeDeps = deps(db, {
       runOnboardingScan: vi.fn(async () => {
-        throw new Error("drive exploded");
+        throw boom;
       }),
     });
     const response = await handleOnboardingScan(
@@ -546,5 +553,12 @@ describe("POST /api/admin/onboarding/scan", () => {
     );
     expect(response.status).toBe(200);
     expect(terminal(await readNdjson(response))).toEqual({ ok: false, code: null });
+    // The emitted client body stays identical (behavior unchanged); only the log
+    // meta gains the bound error — asserted against the SAME thrown instance.
+    expect(errorSpy).toHaveBeenCalledWith(
+      "onboarding scan failed",
+      expect.objectContaining({ source: "admin/onboarding/scan", error: boom }),
+    );
+    errorSpy.mockRestore();
   });
 });
