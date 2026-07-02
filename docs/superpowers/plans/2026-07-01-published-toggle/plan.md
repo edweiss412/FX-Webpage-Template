@@ -294,7 +294,7 @@ test("unpublish_show admin path holds the lock in-RPC only (single-holder)", () 
 - Consumes: `publishShow` (`lib/showLifecycle/publishShow.ts`), `unpublishShow` (Task 2), `resolveShowBySlug`/`SHOW_NOT_FOUND` (`_actions/shared.ts:29-35`), `requireAdmin`, `revalidateShow`.
 
 - [ ] **Step 1: Failing tests** — assert: `requireAdmin` awaited BEFORE resolution; `next=true` dispatches `publishShow(id)`, `next=false` dispatches `unpublishShow(id)`; `infra_error`/`not_found` resolution short-circuits with NO lifecycle call; on `ok` → `revalidateShow(id)` + `revalidatePath('/admin/show/<slug>')` + `revalidatePath('/admin')`; on refusal → NO revalidation.
-- [ ] **Step 2: Verify fail** — `pnpm vitest run tests/app/admin/set-published-action.test.ts`.
+- [ ] **Step 2: Verify fail** — `pnpm vitest run tests/app/admin/set-published-action.test.ts tests/db/showCacheRevalidateCoverage.test.ts` (the meta-test red: the new registry rows point at a file that doesn't yet exist / doesn't yet name the RPCs).
 - [ ] **Step 3: Implement** — copy `_actions/publish.ts` structure:
 
 ```ts
@@ -330,7 +330,7 @@ export async function setShowPublishedAction(slug: string, next: boolean): Promi
 ```
 
 Barrel: add `export { setShowPublishedAction } from "./setPublished";` to `_actions/index.ts`.
-- [ ] **Step 4: Verify pass.** Also `pnpm tsc --noEmit`.
+- [ ] **Step 4: Verify pass** — same two suites green. Also `pnpm tsc --noEmit`.
 - [ ] **Step 5: Commit** — `feat(admin): setShowPublishedAction dispatching publish_show/unpublish_show`
 
 ---
@@ -563,7 +563,10 @@ export function PublishedToggle({ slug, published, finalizeOwned, setPublished }
           setErrorCode(null); setGenericError(false);
           const result = await setPublished(!published);
           if (result.ok) { router.refresh(); return; }
-          if (KNOWN_REFUSAL_CODES.has(result.code)) { setErrorCode(result.code); router.refresh(); }
+          // Refusals render locally WITHOUT router.refresh() — the established
+          // PublishShowButton pattern (components/admin/PublishShowButton.tsx:53-65).
+          // Refreshing here can wipe the inline copy the user needs (plan R10).
+          if (KNOWN_REFUSAL_CODES.has(result.code)) setErrorCode(result.code);
           else setGenericError(true);
         }}
         className="shrink-0 self-center"
@@ -577,7 +580,7 @@ export function PublishedToggle({ slug, published, finalizeOwned, setPublished }
 
 `SwitchButton` is copied from `AutoPublishToggle.tsx:112-138` with `aria-label="Published"` and `data-testid="published-toggle"`. Page mounts it inside the Share & access `<section>` right after the intro paragraph, gated `{!archived ? <PublishedToggle slug={show.slug} published={published} finalizeOwned={finalizeOwned} setPublished={setShowPublishedAction.bind(null, show.slug)} /> : null}` (the section itself renders for archived shows; only the toggle hides).
 
-- [ ] **Step 1: Failing component tests** — five mode-boundary states (spec §3.3 table: ON-enabled/OFF-enabled/OFF-disabled/ON-disabled sublines + disabled attr; archived = not-mounted is asserted at the page level); pending-disable; blocked outcome renders `messageFor("PUBLISH_BLOCKED_PENDING_REVIEW").dougFacing` INSIDE `[data-testid="published-toggle-row"]` (clone tree, strip `PerShowAlertSection` siblings first — anti-tautology); success → `router.refresh` called.
+- [ ] **Step 1: Failing component tests** — five mode-boundary states (spec §3.3 table: ON-enabled/OFF-enabled/OFF-disabled/ON-disabled sublines + disabled attr; archived = not-mounted is asserted at the page level); pending-disable; blocked outcome renders `messageFor("PUBLISH_BLOCKED_PENDING_REVIEW").dougFacing` INSIDE `[data-testid="published-toggle-row"]` (clone tree, strip `PerShowAlertSection` siblings first — anti-tautology); success → `router.refresh` called; refusal → `router.refresh` NOT called AND the copy still present after the action resolves (R10).
 - [ ] **Step 2: Verify fail.**
 - [ ] **Step 3: Implement component + all page/PerShowAlertSection modifications + deletions listed in Files.** `rg -n "undoAutoPublish|UndoAutoPublishButton|readUnpublishTokenForSlug" app components lib` must return ZERO product-code hits afterward, and the Delete-section test sweep above must be clean across `tests/` too.
 - [ ] **Step 4: Verify pass** — `pnpm vitest run tests/components/admin tests/app/admin tests/sync/_advisoryLockSingleHolderContract.test.ts tests/show tests/showLifecycle` + `pnpm tsc --noEmit` + `pnpm lint`.
