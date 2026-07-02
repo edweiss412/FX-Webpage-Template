@@ -450,6 +450,7 @@ export async function handleExtractAgenda(
       // The outer finally still fires after this return and releases the lease + slot.
       log.error("unexpected error in extract/merge region:", {
         source: "api.admin.onboarding.extractAgenda",
+        code: "AGENDA_EXTRACT_REGION_FAILED",
         error: extractErr,
       });
       return NextResponse.json({ status: "error" }, { status: 500 });
@@ -465,6 +466,7 @@ export async function handleExtractAgenda(
     // inner extract-region catch, EVERY post-auth throw path returns the typed 500.
     log.error("unexpected error before extraction:", {
       source: "api.admin.onboarding.extractAgenda",
+      code: "AGENDA_EXTRACT_PREEXTRACT_FAILED",
       error: preExtractErr,
     });
     return NextResponse.json({ status: "error" }, { status: 500 });

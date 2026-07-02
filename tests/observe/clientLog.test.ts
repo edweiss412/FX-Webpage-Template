@@ -40,6 +40,27 @@ describe("clientLog", () => {
       message: "crash",
     });
   });
+  test("code+detail (5th/6th args) forward to the transport body; context still NOT mirrored", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    clientLog(
+      "warn",
+      "client.realtime",
+      "boom",
+      { reason: "x" },
+      "REALTIME_UNKNOWN_SYSTEM_EVENT",
+      "evt-name",
+    );
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(f).toHaveBeenCalledTimes(1);
+    const { url: _u, ...body } = JSON.parse((f.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body).toEqual({
+      source: "client.realtime",
+      level: "warn",
+      message: "boom",
+      code: "REALTIME_UNKNOWN_SYSTEM_EVENT",
+      detail: "evt-name",
+    }); // code+detail forwarded; the 4th-arg context ({reason}) is NOT mirrored
+  });
   test("info (no ctx) AND debug (with ctx) → console only, NO POST", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const debug = vi.spyOn(console, "debug").mockImplementation(() => {});

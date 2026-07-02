@@ -83,6 +83,40 @@ describe("client-error endpoint", () => {
     await handleClientError(req({ source: "client.tile", message: "boom", tileId: "t1" }));
     expect(h.logError.mock.calls[0]![1]).toMatchObject({ source: "client.tile", tileId: "t1" });
   });
+  test("body with code+detail → emitted record carries code + detail in fields", async () => {
+    await handleClientError(
+      req({
+        source: "client.crew",
+        message: "boom",
+        code: "CLIENT_WINDOW_ERROR",
+        detail: "chunk load failed",
+      }),
+    );
+    expect(h.logError).toHaveBeenCalledTimes(1);
+    const fields = h.logError.mock.calls[0]![1];
+    expect(fields).toMatchObject({
+      source: "client.crew",
+      code: "CLIENT_WINDOW_ERROR",
+      detail: "chunk load failed",
+    });
+  });
+  test("over-cap code/detail are truncated (code 80, detail 500)", async () => {
+    const longCode = "C".repeat(200);
+    const longDetail = "D".repeat(2000);
+    await handleClientError(
+      req({ source: "client.admin", message: "boom", code: longCode, detail: longDetail }),
+    );
+    const fields = h.logError.mock.calls[0]![1];
+    expect((fields.code as string).length).toBe(80);
+    expect((fields.detail as string).length).toBe(500);
+  });
+  test("body without code still logs (no code/detail fields)", async () => {
+    await handleClientError(req({ source: "client.crew", message: "boom" }));
+    expect(h.logError).toHaveBeenCalledTimes(1);
+    const fields = h.logError.mock.calls[0]![1];
+    expect(fields.code).toBeUndefined();
+    expect(fields.detail).toBeUndefined();
+  });
   test("content-type not json → 400 (no write)", async () => {
     const r = await handleClientError(
       req({ source: "client.crew", message: "boom" }, { "content-type": "text/plain" }),

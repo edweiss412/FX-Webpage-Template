@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import type { LogRecord } from "@/lib/log/types";
 
 const state = vi.hoisted(() => ({
   serverClient: {
@@ -138,5 +139,41 @@ describe("OAuth callback claim-stamp hook", () => {
     ]);
     expect(JSON.stringify(state.alerts)).not.toContain("crew@fxav.test");
     expect(response.headers.get("set-cookie") ?? "").not.toContain("__Host-fxav_picker");
+  });
+
+  test("claim RPC returned error emits OAUTH_CLAIM_RPC_FAILED with error preserved", async () => {
+    state.serviceRpc.mockResolvedValue({ data: null, error: { message: "rpc boom" } });
+    const { setLogSink } = await import("@/lib/log");
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      records.push(record);
+    });
+    const { GET } = await import("@/app/auth/callback/route");
+
+    await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/me"));
+
+    const rec = records.find((r) => r.message === "claim_oauth_identity returned error");
+    expect(rec).toBeDefined();
+    expect(rec!.code).toBe("OAUTH_CLAIM_RPC_FAILED");
+    expect(rec!.source).toBe("auth.callback");
+    expect(rec!.context).toHaveProperty("error"); // underlying fault preserved
+  });
+
+  test("claim-stamp throw emits OAUTH_CLAIM_STAMP_FAILED with error preserved", async () => {
+    state.serviceRpc.mockRejectedValue(new Error("fetch failed"));
+    const { setLogSink } = await import("@/lib/log");
+    const records: LogRecord[] = [];
+    setLogSink((record) => {
+      records.push(record);
+    });
+    const { GET } = await import("@/app/auth/callback/route");
+
+    await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/me"));
+
+    const rec = records.find((r) => r.message === "claim-stamp threw");
+    expect(rec).toBeDefined();
+    expect(rec!.code).toBe("OAUTH_CLAIM_STAMP_FAILED");
+    expect(rec!.source).toBe("auth.callback");
+    expect(rec!.context).toHaveProperty("error"); // underlying throw preserved
   });
 });

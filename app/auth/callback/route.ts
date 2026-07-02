@@ -98,6 +98,7 @@ async function stampOauthClaim(
     if (rpcError) {
       void log.error("claim_oauth_identity returned error", {
         source: "auth.callback",
+        code: "OAUTH_CLAIM_RPC_FAILED",
         emailHash: hashForLog(canonicalEmail),
         error: rpcError,
       });
@@ -128,7 +129,11 @@ async function stampOauthClaim(
       }
     }
   } catch (err) {
-    void log.error("claim-stamp threw", { source: "auth.callback", error: err });
+    void log.error("claim-stamp threw", {
+      source: "auth.callback",
+      code: "OAUTH_CLAIM_STAMP_FAILED",
+      error: err,
+    });
     try {
       await upsertAdminAlert({
         showId: null,

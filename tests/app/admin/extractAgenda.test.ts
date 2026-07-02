@@ -903,4 +903,56 @@ describe("extract-agenda — terminal-branch telemetry", () => {
     expect(errorMock()).not.toHaveBeenCalled();
     await pool`DELETE FROM public.agenda_extract_leases WHERE drive_file_id LIKE 'xa-log-queued-filler-%'`;
   });
+
+  test("inner extract/merge throw → 500 emits AGENDA_EXTRACT_REGION_FAILED (error, bound error)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-region";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
+    const enrich = vi.fn(async () => {
+      throw new Error("boom in extract/merge region");
+    });
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({
+        fetchMeta: metaSpy(STAGED_ISO, [FOLDER]),
+        enrichAgenda: enrich as unknown as NonNullable<ExtractAgendaDeps["enrichAgenda"]>,
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+    expect(errorMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_REGION_FAILED",
+        source: "api.admin.onboarding.extractAgenda",
+        error: expect.any(Error),
+      }),
+    );
+  });
+
+  test("pre-extraction throw (tx#1a) → 500 emits AGENDA_EXTRACT_PREEXTRACT_FAILED (error, bound error)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-preextract";
+    const sqlThrows = {
+      begin: vi.fn(async () => {
+        throw new Error("connection lost"); // tx#1a sql.begin fault, before the inner try
+      }),
+    } as unknown as NonNullable<ExtractAgendaDeps["sql"]>;
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ sql: sqlThrows }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+    expect(errorMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_PREEXTRACT_FAILED",
+        source: "api.admin.onboarding.extractAgenda",
+        error: expect.any(Error),
+      }),
+    );
+  });
 });
