@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest";
 import { EVENT_DETAILS_LABELS, CREW_TECH_SPEC_KEYS } from "@/lib/crew/eventDetailsSpecs";
 import { CANONICAL_KEY_MAP } from "@/lib/parser/blocks/event";
 
-// Canonical text keys = all parser canonical values EXCEPT the documented non-text exclusion.
-const LABEL_EXCLUDED = new Set(["diagrams"]);
+// Canonical text keys = all parser canonical values EXCEPT the documented non-text exclusions.
+// `diagrams` and its pre-2026 predecessors `floor_plan`/`room_diagram` (report #237) are
+// link/diagram rows surfaced by the Diagrams tile, not the Tech-specs card — deliberately
+// unrendered, so they carry no EVENT_DETAILS_LABELS entry.
+const LABEL_EXCLUDED = new Set(["diagrams", "floor_plan", "room_diagram"]);
 const ALREADY_RENDERED = new Set([
   "dress_code",
   "internet",

@@ -131,3 +131,32 @@ describe("EVENT closed-vocab form-layout harvest — conditional, dropped-block 
     expect(ed["stage_size"]).toBeUndefined();
   });
 });
+
+// Report #237: "Floor Plan" (and its guaranteed pre-2026-template sibling "Room Diagram") were
+// flagged UNKNOWN_FIELD across the whole pre-2026 corpus. They are the predecessors of the
+// recognized 2026 "DIagrams" row, so recognize them as known-but-unread canonical keys — the
+// value is kept in event_details (like `diagrams`), and no operator advisory fires.
+describe("EVENT DETAILS — Floor Plan / Room Diagram recognized (report #237)", () => {
+  const synthetic = [
+    "| EVENT DETAILS | EVENT DETAILS |",
+    "| :---: | :---: |",
+    "| Floor Plan | LINK |",
+    "| Room Diagram | LINK |",
+    "| Stage Size | 8x24 |",
+  ].join("\n");
+
+  it("keeps 'Floor Plan' and 'Room Diagram' values under their canonical keys", () => {
+    const ed = parseSheet(synthetic, "s.md").show.event_details;
+    expect(ed["floor_plan"]).toBe("LINK");
+    expect(ed["room_diagram"]).toBe("LINK");
+    expect(ed["stage_size"]).toBe("8x24"); // sibling known field unaffected
+  });
+
+  it("emits NO UNKNOWN_FIELD advisory for Floor Plan or Room Diagram", () => {
+    const flaggedLabels = parseSheet(synthetic, "s.md")
+      .warnings.filter((w) => w.code === "UNKNOWN_FIELD")
+      .map((w) => w.blockRef?.name ?? w.message);
+    expect(flaggedLabels).not.toContain("Floor Plan");
+    expect(flaggedLabels).not.toContain("Room Diagram");
+  });
+});

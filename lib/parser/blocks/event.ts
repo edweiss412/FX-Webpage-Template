@@ -72,6 +72,13 @@ export const CANONICAL_KEY_MAP: Record<string, string> = {
   "stage size": "stage_size",
   diagrams: "diagrams",
   "diagrams link": "diagrams",
+  // Pre-2026 INFO/DETAILS template split the diagram row into two ("Floor Plan" + "Room Diagram");
+  // the 2026 template collapsed both into the single recognized "DIagrams" row above. Recognize the
+  // legacy pair as their own known-but-unread keys so the near-universal pre-2026 corpus stops
+  // raising UNKNOWN_FIELD (report #237). The value (often the link display text) is kept in
+  // event_details like `diagrams`; the actual diagram content is surfaced by the Diagrams tile.
+  "floor plan": "floor_plan",
+  "room diagram": "room_diagram",
   led: "led",
   record: "record",
   polling: "polling",
