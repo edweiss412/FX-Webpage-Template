@@ -64,7 +64,7 @@ New migration `supabase/migrations/<ts>_published_toggle_unpublish_show.sql` mir
 
 - New `lib/showLifecycle/unpublishShow.ts` exporting `unpublishShow(showId, deps?)` via `callLifecycleRpc(rpc, "unpublish_show", …)` — identical shape to `lib/showLifecycle/publishShow.ts`. (Deliberate name collision with `lib/sync/unpublishShow.ts`'s token-flow export; the modules serve different paths and imports disambiguate. Register in `tests/showLifecycle/callers.test.ts`.)
 - New server action `app/admin/show/[slug]/_actions/setPublished.ts` exporting `setShowPublishedAction(slug: string, next: boolean): Promise<LifecycleResult>`: `requireAdmin()` → `resolveShowBySlug(slug)` (infra_error / SHOW_NOT_FOUND exactly as `publish.ts`) → `next ? publishShow(id) : unpublishShow(id)` → on `ok`: `revalidateShow(id)` + `revalidatePath('/admin/show/${slug}')` + `revalidatePath('/admin')`. Exported from the `_actions/index.ts` barrel.
-- **Deleted:** `_actions/undoAutoPublish.ts` (`undoAutoPublishAction` + its barrel export). `readUnpublishTokenForSlug` (`lib/sync/unpublishShow.ts:341-352`) loses its only caller and is deleted too.
+- **Deleted:** `_actions/undoAutoPublish.ts` (`undoAutoPublishAction` + its barrel export). With it die its exclusive engine legs in `lib/sync/unpublishShow.ts`: `readUnpublishTokenForSlug` (:341-352), plain `unpublishShow` (:367-384) and `unpublishShow_unlocked` (:271-290) — verified sole-caller via grep; only the `unpublishShowViaEmailedLink` pair (called by `app/show/[slug]/unpublish/actions.ts:52` and `app/api/show/[slug]/unpublish/route.ts:41`) survives. `UNPUBLISH_TOKEN_CONSUMED` stays cataloged (the emailed path still produces the outcome internally and maps it to the neutral page, existing behavior `unpublishShow.ts:293-307`); its only in-app renderer disappears.
 - **Kept (R1 finding):** `_actions/publish.ts` (`publishShowAction`) and `components/admin/PublishShowButton.tsx` remain — they are the per-row publish affordance on the Unpublished queue page (`app/admin/unpublished/page.tsx:23-24,79-80`), which is OUT of scope (D2 replaces the button on the SHOW page only). Duplication is two thin callers of the same `publish_show` RPC; acceptable.
 
 ### 3.3 Admin UI (invariant 8: impeccable dual-gate; Opus-only)
@@ -85,7 +85,9 @@ Props: `{ slug, published: boolean, finalizeOwned: boolean, setPublished: (next:
 
 The disable condition is `finalizeOwned` alone — never `finalizeOwned && !published`.
 
-**Guard conditions:** `published`/`finalizeOwned` are server-computed booleans (`page.tsx:331,350-356`) — never null/undefined at the callsite; the island takes plain booleans, no degraded read state exists (unlike `AutoPublishToggle`'s `infra_error` initial — the page 404s before rendering if the show read fails).
+**Guard conditions:** `published`/`finalizeOwned` are server-computed booleans (`page.tsx:331,350-360`) — never null/undefined at the callsite; the island takes plain booleans, no degraded read state exists (unlike `AutoPublishToggle`'s `infra_error` initial — the page 404s before rendering if the show read fails).
+
+**Page-side computation change (R3):** `page.tsx:350-360` currently queries `readfinalizeowned_b2` ONLY when `!published && !archived` (its comment "a published row is never finalize-owned" is contradicted by the predicate's `shows_pending_changes` branch). The condition widens to `!archived` so a LIVE finalize-owned show reaches the ON-disabled row above. The existing fail-toward-false posture on RPC error stays — for a published show that yields a transiently-enabled toggle, and the RPC's hard `FINALIZE_OWNED_SHOW` refusal is the backstop (defense in depth, same posture as today's Held/Publishing… split). `isHeld` (:362) is unchanged by the widened query (`!published` still guards it).
 
 **Failure rendering (invariant 5 — all copy via `messageFor`):** a non-`ok` action result renders inline below the switch: `PUBLISH_BLOCKED_PENDING_REVIEW` → its catalog `dougFacing` (the Re-sync CTA already lives in the same footer); `FINALIZE_OWNED_SHOW` / `SHOW_ARCHIVED_IMMUTABLE` (race with a concurrent finalize/archive) → their catalog copy + `router.refresh()`; `ADMIN_LINK_SHOW_NOT_FOUND` / `infra_error` → plain retry copy (mirror `UndoAutoPublishButton.tsx:93-102`'s uncataloged retry pattern).
 
@@ -108,9 +110,23 @@ update public.shows
 ```
 — consume guard preserved; the share-token rotation, scratch deletes, `archived`/`archived_at`/`picker_epoch` statements are removed. Everything else in the M12.13 contract is untouched: JS-side `withShowLock` single-holder topology, recipient binding + `FOR SHARE` admin read, neutral vs CONSUMED split, expiry clear, `SHOW_UNPUBLISHED` alert + `publish_show_invalidation` in `compareExpireConsume_lockHeld` (:252-260).
 
+**Finalize-owned refusal on the emailed path (R3 — closes a PRE-EXISTING gap):** today's archive-mirror consume has NO finalize-owned check even though `archive_show` refuses it; the softened path gets the same guard as the new RPC. Inside the locked transaction, AFTER binding validation + token compare + expiry handling and BEFORE the consume UPDATE, the tx gains `readFinalizeOwned(showId)` (`select public.readfinalizeowned_b2($1::uuid)` on the same raw-postgres tx). When true, return a new engine outcome `{ outcome: "finalize_owned", status: 409, showId }` — token NOT consumed, nothing mutated. The confirm page renders it as a new `busy` action state with uncataloged plain copy (`BUSY_HEADING`/`BUSY_BODY` ≈ "This show is being updated right now. Nothing has changed — try again in a few minutes.") following `copy.ts:20`'s existing `not-subject:M5-D8` waiver pattern for transient non-catalog copy; the API route maps it to HTTP 409.
+
+**Finalize-owned × published-mutation matrix (vector closure — every path that can flip `shows.published`):**
+
+| Path | Finalize-owned guard |
+|---|---|
+| `publish_show` RPC | refuses, existing (`20260601000000:123`) |
+| `archive_show` RPC | refuses, existing (`:75-77`) |
+| `unpublish_show` RPC (new) | refuses (§3.1) |
+| Emailed-link consume (JS) | refuses (this section — NEW, was missing pre-feature) |
+| `_archive_show_core` via token path | path deleted (the archive-mirror consume is replaced) |
+| Auto-publish tails (cron first-seen / staged apply) | upstream-owned: only fire on wizard/cron flows that themselves own or exclude the finalize checkpoint — untouched |
+| `unarchive_show` | does not touch `published`; untouched |
+
 **Lock-holder topology (invariant 2, declared here for the plan):** `hashtext('show:'||drive_file_id)` acquires at exactly one layer per path — admin toggle OFF → in-RPC (`unpublish_show`), admin toggle ON → in-RPC (`publish_show`, existing), emailed link → JS-side `withShowLock` (existing, mutation stays inline SQL — it does NOT call the new RPC, precisely so no second layer ever acquires). Register `unpublish_show` in `tests/sync/_advisoryLockSingleHolderContract.test.ts`. (`tests/auth/advisoryLockRpcDeadlock.test.ts` guards finalize-lock handlers — `tryFinalizeLock` call sites, `:291-319` — and is NOT in scope.)
 
-**Parity contract:** `tests/sync/unpublishArchiveParity.test.ts` is rewritten as `unpublishParity`: token-consume path ↔ `unpublish_show` RPC reach the SAME end-state (published=false, token pair null, share_token UNrotated, picker_epoch UNbumped, scratch rows intact, archived untouched, SHOW_UNPUBLISHED alert present).
+**Parity contract:** `tests/sync/unpublishArchiveParity.test.ts` is rewritten as `unpublishParity`: token-consume path ↔ `unpublish_show` RPC reach the SAME end-state (published=false, token pair null, share_token UNrotated, picker_epoch UNbumped, scratch rows intact, archived untouched, SHOW_UNPUBLISHED alert present) — AND the same refusal: live+finalize-owned show → RPC raises `FINALIZE_OWNED_SHOW` / emailed path returns `finalize_owned` with token intact (R3).
 
 **Confirm-page copy** (`app/show/[slug]/unpublish/copy.ts`): `CONFIRM_CONSEQUENCE`, `NEUTRAL_BODY`, `SUCCESS_*` lines currently describe archive-flavored recovery ("archive it from the admin", "republish"); reword to toggle-flavored ("turn Published back on from the show's page"). Same for `lib/notify/templates/autoPublishUndo.ts` body copy and `lib/sync/unpublishConfirmPage.ts` strings if they restate the effect. The action-state machine, statuses, and neutral-oracle rules (`copy.ts:10-16`) are unchanged.
 
@@ -183,12 +199,13 @@ Single-domain feature — matrix is layer×surface:
 3. **Lock topology**: `_advisoryLockSingleHolderContract` row for `unpublish_show` (in-RPC holder); emailed path stays JS-holder — the test proves the softened mutation still runs under `assertShowLockHeld` (`unpublishShow.ts:278,316`).
 4. **Lifecycle caller**: register `lib/showLifecycle/unpublishShow.ts` in `tests/showLifecycle/callers.test.ts` (chokepoint + infra_error mapping).
 5. **Action**: `setShowPublishedAction` — requireAdmin ordering, infra_error vs SHOW_NOT_FOUND resolution, direction dispatch, post-commit revalidation calls (mirror `tests/app/admin/show-lifecycle-actions.test.ts`; delete `tests/app/admin/undo-auto-publish-action.test.ts` + the three `undo-auto-publish-*` component tests). `tests/admin/unpublishedView.test.tsx` must stay green untouched — it pins the kept queue-page affordance.
-6. **Toggle component**: four mode-boundary states (§3.3 table) + pending-disable via `useFormStatus` + blocked-outcome copy rendering. Anti-tautology: assert the blocked copy inside the toggle's own `data-testid` subtree after removing sibling nodes that render catalog copy (`PerShowAlertSection`); expected copy read from `messageFor("PUBLISH_BLOCKED_PENDING_REVIEW")`, not string-duplicated.
+6. **Toggle component**: five mode-boundary states (§3.3 table) + pending-disable via `useFormStatus` + blocked-outcome copy rendering. Anti-tautology: assert the blocked copy inside the toggle's own `data-testid` subtree after removing sibling nodes that render catalog copy (`PerShowAlertSection`); expected copy read from `messageFor("PUBLISH_BLOCKED_PENDING_REVIEW")`, not string-duplicated.
 7. **Crew route**: `unpublished` → HTTP 200 unavailable page asserting (a) `CREW_SHOW_PAUSED` crewFacing text present, (b) show title ABSENT from the document (fixture-derived title string, not hardcoded), (c) `archived` and bad-token still 404. Extend `tests/show/` route tests + `unpublishRoutePrecedence.test.ts` if the precedence chain is asserted there.
-8. **Transition audit**: new conditionals registered in `tests/components/admin/transitionAudit.test.tsx` with explicit "instant" declarations (§3.3 inventory).
-9. **E2E (Playwright, real browser)**: seed live show → toggle OFF → share URL renders unavailable page (assert on crew DOM, not admin) → toggle ON → same URL renders crew page. Reuses the picker-flow e2e harness seeding.
-10. **Meta/CI gates expected to move**: x1 catalog parity, x2 internal-code-enums, spec-codes gen, help `_families`, `_metaAdminAlertCatalog` (new RPC-side `SHOW_UNPUBLISHED` upsert caller — add registry row/exemption per its `:411` union rule), validation-schema-parity, help-screenshot byte gate (CI-artifact regen).
-11. **Full `vitest run` in the worktree is DB-polluting** — run `.db` suites in isolation per the Step-3 lesson (memory: shared-DB pollution).
+8. **Admin page render**: published show owned via `shows_pending_changes` (seeded checkpoint `in_progress`) renders the ON-**disabled** toggle BEFORE any action fires (R3 — pins the widened `finalizeOwned` computation; extend `tests/components/admin/per-show-lifecycle.test.tsx`'s page-render pattern).
+9. **Transition audit**: new conditionals registered in `tests/components/admin/transitionAudit.test.tsx` with explicit "instant" declarations (§3.3 inventory).
+10. **E2E (Playwright, real browser)**: seed live show → toggle OFF → share URL renders unavailable page (assert on crew DOM, not admin) → toggle ON → same URL renders crew page. Reuses the picker-flow e2e harness seeding.
+11. **Meta/CI gates expected to move**: x1 catalog parity, x2 internal-code-enums, spec-codes gen, help `_families`, `_metaAdminAlertCatalog` (new RPC-side `SHOW_UNPUBLISHED` upsert caller — add registry row/exemption per its `:411` union rule), validation-schema-parity, help-screenshot byte gate (CI-artifact regen).
+12. **Full `vitest run` in the worktree is DB-polluting** — run `.db` suites in isolation per the Step-3 lesson (memory: shared-DB pollution).
 
 ## 8. Meta-test inventory (declared per AGENTS.md writing-plans rule)
 
@@ -202,3 +219,5 @@ EXTENDS: `tests/sync/_advisoryLockSingleHolderContract.test.ts`, `tests/db/b2-li
 - Master spec §12.4 edits must never be prettier-formatted (memory + x1 gate precedent).
 - The unavailable page renders zero show data by construction (component takes no show props) — that IS the leak-minimization mechanism.
 - `PublishShowButton`/`publishShowAction` survive deliberately for `/admin/unpublished` (R1 finding, resolved keep) — do not re-flag their retention as dead code.
+- The emailed-path finalize-owned guard (R3) closes a gap that PRE-DATES this feature; the `busy` state is deliberately uncataloged transient copy per the `copy.ts:20-23` waiver precedent — do not demand a §12.4 code for it.
+- The page's fail-toward-false `finalizeOwned` read is the EXISTING posture (`page.tsx:344-360`); the RPC refusal is the hard gate. Do not demand fail-closed rendering.
