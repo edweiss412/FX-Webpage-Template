@@ -67,6 +67,16 @@ describe("handleIgnore", () => {
     expect(res.status).toBe(400);
   });
 
+  test("blank/whitespace code → 400 (input hardening, Codex whole-diff)", async () => {
+    const captured: { sql: string; params: unknown[] }[] = [];
+    const res = await handleIgnore(req({ code: "   ", rawSnippet: "Storage | x" }), ctx(), {
+      requireAdminIdentity: admin,
+      withTx: fakeTx(captured),
+    });
+    expect(res.status).toBe(400);
+    expect(captured).toHaveLength(0); // never reaches the DB
+  });
+
   test("missing show → 404", async () => {
     const res = await handleIgnore(req({ code: "X", rawSnippet: "y" }), ctx(), {
       requireAdminIdentity: admin,

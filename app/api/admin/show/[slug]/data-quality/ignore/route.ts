@@ -71,7 +71,11 @@ export async function handleIgnore(
   } catch {
     return errorResponse(400, "BAD_REQUEST");
   }
-  if (typeof body?.code !== "string" || typeof body?.rawSnippet !== "string") {
+  if (
+    typeof body?.code !== "string" ||
+    body.code.trim().length === 0 ||
+    typeof body?.rawSnippet !== "string"
+  ) {
     return errorResponse(400, "BAD_REQUEST");
   }
   const fingerprint = warningFingerprint({ code: body.code, rawSnippet: body.rawSnippet });
