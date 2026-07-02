@@ -296,6 +296,16 @@ export type ProcessOneFileDeps = {
     driveClient: DriveClient,
     ctx: { driveFileId: string; fileMeta: DriveFileMeta; sheets?: SpreadsheetSheet[] },
   ) => Promise<ParseResult>;
+  /**
+   * Finding C7: read the currently-stored `shows.agenda_links` so the fresh parse can be
+   * seeded with prior `extracted` payloads BEFORE enrich — the fresh cron/push/manual parse
+   * carries no `extracted`, unlike the admin path pre-seeded from `pending_syncs`
+   * (live-partition:n/a — doc reference, no statement). Injected in tests; defaults to an
+   * unlocked Postgres read.
+   */
+  readStoredAgendaLinks?: (
+    driveFileId: string,
+  ) => Promise<ParseResult["show"]["agenda_links"] | null>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
   runPhase2?: typeof runPhase2;
@@ -1542,6 +1552,50 @@ async function readPostgresRevisionRaceCooldown(
   }
 }
 
+/**
+ * Finding C7: seed the fresh parse's agenda_links with the stored `extracted` payloads
+ * (matched by fileId, fallback trimmed/lowercased label) so enrichAgenda's revision
+ * cache-hit and leave-existing paths become effective on the cron/push/manual prepare
+ * path. Pure + in-place; NEVER overrides a fresh-parse-carried extraction.
+ */
+export function seedPriorAgendaExtracted(
+  freshLinks: ParseResult["show"]["agenda_links"],
+  priorLinks: ParseResult["show"]["agenda_links"] | null | undefined,
+): void {
+  if (!priorLinks || priorLinks.length === 0) return;
+  type Extracted = NonNullable<ParseResult["show"]["agenda_links"][number]["extracted"]>;
+  const byFileId = new Map<string, Extracted>();
+  const byLabel = new Map<string, Extracted>();
+  for (const prior of priorLinks) {
+    if (!prior?.extracted) continue;
+    if (prior.fileId) byFileId.set(prior.fileId, prior.extracted);
+    const key = prior.label?.trim().toLowerCase();
+    if (key) byLabel.set(key, prior.extracted);
+  }
+  for (const link of freshLinks) {
+    if (link.extracted) continue;
+    const match =
+      (link.fileId ? byFileId.get(link.fileId) : undefined) ??
+      byLabel.get(link.label?.trim().toLowerCase() ?? "");
+    if (match) link.extracted = match;
+  }
+}
+
+async function readPostgresStoredAgendaLinks(
+  driveFileId: string,
+): Promise<ParseResult["show"]["agenda_links"] | null> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      `select agenda_links from public.shows where drive_file_id = $1 limit 1`,
+      [driveFileId],
+    )) as Array<{ agenda_links: ParseResult["show"]["agenda_links"] | null }>;
+    return rows[0]?.agenda_links ?? null;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 async function withStepTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timer = new Promise<never>((_, reject) => {
@@ -2416,6 +2470,25 @@ export async function prepareProcessOneFile(
   }
 
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
+
+  // Finding C7: seed prior stored `extracted` onto the fresh agenda_links BEFORE enrich, so
+  // enrichAgenda's revision cache-hit / leave-existing paths are effective. Without this a
+  // transient Drive fault leaves the fresh links unenriched and applyShowSnapshot wholesale-
+  // overwrites shows.agenda_links, erasing a published schedule (spec §240 preserve-never-clear).
+  // Best-effort read OUTSIDE the lock (a read; enrichAgenda re-validates against Drive revision).
+  // `?.length` guards fixtures/parses that leave agenda_links unset (the field is typed as a
+  // required array but mock parses may omit it) — never seed when there are no agenda links.
+  if (parsed.show.agenda_links?.length) {
+    try {
+      const priorLinks = await (deps.readStoredAgendaLinks ?? readPostgresStoredAgendaLinks)(
+        driveFileId,
+      );
+      seedPriorAgendaExtracted(parsed.show.agenda_links, priorLinks);
+    } catch {
+      // best-effort: never fail the sync because the prior-agenda read faulted.
+    }
+  }
+
   let enriched: ParseResult;
   try {
     enriched = await withStepTimeout(
