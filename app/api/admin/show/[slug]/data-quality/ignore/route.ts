@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type IgnoreTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -84,24 +85,40 @@ export async function handleIgnore(
   const fingerprint = warningFingerprint({ code: body.code, rawSnippet: body.rawSnippet });
   if (fingerprint === null) return errorResponse(400, "BAD_REQUEST");
   const { slug } = await context.params;
+  const actorEmail = canonicalize(admin.email);
+  let showId: string;
   try {
-    return await withTx(async (tx) => {
+    const result = await withTx(async (tx) => {
       const show = await tx.queryOne<{ id: string }>(
         `select id from public.shows where slug = $1 limit 1`,
         [slug],
       );
-      if (!show) return errorResponse(404, "SHOW_NOT_FOUND");
+      if (!show) return { kind: "not_found" as const };
       await tx.run(
         `insert into public.ignored_warnings (show_id, fingerprint, code, ignored_by)
          values ($1::uuid, $2, $3, $4)
          on conflict (show_id, fingerprint) do nothing`,
-        [show.id, fingerprint, body.code, canonicalize(admin.email)],
+        [show.id, fingerprint, body.code, actorEmail],
       );
-      return NextResponse.json({ status: "ignored" });
+      return { kind: "ignored" as const, showId: show.id };
     });
+    if (result.kind === "not_found") return errorResponse(404, "SHOW_NOT_FOUND");
+    showId = result.showId;
   } catch {
     return errorResponse(500, "DATA_QUALITY_INFRA_ERROR");
   }
+  // DQIGNORE-4 — forensic audit trail (WHO ignored WHICH warning). POST-COMMIT, never inside
+  // the tx; logAdminOutcome persists to app_events under a stripped span (forensic, NOT §12.4).
+  // log.* never throws over the caller (invariant 9 / lib/log persist+logger guards), so a plain
+  // await cannot turn an already-committed ignore into a 500.
+  await logAdminOutcome({
+    code: "WARNING_IGNORED",
+    source: "api.admin.data-quality.ignore",
+    ...(actorEmail ? { actorEmail } : {}),
+    showId,
+    extra: { warningCode: body.code, fingerprint },
+  });
+  return NextResponse.json({ status: "ignored" });
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

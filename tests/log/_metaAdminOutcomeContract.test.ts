@@ -46,6 +46,9 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
   { file: "app/admin/show/[slug]/_actions/archive.ts", code: "SHOW_ARCHIVED" },
   { file: "app/admin/show/[slug]/_actions/unarchive.ts", code: "SHOW_UNARCHIVED_BY_ADMIN" },
   { file: "app/admin/show/[slug]/_actions/undoAutoPublish.ts", code: "SHOW_UNPUBLISHED_BY_ADMIN" },
+  // DQIGNORE-4 (2026-07-02): data-quality warning ignore/un-ignore forensic trace.
+  { file: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", code: "WARNING_IGNORED" },
+  { file: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", code: "WARNING_UNIGNORED" },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -64,6 +67,9 @@ const SANCTIONED_CODES = new Set([
   "SHOW_ARCHIVED",
   "SHOW_UNARCHIVED_BY_ADMIN",
   "SHOW_UNPUBLISHED_BY_ADMIN",
+  // DQIGNORE-4 (2026-07-02).
+  "WARNING_IGNORED",
+  "WARNING_UNIGNORED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

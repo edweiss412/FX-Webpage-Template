@@ -1,5 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { handleUnignore } from "@/app/api/admin/show/[slug]/data-quality/unignore/route";
+
+const { logAdminOutcomeMock } = vi.hoisted(() => ({ logAdminOutcomeMock: vi.fn() }));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
 
 const ctx = () => ({ params: Promise.resolve({ slug: "rpas" }) });
 const req = (body: unknown) =>
@@ -49,5 +52,39 @@ describe("handleUnignore", () => {
       withTx: fakeTx([]),
     });
     expect(res.status).toBe(403);
+  });
+
+  test("DQIGNORE-4: a successful un-ignore emits a WARNING_UNIGNORED forensic outcome post-commit", async () => {
+    logAdminOutcomeMock.mockClear();
+    const res = await handleUnignore(
+      req({ code: "UNKNOWN_FIELD", rawSnippet: "Storage | x" }),
+      ctx(),
+      { requireAdminIdentity: admin, withTx: fakeTx([]) },
+    );
+    expect(res.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    const outcome = logAdminOutcomeMock.mock.calls[0]![0] as {
+      code: string;
+      source: string;
+      showId: string;
+      extra?: Record<string, unknown>;
+    };
+    expect(outcome).toMatchObject({
+      code: "WARNING_UNIGNORED",
+      source: "api.admin.data-quality.unignore",
+      showId: "sid",
+    });
+    expect(outcome.extra?.warningCode).toBe("UNKNOWN_FIELD");
+    expect(typeof outcome.extra?.fingerprint).toBe("string");
+  });
+
+  test("DQIGNORE-4: no outcome is logged when the show is missing", async () => {
+    logAdminOutcomeMock.mockClear();
+    const res = await handleUnignore(req({ code: "X", rawSnippet: "y" }), ctx(), {
+      requireAdminIdentity: admin,
+      withTx: fakeTx([], null),
+    });
+    expect(res.status).toBe(404);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });

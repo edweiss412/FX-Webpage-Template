@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type UnignoreTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -57,8 +59,9 @@ export async function handleUnignore(
 ): Promise<Response> {
   const requireAdminIdentity = routeDeps.requireAdminIdentity ?? defaultRequireAdminIdentity;
   const withTx = routeDeps.withTx ?? defaultWithTx;
+  let admin: { email: string };
   try {
-    await requireAdminIdentity();
+    admin = await requireAdminIdentity();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -82,22 +85,37 @@ export async function handleUnignore(
   const fingerprint = warningFingerprint({ code: body.code, rawSnippet: body.rawSnippet });
   if (fingerprint === null) return errorResponse(400, "BAD_REQUEST");
   const { slug } = await context.params;
+  const actorEmail = canonicalize(admin.email);
+  let showId: string;
   try {
-    return await withTx(async (tx) => {
+    const result = await withTx(async (tx) => {
       const show = await tx.queryOne<{ id: string }>(
         `select id from public.shows where slug = $1 limit 1`,
         [slug],
       );
-      if (!show) return errorResponse(404, "SHOW_NOT_FOUND");
+      if (!show) return { kind: "not_found" as const };
       await tx.run(
         `delete from public.ignored_warnings where show_id = $1::uuid and fingerprint = $2`,
         [show.id, fingerprint],
       );
-      return NextResponse.json({ status: "unignored" });
+      return { kind: "unignored" as const, showId: show.id };
     });
+    if (result.kind === "not_found") return errorResponse(404, "SHOW_NOT_FOUND");
+    showId = result.showId;
   } catch {
     return errorResponse(500, "DATA_QUALITY_INFRA_ERROR");
   }
+  // DQIGNORE-4 — forensic audit trail (WHO un-ignored WHICH warning). POST-COMMIT, never inside
+  // the tx; forensic app_events span (stripped, NOT §12.4). log.* never throws over the caller
+  // (invariant 9), so a plain await cannot turn an already-committed delete into a 500.
+  await logAdminOutcome({
+    code: "WARNING_UNIGNORED",
+    source: "api.admin.data-quality.unignore",
+    ...(actorEmail ? { actorEmail } : {}),
+    showId,
+    extra: { warningCode: body.code, fingerprint },
+  });
+  return NextResponse.json({ status: "unignored" });
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

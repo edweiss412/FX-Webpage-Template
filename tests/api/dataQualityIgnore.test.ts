@@ -1,5 +1,8 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { handleIgnore } from "@/app/api/admin/show/[slug]/data-quality/ignore/route";
+
+const { logAdminOutcomeMock } = vi.hoisted(() => ({ logAdminOutcomeMock: vi.fn() }));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
 
 const ctx = (slug = "rpas") => ({ params: Promise.resolve({ slug }) });
 const req = (body: unknown) =>
@@ -91,5 +94,43 @@ describe("handleIgnore", () => {
       withTx: fakeTx([], null),
     });
     expect(res.status).toBe(404);
+  });
+
+  test("DQIGNORE-4: a successful ignore emits a WARNING_IGNORED forensic outcome post-commit", async () => {
+    logAdminOutcomeMock.mockClear();
+    const captured: { sql: string; params: unknown[] }[] = [];
+    const res = await handleIgnore(
+      req({ code: "UNKNOWN_FIELD", rawSnippet: "Storage | x" }),
+      ctx(),
+      { requireAdminIdentity: admin, withTx: fakeTx(captured, { id: "sid" }) },
+    );
+    expect(res.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    const outcome = logAdminOutcomeMock.mock.calls[0]![0] as {
+      code: string;
+      source: string;
+      actorEmail: string;
+      showId: string;
+      extra?: Record<string, unknown>;
+    };
+    expect(outcome).toMatchObject({
+      code: "WARNING_IGNORED",
+      source: "api.admin.data-quality.ignore",
+      actorEmail: "admin@example.com", // canonical, matches the persisted ignored_by
+      showId: "sid",
+    });
+    // The forensic row must carry WHAT was ignored so an audit can trace it.
+    expect(outcome.extra?.warningCode).toBe("UNKNOWN_FIELD");
+    expect(typeof outcome.extra?.fingerprint).toBe("string");
+  });
+
+  test("DQIGNORE-4: no outcome is logged when the show is missing (nothing mutated)", async () => {
+    logAdminOutcomeMock.mockClear();
+    const res = await handleIgnore(req({ code: "X", rawSnippet: "y" }), ctx(), {
+      requireAdminIdentity: admin,
+      withTx: fakeTx([], null),
+    });
+    expect(res.status).toBe(404);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });
