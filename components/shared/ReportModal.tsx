@@ -405,7 +405,12 @@ export function ReportModal(props: ReportModalProps) {
   const showStartFreshWarning = status === "new-report-warning";
 
   const heading = surface === "crew" ? "Something looks wrong?" : "Report this";
-  const placeholder = "What's off? Be as brief as you like.";
+  // When the note is optional (messageOptional — data-quality reports, where the
+  // autocapture IS the content), say so, so an empty-but-enabled Submit doesn't read
+  // as a required-but-unfilled field (impeccable critique P3).
+  const placeholder = messageOptional
+    ? "Add a note if you like. We've already captured the details."
+    : "What's off? Be as brief as you like.";
   // Surface-specific subhead. Crew copy is verbatim from spec §13.1
   // (line 2982): the modal must explicitly tell the crew member that
   // reports go to the developer (not Doug) and that show-content

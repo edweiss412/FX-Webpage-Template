@@ -92,6 +92,7 @@ export function DataQualityWarningControls({
             data-testid={`dq-${action}-${reportSurfaceId}`}
             onClick={run}
             disabled={state.kind === "running"}
+            aria-busy={state.kind === "running"}
             className={`${NEUTRAL_BTN} ${RING_OFFSET[mode]}`}
           >
             {mode === "active"

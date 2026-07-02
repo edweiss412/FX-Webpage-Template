@@ -41,7 +41,7 @@ describe("BulkIgnoreControls", () => {
   test("Ignore all N fires one ignore POST per distinct item, then refreshes", async () => {
     fetchMock.mockResolvedValue(okResponse());
     render(<BulkIgnoreControls slug="rpas" groups={groups} />);
-    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD") as HTMLButtonElement;
     expect(btn.textContent).toMatch(/Ignore all 2/);
     // the type label disambiguates when several code groups are shown
     expect(btn.textContent).toContain("Unrecognized row in sheet");
@@ -60,15 +60,30 @@ describe("BulkIgnoreControls", () => {
       expect((c[1] as RequestInit).method).toBe("POST");
     }
     await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // Stuck-disabled guard (audit P1): router.refresh() is a soft refresh that keeps this
+    // client state, so on success the component must reset to idle — the button re-enables
+    // rather than staying disabled forever when other code groups remain.
+    await waitFor(() => expect(btn.disabled).toBe(false));
   });
 
-  test("a failed POST surfaces an error and does NOT refresh", async () => {
+  test("partial fan-out failure reports 'Ignored X of N' honestly and does NOT refresh", async () => {
     fetchMock
       .mockResolvedValueOnce(okResponse())
       .mockResolvedValueOnce({ ok: false, json: async () => ({}) } as unknown as Response);
     render(<BulkIgnoreControls slug="rpas" groups={groups} />);
     fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
-    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    const alert = await screen.findByRole("alert");
+    // The succeeded insert IS committed, so the copy must not imply total failure.
+    expect(alert.textContent).toMatch(/Ignored 1 of 2/);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  test("total fan-out failure shows the generic retry copy", async () => {
+    fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) } as unknown as Response);
+    render(<BulkIgnoreControls slug="rpas" groups={groups} />);
+    fireEvent.click(screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/Couldn't ignore those warnings/);
     expect(refresh).not.toHaveBeenCalled();
   });
 });

@@ -11,10 +11,14 @@ export type BulkIgnoreGroupWithLabel = BulkIgnoreGroup & {
 type Props = { slug: string; groups: BulkIgnoreGroupWithLabel[] };
 type State = { kind: "idle" } | { kind: "running"; code: string } | { kind: "error"; copy: string };
 
-// Same neutral button skin as the per-warning Ignore control. Sits on the amber
-// warning-bg panel body, so the focus ring-offset matches that background.
+// Same neutral button skin as the per-warning Ignore control. Unlike that control
+// (which sits INSIDE an amber warning-bg card), this bulk bar renders directly in the
+// panel section on the page `bg`, so the focus ring-offset is `bg` — matching the
+// surface behind it (impeccable critique P2: the 2px offset gap must be the real bg).
+// max-w-full + whitespace-normal + text-left let a long "· <type label>" wrap instead of
+// forcing horizontal overflow on a ~390px phone (impeccable audit P3).
 const BTN =
-  "inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg";
+  "inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm border border-border-strong bg-bg px-3 py-1 text-left text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
 
 /**
  * DQIGNORE-2 — a per-code "Ignore all N" affordance shown ABOVE the active
@@ -44,11 +48,25 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
             .catch(() => false),
         ),
       );
-      if (results.every(Boolean)) {
+      const ok = results.filter(Boolean).length;
+      if (ok === results.length) {
+        // Reset to idle BEFORE refreshing: router.refresh() is a SOFT refresh that preserves
+        // this component's client state, and the component stays mounted whenever another code
+        // still has a bulk group. Leaving state "running" would wedge every sibling
+        // "Ignore all N" button permanently disabled until a full page reload (impeccable audit
+        // P1). Idle re-enables them; the ignored group drops out of the refreshed server props.
+        setState({ kind: "idle" });
         router.refresh();
         return;
       }
-      setState({ kind: "error", copy: failCopy });
+      // Partial success: the succeeded ignores ARE committed (idempotent inserts), so
+      // report honestly rather than implying none landed. We do NOT auto-refresh — that
+      // would drop this notice; the operator refreshes to see the ones that moved and can
+      // retry the rest per-card.
+      setState({
+        kind: "error",
+        copy: ok > 0 ? `Ignored ${ok} of ${results.length}. Refresh to see the rest.` : failCopy,
+      });
     } catch {
       setState({ kind: "error", copy: failCopy });
     }
@@ -65,6 +83,7 @@ export function BulkIgnoreControls({ slug, groups }: Props) {
             data-testid={`dq-bulk-ignore-${group.code}`}
             onClick={() => void ignoreGroup(group)}
             disabled={state.kind === "running"}
+            aria-busy={running}
             className={BTN}
           >
             {running ? "Ignoring…" : `Ignore all ${group.items.length}`}
