@@ -1,6 +1,7 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult } from "@/lib/parser/types";
+import { resetLogSink, setLogSink, type LogRecord } from "@/lib/log";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
@@ -13,6 +14,7 @@ import {
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
   type ProcessOneFileDeps,
+  type ProcessOneFileResult,
 } from "@/lib/sync/runScheduledCronSync";
 
 type FakeTx = SyncPipelineTx & {
@@ -540,6 +542,107 @@ describe("runManualSyncForShow", () => {
         },
       },
     ]);
+  });
+
+  describe("DEF-3 standing-ignore visibility (MANUAL_RESYNC_CLEARED_STANDING_IGNORE)", () => {
+    let records: LogRecord[];
+
+    beforeEach(() => {
+      records = [];
+      setLogSink((record) => {
+        records.push(record);
+      });
+    });
+    afterEach(() => {
+      resetLogSink();
+    });
+
+    function txWithDeferral(
+      deferredKind: "permanent_ignore" | "defer_until_modified" | null,
+    ): { tx: LockedShowTx<FakeTx>; state: { deleteCalls: number } } {
+      const raw = fakeTx(true);
+      const state = { deleteCalls: 0 };
+      raw.readLiveDeferral = async () =>
+        deferredKind === null
+          ? null
+          : { deferred_kind: deferredKind, deferred_at_modified_time: null };
+      raw.deleteLiveDeferral = async () => {
+        state.deleteCalls += 1;
+      };
+      return { tx: raw as LockedShowTx<FakeTx>, state };
+    }
+
+    function run(tx: LockedShowTx<FakeTx>, applyResult: ProcessOneFileResult) {
+      const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
+      const processOneFile = vi.fn(async (_driveFileId, _mode, _fileMeta, processDeps) =>
+        processDeps?.withShowLock?.("drive-file-1", async () => applyResult),
+      );
+      return runManualSyncForShow("drive-file-1", "manual", {
+        checkFinalizeOwnership: async () => false,
+        getActiveWatchedFolderId: vi.fn(async () => ({ folderId: "folder-1" })),
+        fetchDriveFileMetadata: vi.fn(async () => fileMeta("drive-file-1")),
+        withPipelineLock,
+        processOneFile,
+      });
+    }
+
+    const emitted = () =>
+      records.filter((r) => r.code === "MANUAL_RESYNC_CLEARED_STANDING_IGNORE");
+
+    test("clearing a permanent_ignore that still hard_fails warns exactly once", async () => {
+      const { tx, state } = txWithDeferral("permanent_ignore");
+      const result = await run(tx, { outcome: "hard_fail", code: "MI-4_NO_CREW" });
+
+      expect(result).toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW" });
+      expect(state.deleteCalls).toBe(1);
+      const warns = emitted();
+      expect(warns).toHaveLength(1);
+      expect(warns[0]).toMatchObject({
+        level: "warn",
+        source: "sync.manualResync",
+        code: "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
+        driveFileId: "drive-file-1",
+      });
+    });
+
+    test("clearing a permanent_ignore that still parse_errors warns with the show id", async () => {
+      const { tx } = txWithDeferral("permanent_ignore");
+      const result = await run(tx, {
+        outcome: "parse_error",
+        code: SYNC_INFRA_ERROR,
+        showId: "show-1",
+      });
+
+      expect(result).toEqual({ outcome: "parse_error", code: SYNC_INFRA_ERROR, showId: "show-1" });
+      const warns = emitted();
+      expect(warns).toHaveLength(1);
+      expect(warns[0]).toMatchObject({
+        code: "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
+        driveFileId: "drive-file-1",
+        showId: "show-1",
+      });
+    });
+
+    test("clearing a permanent_ignore that now succeeds does NOT warn", async () => {
+      const { tx } = txWithDeferral("permanent_ignore");
+      await run(tx, { outcome: "applied", showId: "show-1", parseWarnings: [] });
+
+      expect(emitted()).toHaveLength(0);
+    });
+
+    test("clearing a defer_until_modified that still hard_fails does NOT warn", async () => {
+      const { tx } = txWithDeferral("defer_until_modified");
+      await run(tx, { outcome: "hard_fail", code: "MI-4_NO_CREW" });
+
+      expect(emitted()).toHaveLength(0);
+    });
+
+    test("hard_fail with no prior deferral does NOT warn", async () => {
+      const { tx } = txWithDeferral(null);
+      await run(tx, { outcome: "hard_fail", code: "MI-4_NO_CREW" });
+
+      expect(emitted()).toHaveLength(0);
+    });
   });
 
   test("default manual lock acquisition uses the admin blocking lock mode", () => {
