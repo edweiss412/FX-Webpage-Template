@@ -121,7 +121,7 @@ export class InvalidDriveFileIdError extends DriveFetchError {
   constructor(received: unknown) {
     const raw = (() => {
       try {
-        return (JSON.stringify(received) ?? String(received)).slice(0, 80);
+        return (JSON.stringify(received) ?? String(received)).slice(0, 80); // jsonb-text-exempt: forensic raw-value capture for the error MESSAGE, never a postgres.js jsonb param
       } catch {
         return String(received).slice(0, 80);
       }
