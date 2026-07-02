@@ -27,12 +27,18 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+vi.mock("@/lib/log", () => ({
+  log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
 import { geocodeCacheKey, readGeocodeCache, writeGeocodeCache } from "@/lib/geocoding/cache";
+import { log } from "@/lib/log";
 
 beforeEach(() => {
   state.read = { data: null, error: null };
   state.write = { error: null };
   state.lastUpsert = null;
+  vi.mocked(log.warn).mockClear();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -93,5 +99,82 @@ describe("writeGeocodeCache", () => {
     expect(
       await writeGeocodeCache({ queryHash: "h", venueName: null, venueAddress: null, city: null }),
     ).toEqual({ kind: "infra_error" });
+  });
+});
+
+describe("cache-fault warns are enriched + distinguishable", () => {
+  it("a read fault warns op:'read' with code + error + key", async () => {
+    const err = { message: "boom" };
+    state.read = { data: null, error: err };
+    await readGeocodeCache("read-key");
+    expect(log.warn).toHaveBeenCalledWith(
+      "geocode cache infra fault",
+      expect.objectContaining({
+        source: "geocoding/cache",
+        code: "GEOCODE_CACHE_FAULT",
+        op: "read",
+        key: "read-key",
+        error: err,
+      }),
+    );
+  });
+
+  it("a write fault warns op:'write' with code + error + key", async () => {
+    const err = { message: "denied" };
+    state.write = { error: err };
+    await writeGeocodeCache({
+      queryHash: "write-key",
+      venueName: null,
+      venueAddress: null,
+      city: null,
+    });
+    expect(log.warn).toHaveBeenCalledWith(
+      "geocode cache infra fault",
+      expect.objectContaining({
+        source: "geocoding/cache",
+        code: "GEOCODE_CACHE_FAULT",
+        op: "write",
+        key: "write-key",
+        error: err,
+      }),
+    );
+  });
+
+  it("a throw while parsing the cached row warns op:'parse' (distinct from read/write)", async () => {
+    // A truthy row whose `city` getter throws exercises the trailing catch that guards
+    // casting the cached value — the only site that reports op:'parse'.
+    const err = new Error("corrupt cached row");
+    state.read = {
+      data: {
+        get city() {
+          throw err;
+        },
+        expires_at: "2099-01-01T00:00:00Z",
+      },
+      error: null,
+    };
+    await readGeocodeCache("parse-key");
+    expect(log.warn).toHaveBeenCalledWith(
+      "geocode cache infra fault",
+      expect.objectContaining({
+        source: "geocoding/cache",
+        code: "GEOCODE_CACHE_FAULT",
+        op: "parse",
+        key: "parse-key",
+        error: err,
+      }),
+    );
+  });
+
+  it("two different fault sites are distinguishable by op", async () => {
+    state.read = { data: null, error: { message: "r" } };
+    await readGeocodeCache("k1");
+    state.write = { error: { message: "w" } };
+    await writeGeocodeCache({ queryHash: "k2", venueName: null, venueAddress: null, city: null });
+
+    const ops = vi.mocked(log.warn).mock.calls.map((c) => (c[1] as { op?: string }).op);
+    expect(ops).toContain("read");
+    expect(ops).toContain("write");
+    expect(new Set(ops).size).toBeGreaterThan(1);
   });
 });

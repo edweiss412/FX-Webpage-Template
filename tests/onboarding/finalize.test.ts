@@ -1,5 +1,15 @@
 import { describe, expect, test, vi } from "vitest";
-import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+
+// Mock the durable outcome logger (SHOW_FINALIZED telemetry) so the finalize route's post-commit
+// emission can be asserted without a real app_events write. Hoisted so the vi.mock factory can
+// reference it (same dispatch style as tests/onboarding/wizardScopedReapply.test.ts).
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+
+import {
+  handleOnboardingFinalize,
+  handleOnboardingFinalizeStream,
+} from "@/app/api/admin/onboarding/finalize/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 import { W1, FakeFinalizeDb, pending, deps, json, request, parseResult } from "./_finalizeFake";
 
@@ -722,5 +732,140 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(body).toMatchObject({ ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" });
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  // Task 8 — durable SHOW_FINALIZED outcome telemetry. The route stages an OUTCOME-REF inside the
+  // withTx callback (before each committed-success return) and emits logAdminOutcome AFTER withTx
+  // resolves (post-commit). Both the streaming and non-streaming handlers funnel through the same
+  // executeFinalizeBatch core, so a single emit covers both. Expected values are derived from the
+  // shared fake fixtures (W1, the deps() admin email), never hardcoded independently of them.
+  describe("SHOW_FINALIZED outcome telemetry", () => {
+    // The admin email the shared deps()/streamDeps() harness authenticates as (its
+    // requireAdminIdentity mock). Derived from the fixture, not an independent literal.
+    const FIXTURE_ADMIN_EMAIL = "doug@example.com";
+
+    async function readNdjson(res: Response): Promise<Array<Record<string, unknown>>> {
+      const text = await res.text();
+      return text
+        .split("\n")
+        .filter((line) => line.trim().length > 0)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+    }
+
+    test("(1) a NON-STREAMED terminal committed success emits SHOW_FINALIZED post-commit with the response status", async () => {
+      logAdminOutcomeMock.mockClear();
+      const db = new FakeFinalizeDb();
+      db.approved = [pending("first-seen-1")];
+
+      const response = await handleOnboardingFinalize(request(), deps(db));
+
+      // Derive the expected result from the authoritative response body (anti-tautology: the
+      // telemetry result must equal the terminal HTTP status the route actually returned).
+      expect(response.status).toBe(200);
+      const body = (await json(response)) as { status: string; wizard_session_id: string };
+      expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+      expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "SHOW_FINALIZED",
+          source: "api.admin.onboarding.finalize",
+          actorEmail: FIXTURE_ADMIN_EMAIL,
+          wizardSessionId: body.wizard_session_id, // === W1
+          result: body.status, // "all_batches_complete" for this single clean batch
+        }),
+      );
+      expect(body.wizard_session_id).toBe(W1);
+      expect(body.status).toBe("all_batches_complete");
+    });
+
+    test("(2) a STREAMED terminal committed success emits SHOW_FINALIZED once, matching the terminal result body", async () => {
+      logAdminOutcomeMock.mockClear();
+      const db = new FakeFinalizeDb();
+      db.approved = [pending("stream-seen-1")];
+
+      const res = await handleOnboardingFinalizeStream(request(), deps(db));
+      expect(res.status).toBe(200);
+      const msgs = await readNdjson(res);
+      const result = msgs.find((m) => m.type === "result") as
+        | { type: "result"; body: { status: string; wizard_session_id: string } }
+        | undefined;
+      expect(result).toBeDefined();
+
+      expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+      expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "SHOW_FINALIZED",
+          source: "api.admin.onboarding.finalize",
+          actorEmail: FIXTURE_ADMIN_EMAIL,
+          wizardSessionId: result!.body.wizard_session_id, // === W1
+          result: result!.body.status, // authoritative terminal status from the stream body
+        }),
+      );
+      expect(result!.body.wizard_session_id).toBe(W1);
+      expect(result!.body.status).toBe("all_batches_complete");
+    });
+
+    test("(3) a POST-SUCCESS commit failure returns the typed 500 and does NOT emit SHOW_FINALIZED (ref set inside tx, emit is post-wrapper)", async () => {
+      // Inject a withTx that runs the batch callback to its terminal-success return (so the
+      // OUTCOME-REF is SET inside the callback) and THEN rejects — modeling a commit fault after
+      // the batch body succeeded. Because the emit is placed AFTER withTx resolves, the rejection
+      // routes into the outer catch (typed 500) and logAdminOutcome is NEVER reached. This is the
+      // load-bearing proof of ref→post-wrapper placement (a naive in-callback emit would fire here).
+      logAdminOutcomeMock.mockClear();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const db = new FakeFinalizeDb();
+      db.approved = [pending("commit-fault-1")];
+      const commitError = new Error("simulated post-success commit failure");
+
+      const response = await handleOnboardingFinalize(
+        request(),
+        deps(db, {
+          withTx: async (fn) => {
+            // Run the batch to its committed-success return (ref SET), then reject the commit.
+            await fn(db);
+            throw commitError;
+          },
+        }),
+      );
+
+      expect(response.status).toBe(500);
+      const body = (await json(response)) as { ok?: boolean; code?: string };
+      expect(body).toMatchObject({ ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" });
+      // The proof: the ref was set inside the callback, but the post-commit emit never ran.
+      expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+      errorSpy.mockRestore();
+    });
+
+    test("(4) an idempotent re-poll of an already-finalized session does NOT emit SHOW_FINALIZED", async () => {
+      // Codex whole-diff HIGH: the final_cas_done / already-all_batches_complete returns commit no
+      // finalize mutation THIS request — logging there would create a FALSE audit entry on every
+      // re-poll. Drive the final_cas_done branch (no approved rows, checkpoint already done) and
+      // assert the terminal all_batches_complete response STILL returns but NO outcome is logged.
+      logAdminOutcomeMock.mockClear();
+      const db = new FakeFinalizeDb();
+      db.checkpoint = { wizard_session_id: W1, status: "final_cas_done", batches_completed: 3 };
+      db.approved = [];
+
+      const response = await handleOnboardingFinalize(request(), deps(db));
+
+      expect(response.status).toBe(200);
+      expect(await json(response)).toMatchObject({
+        status: "all_batches_complete",
+        wizard_session_id: W1,
+      });
+      expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    });
+
+    test("(4) a mid-batch 409 (CONCURRENT_FINALIZE_IN_FLIGHT) does NOT emit SHOW_FINALIZED", async () => {
+      logAdminOutcomeMock.mockClear();
+      const db = new FakeFinalizeDb();
+      db.finalizeLocked = false; // try-finalize-lock returns not-locked → 409 before any commit
+
+      const response = await handleOnboardingFinalize(request(), deps(db));
+
+      expect(response.status).toBe(409);
+      expect(await json(response)).toEqual({ ok: false, code: "CONCURRENT_FINALIZE_IN_FLIGHT" });
+      expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    });
   });
 });

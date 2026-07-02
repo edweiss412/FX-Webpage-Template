@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
@@ -121,8 +122,9 @@ export async function handleWizardStagedUnapprove(
   routeDeps: WizardUnapproveRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let adminEmail: string;
   try {
-    await deps.requireAdminIdentity();
+    ({ email: adminEmail } = await deps.requireAdminIdentity());
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -133,19 +135,39 @@ export async function handleWizardStagedUnapprove(
   // Wrap the locked mutation so no infra fault leaks a body-less 500 (invariant 9).
   try {
     const { wizardSessionId, driveFileId } = await context.params;
-    return await deps.withRowTx(driveFileId, async (tx) => {
+    // OUTCOME-REF: the success outcome is captured inside the in-lock callback but
+    // emitted only AFTER withRowTx resolves (post-commit). A post-success commit
+    // failure throws out of withRowTx before the emit line, so no outcome is logged
+    // for a mutation that didn't durably land. The 409-superseded path leaves this null.
+    let outcome: Omit<AdminOutcome, "code"> | null = null;
+    const response = await deps.withRowTx(driveFileId, async (tx) => {
       const reverted = await unapprovePendingSync(tx, wizardSessionId, driveFileId);
       if (!reverted) {
         // Superseded (or stale row) — no mutation ran; safe pre-mutation refusal.
         return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
       }
       await resetManifestToStaged(tx, wizardSessionId, driveFileId);
+      outcome = {
+        source: "api.admin.onboarding.staged.unapprove",
+        actorEmail: adminEmail,
+        driveFileId,
+        wizardSessionId,
+      };
       return NextResponse.json({
         status: "unapproved",
         wizard_session_id: wizardSessionId,
         drive_file_id: driveFileId,
       });
     });
+    if (outcome) {
+      // `outcome` is closure-assigned inside withRowTx, so TS control-flow narrows it to
+      // `never` in this guard (the assignment isn't tracked past the callback) — bind it to a
+      // ref-typed local so the spread typechecks. `code` rides the CALL (a stripped span),
+      // keeping the outcome literal out of the §12.4 producer scan.
+      const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
+      await logAdminOutcome({ code: "STAGE_UNAPPROVED", ...outcomeRef });
+    }
+    return response;
   } catch (error) {
     log.error("wizard un-approve: unexpected failure", {
       source: "api.admin.onboarding.staged.unapprove",

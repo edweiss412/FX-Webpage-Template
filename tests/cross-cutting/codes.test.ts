@@ -7,15 +7,17 @@ import { stripLogEmissionCalls } from "@/lib/messages/__internal__/stripLogEmiss
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { RETIRED_CODES, SPEC_CODES } from "@/lib/messages/__generated__/spec-codes";
 import { CODE_SCENARIOS } from "@/tests/cross-cutting/code-scenarios";
+import {
+  ACTIVE_PRODUCER_ROOTS,
+  codeProducerLiterals,
+} from "@/lib/messages/__internal__/codeProducers";
 
 // middleware.ts removed from scan roots 2026-05-27 (Phase 0.A finding 5 /
 // commit b5999c8 — Next 16 Edge wrapper __dirname error). Vestigial-middleware
 // structural defense at tests/cross-cutting/no-vestigial-middleware.test.ts
 // prevents reintroducing a no-op middleware.ts/proxy.ts. If a real proxy.ts
 // emits cataloged codes in the future, append it to both arrays.
-const ACTIVE_PRODUCER_ROOTS = ["app", "lib"] as const;
 const RETIRED_LITERAL_ROOTS = ["app", "lib", "components"] as const;
-const PRODUCER_RE = /\bcode:\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   FIRST_SEEN_REVIEW: new Set([
     "components/admin/StagedReviewCard.tsx",
@@ -26,22 +28,6 @@ const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "lib/sync/applyStaged.ts",
   ]),
 };
-
-function codeProducerLiterals(): Set<string> {
-  const codes = new Set<string>();
-  for (const file of walkSourceFiles(ACTIVE_PRODUCER_ROOTS)) {
-    if (file === "lib/messages/catalog.ts" || file.startsWith("lib/messages/__generated__/")) {
-      continue;
-    }
-    // Exclude lib/log emission codes (`log.*({ code })`) — free-form app_events
-    // forensic codes, not §12.4-gated user-facing producers.
-    const source = stripLogEmissionCalls(readFileSync(file, "utf8"));
-    for (const match of source.matchAll(PRODUCER_RE)) {
-      if (match[1]) codes.add(match[1]);
-    }
-  }
-  return codes;
-}
 
 function producerLocations(code: string): string[] {
   const locations: string[] = [];
