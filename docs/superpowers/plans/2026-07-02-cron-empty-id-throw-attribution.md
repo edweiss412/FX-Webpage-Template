@@ -532,3 +532,16 @@ git commit -m "fix(cron): attribute detached/route-tail cron.sync throws via ALS
 - [ ] Targeted suites green: `npx vitest run tests/drive/invalidDriveFileId.test.ts tests/log/requestContext.test.ts tests/sync/cronSyncThrowAttribution.test.ts tests/cron/withCronRunSummary.test.ts`.
 - [ ] Scanner-safety regression (exact, all three exist under `tests/cross-cutting/`): `npx vitest run tests/cross-cutting/cron-run-summary-scanner-safety.test.ts tests/cross-cutting/codes.test.ts tests/cross-cutting/no-raw-codes.test.ts` — confirms `CRON_RUN_SUMMARY` stays literal + no new §12.4 producer.
 - [ ] Sanity-grep the diff for regressions (expect zero hits each): `git diff origin/main...HEAD -- 'lib/**' | grep -nE '= undefined|cron[A-Za-z]*: *undefined'` (no undefined-assignment to the new optionals) and `git diff origin/main...HEAD -- 'lib/**' | grep -nE 'code:\s*"[A-Z_]+"' | grep -v CRON_RUN_SUMMARY` (no new bare SHOUTY code literal outside a stripped log span).
+
+---
+
+### Task 6 (whole-diff R1): per-operation snapshot at the Drive chokepoint
+
+The ALS is a single mutable object; reading it at throw time (Task 4) is stale for a **detached** rejection created under `driveFileId=A` that surfaces after the loop advanced. Capture an immutable snapshot at Drive-call time and carry it on the error.
+
+**Files:** `lib/log/requestContext.ts` (add `snapshotCronInFlight()` + `CronInFlightSnapshot`), `lib/log/index.ts` (re-export), `lib/drive/fetch.ts` (`attachCronContext` helper + capture/attach in `driveFilesGet`), `tests/drive/invalidDriveFileId.test.ts` (extend).
+
+- [ ] **Test (failing first):** (a) empty-id guard error carries `syncRunContext` from the current ALS snapshot; (b) a Drive-call rejection where the ALS advances A→B between call and rejection → the error's `syncRunContext.inFlightDriveFileId === "A"` (call-time snapshot, not the advanced "B"). Use a controllable fake `drive.files.get` and reject with a non-transient `DriveFetchError(_, 404)` (avoids `withDriveRetry` retries).
+- [ ] **Implement:** `snapshotCronInFlight()` returns `{ phase, inFlightDriveFileId, processedBeforeThrow? } | undefined` (immutable copy; `Number.isFinite` excludes NaN). In `driveFilesGet`, `const cronAtCall = snapshotCronInFlight()` **before** the guard; wrap the guard in `try { … } catch (err) { throw attachCronContext(err, cronAtCall); }` and append `.catch((err) => { throw attachCronContext(err, cronAtCall); })` to the `withDriveRetry(...)` return. `attachCronContext` sets `err.syncRunContext = ctx` only when `ctx` is defined, `err` is a non-null object, and it has no `syncRunContext` yet (never clobber the richer S1 attach).
+- [ ] **Verify:** typecheck + the fetch/requestContext suites green; `detail.source` "sync-body" now also covers a chokepoint-snapshot error (documented in spec Watchpoints).
+- [ ] **Commit:** `fix(drive): snapshot cron context at the Drive chokepoint (per-operation attribution)`
