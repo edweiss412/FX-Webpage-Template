@@ -429,13 +429,20 @@ await logAdminOutcome({
 - Modify: `app/api/admin/sync/[slug]/route.ts`
 - Test: `tests/api/admin-sync-route.test.ts`
 
-**Interfaces:** switch `requireAdmin()` (`:57`) → `requireAdminIdentity()` and capture email. import `logAdminOutcome`. `driveFileId = resolved.driveFileId` (`:68`). Gate: emit only when `result.outcome === "applied"` (a `stage` also reaches `:86` — do NOT emit). `showId = result.showId` (applied variant).
+**Interfaces:** KEEP `requireAdmin()` (`:57`) as the gate; ADD `requireAdminIdentity()` for the email (do NOT replace — see below). import `logAdminOutcome`. `driveFileId = resolved.driveFileId` (`:68`). Gate: emit only when `result.outcome === "applied"` (a `stage` also reaches `:86` — do NOT emit). `showId = result.showId` (applied variant).
 
 - [ ] **Step 1: Write the failing test** — mock `runManualSyncForShow` → `{ outcome: "applied", showId: "s1", ... }`; assert `logAdminOutcome({ code: "SHOW_SYNCED_MANUAL", source: "api.admin.sync", actorEmail, driveFileId, showId: "s1" })`. Add a `stage`-outcome test asserting `logAdminOutcome` NOT called.
 
 - [ ] **Step 2: Run test to verify it fails** — FAIL.
 
-- [ ] **Step 3: Implement** — change `:57` to `const { email } = await requireAdminIdentity();` (import `requireAdminIdentity` at `:2`, keeping `requireAdmin` removed if now unused). Before `:86` `return`:
+- [ ] **Step 3: Implement** — **do NOT replace `requireAdmin()`.** `requireAdmin()` (`:288-309`) runs an extra `x-help-force-infra-fail` test hook (`:302-309`) that `requireAdminIdentity()` does not, so replacing it would silently drop that hook. Instead KEEP the gate and ADD an email read (mirrors R1, which keeps `requireAdmin()` at `:94` and reads the email separately). At `:57`:
+
+```ts
+await requireAdmin();
+const { email } = await requireAdminIdentity();
+```
+
+`resolveAdminIdentity` is React-`cache()`-wrapped (`requireAdmin.ts:153`), so this second call reuses the same request's resolution — no extra DB hit, and `requireAdmin`'s hook still fires first. Import both: `import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";` (`:2`). Before `:86` `return`:
 
 ```ts
 if (result.outcome === "applied") {
@@ -449,8 +456,6 @@ if (result.outcome === "applied") {
 }
 return NextResponse.json({ ok: true, result });
 ```
-
-The switch is behavior-transparent: `requireAdmin()` (`:57`) is NOT wrapped in a try/catch (it sits directly in `runWithRequestContext`), and `requireAdmin` delegates to `requireAdminIdentity` (`requireAdmin.ts:288`) — so `requireAdminIdentity()` throws the same `AdminInfraError` and raises the same `forbidden()`/redirect interrupts, propagating identically. Just capture `{ email }` on the success path.
 
 - [ ] **Step 4: Run tests + typecheck** → PASS/clean.
 
@@ -516,13 +521,20 @@ Capture the admin: `:321` `const admin = await deps.requireAdminIdentity();` (ke
 - Modify: `app/api/admin/snapshot-rollback/[id]/repair/route.ts`
 - Test: `tests/api/admin-snapshot-rollback-repair.test.ts`
 
-**Interfaces:** switch `requireAdmin()` (`:19`) → `requireAdminIdentity()` (still throws `AdminInfraError` → the `instanceof AdminInfraError` catch at `:21` stays valid). import `logAdminOutcome`. `driveFileId = data.drive_file_id` (`:34-38`). NO showId; pass `snapshotRevisionId` via `extra`.
+**Interfaces:** KEEP `requireAdmin()` (`:19`) as the gate; ADD `requireAdminIdentity()` for the email inside the same try (both throw `AdminInfraError` → the `instanceof AdminInfraError` catch at `:21` stays valid; do NOT replace `requireAdmin`, which runs the extra `x-help-force-infra-fail` hook). import `logAdminOutcome`. `driveFileId = data.drive_file_id` (`:34-38`). NO showId; pass `snapshotRevisionId` via `extra`.
 
 - [ ] **Step 1: Write the failing test** — drive `repairSnapshotRollback` → `{ outcome: "repaired", snapshotRevisionId: "r1" }`; assert `logAdminOutcome({ code: "SNAPSHOT_ROLLBACK_REPAIRED", source: "api.admin.snapshot-rollback.repair", actorEmail, driveFileId, extra: { snapshotRevisionId: "r1" } })`. Assert `not_found`/`not_stuck` outcomes do NOT emit.
 
 - [ ] **Step 2: Run test to verify it fails** — FAIL.
 
-- [ ] **Step 3: Implement** — `:2` import `requireAdminIdentity` (keep `AdminInfraError`); `:19` `const { email } = await requireAdminIdentity();`. Capture `data.drive_file_id` from the ledger select. Before `:55` `return NextResponse.json({ ok: true, result })`:
+- [ ] **Step 3: Implement** — `:2` import both: `import { AdminInfraError, requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";`. At `:19`, inside the existing try, keep the gate and add the email read:
+
+```ts
+await requireAdmin();
+const { email } = await requireAdminIdentity();
+```
+
+Capture `data.drive_file_id` from the ledger select. Before `:55` `return NextResponse.json({ ok: true, result })`:
 
 ```ts
 await logAdminOutcome({
