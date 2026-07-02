@@ -156,7 +156,7 @@ One commit carries: master-spec §12.4 prose edits (`docs/superpowers/specs/2026
 | Code | Change |
 |---|---|
 | `SHOW_FIRST_PUBLISHED` (:948) | REWRITE — drop the entire 24 h/undo-window framing. New framing: live at its share-token URL; "Made a mistake? Flip the Published toggle off on the show's page — the crew link switches off until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link." Placeholders `<sheet-name>`, `<crew-count>`, `<show-date>` retained (context is supplied by the existing emitter, `runScheduledCronSync.ts:1855-1880`). |
-| `SHOW_UNPUBLISHED` (:961) | REWRITE — the show is NOT archived anymore. New: unpublished; crew link stops resolving; sheet untouched and still syncing; turn Published back on from the show's page when ready. Emitted by both the RPC (§3.1) and the emailed-link path (§3.4) — copy must fit both. |
+| `SHOW_UNPUBLISHED` (:961) | REWRITE — the show is NOT archived anymore, and the link does NOT stop resolving (R5): the crew link is paused/off — crew who open it see a "not available right now" page with no show details until Published is turned back on; the sheet is untouched and still syncing. Emitted by both the RPC (§3.1) and the emailed-link path (§3.4) — copy must fit both. |
 | `UNPUBLISH_TOKEN_CONSUMED` (:974) | Copy tweak only: "the show is already unpublished / someone got there first" stands; replace "check show status in admin" framing's archive implication if present. |
 | `UNPUBLISH_TOKEN_EXPIRED` (:987) | Copy tweak: "to take this show offline now, archive it from the admin dashboard" → "flip the Published toggle off on the show's page." |
 | `PUBLISH_BLOCKED_PENDING_REVIEW` (:1612) | Unchanged (reused verbatim by the toggle's blocked rendering). |
@@ -166,7 +166,7 @@ One commit carries: master-spec §12.4 prose edits (`docs/superpowers/specs/2026
 
 ### 3.7 Help docs + screenshots
 
-`rg -i "undo auto-publish"` hits 4 mdx pages (`app/help/admin/{per-show-panel,review-queues,dashboard,settings}/page.mdx`) + `app/help/_affordanceMatrix.ts`; sweep all mentions to the toggle model. `AutoPublishToggle.tsx:68-71` settings copy "You can still undo within 24 hours" → "You can turn any show off later with its Published toggle." Help screenshots of the admin show page will drift → regenerate from the CI artifact ONLY (never local arm64 bytes; byte-gate discipline).
+The sweep is BROAD (R5): `rg -i "undo auto-publish|undo within|24 hours|republish"` across `app/`, `components/`, `lib/messages/`, `lib/notify/`, `docs/` help prose, and test assertions — every user-visible promise of the in-app undo window or archive-flavored recovery gets repointed at the toggle model. Known sites: 4 mdx pages (`app/help/admin/{per-show-panel,review-queues,dashboard,settings}/page.mdx`), `app/help/_affordanceMatrix.ts`, `AutoPublishToggle.tsx:68-71` settings copy ("You can still undo within 24 hours" → "You can turn any show off later with its Published toggle."), and **`components/admin/StagedReviewCard.tsx:140`** ("Apply to publish it (you can still undo within 24 hours)." → toggle-flavored, e.g. "Apply to publish it — you can turn it off anytime with the show's Published toggle.") plus that card's test assertions. Mentions of the 24 h window may survive ONLY where they describe the emailed undo link specifically. Help screenshots of the admin show page will drift → regenerate from the CI artifact ONLY (never local arm64 bytes; byte-gate discipline).
 
 ## 4. Flag lifecycle table
 
