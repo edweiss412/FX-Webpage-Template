@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { detectVersion } from "@/lib/parser/schema";
 
-const logMock = vi.hoisted(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }));
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
 vi.mock("@/lib/log", () => ({ log: logMock }));
 
 // ── Fixture paths ─────────────────────────────────────────────────────────────

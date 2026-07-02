@@ -339,9 +339,7 @@ describe("live pending-ingestions retry — PENDING_INGESTION_RETRIED telemetry"
         outcome: "source_gone" as const,
         code: "SHEET_UNAVAILABLE",
         showId: "show-1",
-      })) as unknown as NonNullable<
-        LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]
-      >,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
     });
 
     const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
@@ -360,9 +358,7 @@ describe("live pending-ingestions retry — PENDING_INGESTION_RETRIED telemetry"
       runManualStageForFirstSeen: vi.fn(async () => ({
         outcome: "applied",
         showId: "show-1",
-      })) as unknown as NonNullable<
-        LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]
-      >,
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]>,
     });
 
     const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);

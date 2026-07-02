@@ -84,7 +84,9 @@ describe("summarizeSync — failure breadcrumb", () => {
   });
 
   test("ok run omits detail.failures entirely (exactOptionalPropertyTypes)", () => {
-    const s = summarizeSync({ processed: [proc("f", { outcome: "applied", showId: "s" })] } as never);
+    const s = summarizeSync({
+      processed: [proc("f", { outcome: "applied", showId: "s" })],
+    } as never);
     expect(s.outcome).toBe("ok");
     expect(s.detail).toBeUndefined();
   });
