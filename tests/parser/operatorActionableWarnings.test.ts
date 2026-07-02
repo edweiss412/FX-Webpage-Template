@@ -78,6 +78,51 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
     expect(operatorActionableWarnings(ws).map((w) => w.message)).toEqual(["1", "2"]);
   });
 
+  it("FIELD_UNREADABLE: distinct crew rows sharing a fallback region anchor both survive (idx32 duplicate name)", () => {
+    // Duplicate crew names cannot be uniquely name-resolved, so BOTH rows degrade to the same
+    // shared crew-region anchor. Without the per-row index in the FIELD_UNREADABLE dedup key
+    // they collapse to one, hiding the second unreadable field. Distinct indices → both survive.
+    const region = { title: "INFO", gid: 0, a1: "B7" };
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "row0",
+        sourceCell: region,
+        blockRef: { kind: "crew", index: 0 },
+      },
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "row1",
+        sourceCell: region,
+        blockRef: { kind: "crew", index: 1 },
+      },
+    ];
+    expect(operatorActionableWarnings(ws).map((w) => w.message)).toEqual(["row0", "row1"]);
+  });
+
+  it("FIELD_UNREADABLE: the SAME row (same index + shared anchor) still dedups to one", () => {
+    const region = { title: "INFO", gid: 0, a1: "B7" };
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "dup",
+        sourceCell: region,
+        blockRef: { kind: "crew", index: 0 },
+      },
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "dup",
+        sourceCell: region,
+        blockRef: { kind: "crew", index: 0 },
+      },
+    ];
+    expect(operatorActionableWarnings(ws)).toHaveLength(1);
+  });
+
   it("null/undefined/[] → []", () => {
     expect(operatorActionableWarnings(null)).toEqual([]);
     expect(operatorActionableWarnings(undefined)).toEqual([]);

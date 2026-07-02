@@ -147,7 +147,15 @@ export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
  * order, and dedup by (code, resolved-anchor-A1). A cascade of same-cell
  * warnings (one per unknown token) collapses to one line; warnings WITHOUT a
  * resolved sourceCell are NEVER deduped (the synthesis-unstable blockRef.index
- * is never a dedup key), so no actionable row is ever hidden.
+ * is generally never a dedup key), so no actionable row is ever hidden.
+ *
+ * EXCEPTION (idx32/#154): FIELD_UNREADABLE warnings for DISTINCT crew rows can
+ * share ONE fallback anchor A1 — for duplicate crew names the per-row name-based
+ * cell can't be uniquely resolved, so both rows degrade to the shared crew-region
+ * anchor. For FIELD_UNREADABLE ONLY, the per-row blockRef.index is folded into the
+ * dedup key so genuinely-distinct rows are not collapsed. The index is stable
+ * within a single render pass, and adding it can only REDUCE collapsing (never
+ * hide a row), so the "no actionable row is ever hidden" guarantee still holds.
  */
 export function operatorActionableWarnings(
   warnings: readonly ParseWarning[] | null | undefined,
@@ -160,7 +168,12 @@ export function operatorActionableWarnings(
     if (!OPERATOR_ACTIONABLE_ANCHORED.has(w.code)) continue;
     const a1 = w.sourceCell?.a1;
     if (a1) {
-      const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}`;
+      // Fold the per-row index into the key for FIELD_UNREADABLE so two distinct crew
+      // rows that share a fallback region anchor (e.g. duplicate crew names) are NOT
+      // collapsed into one line. Other codes keep the a1-only key (idx32/#154).
+      const rowDisc =
+        w.code === FIELD_UNREADABLE && w.blockRef?.index != null ? `\0${w.blockRef.index}` : "";
+      const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}${rowDisc}`;
       if (seen.has(key)) continue;
       seen.add(key);
     }
