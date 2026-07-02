@@ -1569,14 +1569,14 @@ export function seedPriorAgendaExtracted(
   for (const prior of priorLinks) {
     if (!prior?.extracted) continue;
     if (prior.fileId) byFileId.set(prior.fileId, prior.extracted);
-    const key = prior.label?.trim().toLowerCase();
+    const key = prior.label?.trim().toLowerCase(); // canonicalize-exempt: agenda label, not an email
     if (key) byLabel.set(key, prior.extracted);
   }
   for (const link of freshLinks) {
     if (link.extracted) continue;
     const match =
       (link.fileId ? byFileId.get(link.fileId) : undefined) ??
-      byLabel.get(link.label?.trim().toLowerCase() ?? "");
+      byLabel.get(link.label?.trim().toLowerCase() ?? ""); // canonicalize-exempt: agenda label, not an email
     if (match) link.extracted = match;
   }
 }

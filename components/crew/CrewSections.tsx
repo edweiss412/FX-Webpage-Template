@@ -57,7 +57,8 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
   // before Next syncs useSearchParams, but urlSection===syncedUrl at that instant so
   // nothing reverts; when the URL catches up, urlSection!==initialSection (the prop is
   // stale) so `active` still holds. onSelect/popstate are unchanged.
-  const urlSection = resolveActiveSection(searchParams.get("s") ?? undefined, {
+  // useSearchParams() can be null (SSR of a client component before hydration), so guard the read.
+  const urlSection = resolveActiveSection(searchParams?.get("s") ?? undefined, {
     budgetVisible,
   });
   const [syncedUrl, setSyncedUrl] = useState<SectionId>(urlSection);
