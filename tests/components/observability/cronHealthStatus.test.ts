@@ -6,6 +6,7 @@ import type { CronHealthRow } from "@/lib/admin/observabilityTypes";
 const base: CronHealthRow = {
   jobName: "sync",
   label: "Sync",
+  description: "Checks each show's Google Sheet for changes.",
   cadence: "5m",
   staleAfterMs: 20 * 60_000,
   lastRunAt: null,
