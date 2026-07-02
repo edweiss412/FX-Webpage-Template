@@ -67,7 +67,9 @@ describe("unknownFieldAnchors — live DETAILS block fidelity (AII/III Consultan
   it("the reported repro row 'GS Podium Type' resolves to A65 with its value", () => {
     const { buffer, gids } = buildLiveInfo();
     const anchors = extractUnknownFieldAnchors(buffer, gids);
-    expect(resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "(2) Acrylic Podium")).toEqual({
+    expect(
+      resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "(2) Acrylic Podium"),
+    ).toEqual({
       title: "INFO",
       gid: 0,
       a1: "A65",

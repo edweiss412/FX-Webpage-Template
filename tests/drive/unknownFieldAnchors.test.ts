@@ -44,9 +44,9 @@ describe("extractUnknownFieldAnchors", () => {
       ["GS Podium Type", "(2) Acrylic Podium"],
     ]);
     const anchors = extractUnknownFieldAnchors(buffer, gids);
-    expect(resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "(2) Acrylic Podium")?.a1).toBe(
-      "A2",
-    );
+    expect(
+      resolveUnknownFieldCell(anchors, "details", "GS Podium Type", "(2) Acrylic Podium")?.a1,
+    ).toBe("A2");
   });
 
   it("PROVENANCE: same label, different value → matches the correct row (never the impostor)", () => {

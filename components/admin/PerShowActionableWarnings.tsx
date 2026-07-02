@@ -49,7 +49,10 @@ export function PerShowActionableWarnings({
               // deep link is absent (legacy/ambiguous anchor).
               const rowLabel = labelFromRawSnippet(w.rawSnippet);
               return rowLabel ? (
-                <span data-testid="per-show-actionable-row-label" className="text-xs text-text-subtle">
+                <span
+                  data-testid="per-show-actionable-row-label"
+                  className="text-xs text-text-subtle"
+                >
                   {rowLabel}
                 </span>
               ) : null;

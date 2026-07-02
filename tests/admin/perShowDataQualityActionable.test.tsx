@@ -52,7 +52,12 @@ describe("PerShowActionableWarnings", () => {
 describe("PerShowActionableWarnings — row label (Part A)", () => {
   it("renders the row label from rawSnippet under the title", () => {
     const items: ParseWarning[] = [
-      { code: "UNKNOWN_FIELD", severity: "warn", message: "x", rawSnippet: "GS Podium Type | (2) Acrylic" },
+      {
+        code: "UNKNOWN_FIELD",
+        severity: "warn",
+        message: "x",
+        rawSnippet: "GS Podium Type | (2) Acrylic",
+      },
     ];
     render(<PerShowActionableWarnings items={items} driveFileId="d1" />);
     expect(screen.getByTestId("per-show-actionable-row-label").textContent).toBe("GS Podium Type");

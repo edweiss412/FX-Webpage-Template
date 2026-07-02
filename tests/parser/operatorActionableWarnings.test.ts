@@ -88,8 +88,18 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
 describe("operatorActionableWarnings — UNKNOWN_FIELD per-row anchors (Part B)", () => {
   it("two distinct-label UNKNOWN_FIELD warnings with distinct per-row anchors both survive dedup", () => {
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "a", sourceCell: { title: "INFO", gid: 0, a1: "A56" } },
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "b", sourceCell: { title: "INFO", gid: 0, a1: "A65" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "a",
+        sourceCell: { title: "INFO", gid: 0, a1: "A56" },
+      },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "b",
+        sourceCell: { title: "INFO", gid: 0, a1: "A65" },
+      },
     ];
     expect(operatorActionableWarnings(ws)).toHaveLength(2);
   });

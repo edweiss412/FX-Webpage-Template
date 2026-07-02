@@ -286,7 +286,13 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     // sources.unknownField, NOT to the whole-block venue region. A no-match leaves
     // sourceCell undefined (spec §5.1.1: correct cell or null, never a block link).
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "x", blockRef: { kind: "venue", name: "Foo" }, rawSnippet: "Foo | bar" },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "venue", name: "Foo" },
+        rawSnippet: "Foo | bar",
+      },
     ];
     attachSourceCellAnchors(ws, {
       showDay: [],

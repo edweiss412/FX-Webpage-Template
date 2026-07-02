@@ -185,7 +185,9 @@ export function stripLegacyUnknownFieldAnchors(
 ): ParseWarning[] {
   if (!warnings) return [];
   return warnings.map((w) =>
-    w.code === "UNKNOWN_FIELD" && typeof w.sourceCell?.a1 === "string" && w.sourceCell.a1.includes(":")
+    w.code === "UNKNOWN_FIELD" &&
+    typeof w.sourceCell?.a1 === "string" &&
+    w.sourceCell.a1.includes(":")
       ? { ...w, sourceCell: null }
       : w,
   );
