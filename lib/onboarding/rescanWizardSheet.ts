@@ -389,6 +389,16 @@ export async function rescanWizardSheet(
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
         [wizardSessionId, driveFileId, prior.priorApprovedByEmail, choices],
       );
+      // Restore the manifest to 'applied' to match the retained approval. The line-338 heal reset
+      // it to 'staged' (correct for the dirty / not-previously-ready branches); a re-stamped CHECKED
+      // row MUST stay 'applied' or the Step-3 UI (checked-state = status==='applied') renders it
+      // unchecked/Held while finalize still publishes it Live off wizard_approved=true (audit C2/C6).
+      await tx.unsafe(
+        `update public.onboarding_scan_manifest
+            set status = 'applied', transitioned_at = now()
+          where wizard_session_id = $1::uuid and drive_file_id = $2`,
+        [wizardSessionId, driveFileId],
+      );
       return { status: "updated", needsReview: false, changed };
     }
 

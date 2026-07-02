@@ -346,7 +346,9 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
     async () => {
       await setSession();
       const seedItems = await stageOriginal(makeParse("Show", CREW), SEED_MODIFIED);
-      await seedManifest("staged");
+      // Model the real approve route (markManifestApplied): a CHECKED/approved row has the
+      // manifest at 'applied', not 'staged'. Seeding 'staged' here masked the desync bug.
+      await seedManifest("applied");
       await approve(seedItems, APPROVER, SEED_APPROVED_AT);
 
       const result = await rescanWizardSheet(
@@ -375,7 +377,10 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
       // The re-parse minted FRESH ids — none of the seed's choice ids survive.
       const seedIds = seedItems.map((i) => i.id);
       expect(newIds.some((id) => seedIds.includes(id))).toBe(false);
-      expect(await manifestStatus()).toBe("staged");
+      // The retained approval MUST keep the manifest 'applied' — else the Step-3 UI
+      // (checked-state = status==='applied') renders it unchecked/Held while finalize still
+      // publishes it Live off wizard_approved=true (audit C2/C6 desync).
+      expect(await manifestStatus()).toBe("applied");
     },
   );
 
