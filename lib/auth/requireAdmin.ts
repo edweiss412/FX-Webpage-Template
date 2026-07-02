@@ -24,6 +24,7 @@ import { forbidden, redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { validateNextParam, DEFAULT_AUTH_NEXT_PATH } from "@/lib/auth/validateNextParam";
 import { log } from "@/lib/log";
@@ -264,6 +265,11 @@ const resolveAdminIdentity = cache(async (): Promise<AdminIdentity> => {
   }
   if (isAdmin !== true) {
     // Confirmed non-admin — auth-level denial (security boundary: 403).
+    await log.warn("admin access denied", {
+      source: "auth/requireAdmin",
+      code: "ADMIN_ACCESS_DENIED",
+      actorHash: hashForLog(email),
+    });
     forbidden();
   }
 
