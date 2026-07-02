@@ -742,7 +742,7 @@ describe("per-show Data quality: Report + Ignore (Task 13)", () => {
     // ...and there is NO separate active list outside the details
     const lists = screen.getAllByTestId("per-show-actionable-warnings");
     expect(lists).toHaveLength(1);
-    expect(details).toContainElement(lists[0]);
+    expect(details).toContainElement(lists[0]!);
   });
 
   it("AC-7: loadIgnoredWarnings infra_error → warning stays VISIBLE as active (fail toward visible)", async () => {
