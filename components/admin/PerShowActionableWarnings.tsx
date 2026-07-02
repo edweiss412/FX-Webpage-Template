@@ -23,16 +23,25 @@ export function PerShowActionableWarnings({
   items,
   driveFileId,
   renderItemControls,
+  tone = "warning",
 }: {
   items: ParseWarning[];
   driveFileId: string | null;
   /** Optional per-item controls slot (per-show admin panel only; absent on StagedReviewCard). */
   renderItemControls?: (w: ParseWarning, i: number) => ReactNode;
+  /** `warning` (default): the active amber card skin. `muted`: de-emphasized skin for
+   *  the collapsed "Ignored (N)" list — reads as resolved, not active. AA contrast kept
+   *  (text-strong title + text-subtle body on surface-sunken); no opacity dimming. */
+  tone?: "warning" | "muted";
 }) {
   if (items.length === 0) return null;
   // Order-independent keys so an ignore-driven refresh does not remount surviving
   // cards (which would drop an open Report modal). See lib/dataQuality/warningIdentity.
   const keys = stableWarningKeys(items);
+  const cardClass =
+    tone === "muted"
+      ? "flex flex-col gap-0.5 rounded-sm border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
+      : "flex flex-col gap-0.5 rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text";
   return (
     <ul className="flex flex-col gap-2" data-testid="per-show-actionable-warnings">
       {items.map((w, i) => {
@@ -45,11 +54,7 @@ export function PerShowActionableWarnings({
         const context = entry?.helpfulContext ?? null;
         const href = w.sourceCell ? buildSheetDeepLink(driveFileId, w.sourceCell) : null;
         return (
-          <li
-            key={keys[i]}
-            data-testid="per-show-actionable-item"
-            className="flex flex-col gap-0.5 rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
-          >
+          <li key={keys[i]} data-testid="per-show-actionable-item" className={cardClass}>
             <span className="font-medium text-text-strong">{renderEmphasis(title)}</span>
             {(() => {
               // The offending row label (from rawSnippet "<label> | <value>"): the

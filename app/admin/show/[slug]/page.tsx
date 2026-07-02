@@ -876,6 +876,7 @@ export default async function AdminShowPage({
                 <PerShowActionableWarnings
                   items={ignoredActionable}
                   driveFileId={show.drive_file_id}
+                  tone="muted"
                   renderItemControls={(w) => (
                     <DataQualityWarningControls
                       slug={show.slug}
