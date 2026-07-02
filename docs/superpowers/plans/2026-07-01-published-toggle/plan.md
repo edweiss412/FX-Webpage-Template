@@ -338,7 +338,8 @@ export const BUSY_BODY =
   "Changes are being finalized right now. Nothing has changed — try again in a few minutes.";
 ```
 
-- Modify: `app/show/[slug]/unpublish/actions.ts` (explicit `finalize_owned` case → `{ status: "busy" }`), `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx` (busy render — same block shape as the existing `infra` state, BUSY constants), `app/api/show/[slug]/unpublish/route.ts` (insert `if (result.outcome === "finalize_owned") return NextResponse.json({ ok: false }, { status: 409 });` ABOVE the trailing 404 return at `:56`)
+- Modify: `app/show/[slug]/unpublish/actions.ts` (explicit `finalize_owned` case → `{ status: "busy" }`), `app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx` (busy render — same block shape as the existing `infra` state, BUSY constants), `app/api/show/[slug]/unpublish/route.ts` (insert the finalize_owned → 409 mapping (exact body defined below) ABOVE the trailing 404 return at `:56`)
+- Route 409 body (exact, spec §3.4 'busy body'): `return NextResponse.json({ ok: false, busy: true, message: BUSY_BODY }, { status: 409 });` (import `BUSY_BODY` from the copy module — route tests assert `busy === true` AND `message === BUSY_BODY`)
 - Modify: `lib/sync/unpublishShow.ts`, `lib/sync/runManualSyncForShow.ts:113` (widen one param type), `tests/sync/_secondCopyApplyTripwire.test.ts:71-72` — the allowlist names `async archiveAndConsumeUnpublishToken(` and THROWS on a missing allowlisted symbol (`:87-89`); rename the entry to `async unpublishAndConsumeUnpublishToken(` (the softened body still contains `update public.shows`, so the allowlist row must survive, not be dropped)
 - Test: `tests/sync/unpublishShow.test.ts` + `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (update fakes/assertions), `tests/sync/unpublishArchiveParity.test.ts` → REWRITE as unpublish parity, `tests/sync/_secondCopyApplyTripwire.test.ts` (run with the sync suites), `tests/show/unpublishConfirmAction.test.ts` (busy state), `tests/api/show-unpublish-route.test.ts` (+realdb variant: 409 + token-intact re-read)
 
@@ -363,7 +364,7 @@ it("token Unpublish reaches the same UNPUBLISHED end-state as admin unpublish_sh
 ```
 
 Add `unpublishedStateSnapshot` to `tests/db/_b2Helpers.ts` (mirror `archivedStateSnapshot:254` but asserting the D1 negative set). For `bindingFor`, reuse the r-derivation already used by `tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts` (`mintIdFor` + binding builder from `lib/sync/unpublishBinding.ts`). Add a second parity case: live+finalize-owned seed → RPC rejects `FINALIZE_OWNED_SHOW` and emailed path returns `finalize_owned` with token still present. (c) Public-surface cases (from folded Task 5): `confirmUnpublishAction` returns `{status:"busy"}` for `finalize_owned`; `ConfirmUnpublishForm` renders `BUSY_HEADING`+`BUSY_BODY` (query scoped inside the form's own container testid); route returns 409 (not the 404 fallthrough) with token surviving (realdb re-read).
-- [ ] **Step 2: Verify fail** — `pnpm vitest run tests/sync/unpublishShow.test.ts tests/sync/unpublishArchiveParity.test.ts`.
+- [ ] **Step 2: Verify fail** — `pnpm vitest run tests/sync/unpublishShow.test.ts tests/sync/unpublishArchiveParity.test.ts tests/show/unpublishConfirmAction.test.ts tests/api/show-unpublish-route.test.ts tests/app/admin/undo-auto-publish-action.test.ts` (each newly-written case red).
 - [ ] **Step 3: Implement.** In `lib/sync/unpublishShow.ts`: (a) add the union member; (b) rename + soften the mutation:
 
 ```ts
@@ -395,7 +396,7 @@ if (await readFinalizeOwnershipGuard_unlocked(tx, show.driveFileId)) {
 ```
 
 (import from `@/lib/sync/runManualSyncForShow`; widen that function's tx param as noted in Interfaces). Update interface member name + all fakes.
-- [ ] **Step 4: Verify pass** — engine + concurrency + parity + tripwire + `tests/show/unpublishConfirmAction.test.ts` + `tests/api/show-unpublish-route*.test.ts`, run individually.
+- [ ] **Step 4: Verify pass** — engine + concurrency + parity + tripwire + `tests/show/unpublishConfirmAction.test.ts` + `tests/api/show-unpublish-route*.test.ts` + `tests/app/admin/undo-auto-publish-action.test.ts`, run individually.
 - [ ] **Step 5: Commit (ONE commit — engine + every consumer)** — `feat(sync): emailed undo becomes pure unpublish; finalize-owned refusal through confirm page + API`
 
 ---
@@ -411,6 +412,7 @@ The `finalize_owned` public-surface mappings ship in Task 4's single commit; no 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (rows `:2862` SHOW_FIRST_PUBLISHED, `:2875` SHOW_UNPUBLISHED, `:2877` UNPUBLISH_TOKEN_EXPIRED, `:2929` FINALIZE_OWNED_SHOW, `:3060` SHOW_AWAITING_PUBLISH_APPROVAL; context blocks `:3085`, `:3132`, `:3144`, `:3146` + FINALIZE_OWNED context; NEW row for CREW_SHOW_PAUSED near `:3038`) — **hand-edit, never prettier**
 - Modify: `lib/messages/catalog.ts` (same codes; NEW `CREW_SHOW_PAUSED` row modeled on `CREW_LINK_UNAVAILABLE:2746-2756`)
+- Modify: `scripts/extract-spec-codes.ts:73-81` — DELETE the `SHOW_UNPUBLISHED` entry from `M115_SPEC_CODE_OVERRIDES` (the override is applied AFTER spec parsing at `:377-381` and would pin the stale archive-era prose, failing x1 against the rewritten catalog row)
 - Regen: `pnpm gen:spec-codes`, `pnpm gen:internal-code-enums`
 - Test: `pnpm test:audit:x1-catalog-parity`, `pnpm test:audit:x2-no-raw-codes`, `pnpm vitest run tests/help/errors-grouping.test.tsx` (if CREW-prefixed codes land in "Other", add `"CREW"` to the sign-in family's `prefixes` in `app/help/errors/_families.ts`)
 
