@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
 import { promoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -158,6 +159,13 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
     }
     if (result.outcome === "applied") {
+      await logAdminOutcome({
+        code: "SHOW_APPLIED",
+        source: "api.admin.staged.apply",
+        actorEmail: admin.email,
+        driveFileId: fileId,
+        showId: result.showId,
+      });
       if (result.snapshotRevisionId) {
         scheduleAfterResponse(
           async () =>
@@ -185,6 +193,13 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       );
     }
     if (result.outcome === "wizard_applied") {
+      await logAdminOutcome({
+        code: "SHOW_APPLIED",
+        source: "api.admin.staged.apply",
+        actorEmail: admin.email,
+        driveFileId: fileId,
+        wizardSessionId: result.wizardSessionId,
+      });
       return NextResponse.json(
         {
           ok: true,
