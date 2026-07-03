@@ -26,6 +26,7 @@ import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -1090,6 +1091,15 @@ async function executeFinalizeBatch(
   // 500 WITHOUT reaching the emit below — so a rolled-back batch never logs SHOW_FINALIZED. Both the
   // streaming and non-streaming handlers funnel through this one core, so this single emit covers both.
   let outcome: Omit<AdminOutcome, "code"> | null = null;
+  // OUTCOME-REF sibling (S2 durable per-row telemetry): the committed batch's hard-fail rows,
+  // captured inside the withTx callback (once the batch's mutations are staged) but flushed as
+  // log.error/warn only AFTER runtime.withTx resolves (POST-COMMIT). A rolled-back batch throws
+  // out of withTx before this is read, so it emits nothing — same semantics as SHOW_FINALIZED.
+  let committedPerRowFailures: Array<{
+    code: string;
+    driveFileId: string;
+    wizardSessionId: string;
+  }> = [];
   try {
     const response = await runtime.withTx(async (tx) => {
       // R25-1/R29-1 lock order: discover the candidate session WITHOUT a row lock, acquire
@@ -1249,6 +1259,15 @@ async function executeFinalizeBatch(
         wizardSessionId,
         result: tail.status,
       };
+      // Capture the committed hard-fail rows for the POST-COMMIT flush (below). Mapped to the
+      // log field names now (driveFileId/wizardSessionId) so the flush is a pure emit loop.
+      committedPerRowFailures = perRow
+        .filter((r) => r.code !== OK_CODE)
+        .map((r) => ({
+          code: r.code,
+          driveFileId: r.drive_file_id,
+          wizardSessionId: r.wizard_session_id,
+        }));
       return tail.response;
     });
     // POST-COMMIT: deps.withTx has resolved (the outer finalize transaction committed), so the
@@ -1271,6 +1290,27 @@ async function executeFinalizeBatch(
       // keeping the outcome literal out of the §12.4 producer scan.
       const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
       await logAdminOutcome({ code: "SHOW_FINALIZED", ...outcomeRef });
+    }
+    // POST-COMMIT durable per-row telemetry (S2): the committed batch's hard-fail rows persist a
+    // failure code to pending_syncs/SSE but emitted no app_events until now. Reuses the existing
+    // catalog codes inside a stripped log span (strip-exempt; NOT §12.4). Fail-open at every
+    // callsite — a logger throw must never turn a committed finalize into a 500.
+    for (const failure of committedPerRowFailures) {
+      const fields = {
+        source: "api.admin.onboarding.finalize",
+        code: failure.code,
+        driveFileId: failure.driveFileId,
+        wizardSessionId: failure.wizardSessionId,
+      };
+      try {
+        if (severityForFinalizeRowCode(failure.code) === "error") {
+          await log.error("finalize per-row hard-fail", fields);
+        } else {
+          await log.warn("finalize per-row hard-fail", fields);
+        }
+      } catch {
+        /* best-effort */
+      }
     }
     return response;
   } catch (error) {

@@ -49,6 +49,50 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
   // DQIGNORE-4 (2026-07-02): data-quality warning ignore/un-ignore forensic trace.
   { file: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", code: "WARNING_IGNORED" },
   { file: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", code: "WARNING_UNIGNORED" },
+  // Observability PR-2 (2026-07-03): silent-surface instrumentation.
+  {
+    file: "app/api/show/[slug]/unpublish/route.ts",
+    code: "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
+  },
+  {
+    file: "app/api/admin/admin-alerts/[id]/resolve/route.ts",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
+  {
+    file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
+  {
+    file: "app/api/admin/pending-ingestions/[id]/discard/route.ts",
+    code: "PENDING_INGESTION_DISCARDED",
+  },
+  // Wizard shared handler (handleWizardPendingIngestionAction lives in the retry route file):
+  // defer/ignore/retry all emit here; the thin defer_until_modified/permanent_ignore route files
+  // re-export it and are NOT registered. RETRIED is REUSED (already SANCTIONED via the live route).
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_DEFERRED",
+  },
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_IGNORED",
+  },
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_RETRIED",
+  },
+  {
+    file: "app/api/admin/onboarding/rescan-sheet/route.ts",
+    code: "SHEET_RESCANNED",
+  },
+  {
+    file: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+    code: "FINALIZE_CLEANUP_DONE",
+  },
+  {
+    file: "app/api/admin/show/staged/[stagedId]/discard/route.ts",
+    code: "STAGE_DISCARDED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -70,6 +114,14 @@ const SANCTIONED_CODES = new Set([
   // DQIGNORE-4 (2026-07-02).
   "WARNING_IGNORED",
   "WARNING_UNIGNORED",
+  // Observability PR-2 (2026-07-03).
+  "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
+  "ADMIN_ALERT_RESOLVED",
+  "PENDING_INGESTION_DISCARDED",
+  "PENDING_INGESTION_DEFERRED",
+  "PENDING_INGESTION_IGNORED",
+  "SHEET_RESCANNED",
+  "FINALIZE_CLEANUP_DONE",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -108,6 +160,34 @@ const NEW_FORENSIC_CODES = new Set([
   "DRIVE_WATCH_RENEWAL_FAILED",
   "DRIVE_WATCH_INFRA_FAULT",
   "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
+  // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
+  "UNPUBLISH_INFRA_FAILED",
+  "ADMIN_ALERT_RESOLVE_FAILED",
+  "PENDING_INGESTION_DISCARD_FAILED",
+  "PENDING_INGESTION_ACTION_FAILED",
+  "RESCAN_INFRA_ERROR",
+  "FINALIZE_CLEANUP_FAILED",
+  "STAGE_DISCARD_FAILED",
+  // S4 — OAuth callback session-exchange leg (all log.error/info, strip-exempt).
+  "OAUTH_CLIENT_CONSTRUCTION_FAILED",
+  "OAUTH_EXCHANGE_THREW",
+  "OAUTH_EXCHANGE_REJECTED",
+  "OAUTH_IS_ADMIN_INFRA_ERROR",
+  "OAUTH_SIGN_IN_SUCCEEDED",
+  // S5/S6/S8 — agenda enrichment + extraction forensic codes (inside log.* spans).
+  "AGENDA_ENRICH_THREW",
+  "AGENDA_EXTRACT_TIMEOUT",
+  "AGENDA_LINK_UNRESOLVED",
+  // S7 — eight auth-boundary null-code stamps (pure code-stamps + one new silent-500 emission).
+  "REALTIME_JWT_SECRET_TOO_SHORT",
+  "REALTIME_TOKEN_SHOW_LOOKUP_FAILED",
+  "OAUTH_GETUSER_FAILED",
+  "OAUTH_CLAIM_ALERT_FAILED",
+  "PICKER_BOOTSTRAP_RESOLVE_ALERT_FAILED",
+  "PICKER_BOOTSTRAP_CLAIM_ALERT_FAILED",
+  "AUTH_SIGNOUT_FAILED",
+  "SYNC_SLUG_LOOKUP_FAILED",
+  "LIVE_STAGED_APPLY_LOOKUP_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

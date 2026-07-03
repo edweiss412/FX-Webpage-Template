@@ -4,6 +4,9 @@ import {
   discardStaged as defaultDiscardStaged,
   type DiscardVariant,
 } from "@/lib/sync/discardStaged";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ stagedId: string }>;
@@ -66,18 +69,48 @@ export async function handleLiveStagedDiscard(
   const variant = variantFrom(body.kind);
   if (!variant) return errorResponse(400, "INVALID_REVIEWER_ACTION");
 
-  const result = await (routeDeps.discardStaged ?? defaultDiscardStaged)(
-    {
-      sourceScope: "live",
-      driveFileId,
-      stagedId,
-      discardedByEmail: admin.email,
-      variant,
-    },
-    {},
-  );
+  let result: Awaited<ReturnType<typeof defaultDiscardStaged>>;
+  try {
+    result = await (routeDeps.discardStaged ?? defaultDiscardStaged)(
+      {
+        sourceScope: "live",
+        driveFileId,
+        stagedId,
+        discardedByEmail: admin.email,
+        variant,
+      },
+      {},
+    );
+  } catch (error) {
+    // Fail-open (explicit callsite wrap): log the infra fault, then rethrow so the route's
+    // existing throw→500 behavior is byte-preserved. Forensic-only (inside a log span).
+    try {
+      await log.error("live staged discard threw", {
+        source: "api.admin.show.staged.discard",
+        code: "STAGE_DISCARD_FAILED",
+        driveFileId,
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
+    throw error;
+  }
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
   if (result.outcome === "discarded") {
+    // POST-COMMIT durable outcome (#218): discardStaged owns its per-show lock/tx and has committed
+    // when it resolves. REUSED code (STAGE_DISCARDED, already SANCTIONED). Fail-open at the callsite.
+    const actorEmail = canonicalize(admin.email);
+    try {
+      await logAdminOutcome({
+        code: "STAGE_DISCARDED",
+        source: "api.admin.show.staged.discard",
+        ...(actorEmail ? { actorEmail } : {}),
+        driveFileId,
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ status: "discarded", variant });
   }
   return errorResponse(result.outcome === "not_found" ? 404 : 409, "STALE_DISCARD_REJECTED");

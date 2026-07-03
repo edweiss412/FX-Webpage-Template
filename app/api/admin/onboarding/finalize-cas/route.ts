@@ -15,6 +15,7 @@ import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/l
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 import {
   FINALIZE_STREAM_CONTENT_TYPE,
   type FinalizeCasPhase,
@@ -786,6 +787,28 @@ async function runFinalizeCas(
       // { drive_file_id, code } (+ optional disposition), never a show id.
       shadowResults.push(responseRow);
       continue;
+    }
+    // POST-COMMIT per-row hard-fail telemetry (S2): this row's withRowTx has RESOLVED, so its
+    // independent row transaction committed — mirror the OK-path SHOW_FINALIZED placement above.
+    // Reuses the existing catalog code inside a stripped log span (strip-exempt; NOT §12.4),
+    // routed through the SHARED severity map so a DRIVE_FETCH_FAILED here would be an error.
+    // Fail-open at the callsite — a logger throw must never change the CAS control flow.
+    {
+      const fields = {
+        source: "api.admin.onboarding.finalize-cas",
+        code: result.code,
+        driveFileId: row.drive_file_id,
+        wizardSessionId,
+      };
+      try {
+        if (severityForFinalizeRowCode(result.code) === "error") {
+          await log.error("finalize-cas per-row hard-fail", fields);
+        } else {
+          await log.warn("finalize-cas per-row hard-fail", fields);
+        }
+      } catch {
+        /* best-effort */
+      }
     }
     const parsed = parseShadowPayloadForApply(row.payload);
     const title = parsed.ok ? parsedShowTitle(parsed.parseResult) : null;

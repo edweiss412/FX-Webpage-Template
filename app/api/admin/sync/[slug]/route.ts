@@ -26,7 +26,11 @@ async function readDriveFileIdForSlug(
   try {
     supabase = createSupabaseServiceRoleClient();
   } catch (error) {
-    log.error("service-role construction failed", { source: "api.admin.sync", error });
+    log.error("service-role construction failed", {
+      source: "api.admin.sync",
+      code: "SYNC_SLUG_LOOKUP_FAILED",
+      error,
+    });
     return { kind: "infra_error" };
   }
 
@@ -41,12 +45,20 @@ async function readDriveFileIdForSlug(
     data = response.data as ShowSlugRow | null;
     error = response.error;
   } catch (cause) {
-    log.error("show lookup threw", { source: "api.admin.sync", error: cause });
+    log.error("show lookup threw", {
+      source: "api.admin.sync",
+      code: "SYNC_SLUG_LOOKUP_FAILED",
+      error: cause,
+    });
     return { kind: "infra_error" };
   }
 
   if (error) {
-    log.error("show lookup failed", { source: "api.admin.sync", errorMessage: error.message });
+    log.error("show lookup failed", {
+      source: "api.admin.sync",
+      code: "SYNC_SLUG_LOOKUP_FAILED",
+      errorMessage: error.message,
+    });
     return { kind: "infra_error" };
   }
   if (!data) return { kind: "not_found" };

@@ -351,6 +351,20 @@ export async function handleExtractAgenda(
         // report.perLink deref). The row stays note-only; agenda lands via cron.
         controller.abort();
         await extractionPromise.catch(() => {});
+        // S6 forensic: the extraction hit its deadline (the row stays note-only; agenda lands via
+        // cron). Every sibling terminal in this route logs; this 504 branch previously did not.
+        // Fail-open at the callsite — a logger throw must not change the 504.
+        try {
+          await log.warn("agenda extract timed out", {
+            source: "api.admin.agenda.extract",
+            code: "AGENDA_EXTRACT_TIMEOUT",
+            driveFileId,
+            wizardSessionId,
+            deadlineMs,
+          });
+        } catch {
+          /* best-effort */
+        }
         return NextResponse.json({ status: "timeout" }, { status: 504 });
       }
 

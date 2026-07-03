@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type UnignoreTx = {
@@ -108,7 +109,18 @@ export async function handleUnignore(
     if (result.kind === "not_found") return errorResponse(404, "SHOW_NOT_FOUND");
     showId = result.showId;
     mutated = result.mutated;
-  } catch {
+  } catch (error) {
+    // Forensic-only infra fault (reuses DATA_QUALITY_INFRA_ERROR inside a stripped log span; NOT a
+    // new §12.4 code). Fail-open at the callsite: a logger throw must not replace the 500.
+    try {
+      await log.error("data-quality unignore threw", {
+        source: "api.admin.data-quality.unignore",
+        code: "DATA_QUALITY_INFRA_ERROR",
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
     return errorResponse(500, "DATA_QUALITY_INFRA_ERROR");
   }
   // DQIGNORE-4 — forensic audit trail (WHO un-ignored WHICH warning). POST-COMMIT, never inside

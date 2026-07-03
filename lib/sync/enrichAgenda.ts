@@ -134,7 +134,23 @@ export async function enrichAgenda(
       if (signal?.aborted) break;
 
       const link = links[i]!;
-      if (!link.fileId) continue;
+      if (!link.fileId) {
+        // S8 forensic (option A): a malformed agenda_link (a `url` that is a bare filename with no
+        // resolvable fileId) was skipped silently. Groupable durable record; the skip behavior is
+        // unchanged. Fail-open at the callsite — a logger throw must never break the scan.
+        try {
+          await log.warn("agenda link has no resolvable fileId", {
+            source: "sync.enrichAgenda",
+            code: "AGENDA_LINK_UNRESOLVED",
+            spreadsheetId,
+            ordinal: i,
+            label: link.label,
+          });
+        } catch {
+          /* best-effort */
+        }
+        continue;
+      }
 
       const recoveredFileId = recoveredFileIds.get(i);
 
@@ -390,6 +406,7 @@ export async function enrichAgenda(
     // Logged (previously swallowed) so an unexpected throw is diagnosable.
     log.error("threw (link left as-is)", {
       source: "sync.enrichAgenda",
+      code: "AGENDA_ENRICH_THREW",
       spreadsheetId,
       error: err,
     });
