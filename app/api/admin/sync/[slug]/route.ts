@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { FINALIZE_OWNED_SHOW, runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ slug: string }>;
@@ -25,7 +26,11 @@ async function readDriveFileIdForSlug(
   try {
     supabase = createSupabaseServiceRoleClient();
   } catch (error) {
-    log.error("service-role construction failed", { source: "api.admin.sync", error });
+    log.error("service-role construction failed", {
+      source: "api.admin.sync",
+      code: "SYNC_SLUG_LOOKUP_FAILED",
+      error,
+    });
     return { kind: "infra_error" };
   }
 
@@ -40,12 +45,20 @@ async function readDriveFileIdForSlug(
     data = response.data as ShowSlugRow | null;
     error = response.error;
   } catch (cause) {
-    log.error("show lookup threw", { source: "api.admin.sync", error: cause });
+    log.error("show lookup threw", {
+      source: "api.admin.sync",
+      code: "SYNC_SLUG_LOOKUP_FAILED",
+      error: cause,
+    });
     return { kind: "infra_error" };
   }
 
   if (error) {
-    log.error("show lookup failed", { source: "api.admin.sync", errorMessage: error.message });
+    log.error("show lookup failed", {
+      source: "api.admin.sync",
+      code: "SYNC_SLUG_LOOKUP_FAILED",
+      errorMessage: error.message,
+    });
     return { kind: "infra_error" };
   }
   if (!data) return { kind: "not_found" };
@@ -55,6 +68,7 @@ async function readDriveFileIdForSlug(
 export async function POST(_request: NextRequest, context: RouteContext): Promise<Response> {
   return runWithRequestContext({ requestId: deriveRequestId(_request.headers) }, async () => {
     await requireAdmin();
+    const { email } = await requireAdminIdentity();
     const { slug } = await context.params;
 
     const resolved = await readDriveFileIdForSlug(slug);
@@ -83,6 +97,15 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
       );
     }
 
+    if (result.outcome === "applied") {
+      await logAdminOutcome({
+        code: "SHOW_SYNCED_MANUAL",
+        source: "api.admin.sync",
+        actorEmail: email,
+        driveFileId: resolved.driveFileId,
+        showId: result.showId,
+      });
+    }
     return NextResponse.json({ ok: true, result });
   });
 }

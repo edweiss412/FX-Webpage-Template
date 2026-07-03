@@ -167,6 +167,7 @@ export async function CrewShell({
     } catch (e) {
       void log.warn("projection-alert upsert failed (fail-quiet):", {
         source: "crew.shell",
+        code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
         error: e,
       });
     }

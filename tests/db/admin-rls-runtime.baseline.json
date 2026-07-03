@@ -6,6 +6,7 @@
     "app_settings",
     "deferred_ingestions",
     "drive_watch_channels",
+    "ignored_warnings",
     "onboarding_scan_manifest",
     "pending_ingestions",
     "pending_snapshot_uploads",

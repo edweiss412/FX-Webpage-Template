@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   LiveStagedRouteDeps,
   LiveStagedRouteTx,
@@ -6,6 +6,9 @@ import type {
 import type { LiveStagedDiscardRouteDeps } from "@/app/api/admin/show/staged/[stagedId]/discard/route";
 import { handleLiveStagedApply } from "@/app/api/admin/show/staged/[stagedId]/apply/route";
 import { handleLiveStagedDiscard } from "@/app/api/admin/show/staged/[stagedId]/discard/route";
+
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
 
 const STAGED = "22222222-2222-4222-8222-222222222222";
 
@@ -61,6 +64,54 @@ async function json(response: Response): Promise<unknown> {
 }
 
 describe("live first-seen staged apply/discard", () => {
+  beforeEach(() => {
+    logAdminOutcomeMock.mockClear();
+  });
+
+  test("logs SHOW_APPLIED telemetry after a committed live apply", async () => {
+    const tx = new FakeLiveStagedTx();
+    const adminEmail = "doug@example.com"; // requireAdminIdentity fixture (canonical)
+    const showId = "show-1"; // applyStaged applied-outcome fixture
+    const routeDeps = deps(tx, {
+      requireAdminIdentity: vi.fn(async () => ({ email: adminEmail })),
+      applyStaged: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId,
+        syncAuditId: null,
+        derivedSideEffects: { revokeFloorForNames: [] },
+      })),
+    });
+
+    const response = await handleLiveStagedApply(req({ reviewer_choices: [] }), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith({
+      code: "SHOW_APPLIED",
+      source: "api.admin.staged.apply",
+      actorEmail: adminEmail,
+      driveFileId: tx.driveFileId, // readDriveFileIdForStagedId fixture
+      showId,
+    });
+  });
+
+  test("does NOT log SHOW_APPLIED when the outcome is not applied (superseded)", async () => {
+    const tx = new FakeLiveStagedTx();
+    const response = await handleLiveStagedApply(
+      req({ reviewer_choices: [] }),
+      context,
+      deps(tx, {
+        applyStaged: vi.fn(async () => ({
+          outcome: "superseded" as const,
+          code: "STAGED_PARSE_SUPERSEDED" as const,
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
   test("apply delegates to applyStaged with sourceScope live and returns slug", async () => {
     const tx = new FakeLiveStagedTx();
     const routeDeps = deps(tx);

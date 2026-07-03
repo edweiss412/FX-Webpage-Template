@@ -4,7 +4,7 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { listFolder as listDriveFolder } from "@/lib/drive/list";
 import {
   fetchDriveFileMetadata as defaultFetchDriveFileMetadata,
-  fetchSheetAsMarkdownAtRevision,
+  fetchSheetMarkdownAndBytesAtRevision,
 } from "@/lib/drive/fetch";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -27,6 +27,7 @@ import {
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -154,8 +155,16 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     modifiedTime: fileMeta.modifiedTime,
   };
   let markdown: string;
+  let xlsxBytes: ArrayBuffer | undefined;
   try {
-    markdown = await fetchSheetAsMarkdownAtRevision(fileMeta.driveFileId, binding.bindingToken);
+    // Fetch markdown AND raw xlsx bytes in one export so a retried ingestion also
+    // surfaces DIAGRAMS-tab embedded images (parity with cron + onboarding).
+    const fetched = await fetchSheetMarkdownAndBytesAtRevision(
+      fileMeta.driveFileId,
+      binding.bindingToken,
+    );
+    markdown = fetched.markdown;
+    xlsxBytes = fetched.bytes;
   } catch (cause) {
     throw new FirstSeenStagePrepareError("DRIVE_FETCH_FAILED", cause);
   }
@@ -169,6 +178,7 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     const parseResult = await enrichWithDrivePins(parsed, defaultDriveClient(), {
       driveFileId: fileMeta.driveFileId,
       fileMeta: toDriveFileMeta(fileMeta),
+      ...(xlsxBytes !== undefined ? { xlsxBytes } : {}),
     });
     return {
       fileMeta,
@@ -317,8 +327,9 @@ export async function handleLivePendingIngestionRetry(
   routeDeps: LivePendingIngestionRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let adminEmail!: string;
   try {
-    await deps.requireAdminIdentity();
+    adminEmail = (await deps.requireAdminIdentity()).email; // canonical
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -335,6 +346,12 @@ export async function handleLivePendingIngestionRetry(
   // tx, but call revalidateShow AFTER withRowTryLock resolves (post-commit) — never
   // inside the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
   let appliedShowId: string | null = null;
+  // Observability (R4): capture the post-commit admin-outcome telemetry for a
+  // committed live-show apply ONLY — gated on outcome === "applied", NOT on
+  // appliedShowId (source_gone/parse_error recovery also carries showId but is
+  // still_failed, so it must NOT emit PENDING_INGESTION_RETRIED). The `code`
+  // literal rides ONLY the logAdminOutcome emit below, never this ref object.
+  let outcome: Omit<AdminOutcome, "code"> | null = null;
   const result = await deps.withRowTryLock(driveFileId, async (tx) => {
     const row = await readLockedPendingIngestion(tx, id);
     if (!row) return transitioned();
@@ -374,6 +391,14 @@ export async function handleLivePendingIngestionRetry(
       if ("showId" in syncResult && typeof syncResult.showId === "string" && syncResult.showId) {
         appliedShowId = syncResult.showId;
       }
+      if (!("skipped" in syncResult) && syncResult.outcome === "applied") {
+        outcome = {
+          source: "api.admin.pending-ingestions.retry",
+          actorEmail: adminEmail,
+          driveFileId: row.drive_file_id,
+          showId: syncResult.showId,
+        };
+      }
       return await manualSyncResponse(tx, row.drive_file_id, syncResult);
     }
     let metadata: DriveListedFile;
@@ -394,7 +419,15 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
     }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
-    if (stageResult.outcome === "applied") appliedShowId = stageResult.showId;
+    if (stageResult.outcome === "applied") {
+      appliedShowId = stageResult.showId;
+      outcome = {
+        source: "api.admin.pending-ingestions.retry",
+        actorEmail: adminEmail,
+        driveFileId: row.drive_file_id,
+        showId: stageResult.showId,
+      };
+    }
     return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
   });
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
@@ -403,6 +436,14 @@ export async function handleLivePendingIngestionRetry(
   // show's cache tag before returning the Response. Non-applied retries leave
   // appliedShowId null → no revalidate.
   if (appliedShowId) revalidateShow(appliedShowId);
+  // Observability (R4): post-commit durable telemetry — withRowTryLock has resolved
+  // (apply committed) before we emit. Non-applied retries leave outcome null → no emit.
+  if (outcome) {
+    // TS closure-narrowing: a `let` assigned inside the withRowTryLock callback narrows
+    // to `never` at a spread position; bind to a ref-typed const first (see PR #218).
+    const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
+    await logAdminOutcome({ code: "PENDING_INGESTION_RETRIED", ...outcomeRef });
+  }
   return result;
 }
 

@@ -11,6 +11,8 @@
 import { useActionState } from "react";
 import { confirmUnpublishAction } from "./actions";
 import {
+  BUSY_BODY,
+  BUSY_HEADING,
   CONFIRM_BUTTON_LABEL,
   CONFIRM_BUTTON_PENDING_LABEL,
   CONFIRM_CONSEQUENCE,
@@ -45,7 +47,7 @@ export function ConfirmUnpublishForm({
     return <NeutralBlock />;
   }
 
-  // idle | infra: the confirm UI (infra adds the retry notice and keeps the
+  // idle | infra | busy: the confirm UI (infra/busy add a notice and keep the
   // form available — a transient fault must not close the recovery window).
   return (
     <div data-testid="unpublish-confirm">
@@ -57,6 +59,18 @@ export function ConfirmUnpublishForm({
       {state.status === "infra" ? (
         <div className="mt-4">
           <RetryNotice />
+        </div>
+      ) : null}
+      {state.status === "busy" ? (
+        // Published-toggle §3.4: finalize-owned refusal — transient; keep the form
+        // available (same recovery-window posture as the infra retry notice).
+        <div
+          data-testid="unpublish-busy-notice"
+          role="status"
+          className="mt-4 rounded-sm border border-border bg-surface-sunken p-3 text-left"
+        >
+          <p className="text-sm font-semibold text-text-strong">{BUSY_HEADING}</p>
+          <p className="mt-1 text-sm text-text-subtle">{BUSY_BODY}</p>
         </div>
       ) : null}
       <form action={formAction} className="mt-6 flex flex-col items-center gap-4">

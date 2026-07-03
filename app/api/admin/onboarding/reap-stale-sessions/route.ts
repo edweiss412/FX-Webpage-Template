@@ -59,7 +59,11 @@ export async function handleReapStaleSessions(
     // catalog lookup on `code`. Plan R31-2: LOG the cause before returning the
     // cataloged response — this route performs advisory-locked deletes; losing
     // the DB/lock/permission context makes failures unrecoverable.
-    log.error("reap-stale-sessions failed", { source: "api.admin.onboarding.reap", error });
+    log.error("reap-stale-sessions failed", {
+      source: "api.admin.onboarding.reap",
+      code: "REAP_STALE_SESSIONS_INFRA_FAILED",
+      error,
+    });
     return errorResponse(500, "REAP_STALE_SESSIONS_FAILED");
   }
 }

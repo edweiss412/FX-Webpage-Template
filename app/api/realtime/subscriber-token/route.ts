@@ -78,6 +78,17 @@ async function showIdFromSlug(slug: string): Promise<"infra_error" | string | nu
 async function resolveRealtimeViewer(request: NextRequest, slug: string): Promise<ApiViewer> {
   const showId = await showIdFromSlug(slug);
   if (showId === "infra_error") {
+    // S7 forensic: this infra fault previously returned a fully-silent 500. NEW best-effort
+    // emission — NO change to the 500 status/body. Fail-open at the callsite.
+    try {
+      await log.error("realtime subscriber-token show lookup infra fault", {
+        source: "api.realtime.subscriberToken",
+        code: "REALTIME_TOKEN_SHOW_LOOKUP_FAILED",
+        slug,
+      });
+    } catch {
+      /* best-effort */
+    }
     return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
   }
   if (!showId) {
@@ -161,6 +172,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // operators see the full picture in logs).
     log.error("SUPABASE_JWT_SECRET is shorter than 32 bytes; refusing to mint HS256 JWT", {
       source: "api.realtime.subscriberToken",
+      code: "REALTIME_JWT_SECRET_TOO_SHORT",
     });
     return NextResponse.json({ error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" }, { status: 500 });
   }

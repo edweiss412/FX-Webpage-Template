@@ -54,6 +54,32 @@ describe("B2 lifecycle RPC meta — private cores + advisory-lock topology (sing
       ].join("|"),
     );
   });
+
+  // Published-toggle migration 20260701000000: unpublish_show mirrors the archive_show shape —
+  // admin wrapper with the in-RPC show lock; private lockless core revoked from every client role.
+  test("unpublish_show wrapper takes the in-RPC show lock; _unpublish_show_core takes none and is revoked from all roles", () => {
+    const out = runPsql(`
+      select
+        (pg_get_functiondef('public.unpublish_show(uuid)'::regprocedure) ~ 'pg_advisory_xact_lock\\s*\\(\\s*hashtext\\s*\\(\\s*''show:''') || '|' ||
+        has_function_privilege('authenticated', 'public.unpublish_show(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('service_role', 'public.unpublish_show(uuid)', 'EXECUTE') || '|' ||
+        (pg_get_functiondef('public._unpublish_show_core(uuid)'::regprocedure) ~ 'pg_advisory_xact_lock') || '|' ||
+        has_function_privilege('authenticated', 'public._unpublish_show_core(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('anon', 'public._unpublish_show_core(uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('service_role', 'public._unpublish_show_core(uuid)', 'EXECUTE')
+    `);
+    expect(out).toBe(
+      [
+        "true", // unpublish_show takes the lock
+        "true", // authenticated may call unpublish_show
+        "false", // service_role may NOT call unpublish_show
+        "false", // _unpublish_show_core takes NO lock
+        "false", // authenticated may NOT call _unpublish_show_core
+        "false", // anon may NOT call _unpublish_show_core
+        "false", // service_role may NOT call _unpublish_show_core
+      ].join("|"),
+    );
+  });
 });
 
 describe("B2 first-published parity — every autoPublishFirstSeen site routes through emitSuccessfulPhase2Tail", () => {

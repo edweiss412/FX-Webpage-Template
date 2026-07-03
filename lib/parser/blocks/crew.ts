@@ -268,7 +268,15 @@ function buildCrewMember(params: {
   // CREW path emits — v1 TECH sheets carry no EMAIL column.
   const phoneUnreadable = presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0;
   if (phoneUnreadable) {
-    emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: phoneRaw, index });
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "phone",
+      rawSnippet: phoneRaw,
+      index,
+      // Same raw NAME cell used for crewBlockRef / crew-role-cell anchoring, so the resolver
+      // can key this warning to its own crew row (idx32/#154).
+      name: params.nameRaw,
+    });
   }
   // INVARIANT 3 (whole-diff R4): canonicalize() is the ONLY function allowed to touch
   // the raw email. Derive the unreadable check from the CANONICAL value — never inspect
@@ -282,6 +290,9 @@ function buildCrewMember(params: {
       field: "email",
       rawSnippet: canonicalEmail!,
       index,
+      // Same raw NAME cell used for crewBlockRef / crew-role-cell anchoring, so the resolver
+      // can key this warning to its own crew row (idx32/#154).
+      name: params.nameRaw,
     });
   }
 

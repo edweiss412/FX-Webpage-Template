@@ -1,5 +1,6 @@
 import { test, expect, vi, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
+import { AGENDA_MAX_PAGES } from "@/lib/agenda/constants";
 const logMock = vi.hoisted(() => ({
   info: vi.fn(),
   warn: vi.fn(),
@@ -7,7 +8,16 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 vi.mock("@/lib/log", () => ({ log: logMock }));
-import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
+import {
+  extractAgendaSchedule,
+  resolveStartMeridiem,
+  firstClockIsBareAmbiguous,
+} from "@/lib/agenda/extractAgendaSchedule";
+
+// Local mirror of the module-private toMin so expected spans are DERIVED from the
+// fixture times, never hardcoded (12 AM→0, 12 PM→720).
+const minOf = (h: number, m: number, ap: "AM" | "PM") =>
+  ((h % 12) + (ap === "PM" ? 12 : 0)) * 60 + m;
 const bytes = (f: string) => new Uint8Array(readFileSync(`fixtures/agenda/${f}`));
 beforeEach(() => {
   logMock.info.mockClear();
@@ -149,4 +159,151 @@ test("breadcrumb: low-confidence gate logs agenda.extract `low-confidence` with 
     vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
     vi.resetModules();
   }
+});
+
+// Forensic codes (Task 5): every non-rendering / durable outcome carries a greppable
+// `code` on its log row so the durable stream is self-triageable. Concrete failure mode
+// caught: a log row lands with a message string but no `code`, so it is invisible to the
+// code-filtered observability queries. Codes are the literals under implementation — the
+// `>AGENDA_MAX_PAGES` threshold is derived from the constant, not hardcoded.
+test("forensic code: too-many-pages emits code AGENDA_TOO_MANY_PAGES", async () => {
+  const getPage = vi.fn();
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({ numPages: AGENDA_MAX_PAGES + 1, getPage }),
+    }),
+  }));
+  try {
+    const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+    await extract(new Uint8Array([1, 2, 3]));
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "too-many-pages",
+      expect.objectContaining({ source: "agenda.extract", code: "AGENDA_TOO_MANY_PAGES" }),
+    );
+  } finally {
+    vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.resetModules();
+  }
+});
+test("forensic code: high-confidence parse emits code AGENDA_SCHEDULE_HIGH_CONFIDENCE (durable)", async () => {
+  await extractAgendaSchedule(bytes("rfi.pdf"));
+  expect(logMock.info).toHaveBeenCalledWith(
+    "high",
+    expect.objectContaining({ source: "agenda.extract", code: "AGENDA_SCHEDULE_HIGH_CONFIDENCE" }),
+  );
+});
+test("forensic code: a pdfjs throw emits code AGENDA_PDFJS_THREW with the error preserved", async () => {
+  await extractAgendaSchedule(new Uint8Array([0]));
+  expect(logMock.error).toHaveBeenCalledWith(
+    "pdfjs threw",
+    expect.objectContaining({
+      source: "agenda.extract",
+      code: "AGENDA_PDFJS_THREW",
+      error: expect.anything(),
+    }),
+  );
+});
+test("forensic code: low-confidence gate reuses cataloged code AGENDA_SCHEDULE_LOW_CONFIDENCE", async () => {
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({
+        numPages: 1,
+        getPage: async () => ({
+          getTextContent: async () => ({
+            items: [
+              {
+                str: "Welcome to the conference",
+                transform: [10, 0, 0, 10, 50, 700],
+                fontName: "g_d0_f1",
+              },
+            ],
+          }),
+        }),
+      }),
+    }),
+  }));
+  try {
+    const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+    await extract(new Uint8Array([1, 2, 3]));
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "low-confidence",
+      expect.objectContaining({
+        source: "agenda.extract",
+        code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+      }),
+    );
+  } finally {
+    vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.resetModules();
+  }
+});
+
+// ── audit idx56 — Bug A: bare start resolved against an explicit range end ──────
+// Failure mode caught: a first-of-day range with a BARE start and an EXPLICIT-
+// meridiem end ("7:00 – 8:30 p.m.") seeded the start via seedAp → AM, rendering a
+// bogus ~13.5h "7:00 AM – 8:30 PM" span instead of a 90-min "7:00 PM – 8:30 PM".
+test("§4.3.1 idx56: first-of-day bare start '7:00 – 8:30 p.m.' resolves start to PM (~90-min span, not 13.5h)", () => {
+  const endMin = minOf(8, 30, "PM"); // explicit end minute, derived from the fixture time
+  const startAp = resolveStartMeridiem({ h: 7, m: 0, ap: null }, null, {
+    ap: "PM",
+    min: endMin,
+  });
+  expect(startAp).toBe("PM");
+  const span = endMin - minOf(7, 0, startAp);
+  expect(span).toBe(90); // NOT a 13.5h (810 min) AM→PM span
+  expect(span).toBeGreaterThan(0);
+});
+
+test("§4.3.1 idx56: '10:00 – 1:00 p.m.' → start AM (end-meridiem would put start after end, so flip)", () => {
+  const endMin = minOf(1, 0, "PM"); // 13:00
+  const startAp = resolveStartMeridiem({ h: 10, m: 0, ap: null }, null, {
+    ap: "PM",
+    min: endMin,
+  });
+  expect(startAp).toBe("AM"); // PM-start 22:00 > 13:00 → flip to AM (10:00)
+  expect(endMin - minOf(10, 0, startAp)).toBe(180); // 10:00 AM – 1:00 PM = 3h, non-negative
+});
+
+// seedAp mirror for the fallback assertion (7–11 → AM; 12 & 1–6 → PM).
+const seedApExpected = (h: number): "AM" | "PM" => (h >= 7 && h <= 11 ? "AM" : "PM");
+
+test("§4.3.1 idx56 REGRESSION: unchanged paths (bare no-end seed, explicit start, non-first fill) stay byte-identical", () => {
+  // (3) bare first-of-day with NO explicit end still seeds AM per §4.3.1 (7–11→AM).
+  expect(resolveStartMeridiem({ h: 9, m: 0, ap: null }, null, null)).toBe("AM");
+  // afternoon-only first day (hour 1–6, no end) still seeds PM.
+  expect(resolveStartMeridiem({ h: 1, m: 0, ap: null }, null, null)).toBe("PM");
+  // explicit start is honored verbatim regardless of the end.
+  expect(
+    resolveStartMeridiem({ h: 7, m: 0, ap: "PM" }, null, { ap: "AM", min: minOf(8, 0, "AM") }),
+  ).toBe("PM");
+  // non-first bare start uses the forward-fill floor, unaffected by any end:
+  // "7:00" after a 5:00 PM session (prevStart=1020) → 7:00 PM.
+  expect(
+    resolveStartMeridiem({ h: 7, m: 0, ap: null }, minOf(5, 0, "PM"), {
+      ap: "AM",
+      min: minOf(9, 0, "AM"),
+    }),
+  ).toBe("PM");
+  // both candidates land after the end → fall back to the context-free seed.
+  expect(
+    resolveStartMeridiem({ h: 11, m: 0, ap: null }, null, { ap: "AM", min: minOf(1, 0, "AM") }),
+  ).toBe(seedApExpected(11));
+});
+
+// ── audit idx56 — Bug B: §4.4 ambiguous-first guard scoped to the START token ───
+// Failure mode caught: hasExplicit tested the WHOLE range string (incl. the end's
+// "pm"), so a bare-start/explicit-end opener was wrongly treated as explicit and
+// the §4.4 low-confidence gating was skipped for a genuinely ambiguous opener.
+test("§4.4 idx56: ambiguity predicate is scoped to the START token, not the whole range", () => {
+  // bare-start/explicit-END opener is STILL a bare 7–11 opener → predicate true
+  // (the whole-tok bug returned false because the end carries 'pm').
+  expect(firstClockIsBareAmbiguous("7:00 – 8:30 p.m.")).toBe(true);
+  // explicit-meridiem START → not ambiguous.
+  expect(firstClockIsBareAmbiguous("7:00 AM – 8:30 PM")).toBe(false);
+  // fully bare 7–11 opener → ambiguous.
+  expect(firstClockIsBareAmbiguous("9:00 – 10:00")).toBe(true);
+  // bare opener outside 7–11 → not ambiguous (hour 1).
+  expect(firstClockIsBareAmbiguous("1:00 – 2:00 p.m.")).toBe(false);
 });

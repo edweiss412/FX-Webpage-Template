@@ -1,17 +1,25 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { STALE_PENDING_MAX_AGE_MS } from "@/lib/drive/watchErrors";
+import { setLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 
-// R5-1 durable-log leak class (spec §3.1.4 / §4.1): assert the subscribe
-// failure log sink never carries a raw error object or unredacted secret.
-vi.mock("@/lib/log", () => ({
-  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
-}));
-import { log } from "@/lib/log";
-
+// File-wide log capture via the sanctioned setLogSink seam (observability arc);
+// replaces the earlier vi.mock("@/lib/log") harness so the telemetry describe
+// (origin/main 51429aa1) and the R5-1 redaction assertions share one capture.
+let logRecords: LogRecord[] = [];
 beforeEach(() => {
   vi.clearAllMocks();
+  logRecords = [];
+  setLogSink((record) => {
+    logRecords.push(record);
+  });
+});
+afterEach(() => {
+  // Silent, persist-free sink (NOT resetLogSink, whose default sink lazily
+  // imports persist → Supabase and can raise EnvironmentTeardownError).
+  setLogSink(() => {});
 });
 
 type WatchRow = {
@@ -251,14 +259,14 @@ describe("Drive watch lifecycle", () => {
         Promise.reject(new Error(`files.watch failed token=${secret} Bearer ya29.zzz`)),
     });
 
-    const [message, fields] = (log.error as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(message).toBe("drive watch subscribe failed");
-    expect(fields).not.toHaveProperty("error");
-    const flat = JSON.stringify(fields);
+    const rec = logRecords.find((r) => r.message === "drive watch subscribe failed")!;
+    expect(rec).toBeTruthy();
+    expect(rec.context).not.toHaveProperty("error");
+    const flat = JSON.stringify(rec.context);
     expect(flat).not.toContain(secret);
     expect(flat).not.toContain("ya29.zzz");
-    expect(fields.errorMessage).toContain("files.watch failed");
-    expect(fields.errorClass).toBe("drive_api");
+    expect(rec.context.errorMessage).toContain("files.watch failed");
+    expect(rec.context.errorClass).toBe("drive_api");
   });
 
   test("DRIVE_WEBHOOK_BASE_URL config error is classified config in the orphan alert", async () => {
@@ -523,11 +531,10 @@ describe("Drive watch lifecycle", () => {
     expect(tx.operations).toEqual(["listExpiringActive"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
 
-    const [, fields] = (log.error as ReturnType<typeof vi.fn>).mock.calls.find(
-      ([msg]) => msg === "refresh-watch renewal failed",
-    )!;
-    expect(String(fields.errorMessage)).not.toContain(capturedSecret);
-    expect(String(fields.errorMessage)).not.toContain("ya29.zzz");
+    const rec = logRecords.find((r) => r.message === "refresh-watch renewal failed")!;
+    expect(rec).toBeTruthy();
+    expect(String(rec.context.errorMessage)).not.toContain(capturedSecret);
+    expect(String(rec.context.errorMessage)).not.toContain("ya29.zzz");
   });
 
   test("gcWatchChannels stops superseded and orphaned channels and leaves orphan alerts for operator dismissal", async () => {
@@ -1024,5 +1031,142 @@ describe("Drive transaction-boundary class sweep", () => {
     expect(watchSource).not.toMatch(
       /withDefaultTx\(\(tx\)\s*=>\s*gcWatchChannels\(\{\s*\.\.\.deps,\s*tx\s*\}\)\)/,
     );
+  });
+});
+
+describe("Drive watch telemetry", () => {
+  // Uses the file-wide logRecords sink installed in the top-level beforeEach.
+  const records = () => logRecords;
+
+  const dueRow = (): WatchRow => ({
+    id: "due-channel",
+    status: "active",
+    watchedFolderId: "folder-1",
+    webhookSecret: "old-secret",
+    resourceId: "resource-1",
+    // Expires before the FakeWatchTx `now` (2026-05-09T12:00Z) + 24h threshold.
+    expiresAt: "2026-05-10T00:00:00.000Z",
+  });
+
+  test("refreshWatchSubscriptions logs DRIVE_WATCH_RENEWAL_FAILED when a renewal orphans", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push(dueRow());
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribeToWatchedFolder = vi.fn(async () => ({
+      outcome: "orphaned" as const,
+      channelId: "orphan-channel",
+      reason: "watch_create_failed" as const,
+    }));
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder,
+    });
+
+    // Post-merge contract (this branch): failed renewals land in the typed
+    // `orphaned` channel instead of `refreshed` (spec §3.2 Hardening).
+    expect(result).toEqual({ refreshed: [], orphaned: ["folder-1"], failures: [] });
+
+    const warnings = records().filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED");
+    expect(warnings).toHaveLength(1);
+    const warning = warnings[0]!;
+    expect(warning.level).toBe("warn");
+    expect(warning.source).toBe("drive.watch");
+    // channelId/watchedFolderId derived from the injected SubscribeResult + due row.
+    expect(warning.context).toMatchObject({
+      channelId: "orphan-channel",
+      watchedFolderId: "folder-1",
+    });
+  });
+
+  test("refreshWatchSubscriptions does NOT log renewal-failure when the renewal succeeds", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push(dueRow());
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribeToWatchedFolder = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "renewed-channel",
+    }));
+
+    await refreshWatchSubscriptions({ tx, now: () => tx.now, subscribeToWatchedFolder });
+
+    expect(records().filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
+  });
+
+  test("subscribeToWatchedFolder create-failure does NOT log DRIVE_WATCH_RENEWAL_FAILED (not a renewal)", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => {
+        throw new Error("Drive unavailable");
+      }),
+    });
+
+    // Initial create/activate orphans raise WATCH_CHANNEL_ORPHANED, not a renewal code.
+    expect(result).toEqual({
+      outcome: "orphaned",
+      channelId: "new-channel",
+      reason: "watch_create_failed",
+    });
+    expect(records().filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
+  });
+
+  test("refreshWatchSubscriptions logs DRIVE_WATCH_INFRA_FAULT and re-propagates on infra fault", async () => {
+    const cause = new Error("connection reset by peer");
+    class ThrowingTx extends FakeWatchTx {
+      override async listExpiringActive(
+        _thresholdIso: string,
+      ): ReturnType<FakeWatchTx["listExpiringActive"]> {
+        throw cause;
+      }
+    }
+    const tx = new ThrowingTx();
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+
+    // Post-merge contract (this branch): refresh NEVER rejects — a list_expiring
+    // infra fault becomes the typed "*" failures row (spec §3.2 Hardening / R5-3);
+    // scheduler visibility comes from the route's 500 contract instead of a throw.
+    const result = await refreshWatchSubscriptions({ tx, now: () => tx.now });
+    expect(result).toEqual({
+      refreshed: [],
+      orphaned: [],
+      failures: [{ folderId: "*", operation: "list_expiring" }],
+    });
+
+    const faults = records().filter((r) => r.code === "DRIVE_WATCH_INFRA_FAULT");
+    expect(faults).toHaveLength(1);
+    const fault = faults[0]!;
+    expect(fault.level).toBe("error");
+    expect(fault.source).toBe("drive.watch");
+    expect(fault.context.operation).toBe("drive_watch_channels.list_expiring_active");
+    // Redacted message (R5-1 contract) — never a raw error object.
+    expect(fault.context).not.toHaveProperty("error");
+    expect(String(fault.context.errorMessage)).toContain("connection reset by peer");
+  });
+
+  test("gcWatchChannels logs DRIVE_WATCH_INFRA_FAULT and re-propagates on infra fault", async () => {
+    const cause = new Error("gc candidate query failed");
+    class ThrowingGcTx extends FakeWatchTx {
+      override async listGcCandidates(): ReturnType<FakeWatchTx["listGcCandidates"]> {
+        throw cause;
+      }
+    }
+    const tx = new ThrowingGcTx();
+    const { gcWatchChannels, DriveWatchInfraError } = await import("@/lib/drive/watch");
+
+    await expect(gcWatchChannels({ tx })).rejects.toBeInstanceOf(DriveWatchInfraError);
+
+    const faults = records().filter((r) => r.code === "DRIVE_WATCH_INFRA_FAULT");
+    expect(faults).toHaveLength(1);
+    const fault = faults[0]!;
+    expect(fault.level).toBe("error");
+    expect(fault.source).toBe("drive.watch");
+    expect(fault.context.operation).toBe("drive_watch_channels.list_gc_candidates");
+    expect(fault.context.error).toMatchObject({ message: "gc candidate query failed" });
   });
 });

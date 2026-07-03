@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
 import {
   applyStaged as defaultApplyStaged,
@@ -172,6 +173,13 @@ export async function handleLiveStagedApply(
     );
     if (!("skipped" in result) && result.outcome === "applied") {
       const slug = await deps.readShowSlug(result.showId);
+      await logAdminOutcome({
+        code: "SHOW_APPLIED",
+        source: "api.admin.staged.apply",
+        actorEmail: admin.email,
+        driveFileId,
+        showId: result.showId,
+      });
       return NextResponse.json({ slug });
     }
     const mapped = statusFor(result);
@@ -184,6 +192,7 @@ export async function handleLiveStagedApply(
     // not a body-less 500 (Codex R5 structural backstop).
     log.error("live staged apply: unexpected failure", {
       source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");

@@ -50,7 +50,11 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
       .order("id", { ascending: false })
       .limit(PAGE_SIZE + 1);
     if (error) {
-      void log.error("app_events read returned error", { source: "admin.loadAppEvents", error });
+      void log.error("app_events read returned error", {
+        source: "admin.loadAppEvents",
+        code: "APP_EVENTS_READ_RETURNED_ERROR",
+        error,
+      });
       return { kind: "infra_error", message: "app_events read failed" };
     }
     const rows = (data ?? []) as Array<Record<string, unknown>>;
@@ -64,7 +68,11 @@ export async function loadAppEvents(filters: AppEventFilters): Promise<LoadAppEv
       nextCursor: hasMore && last ? { occurredAt: last.occurredAt, id: last.id } : null,
     };
   } catch (err) {
-    void log.error("app_events read threw", { source: "admin.loadAppEvents", error: err });
+    void log.error("app_events read threw", {
+      source: "admin.loadAppEvents",
+      code: "APP_EVENTS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error", message: "app_events read threw" };
   }
 }

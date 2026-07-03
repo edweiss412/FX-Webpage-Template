@@ -210,6 +210,17 @@ export async function handleExtractAgenda(
   }
 
   const { wizardSessionId, driveFileId } = await context.params;
+
+  // Fail fast on a whitespace-only driveFileId (reachable via URL-encoding, e.g. %20),
+  // BEFORE claimExtractLease writes a lease or the advisory-lock key is seeded. A malformed
+  // route param is a CLIENT error (HTTP 400), not a Drive fault — so this is a plain 400,
+  // not a thrown InvalidDriveFileIdError (which downstream classifiers treat as a Drive fault).
+  // The DB CHECK on agenda_extract_leases.drive_file_id remains the backstop. `/\S/` matches
+  // the DB predicate `~ '[^[:space:]]'`.
+  if (!/\S/.test(driveFileId)) {
+    return NextResponse.json({ error: "invalid driveFileId" }, { status: 400 });
+  }
+
   const owner = randomUUID();
   const slotKey = `${wizardSessionId}:${driveFileId}`;
 
@@ -351,6 +362,20 @@ export async function handleExtractAgenda(
         // report.perLink deref). The row stays note-only; agenda lands via cron.
         controller.abort();
         await extractionPromise.catch(() => {});
+        // S6 forensic: the extraction hit its deadline (the row stays note-only; agenda lands via
+        // cron). Every sibling terminal in this route logs; this 504 branch previously did not.
+        // Fail-open at the callsite — a logger throw must not change the 504.
+        try {
+          await log.warn("agenda extract timed out", {
+            source: "api.admin.agenda.extract",
+            code: "AGENDA_EXTRACT_TIMEOUT",
+            driveFileId,
+            wizardSessionId,
+            deadlineMs,
+          });
+        } catch {
+          /* best-effort */
+        }
         return NextResponse.json({ status: "timeout" }, { status: 504 });
       }
 
@@ -450,6 +475,7 @@ export async function handleExtractAgenda(
       // The outer finally still fires after this return and releases the lease + slot.
       log.error("unexpected error in extract/merge region:", {
         source: "api.admin.onboarding.extractAgenda",
+        code: "AGENDA_EXTRACT_REGION_FAILED",
         error: extractErr,
       });
       return NextResponse.json({ status: "error" }, { status: 500 });
@@ -465,6 +491,7 @@ export async function handleExtractAgenda(
     // inner extract-region catch, EVERY post-auth throw path returns the typed 500.
     log.error("unexpected error before extraction:", {
       source: "api.admin.onboarding.extractAgenda",
+      code: "AGENDA_EXTRACT_PREEXTRACT_FAILED",
       error: preExtractErr,
     });
     return NextResponse.json({ status: "error" }, { status: 500 });

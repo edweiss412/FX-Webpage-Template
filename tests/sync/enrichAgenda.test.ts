@@ -31,7 +31,7 @@ import type { DriveClient, DriveFileMeta } from "@/lib/sync/enrichWithDrivePins"
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { ParseResult } from "@/lib/parser/types";
 import { EXTRACTOR_VERSION, AGENDA_MAX_PDFS_PER_SHEET } from "@/lib/agenda/constants";
-import { driveErrorStatus, DriveFetchError } from "@/lib/drive/fetch";
+import { driveErrorStatus, DriveFetchError, withDriveRetry } from "@/lib/drive/fetch";
 
 type AgendaLink = { label: string; fileId?: string; url?: string; extracted?: AgendaExtraction };
 
@@ -291,6 +291,71 @@ describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-d
     expect(driveErrorStatus(new Error("???"))).toBeNull(); // unclassifiable → transient-safe
   });
 
+  // audit idx31/#132: a native-fetch (gaxios-7/undici) socket failure throws
+  // `TypeError: fetch failed` whose OWN `.code` is undefined — the real socket
+  // code (ECONNRESET/ENOTFOUND/…) is nested at `.cause` (or `.cause.cause`).
+  // Failure mode this catches: a transient socket reset was classified null →
+  // withDriveRetry rethrew immediately (no retry) → the whole sync/scan pass
+  // aborted on a single-blip network hiccup (regression from gaxios
+  // noResponseRetries=2, removed when the files.get call went `retry: false`).
+  test("driveErrorStatus walks the undici .cause chain for transient socket codes", () => {
+    const transient = new Set([429, 500, 502, 503, 504]);
+    // (a) single-wrapped undici shape: TypeError('fetch failed') { cause: { code: 'ECONNRESET' } }
+    const single = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    });
+    expect(transient.has(driveErrorStatus(single) as number)).toBe(true);
+    // (b) DOUBLE-wrapped cause chain: { cause: { cause: { code: 'ENOTFOUND' } } }
+    const doubleWrapped = Object.assign(new TypeError("fetch failed"), {
+      cause: { cause: { code: "ENOTFOUND" } },
+    });
+    expect(transient.has(driveErrorStatus(doubleWrapped) as number)).toBe(true);
+    // Every transient-network code in the set is recognized at the cause layer.
+    for (const socketCode of [
+      "EAI_AGAIN",
+      "ECONNREFUSED",
+      "EPIPE",
+      "ECONNABORTED",
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_SOCKET",
+    ]) {
+      const err = Object.assign(new TypeError("fetch failed"), { cause: { code: socketCode } });
+      expect(transient.has(driveErrorStatus(err) as number)).toBe(true);
+    }
+    // (c) a truly unclassifiable error still returns null (existing pin stays green).
+    expect(driveErrorStatus(new Error("???"))).toBeNull();
+    // A cause chain with NO known socket code is still unclassifiable → null.
+    expect(
+      driveErrorStatus(
+        Object.assign(new TypeError("fetch failed"), { cause: { code: "ESOMETHINGELSE" } }),
+      ),
+    ).toBeNull();
+    // Boundary preserved: a TOP-LEVEL socket string code with NO `.cause` keeps its
+    // pre-existing non-retry contract (the walk starts BELOW the top-level error;
+    // only the timeout codes map top-level). A bare `{ code: 'ENOTFOUND' }` → null.
+    expect(driveErrorStatus({ code: "ENOTFOUND" })).toBeNull();
+  });
+
+  // audit idx31/#132: end-to-end — an ECONNRESET-shaped undici failure must be
+  // RETRIED by withDriveRetry (not rethrown on the first attempt) and then succeed.
+  test("withDriveRetry retries an undici ECONNRESET socket failure then succeeds", async () => {
+    let calls = 0;
+    const result = await withDriveRetry(
+      async () => {
+        calls += 1;
+        if (calls === 1) {
+          throw Object.assign(new TypeError("fetch failed"), {
+            cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+          });
+        }
+        return "ok";
+      },
+      { sleep: async () => {}, random: () => 0, maxRetries: 2 },
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(2);
+  });
+
   test("permanent getFile 404 (deleted PDF) → known_stale (clears the stale extracted)", async () => {
     const result = makeResult([
       {
@@ -341,6 +406,56 @@ describe("enrichAgenda — getFile permanent vs transient failure (Codex whole-d
       const report = await enrichAgenda(result, client, "s");
       expect(report.perLink.find((p) => p.ordinal === 0)?.verdict).toBe("unknown");
     }
+  });
+
+  // Cry-wolf split: definitive-gone (404) is an EXPECTED steady-state, not a fault —
+  // it logs at INFO with the AGENDA_GETFILE_GONE forensic code and NO error field, and
+  // must NOT trip the WARN stream (which pages on cry-wolf noise).
+  test("getFile 404 → log.info AGENDA_GETFILE_GONE, verdict known_stale, no error field; no warn", async () => {
+    const result = makeResult([
+      {
+        label: "AGENDA LINK - RFI",
+        fileId: "F-DELETED",
+        extracted: highExtraction({ sourceRevision: "rev-OLD" }),
+      },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("not found", 404);
+      },
+    });
+    await enrichAgenda(result, client, "s");
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "AGENDA_GETFILE_GONE", verdict: "known_stale" }),
+    );
+    // The gone breadcrumb carries no error payload (it is not a fault).
+    const infoFields = logMock.info.mock.calls.at(-1)![1] as Record<string, unknown>;
+    expect(infoFields).not.toHaveProperty("error");
+    // Definitive-gone must not fire the WARN stream.
+    expect(logMock.warn).not.toHaveBeenCalled();
+  });
+
+  // Cry-wolf split: transient/ambiguous faults (503 here) DO warrant a WARN with the
+  // AGENDA_GETFILE_FAULT forensic code AND the error payload for diagnosis.
+  test("getFile 503 → log.warn AGENDA_GETFILE_FAULT, verdict unknown, with error", async () => {
+    const result = makeResult([
+      { label: "AGENDA LINK - RFI", fileId: "F-T", extracted: highExtraction() },
+    ]);
+    const client = makeClient({
+      getFile: async () => {
+        throw new DriveFetchError("server error", 503);
+      },
+    });
+    await enrichAgenda(result, client, "s");
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "getFile threw",
+      expect.objectContaining({
+        code: "AGENDA_GETFILE_FAULT",
+        verdict: "unknown",
+        error: expect.anything(),
+      }),
+    );
   });
 });
 

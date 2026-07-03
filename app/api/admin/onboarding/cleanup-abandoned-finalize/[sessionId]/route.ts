@@ -7,6 +7,8 @@ import {
   type SessionLifecycleDeps,
 } from "@/lib/onboarding/sessionLifecycle";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type CleanupAbandonedFinalizeRouteTx = {
   query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }>;
@@ -220,6 +222,23 @@ export async function handleCleanupAbandonedFinalize(
         snapshot,
       });
     });
+    // POST-COMMIT durable outcome (#218): the after-audit withTx has resolved (cleanup committed).
+    // Gate on the mutating outcome — an "already_cleaned" idempotent re-poll cleaned nothing new.
+    // Fail-open at the callsite so a logger throw cannot be caught by the route's own catch and
+    // turn a committed cleanup into a 500.
+    if (result.status === "cleaned") {
+      const actorEmail = canonicalize(admin.email);
+      try {
+        await logAdminOutcome({
+          code: "FINALIZE_CLEANUP_DONE",
+          source: "api.admin.onboarding.cleanup-abandoned-finalize",
+          ...(actorEmail ? { actorEmail } : {}),
+          wizardSessionId: sessionId,
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
     return NextResponse.json({ status: result.status });
   } catch (error) {
     if (error instanceof CleanupRequiresStaleSessionError) {
@@ -239,6 +258,18 @@ export async function handleCleanupAbandonedFinalize(
         reason: error.reason,
         context: error.context,
       });
+    }
+    // Non-refusal infra fault (not the expected stale-session refusal) — forensic-only, then
+    // rethrow so the existing throw→500 behavior is byte-preserved. Fail-open at the callsite.
+    try {
+      await log.error("cleanup abandoned finalize threw", {
+        source: "api.admin.onboarding.cleanup-abandoned-finalize",
+        code: "FINALIZE_CLEANUP_FAILED",
+        wizardSessionId: sessionId,
+        error,
+      });
+    } catch {
+      /* best-effort */
     }
     throw error;
   }

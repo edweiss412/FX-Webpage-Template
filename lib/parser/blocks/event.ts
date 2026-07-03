@@ -72,6 +72,13 @@ export const CANONICAL_KEY_MAP: Record<string, string> = {
   "stage size": "stage_size",
   diagrams: "diagrams",
   "diagrams link": "diagrams",
+  // Pre-2026 INFO/DETAILS template split the diagram row into two ("Floor Plan" + "Room Diagram");
+  // the 2026 template collapsed both into the single recognized "DIagrams" row above. Recognize the
+  // legacy pair as their own known-but-unread keys so the near-universal pre-2026 corpus stops
+  // raising UNKNOWN_FIELD (report #237). The value (often the link display text) is kept in
+  // event_details like `diagrams`; the actual diagram content is surfaced by the Diagrams tile.
+  "floor plan": "floor_plan",
+  "room diagram": "room_diagram",
   led: "led",
   record: "record",
   polling: "polling",
@@ -245,7 +252,7 @@ export function parseEventDetails(
   // labels resolving to a KNOWN canonical key are harvested — unknown labels (Your Name /
   // Email / Phone / Budget / PO# / room headers …) are skipped, so no PII/financial/metadata
   // can ever enter crew-visible event_details. fillIfAbsentOrSentinel = first-real-wins.
-  if (Object.keys(result).length === 0) harvestFormLayout(markdown, result);
+  if (Object.keys(result).length === 0) harvestFormLayout(markdown, result, agg);
 
   // D1: the no-header case already returned above, so reaching here with an empty result
   // means a recognized EVENT DETAILS header parsed zero fields AND the form harvest found no
@@ -254,18 +261,34 @@ export function parseEventDetails(
   return result;
 }
 
+// Canonical keys recognized in the CLASSIC EVENT DETAILS block (where they carry the diagram
+// link value) but EXCLUDED from the form-layout harvest: in a form-layout intake block these
+// labels appear as PROSE questions, not field values, so harvesting them would inject junk
+// prose into crew-adjacent event_details (report #237: consultants' form row "Room Diagram |
+// You are familiar with this room/hotel. If you need a Room Diagram please let me know").
+const HARVEST_EXCLUDED_CANON = new Set(["floor_plan", "room_diagram"]);
+
 /**
  * Resolve a form label to its KNOWN canonical key (CANONICAL_KEY_MAP exact, or a gated
  * fuzzy correction into EVENT_LABEL_VOCAB) — or `null` if the label is not a known event
  * field. The closed-vocabulary gate for the form harvest: `null` means "skip this row".
+ * Keys in HARVEST_EXCLUDED_CANON also resolve to `null` here (harvest-only exclusion; the
+ * classic-block exact path at CANONICAL_KEY_MAP[col0Lower] still recognizes them).
+ *
+ * Returns `{ canon, corrected }` so the harvest can honor the "always warn / never a silent
+ * re-route" contract (spec §2 rule 4): `corrected:false` on an EXACT map hit, `corrected:true`
+ * on a gated FUZZY recovery. A fuzzy recovery that is actually harvested MUST emit a
+ * FIELD_LABEL_AUTOCORRECTED warn (see harvestFormLayout) — the exact path never warns.
  */
-function resolveKnownCanon(label: string): string | null {
+function resolveKnownCanon(label: string): { canon: string; corrected: boolean } | null {
   const exact = CANONICAL_KEY_MAP[label.toLowerCase().trim()];
-  if (exact !== undefined) return exact;
+  if (exact !== undefined) {
+    return HARVEST_EXCLUDED_CANON.has(exact) ? null : { canon: exact, corrected: false };
+  }
   const fix = gatedVocabCorrect(label.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS);
   if (fix?.corrected) {
     const canon = CANONICAL_KEY_MAP[fix.match.toLowerCase()];
-    if (canon) return canon;
+    if (canon && !HARVEST_EXCLUDED_CANON.has(canon)) return { canon, corrected: true };
   }
   return null;
 }
@@ -273,11 +296,17 @@ function resolveKnownCanon(label: string): string | null {
 /**
  * Fill-if-absent-or-sentinel write: set `result[key]` only when it is currently absent OR a
  * hideable sentinel — never overwrite an existing REAL value. Because the classic pass runs
- * first, this yields deterministic first-real-wins across classic + form sources.
+ * first, this yields deterministic first-real-wins across classic + form sources. Returns `true`
+ * iff the value was actually written, so the harvest can warn ONLY for rows it truly recovered
+ * (a no-op fill — a real value already present — must not warn).
  */
-function fillIfAbsentOrSentinel(result: Record<string, string>, key: string, val: string): void {
+function fillIfAbsentOrSentinel(result: Record<string, string>, key: string, val: string): boolean {
   const existing = result[key];
-  if (existing === undefined || shouldHideGenericOptional(existing)) result[key] = val;
+  if (existing === undefined || shouldHideGenericOptional(existing)) {
+    result[key] = val;
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -287,8 +316,17 @@ function fillIfAbsentOrSentinel(result: Record<string, string>, key: string, val
  * labels skipped — the closed-vocab principle that structurally excludes PII/financial), and
  * write via `fillIfAbsentOrSentinel`. Separator/blank/non-2-cell rows end a run.
  */
-function harvestFormLayout(markdown: string, result: Record<string, string>): void {
-  let run: { canon: string | null; value: string | null }[] = [];
+function harvestFormLayout(
+  markdown: string,
+  result: Record<string, string>,
+  agg?: ParseAggregator,
+): void {
+  let run: {
+    canon: string | null;
+    corrected: boolean;
+    rawLabel: string;
+    value: string | null;
+  }[] = [];
   const flush = (): void => {
     if (run.filter((r) => r.canon !== null).length >= 3) {
       for (const r of run) {
@@ -296,7 +334,20 @@ function harvestFormLayout(markdown: string, result: Record<string, string>): vo
         if (isSensitiveCanonicalKey(r.canon)) continue; // defense-in-depth (map has none)
         if (!r.value) continue; // never clobber/fill with an empty form value
         if (/^(TRUE|FALSE)$/i.test(r.value)) continue; // INTERNAL checklist booleans, not field values
-        fillIfAbsentOrSentinel(result, r.canon, r.value);
+        const wrote = fillIfAbsentOrSentinel(result, r.canon, r.value);
+        // "Always warn / never a silent re-route" (spec §2 rule 4): a FUZZY-corrected known label
+        // that is ACTUALLY harvested (value written) emits the SAME warn shape as the classic pass
+        // (event.ts fuzzyCandidates loop). Exact hits never warn; a no-op fill (a real value already
+        // present) never warns; skipped/unknown rows never warn.
+        if (wrote && r.corrected) {
+          agg?.warnings.push({
+            severity: "warn",
+            code: "FIELD_LABEL_AUTOCORRECTED",
+            message: `Read likely-misspelled EVENT DETAILS label '${r.rawLabel}' as field '${r.canon}'`,
+            blockRef: { kind: "details" },
+            rawSnippet: r.rawLabel,
+          });
+        }
       }
     }
     run = [];
@@ -317,7 +368,13 @@ function harvestFormLayout(markdown: string, result: Record<string, string>): vo
       flush();
       continue;
     }
-    run.push({ canon: resolveKnownCanon(col0), value: presence(cells[1] ?? "") });
+    const resolved = resolveKnownCanon(col0);
+    run.push({
+      canon: resolved?.canon ?? null,
+      corrected: resolved?.corrected ?? false,
+      rawLabel: col0,
+      value: presence(cells[1] ?? ""),
+    });
   }
   flush();
 }

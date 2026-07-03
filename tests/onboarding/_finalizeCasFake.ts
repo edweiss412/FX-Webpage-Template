@@ -319,6 +319,9 @@ export function deps(
     withTx: async (fn) => fn(db),
     withRowTx: async (_driveFileId, fn) => fn(db, makeFakePipelineTx(db)),
     subscribeToWatchedFolder: vi.fn(async () => undefined),
+    // Streaming handler defers its post-commit revalidate through deps.deferRevalidate (after());
+    // real after() has no request scope in vitest — run inline so the streamed tests are deterministic.
+    deferRevalidate: (fn: () => void) => fn(),
     ...overrides,
   };
 }

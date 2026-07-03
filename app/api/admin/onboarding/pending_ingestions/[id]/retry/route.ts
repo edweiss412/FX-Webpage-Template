@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
 import type { ConcurrentSyncSkipped, LockedShowTx } from "@/lib/sync/lockedShowTx";
@@ -29,8 +30,9 @@ export type WizardPendingIngestionRouteDeps = {
     fn: (tx: WizardPendingIngestionRouteTx) => Promise<R> | R,
   ) => Promise<R>;
   // Retry runs OUTSIDE this route's lock now: retrySingleFile owns its own
-  // Lock#1 (preflight) → pre-lock Drive prepare + own-connection scan → Lock#2
-  // (finalize) topology, so the slow Drive export no longer nests inside — and
+  // Lock#1 (preflight) → pre-lock Drive prepare → Lock#2 (finalize, with the scan
+  // running on the SAME locked connection inside Lock#2 — no second connection or
+  // lock) topology, so the slow Drive export no longer nests inside — and
   // deadlocks against — the route's per-show lock on the same key.
   retrySingleFile?: (
     driveFileId: string,
@@ -397,12 +399,14 @@ async function handleAction(
 
   try {
     if (action === "retry") {
-      // Retry owns its own locking (Lock#1 preflight → pre-lock Drive prepare +
-      // own-connection scan → Lock#2 finalize), so it runs OUTSIDE this route's
-      // per-show lock. Running the scan under that lock nests the SAME show key
-      // across two connections and deadlocks. A genuine post-scan supersession
-      // throws WizardSessionSupersededRollbackError from finalize, which the
-      // catch below maps to the typed 409 + race alert.
+      // Retry owns its own locking (Lock#1 preflight → pre-lock Drive prepare →
+      // Lock#2 finalize, with the scan running on the SAME locked connection inside
+      // Lock#2), so it runs OUTSIDE this route's per-show lock. Wrapping it in this
+      // route's show lock would double-hold the same key; the abandoned own-connection
+      // scan shape is what nested the SAME show key across two connections and
+      // deadlocked — the same-connection scan resolved that. A genuine post-scan
+      // supersession throws WizardSessionSupersededRollbackError from finalize, which
+      // the catch below maps to the typed 409 + race alert.
       const wizardSessionId = await deps.readWizardSessionForPendingIngestion(id);
       if (wizardSessionId === null) {
         return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
@@ -424,10 +428,32 @@ async function handleAction(
       if (result.outcome === "not_found") {
         return errorResponse(404, result.code);
       }
+      // POST-COMMIT durable telemetry: retrySingleFile owns its own lock/tx and has committed by
+      // the time it resolves. The wizard-retry success was previously silent (bonus fix, S3).
+      // REUSED code (already SANCTIONED). Fail-open at the callsite so a logger throw can never be
+      // caught by this route's own catch and change the response.
+      {
+        const actorEmail = canonicalize(admin.email);
+        try {
+          await logAdminOutcome({
+            code: "PENDING_INGESTION_RETRIED",
+            source: "api.admin.onboarding.pending-ingestions",
+            ...(actorEmail ? { actorEmail } : {}),
+            driveFileId,
+            extra: { action: "retry" },
+          });
+        } catch {
+          /* best-effort */
+        }
+      }
       return retryResponse(result);
     }
 
-    return await deps.withRowTx(driveFileId, async (tx) => {
+    // OUTCOME-REF (#218): capture the committed defer/ignore action inside the withRowTx callback
+    // (only on the mutated return), then EMIT after withRowTx resolves (post-commit). A rollback
+    // (WizardSessionSupersededRollbackError) throws before it is set → no emission.
+    let committedAction: "defer_until_modified" | "permanent_ignore" | null = null;
+    const response = await deps.withRowTx(driveFileId, async (tx) => {
       const current = await requireCurrentWizardRow(tx, id);
       if (!current.ok) return current.response;
       if (current.row.drive_file_id !== driveFileId) {
@@ -480,10 +506,31 @@ async function handleAction(
           ...rollbackContext,
         });
       }
+      committedAction = action;
       return NextResponse.json({
         status: action === "defer_until_modified" ? "deferred" : "ignored",
       });
     });
+    // POST-COMMIT durable telemetry (#218): withRowTx resolved (the deferral upsert + manifest
+    // transition + pending_ingestions delete all committed). Fail-open at the callsite.
+    if (committedAction) {
+      const actorEmail = canonicalize(admin.email);
+      try {
+        await logAdminOutcome({
+          code:
+            committedAction === "defer_until_modified"
+              ? "PENDING_INGESTION_DEFERRED"
+              : "PENDING_INGESTION_IGNORED",
+          source: "api.admin.onboarding.pending-ingestions",
+          ...(actorEmail ? { actorEmail } : {}),
+          driveFileId,
+          extra: { action: committedAction },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
+    return response;
   } catch (error) {
     if (error instanceof WizardSessionSupersededRollbackError) {
       // Transaction is already aborted here. The alert write runs on the
@@ -507,10 +554,25 @@ async function handleAction(
       } catch (alertError) {
         log.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", {
           source: "api.admin.onboarding.retry",
+          code: "PENDING_INGESTION_RETRY_SUPERSEDED_ALERT_WRITE_FAILED",
           error: alertError,
         });
       }
       return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
+    }
+    // Non-rollback infra fault (not an expected supersession) — forensic-only, then rethrow so
+    // the existing throw→500 behavior is byte-preserved. Fail-open at the callsite. The action is
+    // in the log context (single shared code).
+    try {
+      await log.error("wizard pending-ingestion action threw", {
+        source: "api.admin.onboarding.pending-ingestions",
+        code: "PENDING_INGESTION_ACTION_FAILED",
+        driveFileId,
+        action,
+        error,
+      });
+    } catch {
+      /* best-effort */
     }
     throw error;
   }

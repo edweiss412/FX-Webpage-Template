@@ -4,6 +4,7 @@ import {
   handleOnboardingFinalizeCasStream,
 } from "@/app/api/admin/onboarding/finalize-cas/route";
 import { FakeFinalizeCasDb, deps, json, request, shadowPayload, W1 } from "./_finalizeCasFake";
+import { log } from "@/lib/log";
 
 const NDJSON = "application/x-ndjson";
 
@@ -105,6 +106,38 @@ describe("handleOnboardingFinalizeCasStream", () => {
       ok: false,
       code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
     });
+  });
+
+  test("unexpected mid-stream throw is logged with the bound error (log.error meta)", async () => {
+    // audit idx44/#210: the streaming handler's catch used `} catch {` with no error
+    // binding and no log.error — so an unexpected failure on the wizard's PRIMARY
+    // (streaming) path was silently unlogged server-side, diverging from the non-streaming
+    // sibling which logs { source, error }. Failure mode this pins: revert the binding and
+    // the caught error never reaches log.error meta.
+    const errorSpy = vi.spyOn(log, "error").mockImplementation(async () => {});
+    const boom = new Error("subscribe boom");
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [shadow("existing-1")];
+    db.sessionCreatedDriveIds = ["first-seen-1"];
+    const res = await handleOnboardingFinalizeCasStream(
+      request(),
+      deps(db, {
+        subscribeToWatchedFolder: vi.fn(async () => {
+          throw boom;
+        }),
+      }),
+    );
+    // Emitted client body stays identical (behavior unchanged); only the log meta is added.
+    const results = (await readNdjson(res)).filter((m) => m.type === "result");
+    expect(results[0]!.body).toMatchObject({
+      ok: false,
+      code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "onboarding finalize-cas: unexpected failure (stream)",
+      expect.objectContaining({ source: "api.admin.onboarding.finalizeCas", error: boom }),
+    );
+    errorSpy.mockRestore();
   });
 
   test("auth failure returns a NON-stream 403 JSON (pre-stream)", async () => {

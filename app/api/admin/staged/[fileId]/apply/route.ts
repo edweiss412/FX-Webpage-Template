@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
 import { promoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import { deriveRequestId, log, runWithRequestContext } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -26,7 +27,11 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
   try {
     supabase = await createSupabaseServerClient();
   } catch (error) {
-    log.error("server client construction failed", { source: "api.admin.staged.apply", error });
+    log.error("server client construction failed", {
+      source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+      error,
+    });
     return { kind: "infra_error" };
   }
 
@@ -37,11 +42,19 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
     data = response.data;
     error = response.error;
   } catch (cause) {
-    log.error("getUser threw", { source: "api.admin.staged.apply", error: cause });
+    log.error("getUser threw", {
+      source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+      error: cause,
+    });
     return { kind: "infra_error" };
   }
   if (error) {
-    log.error("getUser failed", { source: "api.admin.staged.apply", errorMessage: error.message });
+    log.error("getUser failed", {
+      source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+      errorMessage: error.message,
+    });
     return { kind: "infra_error" };
   }
   const email = canonicalize(data.user?.email);
@@ -158,11 +171,22 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
     }
     if (result.outcome === "applied") {
+      await logAdminOutcome({
+        code: "SHOW_APPLIED",
+        source: "api.admin.staged.apply",
+        actorEmail: admin.email,
+        driveFileId: fileId,
+        showId: result.showId,
+      });
       if (result.snapshotRevisionId) {
         scheduleAfterResponse(
           async () =>
             await promoteSnapshotUpload(result.snapshotRevisionId!).catch((error) => {
-              log.error("snapshot promotion failed", { source: "api.admin.staged.apply", error });
+              log.error("snapshot promotion failed", {
+                source: "api.admin.staged.apply",
+                code: "LIVE_STAGED_APPLY_SNAPSHOT_PROMOTION_FAILED",
+                error,
+              });
             }),
         );
         return NextResponse.json(
@@ -185,6 +209,13 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       );
     }
     if (result.outcome === "wizard_applied") {
+      await logAdminOutcome({
+        code: "SHOW_APPLIED",
+        source: "api.admin.staged.apply",
+        actorEmail: admin.email,
+        driveFileId: fileId,
+        wizardSessionId: result.wizardSessionId,
+      });
       return NextResponse.json(
         {
           ok: true,

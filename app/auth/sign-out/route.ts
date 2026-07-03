@@ -101,12 +101,20 @@ export async function POST(request: NextRequest): Promise<Response> {
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.signOut();
     if (error) {
-      void log.error("signOut: Supabase signOut failed", { source: "auth.signOut", error });
+      void log.error("signOut: Supabase signOut failed", {
+        source: "auth.signOut",
+        code: "AUTH_SIGNOUT_FAILED",
+        error,
+      });
     } else {
       supabaseSignedOut = true;
     }
   } catch (error) {
-    void log.error("signOut: Supabase signOut failed", { source: "auth.signOut", error });
+    void log.error("signOut: Supabase signOut failed", {
+      source: "auth.signOut",
+      code: "AUTH_SIGNOUT_FAILED",
+      error,
+    });
   }
 
   if (!supabaseSignedOut) {

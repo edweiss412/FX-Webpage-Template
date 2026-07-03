@@ -70,16 +70,10 @@ const M115_RETIRED_CATALOG_CODES = new Set([
 // SHOW_FIRST_PUBLISHED was removed at M12.12 close-out after its §12.4 row +
 // helpfulContext appendix entry were updated to the shipped archive-recovery
 // wording (the override had been masking the stale unpublish-link prose).
-const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {
-  SHOW_UNPUBLISHED: {
-    dougFacing:
-      "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
-    crewFacing: null,
-    followUp: "Doug → optionally re-share when ready",
-    helpfulContext:
-      "You clicked Unpublish on a recently-published show. The show is now archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
-  },
-};
+// SHOW_UNPUBLISHED was removed at the published-toggle milestone: its §12.4 row +
+// context were rewritten to the pure-unpublish (paused link) semantics, so the
+// archive-era override would have pinned stale prose over the live spec.
+const M115_SPEC_CODE_OVERRIDES: Record<string, SpecCodePayload> = {};
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();

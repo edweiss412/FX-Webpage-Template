@@ -187,3 +187,48 @@ This closes the entire untimed-Drive-read class: export fetch (#128), `files.get
 - **What:** the new `CardReportTrigger` (`components/shared/CardReportTrigger.tsx`) is an icon-only `<button>` at the intrinsic glyph size (`size-3.5`, ~14px, `h-fit`, no min-tap padding), sitting in a `gap-2` cluster beside the existing `SourceLink` ("In sheet") in every source-backed crew card header. PRODUCT.md calls for ≥44×44 touch targets and no tiny click targets on phone surfaces. Surfaced by the impeccable v3 critique (Assessment A, HIGH) on the per-card-report diff.
 - **Why deferred (not a blocker; pattern-level + pre-existing):** (1) the deficiency is **shared with the already-shipped `SourceLink`** in the same header `action` slot (`SourceLink.tsx:52`, `inline-flex h-fit shrink-0`), which passed prior impeccable gates — the new trigger deliberately MATCHES that established recessive-header-affordance pattern; sizing only the new button to 44px would create a visible asymmetry in a two-item cluster. (2) A 44×44 hit area on either clustered affordance would **overlap its sibling** (14px glyphs separated by an 8px gap) causing mis-taps, and/or **grow the header row**, violating the header dimensional invariant verified in `tests/e2e/source-link-dimensional.spec.ts` (affordance height ≤ header band). (3) The most safety-critical PRODUCT.md constraints ARE met: the trigger is always-visible (no hover-only), carries `aria-label="Report a problem with this card"`, and meets AA-large contrast. The residual is target SIZE, shared with the sibling.
 - **Trigger:** any follow-up that reworks the card-header affordance cluster (e.g. collapsing `SourceLink` + report into one control, or a header-actions redesign). At that point, size BOTH affordances to ≥44×44 uniformly — likely via out-of-flow pseudo-element hit-area overlays that don't grow the header box or overlap each other (revisit the `source-link-dimensional` invariant to assert "header ROW height unchanged" rather than "affordance box ≤ header height"). Alternatively promote a per-section (not per-card) report entry point if cluster crowding proves the driver.
+
+## Data quality Report + Ignore (2026-07-02)
+
+DQIGNORE-1, DQIGNORE-2, and DQIGNORE-5 shipped on branch `feat/dq-ignore-followups` (2026-07-02). DQIGNORE-3 and DQIGNORE-4 remain (PR B). DQIGNORE-6 opened from the follow-up's impeccable dual-gate.
+
+### DQIGNORE-1 — ✅ RESOLVED (feat/dq-ignore-followups)
+
+Digest data-gap warnings (`UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`) now render through the same `PerShowActionableWarnings` card + `DataQualityWarningControls` slot as operator-actionable warnings; `readDataQuality` returns the digest as `ParseWarning[]`. `BLOCK_DISAPPEARED` stays Report-only (no `rawSnippet` → `warningFingerprint` null → never ignorable, always active).
+
+### DQIGNORE-2 — ✅ RESOLVED (feat/dq-ignore-followups)
+
+Per-code "Ignore all N" bulk control (`components/admin/BulkIgnoreControls.tsx` + `lib/dataQuality/bulkIgnoreGroups.ts`) fans out one precise per-fingerprint POST to the existing `/data-quality/ignore` route per distinct content — never a coarse code-level ignore. Shown only when a code has ≥2 distinct-content active ignorable warnings.
+
+### DQIGNORE-3 — ✅ RESOLVED (feat/dq-orphan-gc)
+
+Prune-on-apply GC: `PostgresPipelineTx.upsertShowsInternal` (the single shared Postgres apply chokepoint, in the holder's locked tx — single-holder, no new advisory lock) now deletes `ignored_warnings` rows whose content fingerprint is no longer present in the freshly-written `parse_warnings`. A still-present warning keeps its fingerprint, so its ignore survives (recurrence preserved); only vanished fingerprints are pruned (empty active set → all pruned, same `not (x = any($2))` semantics as `deleteCrewMembersNotIn`). The one behavior change is a fixed-then-reappearing ignored warning re-surfaces (user-chosen). Real-DB test: `tests/sync/ignoredWarningsOrphanGc.db.test.ts`. Folded into the Postgres impl (no `ApplyParseResultTx` interface change) to avoid the required-method fake-update blast radius.
+
+### DQIGNORE-4 — ✅ RESOLVED (feat/dq-followups-backend)
+
+The ignore/un-ignore routes now emit `WARNING_IGNORED` / `WARNING_UNIGNORED` forensic outcomes post-commit (actorHash + showId + warningCode + fingerprint), registered in `tests/log/_metaAdminOutcomeContract.test.ts` (`AUDITABLE_MUTATIONS` + `SANCTIONED_CODES`); Assertion 4 pins them OUT of the §12.4 producer set. Placement is post-commit (never in the tx); `log.*` never throws over the caller (invariant 9), so the plain `await` can't turn a committed ignore into a 500.
+
+### DQIGNORE-5 — ✅ RESOLVED (feat/dq-ignore-followups)
+
+Added a `ringOffset` prop to the shared `ReportButton` (full-literal class lookup map: `bg` / `surface` / `warning-bg` / `surface-sunken`, so Tailwind v4 JIT resolves each) defaulting to the prior per-variant value; `DataQualityWarningControls` passes `warning-bg` (active card) / `surface-sunken` (ignored card). The same follow-up's audit class-sweep also fixed the "Open in Sheet" link offset in `PerShowActionableWarnings` (tone-matched) and the bulk control offset (`bg`).
+
+### DQIGNORE-6 — [P1 critique → deferred] Bulk "Ignore all N" is spatially divorced from the cards it ignores
+
+- **What:** the per-code bulk control (`components/admin/BulkIgnoreControls.tsx`) stacks at the top of the Data-quality panel, while the cards it ignores are interleaved by code in the list below (`app/admin/show/[slug]/page.tsx`). The button names the count + type ("Ignore all 2 · Unrecognized row in sheet") but the cards do not repeat that type label, so on a ~390px phone Doug can commit an ignore covering cards he never scrolled to. Surfaced by the follow-up's impeccable critique (Assessment A, P1).
+- **Why deferred (not a gate blocker):** the action is fully reversible — the ignored warnings drop into the collapsible "Ignored (N)" subsection, each with Un-ignore — so it is a scope-legibility concern, not data loss; and the common case is a single dominant code (one button, and every card below it is that type). The proper fix (group the active `PerShowActionableWarnings` list by code and render each bulk control as that group's header, OR add a type-label eyebrow to every card, OR an undo toast) is a card-list restructure whose test blast-radius is disproportionate to a P3-tier convenience feature. The cheap related risks were fixed in-branch (honest partial-failure copy; the stuck-disabled bug; aria-busy).
+- **Trigger:** operators report ignoring the wrong warnings, OR multi-code high-volume shows are common in real data, OR the next Data-quality panel touch. Then group the active card list by code with the bulk control as each group's header (or add per-card type eyebrows), and pin the grouping with a render test.
+
+### DQIGNORE — accepted (no defer)
+
+- Digest-as-cards visual weight (Assessment A P2): intentional. Uniform per-warning cards with controls are the whole point of DQIGNORE-1; the prior plain amber bullet list had no Report/Ignore affordance.
+- Report (quiet underlined text link) vs Ignore (neutral bordered button) visual-weight difference (Assessment A P3): the deliberate hierarchy from the per-card report affordance (PR #222) — Report is the understated affordance, Ignore is the first-class neutral action. Kept.
+
+## Observability coverage completion — impeccable gate (2026-07-02)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/observability-coverage-completion`. This milestone is additive observability instrumentation; its only UI-path touches are a zero-render listener + a single mount line, which produce no visual surface for `/impeccable critique` + `/impeccable audit` to evaluate.
+
+### OBS-1 — [P4] impeccable dual-gate deferred for the null-render `GlobalErrorListener` + its layout mount
+
+- **What:** the milestone adds `components/observe/GlobalErrorListener.tsx` (a `'use client'` component that returns `null` and only registers `window` `error`/`unhandledrejection` listeners) and a single `<GlobalErrorListener />` mount line inside `<body>` at `app/layout.tsx:57-59`. By invariant 8 (UI surface = any `app/` except `app/api/**`, any `components/`), both are UI-path files and nominally require the `/impeccable critique` + `/impeccable audit` dual-gate.
+- **Why deferred (no visual surface to evaluate):** `GlobalErrorListener` renders **zero pixels** (`return null`) — it has no layout, color, type, spacing, or interaction to critique; and the layout change is a non-visual mount of that null component (no rendered output added). Running the visual impeccable gate would produce no meaningful findings. Per invariant 8's disposition rule ("HIGH and CRITICAL findings either fixed or explicitly deferred via a DEFERRED.md entry"), this is the explicit, cited deferral — not a silent N/A. No other UI surface is touched by this milestone (all other changes are `app/api/**`, `lib/**`, or `tests/**`).
+- **Trigger:** if `GlobalErrorListener` ever gains rendered output (e.g. a visible error toast/banner), it becomes a real visual surface and MUST pass the impeccable dual-gate at that point.

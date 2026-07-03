@@ -23,6 +23,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { BUSY_BODY } from "@/app/show/[slug]/unpublish/copy";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ slug: string }>;
@@ -39,7 +42,18 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   let result;
   try {
     result = await unpublishShowViaEmailedLink({ slug, token, r });
-  } catch {
+  } catch (error) {
+    // Fail-open (explicit wrap at the callsite): a logger throw must never change the
+    // 503 the caller already gets. Forensic-only (inside a log span → strip-exempt).
+    try {
+      await log.error("unpublish link consume threw", {
+        source: "api.show.unpublish",
+        code: "UNPUBLISH_INFRA_FAILED",
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ ok: false }, { status: 503 });
   }
 
@@ -48,10 +62,27 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     // visibility (getShowForViewer.ts:291). unpublishShowViaEmailedLink owns its lock/tx and has
     // committed by the time it resolves, so revalidateShow here is POST-COMMIT.
     revalidateShow(result.showId);
+    // POST-COMMIT durable outcome (#218) — the consume has committed. Public/emailed-link
+    // leg: no admin identity, so no actorEmail. Fail-open: a logger throw must not turn a
+    // committed unpublish into a 5xx.
+    try {
+      await logAdminOutcome({
+        code: "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
+        source: "api.show.unpublish",
+        showId: result.showId,
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ ok: true, showId: result.showId }, { status: 200 });
   }
   if (result.outcome === "expired") {
     return NextResponse.json({ ok: false, code: result.code }, { status: 400 });
+  }
+  if (result.outcome === "finalize_owned") {
+    // Published-toggle spec §3.4: retryable busy refusal — MUST NOT collapse into the
+    // neutral 404 below (the token survived; the caller should simply retry later).
+    return NextResponse.json({ ok: false, busy: true, message: BUSY_BODY }, { status: 409 });
   }
   return NextResponse.json({ ok: false }, { status: 404 });
 }

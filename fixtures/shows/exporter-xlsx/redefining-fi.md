@@ -82,8 +82,9 @@
 | Test Pattern | 16 x 9 Test Pattern |
 | Fonts | Aptos Font Folder |
 
-| GS Setup | Currently sitting at 17 pods of 7 for both programs. 5 chairs on the stage plus a podium. |
+| GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor | GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor |
 | :---: | :---: |
+| GS Setup | Currently sitting at 17 pods of 7 for both programs. 5 chairs on the stage plus a podium. |
 | GS Set Time | 5/12 @ 6:30 AM |
 | GS Show Time | 5/13 @ 8:00 AM |
 | GS Strike Time | 5/14 @ 5:00 PM |

@@ -5,6 +5,7 @@ import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
+  type LockableSyncTx,
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import {
@@ -23,6 +24,7 @@ import {
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { revalidateShowFromResult } from "@/lib/data/showCacheTag";
+import { log } from "@/lib/log";
 
 export const FINALIZE_OWNED_SHOW = "FINALIZE_OWNED_SHOW" as const;
 
@@ -111,7 +113,9 @@ function errorMessage(error: unknown): string {
 }
 
 export async function readFinalizeOwnershipGuard_unlocked(
-  tx: LockedShowTx<SyncPipelineTx>,
+  // Widened to the minimal queryOne seam (published-toggle §3.4): the emailed-link unpublish
+  // engine calls this from its own locked raw-postgres tx, which is not a SyncPipelineTx.
+  tx: LockedShowTx<LockableSyncTx>,
   driveFileId: string,
 ): Promise<boolean> {
   const row = await tx.queryOne<{
@@ -284,6 +288,9 @@ export async function runManualSyncForShow(
     deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
   const runOne = deps.processOneFile ?? defaultProcessOneFile;
   const usesInjectedProcessOneFile = Boolean(deps.processOneFile);
+  // DEF-8: capture the standing deferral kind cleared under the apply lock so a
+  // still-failing manual re-sync of a permanent-ignore can be surfaced post-commit.
+  let priorDeferralKind: string | undefined;
 
   const preflight = await withLock(driveFileId, async (tx) => {
     // DEF-3: refuse an archived show BEFORE any Drive fetch (no mutation, no fetch, no log).
@@ -422,6 +429,8 @@ export async function runManualSyncForShow(
         }
         // DEF-3 (R30): manual re-sync overrides auto-suppression — delete any live non-wizard deferral
         // under the lock so processing is not short-circuited by recheckLiveDeferralAfterLock.
+        const priorDeferral = await tx.readLiveDeferral?.(driveFileId);
+        priorDeferralKind = priorDeferral?.deferred_kind;
         await tx.deleteLiveDeferral?.(driveFileId);
         const result = await fn(tx);
         // Clear the durable publish gate on a clean reconciliation (manual mode re-applies even an
@@ -447,5 +456,20 @@ export async function runManualSyncForShow(
   // recovery outcomes (which now carry showId + commit last_sync_status). No-op on
   // skipped/stale/revision_race/stage/hard_fail/ConcurrentSyncSkipped (no showId).
   revalidateShowFromResult(applyResult);
+  // DEF-8: a manual re-sync that cleared a standing permanent-ignore (see the in-lock
+  // readLiveDeferral above) yet still failed to reconcile is operationally noteworthy — the
+  // operator lifted the suppression but the sheet is still broken. Emit post-commit (fire-and-forget).
+  if (
+    priorDeferralKind === "permanent_ignore" &&
+    "outcome" in applyResult &&
+    (applyResult.outcome === "hard_fail" || applyResult.outcome === "parse_error")
+  ) {
+    void log.warn("manual re-sync cleared a standing permanent-ignore that still fails", {
+      source: "sync.manualResync",
+      code: "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
+      driveFileId,
+      ...("showId" in applyResult && applyResult.showId ? { showId: applyResult.showId } : {}),
+    });
+  }
   return applyResult;
 }

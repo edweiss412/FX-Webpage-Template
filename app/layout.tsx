@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { GlobalErrorListener } from "@/components/observe/GlobalErrorListener";
 
 export const metadata: Metadata = {
   title: "FXAV Crew Pages",
@@ -56,6 +57,7 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full">
         <script dangerouslySetInnerHTML={{ __html: NO_FOUC_SCRIPT }} />
+        <GlobalErrorListener />
         {children}
       </body>
     </html>

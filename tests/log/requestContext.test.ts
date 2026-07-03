@@ -4,6 +4,7 @@ import {
   deriveRequestId,
   getRequestContext,
   runWithRequestContext,
+  setCronInFlight,
   setRequestShowId,
 } from "@/lib/log/requestContext";
 
@@ -36,5 +37,41 @@ describe("requestContext", () => {
     });
     setRequestShowId("ignored"); // no active store → no throw
     expect(getRequestContext()).toBeUndefined();
+  });
+});
+
+describe("setCronInFlight", () => {
+  test("mutates the current store in place (phase/driveFileId/count)", () => {
+    runWithRequestContext({ requestId: "r1" }, () => {
+      setCronInFlight({ phase: "file-loop", driveFileId: "df-1", processedCount: 2 });
+      expect(getRequestContext()).toMatchObject({
+        cronPhase: "file-loop",
+        cronInFlightDriveFileId: "df-1",
+        cronProcessedCount: 2,
+      });
+    });
+  });
+
+  test("clears driveFileId to null (no stale leak, exactOptional-safe)", () => {
+    runWithRequestContext({ requestId: "r1" }, () => {
+      setCronInFlight({ driveFileId: "df-1" });
+      setCronInFlight({ driveFileId: null, processedCount: 3 });
+      expect(getRequestContext()?.cronInFlightDriveFileId).toBeNull();
+    });
+  });
+
+  test("partial patch leaves other fields untouched", () => {
+    runWithRequestContext({ requestId: "r1" }, () => {
+      setCronInFlight({ phase: "missing-shows", driveFileId: "df-9" });
+      setCronInFlight({ phase: "file-loop" }); // only phase
+      expect(getRequestContext()).toMatchObject({
+        cronPhase: "file-loop",
+        cronInFlightDriveFileId: "df-9",
+      });
+    });
+  });
+
+  test("no-op outside an ALS scope (does not throw)", () => {
+    expect(() => setCronInFlight({ phase: "x" })).not.toThrow();
   });
 });

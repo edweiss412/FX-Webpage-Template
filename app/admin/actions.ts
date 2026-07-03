@@ -86,6 +86,7 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     // attributing the resolve to "unknown."
     void log.error("requireAdmin returned but canonicalized email is null", {
       source: "admin.actions",
+      code: "ADMIN_RESOLVE_CANONICAL_EMAIL_NULL",
     });
     return;
   }

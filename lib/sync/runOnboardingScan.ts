@@ -149,6 +149,17 @@ export type PreparedOnboardingFile =
 export type RunOnboardingScanDeps = {
   tx?: OnboardingScanTx;
   createScanTxRunner?: (folderId: string, wizardSessionId: string) => ScanTxRunner;
+  /**
+   * Factory for the FRESH connection the live-row-conflict recovery runs on when
+   * the scan is driven by an injected `tx` (the retry / rescan per-show-locked tx).
+   * A 23505/42P10 aborts that held tx, so the recovery writes (recordLiveRowConflict)
+   * cannot run on it — they would 25P02. This opens a SEPARATE connection for them;
+   * it takes NO advisory lock (the caller is the single holder of `show:driveFileId`
+   * — AGENTS.md invariant 2 — so the recovery rides that hold). Unused on the
+   * default (non-injected) path, where each withTx call is already its own fresh
+   * `sql.begin()` tx. Injectable for tests. Defaults to `defaultCreateScanTxRunner`.
+   */
+  createRecoveryTxRunner?: (folderId: string, wizardSessionId: string) => ScanTxRunner;
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
   fetchMarkdownWithBinding?: (
     driveFileId: string,
@@ -161,7 +172,12 @@ export type RunOnboardingScanDeps = {
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; binding: Phase1Binding },
+    ctx: {
+      driveFileId: string;
+      fileMeta: DriveFileMeta;
+      binding: Phase1Binding;
+      xlsxBytes?: ArrayBuffer;
+    },
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
@@ -835,6 +851,7 @@ async function scanPreparedFiles(
   preparedFiles: PreparedOnboardingFile[],
   deps: Pick<RunOnboardingScanDeps, "runPhase1" | "withShowLock" | "onProgress">,
   withTx: <R>(fn: (tx: OnboardingScanTx) => Promise<R>) => Promise<R>,
+  recovery: ScanRecovery,
 ): Promise<OnboardingScanResult> {
   const processed: ProcessedOnboardingFile[] = [];
   const runPhase1Impl = deps.runPhase1 ?? runPhase1;
@@ -867,11 +884,14 @@ async function scanPreparedFiles(
       if (!(error instanceof OnboardingScanLiveRowConflictRollbackError)) throw error;
       // The conflicting per-file transaction rolled back above (its 23505/42P10
       // left it aborted — writing the recovery rows there would 25P02). Record
-      // the live_row_conflict in a FRESH transaction, re-acquiring the same
-      // per-show lock (single-holder rule: the lock wrapper stays the one
-      // holder layer, same as the scan path).
-      const recorded = await withTx(async (tx) => {
-        const locked = await lock(
+      // the live_row_conflict on the RECOVERY seam (see `withScanTx`): a fresh
+      // sql.begin() tx on the reused connection for the default path, or a fresh
+      // SEPARATE connection when the scan runs on an injected caller tx (that
+      // caller tx is the one aborted). Single-holder rule is preserved: the
+      // default path re-acquires the released per-show lock; the injected path
+      // rides the caller's still-held lock via a no-lock passthrough.
+      const recorded = await recovery.withTx(async (tx) => {
+        const locked = await recovery.withShowLock(
           prepared.file.driveFileId,
           (lockedTx) =>
             recordLiveRowConflict(folderId, wizardSessionId, lockedTx, prepared.file, error),
@@ -948,6 +968,8 @@ export async function prepareOnboardingFiles(
       driveFileId: file.driveFileId,
       fileMeta: toDriveFileMeta(file),
       binding,
+      // Surface DIAGRAMS-tab embedded images from the already-fetched export bytes.
+      ...(bytes ? { xlsxBytes: bytes } : {}),
     });
     // Compute region source anchors ONCE from the already-fetched bytes (best-effort) and
     // reuse them for BOTH warning attachment AND persistence (spec §5.1). The tab-gid fetch
@@ -1001,27 +1023,72 @@ export async function prepareOnboardingFiles(
 }
 
 /**
- * Provide a `withTx` to `body` over the right connection strategy:
- *  - `deps.tx` (injected, e.g. a caller-locked tx): every withTx call runs the
- *    fn against that single tx — the caller owns the transaction/lock.
+ * The transaction seam the live-row-conflict recovery runs on. Kept DISTINCT from
+ * the scan's own `withTx`/`withShowLock` because, when the scan is driven by an
+ * injected caller tx, that tx is ABORTED by the 23505/42P10 and the recovery must
+ * run on a fresh connection (see `withScanTx`).
+ */
+type ScanRecovery = {
+  withTx: ScanTxRunner["withTx"];
+  withShowLock: NonNullable<RunOnboardingScanDeps["withShowLock"]>;
+};
+
+/**
+ * Provide a `withTx` (+ a `recovery` seam) to `body` over the right connection
+ * strategy:
+ *  - `deps.tx` (injected, e.g. a caller-locked tx): every scan withTx call runs
+ *    the fn against that single tx — the caller owns the transaction/lock. The
+ *    recovery seam, however, opens its OWN connection (lazily) because the 23505/
+ *    42P10 aborts the caller tx (25P02 on any further write there); it takes no
+ *    advisory lock (the caller is the single `show:` holder, invariant 2).
  *  - default: one reused Postgres connection (a fresh sql.begin() transaction
  *    per withTx call), closed when `body` resolves. This is the connection-reuse
  *    strategy from the scan-loop optimization; holding it open across the body's
- *    (DB-free) Drive prepare phase is fine — postgres.js reconnects on idle.
+ *    (DB-free) Drive prepare phase is fine — postgres.js reconnects on idle. Here
+ *    the recovery reuses that same runner (already fresh-tx-per-call) + the real
+ *    withShowLock (the aborted per-file tx has already rolled back, releasing the
+ *    lock, so re-acquiring it is correct and single-holder).
  */
 async function withScanTx<R>(
   folderId: string,
   wizardSessionId: string,
   deps: RunOnboardingScanDeps,
-  body: (withTx: ScanTxRunner["withTx"]) => Promise<R>,
+  body: (withTx: ScanTxRunner["withTx"], recovery: ScanRecovery) => Promise<R>,
 ): Promise<R> {
   if (deps.tx) {
     const tx = deps.tx;
-    return await body(async (fn) => fn(tx));
+    // Lazily-opened fresh connection for the live-row-conflict recovery only (most
+    // injected-tx scans never hit a conflict, so we avoid a wasted connection). An
+    // array holds the (0-or-1) runner so the `finally` cleanup type-checks without
+    // closure-mutation narrowing quirks.
+    const recoveryRunners: ScanTxRunner[] = [];
+    const recovery: ScanRecovery = {
+      withTx: (fn) => {
+        if (recoveryRunners.length === 0) {
+          recoveryRunners.push(
+            (deps.createRecoveryTxRunner ?? defaultCreateScanTxRunner)(folderId, wizardSessionId),
+          );
+        }
+        return recoveryRunners[0]!.withTx(fn);
+      },
+      // Passthrough over the fresh recovery tx — NO advisory lock (the caller holds
+      // `show:driveFileId`; re-taking it on a second connection would deadlock).
+      withShowLock: async (_driveFileId, fn, options) =>
+        fn((options?.tx ?? tx) as LockedShowTx<OnboardingScanTx>),
+    };
+    try {
+      return await body(async (fn) => fn(tx), recovery);
+    } finally {
+      for (const runner of recoveryRunners) await runner.close();
+    }
   }
   const runner = (deps.createScanTxRunner ?? defaultCreateScanTxRunner)(folderId, wizardSessionId);
+  const recovery: ScanRecovery = {
+    withTx: runner.withTx,
+    withShowLock: deps.withShowLock ?? defaultWithShowLock,
+  };
   try {
-    return await body(runner.withTx);
+    return await body(runner.withTx, recovery);
   } finally {
     await runner.close();
   }
@@ -1040,10 +1107,17 @@ export async function scanOnboardingPreparedFiles(
   preparedFiles: PreparedOnboardingFile[],
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
-  return withScanTx(folderId, wizardSessionId, deps, async (withTx) => {
+  return withScanTx(folderId, wizardSessionId, deps, async (withTx, recovery) => {
     const readiness = await withTx(verifyOnboardingScanReady);
     if (readiness) return readiness;
-    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, withTx);
+    return await scanPreparedFiles(
+      folderId,
+      wizardSessionId,
+      preparedFiles,
+      deps,
+      withTx,
+      recovery,
+    );
   });
 }
 
@@ -1052,13 +1126,20 @@ export async function runOnboardingScan(
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
-  return withScanTx(folderId, wizardSessionId, deps, async (withTx) => {
+  return withScanTx(folderId, wizardSessionId, deps, async (withTx, recovery) => {
     const readiness = await withTx(verifyOnboardingScanReady);
     if (readiness) return readiness;
     // Side-effect-free, pre-lock Drive read. For the default connection strategy
     // the reused connection is held (idle) across this — postgres.js reconnects
     // transparently if the socket times out during it.
     const preparedFiles = await prepareOnboardingFiles(folderId, deps);
-    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, withTx);
+    return await scanPreparedFiles(
+      folderId,
+      wizardSessionId,
+      preparedFiles,
+      deps,
+      withTx,
+      recovery,
+    );
   });
 }

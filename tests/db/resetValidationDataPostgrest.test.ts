@@ -21,7 +21,7 @@
  * Run it in the unit-suite gate's local Supabase (which preloads the same
  * safeupdate) so a regression to bare deletes fails CI loudly.
  */
-import { afterAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
 
@@ -81,6 +81,13 @@ describe("reset_validation_data() over PostgREST (safeupdate live-integration)",
         last_seen_modified_time)
       values (${showId}::uuid, ${`pgrst-${showId.slice(0, 8)}`}, ${`slug-${showId.slice(0, 8)}`},
         'PostgREST Reset Test', 'M12 Validation', 'v1', now())`;
+  });
+
+  afterEach(async () => {
+    // The reset RPC never clears the gate, so beforeEach's enabled=true would leak
+    // into the shared local DB. Restore enabled=false — never persist enabled=true
+    // past a test (mirrors destructiveResetGate.test.ts:67-69's finally restore).
+    await sql`update public.destructive_reset_gate set enabled = false where id = 'default'`;
   });
 
   test("the shipped function clears shows via PostgREST — NOT blocked by safeupdate", async () => {

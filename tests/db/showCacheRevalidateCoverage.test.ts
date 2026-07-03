@@ -123,12 +123,6 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   },
   // ---- Task 8 (lifecycle actions) ----
   {
-    file: "app/admin/show/[slug]/_actions/publish.ts",
-    siteCount: 0,
-    disposition: "revalidate",
-    reason: "publish_show RPC wrapper; revalidateShow(resolved.show.id) on ok",
-  },
-  {
     file: "app/admin/show/[slug]/_actions/archive.ts",
     siteCount: 0,
     disposition: "revalidate",
@@ -141,10 +135,10 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
     reason: "unarchive_show RPC wrapper; revalidateShow(resolved.show.id) on ok",
   },
   {
-    file: "app/admin/show/[slug]/_actions/undoAutoPublish.ts",
+    file: "app/admin/show/[slug]/_actions/setPublished.ts",
     siteCount: 0,
     disposition: "revalidate",
-    reason: "unpublishShow caller; revalidateShow(result.showId) on success",
+    reason: "publish_show/unpublish_show dispatcher (Published toggle); revalidateShow(id) on ok",
   },
   // ---- Task 9 (feed + unpublish + validation + exemptions) ----
   {
@@ -174,11 +168,10 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
     coveredByCallers: [
       "app/api/show/[slug]/unpublish/route.ts",
       "app/show/[slug]/unpublish/actions.ts",
-      "app/admin/show/[slug]/_actions/undoAutoPublish.ts",
     ],
     reason:
       "the show update(published/archive) lives here, but revalidate is at its Next callers " +
-      "(unpublish route + confirm action + undoAutoPublish), which own the post-commit boundary",
+      "(unpublish route + confirm action), which own the post-commit boundary",
   },
   {
     file: "lib/sync/discardStaged.ts",
@@ -219,9 +212,10 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
 // regex. Each wrapper-call-site file must independently revalidate or be exempt. (Picker/share-token
 // RPCs mutate auth/picker columns NOT in the DATA projection → exempt.)
 const WRITING_RPCS: Array<{ rpc: string; wrapperFile: string }> = [
-  { rpc: "publish_show", wrapperFile: "app/admin/show/[slug]/_actions/publish.ts" },
   { rpc: "archive_show", wrapperFile: "app/admin/show/[slug]/_actions/archive.ts" },
   { rpc: "unarchive_show", wrapperFile: "app/admin/show/[slug]/_actions/unarchive.ts" },
+  { rpc: "publish_show", wrapperFile: "app/admin/show/[slug]/_actions/setPublished.ts" },
+  { rpc: "unpublish_show", wrapperFile: "app/admin/show/[slug]/_actions/setPublished.ts" },
   { rpc: "mi11_approve_hold", wrapperFile: "lib/sync/holds/mi11GateActions.ts" },
   { rpc: "mi11_reject_hold", wrapperFile: "lib/sync/holds/mi11GateActions.ts" },
   { rpc: "undo_change", wrapperFile: "lib/sync/holds/undoChange.ts" },

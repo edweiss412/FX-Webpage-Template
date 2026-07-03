@@ -10,7 +10,7 @@ import { valueFromRawSnippet } from "@/lib/parser/rawSnippet";
 
 /** The codes that carry a source-cell/region anchor. SAME OBJECT the render
  *  surfaces gate on (OPERATOR_ACTIONABLE_ANCHORED) so population ↔ render cannot
- *  drift. Name retained for continuity; FIELD_UNREADABLE resolves to a region.
+ *  drift. FIELD_UNREADABLE now resolves to a per-row crew cell (region fallback).
  *  Exported so a structural test can pin the reference identity. The shared object
  *  is typed `ReadonlySet<string>`, so tsc rejects any `.add`/`.delete` at compile
  *  time (whole-diff R1 — there is no runtime mutation site for either export). */
@@ -113,8 +113,8 @@ export type WarningAnchorSources = {
  *   - SCHEDULE_TIME_UNPARSED → resolve by blockRef.iso (show-day TIME cell).
  *   - UNKNOWN_ROLE_TOKEN / UNKNOWN_DAY_RESTRICTION → resolve by blockRef.name
  *     against the crew-role cell anchors (exactly-one match else null).
- *   - FIELD_UNREADABLE → the REGION anchor for blockRef.kind (kind-keyed 1:1;
- *     missing kind → null, never a wrong-region link).
+ *   - FIELD_UNREADABLE → per-ROW crew cell by blockRef.name (mirror UNKNOWN_ROLE_TOKEN),
+ *     with the region anchor for blockRef.kind as the fallback (no name / no unique match).
  * Best-effort: a warning with no/ambiguous match is left link-less.
  */
 export function attachSourceCellAnchors(
@@ -142,6 +142,15 @@ export function attachSourceCellAnchors(
         w.blockRef?.name,
         valueFromRawSnippet(w.rawSnippet),
       );
+    } else if (w.code === "FIELD_UNREADABLE") {
+      // Per-ROW crew cell by name (mirror the UNKNOWN_ROLE_TOKEN crew-cell path), so DISTINCT
+      // crew rows produce DISTINCT a1 and survive operatorActionableWarnings dedup instead of
+      // all collapsing to the single crew region anchor (idx32/#154). Region fallback when
+      // there is no name / no unique crew match: a missed anchor degrades to the region link,
+      // never a wrong one (spec §5.1.1).
+      cell =
+        resolveCrewRoleCell(sources.crewRole, w.blockRef?.name) ??
+        (w.blockRef?.kind ? (sources.region[w.blockRef.kind] ?? null) : null);
     } else if (w.blockRef?.kind && KIND_TO_REGION[w.blockRef.kind]) {
       // AGENDA / PULL SHEET warnings: alias kind → tab region. Reached only for
       // in-set codes (the CELL_ANCHORED_CODES gate above). Any future code added to
@@ -149,15 +158,16 @@ export function attachSourceCellAnchors(
       // membership pin-test in tests/parser/operatorActionableWarnings.test.ts).
       cell = sources.region[KIND_TO_REGION[w.blockRef.kind]!] ?? null;
     } else if (
-      w.code === "FIELD_UNREADABLE" ||
       w.code === "COLUMN_HEADER_AUTOCORRECTED" ||
       w.code === "SECTION_HEADER_AUTOCORRECTED" ||
       w.code === "FIELD_LABEL_AUTOCORRECTED" ||
       w.code === "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE"
     ) {
-      // Region-level anchor: blockRef.kind is a RegionId (crew column → "crew";
+      // Region-level anchor: blockRef.kind is a RegionId (column header → "crew";
       // section header → the corrected section's RegionId, e.g. "transportation"/"details";
       // off-schedule strike → "rooms", the ROOMS-tab region the strike was read from).
+      // (FIELD_UNREADABLE has its OWN per-row crew-cell branch above, with this region as
+      // its fallback.)
       const kind = w.blockRef?.kind;
       cell = kind ? (sources.region[kind] ?? null) : null;
     }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/log";
 import { getDriveClient } from "@/lib/drive/client";
 import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -160,6 +161,9 @@ function showUnavailable(): Response {
 // Codex R23 P2: every error shape carries Cache-Control so auth/infra
 // failures are not cached by a private intermediary. Per RFC 9111 §5.2.
 function infraError(code: string): Response {
+  // `code` is the helper PARAMETER (a runtime variable), never a literal —
+  // scanner-safe. Covers GET + HEAD + every infraError call site.
+  void log.error("asset infra fault", { source: "api.asset.reel", code });
   return NextResponse.json(
     { error: code },
     { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },

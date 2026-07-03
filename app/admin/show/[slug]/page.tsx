@@ -37,17 +37,15 @@ import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
-import { PublishShowButton } from "@/components/admin/PublishShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
-import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
+import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import {
   archiveShowAction,
-  publishShowAction,
+  setShowPublishedAction,
   unarchiveShowAction,
   mi11ApproveAction,
   mi11RejectAction,
   undoChangeAction,
-  undoAutoPublishAction,
 } from "./_actions";
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -57,8 +55,20 @@ import {
   isDataQualityWarning,
   selectActionableForDisplay,
   OPERATOR_ACTIONABLE_ANCHORED,
+  DATA_GAP_CLASS_LABELS,
 } from "@/lib/parser/dataGaps";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
+import {
+  BulkIgnoreControls,
+  type BulkIgnoreGroupWithLabel,
+} from "@/components/admin/BulkIgnoreControls";
+import { loadIgnoredWarnings } from "@/lib/admin/loadIgnoredWarnings";
+import { groupIgnorableByCode } from "@/lib/dataQuality/bulkIgnoreGroups";
+import { partitionByIgnored } from "@/lib/dataQuality/partitionByIgnored";
+import { buildReportSurfaceId } from "@/lib/dataQuality/warningFingerprint";
 
 export const dynamic = "force-dynamic";
 
@@ -80,10 +90,6 @@ type ShowLookupRow = {
   archived: boolean;
   last_synced_at: string | null;
   last_sync_status: string | null;
-  // M12.13 §6.1: the EXPIRY only (never the token itself — the secret stays
-  // server-side; the undo action re-reads the token by slug). Drives
-  // `undoWindowOpen = expires_at != null && expires_at > now`.
-  unpublish_token_expires_at: string | null;
 };
 
 type CrewMemberRow = {
@@ -147,6 +153,7 @@ export default async function AdminShowPage({
   } catch (err) {
     void log.error("supabase client construction threw:", {
       source: "admin.show",
+      code: "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
       error: err,
     });
     throw new Error("supabase_client_construction_failed");
@@ -157,12 +164,16 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status, unpublish_token_expires_at",
+        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
       )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
     if (showError) {
-      void log.error("show lookup failed:", { source: "admin.show", error: showError.message });
+      void log.error("show lookup failed:", {
+        source: "admin.show",
+        code: "ADMIN_SHOW_LOOKUP_FAILED",
+        error: showError.message,
+      });
       throw new Error("show_lookup_failed");
     }
     show = data;
@@ -170,6 +181,7 @@ export default async function AdminShowPage({
     if (err instanceof Error && err.message === "show_lookup_failed") throw err;
     void log.error("show lookup threw:", {
       source: "admin.show",
+      code: "ADMIN_SHOW_LOOKUP_THREW",
       error: err,
     });
     throw new Error("show_lookup_failed");
@@ -214,6 +226,7 @@ export default async function AdminShowPage({
       ) {
         void log.error("changes feed read failed:", {
           source: "admin.show",
+          code: "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
           error: err,
         });
         return { feed: null, feedInfraError: true };
@@ -233,6 +246,7 @@ export default async function AdminShowPage({
       if (error) {
         void log.error("crew_members lookup failed:", {
           source: "admin.show",
+          code: "ADMIN_SHOW_CREW_LOOKUP_FAILED",
           error: error.message,
         });
         return { crew: [], crewLookupFailed: true };
@@ -241,6 +255,7 @@ export default async function AdminShowPage({
     } catch (err) {
       void log.error("crew_members lookup threw:", {
         source: "admin.show",
+        code: "ADMIN_SHOW_CREW_LOOKUP_THREW",
         error: err,
       });
       return { crew: [], crewLookupFailed: true };
@@ -267,7 +282,7 @@ export default async function AdminShowPage({
   // kept DISTINCT from a failure: messages=[], failed=false → panel simply
   // absent. Resolves to a typed local result and never rejects (Promise.all-safe).
   const readDataQuality = async (): Promise<{
-    messages: string[];
+    digest: ParseWarning[];
     actionable: ParseWarning[];
     failed: boolean;
   }> => {
@@ -284,17 +299,19 @@ export default async function AdminShowPage({
       if (error) {
         void log.error("shows_internal read failed:", {
           source: "admin.show",
+          code: "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED",
           error: error.message,
         });
-        return { messages: [], actionable: [], failed: true };
+        return { digest: [], actionable: [], failed: true };
       }
       warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
     } catch (err) {
       void log.error("shows_internal read threw:", {
         source: "admin.show",
+        code: "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_THREW",
         error: err,
       });
-      return { messages: [], actionable: [], failed: true };
+      return { digest: [], actionable: [], failed: true };
     }
     // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
     // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
@@ -306,18 +323,35 @@ export default async function AdminShowPage({
     // deep link (strictly better). The digest keeps the non-actionable data gaps
     // (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED). Avoids the double-render the
     // impeccable critique flagged.
-    const messages = warnings
-      .filter((w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code))
-      .map((w) => w.message)
-      .filter((m): m is string => typeof m === "string" && m.length > 0);
-    // Carry the full warnings through so the panel can render the operator-actionable subset WITH
-    // their source-sheet deep links (the component filters + dedups via operatorActionableWarnings);
-    // the messages list stays the data-gap-only `.message` digest.
-    return { messages, actionable: warnings, failed: false };
+    // The data-gap digest (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) — the DQ codes that are
+    // NOT operator-actionable-anchored. Kept as full ParseWarning objects (not flattened to
+    // `.message`) so the panel can render each through the same per-warning card +
+    // Report/Ignore controls as the operator-actionable warnings (DQIGNORE-1). The gate stays
+    // isDataQualityWarning FIRST, preserving the invariant-5 protection against rendering a
+    // non-DQ warn warning whose `.message` IS its raw §12.4 code.
+    const digest = warnings.filter(
+      (w) => isDataQualityWarning(w) && !OPERATOR_ACTIONABLE_ANCHORED.has(w.code),
+    );
+    // Carry the full warnings through too so the panel can render the operator-actionable subset
+    // WITH their source-sheet deep links (selectActionableForDisplay filters + dedups).
+    return { digest, actionable: warnings, failed: false };
   };
 
-  const [{ feed, feedInfraError }, { crew, crewLookupFailed }, token, dataQuality, now] =
-    await Promise.all([readFeed(), readCrew(), readToken(), readDataQuality(), nowDate()]);
+  const [
+    { feed, feedInfraError },
+    { crew, crewLookupFailed },
+    token,
+    dataQuality,
+    now,
+    ignoredResult,
+  ] = await Promise.all([
+    readFeed(),
+    readCrew(),
+    readToken(),
+    readDataQuality(),
+    nowDate(),
+    loadIgnoredWarnings(show.id),
+  ]);
 
   // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
   // JSX condition and again in the component — whole-diff R1). selectActionableForDisplay
@@ -325,6 +359,38 @@ export default async function AdminShowPage({
   // already-persisted shows self-heal at read time. The per-show Data Quality panel
   // renders these with source-sheet deep links below the data-gap digest.
   const actionableItems = selectActionableForDisplay(dataQuality.actionable);
+  // DQIGNORE-1 — every data-quality warning renders as a per-warning card with Report/Ignore
+  // controls. The data-gap digest (UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) leads (preserving
+  // the prior visual order: data gaps above operator-actionable rows), followed by the deduped
+  // operator-actionable warnings. The two sets are disjoint by code, so no warning double-renders.
+  const displayWarnings = [...dataQuality.digest, ...actionableItems];
+  // Partition displayable warnings into active vs ignored by content fingerprint. A
+  // loadIgnoredWarnings infra_error → empty set → every warning shows active (fail toward
+  // VISIBLE — never hide a warning on a read fault). Ignore state lives in a side table, so
+  // it survives the parse_warnings full-replace on each sync. BLOCK_DISAPPEARED has no content
+  // fingerprint (warningFingerprint → null), so it can never be ignored — it is always active.
+  const ignoredFingerprints =
+    ignoredResult.kind === "ok" ? ignoredResult.fingerprints : new Set<string>();
+  const { active: activeActionable, ignored: ignoredActionable } = partitionByIgnored(
+    displayWarnings,
+    ignoredFingerprints,
+  );
+  // DQIGNORE-2 — bulk "Ignore all N of this type": for any code with >=2 distinct-content
+  // ACTIVE ignorable warnings, offer a single action that fans out one precise
+  // per-fingerprint ignore. The label is the plain-language type (catalog title, else the
+  // data-gap class label) — never the raw §12.4 code (invariant 5). Empty when no code has
+  // a bulk-eligible group; BulkIgnoreControls then renders nothing.
+  const bulkGroupLabel = (code: string): string | null => {
+    const title = isMessageCode(code) ? messageFor(code as MessageCode).title : null;
+    if (title) return title;
+    if (code in DATA_GAP_CLASS_LABELS) {
+      return DATA_GAP_CLASS_LABELS[code as keyof typeof DATA_GAP_CLASS_LABELS];
+    }
+    return null;
+  };
+  const bulkIgnoreGroups: BulkIgnoreGroupWithLabel[] = groupIgnorableByCode(activeActionable).map(
+    (group) => ({ ...group, label: bulkGroupLabel(group.code) }),
+  );
 
   // Archived-FIRST precedence (R10/R11): archived and published are independent
   // booleans; evaluate archived first so a drifted archived+published row still
@@ -332,25 +398,19 @@ export default async function AdminShowPage({
   const archived = Boolean(show.archived);
   const published = show.published;
 
-  // M12.13 §6.1 — the auto-publish undo safety net is OPEN iff a live token mint
-  // exists and hasn't expired. The page never sees the token (secret stays
-  // server-side); the expiry alone gates both in-app affordances (the footer
-  // button and the SHOW_FIRST_PUBLISHED alert-row action). A manual publish mints
-  // no token (B2), so its expiry is null → window closed → no affordance.
-  const undoExpiresAt = show.unpublish_token_expires_at;
-  const undoExpiresMs = undoExpiresAt ? Date.parse(undoExpiresAt) : NaN;
-  const undoWindowOpen = Number.isFinite(undoExpiresMs) && undoExpiresMs > now.getTime();
-
   // §3.2 finalize-owned ("Publishing…") vs Held discriminator. Same
   // authoritative source as the dashboard (components/admin/Dashboard.tsx:287):
   // the SECURITY DEFINER predicate public.readfinalizeowned_b2(p_show_id)
   // (migration 20260601000000:13, granted to authenticated in 20260601000002).
-  // Queried ONLY for the in-flight case (!published && !archived) — a published
-  // or archived row is never finalize-owned. Fail toward NOT-finalize-owned
-  // (i.e. "Held") on ANY RPC error: a returned error, a non-true value, or a
-  // thrown fault all leave finalizeOwned=false, the safe/non-alarming label.
+  // Queried for EVERY non-archived show (published-toggle R3): the predicate's
+  // shows_pending_changes branch is NOT constrained to unpublished rows, so a
+  // LIVE show mid-pending-changes-finalize is finalize-owned too — the toggle
+  // must render ON-disabled there. Fail toward NOT-finalize-owned on ANY RPC
+  // error (returned error, non-true value, or thrown fault): a transiently
+  // enabled toggle is safe — the RPC's hard FINALIZE_OWNED_SHOW refusal is the
+  // backstop (defense in depth).
   let finalizeOwned = false;
-  if (!published && !archived) {
+  if (!archived) {
     try {
       const { data, error } = await supabase.rpc("readfinalizeowned_b2", {
         p_show_id: show.id,
@@ -483,11 +543,6 @@ export default async function AdminShowPage({
         showId={show.id}
         slug={show.slug}
         highlightAlertId={sp.alert_id ?? null}
-        /* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows render the shared undo action
-           iff the token window is still open. The bound action is passed down so
-           the section reuses the SAME server action as the footer button. */
-        undoWindowOpen={undoWindowOpen}
-        undoAutoPublishAction={undoAutoPublishAction.bind(null, show.slug)}
       />
 
       {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
@@ -524,13 +579,13 @@ export default async function AdminShowPage({
                 role="status"
                 className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
               >
-                Held — not published. Publish to make it live, then issue a crew link.
+                Held — not published. Turn on{" "}
+                <a href="#share-access" className="font-semibold text-text-strong underline">
+                  Published in Share &amp; access
+                </a>{" "}
+                to make it live.
               </p>
               <div className="flex flex-wrap items-start gap-3">
-                <PublishShowButton
-                  publishAction={publishShowAction.bind(null, show.slug)}
-                  slug={show.slug}
-                />
                 <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
               </div>
             </>
@@ -659,15 +714,28 @@ export default async function AdminShowPage({
 
         {/* Share & access column (rotate/reset folded in, gated) */}
         <section
+          id="share-access"
           data-testid="per-show-share-col"
           aria-label="Share & access"
-          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
+          className="flex scroll-mt-4 flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">
             One share-link reaches the whole crew. Rotate the link if it leaks; reset the picker if
             a crew member needs to re-pick their identity.
           </p>
+          {/* Published toggle (spec §3.3, D2/D3): the single publish control — replaces the
+              window-gated Undo auto-publish and the Held Publish button. Hidden ONLY on
+              archived shows (their lifecycle section owns Unarchive); disabled whenever a
+              finalize owns the show, in BOTH published states. */}
+          {!archived ? (
+            <PublishedToggle
+              slug={show.slug}
+              published={published}
+              finalizeOwned={finalizeOwned}
+              setPublished={setShowPublishedAction.bind(null, show.slug)}
+            />
+          ) : null}
           {isShowEligibleForCrewLink ? (
             // Pass the page's SINGLE token snapshot (Codex R2) so the header
             // chip and this panel can never render two different tokens from a
@@ -777,7 +845,7 @@ export default async function AdminShowPage({
             again.
           </p>
         </section>
-      ) : dataQuality.messages.length > 0 || actionableItems.length > 0 ? (
+      ) : activeActionable.length > 0 || ignoredActionable.length > 0 ? (
         <section
           data-testid="per-show-data-quality"
           aria-labelledby="per-show-data-quality-heading"
@@ -803,23 +871,65 @@ export default async function AdminShowPage({
               </p>
             </HoverHelp>
           </div>
-          {dataQuality.messages.length > 0 ? (
-            <ul className="flex flex-col gap-2">
-              {dataQuality.messages.map((message, i) => (
-                <li
-                  key={i}
-                  data-testid="per-show-data-quality-item"
-                  className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
+          {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
+              acts on. Renders nothing unless a code has >=2 distinct-content active
+              ignorable warnings. */}
+          <BulkIgnoreControls slug={show.slug} groups={bulkIgnoreGroups} />
+          {/* Every ACTIVE data-quality warning as a per-warning card: the data-gap
+              digest (unknown section / removed block) leads, followed by the
+              operator-actionable warnings (role/day/schedule/field) with a source-
+              sheet deep link when the scan resolved the cell. Each card carries a
+              Report control and (when the warning is content-fingerprintable) an
+              Ignore control. Renders nothing when there are none. */}
+          <PerShowActionableWarnings
+            items={activeActionable}
+            driveFileId={show.drive_file_id}
+            renderItemControls={(w) => (
+              <DataQualityWarningControls
+                slug={show.slug}
+                showId={show.id}
+                warning={w}
+                driveFileId={show.drive_file_id}
+                mode="active"
+                reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+              />
+            )}
+          />
+          {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive
+              re-sync. Native <details>: chevron transform only, body instant (D9). */}
+          {ignoredActionable.length > 0 ? (
+            <details data-testid="per-show-ignored-warnings" className="group">
+              <summary
+                data-testid="per-show-ignored-summary"
+                className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+              >
+                Ignored ({ignoredActionable.length}){" "}
+                <span
+                  aria-hidden="true"
+                  className="ml-1 inline-block transition-transform group-open:rotate-90"
                 >
-                  {message}
-                </li>
-              ))}
-            </ul>
+                  ▸
+                </span>
+              </summary>
+              <div className="mt-3" data-testid="per-show-ignored-list">
+                <PerShowActionableWarnings
+                  items={ignoredActionable}
+                  driveFileId={show.drive_file_id}
+                  tone="muted"
+                  renderItemControls={(w) => (
+                    <DataQualityWarningControls
+                      slug={show.slug}
+                      showId={show.id}
+                      warning={w}
+                      driveFileId={show.drive_file_id}
+                      mode="ignored"
+                      reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+                    />
+                  )}
+                />
+              </div>
+            </details>
           ) : null}
-          {/* Operator-actionable parse warnings (role/day/schedule/field) with a
-              source-sheet deep link to the offending cell when the scan resolved
-              it. Renders nothing when there are none. */}
-          <PerShowActionableWarnings items={actionableItems} driveFileId={show.drive_file_id} />
         </section>
       ) : null}
 
@@ -850,17 +960,6 @@ export default async function AdminShowPage({
             Archive shows ONLY for a Live show (published && !archived); Held
             keeps Archive grouped with Publish above, Archived shows Unarchive. */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* M12.13 §6.2/§6.4 — the in-app undo, beside Archive/Re-sync, rendered
-              iff the token window is open AND the show is Live (published &&
-              !archived). Post-undo the show is archived → this disappears and the
-              Re-sync-paused note + archived affordances take over. */}
-          {undoWindowOpen && published && !archived ? (
-            <UndoAutoPublishButton
-              slug={show.slug}
-              undoAction={undoAutoPublishAction.bind(null, show.slug)}
-              testId="undo-auto-publish-footer"
-            />
-          ) : null}
           {isShowEligibleForCrewLink ? (
             <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
           ) : null}

@@ -47,7 +47,19 @@ export type ReportButtonProps = {
   label?: string;
   /** Visual variant; defaults derived from surface. */
   variant?: "text" | "accent";
+  /**
+   * Focus ring-offset color — MUST match the background this button renders on,
+   * or the focus ring's 2px gap shows the wrong color. Defaults to the per-variant
+   * value (accent → surface, text → bg). Pass e.g. "warning-bg"/"surface-sunken"
+   * when the button sits on a tinted card (data-quality warning cards).
+   */
+  ringOffset?: RingOffset;
+  /** Forwarded to ReportModal — when true, the freeform note is optional (Submit
+   * enabled with an empty textarea). Use where the autocapture IS the content. */
+  messageOptional?: boolean;
 };
+
+type RingOffset = "bg" | "surface" | "warning-bg" | "surface-sunken";
 
 const DEFAULT_LABEL: Record<ReportSurface, string> = {
   crew: "Something looks wrong?",
@@ -59,12 +71,25 @@ const DEFAULT_VARIANT: Record<ReportSurface, "text" | "accent"> = {
   admin: "accent",
 };
 
+// Full literal class strings so Tailwind v4 JIT resolves each (no dynamic interpolation).
+const RING_OFFSET_CLASS: Record<RingOffset, string> = {
+  bg: "focus-visible:ring-offset-bg",
+  surface: "focus-visible:ring-offset-surface",
+  "warning-bg": "focus-visible:ring-offset-warning-bg",
+  "surface-sunken": "focus-visible:ring-offset-surface-sunken",
+};
+
 export function ReportButton(props: ReportButtonProps) {
-  const { surface, surfaceId, showId, autocapture, label, variant } = props;
+  const { surface, surfaceId, showId, autocapture, label, variant, ringOffset, messageOptional } =
+    props;
   const [open, setOpen] = useState(false);
 
   const effectiveLabel = label ?? DEFAULT_LABEL[surface];
   const effectiveVariant = variant ?? DEFAULT_VARIANT[surface];
+  // Ring-offset defaults to the historical per-variant value; callers on tinted
+  // cards override it so the focus ring's gap matches the card background.
+  const offsetClass =
+    RING_OFFSET_CLASS[ringOffset ?? (effectiveVariant === "accent" ? "surface" : "bg")];
 
   // Text variant is the quiet footer affordance — keeps the crew page's
   // primary hierarchy intact while remaining discoverable. Accent
@@ -72,8 +97,8 @@ export function ReportButton(props: ReportButtonProps) {
   // first-class control on the staged-review card.
   const className =
     effectiveVariant === "accent"
-      ? "inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 text-sm font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-      : "inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg";
+      ? `inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 text-sm font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
+      : `inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`;
 
   return (
     <>
@@ -103,6 +128,7 @@ export function ReportButton(props: ReportButtonProps) {
           surfaceId={surfaceId}
           showId={showId}
           {...(autocapture ? { autocapture } : {})}
+          {...(messageOptional ? { messageOptional } : {})}
         />
       ) : null}
     </>

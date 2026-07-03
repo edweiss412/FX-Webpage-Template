@@ -498,9 +498,14 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
       ),
     );
   } catch (err) {
+    // Prefer the wrapped root cause (DriveWatchInfraError's own message only
+    // names the operation) — redacted string, never the raw object (R5-1).
+    const cause = err instanceof DriveWatchInfraError ? err.rootCause : err;
     await log.error("refresh-watch list_expiring failed", {
       source: "drive.watch",
-      errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err)),
+      code: "DRIVE_WATCH_INFRA_FAULT",
+      operation: "drive_watch_channels.list_expiring_active",
+      errorMessage: redactWatchError(String((cause as { message?: unknown })?.message ?? cause)),
     });
     return {
       refreshed: [],
@@ -514,14 +519,27 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
   for (const row of due) {
     try {
       const result = await subscribe(row.watchedFolderId);
-      if (result.outcome === "active") refreshed.push(row.watchedFolderId);
-      else if (result.reason === "activate_failed_after_watch_created")
+      if (result.outcome === "active") {
+        refreshed.push(row.watchedFolderId);
+        continue;
+      }
+      // Renewal-specific forensic warn (origin/main 51429aa1) — fires for BOTH
+      // orphan reasons; channel classification below stays ours.
+      void log.warn("watch channel renewal failed", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_RENEWAL_FAILED",
+        channelId: result.channelId,
+        watchedFolderId: row.watchedFolderId,
+      });
+      if (result.reason === "activate_failed_after_watch_created")
         failures.push({ folderId: row.watchedFolderId, operation: "activate_pending" });
       else orphaned.push(row.watchedFolderId);
     } catch (err) {
       failures.push({ folderId: row.watchedFolderId, operation: "subscribe" });
       await log.error("refresh-watch renewal failed", {
         source: "drive.watch",
+        code: "DRIVE_WATCH_INFRA_FAULT",
+        operation: "subscribe",
         errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err), {
           webhookSecret: row.webhookSecret,
         }),
@@ -533,27 +551,39 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
 }
 
 export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: string[] }> {
-  const runTx = watchTxRunner(deps);
-  const stopChannel = deps.stopChannel ?? defaultStopChannel;
-  const candidates = await runTx((tx) =>
-    callWatchTx("drive_watch_channels.list_gc_candidates", () => tx.listGcCandidates()),
-  );
-  const stopped: string[] = [];
-  for (const channel of candidates) {
-    try {
-      await stopChannel({ id: channel.id, resourceId: channel.resourceId });
-    } catch {
-      // Best-effort cleanup: Drive may already have dropped an orphaned channel.
+  try {
+    const runTx = watchTxRunner(deps);
+    const stopChannel = deps.stopChannel ?? defaultStopChannel;
+    const candidates = await runTx((tx) =>
+      callWatchTx("drive_watch_channels.list_gc_candidates", () => tx.listGcCandidates()),
+    );
+    const stopped: string[] = [];
+    for (const channel of candidates) {
+      try {
+        await stopChannel({ id: channel.id, resourceId: channel.resourceId });
+      } catch {
+        // Best-effort cleanup: Drive may already have dropped an orphaned channel.
+      }
+      await runTx((tx) =>
+        callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
+      );
+      stopped.push(channel.id);
     }
     await runTx((tx) =>
-      callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
+      callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped()),
     );
-    stopped.push(channel.id);
+    return { stopped };
+  } catch (err) {
+    if (err instanceof DriveWatchInfraError) {
+      void log.error("watch infra fault", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_INFRA_FAULT",
+        error: err.rootCause,
+        operation: err.operation,
+      });
+    }
+    throw err;
   }
-  await runTx((tx) =>
-    callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped()),
-  );
-  return { stopped };
 }
 
 export type ReconcileOutcome =

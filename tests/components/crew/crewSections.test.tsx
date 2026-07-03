@@ -212,6 +212,33 @@ describe("CrewSections controller", () => {
     expect(routerPush).not.toHaveBeenCalled();
   });
 
+  it("(h) CHIP RE-NAV AFTER SHALLOW TAP: a server nav re-delivering the SAME ?s= the client shallow-left still moves active", async () => {
+    const { rerender } = render(
+      <CrewSections initialSection="today" budgetVisible sectionNodes={leadNodes()} />,
+    );
+    // 1. Chip-nav to Schedule: a REAL Next nav — new initialSection + URL move together.
+    nav.searchParams = new URLSearchParams("s=schedule");
+    rerender(<CrewSections initialSection="schedule" budgetVisible sectionNodes={leadNodes()} />);
+    expect(await screen.findByTestId("body-schedule")).toBeInTheDocument();
+
+    // 2. Shallow Today-tab tap: client-only pushState — active + URL go to today, but the
+    //    server prop initialSection stays "schedule".
+    nav.searchParams = new URLSearchParams("s=today");
+    const [todayTab] = screen.getAllByRole("button", { name: /today/i });
+    fireEvent.click(todayTab!);
+    expect(await screen.findByTestId("body-today")).toBeInTheDocument();
+
+    // 3. Chip-again: the SectionChipLink re-navigates to ?s=schedule. The server re-renders
+    //    _CrewShell with initialSection="schedule" — the SAME value as step 1 — so the prop
+    //    value never changes; the URL is the only signal that moved.
+    nav.searchParams = new URLSearchParams("s=schedule");
+    rerender(<CrewSections initialSection="schedule" budgetVisible sectionNodes={leadNodes()} />);
+    // Pre-fix: active is stuck on "today" (chip appears dead; URL desynced). Post-fix: moves.
+    expect(await screen.findByTestId("body-schedule")).toBeInTheDocument();
+    expect(screen.queryByTestId("body-today")).toBeNull();
+    expect(controller()).toHaveAttribute("data-active-section", "schedule");
+  });
+
   it("(f) CLAMP CONSISTENCY: initialSection=budget with no budget node → today everywhere (no split state)", () => {
     // Simulates a refresh that flipped budgetVisible true→false while the viewer
     // was on Budget: initialSection is still "budget" but sectionNodes lacks it.

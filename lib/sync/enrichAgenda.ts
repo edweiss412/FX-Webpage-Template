@@ -134,7 +134,23 @@ export async function enrichAgenda(
       if (signal?.aborted) break;
 
       const link = links[i]!;
-      if (!link.fileId) continue;
+      if (!link.fileId) {
+        // S8 forensic (option A): a malformed agenda_link (a `url` that is a bare filename with no
+        // resolvable fileId) was skipped silently. Groupable durable record; the skip behavior is
+        // unchanged. Fail-open at the callsite — a logger throw must never break the scan.
+        try {
+          await log.warn("agenda link has no resolvable fileId", {
+            source: "sync.enrichAgenda",
+            code: "AGENDA_LINK_UNRESOLVED",
+            spreadsheetId,
+            ordinal: i,
+            label: link.label,
+          });
+        } catch {
+          /* best-effort */
+        }
+        continue;
+      }
 
       const recoveredFileId = recoveredFileIds.get(i);
 
@@ -157,15 +173,18 @@ export async function enrichAgenda(
         fileMeta = await driveClient.getFile(link.fileId);
       } catch (error) {
         const status = driveErrorStatus(error);
-        log.warn("getFile threw", {
-          source: "sync.enrichAgenda",
-          fileId: link.fileId,
-          ordinal: i,
-          status,
-          verdict: status === 404 || status === 400 ? "known_stale" : "unknown",
-          error,
-        });
         if (status === 404 || status === 400) {
+          // Definitive-gone is an EXPECTED steady-state (a deleted/invalid agenda
+          // PDF), not a fault: log at INFO with a forensic code and NO error payload
+          // so it does not trip the cry-wolf WARN stream.
+          log.info("agenda link gone", {
+            source: "sync.enrichAgenda",
+            fileId: link.fileId,
+            ordinal: i,
+            status,
+            verdict: "known_stale",
+            code: "AGENDA_GETFILE_GONE",
+          });
           warnings.push(
             warn(
               "AGENDA_PDF_UNREADABLE",
@@ -178,6 +197,17 @@ export async function enrichAgenda(
             verdict: "known_stale",
           });
         } else {
+          // Ambiguous/transient fault (403/429/5xx/timeout): WARN with the error
+          // payload for diagnosis; leave-existing ("unknown") — next sync re-checks.
+          log.warn("getFile threw", {
+            source: "sync.enrichAgenda",
+            fileId: link.fileId,
+            ordinal: i,
+            status,
+            verdict: "unknown",
+            error,
+            code: "AGENDA_GETFILE_FAULT",
+          });
           perLink.push({
             ordinal: i,
             ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
@@ -376,6 +406,7 @@ export async function enrichAgenda(
     // Logged (previously swallowed) so an unexpected throw is diagnosable.
     log.error("threw (link left as-is)", {
       source: "sync.enrichAgenda",
+      code: "AGENDA_ENRICH_THREW",
       spreadsheetId,
       error: err,
     });

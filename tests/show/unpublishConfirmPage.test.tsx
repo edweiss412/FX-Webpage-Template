@@ -70,9 +70,9 @@ describe("GET render states", () => {
 
     expect(screen.getByRole("heading", { name: "Take this show offline?" })).toBeInTheDocument();
     expect(screen.getByText("Client Show")).toBeInTheDocument();
-    // Consequence line (spec §5: crew links switch off until republished from the admin).
+    // Consequence line (published-toggle: crew links pause until republished via the toggle).
     expect(
-      screen.getByText(/crew links switch off until you republish it from the admin/i),
+      screen.getByText(/crew links pause until you turn published back on from the admin/i),
     ).toBeInTheDocument();
     // Exactly ONE button on the whole page.
     expect(screen.getAllByRole("button")).toHaveLength(1);
@@ -158,7 +158,7 @@ describe("POST outcome rendering in place (client form + mocked server action)",
     expect(strong.tagName).toBe("STRONG");
     expect(
       screen.getByText(
-        /crew links are switched off; you can publish it again any time from the admin/i,
+        /crew links are paused; flip published back on from its page in the admin any time/i,
       ),
     ).toBeInTheDocument();
     const adminLink = screen.getByRole("link", { name: /open it in the admin/i });

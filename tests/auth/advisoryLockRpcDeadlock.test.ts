@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { latestResetValidationDataBody } from "../db/_resetRpcSource.js";
+import {
+  latestResetValidationDataBody,
+  latestResetValidationDataFile,
+} from "../db/_resetRpcSource.js";
 
 const ROOT = process.cwd();
 function stripComments(source: string): string {
@@ -9,6 +12,21 @@ function stripComments(source: string): string {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^[ \t]*--.*$/gm, "")
     .replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+/**
+ * PF11 invariant: a lock-taking RPC body must not `FOR UPDATE` row-lock BEFORE its
+ * first pg_advisory_xact_lock (reverses advisory-then-row order → deadlock under
+ * burst, M5 R20). No-op for a body that takes no advisory lock.
+ */
+function assertAdvisoryBeforeRowLock(label: string, name: string, body: string): void {
+  const advisoryAt = body.search(/pg_(?:try_)?advisory_xact_lock\s*\(/i);
+  if (advisoryAt === -1) return; // not a lock-taking body
+  const forUpdateAt = body.search(/\bfor\s+update\b/i);
+  expect(
+    forUpdateAt === -1 || forUpdateAt > advisoryAt,
+    `${label}: ${name} contains "FOR UPDATE" (idx ${forUpdateAt}) before its first pg_advisory_xact_lock (idx ${advisoryAt}) — reverses the advisory-then-row order and deadlocks under burst (PF11)`,
+  ).toBe(true);
 }
 
 function lockTakingRpcNames(): string[] {
@@ -31,11 +49,12 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260608000003_undo_change_rpc.sql",
     // Task 2 — reset_validation_data() acquires the per-show advisory lock for
     // EVERY affected drive_file_id (sorted, single-holder) before any delete.
-    // NOTE: intentionally points at the HOTFIX migration (20260622000002) which
-    // `create or replace`s the function — latestResetValidationDataBody() is the
-    // canonical source for body-inspection tests; this list is only used to
-    // detect lock-taking RPCs for the deadlock-topology scan.
-    "supabase/migrations/20260622000002_validation_reset_timeout.sql",
+    // Derived (not hardcoded) so the SHIPPED defining migration is scanned even
+    // after a future `create or replace` supersedes the current one — the name
+    // detection is body-agnostic, but this avoids the superseded-file drift that
+    // PF11 had with 20260622000002 (audit idx78). latestResetValidationDataBody()
+    // is the canonical source for body-inspection.
+    latestResetValidationDataFile(),
   ];
 
   const names = new Set<string>();
@@ -152,11 +171,10 @@ describe("advisory-lock RPC deadlock guard", () => {
       "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
       "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
       "supabase/migrations/20260608000003_undo_change_rpc.sql",
-      // Task 2 — reset_validation_data() takes its advisory locks before any
-      // mutation and takes no FOR UPDATE row locks at all (trivially passes).
-      // Points at the HOTFIX migration (20260622000002) which is the LATEST
-      // definition; the original (20260622000001) is superseded.
-      "supabase/migrations/20260622000002_validation_reset_timeout.sql",
+      // NOTE: reset_validation_data is NOT scanned from a hardcoded file here — it is
+      // `create or replace`d by hotfix migrations, so a pinned path validates a
+      // superseded body (audit idx78). It is checked below from the SHIPPED body via
+      // latestResetValidationDataBody(), which auto-follows a future replace.
     ];
 
     for (const file of lockTakingMigrations) {
@@ -167,16 +185,40 @@ describe("advisory-lock RPC deadlock guard", () => {
       for (const match of functionBlocks) {
         const [, name, body] = match;
         if (!name || !body) continue;
-        const advisoryAt = body.search(/pg_(?:try_)?advisory_xact_lock\s*\(/i);
-        if (advisoryAt === -1) continue; // not a lock-taking body
-        const forUpdateAt = body.search(/\bfor\s+update\b/i);
-        // Either no FOR UPDATE at all, or it appears AFTER the first advisory lock.
-        expect(
-          forUpdateAt === -1 || forUpdateAt > advisoryAt,
-          `${file}: ${name} contains "FOR UPDATE" (idx ${forUpdateAt}) before its first pg_advisory_xact_lock (idx ${advisoryAt}) — reverses the advisory-then-row order and deadlocks under burst (PF11)`,
-        ).toBe(true);
+        assertAdvisoryBeforeRowLock(file, name, body);
       }
     }
+
+    // reset_validation_data() takes its advisory locks before any mutation and takes no
+    // FOR UPDATE row locks at all (trivially passes today) — but validate the SHIPPED body,
+    // not a pinned migration, so a future `create or replace` that reversed the order would
+    // be caught (audit idx78).
+    assertAdvisoryBeforeRowLock(
+      "latest reset_validation_data",
+      "reset_validation_data",
+      latestResetValidationDataBody(),
+    );
+  });
+
+  test("reset_validation_data guards derive from the shared latest-body helper — no hardcoded reset migration (audit idx78)", () => {
+    // PF11 + lockTakingRpcNames() previously hardcoded 20260622000002 (the timeout hotfix)
+    // with a comment asserting it "is the LATEST definition" — false at HEAD, where
+    // 20260622000003 (`delete … where ctid is not null`) is the shipped body. A future
+    // `create or replace` FOR-UPDATE regression would go undetected because the guard scans a
+    // superseded body. Pin: this file must NOT hardcode any reset_validation_data migration;
+    // both scans derive from _resetRpcSource (latestResetValidationDataFile / …Body).
+    const self = readFileSync(join(ROOT, "tests/auth/advisoryLockRpcDeadlock.test.ts"), "utf8");
+    const hardcoded = self.match(/2026\d{10}_validation_reset\w*\.sql/g) ?? [];
+    expect(hardcoded, `hardcoded reset migrations found: ${hardcoded.join(", ")}`).toEqual([]);
+
+    // Positive: the SHIPPED reset body actually satisfies the advisory-before-row invariant.
+    const body = latestResetValidationDataBody();
+    const advisoryAt = body.search(/pg_(?:try_)?advisory_xact_lock\s*\(/i);
+    const forUpdateAt = body.search(/\bfor\s+update\b/i);
+    expect(advisoryAt, "shipped reset_validation_data must take an advisory lock").toBeGreaterThan(
+      -1,
+    );
+    expect(forUpdateAt === -1 || forUpdateAt > advisoryAt).toBe(true);
   });
 
   test("claim_oauth_identity acquires multi-show locks in deterministic drive_file_id order", () => {

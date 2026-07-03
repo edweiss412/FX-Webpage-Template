@@ -151,6 +151,14 @@
     "ordinal",
     "show_id"
   ],
+  "ignored_warnings": [
+    "code",
+    "fingerprint",
+    "id",
+    "ignored_at",
+    "ignored_by",
+    "show_id"
+  ],
   "onboarding_scan_manifest": [
     "created_show_id",
     "drive_file_id",

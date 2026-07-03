@@ -68,6 +68,10 @@ export async function confirmUnpublishAction(
         body: entry.dougFacing as string,
       };
     }
+    // Published-toggle spec §3.4: finalize-owned refusal → retryable busy state
+    // (binding + token already validated upstream, so this discloses nothing new).
+    case "finalize_owned":
+      return { status: "busy" };
     // R20: CONSUMED never renders or returns on ANY public leg — and
     // not_found is the neutral contract already. Both collapse to neutral.
     case "consumed":

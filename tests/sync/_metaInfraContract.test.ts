@@ -169,12 +169,6 @@ const infraRegistry = [
     contract: "diagram GC cron route delegates to the registered backend scheduler surface",
   },
   {
-    helper: "unpublishShow",
-    path: "lib/sync/unpublishShow.ts",
-    contract:
-      "unpublish route uses explicit Postgres transaction boundary; helper faults propagate to route caller",
-  },
-  {
     helper: "unpublishShowViaEmailedLink",
     path: "lib/sync/unpublishShow.ts",
     contract:

@@ -229,6 +229,7 @@ export async function handleWizardStagedApply(
       } catch (alertError) {
         log.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", {
           source: "api.admin.onboarding.staged.apply",
+          code: "WIZARD_STAGED_APPLY_SUPERSEDED_ALERT_WRITE_FAILED",
           error: alertError,
         });
       }
@@ -242,6 +243,7 @@ export async function handleWizardStagedApply(
     // field-by-field shape completeness non-load-bearing for the empty-500 contract).
     log.error("wizard staged apply: unexpected failure", {
       source: "api.admin.onboarding.staged.apply",
+      code: "WIZARD_STAGED_APPLY_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");

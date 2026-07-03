@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { parseDates, extractClockTimes, extractClockTimeTokens } from "@/lib/parser/blocks/dates";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
+import { newAggregator } from "@/lib/parser/warnings";
 
 // ── Corpus fixtures ──────────────────────────────────────────────────────────
 const ALL_FIXTURES = [
@@ -489,6 +490,37 @@ describe("parseDates — duplicate showDays (edge-case pin)", () => {
     expect(d.showDays).toEqual(["2026-03-24", "2026-03-25"]);
     expect(d.set).toBe("2026-03-23");
     expect(d.travelOut).toBe("2026-03-26");
+  });
+});
+
+// ── time-only SET row is not a false empty-section (audit idx7/#44) ──────────
+describe("parseDates — time-only SET row does not fire SECTION_HEADER_NO_FIELDS", () => {
+  // failure mode: a SET row whose DATE cell is blank/unparseable but whose TIME
+  // cell yields load-in + setup times DOES populate loadIn/setupTime/setAgendaRaw,
+  // yet the datesEmpty predicate ignored those three fields and fired a false
+  // SECTION_HEADER_NO_FIELDS "section dropped" warning for a section that DID
+  // yield content.
+  const md = [
+    "| DATES | | | | |",
+    "| --- | --- | --- | --- | --- |",
+    "| | SET | Tue |  | 9:00PM LOAD IN 10:00PM SETUP |",
+  ].join("\n");
+
+  it("populates loadIn/setupTime from the TIME cell and emits no dates emptySection warning", () => {
+    const agg = newAggregator();
+    const d = parseDates(md, "v4", agg);
+    // the SET row DID yield content — the two clocks from the TIME cell
+    expect(d.loadIn).toBe("9:00PM");
+    expect(d.setupTime).toBe("10:00PM");
+    expect(d.setAgendaRaw).toBe("9:00PM LOAD IN 10:00PM SETUP");
+    // blank DATE cell → no calendar date (this null-set is why the buggy predicate
+    // mislabeled the non-empty section as empty)
+    expect(d.set).toBeNull();
+    // no false "section dropped" warning for the dates block
+    const datesEmptyWarn = agg.warnings.filter(
+      (w) => w.code === "SECTION_HEADER_NO_FIELDS" && w.blockRef?.kind === "dates",
+    );
+    expect(datesEmptyWarn).toEqual([]);
   });
 });
 

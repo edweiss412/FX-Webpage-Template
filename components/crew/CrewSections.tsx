@@ -48,9 +48,28 @@ export function CrewSections({ initialSection, budgetVisible, sectionNodes }: Cr
   // likewise re-renders with the current URL's section. A shallow CrewSubNav tap
   // does NOT change initialSection, so this never fires for a tap. (Review R1 [HIGH].)
   const [syncedInitial, setSyncedInitial] = useState<SectionId>(initialSection);
+  // Also track the URL-derived section so a SAME-VALUE server re-delivery is caught.
+  // If the client shallow-navigates `active` away (e.g. tap Today after a chip sent
+  // ?s=schedule) and the SectionChipLink then re-navigates to the SAME ?s=schedule the
+  // server last rendered, `initialSection` never changes value — the block below cannot
+  // fire — and the URL is the only thing that moved. Firing on a urlSection VALUE CHANGE
+  // (not on active/searchParams lag) keeps this race-proof: a shallow tap changes `active`
+  // before Next syncs useSearchParams, but urlSection===syncedUrl at that instant so
+  // nothing reverts; when the URL catches up, urlSection!==initialSection (the prop is
+  // stale) so `active` still holds. onSelect/popstate are unchanged.
+  // useSearchParams() can be null (SSR of a client component before hydration), so guard the read.
+  const urlSection = resolveActiveSection(searchParams?.get("s") ?? undefined, {
+    budgetVisible,
+  });
+  const [syncedUrl, setSyncedUrl] = useState<SectionId>(urlSection);
   if (initialSection !== syncedInitial) {
     setSyncedInitial(initialSection);
     setActive(initialSection);
+  } else if (urlSection !== syncedUrl) {
+    setSyncedUrl(urlSection);
+    if (urlSection === initialSection && active !== initialSection) {
+      setActive(initialSection);
+    }
   }
 
   const onSelect = useCallback(

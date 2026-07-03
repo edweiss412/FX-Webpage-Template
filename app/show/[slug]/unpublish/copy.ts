@@ -12,6 +12,7 @@ export type ConfirmUnpublishActionState =
   | { status: "success"; title: string }
   | { status: "expired"; title: string | null; body: string }
   | { status: "neutral" }
+  | { status: "busy" }
   | { status: "infra" };
 
 /** Spec §5 R5 retry copy — exact wording, shared by GET and POST faults.
@@ -23,18 +24,27 @@ export const RETRY_COPY =
 
 export const RETRY_HEADING = "Try again in a minute";
 
+/** Published-toggle spec §3.4: the finalize-owned (busy) refusal — retryable, token intact.
+ *  Deliberately uncataloged transient copy, same waiver as RETRY_COPY above. */
+// not-subject:M5-D8 — published-toggle spec §3.4 prescribes this exact uncataloged busy copy
+export const BUSY_HEADING = "This show is being updated";
+
+export const BUSY_BODY =
+  "Changes are being finalized right now. Nothing has changed — try again in a few minutes.";
+
 /** Neutral not-found state: no oracle about whether the slug exists, whether
  *  the link was ever real, or whether it was consumed/revoked/stale. */
 export const NEUTRAL_HEADING = "We couldn’t open this link";
 
 export const NEUTRAL_BODY =
   "It may be incomplete, out of date, or already spent — either way, nothing has changed. " +
-  "If a show needs to come offline, you can always archive it from the admin.";
+  "If a show needs to come offline, you can always turn it off from its page in the admin.";
 
 export const CONFIRM_HEADING = "Take this show offline?";
 
 /** Spec §5: plain-language consequence line. */
-export const CONFIRM_CONSEQUENCE = "Crew links switch off until you republish it from the admin.";
+export const CONFIRM_CONSEQUENCE =
+  "Crew links pause until you turn Published back on from the admin.";
 
 export const CONFIRM_BUTTON_LABEL = "Take it offline";
 
@@ -48,6 +58,6 @@ export const SUCCESS_HEADING = "Done — it’s offline";
 
 /** Rendered as: <strong>{title}</strong> {SUCCESS_BODY_AFTER_TITLE} */
 export const SUCCESS_BODY_AFTER_TITLE =
-  "is now offline. Crew links are switched off; you can publish it again any time from the admin.";
+  "is now offline. Crew links are paused; flip Published back on from its page in the admin any time — the same link starts working again.";
 
 export const SUCCESS_ADMIN_LINK_LABEL = "Open it in the admin";

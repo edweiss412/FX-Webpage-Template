@@ -143,7 +143,14 @@ export function parseVenue(
     // recovered a misspelled label — preserving venue's operator visibility (NOT the silent
     // info downgrade). `message` is the internal admin diagnostic; the user sees the catalog
     // copy ("Auto-corrected a field label"). canonical is the precise internal identifier.
-    if (fieldLabelCorrectedTo && agg && inVenueFieldScope) {
+    // NOTE: intentionally NOT gated on `inVenueFieldScope`. `fieldLabelCorrectedTo` is row-local
+    // (re-declared null each iteration, above) and is set ONLY when the venue-scoped
+    // `resolveAliasScoped(col0, "venue.")` returns a `corrected` hit — so a non-null value already
+    // proves a venue field-label correction happened on THIS row. Gating on `inVenueFieldScope`
+    // (which the field-assignment branches below only flip true AFTER this check) silently
+    // suppressed the warn for a misspelled FIRST venue field row (idx53) — a silent re-route,
+    // violating spec §2 rule 4 "always warn". The TYPO_NORMALIZED emit above keeps its scope gate.
+    if (fieldLabelCorrectedTo && agg) {
       agg.warnings.push({
         severity: "warn",
         code: "FIELD_LABEL_AUTOCORRECTED",

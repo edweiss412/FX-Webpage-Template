@@ -159,8 +159,8 @@ describe("Chunk 2 — catalogs render as real <table> elements (behavioral)", ()
     // to the <table>, not the whole container).
     expect(outcomes.textContent).toContain("Tick the publish checkbox");
     expect(outcomes.textContent).toContain("Leave it unticked");
-    expect(outcomes.textContent, "unticked → draft under Unpublished").toMatch(
-      /draft[\s\S]*Unpublished/,
+    expect(outcomes.textContent, "unticked → draft marked Held in Active shows").toMatch(
+      /draft[\s\S]*Held/,
     );
   });
 });

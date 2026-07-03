@@ -2,11 +2,19 @@
  * Class-B registry drift guard (parse-data-quality-warnings §9).
  *
  * Every section-header token that a block parser actually recognizes MUST be
- * present in `lib/parser/knownSections.ts`. If a future block parser adds a new
- * header without registering it, the class-B unknown-section scan would
- * false-positive on that header (its rows ARE parsed, but the registry doesn't
- * know it). This structural test pins the canonical header vocabulary so the
- * registry can't silently drift behind the parsers.
+ * present in `lib/parser/knownSections.ts`; otherwise the class-B unknown-section
+ * scan would false-positive on that header (its rows ARE parsed, but the registry
+ * doesn't know it).
+ *
+ * SCOPE / LIMITATION: this is a HAND-MAINTAINED pin, NOT a source walker. It asserts
+ * a hardcoded `REQUIRED_HEADERS` list ⊆ KNOWN_SECTION_HEADERS, which catches an
+ * accidental DELETION of a registered header from the registry. It does NOT read
+ * lib/parser/blocks/*.ts, so a genuinely-new parser header added to NEITHER list
+ * passes green — adding a block parser requires hand-adding its header to BOTH
+ * `REQUIRED_HEADERS` here AND KNOWN_SECTION_HEADERS. Real auto-drift enforcement
+ * (a walker over the block-parser sources) is filed as BL-KNOWN-SECTIONS-WALKER; it
+ * is not cheaply achievable today because the parsers match headers via heterogeneous
+ * inline literals + regexes with no shared introspectable header constant.
  */
 
 import { describe, it, expect } from "vitest";

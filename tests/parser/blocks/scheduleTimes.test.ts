@@ -95,6 +95,38 @@ describe("parseScheduleTimes — tokenizer", () => {
     expect(scheduleDays[iso]!.entries.map((e) => e.start)).toEqual(["4PM", "5:30PM"]);
     expect(scheduleDays[iso]!.showStart).toBe("4PM");
   });
+
+  // _Catches:_ audit idx48/#70 — an exporter-encoded newline (`&#10;`) in a SHOW DAY
+  // TIME cell was never decoded before tokenizing, so the raw `&#10;` survived as
+  // literal residue inside the crew-visible entry title (`&#10;Doors open`).
+  it("encoded newline '4:00 PM&#10;Doors open' → title decoded, NO &# residue", () => {
+    const { dates, scheduleDays } = run([
+      ["SHOW DAY 1", "Wed", "10/8/25", "4:00 PM&#10;Doors open"],
+    ]);
+    const iso = dates.showDays[0]!;
+    // Expected title derived from the DECODED text (`&#10;` → whitespace, collapsed).
+    expect(scheduleDays[iso]!.entries).toEqual([{ start: "4:00 PM", title: "Doors open" }]);
+    expect(scheduleDays[iso]!.showStart).toBe("4:00 PM");
+    for (const e of scheduleDays[iso]!.entries) {
+      expect(e.title).not.toMatch(/&#/);
+    }
+  });
+
+  // _Catches:_ audit idx48/#70 — the permissive tokenizer treats `;` as a clock
+  // separator, so an undecoded `&#10;30` reads `10;30` as a phantom `10:30` clock.
+  // Decoding the cell first removes both the phantom token and the `&#` residue.
+  it("encoded newline before digits '9:00 AM&#10;30 minute reception' → NO phantom 10:30 clock", () => {
+    const { dates, scheduleDays } = run([
+      ["SHOW DAY 1", "Wed", "10/8/25", "9:00 AM&#10;30 minute reception"],
+    ]);
+    const iso = dates.showDays[0]!;
+    const starts = scheduleDays[iso]!.entries.map((e) => e.start);
+    expect(starts).toEqual(["9:00 AM"]); // only the real clock, no phantom from the `10`
+    expect(starts).not.toContain("10:30");
+    for (const e of scheduleDays[iso]!.entries) {
+      expect(e.title).not.toMatch(/&#/);
+    }
+  });
 });
 
 describe("extractFirstClock", () => {

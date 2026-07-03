@@ -135,4 +135,227 @@ describe("runCronRoute", () => {
     expect(src).toMatch(/log\.warn\s*\(/);
     expect(src).toMatch(/log\.info\s*\(/);
   });
+
+  test("threw with syncRunContext → driveFileId column + context.detail.failures", async () => {
+    await withCapture(async (sink) => {
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      const err = Object.assign(new Error("kaboom"), {
+        syncRunContext: {
+          phase: "missing-shows",
+          inFlightDriveFileId: "df-9",
+          processedBeforeThrow: 2,
+          failures: [{ driveFileId: "df-1", outcome: "hard_fail", code: "X" }],
+        },
+      });
+      await expect(
+        runCronRoute("sync", req(), async () => {
+          throw err;
+        }),
+      ).rejects.toThrow("kaboom");
+      expect(sink[0]!.level).toBe("error");
+      expect(sink[0]!.code).toBe("CRON_RUN_SUMMARY");
+      expect(sink[0]!.driveFileId).toBe("df-9"); // reserved → indexed column
+      expect(sink[0]!.context).toMatchObject({
+        outcome: "threw",
+        detail: {
+          phase: "missing-shows",
+          processedBeforeThrow: 2,
+          failures: [{ driveFileId: "df-1" }],
+        },
+      });
+    });
+  });
+  test("threw with a NON-OBJECT error → still logs outcome:threw, no crash", async () => {
+    await withCapture(async (sink) => {
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await expect(
+        runCronRoute("sync", req(), async () => {
+          throw "boom-string";
+        }),
+      ).rejects.toBe("boom-string");
+      expect(sink[0]!.context).toMatchObject({ outcome: "threw" });
+      // buildRecord (lib/log/logger.ts:46) coerces an absent driveFileId to null (the
+      // "no correlation" sentinel), so the captured LogRecord column is null, not undefined.
+      expect(sink[0]!.driveFileId).toBeNull();
+    });
+  });
+
+  test("threw WITHOUT syncRunContext but WITH ALS cron ctx → als-fallback attribution", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        {
+          requestId: "r1",
+          cronPhase: "file-loop",
+          cronInFlightDriveFileId: "df-x",
+          cronProcessedCount: 3,
+        },
+        async () => {
+          await expect(
+            runCronRoute("sync", req(), async () => {
+              throw new Error("detached boom"); // NO syncRunContext
+            }),
+          ).rejects.toThrow("detached boom");
+        },
+      );
+      expect(sink[0]!.driveFileId).toBe("df-x");
+      expect(sink[0]!.context).toMatchObject({
+        outcome: "threw",
+        detail: { phase: "file-loop", processedBeforeThrow: 3, source: "als-fallback" },
+      });
+    });
+  });
+
+  test("threw WITH syncRunContext → sync-body source + failures still flow", async () => {
+    await withCapture(async (sink) => {
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      const err = Object.assign(new Error("kaboom"), {
+        syncRunContext: {
+          phase: "missing-shows",
+          inFlightDriveFileId: "df-9",
+          processedBeforeThrow: 2,
+          failures: [{ driveFileId: "df-1", outcome: "hard_fail", code: "X" }],
+        },
+      });
+      await expect(
+        runCronRoute("sync", req(), async () => {
+          throw err;
+        }),
+      ).rejects.toThrow("kaboom");
+      expect(sink[0]!.context).toMatchObject({
+        detail: {
+          phase: "missing-shows",
+          source: "sync-body",
+          failures: [{ driveFileId: "df-1" }],
+        },
+      });
+    });
+  });
+
+  test("malformed ALS cron fields → rejected: rethrows, one summary, no source/phase leak", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        { requestId: "r1", cronPhase: 123 as never, cronProcessedCount: "nope" as never },
+        async () => {
+          await expect(
+            runCronRoute("sync", req(), async () => {
+              throw new Error("boom2");
+            }),
+          ).rejects.toThrow("boom2");
+        },
+      );
+      expect(sink).toHaveLength(1);
+      expect(sink[0]!.context).toMatchObject({ outcome: "threw" });
+      const detail = (sink[0]!.context as { detail?: { source?: string; phase?: unknown } }).detail;
+      expect(detail?.source).toBeUndefined();
+      expect(detail?.phase).toBeUndefined();
+    });
+  });
+
+  test("malformed syncRunContext (no string phase) → falls back to ALS, not suppressed", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        {
+          requestId: "r1",
+          cronPhase: "file-loop",
+          cronInFlightDriveFileId: "df-als",
+          cronProcessedCount: 1,
+        },
+        async () => {
+          const err = Object.assign(new Error("junk ctx"), { syncRunContext: {} });
+          await expect(
+            runCronRoute("sync", req(), async () => {
+              throw err;
+            }),
+          ).rejects.toThrow("junk ctx");
+        },
+      );
+      expect(sink[0]!.driveFileId).toBe("df-als");
+      expect(sink[0]!.context).toMatchObject({
+        detail: { phase: "file-loop", source: "als-fallback" },
+      });
+    });
+  });
+
+  test("non-object syncRunContext (string) → rejected, falls back to ALS", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        {
+          requestId: "r1",
+          cronPhase: "list-folder",
+          cronInFlightDriveFileId: "df-a",
+          cronProcessedCount: 0,
+        },
+        async () => {
+          const err = Object.assign(new Error("strctx"), { syncRunContext: "not-an-object" });
+          await expect(
+            runCronRoute("sync", req(), async () => {
+              throw err;
+            }),
+          ).rejects.toThrow("strctx");
+        },
+      );
+      expect(sink[0]!.context).toMatchObject({
+        detail: { phase: "list-folder", source: "als-fallback" },
+      });
+    });
+  });
+
+  test("NaN cronProcessedCount → processedBeforeThrow omitted (not NaN); phase+source still present", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        {
+          requestId: "r1",
+          cronPhase: "file-loop",
+          cronInFlightDriveFileId: "df-n",
+          cronProcessedCount: Number.NaN,
+        },
+        async () => {
+          await expect(
+            runCronRoute("sync", req(), async () => {
+              throw new Error("nanboom");
+            }),
+          ).rejects.toThrow("nanboom");
+        },
+      );
+      const detail = (sink[0]!.context as { detail?: Record<string, unknown> }).detail!;
+      expect(detail).toMatchObject({ phase: "file-loop", source: "als-fallback" });
+      expect("processedBeforeThrow" in detail).toBe(false); // NaN excluded, never logged as NaN
+    });
+  });
+
+  test("stale-id no-leak: ALS id cleared to null → threw row driveFileId is null", async () => {
+    await withCapture(async (sink) => {
+      const { runWithRequestContext } = await import("@/lib/log/requestContext");
+      const { runCronRoute } = await import("@/lib/cron/withCronRunSummary");
+      await runWithRequestContext(
+        {
+          requestId: "r1",
+          cronPhase: "finish",
+          cronInFlightDriveFileId: null,
+          cronProcessedCount: 5,
+        },
+        async () => {
+          await expect(
+            runCronRoute("sync", req(), async () => {
+              throw new Error("boom3");
+            }),
+          ).rejects.toThrow("boom3");
+        },
+      );
+      expect(sink[0]!.driveFileId).toBeNull();
+      expect(sink[0]!.context).toMatchObject({
+        detail: { phase: "finish", source: "als-fallback" },
+      });
+    });
+  });
 });
