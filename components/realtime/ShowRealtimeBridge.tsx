@@ -533,10 +533,23 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
           await newSubscribed;
           readinessOk = true;
         } catch (err) {
-          clientLog("warn", "client.realtime", "JWT renew outcome failed (readiness_failed)", {
-            reason: "readiness_failed",
-            err,
-          });
+          // Suppress the failure log when the rejection is the effect's own
+          // teardown — cleanup's removeChannel() delivers 'CLOSED' to this
+          // pending renewal readiness Promise on navigation away. Only a
+          // genuine renewal fault (still mounted, current generation) is a real
+          // BROADCAST readiness failure worth mirroring to app_events. Class
+          // fix; peer at the initial-mount path (~line 770). The teardown +
+          // pendingRenewalRef logic below is already abort-guarded and stays.
+          if (
+            !effectToken.aborted &&
+            isMountedRef.current &&
+            newClosureGen === currentChannelGenerationRef.current
+          ) {
+            clientLog("warn", "client.realtime", "JWT renew outcome failed (readiness_failed)", {
+              reason: "readiness_failed",
+              err,
+            });
+          }
           // Tear down the failed channel: a future renewal must create
           // a fresh handle, not reuse this one. Generation was already
           // advanced when we opened this channel, so the synchronous
@@ -767,7 +780,23 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
         await subscribedPromise;
         readinessOk = true;
       } catch (err) {
-        clientLog("warn", "client.realtime", "subscription readiness failed", err);
+        // Only a GENUINE readiness failure is worth logging + mirroring to
+        // app_events. A rejection caused by the effect's OWN teardown — the
+        // cleanup below runs supabase.removeChannel(), which synchronously
+        // delivers a 'CLOSED' status that rejects this still-pending readiness
+        // Promise on navigation away from the crew page — is not a realtime
+        // fault and must stay silent (else every fast nav emits a
+        // false-positive "subscription readiness failed" warning + app_events
+        // row). Gate the log behind the same abort/mount/generation guards the
+        // catch-up below uses. Class fix; peer at the renewal path (~line 536).
+        if (
+          !effectToken.aborted &&
+          isMountedRef.current &&
+          !initialAborted &&
+          closureGen === currentChannelGenerationRef.current
+        ) {
+          clientLog("warn", "client.realtime", "subscription readiness failed", err);
+        }
       }
       if (effectToken.aborted) return;
       if (!isMountedRef.current || initialAborted) return;
