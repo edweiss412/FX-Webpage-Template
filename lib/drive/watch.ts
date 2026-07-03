@@ -651,7 +651,11 @@ export async function reconcileWatchChannels(
   }
   const renewalFailed =
     refresh.orphaned.includes(folder.folderId) ||
-    refresh.failures.some((f) => f.folderId === folder.folderId);
+    // "*" = the pre-loop list_expiring read failed: renewal state for EVERY
+    // folder is unknown this cycle, so no folder may count as renewal-clean —
+    // otherwise a list-infra cycle could auto-resolve the alert before the
+    // spec's recovery condition (successful renewal or admin Retry) happened.
+    refresh.failures.some((f) => f.folderId === folder.folderId || f.folderId === "*");
 
   if (live && !renewalFailed) {
     try {

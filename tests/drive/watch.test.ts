@@ -730,6 +730,23 @@ describe("reconcileWatchChannels", () => {
     expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalled();
   });
 
+  test("list_expiring '*' failure marks the configured folder renewal-dirty (no auto-resolve on unknown renewal state)", async () => {
+    // Whole-diff review MED: a pre-loop list-infra cycle must not let a
+    // still-live channel pass condition (b) and clear the alert while renewal
+    // state is unknown.
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+    const result = await reconcileWatchChannels(
+      { refreshed: [], orphaned: [], failures: [{ folderId: "*", operation: "list_expiring" }] },
+      deps,
+    );
+    expect(deps.resolveAdminAlert).not.toHaveBeenCalled();
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(result.outcome).toBe("renewal_failing");
+  });
+
   test("R4-1/R10-1 renewal_failing leg 2 (failures list, activate_pending): live channel BUT refresh.failures names the folder → renewal_failing, NO resolve, NO second subscribe, escalation runs (R9-2: never-escalates-on-renewal-failing)", async () => {
     const tx = new FakeWatchTx();
     seedLiveActive(tx, "folder-1");
