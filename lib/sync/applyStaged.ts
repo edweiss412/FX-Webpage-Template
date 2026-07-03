@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { drive_v3 } from "googleapis";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { resolveAdminAlerts as defaultResolveAdminAlerts } from "@/lib/adminAlerts/resolveAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
 import {
   DRIVE_FILES_GET_TIMEOUT_MS,
@@ -91,6 +92,15 @@ export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RE
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 export const STAGED_PARSE_RESTAGED_INLINE = "STAGED_PARSE_RESTAGED_INLINE" as const;
 export const STAGED_REVIEW_ITEMS_CORRUPT = "STAGED_REVIEW_ITEMS_CORRUPT" as const;
+// S2 (admin-alert-auto-resolution spec) — the reel/embedded-drift verify family reconciled on
+// every clean live apply. A clean verify (no code in this family raised this apply) resolves any
+// stale open alert in the family for the show; a raised code is excluded from the resolve set.
+export const LIVE_VERIFY_ALERT_FAMILY = [
+  "REEL_DRIFTED",
+  "OPENING_REEL_PERMISSION_DENIED",
+  "OPENING_REEL_NOT_VIDEO",
+  "EMBEDDED_ASSET_DRIFTED",
+] as const;
 export const STAGED_PARSE_RESULT_CORRUPT = "STAGED_PARSE_RESULT_CORRUPT" as const;
 
 export type PendingSyncForApply = {
@@ -366,6 +376,7 @@ export type ApplyStagedDeps = {
       | "EMBEDDED_ASSET_DRIFTED";
     context: Record<string, unknown>;
   }) => Promise<unknown>;
+  resolveAdminAlerts?: typeof defaultResolveAdminAlerts;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
   prepareOnboardingFiles?: typeof prepareOnboardingFiles;
   scanOnboardingPreparedFiles?: typeof scanOnboardingPreparedFiles;
@@ -1819,6 +1830,19 @@ export async function applyStaged(
           context: { drive_file_id: args.driveFileId },
         });
       }
+    }
+    // S2 (admin-alert-auto-resolution spec): reconcile the reel/embedded-drift verify family —
+    // resolve every family code NOT raised by this apply. A clean verify (no family code raised)
+    // therefore clears all four; a raised code (e.g. REEL_DRIFTED) is excluded from the resolve
+    // set (its alert stays open until a later clean verify). Error posture matches the adjacent
+    // upserts: awaited, un-caught.
+    if (!("skipped" in result) && result.outcome === "applied") {
+      const raised = new Set(
+        [result.adminAlertCode, ...(result.adminAlertCodes ?? [])].filter(Boolean),
+      );
+      const toResolve = LIVE_VERIFY_ALERT_FAMILY.filter((code) => !raised.has(code));
+      const resolveAlerts = deps.resolveAdminAlerts ?? defaultResolveAdminAlerts;
+      await resolveAlerts({ showId: result.showId, codes: toResolve });
     }
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;

@@ -13,6 +13,7 @@ import {
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
   EXTRA_REVIEWER_CHOICE,
   INVALID_REVIEWER_ACTION,
+  LIVE_VERIFY_ALERT_FAMILY,
   MISSING_REVIEWER_CHOICE,
   PENDING_SYNC_NOT_FOUND,
   STAGED_PARSE_OUTDATED,
@@ -177,6 +178,7 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
     upsertLivePendingIngestion: vi.fn(async () => undefined),
     bumpReviewerAuthFloors: vi.fn(async () => undefined),
     upsertAdminAlert: vi.fn(async () => undefined),
+    resolveAdminAlerts: vi.fn(async () => undefined),
   };
   return { ...base, ...overrides };
 }
@@ -1947,6 +1949,144 @@ describe("applyStaged live-scope", () => {
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.approveWizardPendingSync).toHaveBeenCalled();
     expect(syncDeps.markWizardManifestApplied).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyStaged live-apply family reconcile (S2)", () => {
+  test("clean live apply (no drift, reel verifies null) resolves all four family codes", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const resolveAdminAlerts = vi.fn(async () => undefined);
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      resolveAdminAlerts,
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    expect(resolveAdminAlerts).toHaveBeenCalledTimes(1);
+    expect(resolveAdminAlerts).toHaveBeenCalledWith({
+      showId: "show-1",
+      codes: [...LIVE_VERIFY_ALERT_FAMILY],
+    });
+  });
+
+  test("apply raising exactly REEL_DRIFTED resolves the other three family codes", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const resolveAdminAlerts = vi.fn(async () => undefined);
+    const reelDrift: TriggeredReviewItem = {
+      id: "reel-drift",
+      invariant: "REEL_DRIFT_PENDING",
+      reel_drive_file_id: "reel-1",
+    };
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({
+          triggeredReviewItems: [reelDrift],
+          parseResult: {
+            ...parseResult(),
+            openingReel: {
+              driveFileId: "reel-1",
+              drive_modified_time: "2026-05-08T10:00:00.000Z",
+              headRevisionId: "reel-head-1",
+              mimeType: "video/mp4",
+            },
+          },
+        }),
+      ),
+      resolveAdminAlerts,
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "reel-drift", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(resolveAdminAlerts).toHaveBeenCalledTimes(1);
+    expect(resolveAdminAlerts).toHaveBeenCalledWith({
+      showId: "show-1",
+      codes: LIVE_VERIFY_ALERT_FAMILY.filter((code) => code !== "REEL_DRIFTED"),
+    });
+  });
+
+  test("wizard-scope apply does not invoke the live family reconcile", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const resolveAdminAlerts = vi.fn(async () => undefined);
+    const syncDeps = {
+      ...deps(),
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readWizardPendingSyncForApply: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      approveWizardPendingSync: vi.fn(async () => true),
+      markWizardManifestApplied: vi.fn(async () => true),
+      readPendingFolderId: vi.fn(async () => "watched-folder"),
+      resolveAdminAlerts,
+    } as ApplyStagedDeps;
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({
+      outcome: "wizard_applied",
+      wizardSessionId: W1,
+      stagedId: "staged-wizard",
+    });
+    expect(resolveAdminAlerts).not.toHaveBeenCalled();
+  });
+
+  test("apply outcome other than applied does not invoke the family reconcile", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const resolveAdminAlerts = vi.fn(async () => undefined);
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      runPhase2: vi.fn(async () => ({
+        outcome: "stale" as const,
+        code: "STALE_MANUAL_REPLAY_ABORTED" as const,
+      })),
+      resolveAdminAlerts,
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED });
+    expect(resolveAdminAlerts).not.toHaveBeenCalled();
   });
 });
 
