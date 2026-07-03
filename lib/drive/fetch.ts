@@ -498,6 +498,45 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
 }
 
 /**
+ * Export the CURRENT xlsx bytes of a sheet (no caller-supplied revision token).
+ * Mirrors {@link fetchSheetMarkdownAndBytesAtRevision} minus the pinned-revision
+ * check and the markdown synthesis. Used at Apply/recovery to re-produce embedded
+ * DIAGRAMS-image bytes: the before/after binding-token guard protects against a
+ * mid-export edit; correctness of "these are the approved bytes" is enforced
+ * downstream by the embeddedFingerprint content-hash re-verify, not by pinning
+ * a revision (native-Sheet revisions.list ids are a different token space than
+ * the export binding token — see spec §8.3).
+ */
+export async function fetchCurrentSheetXlsxBytes(
+  driveFileId: string,
+  options: DriveFetchOptions = {},
+): Promise<ArrayBuffer> {
+  const drive = options.drive ?? getDriveClient();
+  const before = await fetchFileForExport(driveFileId, drive, options.retry, options.metadataTimeoutMs);
+  const token = bindingToken(before);
+  const exportUrl = before.exportLinks?.[XLSX_EXPORT_MIME_TYPE];
+  if (!exportUrl) {
+    throw new DriveFetchError(
+      `Drive revision token ${token} for ${driveFileId} did not include an xlsx export link`,
+    );
+  }
+  const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
+  const fetchImpl = options.fetch ?? fetch;
+  const bytes = await fetchXlsxExportBytes(
+    exportUrl,
+    accessToken,
+    fetchImpl,
+    options.exportTimeoutMs ?? DRIVE_EXPORT_TIMEOUT_MS,
+    options.retry,
+  );
+  const after = await fetchFileForExport(driveFileId, drive, options.retry, options.metadataTimeoutMs);
+  if (bindingToken(after) !== token) {
+    throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
+  }
+  return bytes;
+}
+
+/**
  * Fetch a sheet as markdown AND capture its binding in one pass, using the
  * export's before-`get` as the binding source. Equivalent to capturing a
  * binding then calling fetchSheetAsMarkdownAtRevision, but ONE files.get cheaper
