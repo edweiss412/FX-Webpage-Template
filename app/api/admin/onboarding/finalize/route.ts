@@ -929,14 +929,30 @@ async function processApprovedRow(input: {
       };
     }
     // existing-show + UNCHECKED — spec §7.4 D10 NO-OP. Doug left an already-Live show unchecked:
-    // do NOT stage a shadow, do NOT touch public.shows (the Live show is unchanged). Just resolve
-    // the manifest (status='applied', no created show, publish_intent=false → flip-excluded since
-    // created_show_id IS NULL) and consume the pending row so it can't block finish or orphan.
+    // do NOT stage a shadow, do NOT touch public.shows (the Live show is unchanged). Resolve the
+    // manifest (status='applied', publish_intent=false → flip-EXCLUDED: publishAppliedWizardShows
+    // requires publish_intent=true, finalize-cas/route.ts:526/552) and consume the pending row so
+    // it can't block finish or orphan.
+    //
+    // created_show_id is the SESSION PROVENANCE marker — written ONLY by the first-seen create at
+    // :516 (recordCreatedShowProvenance), never elsewhere. This UPDATE deliberately does NOT touch
+    // it (audit idx40/#180):
+    //   - spec-§7.4-intended external-Live-show case: created_show_id is ALREADY NULL (this session
+    //     never created that show), so leaving it is a no-op — publish_intent=false still flip-
+    //     excludes it exactly as before.
+    //   - a first-seen show THIS session created Held (created_show_id SET) that reaches D10 via a
+    //     CLEAN UNCHECKED rescan (its pending_syncs/shadow were consumed by the prior finalize, so
+    //     capturePriorState sees priorReady=false and re-stages it unchecked): created_show_id is
+    //     now PRESERVED, so the show stays a valid LINKED Held row (recoverable) instead of being
+    //     orphaned. The provenance join `m.created_show_id = s.id` (session cleanup at
+    //     sessionLifecycle.ts + the audit surface) stays intact, and publish_intent=false keeps it
+    //     Held (NOT published). The prior `created_show_id = null` broke that join and stranded the
+    //     Held show. Nulling was never correct when a show exists: it is a no-op for the external
+    //     case and the orphaning bug for the session-created case.
     await tx.query(
       `
         update public.onboarding_scan_manifest
            set status = 'applied',
-               created_show_id = null,
                publish_intent = false,
                transitioned_at = now()
          where drive_file_id = $1 and wizard_session_id = $2::uuid
