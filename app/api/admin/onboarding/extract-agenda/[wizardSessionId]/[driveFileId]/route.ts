@@ -210,6 +210,17 @@ export async function handleExtractAgenda(
   }
 
   const { wizardSessionId, driveFileId } = await context.params;
+
+  // Fail fast on a whitespace-only driveFileId (reachable via URL-encoding, e.g. %20),
+  // BEFORE claimExtractLease writes a lease or the advisory-lock key is seeded. A malformed
+  // route param is a CLIENT error (HTTP 400), not a Drive fault — so this is a plain 400,
+  // not a thrown InvalidDriveFileIdError (which downstream classifiers treat as a Drive fault).
+  // The DB CHECK on agenda_extract_leases.drive_file_id remains the backstop. `/\S/` matches
+  // the DB predicate `~ '[^[:space:]]'`.
+  if (!/\S/.test(driveFileId)) {
+    return NextResponse.json({ error: "invalid driveFileId" }, { status: 400 });
+  }
+
   const owner = randomUUID();
   const slotKey = `${wizardSessionId}:${driveFileId}`;
 

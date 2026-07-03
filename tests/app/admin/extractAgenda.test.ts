@@ -232,6 +232,32 @@ describe("extract-agenda — auth", () => {
   });
 });
 
+// ─── (guard) whitespace-only driveFileId → 400 before any lease claim ──────────
+// A Next.js dynamic segment cannot be literally empty, but CAN be whitespace-only via
+// URL encoding (%20 → " "). That value flows straight into claimExtractLease (a raw
+// agenda_extract_leases INSERT) AND seeds the advisory-lock key, so the route must
+// fail fast with HTTP 400 at entry, before any DB/lease work. The DB CHECK is the
+// backstop; this is the fail-fast client-error rejection.
+describe("extract-agenda — whitespace driveFileId guard", () => {
+  test("whitespace-only driveFileId → 400 { error: invalid driveFileId }, no lease claim", async () => {
+    const wiz = randomUUID();
+    const beginSpy = vi.fn();
+    // sql.begin is the SOLE entry point to claimExtractLease (route tx#1a). If the
+    // guard fires it is never reached → beginSpy uncalled ≡ claimExtractLease uncalled.
+    const sqlSpy = { begin: beginSpy } as unknown as NonNullable<ExtractAgendaDeps["sql"]>;
+    const fetchMeta = metaSpy(STAGED_ISO, [FOLDER]);
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, " "), // %20-decoded whitespace segment
+      baseDeps({ sql: sqlSpy, fetchMeta }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid driveFileId" });
+    expect(beginSpy).not.toHaveBeenCalled(); // claimExtractLease never reached
+    expect(fetchMeta).not.toHaveBeenCalled();
+  });
+});
+
 // ─── (lifecycle) missing / superseded ──────────────────────────────────────────
 
 describe("extract-agenda — lifecycle guard", () => {
