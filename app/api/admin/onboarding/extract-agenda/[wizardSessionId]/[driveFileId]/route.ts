@@ -13,6 +13,7 @@ import {
   type LeasePool,
 } from "@/lib/agenda/extractAgendaLease";
 import { enrichAgenda as realEnrichAgenda, type EnrichAgendaReport } from "@/lib/sync/enrichAgenda";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
@@ -193,8 +194,9 @@ export async function handleExtractAgenda(
   // ── 1. AUTH — BEFORE any lease / DB / Drive work (invariant 9, round-14). ──
   // Forbidden/control-flow → 403 ADMIN_FORBIDDEN; AdminInfraError
   // (ADMIN_SESSION_LOOKUP_FAILED) → typed 500 (mirror finalize/route.ts:900-907).
+  let admin: { email: string };
   try {
-    await requireAdmin();
+    admin = await requireAdmin();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -462,6 +464,23 @@ export async function handleExtractAgenda(
       );
       const links = (persist.merged.show?.agenda_links ?? []) as AgendaLinkRecord[];
       const items = buildAdminAgendaPreview(links, { freshByLinkKey, validatedHrefs: true });
+      // Durable success telemetry (audit finding #7): tx#2 committed the parse_result merge +
+      // owner-scoped lease release (leaseReleased === true above), so this is the genuine
+      // committed-success branch — emitted here and NOWHERE on a stale/timeout/missing/superseded
+      // path (no false audit row). POST-COMMIT + await'ed + fail-open (invariant 9). actorEmail is
+      // canonical (requireAdminIdentity). The code literal rides logAdminOutcome (not a §12.4 producer).
+      try {
+        await logAdminOutcome({
+          code: "AGENDA_EXTRACT_COMPLETED",
+          source: "api.admin.onboarding.extractAgenda",
+          actorEmail: admin.email,
+          driveFileId,
+          wizardSessionId,
+          extra: { freshLinkCount: freshByLinkKey.size },
+        });
+      } catch {
+        /* best-effort */
+      }
       return itemsResponse(items);
     } catch (extractErr) {
       // Unexpected throw from the extract/after-fence/merge region. Log the
