@@ -914,9 +914,18 @@ function splitRoomHeader(
     .replace(/^[\s:–—-]+/, "")
     .trim();
 
-  // 2. floor ("7th Floor" / "15th Floor")
+  // 2. floor — ordinal ("7th Floor" / "15th Floor") OR a named non-ordinal level
+  // ("Ground Floor", "Main Floor", "Lobby Floor", …). The qualifier list is a
+  // closed set of real floor designations so the "Floor" template PLACEHOLDER word
+  // (an unfilled "Dimensions Floor" stub, where "Dimensions"/"Floor" have no
+  // qualifier) is NOT matched here and still falls through to the step-4 strip.
+  // Without the non-ordinal branch a "Ground Floor" leaked into the dims string
+  // (dims present) or glued its qualifier onto the room name (no dims) — audit idx23.
   let floor: string | null = null;
-  const floorMatch = /\b\d+\s*(?:st|nd|rd|th)\s+floor\b/i.exec(s);
+  const floorMatch =
+    /\b(?:\d+\s*(?:st|nd|rd|th)|ground|main|lobby|lower|upper|mezzanine|concourse|penthouse|rooftop|basement|garden|terrace)\s+floor\b/i.exec(
+      s,
+    );
   if (floorMatch) {
     floor = floorMatch[0].replace(/\s+/g, " ").trim();
     s = (
@@ -935,6 +944,11 @@ function splitRoomHeader(
         .slice(dimStart)
         .replace(/^APPROXIMATELY\s+/i, "")
         .replace(/\s+/g, " ")
+        // Drop a dangling trailing "x" left by an unfilled height cell — the venue
+        // filled "75' x 37'" but left the 3rd dimension blank, so the flattened
+        // header reads "75' x 37' x" and the stray "x" would reach the crew card
+        // verbatim (confirmed on the LIVE fintech ADLER BALLROOM cell) — audit idx22.
+        .replace(/\s*x\s*$/i, "")
         .trim(),
     );
     s = s.slice(0, dimStart).trim();
