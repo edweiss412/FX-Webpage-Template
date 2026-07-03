@@ -118,7 +118,7 @@ export function extractEmbeddedObjects(xlsx: ArrayBuffer): ExtractedEmbeddedObje
     for (const target of drawingRels.values()) {
       if (!/(^|\/)media\//.test(target)) continue;
       const partName = norm(drawingPath, target); // xl/media/imageX.ext
-      const ext = (partName.split(".").pop() ?? "").toLowerCase();
+      const ext = (partName.split(".").pop() ?? "").toLowerCase(); // canonicalize-exempt: OOXML media file-extension case-fold for the raster MIME map, not email
       const mimeType = RASTER[ext];
       if (!mimeType) continue; // raster-only (drops emf/wmf/svg/etc.)
       const bytes = zip[partName];
