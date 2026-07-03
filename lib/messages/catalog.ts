@@ -949,11 +949,11 @@ export const MESSAGE_CATALOG = {
     code: "SHOW_FIRST_PUBLISHED",
     severity: "info",
     dougFacing:
-      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** You have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its page instead. Either way its crew link switches off until you republish.",
+      "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link.",
     crewFacing: null,
     followUp: null,
     helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, you have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
+      "We auto-published this show because the parse looked clean \u2014 all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
     title: null,
     longExplanation: null,
     helpHref: null,
@@ -961,14 +961,14 @@ export const MESSAGE_CATALOG = {
   SHOW_UNPUBLISHED: {
     code: "SHOW_UNPUBLISHED",
     dougFacing:
-      "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
+      "_<sheet-name>_ has been unpublished. Its crew link is paused \u2014 crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
     crewFacing: null,
-    followUp: "Doug → optionally re-share when ready",
+    followUp: "Doug \u2192 republish from the show's page when ready",
     helpfulContext:
-      "You clicked Unpublish on a recently-published show. The show is now archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+      "This show has been unpublished \u2014 from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed \u2014 the same link works again when you republish, your sheet is unchanged and keeps syncing, and the show stays in Active shows. Turn Published back on from the show's page when you're ready.",
     title: "Show unpublished",
     longExplanation:
-      "You clicked Unpublish on a recently-published show. The show is archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost. Drag the sheet back into the watched folder when you're ready to publish again.",
+      "This show has been unpublished — from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed — the same link works again when you republish, and the sheet keeps syncing. Turn Published back on from the show's page when you're ready.",
     helpHref: "/help/errors#SHOW_UNPUBLISHED",
   },
   UNPUBLISH_TOKEN_CONSUMED: {
@@ -987,14 +987,14 @@ export const MESSAGE_CATALOG = {
   UNPUBLISH_TOKEN_EXPIRED: {
     code: "UNPUBLISH_TOKEN_EXPIRED",
     dougFacing:
-      "This unpublish link expired. Links stay valid for 24 hours; to take this show offline now, archive it from the admin dashboard.",
+      "This unpublish link expired. Links stay valid for 24 hours; to take this show offline now, flip the Published toggle off on the show's page.",
     crewFacing: null,
-    followUp: "Doug → archive via dashboard",
+    followUp: "Doug \u2192 toggle Published off from the show's page",
     helpfulContext:
-      "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
+      "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes \u2014 the show is treated as a normal published show. To take it offline now, open the show's page and flip the Published toggle off.",
     title: "Unpublish link expired",
     longExplanation:
-      "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the show is treated as a normal published show. To take it offline now, archive it from the show's parse panel.",
+      "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the show is treated as a normal published show. To take it offline now, flip the Published toggle off on the show's page.",
     helpHref: "/help/errors#UNPUBLISH_TOKEN_EXPIRED",
   },
   ONBOARDING_SCAN_REVIEW: {
@@ -1551,14 +1551,14 @@ export const MESSAGE_CATALOG = {
   FINALIZE_OWNED_SHOW: {
     code: "FINALIZE_OWNED_SHOW",
     dougFacing:
-      "This show is currently being published as part of a setup wizard. Wait for the wizard to finish, then try again.",
+      "This show is busy with a setup-wizard publish or a staged-changes finalize. Wait for it to finish, then try again.",
     crewFacing: null,
-    followUp: "Doug → wait for wizard finalize to complete",
+    followUp: "Doug \u2192 wait for the finalize to complete",
     helpfulContext:
-      "This show is currently being published as part of a setup wizard's multi-batch finalize. Until the wizard's final-publish step commits, the row is held with `published = false` and admin write actions (Re-sync from Drive, Apply/Discard staged changes, and similar gated actions) are blocked to prevent races against the in-flight finalize. Wait for the wizard tab to finish — the dashboard 'Publishing…' badge clears the moment the final-publish step commits, after which this action will succeed.",
-    title: "Show currently owned by setup wizard",
+      "This show is owned by an in-flight finalize \u2014 either a setup wizard publishing it for the first time, or a staged-changes finalize applying updates to the live show. Until that finalize commits, admin write actions (Re-sync from Drive, Apply/Discard staged changes, publish/unpublish, and similar gated actions) are blocked to prevent races against the in-flight work. Wait for it to finish \u2014 the moment the finalize commits, this action will succeed.",
+    title: "Show busy with an in-flight finalize",
     longExplanation:
-      "This show is currently being published as part of a setup wizard's multi-batch finalize. Admin write actions on it are gated until the wizard's final-publish step commits, to prevent races. Wait for the wizard tab to finish, then retry.",
+      "This show is owned by an in-flight finalize — a setup wizard publishing it, or a staged-changes finalize updating it. Admin write actions on it are gated until that finalize commits, to prevent races. Wait for it to finish, then retry.",
     helpHref: "/help/errors#FINALIZE_OWNED_SHOW",
   },
   SHOW_ARCHIVED_BY_ADMIN: {
@@ -1629,7 +1629,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → review + publish",
     helpfulContext:
-      "Auto-publish for clean new shows is turned off, so this newly-seen sheet parsed cleanly but is waiting for you to approve it before it goes live. Review it in the inbox and publish when you're ready. Turn auto-publish back on in Settings if you'd rather clean new shows go live automatically.",
+      "Auto-publish for clean new shows is turned off, so this newly-seen sheet parsed cleanly but is waiting for you to approve it before it goes live. Review it in the inbox and publish when you're ready \u2014 or flip Published on from the show's page. Turn auto-publish back on in Settings if you'd rather clean new shows go live automatically.",
     title: null,
     longExplanation: null,
     helpHref: null,
@@ -2749,6 +2749,17 @@ export const MESSAGE_CATALOG = {
     crewFacing:
       "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
     followUp: "Crew → text Doug for the current link",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  CREW_SHOW_PAUSED: {
+    code: "CREW_SHOW_PAUSED",
+    dougFacing: null,
+    crewFacing:
+      "This show isn't available right now. Check back soon — if you're expecting it, text Doug.",
+    followUp: "Crew → check back later",
     helpfulContext: null,
     title: null,
     longExplanation: null,
