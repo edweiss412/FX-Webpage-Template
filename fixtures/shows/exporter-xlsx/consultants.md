@@ -82,8 +82,9 @@
 | Fonts | Aptos Font Folder |
 | Notes | N/A |
 
-| GS Setup | we anticipate approximately 160 in attendance. Room will be set in 23-25 rectangles of 7 per table; handheld mics at each table; panel will have goosenecks on stage. Number of panelists to be confirmed as we get closer to the meeting;  |
+| GENERAL SESSION GRAND BALLROOM A/B A/B: 82' x 63' x 14' 8th Floor | GENERAL SESSION GRAND BALLROOM A/B A/B: 82' x 63' x 14' 8th Floor |
 | :---: | :---: |
+| GS Setup | we anticipate approximately 160 in attendance. Room will be set in 23-25 rectangles of 7 per table; handheld mics at each table; panel will have goosenecks on stage. Number of panelists to be confirmed as we get closer to the meeting;  |
 | GS Set Time | 10/7 @ 9pm |
 | GS Show Time | 10/8 @ 8:45am |
 | GS Strike Time | 10/9 @ 4:30pm |
