@@ -49,6 +49,11 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
   // DQIGNORE-4 (2026-07-02): data-quality warning ignore/un-ignore forensic trace.
   { file: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", code: "WARNING_IGNORED" },
   { file: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", code: "WARNING_UNIGNORED" },
+  // Observability PR-2 (2026-07-03): silent-surface instrumentation.
+  {
+    file: "app/api/show/[slug]/unpublish/route.ts",
+    code: "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -70,6 +75,8 @@ const SANCTIONED_CODES = new Set([
   // DQIGNORE-4 (2026-07-02).
   "WARNING_IGNORED",
   "WARNING_UNIGNORED",
+  // Observability PR-2 (2026-07-03).
+  "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -108,6 +115,8 @@ const NEW_FORENSIC_CODES = new Set([
   "DRIVE_WATCH_RENEWAL_FAILED",
   "DRIVE_WATCH_INFRA_FAULT",
   "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
+  // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
+  "UNPUBLISH_INFRA_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
