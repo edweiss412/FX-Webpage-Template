@@ -53,6 +53,7 @@ const CHANGED_COMPONENTS = [
   "components/admin/ArchivedShowRow.tsx",
   "components/admin/ArchiveShowButton.tsx",
   "components/admin/PublishShowButton.tsx",
+  "components/admin/PublishedToggle.tsx",
   "components/admin/UnarchiveShowButton.tsx",
 ];
 

@@ -146,12 +146,6 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
     disposition: "revalidate",
     reason: "publish_show/unpublish_show dispatcher (Published toggle); revalidateShow(id) on ok",
   },
-  {
-    file: "app/admin/show/[slug]/_actions/undoAutoPublish.ts",
-    siteCount: 0,
-    disposition: "revalidate",
-    reason: "unpublishShow caller; revalidateShow(result.showId) on success",
-  },
   // ---- Task 9 (feed + unpublish + validation + exemptions) ----
   {
     file: "app/admin/show/[slug]/_actions/feed.ts",
@@ -180,11 +174,10 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
     coveredByCallers: [
       "app/api/show/[slug]/unpublish/route.ts",
       "app/show/[slug]/unpublish/actions.ts",
-      "app/admin/show/[slug]/_actions/undoAutoPublish.ts",
     ],
     reason:
       "the show update(published/archive) lives here, but revalidate is at its Next callers " +
-      "(unpublish route + confirm action + undoAutoPublish), which own the post-commit boundary",
+      "(unpublish route + confirm action), which own the post-commit boundary",
   },
   {
     file: "lib/sync/discardStaged.ts",

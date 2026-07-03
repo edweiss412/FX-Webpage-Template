@@ -56,13 +56,6 @@ const lockHolderRegistry = [
   },
   {
     path: "lib/sync/unpublishShow.ts",
-    holder: "unpublishShow",
-    layer:
-      "resolves slug to drive_file_id before delegating token consumption/link revocation to withShowLock; unpublishShow_unlocked never locks",
-    key: "hashtext('show:' || drive_file_id)",
-  },
-  {
-    path: "lib/sync/unpublishShow.ts",
     holder: "unpublishShowViaEmailedLink",
     layer:
       "mirrors unpublishShow's topology — slug bootstrap read, then ONE withShowLock holder; the FOR-SHARE recipient-binding re-validation runs inside that same holder (no new lock layer); unpublishShowViaEmailedLink_unlocked never locks",
@@ -359,11 +352,6 @@ describe("M6 advisory-lock single-holder contract", () => {
         expect.objectContaining({
           holder: "assetRecovery",
           layer: expect.stringContaining("before delegating final DB writes to withShowLock"),
-          key: "hashtext('show:' || drive_file_id)",
-        }),
-        expect.objectContaining({
-          holder: "unpublishShow",
-          layer: expect.stringContaining("withShowLock"),
           key: "hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({

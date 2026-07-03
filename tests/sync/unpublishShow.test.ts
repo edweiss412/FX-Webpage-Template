@@ -29,7 +29,7 @@ class FakeUnpublishTx implements UnpublishShowTx {
 
   async queryOne<T>(sql: string): Promise<T> {
     if (/pg_(?:try_)?advisory_xact_lock/i.test(sql)) {
-      throw new Error("unpublishShow_unlocked must not acquire advisory locks");
+      throw new Error("unpublishShowViaEmailedLink_unlocked must not acquire advisory locks");
     }
     if (/first_seen_owned/i.test(sql)) {
       // readFinalizeOwnershipGuard_unlocked's two-EXISTS predicate (runManualSyncForShow.ts).
@@ -98,151 +98,6 @@ function show(overrides: Partial<ShowRow> = {}): ShowRow {
     ...overrides,
   };
 }
-
-describe("unpublishShow_unlocked", () => {
-  test("valid token PURE-unpublishes (archived untouched), consumes token, alerts, and broadcasts under caller lock", async () => {
-    const tx = new FakeUnpublishTx(show()) as LockedShowTx<FakeUnpublishTx>;
-    const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
-
-    await expect(
-      unpublishShow_unlocked(tx, {
-        slug: "client-show",
-        token: "11111111-1111-4111-8111-111111111111",
-        now: new Date("2026-05-08T13:00:00.000Z"),
-      }),
-    ).resolves.toEqual({ outcome: "success", status: 200, showId: "show-1" });
-
-    expect(tx.show?.archived).toBe(false); // D1: pure unpublish never archives
-    expect(tx.show?.published).toBe(false);
-    expect(tx.show?.unpublishToken).toBeNull();
-    expect(tx.alerts).toEqual([
-      {
-        showId: "show-1",
-        code: "SHOW_UNPUBLISHED",
-        context: {
-          drive_file_id: "drive-file-1",
-          sheet_name: "Client Show",
-        },
-      },
-    ]);
-    expect(tx.broadcasts).toEqual(["show-1"]);
-    expect(tx.operations).toEqual([
-      "read:client-show",
-      "finalizeCheck",
-      "unpublishConsume:show-1",
-      "alert:SHOW_UNPUBLISHED",
-      "broadcast:show-1",
-    ]);
-  });
-
-  test("finalize-owned show → finalize_owned 409; token intact, ZERO mutations", async () => {
-    const tx = new FakeUnpublishTx(show(), true, [], true) as LockedShowTx<FakeUnpublishTx>;
-    const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
-
-    await expect(
-      unpublishShow_unlocked(tx, {
-        slug: "client-show",
-        token: "11111111-1111-4111-8111-111111111111",
-        now: new Date("2026-05-08T13:00:00.000Z"),
-      }),
-    ).resolves.toEqual({ outcome: "finalize_owned", status: 409, showId: "show-1" });
-
-    expect(tx.show?.unpublishToken).toBe("11111111-1111-4111-8111-111111111111");
-    expect(tx.show?.published).toBe(true);
-    expect(tx.alerts).toEqual([]);
-    expect(tx.operations).toEqual(["read:client-show", "finalizeCheck"]);
-  });
-
-  test("expired matching token clears token and returns UNPUBLISH_TOKEN_EXPIRED without alert", async () => {
-    const tx = new FakeUnpublishTx(show()) as LockedShowTx<FakeUnpublishTx>;
-    const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
-
-    await expect(
-      unpublishShow_unlocked(tx, {
-        slug: "client-show",
-        token: "11111111-1111-4111-8111-111111111111",
-        now: new Date("2026-05-09T12:00:01.000Z"),
-      }),
-    ).resolves.toEqual({
-      outcome: "expired",
-      status: 400,
-      code: "UNPUBLISH_TOKEN_EXPIRED",
-      showId: "show-1",
-    });
-
-    expect(tx.show?.unpublishToken).toBeNull();
-    expect(tx.alerts).toEqual([]);
-    expect(tx.operations).toEqual(["read:client-show", "clearToken:show-1"]);
-  });
-
-  test("already-cleared token returns UNPUBLISH_TOKEN_CONSUMED idempotently", async () => {
-    const tx = new FakeUnpublishTx(
-      show({ unpublishToken: null, unpublishTokenExpiresAt: null, published: false }),
-    ) as LockedShowTx<FakeUnpublishTx>;
-    const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
-
-    await expect(
-      unpublishShow_unlocked(tx, {
-        slug: "client-show",
-        token: "11111111-1111-4111-8111-111111111111",
-        now: new Date("2026-05-08T13:00:00.000Z"),
-      }),
-    ).resolves.toEqual({
-      outcome: "consumed",
-      status: 400,
-      code: "UNPUBLISH_TOKEN_CONSUMED",
-      showId: "show-1",
-    });
-
-    expect(tx.operations).toEqual(["read:client-show"]);
-  });
-
-  test("missing slug or mismatched live token returns 404 not_found", async () => {
-    const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
-
-    await expect(
-      unpublishShow_unlocked(new FakeUnpublishTx(null) as LockedShowTx<FakeUnpublishTx>, {
-        slug: "missing",
-        token: "11111111-1111-4111-8111-111111111111",
-        now: new Date("2026-05-08T13:00:00.000Z"),
-      }),
-    ).resolves.toEqual({ outcome: "not_found", status: 404 });
-
-    await expect(
-      unpublishShow_unlocked(new FakeUnpublishTx(show()) as LockedShowTx<FakeUnpublishTx>, {
-        slug: "client-show",
-        token: "22222222-2222-4222-8222-222222222222",
-        now: new Date("2026-05-08T13:00:00.000Z"),
-      }),
-    ).resolves.toEqual({ outcome: "not_found", status: 404 });
-  });
-
-  test("concurrent race loser observes consumed token after winner clears it", async () => {
-    const sharedShow = show();
-    const tx = new FakeUnpublishTx(sharedShow) as LockedShowTx<FakeUnpublishTx>;
-    const { unpublishShow_unlocked } = await import("@/lib/sync/unpublishShow");
-
-    await unpublishShow_unlocked(tx, {
-      slug: "client-show",
-      token: "11111111-1111-4111-8111-111111111111",
-      now: new Date("2026-05-08T13:00:00.000Z"),
-    });
-
-    await expect(
-      unpublishShow_unlocked(tx, {
-        slug: "client-show",
-        token: "11111111-1111-4111-8111-111111111111",
-        now: new Date("2026-05-08T13:00:01.000Z"),
-      }),
-    ).resolves.toEqual({
-      outcome: "consumed",
-      status: 400,
-      code: "UNPUBLISH_TOKEN_CONSUMED",
-      showId: "show-1",
-    });
-    expect(tx.alerts).toHaveLength(1);
-  });
-});
 
 // M12.13 spec §3 ("Atomic recipient re-validation" + "Consumed-token contract",
 // R12/R18/R19): the emailed-link wrapper re-validates the recipient binding
@@ -415,6 +270,20 @@ describe("unpublishShowViaEmailedLink_unlocked", () => {
       }),
     ).resolves.toEqual({ outcome: "not_found", status: 404 });
     expect(txGarbage.operations).toEqual(["read:client-show"]);
+  });
+
+  test("missing slug → neutral not_found before any binding read", async () => {
+    const tx = new FakeUnpublishTx(null, true, activeAdmins) as LockedShowTx<FakeUnpublishTx>;
+    const { unpublishShowViaEmailedLink_unlocked } = await import("@/lib/sync/unpublishShow");
+    await expect(
+      unpublishShowViaEmailedLink_unlocked(tx, {
+        slug: "missing",
+        token: STORED_TOKEN,
+        r: validR,
+        now: new Date("2026-05-08T13:00:00.000Z"),
+      }),
+    ).resolves.toEqual({ outcome: "not_found", status: 404 });
+    expect(tx.operations).toEqual(["read:missing"]);
   });
 
   test("binding valid + expired token → EXPIRED outcome with the plain path's expired-clear behavior", async () => {

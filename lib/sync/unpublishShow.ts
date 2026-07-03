@@ -254,27 +254,6 @@ function hasLiveTokenColumns(
   return show.unpublishToken !== null && show.unpublishTokenExpiresAt !== null;
 }
 
-export async function unpublishShow_unlocked(
-  tx: LockedShowTx<UnpublishShowTx>,
-  args: UnpublishShowArgs,
-): Promise<UnpublishShowResult> {
-  const show = await tx.readShowForUnpublish(args.slug);
-  if (!show) return { outcome: "not_found", status: 404 };
-
-  await assertShowLockHeld(tx, show.driveFileId);
-
-  if (!hasLiveTokenColumns(show)) {
-    return {
-      outcome: "consumed",
-      status: 400,
-      code: UNPUBLISH_TOKEN_CONSUMED,
-      showId: show.id,
-    };
-  }
-
-  return await compareExpireConsume_lockHeld(tx, show, args);
-}
-
 /**
  * M12.13 spec §3 ("Atomic recipient re-validation" + "Consumed-token
  * contract", R12/R18/R19) — the PUBLIC emailed-link consume path. Inside the
@@ -314,29 +293,6 @@ export async function unpublishShowViaEmailedLink_unlocked(
   return await compareExpireConsume_lockHeld(tx, show, args);
 }
 
-/**
- * M12.13 §6.2 — the in-app undo server action reads the show's STORED
- * `unpublish_token` by slug so it can pass it to the plain `unpublishShow`
- * (which compares the submitted token against the stored one). Raw-postgres
- * seam, mirroring `readDriveFileIdForUnpublishSlug` — NOT a Supabase client
- * call, so the Supabase call-boundary registry rows don't apply (the action's
- * inline `not-subject-to-meta` waiver covers it). A null result means the mint
- * is gone (token vanished between render and click); the action surfaces the
- * CONSUMED catalog outcome rather than calling `unpublishShow` with a bad token.
- */
-export async function readUnpublishTokenForSlug(slug: string): Promise<string | null> {
-  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
-  try {
-    const rows = (await sql.unsafe(
-      "select unpublish_token::text as unpublish_token from public.shows where slug = $1 limit 1",
-      [slug],
-    )) as Array<{ unpublish_token: string | null }>;
-    return rows[0]?.unpublish_token ?? null;
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
-}
-
 export async function readDriveFileIdForUnpublishSlug(slug: string): Promise<string | null> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
@@ -345,25 +301,6 @@ export async function readDriveFileIdForUnpublishSlug(slug: string): Promise<str
       [slug],
     )) as Array<{ drive_file_id: string }>;
     return rows[0]?.drive_file_id ?? null;
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
-}
-
-export async function unpublishShow(args: UnpublishShowArgs): Promise<UnpublishShowResult> {
-  const driveFileId = await readDriveFileIdForUnpublishSlug(args.slug);
-  if (!driveFileId) return { outcome: "not_found", status: 404 };
-
-  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
-  try {
-    return (await sql.begin(async (rawTx) => {
-      const tx = new PostgresUnpublishTx(rawTx as unknown as PostgresTransaction);
-      return await withShowLock<UnpublishShowTx, UnpublishShowResult>(
-        driveFileId,
-        (lockedTx) => unpublishShow_unlocked(lockedTx, args),
-        { tx, tryOnly: false },
-      );
-    })) as UnpublishShowResult;
   } finally {
     await sql.end({ timeout: 5 });
   }
