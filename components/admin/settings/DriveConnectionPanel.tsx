@@ -30,7 +30,9 @@ import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
 import { HoverHelp } from "@/components/admin/HoverHelp";
+import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
 import { rerunSetupServerAction } from "@/lib/onboarding/serverActions";
+import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 
 function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
   if ("kind" in health) {
@@ -52,8 +54,13 @@ function deriveStatusLine(health: DriveConnectionHealth, now: Date): string {
   // Warn branches. NEVER prefixed with "Connected".
   switch (health.reason) {
     case "not_configured":
-      // No folder → no last-read clause.
-      return "Connection not set up";
+      // folderId === null → never configured: no folder, no last-read clause.
+      // folderId !== null → folder configured but zero watch rows (post-GC
+      // recovery): same lapsed-connection line + Retry affordance as
+      // watch_inactive/watch_expired (copy and affordance agree on the key).
+      return health.folderId === null
+        ? "Connection not set up"
+        : `Connection needs attention${lastReadClause}`;
     case "watch_inactive":
     case "watch_expired":
       return `Connection needs attention${lastReadClause}`;
@@ -82,12 +89,23 @@ function deriveHealthExplainer(health: DriveConnectionHealth): string {
   }
   // Positive never shows the tooltip; return empty so the union narrows to warn.
   if (health.health === "positive") return "";
+  // Shared copy for the "connection lapsed — Retry to reconnect" states:
+  // watch_inactive, watch_expired, AND not_configured that still carries a
+  // folderId (post-GC zero-watch-rows recovery — same remedy: Retry). Points at
+  // the Settings "Retry connection" button, not Re-run setup.
+  const retryExplainer =
+    "FXAV's link to your Drive folder lapsed, so new edits may not sync instantly. Use Retry connection to reconnect — your existing shows keep all their data and keep syncing on the normal schedule.";
   switch (health.reason) {
     case "not_configured":
-      return "You haven't pointed FXAV at a Drive folder yet. Run setup to choose the folder it should watch.";
+      // folderId === null → never configured: onboarding copy. Otherwise the
+      // folder is known but the watch lapsed → Retry copy (matches the status
+      // line's same-key branch).
+      return health.folderId === null
+        ? "You haven't pointed FXAV at a Drive folder yet. Run setup to choose the folder it should watch."
+        : retryExplainer;
     case "watch_inactive":
     case "watch_expired":
-      return "FXAV's link to your Drive folder lapsed, so new edits may not sync. Re-run setup to reconnect; your existing shows keep all their data.";
+      return retryExplainer;
     case "sync_unknown":
       // B1-D2 contract: sync_unknown is a developer-attention / data-integrity
       // state (enum drift / corrupt row), NOT routine staleness. Mirror the
@@ -113,6 +131,19 @@ export function DriveConnectionPanel({
   const folderUrl = driveFolderUrl(folderId);
   const statusLine = deriveStatusLine(health, now);
   const healthExplainer = deriveHealthExplainer(health);
+
+  // Self-service Retry-connection affordance — shown ONLY for the recoverable
+  // watch-subscription-lapsed states. The not_configured leg is gated on a
+  // non-null folderId (folder configured but zero watch rows post-GC); a truly
+  // never-configured panel (folderId === null) has nothing to retry and keeps
+  // the Re-run-setup onboarding path. Keeps the copy (deriveStatusLine /
+  // deriveHealthExplainer) and the affordance in agreement on the folderId key.
+  const showRetry =
+    !("kind" in health) &&
+    health.health === "warn" &&
+    (health.reason === "watch_inactive" ||
+      health.reason === "watch_expired" ||
+      (health.reason === "not_configured" && health.folderId !== null));
 
   return (
     <section
@@ -217,6 +248,22 @@ export function DriveConnectionPanel({
                 <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
               </a>
             )}
+            {/* Task 12 — self-service Retry for a lapsed watch subscription
+              (spec §3.6). Accent primary CTA; leads the neutral Re-run setup
+              fallback. Rendered only for the recoverable states (showRetry). */}
+            {showRetry ? (
+              <form
+                data-testid="drive-connection-retry-form"
+                action={retryWatchSubscriptionFormAction}
+                className="flex"
+              >
+                <RetryWatchButton
+                  idleLabel="Retry connection"
+                  pendingLabel="Retrying…"
+                  testId="drive-connection-retry-button"
+                />
+              </form>
+            ) : null}
             <form
               data-testid="drive-connection-rerun-setup-form"
               data-action="rerunSetupServerAction"
