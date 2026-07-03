@@ -358,6 +358,7 @@ export type RunScheduledCronSyncDeps = {
   getActiveWatchedFolderId?: () => Promise<ActiveWatchedFolderResult>;
   listFolder?: typeof listDriveFolder;
   logSync?: (entry: SyncLogEntry) => Promise<void>;
+  emitEscapedSyncFailureAlert?: (driveFileId: string, failureCode: string) => Promise<void>;
   listLiveShows?: () => Promise<CronLiveShowRow[]>;
   withShowLock?: <R>(
     driveFileId: string,
@@ -2943,6 +2944,50 @@ export async function processOneFile_unlocked(
   return result;
 }
 
+/**
+ * Raise a durable per-show sync-problem alert for an infra fault that ESCAPED
+ * `processOneFile` (reaching the cron file-loop catch below). That path builds a
+ * `parse_error` result but — unlike `handleFetchFailure_unlocked` — never marks
+ * the show or raises an alert, so a show could fail every cron run visible only
+ * as the aggregate `partial` run summary (the 2026-07-03 outage class). We reuse
+ * the existing `DRIVE_FETCH_FAILED` sync-problem code (already the generic
+ * drive/parse failure alert; no new §12.4 code) via the canonical
+ * `upsert_admin_alert` RPC. A FRESH connection is required — the pipeline tx has
+ * already rolled back/ended by the time we reach the catch. Auto-resolves on the
+ * next successful sync via `resolveStaleSyncProblemAlerts_unlocked`. Best-effort:
+ * the caller swallows failures so alerting never fails the run.
+ */
+export async function emitEscapedSyncFailureAlert(
+  driveFileId: string,
+  failureCode: string,
+): Promise<void> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql`
+      select id::text as show_id, title
+        from public.shows
+       where drive_file_id = ${driveFileId}
+       limit 1
+    `) as Array<{ show_id: string; title: string | null }>;
+    const show = rows[0];
+    if (!show) return; // first-seen / no live show row → nothing to attribute
+    await sql`
+      select public.upsert_admin_alert(
+        ${show.show_id}::uuid,
+        'DRIVE_FETCH_FAILED',
+        ${sql.json({
+          drive_file_id: driveFileId,
+          failure_code: failureCode,
+          // §12.4 <sheet-name> placeholder for the AlertBanner interpolation.
+          sheet_name: show.title,
+        })}::jsonb
+      )
+    `;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 export async function runScheduledCronSync(
   deps: RunScheduledCronSyncDeps = {},
 ): Promise<RunScheduledCronSyncResult> {
@@ -3103,6 +3148,18 @@ export async function runScheduledCronSync(
           code: result.code,
           payload: errorPayload(error),
         });
+        // Escaped infra fault: processOneFile's in-lock recovery (mark + alert)
+        // did not run. Raise a durable per-show alert so persistent failures reach
+        // the notify tier, not just the aggregate summary. Best-effort — never fail
+        // the run on an alert-emit error.
+        try {
+          await (deps.emitEscapedSyncFailureAlert ?? emitEscapedSyncFailureAlert)(
+            file.driveFileId,
+            result.code,
+          );
+        } catch {
+          // swallow: alerting is advisory, the sync run must complete
+        }
         processed.push({
           driveFileId: file.driveFileId,
           result,
