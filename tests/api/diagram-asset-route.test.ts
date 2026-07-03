@@ -891,6 +891,21 @@ describe("/api/asset/diagram — ASSET_UNAVAILABLE breadcrumb (finding #8)", () 
     });
   });
 
+  test("debuggable 410 (oversized object → route byte ceiling) emits reason=oversize + showId", async () => {
+    // 60MB blob — over the 50MB MAX_DIAGRAM_BYTES route cap → oversize 410 (the other
+    // debuggable 410 class besides not_found; a crew-reported unrenderable diagram).
+    routeMock.storageBytes = new Uint8Array(60 * 1024 * 1024);
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({
+      reason: "oversize",
+      assetKey: `${currentRev}/${assetKey}`,
+    });
+  });
+
   test("BENIGN 410 (stale/unknown rev) emits NO breadcrumb", async () => {
     // A non-current rev is a benign not-yet-available/stale asset, not a fault.
     const res = await getDiagram("44444444-4444-4444-8444-444444444444");

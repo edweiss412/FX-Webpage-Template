@@ -258,6 +258,42 @@ test("finding #11: too-many-pages emit carries the passed driveFileId", async ()
     vi.resetModules();
   }
 });
+test("finding #11: low-confidence emit carries the passed driveFileId", async () => {
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({
+        numPages: 1,
+        getPage: async () => ({
+          getTextContent: async () => ({
+            items: [
+              {
+                str: "Welcome to the conference",
+                transform: [10, 0, 0, 10, 50, 700],
+                fontName: "g_d0_f1",
+              },
+            ],
+          }),
+        }),
+      }),
+    }),
+  }));
+  try {
+    const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+    await extract(new Uint8Array([1, 2, 3]), { driveFileId: DRIVE_FILE_ID });
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "low-confidence",
+      expect.objectContaining({
+        source: "agenda.extract",
+        code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
+        driveFileId: DRIVE_FILE_ID,
+      }),
+    );
+  } finally {
+    vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.resetModules();
+  }
+});
 test("finding #11 back-compat: no opts → no driveFileId field on the emit", async () => {
   await extractAgendaSchedule(new Uint8Array([0]));
   const call = logMock.error.mock.calls.find((c) => c[0] === "pdfjs threw");
