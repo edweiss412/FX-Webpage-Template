@@ -217,7 +217,8 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
     }
 
     // Task B2: existing-show-unchecked D10 no-op resolves the manifest to 'applied'
-    // (created_show_id=null, publish_intent=false) — distinguished by the 'applied' literal.
+    // (publish_intent=false; created_show_id is PRESERVED, not nulled — audit idx40/#180)
+    // — distinguished by the 'applied' literal.
     if (
       normalized.startsWith("update public.onboarding_scan_manifest") &&
       normalized.includes("set status = 'applied'")
