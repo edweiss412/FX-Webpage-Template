@@ -42,6 +42,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import {
   activeSectionFor,
+  DRAG_DISMISS_THRESHOLD_PX,
+  DRAG_SLOP_PX,
   SCROLL_SPY_OFFSET_PX,
   Step3ReviewModal,
 } from "@/components/admin/wizard/Step3ReviewModal";
@@ -1024,13 +1026,10 @@ describe("Step3ReviewModal — scroll-spy wiring (Task 6, spec §6.3a)", () => {
   test("scrolling the content pane recomputes active via the container-relative rule (rAF-throttled)", () => {
     // Run requestAnimationFrame synchronously so the rAF-throttled scroll
     // handler resolves within this tick.
-    vi.stubGlobal(
-      "requestAnimationFrame",
-      ((cb: FrameRequestCallback) => {
-        cb(0);
-        return 0;
-      }) as typeof requestAnimationFrame,
-    );
+    vi.stubGlobal("requestAnimationFrame", ((cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    }) as typeof requestAnimationFrame);
     vi.stubGlobal("cancelAnimationFrame", (() => {}) as typeof cancelAnimationFrame);
 
     const { q, d } = renderModal();
@@ -1079,5 +1078,252 @@ describe("Step3ReviewModal — scroll-spy wiring (Task 6, spec §6.3a)", () => {
     } finally {
       restoreRects();
     }
+  });
+});
+
+// ── Sheet drag-to-dismiss (Task 7, spec §10; §11 T3–T5, C1, C2, C5, C6) ──────
+
+describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () => {
+  /** Token-matched transitionend fallback: `--duration-normal` = 220ms
+   *  (app/globals.css). The spec's dismiss timeout mirrors the token; if the
+   *  token changes, this literal AND the component's fallback change together. */
+  const DURATION_NORMAL_MS = 220;
+
+  // Derived pointer travels (anti-tautology: computed from the module
+  // constants, never restated literals).
+  const DISMISS_DY = DRAG_DISMISS_THRESHOLD_PX + 30; // past the dismiss line
+  const SPRING_DY = Math.floor((DRAG_SLOP_PX + DRAG_DISMISS_THRESHOLD_PX) / 2); // between slop and dismiss
+  const START_Y = 100;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** jsdom implements neither pointer capture nor matchMedia — stub capture on
+   *  the grab button (per the task brief) so the component's capture calls are
+   *  observable. */
+  function grabWithCaptureStubs(q: ReturnType<typeof renderModal>["q"]) {
+    const grab = q.getByTestId(tid("grab"));
+    const setPointerCapture = vi.fn();
+    const releasePointerCapture = vi.fn();
+    Object.assign(grab, { setPointerCapture, releasePointerCapture });
+    const panel = q.container.querySelector<HTMLElement>("[data-step3-review-panel]");
+    if (!panel) throw new Error("panel not rendered");
+    return { grab, panel, setPointerCapture, releasePointerCapture };
+  }
+
+  /** matchMedia mock with capturable listeners (jsdom has none natively). */
+  function stubMatchMedia() {
+    const listeners: Array<(ev: { matches: boolean }) => void> = [];
+    const removed: unknown[] = [];
+    const queries: string[] = [];
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => {
+        queries.push(query);
+        return {
+          matches: false,
+          media: query,
+          addEventListener: (_type: string, cb: (ev: { matches: boolean }) => void) => {
+            listeners.push(cb);
+          },
+          removeEventListener: (_type: string, cb: unknown) => {
+            removed.push(cb);
+            const i = listeners.indexOf(cb as (ev: { matches: boolean }) => void);
+            if (i >= 0) listeners.splice(i, 1);
+          },
+        };
+      }),
+    );
+    return {
+      queries,
+      listeners,
+      removed,
+      fire(matches: boolean) {
+        for (const cb of [...listeners]) cb({ matches });
+      },
+    };
+  }
+
+  test("sanity: the derived travels actually straddle the constants' boundaries", () => {
+    expect(DRAG_SLOP_PX).toBeGreaterThan(0);
+    expect(DRAG_SLOP_PX + 1).toBeLessThan(DRAG_DISMISS_THRESHOLD_PX);
+    expect(SPRING_DY).toBeGreaterThan(DRAG_SLOP_PX);
+    expect(SPRING_DY).toBeLessThanOrEqual(DRAG_DISMISS_THRESHOLD_PX);
+    expect(DISMISS_DY).toBeGreaterThan(DRAG_DISMISS_THRESHOLD_PX);
+  });
+
+  test("grab strip declares touch-action none (C5 — no scroll/drag contention)", () => {
+    const { q } = renderModal();
+    expect(q.getByTestId(tid("grab")).className).toMatch(/\btouch-none\b/);
+  });
+
+  test("during drag (T3/C1): pointer captured, transition AND animation none, transform tracks max(0, dy)", () => {
+    const { q } = renderModal();
+    const { grab, panel, setPointerCapture } = grabWithCaptureStubs(q);
+
+    fireEvent.pointerDown(grab, { pointerId: 7, clientY: START_Y });
+    expect(setPointerCapture).toHaveBeenCalledWith(7);
+    // C1: the entrance is a CSS *animation* — both must be neutralized so the
+    // inline transform takes over mid-entrance.
+    expect(panel.style.transition).toBe("none");
+    expect(panel.style.animation).toBe("none");
+
+    fireEvent.pointerMove(grab, { pointerId: 7, clientY: START_Y + SPRING_DY });
+    expect(panel.style.transform).toBe(`translateY(${SPRING_DY}px)`);
+
+    // Upward travel clamps at 0 — the sheet never rises above its resting spot.
+    fireEvent.pointerMove(grab, { pointerId: 7, clientY: START_Y - 40 });
+    expect(panel.style.transform).toBe("translateY(0px)");
+  });
+
+  test("release past DRAG_DISMISS_THRESHOLD_PX (T5): token transition to translateY(100%), close on transitionend", () => {
+    const { q, onClose } = renderModal();
+    const { grab, panel } = grabWithCaptureStubs(q);
+
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
+
+    expect(panel.style.transform).toBe("translateY(100%)");
+    expect(panel.style.transition).toBe("transform var(--duration-normal) var(--ease-out-quart)");
+    expect(onClose).not.toHaveBeenCalled(); // waits for the transition
+
+    fireEvent.transitionEnd(panel, { propertyName: "transform" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("dismiss fallback (T5): onClose fires after the 220ms token-matched timeout when transitionend never arrives", () => {
+    vi.useFakeTimers();
+    const { q, onClose } = renderModal();
+    const { grab, panel } = grabWithCaptureStubs(q);
+
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
+
+    vi.advanceTimersByTime(DURATION_NORMAL_MS - 1);
+    expect(onClose).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // A late transitionend after the fallback fired must NOT double-close.
+    fireEvent.transitionEnd(panel, { propertyName: "transform" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("release below the threshold (T4): springs back at --duration-fast, suppresses the synthesized click, and settles to stylesheet control", () => {
+    vi.useFakeTimers();
+    const { q, onClose } = renderModal();
+    const { grab, panel } = grabWithCaptureStubs(q);
+
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
+
+    expect(panel.style.transform).toBe("translateY(0px)");
+    expect(panel.style.transition).toMatch(/var\(--duration-fast\)/);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Browsers synthesize a click after pointerup — the drag consumed it.
+    fireEvent.click(grab);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Spring-back settles: inline styles cleared so the stylesheet governs again.
+    fireEvent.transitionEnd(panel, { propertyName: "transform" });
+    expect(panel.style.transform).toBe("");
+    expect(panel.style.transition).toBe("");
+    expect(panel.style.animation).toBe("");
+
+    // The suppression is one-shot (cleared on the next tick): a LATER plain
+    // tap closes normally.
+    vi.advanceTimersByTime(0);
+    fireEvent.click(grab);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("slop boundary: dy = DRAG_SLOP_PX is a tap (click closes); dy = DRAG_SLOP_PX + 1 is a drag (click suppressed)", () => {
+    // Tap side of the boundary.
+    {
+      const { q, onClose } = renderModal();
+      const { grab, panel } = grabWithCaptureStubs(q);
+      fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+      fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX });
+      fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX });
+      expect(onClose).not.toHaveBeenCalled(); // the CLICK closes, not pointerup
+      expect(panel.style.transform).toBe(""); // tap leaves no inline residue
+      fireEvent.click(grab);
+      expect(onClose).toHaveBeenCalledTimes(1);
+      cleanup();
+    }
+    // Drag side of the boundary.
+    {
+      const { q, onClose } = renderModal();
+      const { grab } = grabWithCaptureStubs(q);
+      fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+      fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX + 1 });
+      fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DRAG_SLOP_PX + 1 });
+      fireEvent.click(grab);
+      expect(onClose).not.toHaveBeenCalled();
+    }
+  });
+
+  test("mode-boundary cleanup (C6): entering ≥sm mid-drag releases capture, clears inline styles, resets the drag ref", () => {
+    const mm = stubMatchMedia();
+    const { q, onClose } = renderModal();
+    const { grab, panel, releasePointerCapture } = grabWithCaptureStubs(q);
+
+    // Exactly ONE listener on exactly the sm-token query.
+    expect(mm.queries).toEqual(["(min-width: 640px)"]);
+    expect(mm.listeners).toHaveLength(1);
+
+    fireEvent.pointerDown(grab, { pointerId: 3, clientY: START_Y });
+    fireEvent.pointerMove(grab, { pointerId: 3, clientY: START_Y + SPRING_DY });
+    expect(panel.style.transform).toBe(`translateY(${SPRING_DY}px)`);
+
+    // Leaving ≥sm (matches:false) is NOT the cleanup edge — drag continues.
+    mm.fire(false);
+    expect(panel.style.transform).toBe(`translateY(${SPRING_DY}px)`);
+
+    // Entering ≥sm cancels the drag.
+    mm.fire(true);
+    expect(releasePointerCapture).toHaveBeenCalledWith(3);
+    expect(panel.style.transform).toBe("");
+    expect(panel.style.transition).toBe("");
+    expect(panel.style.animation).toBe("");
+
+    // Drag ref reset: subsequent move/up on the dead sequence are no-ops.
+    fireEvent.pointerMove(grab, { pointerId: 3, clientY: START_Y + DISMISS_DY });
+    expect(panel.style.transform).toBe("");
+    fireEvent.pointerUp(grab, { pointerId: 3, clientY: START_Y + DISMISS_DY });
+    expect(panel.style.transform).toBe("");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("unmount mid-drag (C2 hygiene): matchMedia listener removed and pointer capture released", () => {
+    const mm = stubMatchMedia();
+    const { q } = renderModal();
+    const { grab, releasePointerCapture } = grabWithCaptureStubs(q);
+
+    fireEvent.pointerDown(grab, { pointerId: 9, clientY: START_Y });
+    q.unmount();
+
+    expect(mm.listeners).toHaveLength(0);
+    expect(mm.removed).toHaveLength(1);
+    expect(releasePointerCapture).toHaveBeenCalledWith(9);
+  });
+
+  test("unmount during the dismiss transition clears the fallback timer (no late onClose)", () => {
+    vi.useFakeTimers();
+    const { q, onClose } = renderModal();
+    const { grab } = grabWithCaptureStubs(q);
+
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
+    q.unmount();
+
+    vi.advanceTimersByTime(DURATION_NORMAL_MS + 50);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

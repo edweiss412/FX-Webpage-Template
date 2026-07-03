@@ -6,8 +6,10 @@
  * The NEW Step-3 review modal: a bottom SHEET below `sm` and a centered panel
  * above it (popup < lg, two-pane ≥ lg). Task 4 shipped the shell/header/
  * footer; Task 5 filled the body — side rail + chip rail (§6.2/§6.3, twin
- * navs per §9.4) + the §6.4 section panels; Task 6 (below) wires the §6.3a
- * deterministic scroll-spy; sheet drag lands in Task 7.
+ * navs per §9.4) + the §6.4 section panels; Task 6 wires the §6.3a
+ * deterministic scroll-spy; Task 7 (below) wires the §10 sheet
+ * drag-to-dismiss (slop-based click/drag discrimination + the §11 C6
+ * matchMedia mode-boundary cleanup).
  * It supersedes Step3DetailsDialog (removed in Task 8) and carries its
  * topology: tap-out scrim + focus-trapped `role="dialog" aria-modal` panel
  * (`useDialogFocus` — initial focus on the close button, Tab trap,
@@ -31,7 +33,15 @@
  * are interaction thresholds, not painted px (documented in DESIGN.md §5
  * "Interaction constants" per spec §6.3a's token-contract disposition).
  */
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, ChevronRight, ExternalLink, X } from "lucide-react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
@@ -231,6 +241,193 @@ export function Step3ReviewModal({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  // ── Sheet drag-to-dismiss (spec §10; §11 T3–T5, C1, C2, C5, C6) ────────────
+  // All drag state lives in refs (no re-renders while the pointer moves); the
+  // panel is manipulated via INLINE styles only — which is exactly why the C6
+  // matchMedia cleanup below must exist (CSS mode classes can't clear them).
+  // The drag's `target` is captured at pointerdown (not read via a ref) because the
+  // unmount cleanup below runs AFTER React has already detached the element
+  // refs — releasing capture there needs the element itself.
+  const dragRef = useRef<{
+    pointerId: number;
+    startY: number;
+    maxDy: number;
+    target: HTMLButtonElement;
+  } | null>(null);
+  /** Set when a pointer sequence travelled past DRAG_SLOP_PX — the click the
+   *  browser synthesizes after pointerup belongs to the DRAG, so the grab
+   *  button's onClick swallows it. One-shot: cleared on the next tick. */
+  const dragConsumedClickRef = useRef(false);
+  /** True once a past-threshold release committed to the dismiss transition —
+   *  no new drag may start against a departing panel. */
+  const dismissingRef = useRef(false);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Return the panel to stylesheet control (entrance keyframes, mode classes). */
+  function clearPanelDragStyles() {
+    const panel = panelRef.current;
+    if (!panel) return;
+    panel.style.transform = "";
+    panel.style.transition = "";
+    panel.style.animation = "";
+  }
+
+  function handleGrabPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (dismissingRef.current) return;
+    // A new drag takes over from a still-settling spring-back.
+    if (settleTimerRef.current !== null) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    // jsdom has no pointer capture; every real browser does.
+    if (typeof event.currentTarget.setPointerCapture === "function") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      maxDy: 0,
+      target: event.currentTarget,
+    };
+    const panel = panelRef.current;
+    if (panel) {
+      // C1: neutralize BOTH — the entrance is a CSS *animation* (sheet-rise),
+      // so `transition: none` alone would not hand control to the inline
+      // transform mid-entrance.
+      panel.style.transition = "none";
+      panel.style.animation = "none";
+    }
+  }
+
+  function handleGrabPointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (drag === null || event.pointerId !== drag.pointerId) return;
+    const dy = event.clientY - drag.startY;
+    // Slop tracks the MAX travel in either direction: a wiggle past the slop
+    // that returns near the origin is still a drag, never a tap.
+    if (Math.abs(dy) > drag.maxDy) drag.maxDy = Math.abs(dy);
+    const panel = panelRef.current;
+    // Downward only — the sheet never rises above its resting position (§10).
+    if (panel) panel.style.transform = `translateY(${Math.max(0, dy)}px)`;
+  }
+
+  function handleGrabPointerEnd(event: ReactPointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (drag === null || event.pointerId !== drag.pointerId) return;
+    dragRef.current = null;
+    if (typeof event.currentTarget.releasePointerCapture === "function") {
+      event.currentTarget.releasePointerCapture(drag.pointerId);
+    }
+    const dy = event.clientY - drag.startY;
+    const wasDrag = Math.max(drag.maxDy, Math.abs(dy)) > DRAG_SLOP_PX;
+    if (wasDrag) {
+      // Swallow the click the browser synthesizes right after this pointerup.
+      dragConsumedClickRef.current = true;
+      setTimeout(() => {
+        dragConsumedClickRef.current = false;
+      }, 0);
+    }
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (dy > DRAG_DISMISS_THRESHOLD_PX) {
+      // T5: transition off-screen, close on transitionend — with a setTimeout
+      // fallback matched to the `--duration-normal` token (220ms) in case the
+      // transitionend never fires (display:none ancestors, reduced motion
+      // collapsing the duration to 0ms, dropped events).
+      dismissingRef.current = true;
+      panel.style.transition = "transform var(--duration-normal) var(--ease-out-quart)";
+      panel.style.transform = "translateY(100%)";
+      let closed = false;
+      const finish = () => {
+        if (closed) return;
+        closed = true;
+        panel.removeEventListener("transitionend", onTransitionEnd);
+        if (dismissTimerRef.current !== null) {
+          clearTimeout(dismissTimerRef.current);
+          dismissTimerRef.current = null;
+        }
+        onClose();
+      };
+      const onTransitionEnd = (ev: TransitionEvent) => {
+        if (ev.target === panel && ev.propertyName === "transform") finish();
+      };
+      panel.addEventListener("transitionend", onTransitionEnd);
+      dismissTimerRef.current = setTimeout(finish, 220 /* --duration-normal */);
+    } else if (wasDrag) {
+      // T4: spring back at the fast token, then clear the inline styles so
+      // the stylesheet governs again (same fallback-timer pattern, matched to
+      // `--duration-fast` = 120ms).
+      panel.style.transition = "transform var(--duration-fast) var(--ease-out-quart)";
+      panel.style.transform = "translateY(0px)";
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        panel.removeEventListener("transitionend", onTransitionEnd);
+        if (settleTimerRef.current !== null) {
+          clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = null;
+        }
+        // Don't fight a drag that restarted mid-settle.
+        if (dragRef.current === null) clearPanelDragStyles();
+      };
+      const onTransitionEnd = (ev: TransitionEvent) => {
+        if (ev.target === panel && ev.propertyName === "transform") settle();
+      };
+      panel.addEventListener("transitionend", onTransitionEnd);
+      settleTimerRef.current = setTimeout(settle, 120 /* --duration-fast */);
+    } else {
+      // Tap (dy ≤ slop): restore stylesheet control immediately; the
+      // synthesized click that follows closes the modal (§10).
+      clearPanelDragStyles();
+    }
+  }
+
+  // Mode-boundary + unmount drag hygiene (spec §10, §11 C6). ONE
+  // matchMedia('(min-width: 640px)') change listener for the sheet→popup
+  // boundary (the `sm` token): entering ≥sm cancels any drag in progress —
+  // releases pointer capture, clears the panel's INLINE
+  // transform/transition/animation (mode CSS cannot), resets the drag ref.
+  // The same cleanup runs on unmount (C2: Esc/scrim during a drag unmounts
+  // immediately — no capture leak, no late fallback-timer onClose).
+  useEffect(() => {
+    function releaseDrag() {
+      const drag = dragRef.current;
+      if (drag === null) return;
+      if (typeof drag.target.releasePointerCapture === "function") {
+        drag.target.releasePointerCapture(drag.pointerId);
+      }
+      dragRef.current = null;
+    }
+
+    let mql: MediaQueryList | null = null;
+    let onChange: ((ev: MediaQueryListEvent) => void) | null = null;
+    // Guard: jsdom implements no matchMedia; every target browser does.
+    if (typeof window.matchMedia === "function") {
+      mql = window.matchMedia("(min-width: 640px)");
+      onChange = (ev: MediaQueryListEvent) => {
+        if (!ev.matches) return; // only ENTERING ≥sm strands inline styles
+        releaseDrag();
+        if (settleTimerRef.current !== null) {
+          clearTimeout(settleTimerRef.current);
+          settleTimerRef.current = null;
+        }
+        // Mid-dismiss the panel is already committed to closing (the fallback
+        // timer still fires) — don't yank it back on-screen.
+        if (!dismissingRef.current) clearPanelDragStyles();
+      };
+      mql.addEventListener("change", onChange);
+    }
+    return () => {
+      if (mql && onChange) mql.removeEventListener("change", onChange);
+      releaseDrag();
+      if (dismissTimerRef.current !== null) clearTimeout(dismissTimerRef.current);
+      if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
+    };
+    // clearPanelDragStyles touches refs only — safe to omit from deps.
+  }, []);
+
   // ── Header derivations (spec §9.1) ─────────────────────────────────────────
   const title = data.pr.show.title || data.row.driveFileName || dfid;
   const client = data.pr.show.client_label || null;
@@ -293,14 +490,23 @@ export function Step3ReviewModal({
         className="relative flex max-h-[85vh] w-full flex-col items-stretch rounded-t-md bg-bg text-text shadow-(--shadow-tile) sm:max-h-[80vh] sm:max-w-5xl sm:rounded-md"
       >
         {/* Grab strip — sheet mode only (§9.4). Full-width 44px button; the
-            visual affordance is the small inner pill. A plain tap closes; the
-            drag gesture itself is wired in Task 7. */}
+            visual affordance is the small inner pill. A plain tap (travel ≤
+            DRAG_SLOP_PX) closes via the click; a real drag consumes the
+            synthesized click (§10). `touch-none` keeps the browser from
+            claiming the gesture for scrolling (§11 C5). */}
         <button
           type="button"
           data-testid={`wizard-step3-card-${dfid}-review-grab`}
           aria-label="Drag down or tap to close"
-          onClick={onClose}
-          className="flex min-h-tap-min w-full shrink-0 items-center justify-center sm:hidden"
+          onClick={() => {
+            if (dragConsumedClickRef.current) return; // the drag ate this click
+            onClose();
+          }}
+          onPointerDown={handleGrabPointerDown}
+          onPointerMove={handleGrabPointerMove}
+          onPointerUp={handleGrabPointerEnd}
+          onPointerCancel={handleGrabPointerEnd}
+          className="flex min-h-tap-min w-full shrink-0 touch-none items-center justify-center sm:hidden"
         >
           <span aria-hidden="true" className="h-1 w-10 rounded-pill bg-border-strong" />
         </button>
