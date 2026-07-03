@@ -93,10 +93,10 @@
 
 ### Task 3: Full verification
 
-- [ ] **Step 1 — typecheck.** `pnpm typecheck` → clean.
-- [ ] **Step 2 — full suite.** `pnpm vitest run` → note any pre-existing env-bound failures vs merge-base (the live-project / auth-gate / pg-cron tests fail locally without validation creds — env, not this change); all catalog/code/agenda/help tests + enrichAgenda tests PASS.
-- [ ] **Step 3 — format check.** `pnpm format:check` → clean (else `prettier --write` the changed NON-SPEC files, re-verify, commit `style(...)`). Never prettier the master spec.
-- [ ] **Step 4 — spec traceability (if the repo has gen:traceability).** If a `gen:traceability` script exists and §12.4/AC edits require it, run + commit. (Check `package.json`; skip if absent.)
+- [ ] **Step 1 — typecheck (triggers the `pretypecheck` gen hooks).** `pnpm typecheck`. `pretypecheck` auto-runs `gen:admin-tables` + `gen:watermark-symbols` + `gen:email-boundaries` + `gen:traceability`. Typecheck itself must be clean.
+- [ ] **Step 2 — generated-file drift check (CRITICAL).** After step 1's pre-hooks fire, run `git status`. Adding a §12.4 code row keys on none of those generators (traceability keys on AC-IDs/§sections, not §12.4 code rows), so expect **NO** drift in `**/__generated__/**` or traceability output. If any generated file IS dirty, the committed copy is stale → `test:audit:traceability` (and siblings) would fail CI: commit the regenerated file(s) (`chore(gen): regenerate <file> for AGENDA_LINK_NOT_CLICKABLE`). Do NOT leave a dirty generated file.
+- [ ] **Step 3 — full suite.** `pnpm vitest run` → note any pre-existing env-bound failures vs merge-base (the live-project / auth-gate / pg-cron tests fail locally without validation creds — env, not this change); all catalog/code/agenda/help tests + enrichAgenda tests PASS.
+- [ ] **Step 4 — format check.** `pnpm format:check` → clean (else `prettier --write` the changed NON-SPEC files, re-verify, commit `style(...)`). Never prettier the master spec.
 
 ---
 
