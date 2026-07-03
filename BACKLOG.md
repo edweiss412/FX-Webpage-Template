@@ -81,9 +81,15 @@ Approach B from `docs/superpowers/specs/2026-07-01-watch-channel-health-design.m
 
 ## BL-COPY-CRON-SWEEP — de-jargon "cron" across the remaining catalog codes
 
-**Status:** OPEN · **Severity:** low (copy quality; admin-facing) · **Surfaced:** watch-channel-health spec §3.5 (2026-07-01)
+**Status:** ✅ RESOLVED (2026-07-03, branch `chore/copy-cron-sweep`) · **Severity:** low (copy quality; admin-facing) · **Surfaced:** watch-channel-health spec §3.5 (2026-07-01)
 
-`WATCH_CHANNEL_ORPHANED` copy was de-jargoned in the watch-channel-health feature. The same "cron" implementation jargon remains in four other catalog entries: `STAGED_PARSE_SUPERSEDED` (`lib/messages/catalog.ts:555,558`), `NO_FOLDER_CONFIGURED` (`:677,680`), `MISSING_PENDING_INGESTION_MODTIME` (`:1833,1836`), `SYNC_DELAYED_SEVERE` (`:1929-1936`). Each edit is a §12.4 three-way-lockstep change (spec prose + `pnpm gen:spec-codes` + catalog.ts, x1 gate). Line numbers verified 2026-07-01; re-grep before executing.
+All four catalog entries de-jargoned via the §12.4 three-way lockstep (spec prose + `pnpm gen:spec-codes` + catalog.ts, x1 gate green): `STAGED_PARSE_SUPERSEDED` ("a cron run" → "an automatic sync"), `NO_FOLDER_CONFIGURED` ("Cron ran" → "The automatic sync ran"), `MISSING_PENDING_INGESTION_MODTIME` ("so cron knows" → "so the scheduled sync knows"), `SYNC_DELAYED_SEVERE` ("Push or cron is stalled" / "normal cron interval" / "the cron job" → "the scheduled sync" phrasing, plus the sibling "push subscriptions" → "instant updates" per user's cron+push scope choice). Replacement vocabulary matches the shipped `WATCH_CHANNEL_ORPHANED` / `SYNC_STALLED` voice.
+
+## BL-COPY-CRON-SWEEP-2 — de-jargon "cron" on the two non-catalog admin surfaces
+
+**Status:** OPEN · **Severity:** low (copy quality; admin-facing) · **Surfaced:** BL-COPY-CRON-SWEEP execution (2026-07-03)
+
+The cron sweep of the catalog surfaced two more admin-facing "cron" mentions outside the §12.4 catalog, left out of the copy-lockstep PR because both are UI files (`app/**`, so touching them would drag the impeccable dual-gate into a pure-copy PR): `app/admin/settings/page.tsx:306` ("per-job cron run health for troubleshooting") and `app/help/admin/onboarding-wizard/page.mdx:117` ("points cron at the folder for ongoing sync"). Neither is a §12.4 code, so neither needs the three-way lockstep — but both should ship through the UI gate (Opus + impeccable) if picked up. Re-grep line numbers before executing.
 
 ---
 
