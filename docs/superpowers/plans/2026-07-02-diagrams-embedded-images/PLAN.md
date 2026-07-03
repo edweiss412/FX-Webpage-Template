@@ -206,7 +206,8 @@ export type ExtractedEmbeddedObjects = {
   bytesByObjectId: Map<string, Uint8Array>;
 };
 
-const EMPTY: ExtractedEmbeddedObjects = { allTabTitles: [], objectsByTab: new Map(), bytesByObjectId: new Map() };
+// Fresh instances per call — never share mutable Maps across malformed results (purity).
+const emptyResult = (): ExtractedEmbeddedObjects => ({ allTabTitles: [], objectsByTab: new Map(), bytesByObjectId: new Map() });
 const RASTER: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
 const dec = (b?: Uint8Array) => (b ? new TextDecoder().decode(b) : "");
 
@@ -226,10 +227,10 @@ export function extractEmbeddedObjects(xlsx: ArrayBuffer): ExtractedEmbeddedObje
   try {
     zip = unzipSync(new Uint8Array(xlsx));
   } catch {
-    return EMPTY;
+    return emptyResult();
   }
   const wb = dec(zip["xl/workbook.xml"]);
-  if (!wb) return EMPTY;
+  if (!wb) return emptyResult();
   const wbRels = relMap(dec(zip["xl/_rels/workbook.xml.rels"]));
   const allTabTitles: string[] = [];
   const objectsByTab = new Map<string, SpreadsheetEmbeddedObject[]>();
@@ -501,11 +502,10 @@ export async function fetchCurrentSheetXlsxBytes(
 
 **Interfaces — Consumes:** `findMediaByFingerprint` (Task 1), `fetchCurrentSheetXlsxBytes` (Task 4). **Produces:** `snapshotFetchEmbeddedImageBytesTimed` accepts `deps.fetchXlsxBytes?: () => Promise<ArrayBuffer>` and resolves XLSX-media entries.
 
-- [ ] **Step 1: Write the failing test** — drive `snapshotAssets` (or the port directly) with a persisted entry `{ contentUrl: null, mediaPartName: "xl/media/imageA.png", embeddedFingerprint: <DIAGRAMS PNG_A hash>, recovery_disposition: "normal" }` and an injected `fetchXlsxBytes` returning the fixture. Assert:
-  - upload happens; `snapshotPath` set;
-  - an entry whose fingerprint matches ONLY an INFO-tab image (inject a variant fixture, or use the INFO fingerprint) → no upload, `snapshotPath: null` (tab-scoping);
-  - `fetchXlsxBytes` throwing → port returns null, Apply not aborted;
-  - `fetchXlsxBytes` called once for two XLSX-media entries (memo).
+- [ ] **Step 1: Write the failing test** — cover BOTH levels:
+  - **Port-level** (`snapshotFetchEmbeddedImageBytesTimed` directly, injected `fetchXlsxBytes` returning the fixture): an entry `{ contentUrl: null, mediaPartName: "xl/media/imageA.png", embeddedFingerprint: <DIAGRAMS PNG_A hash>, recovery_disposition: "normal" }` → returns the matching bytes; an entry whose fingerprint matches ONLY an INFO-tab image → returns null (tab-scoping); `fetchXlsxBytes` throwing → returns null (not a throw).
+  - **Wiring-level** (through the REAL `makeSnapshotAssetsForApply(showId, tx)` factory, since the memo lives in the factory, not the port): drive `snapshotAssets` for a `diagrams` with TWO XLSX-media entries. Spy on the export by injecting a counting `fetchCurrentSheetXlsxBytes` (via a `deps`/module seam — if none exists, add a thin injectable param to `makeSnapshotAssetsForApply` or spy the Drive `files.get`). Assert: both entries upload with `snapshotPath` set, and the export ran **exactly once** (proves `xlsxOnce` memo). A port-only memo test cannot prove the factory wiring, so this level is mandatory (round-1 plan-review MEDIUM).
+  - **Apply-not-aborted:** with a throwing export at the wiring level, `snapshotAssets` returns `partial_failure` (no rethrow), entries `snapshotPath: null`.
 
 - [ ] **Step 2: Run red** → FAIL (port returns null for null-contentUrl).
 
@@ -550,7 +550,7 @@ Imports: `findMediaByFingerprint` from `@/lib/drive/embeddedObjects`, `fetchCurr
 
 **Interfaces — Consumes:** `findMediaByFingerprint`, `fetchCurrentSheetXlsxBytes`. **Produces:** recovery resolves XLSX-media entries given `driveFileId`.
 
-- [ ] **Step 1: Write the failing test** — call `assetRecovery(showId, deps)` (or `collectVerifiedAssets` directly) with a `previewShow` carrying `driveFileId` and a persisted unresolved XLSX-media entry; inject a `drive.fetchEmbeddedImageBytes` that forwards to the real `fetchEmbeddedImageBytesTimed` with an injected `fetchXlsxBytes`. Assert: the entry resolves; a run with `driveFileId` undefined does not re-export (returns null); legacy `restage_required`/null-`mediaPartName` entries stay skipped; tab-scoping holds (INFO fingerprint → null).
+- [ ] **Step 1: Write the failing test** — call `assetRecovery(showId, deps)` (or `collectVerifiedAssets` directly) with a `previewShow` carrying `driveFileId` and a persisted unresolved XLSX-media entry; inject a `drive.fetchEmbeddedImageBytes` that forwards to the real `fetchEmbeddedImageBytesTimed` with an injected `fetchXlsxBytes`. Assert: the entry resolves; legacy `restage_required`/null-`mediaPartName` entries stay skipped; tab-scoping holds (INFO fingerprint → null). **The "no driveFileId → no re-export" case is a PORT-level test** (call `fetchEmbeddedImageBytesTimed(entry, { onChunk }, { /* fetchXlsxBytes omitted */ })` → null) — not a `collectVerifiedAssets` test, since that path now requires `driveFileId: string` on the typed `AssetRecoveryShow`; the absent-id branch lives in the port's `deps.fetchXlsxBytes` guard.
 
 - [ ] **Step 2: Run red** → FAIL.
 
