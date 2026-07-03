@@ -155,12 +155,44 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
  * gated at 6+ digits so a US ZIP (5) or street number survives.
  */
 function stripConfTokens(name: string): string {
-  return name
-    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ") // dash-prefixed (#optional)
-    .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
-    .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    name
+      // dash-prefixed conf# (#optional). Preserve ONLY a true ZIP+4 hyphen: a
+      // word-boundary 5-digit ZIP immediately before, a SINGLE "-" with NO separator, and
+      // EXACTLY 4 trailing digits ("…IL 60611-1234"), so the crew-visible "+4" is not
+      // clipped (audit idx4). Every other dash-number is a conf# and is stripped — including
+      // a conf# after a 5-digit token ("Suite 12345-2069854"), a #/spaced/multi-dash conf#,
+      // and any run of 5+ trailing digits (Codex R1/R2). A left-only lookbehind can't gate
+      // the right side, so use a replacer that inspects both.
+      .replace(
+        /(\s*)([-–—]{1,3})(\s*#?\s*)(\d{4,})/g,
+        (
+          whole,
+          ws: string,
+          dashes: string,
+          sep: string,
+          digits: string,
+          offset: number,
+          str: string,
+        ) => {
+          // The predicate is EXACTLY `\b\d{5}-\d{4}\b`: a boundary 5-digit ZIP before, an
+          // ASCII hyphen (en/em-dash is a conf# delimiter — Codex R3), no separator, exactly
+          // 4 digits, and a trailing word boundary (Codex R4 — "60611-1234A" is not a ZIP+4).
+          const afterMatch = str.charAt(offset + whole.length);
+          const isZip4 =
+            dashes === "-" &&
+            sep.length === 0 &&
+            digits.length === 4 &&
+            /\b\d{5}$/.test(str.slice(0, offset + ws.length)) &&
+            (afterMatch === "" || !/\w/.test(afterMatch));
+          return isZip4 ? whole : " ";
+        },
+      )
+      .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
+      .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /**

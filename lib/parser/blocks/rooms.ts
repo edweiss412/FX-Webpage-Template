@@ -942,7 +942,12 @@ function splitRoomHeader(
 
   // 3. dimensions — first dimension token (with an optional semantic prefix) to end
   let dimensions: string | null = null;
-  const dimStart = s.search(/(?:\b(?:TOTAL|A\/B|APPROXIMATELY)\s*:?\s*)?\d+\s*'\s*x/i);
+  // Optional dims-label prefix. TOTAL / APPROXIMATELY are ONLY ever dims labels, so their
+  // colon is optional; "A/B", however, is also a real room-NAME suffix ("GRAND BALLROOM
+  // A/B" = the room spanning sections A and B), so it counts as a dims label ONLY with a
+  // colon ("A/B:"). Making A/B colon-optional (PR #114) wrongly pulled an unlabeled
+  // trailing "A/B" out of the name into the dims (audit idx25).
+  const dimStart = s.search(/(?:\b(?:TOTAL|APPROXIMATELY)\s*:?\s*|\bA\/B\s*:\s*)?\d+\s*'\s*x/i);
   if (dimStart !== -1) {
     dimensions = presence(
       s

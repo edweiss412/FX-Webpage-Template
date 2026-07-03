@@ -319,3 +319,77 @@ describe("parseHotels — corpus coverage (every fixture returns array)", () => 
     });
   }
 });
+
+// idx4 (#42): stripConfTokens' dash rule (\s*[-–—]{1,3}\s*#?\s*\d{4,}) clipped a ZIP+4
+// hyphen ("60611-1234" -> "60611"), losing the +4 from crew-visible hotel_address. A
+// real conf# always has a space / '#' / name before its dash — never a bare digit — so a
+// dash IMMEDIATELY preceded by a digit is a ZIP+4 (or intra-number) hyphen, not a conf#.
+describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
+  const hotelTable = (addr: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address |",
+      `|  | ${addr} | ${addr} |`,
+      "|  | Names on Reservation | Names on Reservation |",
+      "|  | Douglas Larson - \\#2069854 | Douglas Larson - \\#2069854 |",
+      "|  | Check In Date | Check Out Date |",
+      "|  | 3/22/26 | 3/26/26 |",
+    ].join("\n");
+
+  it("keeps the +4 of a ZIP+4 in hotel_address", () => {
+    const h = parseHotels(
+      hotelTable("Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611-1234"),
+      "v4",
+    )[0];
+    expect(h!.hotel_name).toBe("Four Seasons Hotel Chicago");
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
+  });
+
+  it("requires the trailing word boundary — '60611-1234A' is not a true ZIP+4 (Codex R4)", () => {
+    // The predicate is EXACTLY \b\d{5}-\d{4}\b. A letter immediately after the +4 means it
+    // is NOT a ZIP+4, so the "-1234" is treated as a conf# run and stripped (no residue).
+    const h = parseHotels(
+      hotelTable("Kimpton Gray 122 W Monroe St Chicago, IL 60611-1234A"),
+      "v4",
+    )[0];
+    expect(h!.hotel_address).not.toMatch(/-1234/);
+  });
+
+  it("still strips a real dash-prefixed conf# from the guest name (regression guard)", () => {
+    // The conf# on the Names row must still be stripped (parsed-not-persisted); the guest
+    // name resolves cleanly and the plain-ZIP control address is unchanged.
+    const h = parseHotels(
+      hotelTable("Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611"),
+      "v4",
+    )[0];
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611");
+    expect(h!.names).toContain("Douglas Larson");
+  });
+
+  const namesTable = (namesCell: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address |",
+      "|  | Kimpton Gray 122 W Monroe St Chicago, IL 60603 | Kimpton Gray 122 W Monroe St Chicago, IL 60603 |",
+      "|  | Names on Reservation | Names on Reservation |",
+      `|  | ${namesCell} | ${namesCell} |`,
+      "|  | Check In Date | Check Out Date |",
+      "|  | 3/22/26 | 3/26/26 |",
+    ].join("\n");
+
+  // Only a full ZIP+4 (\b\d{5}-\d{4}\b) is protected; a conf# after ANY numeric token —
+  // 2-digit ("Suite 12-2069854") OR a standalone 5-digit ("Suite 12345-2069854") — must
+  // still strip cleanly, never leaving a dangling "-" or surviving conf# digits. (Codex R1/R2)
+  it.each([
+    ["2-digit token", "Suite 12-2069854", "Suite 12"],
+    ["5-digit token", "Suite 12345-2069854", "Suite 12345"],
+    ["#-separated after 5-digit", "Suite 12345-#2069854", "Suite 12345"],
+    ["en-dash after 5-digit (ASCII-hyphen-only ZIP+4)", "Suite 12345–2069", "Suite 12345"],
+  ])("strips a conf# after a %s cleanly — no dangling dash", (_label, namesCell, expectedName) => {
+    const h = parseHotels(namesTable(namesCell), "v4")[0];
+    expect(h!.names).toContain(expectedName);
+    expect(h!.names.some((n) => /[-–—]/.test(n) || /\d{6,}/.test(n))).toBe(false);
+  });
+});
