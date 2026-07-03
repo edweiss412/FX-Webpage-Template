@@ -138,8 +138,10 @@ export function renderModalHtml(
  * cannot render — so the layout spec cannot import this module. Instead it
  * shells out to `node_modules/.bin/tsx` to run THIS file directly (real JSX
  * transform, tsconfig `@/` paths respected) and writes the rendered pages as
- * JSON: { dfid, normal, long }. */
-if (typeof require !== "undefined" && require.main === module) {
+ * JSON: { dfid, normal, long }. The `typeof module` check matters for Task
+ * 11's esbuild browser bundle, where `require` compiles to a defined
+ * `__require` shim but bare `module` would be a ReferenceError. */
+if (typeof require !== "undefined" && typeof module !== "undefined" && require.main === module) {
   const outPath = process.argv[2];
   if (!outPath) throw new Error("usage: tsx _step3ReviewModalHarness.tsx <out.json>");
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS main-guard CLI
