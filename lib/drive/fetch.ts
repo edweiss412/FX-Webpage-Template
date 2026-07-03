@@ -2,6 +2,7 @@ import type { drive_v3 } from "googleapis";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { snapshotCronInFlight, type CronInFlightSnapshot } from "@/lib/log/requestContext";
 
 export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
 export const XLSX_EXPORT_MIME_TYPE =
@@ -104,6 +105,39 @@ export class DriveFetchError extends Error {
     super(message);
     this.name = "DriveFetchError";
     if (status !== undefined) this.status = status;
+  }
+}
+
+/**
+ * An empty/blank `fileId` reaching `drive.files.get` yields Google's opaque
+ * `File not found: .` 404 with a minified googleapis stack. This typed subtype
+ * (still an `instanceof DriveFetchError`, so existing Drive-fault handlers keep
+ * classifying it) fails fast at the chokepoint with a stack pointing at the real
+ * caller, so a detached/mystery empty-id call self-identifies. See
+ * docs/superpowers/specs/2026-07-02-cron-empty-id-throw-attribution-design.md.
+ */
+export class InvalidDriveFileIdError extends DriveFetchError {
+  readonly rawFileId: string;
+  constructor(received: unknown) {
+    const raw = (() => {
+      try {
+        return (JSON.stringify(received) ?? String(received)).slice(0, 80); // jsonb-text-exempt: forensic raw-value capture for the error MESSAGE, never a postgres.js jsonb param
+      } catch {
+        return String(received).slice(0, 80);
+      }
+    })();
+    super(`Drive files.get called with an empty or blank fileId (received ${raw})`);
+    this.name = "InvalidDriveFileIdError";
+    this.rawFileId = raw;
+  }
+}
+
+/** Throws InvalidDriveFileIdError unless `fileId` is a non-empty, non-whitespace string. */
+export function assertNonEmptyDriveFileId(fileId: unknown): asserts fileId is string {
+  // `/\S/` ("contains a non-whitespace char") rejects "" and whitespace-only WITHOUT
+  // `.trim()`, which the no-inline-email-normalization structural guard forbids here.
+  if (typeof fileId !== "string" || !/\S/.test(fileId)) {
+    throw new InvalidDriveFileIdError(fileId);
   }
 }
 
@@ -272,6 +306,20 @@ async function fetchXlsxExportBytes(
 // Raw Drive files.get with transient-retry. A NAMED helper (not an inline arrow)
 // so the single-sheet scope-check contract attributes the .files.get to one
 // exemptable site (callers that PROCESS sheets still scope-check the result).
+/**
+ * Attach an immutable cron attribution snapshot (captured at Drive-call time) to a
+ * thrown error as `syncRunContext`, WITHOUT clobbering one already present (the
+ * richer runScheduledCronSync S1 attach wins if the error later traverses it). Lets
+ * runCronRoute attribute a DETACHED Drive rejection to the operation that created
+ * it, immune to later mutation of the shared ALS (audit #4 PR-1, whole-diff R1).
+ */
+function attachCronContext<T>(err: T, ctx: CronInFlightSnapshot | undefined): T {
+  if (ctx && err !== null && typeof err === "object" && !("syncRunContext" in err)) {
+    (err as { syncRunContext?: unknown }).syncRunContext = ctx;
+  }
+  return err;
+}
+
 function driveFilesGet(
   drive: drive_v3.Drive,
   params: drive_v3.Params$Resource$Files$Get,
@@ -285,9 +333,24 @@ function driveFilesGet(
   // The per-call gaxios `timeout` bounds the stall; `retry: false` keeps
   // withDriveRetry as the single retry layer (so the budget is exactly timeoutMs
   // per attempt, not multiplied by gaxios's own internal retry).
+  //
+  // Snapshot the in-flight cron context NOW — synchronously, at call time = the
+  // correct operation — and attach it to any error, so a detached rejection that
+  // surfaces after the shared ALS has advanced is still attributed to THIS call
+  // rather than the stale ALS read at throw time (whole-diff R1).
+  const cronAtCall = snapshotCronInFlight();
+  // Fail fast on an empty/blank fileId (before spending any retry budget) so it
+  // never reaches Google as an opaque `File not found: .` 404 (audit #4 PR-1).
+  try {
+    assertNonEmptyDriveFileId((params as { fileId?: unknown }).fileId);
+  } catch (err) {
+    throw attachCronContext(err, cronAtCall);
+  }
   const driveFilesGetCall = () =>
     drive.files.get({ ...params, supportsAllDrives: true }, { timeout: timeoutMs, retry: false });
-  return withDriveRetry(driveFilesGetCall, retry);
+  return withDriveRetry(driveFilesGetCall, retry).catch((err: unknown) => {
+    throw attachCronContext(err, cronAtCall);
+  });
 }
 
 function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {

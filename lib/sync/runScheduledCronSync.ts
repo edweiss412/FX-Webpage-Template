@@ -14,7 +14,7 @@ import {
   type HeartbeatWriteResult,
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
-import { log } from "@/lib/log";
+import { log, setCronInFlight } from "@/lib/log";
 import { runInvariants } from "@/lib/parser/invariants";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
@@ -2890,6 +2890,20 @@ export async function runScheduledCronSync(
   let resolvedFolderId: string | null = null;
   const processed: RunScheduledCronSyncResult["processed"] = []; // HOISTED for throw attribution
 
+  // Keep the local lets (read by the S1 syncRunContext attach below) AND the
+  // request-context ALS in sync, so a throw that BYPASSES the S1 try (a detached
+  // Drive-promise rejection surfaced into the request) still carries which-record
+  // context via runCronRoute's ALS fallback (audit #4 PR-1).
+  const setPhase = (p: typeof inFlightPhase) => {
+    inFlightPhase = p;
+    setCronInFlight({ phase: p });
+  };
+  const setInFlightId = (id: string | null) => {
+    inFlightDriveFileId = id;
+    setCronInFlight({ driveFileId: id, processedCount: processed.length });
+  };
+  setCronInFlight({ phase: inFlightPhase, processedCount: 0 }); // seed "resolve-folder"
+
   try {
     const folderResult = deps.folderId
       ? { folderId: deps.folderId }
@@ -2926,10 +2940,10 @@ export async function runScheduledCronSync(
     const listFolder = deps.listFolder ?? listDriveFolder;
     const runOne = deps.processOneFile ?? processOneFile;
     const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
-    inFlightPhase = "list-folder";
+    setPhase("list-folder");
     const files = await listFolder(folderId);
     const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
-    inFlightPhase = "list-live-shows";
+    setPhase("list-live-shows");
     const liveShows = deps.listLiveShows
       ? await deps.listLiveShows()
       : deps.listFolder
@@ -2940,9 +2954,9 @@ export async function runScheduledCronSync(
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
 
-    inFlightPhase = "missing-shows";
+    setPhase("missing-shows");
     for (const show of missingShows) {
-      inFlightDriveFileId = show.driveFileId;
+      setInFlightId(show.driveFileId);
       const result = await lockMissingShow(show.driveFileId, (lockedTx) =>
         markMissingShow_unlocked(lockedTx, show),
       );
@@ -2957,7 +2971,7 @@ export async function runScheduledCronSync(
           driveFileId: show.driveFileId,
           result,
         });
-        inFlightDriveFileId = null; // benign completion
+        setInFlightId(null); // benign completion
         continue;
       }
       // nav-perf tag-caching (Task 5): only a source_gone result means
@@ -2974,12 +2988,12 @@ export async function runScheduledCronSync(
         driveFileId: show.driveFileId,
         result,
       });
-      inFlightDriveFileId = null; // benign completion
+      setInFlightId(null); // benign completion
     }
 
-    inFlightPhase = "file-loop";
+    setPhase("file-loop");
     for (const file of files) {
-      inFlightDriveFileId = file.driveFileId;
+      setInFlightId(file.driveFileId);
       try {
         // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
         // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
@@ -3013,10 +3027,10 @@ export async function runScheduledCronSync(
           result,
         });
       }
-      inFlightDriveFileId = null; // reached only if neither try nor catch re-threw
+      setInFlightId(null); // reached only if neither try nor catch re-threw
     }
 
-    inFlightPhase = "finish";
+    setPhase("finish");
     // `await` (not a bare promise return) so a heartbeat-write rejection is caught by the
     // outer catch and attributed with phase "finish", instead of bypassing it.
     return await finishCompletedRun({ processed });
