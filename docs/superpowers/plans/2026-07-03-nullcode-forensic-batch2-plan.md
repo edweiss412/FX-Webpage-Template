@@ -14,13 +14,16 @@
 - The reap route's forensic log code is `REAP_STALE_SESSIONS_INFRA_FAILED` (NOT the cataloged `REAP_STALE_SESSIONS_FAILED`, which stays the returned `errorResponse` producer).
 - Commits: `--no-verify`, conventional-commits. **Before every push: `pnpm typecheck` AND `pnpm format:check`** (`--no-verify` bypasses the prettier hook — CI `quality` fails otherwise).
 - Line numbers advisory; relocate each site by its message anchor.
-- 10 sites are `app/` non-api (UI surface by invariant-8 path) → the impeccable dual-gate RUNS (Task 4).
+- 10 sites are `app/` non-api (UI surface by invariant-8 path) → the impeccable dual-gate RUNS (Task 2).
+- **TDD commit discipline (Codex plan-R1):** every commit leaves the branch GREEN. Within a task: write the failing test(s) → observe RED → implement → observe GREEN → commit ONCE (test+impl together). Never commit a RED state. Tests that cover an implementation are always written BEFORE that implementation, within the same task.
 
 ---
 
-### Task 1: Structural guard — registry + `collectLogSpans` + anchored assertions (RED)
+### Task 1: Write all tests (RED) → stamp all 35 → GREEN → single commit
 
-**Files:** Modify `tests/log/_metaAdminOutcomeContract.test.ts`
+This is ONE TDD cycle for the whole mechanical batch: the structural guard + the runtime emission tests are written and observed RED **before** any stamp, then all 35 stamps make them GREEN, then one green commit. No intermediate RED commit; runtime tests precede their implementation.
+
+**Files:** Modify `tests/log/_metaAdminOutcomeContract.test.ts`; create `tests/log/nullcodeBatch2Emission.test.ts`; the 21 source files; `BACKLOG.md`.
 
 - [ ] **Step 1 — add the 35 codes to `NEW_FORENSIC_CODES`.** Insert all 35 (spec §3) into the `NEW_FORENSIC_CODES` set (`:134`). This alone changes nothing failing yet.
 
@@ -173,40 +176,23 @@ describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
 });
 ```
 
-- [ ] **Step 3 — run (RED).** `pnpm vitest run tests/log/_metaAdminOutcomeContract.test.ts` → the 35 per-row tests FAIL (codes not yet stamped in the source files). The 3 pre-existing assertions + the "35 rows/distinct/registered" test PASS.
-- [ ] **Step 4 — commit.** `git add -A && git commit --no-verify -m "test(observability): per-call anchored guard + NEW_FORENSIC_CODES registry for batch-2 (RED)"`
-
----
-
-### Task 2: Stamp all 35 sites (RED → GREEN)
-
-**Files:** the 21 source files in the registry.
-
-Stamp = add `code: "<CODE>"` to the **existing fields object** (the 2nd arg) of the call whose message matches the anchor. Do NOT touch control flow, the message, the returned response, or any other field. For the 4 excluded-adjacent already-coded calls (spec §5) — do NOT touch.
-
-- [ ] **Step 1 — stamp app/api (20 sites).** For each app/api row, locate the `log.<level>(` call by its message anchor and add `code: "<CODE>"` to its fields object. Special: `reap-stale-sessions:62` gets `REAP_STALE_SESSIONS_INFRA_FAILED` — leave the `errorResponse(500, "REAP_STALE_SESSIONS_FAILED")` at `:63` UNCHANGED. `scan/route.ts:277` gets `ONBOARDING_SCAN_FAILED` — leave the SSE body `code:null` at `:282` UNCHANGED (BACKLOG).
-- [ ] **Step 2 — stamp lib (5 sites).** `loadAppEvents.ts:53/67`, `loadCronHealth.ts:53/60`, and `selectIdentity.ts:56` (add `code: "PICKER_IDENTITY_CLAIMED_TAMPER"` to the **2nd-arg fields object** — the one with `source: "auth.picker.selectIdentity"` — NOT inside the `JSON.stringify(...)` message blob).
-- [ ] **Step 3 — stamp app/ non-api / UI (10 sites).** `app/admin/actions.ts:83`, `app/admin/show/[slug]/page.tsx` (8 sites), `app/show/[slug]/[shareToken]/_CrewShell.tsx:168`. Each: add `code:` to the fields object of the anchored call.
-- [ ] **Step 4 — run (GREEN).** `pnpm vitest run tests/log/_metaAdminOutcomeContract.test.ts` → all 35 per-row tests + the registry test + Assertion 4 (no §12.4 leak) PASS.
-- [ ] **Step 5 — commit.** `git add -A && git commit --no-verify -m "feat(observability): stamp forensic codes on 35 null-code log.error/warn sites (batch-2)"`
-
----
-
-### Task 3: Runtime emission tests (sink delivery for ambiguous/high-value sites)
-
-**Files:** Create `tests/log/nullcodeBatch2Emission.test.ts` (or extend existing loader tests).
-
-- [ ] **Step 1 — write tests (some RED before Task 2, GREEN after).** 
-  - **`selectIdentity` (REQUIRED):** drive the `PICKER_IDENTITY_CLAIMED` tamper branch; spy on `log.warn`; assert its **2nd arg (fields object)** has `code: "PICKER_IDENTITY_CLAIMED_TAMPER"` (NOT inside the stringified 1st arg). Use the existing selectIdentity test harness if present.
+- [ ] **Step 3 — write the runtime emission tests.** Create `tests/log/nullcodeBatch2Emission.test.ts`:
+  - **`selectIdentity` (REQUIRED — the one site the structural guard can't fully pin):** drive the `PICKER_IDENTITY_CLAIMED` tamper branch; spy on `log.warn`; assert its **2nd arg (fields object)** has `code: "PICKER_IDENTITY_CLAIMED_TAMPER"` (NOT inside the stringified 1st arg). Use the existing selectIdentity test harness if present.
   - **`loadAppEvents`:** force returned-error → assert `log.error` fields include `code: "APP_EVENTS_READ_RETURNED_ERROR"`; force thrown → `APP_EVENTS_READ_THREW`.
   - **`loadCronHealth`:** same for `CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR` / `_THREW`.
   - **`reap-stale-sessions`:** force the catch; assert `log.error` fields include `code: "REAP_STALE_SESSIONS_INFRA_FAILED"` AND the response body still returns `REAP_STALE_SESSIONS_FAILED` (rename didn't alter the contract).
-- [ ] **Step 2 — run (GREEN, post-Task-2).** `pnpm vitest run tests/log/nullcodeBatch2Emission.test.ts` → PASS.
-- [ ] **Step 3 — commit.** `git add -A && git commit --no-verify -m "test(observability): runtime emission tests for selectIdentity/loaders/reap forensic codes"`
+- [ ] **Step 4 — run all tests, observe RED (tests precede impl).** `pnpm vitest run tests/log/_metaAdminOutcomeContract.test.ts tests/log/nullcodeBatch2Emission.test.ts` → the 35 structural per-row tests FAIL (codes not yet stamped) and the runtime tests FAIL (fields lack the code). The "35 rows/distinct/registered" test + the 3 pre-existing assertions PASS. **Do NOT commit this RED state.**
+- [ ] **Step 5 — stamp all 35 sites.** Stamp = add `code: "<CODE>"` to the **existing fields object** (2nd arg) of the call whose message matches the anchor. Do NOT touch control flow, the message, the returned response, or any other field. Do NOT touch the 4 excluded-adjacent already-coded calls (spec §5).
+  - *app/api (20):* locate each by anchor; add `code:`. `reap-stale-sessions:62` → `REAP_STALE_SESSIONS_INFRA_FAILED`, leaving `errorResponse(500,"REAP_STALE_SESSIONS_FAILED")` at `:63` UNCHANGED. `scan/route.ts:277` → `ONBOARDING_SCAN_FAILED`, leaving the SSE body `code:null` at `:282` UNCHANGED.
+  - *lib (5):* `loadAppEvents.ts:53/67`, `loadCronHealth.ts:53/60`, `selectIdentity.ts:56` (code in the **2nd-arg fields object** with `source: "auth.picker.selectIdentity"`, NOT the `JSON.stringify(...)` blob).
+  - *app/ non-api / UI (10):* `app/admin/actions.ts:83`, `app/admin/show/[slug]/page.tsx` (8), `app/show/[slug]/[shareToken]/_CrewShell.tsx:168`.
+- [ ] **Step 6 — add the BACKLOG entries (part of shipped scope).** Add to `BACKLOG.md` (spec §9): `BL-SCAN-SSE-BODY-NULL-CODE` (scan SSE result body emits user-facing `code:null`) and `BL-PICKER-TAMPER-ADMIN-ALERT` (selectIdentity tamper could also raise an admin_alerts upsert). These land BEFORE push.
+- [ ] **Step 7 — run all tests, observe GREEN.** `pnpm vitest run tests/log/_metaAdminOutcomeContract.test.ts tests/log/nullcodeBatch2Emission.test.ts` → all 35 structural per-row tests + the registry test + Assertion 4 (no §12.4 leak) + the runtime tests PASS.
+- [ ] **Step 8 — commit (single green commit).** `git add -A && git commit --no-verify -m "feat(observability): stamp 35 forensic codes on null-code log sites + anchored guard + runtime tests (BL-NULLCODE-STAMP-BATCH-2)"`
 
 ---
 
-### Task 4: Impeccable dual-gate on the app/ non-api subset (invariant 8)
+### Task 2: Impeccable dual-gate on the app/ non-api subset (invariant 8)
 
 **Files:** none (evaluation of the 10 UI-file diff).
 
@@ -217,28 +203,26 @@ Stamp = add `code: "<CODE>"` to the **existing fields object** (the 2nd arg) of 
 
 ---
 
-### Task 5: Full verification
+### Task 3: Full verification
 
 - [ ] **Step 1 — typecheck.** `pnpm typecheck` → clean.
 - [ ] **Step 2 — full suite.** `pnpm vitest run` → note any pre-existing env-bound failures vs merge-base; all new + source-scanning meta-tests (`_metaAdminOutcomeContract`, `codeProducers`, `codes.test.ts`, `x2`) PASS. Confirm `x1-catalog-parity` / `x2-no-raw-codes` unaffected (strip-exempt).
-- [ ] **Step 3 — format check.** `pnpm format:check` → clean (else `prettier --write` the changed files, re-verify, commit `style(...)`).
-- [ ] **Step 4 — commit (only if format changed).** as needed.
+- [ ] **Step 3 — format check.** `pnpm format:check` → clean (else `prettier --write` the changed files, re-verify typecheck + affected tests, commit `style(observability): prettier-format batch-2 files`).
 
 ---
 
-### Task 6: Whole-diff review + ship
+### Task 4: Whole-diff review + ship
 
 - [ ] **Step 1 — whole-diff Codex adversarial-review to APPROVE.** Bounded prompt (inline the diff; ban repo-wide greps). Iterate to `===CDXV=== APPROVE`.
-- [ ] **Step 2 — push + PR.** Confirm `pnpm typecheck` + `pnpm format:check` clean FIRST, then `git push -u origin fix/nullcode-forensic-batch2`; `gh pr create`.
-- [ ] **Step 3 — real CI green.** Monitor (count `bucket=="fail"`); confirm `mergeStateStatus==CLEAN`.
+- [ ] **Step 2 — push + PR.** Confirm `pnpm typecheck` + `pnpm format:check` clean FIRST (both — `--no-verify` bypassed the prettier hook), then `git push -u origin fix/nullcode-forensic-batch2`; `gh pr create` (PR body records the impeccable dispositions from Task 2).
+- [ ] **Step 3 — real CI green.** Monitor (count `bucket=="fail"`, emit on all terminal states); confirm `mergeStateStatus==CLEAN`.
 - [ ] **Step 4 — merge + ff.** `gh pr merge --merge`; verify server-side merged; ff local main; `rev-list --left-right --count main...origin/main` == `0 0`; remove worktree + delete branch.
-- [ ] **Step 5 — BACKLOG entries.** Ensure `BL-SCAN-SSE-BODY-NULL-CODE` + `BL-PICKER-TAMPER-ADMIN-ALERT` are in BACKLOG.md (spec §9) — add + commit if not already present (fold into a Task-2/5 commit or a small `docs(plan):` commit).
 
 ---
 
 ## Self-review checklist
-- Spec coverage: §3 35 sites → Task 2; §4 reap rename → Task 2 step 1 + Task 3; §5 excluded → Task 2 (do-not-touch); §6 special cases → Task 2 steps 1-2; §7 impeccable → Task 4; §8.1(a) registry → Task 1 step 1; §8.1(b) anchored guard → Task 1 step 2; §8.2 runtime → Task 3; §9 BACKLOG → Task 6 step 5. ✓
-- TDD: Task 1 guard RED before Task 2 stamps → GREEN. ✓
-- Anchor uniqueness within file: finalize-cas pair uses full quoted literals (non-stream anchor `"…unexpected failure"` is NOT contained in the stream call because the code check disambiguates, AND the closing quote makes the anchor exact); the 4 shared `"WIZARD_SESSION_SUPERSEDED_RACE alert write failed"` anchors are each in a DIFFERENT file (per-file assertion). ✓
-- Meta-test inventory: EXTENDS `_metaAdminOutcomeContract.test.ts`. ✓
+- Spec coverage: §3 35 sites → Task 1 step 5; §4 reap rename → Task 1 steps 3+5; §5 excluded → Task 1 step 5 (do-not-touch); §6 special cases → Task 1 steps 3+5; §7 impeccable → Task 2; §8.1(a) registry → Task 1 step 1; §8.1(b) anchored guard → Task 1 step 2; §8.2 runtime → Task 1 step 3; §9 BACKLOG → Task 1 step 6 (before push). ✓
+- TDD (Codex plan-R1): all tests (structural + runtime) written and observed RED in Task 1 steps 1-4 BEFORE the stamps in step 5; single GREEN commit in step 8; NO red commit. ✓
+- Anchor uniqueness within file: finalize-cas pair uses full quoted literals (non-stream anchor `"…unexpected failure"` incl. closing quote is NOT a substring of the stream call's `"…unexpected failure (stream)"`, and the code check disambiguates); the 4 shared `"WIZARD_SESSION_SUPERSEDED_RACE alert write failed"` anchors are each in a DIFFERENT file (per-file assertion). ✓
+- Meta-test inventory: EXTENDS `_metaAdminOutcomeContract.test.ts`; adds `tests/log/nullcodeBatch2Emission.test.ts`. ✓
 - No §12.4 / advisory-lock / DML changes. ✓
