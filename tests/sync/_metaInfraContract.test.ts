@@ -389,6 +389,18 @@ const infraRegistry = [
     contract:
       "watch escalation guard strict writer (spec §3.2.5): returned Supabase {error} AND thrown faults (construction/insert) both map to { ok:false, error }; success → { ok:true }. Never throws (invariant 9).",
   },
+  {
+    helper: "readUnresolvedWatchAlert",
+    path: "lib/drive/watchEscalation.ts",
+    contract:
+      "watch escalation trigger read (spec §3.2.5): returned Supabase {error} AND thrown construction/query faults both map to \"infra_error\"; no unresolved row → null; a row → the typed WatchAlertRow. Never throws (invariant 9).",
+  },
+  {
+    helper: "hasEscalationFired",
+    path: "lib/drive/watchEscalation.ts",
+    contract:
+      "watch escalation fired-once guard read (spec §3.2.5): returned Supabase {error} AND thrown construction/query faults both map to \"infra_error\"; a prior guard row → true, none → false. Never throws (invariant 9).",
+  },
 ] as const;
 
 function read(path: string): string {
