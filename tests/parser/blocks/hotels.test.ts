@@ -356,4 +356,24 @@ describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
     expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611");
     expect(h!.names).toContain("Douglas Larson");
   });
+
+  it("strips a conf# after a SHORT numeric token cleanly — no dangling dash (Codex R1)", () => {
+    // The lookbehind is scoped to a 5-digit ZIP (`(?<!\b\d{5})`), NOT any digit-preceded
+    // dash: a 2-digit token immediately before a conf# ("...12-2069854") must still strip,
+    // else the dash rule skips it and only the bare-6+ rule fires, leaving a dangling "-".
+    const table = [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address |",
+      "|  | Kimpton Gray 122 W Monroe St Chicago, IL 60603 | Kimpton Gray 122 W Monroe St Chicago, IL 60603 |",
+      "|  | Names on Reservation | Names on Reservation |",
+      "|  | Suite 12-2069854 | Suite 12-2069854 |",
+      "|  | Check In Date | Check Out Date |",
+      "|  | 3/22/26 | 3/26/26 |",
+    ].join("\n");
+    const h = parseHotels(table, "v4")[0];
+    // conf# fully removed; no trailing "-" survives on the persisted guest name.
+    expect(h!.names).toContain("Suite 12");
+    expect(h!.names.some((n) => n.includes("-") || /\d{4,}/.test(n))).toBe(false);
+  });
 });

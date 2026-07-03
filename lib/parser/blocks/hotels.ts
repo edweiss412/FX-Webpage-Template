@@ -157,11 +157,12 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
 function stripConfTokens(name: string): string {
   return (
     name
-      // dash-prefixed conf# (#optional). The `(?<!\d)` guards a dash IMMEDIATELY preceded by
-      // a digit: that is a ZIP+4 hyphen ("60611-1234") or an intra-number dash, NOT a conf#
-      // (a real conf# always has a space / '#' / name before its dash). Without it the "+4"
-      // of a ZIP+4 was clipped from crew-visible hotel_address (audit idx4).
-      .replace(/\s*(?<!\d)[-–—]{1,3}\s*#?\s*\d{4,}/g, " ")
+      // dash-prefixed conf# (#optional). The `(?<!\b\d{5})` guards ONLY the ZIP+4 shape — a
+      // dash preceded by a word-boundary-delimited 5-digit ZIP ("…IL 60611-1234") — so its
+      // "+4" is not clipped from crew-visible hotel_address (audit idx4). Scoped to exactly-5
+      // (not "any digit") so a numeric-ending token before a real conf# ("Studio 54-2035940")
+      // still strips cleanly (Codex R1): "54" is not a 5-digit ZIP, so its dash is stripped.
+      .replace(/\s*(?<!\b\d{5})[-–—]{1,3}\s*#?\s*\d{4,}/g, " ")
       .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
       .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
       .replace(/\s+/g, " ")
