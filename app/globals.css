@@ -433,7 +433,32 @@ progress[data-testid="wizard-step2-progressbar"]::-moz-progress-bar {
   background-color: var(--color-accent);
   border-radius: 9999px;
 }
-progress[data-testid="wizard-step2-progressbar"]:indeterminate {
+/* INDETERMINATE shimmer lives on the TRACK pseudo-elements, not the bare
+   <progress> element (audit idx26/#115). The element's own background-image is
+   OCCLUDED in WebKit/Chromium by the opaque ::-webkit-progress-bar, so a bare
+   `:indeterminate { background-image }` never paints; and Firefox's
+   ::-moz-progress-bar renders a solid full-width accent on indeterminate, which
+   reads as a misleading 100% bar. Painting the moving gradient onto the visible
+   surfaces (bar pseudo-elements) fixes both. The determinate state (a `value`
+   attribute → ::-webkit-progress-value / a filled ::-moz-progress-bar) is
+   UNCHANGED — these rules only match `:indeterminate`. */
+progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar {
+  background-color: var(--color-surface-raised);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-accent) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  background-position: -40% 0;
+  animation: scan-progress-indeterminate 1.2s ease-in-out infinite;
+}
+progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar {
+  /* Override the solid full-width accent Firefox paints on indeterminate so the
+     moving shimmer shows instead of a misleading 100% bar. */
+  background-color: transparent;
   background-image: linear-gradient(
     90deg,
     transparent 0%,
@@ -454,7 +479,10 @@ progress[data-testid="wizard-step2-progressbar"]:indeterminate {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  progress[data-testid="wizard-step2-progressbar"]:indeterminate {
+  /* Kill the shimmer motion on the SAME track pseudo-elements, leaving a static
+     centered accent hint (not a solid bar). */
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-webkit-progress-bar,
+  progress[data-testid="wizard-step2-progressbar"]:indeterminate::-moz-progress-bar {
     animation: none;
     background-position: 50% 0; /* static centered accent hint */
   }
