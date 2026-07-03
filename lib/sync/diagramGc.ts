@@ -31,6 +31,10 @@ export type DiagramGcTx = {
   listPendingPromotionRetries?(now: Date): Promise<string[]>;
   deletePromotedRows(now: Date): Promise<number>;
   emitStuckAlerts?(now: Date): Promise<void>;
+  // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4): resolves
+  // PENDING_SNAPSHOT_PROMOTE_STUCK / PENDING_SNAPSHOT_DELETE_STUCK for shows whose ledger row no
+  // longer matches the raise predicate above — the same gc cycle's inverted anti-join.
+  resolveClearedStuckAlerts?(now: Date): Promise<void>;
   upsertAdminAlert?(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
   close?(): Promise<void>;
 };
@@ -328,6 +332,34 @@ function defaultTx(): DiagramGcTx {
         [now.toISOString()],
       );
     },
+    async resolveClearedStuckAlerts(now) {
+      await rows(
+        `
+          update public.admin_alerts a
+             set resolved_at = now()
+           where a.code = 'PENDING_SNAPSHOT_PROMOTE_STUCK' and a.resolved_at is null
+             and not exists (
+               select 1 from public.pending_snapshot_uploads p
+                where p.show_id = a.show_id
+                  and p.promote_started_at is not null and p.promoted_at is null
+                  and p.promote_started_at < $1::timestamptz - interval '15 minutes')
+        `,
+        [now.toISOString()],
+      );
+      await rows(
+        `
+          update public.admin_alerts a
+             set resolved_at = now()
+           where a.code = 'PENDING_SNAPSHOT_DELETE_STUCK' and a.resolved_at is null
+             and not exists (
+               select 1 from public.pending_snapshot_uploads p
+                where p.show_id = a.show_id
+                  and p.delete_started_at is not null and p.promoted_at is null
+                  and p.claim_expires_at < $1::timestamptz)
+        `,
+        [now.toISOString()],
+      );
+    },
     async close() {
       await sql.end({ timeout: 5 });
     },
@@ -385,6 +417,7 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
 
     const promotedRowsDeleted = await tx.deletePromotedRows(now);
     await tx.emitStuckAlerts?.(now);
+    await tx.resolveClearedStuckAlerts?.(now);
 
     return {
       orphanBlobsDeleted,
