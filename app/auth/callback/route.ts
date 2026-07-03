@@ -91,6 +91,19 @@ async function stampOauthClaim(
     const canonicalEmail = canonicalize(userResult.user?.email);
     if (!canonicalEmail) return;
 
+    // S4 forensic: durable record of a SUCCESSFUL session establishment — the exchange committed
+    // and getUser resolved a signed-in identity. Persists via info+code (lib/log shouldPersist).
+    // Hashed actor only, never a raw email. Fail-open at the callsite.
+    try {
+      await log.info("OAUTH_SIGN_IN_SUCCEEDED", {
+        source: "auth.callback",
+        code: "OAUTH_SIGN_IN_SUCCEEDED",
+        actorHash: hashForLog(canonicalEmail),
+      });
+    } catch {
+      /* best-effort */
+    }
+
     const serviceRole = createSupabaseServiceRoleClient();
     const { data: result, error: rpcError } = await serviceRole.rpc("claim_oauth_identity", {
       p_email: canonicalEmail,
@@ -170,7 +183,19 @@ export async function GET(request: NextRequest): Promise<Response> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
-  } catch {
+  } catch (error) {
+    // S4 forensic (strip-exempt): the Supabase Auth client itself could not be constructed
+    // (env/config/network) — distinct from a bad OAuth code. Fail-open at the callsite so a
+    // logger throw can never change the 503 infra response.
+    try {
+      await log.error("supabase server client construction threw", {
+        source: "auth.callback",
+        code: "OAUTH_CLIENT_CONSTRUCTION_FAILED",
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
     const infraResponse = infraFailureResponse();
     clearPkceVerifierCookies(request, infraResponse);
     return infraResponse;
@@ -178,12 +203,34 @@ export async function GET(request: NextRequest): Promise<Response> {
   let exchangeResult: Awaited<ReturnType<typeof supabase.auth.exchangeCodeForSession>>;
   try {
     exchangeResult = await supabase.auth.exchangeCodeForSession(code);
-  } catch {
+  } catch (error) {
+    // S4 forensic: the exchange call THREW (Auth infra fault, 503) — not a returned-error
+    // bad-code. Fail-open at the callsite.
+    try {
+      await log.error("exchangeCodeForSession threw", {
+        source: "auth.callback",
+        code: "OAUTH_EXCHANGE_THREW",
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
     const infraResponse = infraFailureResponse();
     clearPkceVerifierCookies(request, infraResponse);
     return infraResponse;
   }
   if (exchangeResult.error) {
+    // S4 forensic: the exchange RETURNED an error (bad/replayed/expired code) — the user-facing
+    // OAUTH_STATE_INVALID redirect is UNCHANGED; this only adds a durable, groupable record.
+    try {
+      await log.error("exchangeCodeForSession returned error", {
+        source: "auth.callback",
+        code: "OAUTH_EXCHANGE_REJECTED",
+        error: exchangeResult.error,
+      });
+    } catch {
+      /* best-effort */
+    }
     const response = signInRedirect(request, "OAUTH_STATE_INVALID", nextOutcome.path);
     clearPkceVerifierCookies(request, response);
     return response;
@@ -210,6 +257,15 @@ export async function GET(request: NextRequest): Promise<Response> {
         // ErrorExplainer so the user sees a cataloged error and a
         // clear retry path. Confirmed not_admin still falls through
         // to /me as before.
+        // S4 forensic: the is_admin RPC hit an infra fault (not a not_admin decision). Fail-open.
+        try {
+          await log.error("is_admin infra fault on OAuth callback", {
+            source: "auth.callback",
+            code: "OAUTH_IS_ADMIN_INFRA_ERROR",
+          });
+        } catch {
+          /* best-effort */
+        }
         const infraResponse = infraFailureResponse();
         clearPkceVerifierCookies(request, infraResponse);
         return infraResponse;

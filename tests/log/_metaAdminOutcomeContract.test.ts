@@ -168,6 +168,12 @@ const NEW_FORENSIC_CODES = new Set([
   "RESCAN_INFRA_ERROR",
   "FINALIZE_CLEANUP_FAILED",
   "STAGE_DISCARD_FAILED",
+  // S4 — OAuth callback session-exchange leg (all log.error/info, strip-exempt).
+  "OAUTH_CLIENT_CONSTRUCTION_FAILED",
+  "OAUTH_EXCHANGE_THREW",
+  "OAUTH_EXCHANGE_REJECTED",
+  "OAUTH_IS_ADMIN_INFRA_ERROR",
+  "OAUTH_SIGN_IN_SUCCEEDED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
