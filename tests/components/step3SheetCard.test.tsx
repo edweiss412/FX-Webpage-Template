@@ -860,3 +860,48 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-panel`)).toBeNull();
   });
 });
+
+describe("Step3SheetCard — UNKNOWN_FIELD row-label surfacing + legacy shim (Part A/D)", () => {
+  test("Part A: two UNKNOWN_FIELD warnings render distinguishable row labels", () => {
+    const FIX = parseResult({
+      warnings: [
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_FIELD",
+          message: "Unrecognized event_details row label: 'Floor Plan'",
+          rawSnippet: "Floor Plan | LINK",
+        },
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_FIELD",
+          message: "Unrecognized event_details row label: 'GS Podium Type'",
+          rawSnippet: "GS Podium Type | (2) Acrylic Podium",
+        },
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-warnings-panel`);
+    // The two entries share the generic title but are distinguishable by label.
+    expect(within(panel).queryByText("Floor Plan")).not.toBeNull();
+    expect(within(panel).queryByText("GS Podium Type")).not.toBeNull();
+  });
+
+  test("Part A shim: a legacy A55-range UNKNOWN_FIELD renders NO 'Open in Sheet' link", () => {
+    const FIX = parseResult({
+      warnings: [
+        {
+          severity: "warn" as const,
+          code: "UNKNOWN_FIELD",
+          message: "x",
+          rawSnippet: "Floor Plan | LINK",
+          sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+        },
+      ],
+    });
+    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-warnings-panel`);
+    expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
+  });
+});

@@ -73,7 +73,7 @@ export const BLOCK_DISAPPEARED = "BLOCK_DISAPPEARED";
  */
 export function emitFieldUnreadable(
   agg: ParseAggregator | undefined,
-  params: { section: string; field: string; rawSnippet: string; index: number },
+  params: { section: string; field: string; rawSnippet: string; index: number; name: string },
 ): void {
   if (!agg) return;
   // OUTCOME-NEUTRAL wording (whole-diff review R2): describe the SHEET problem — the
@@ -89,7 +89,11 @@ export function emitFieldUnreadable(
     severity: "warn",
     code: "FIELD_UNREADABLE",
     message: `Crew ${fieldWord} for row ${params.index + 1} couldn't be read as a ${kind} ("${params.rawSnippet}") — check the sheet.`,
-    blockRef: { kind: params.section, index: params.index },
+    // Carry the crew member's NAME (the synthesis-stable per-row key the crew-role raw-grid
+    // scanner also keys on) so attachSourceCellAnchors resolves a per-ROW source cell.
+    // Distinct crew rows → distinct anchors → they survive operatorActionableWarnings dedup
+    // instead of collapsing to the single crew region anchor. (idx32/#154)
+    blockRef: { kind: params.section, index: params.index, name: params.name },
     rawSnippet: params.rawSnippet,
   });
 }
@@ -128,7 +132,7 @@ export function emitUnknownField(
     severity: "warn",
     code: "UNKNOWN_FIELD",
     message: `Unrecognized ${opts.block} row label: '${key}'`,
-    blockRef: { kind: opts.kind },
+    blockRef: { kind: opts.kind, name: key },
     rawSnippet: `${key} | ${value}`,
   });
   agg.rawUnrecognized.push({ block: opts.block, key, value });

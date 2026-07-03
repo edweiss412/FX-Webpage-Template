@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
 
-import { handleWizardStagedUnapprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route";
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+
+import {
+  handleWizardStagedUnapprove,
+  type WizardUnapproveRouteDeps,
+  type WizardUnapproveRouteTx,
+} from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route";
 
 /**
  * Task C3 — un-approve (uncheck) reverts a wizard row to clean `staged`: the inverse
@@ -213,5 +220,72 @@ describe("Task C3 — un-approve reverts a wizard row to staged (real DB)", () =
     expect(await response.json()).toEqual({ ok: false, code: "ADMIN_FORBIDDEN" });
 
     expect((await pendingRow()).wizard_approved).toBe(true);
+  });
+});
+
+// STAGE_UNAPPROVED outcome-ref telemetry. DB-independent: injects a fake withRowTx +
+// tx so the emit-only-after-commit contract is exercised without a live Postgres.
+describe("Task — STAGE_UNAPPROVED outcome log (outcome-ref, emit after commit)", () => {
+  const ADMIN_EMAIL = "doug@fxav.com";
+  const revertedTx = {
+    queryOne: async () => ({ unapproved: true }),
+  } as unknown as WizardUnapproveRouteTx;
+  const supersededTx = {
+    queryOne: async () => null,
+  } as unknown as WizardUnapproveRouteTx;
+
+  function deps(overrides: WizardUnapproveRouteDeps = {}): WizardUnapproveRouteDeps {
+    return {
+      requireAdminIdentity: async () => ({ email: ADMIN_EMAIL }),
+      withRowTx: async (_id, fn) => fn(revertedTx),
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    logAdminOutcomeMock.mockClear();
+  });
+
+  test("success → logAdminOutcome called once with the bound admin email + ids", async () => {
+    const response = await handleWizardStagedUnapprove(req(), context, deps());
+    expect(response.status).toBe(200);
+
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "STAGE_UNAPPROVED",
+        source: "api.admin.onboarding.staged.unapprove",
+        actorEmail: ADMIN_EMAIL,
+        driveFileId: DRIVE_FILE_ID,
+        wizardSessionId: SESSION,
+      }),
+    );
+  });
+
+  test("409 superseded → logAdminOutcome NOT called", async () => {
+    const response = await handleWizardStagedUnapprove(
+      req(),
+      context,
+      deps({ withRowTx: async (_id, fn) => fn(supersededTx) }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  test("post-success commit failure → 500 and logAdminOutcome NOT called", async () => {
+    const response = await handleWizardStagedUnapprove(
+      req(),
+      context,
+      deps({
+        withRowTx: async (_id, fn) => {
+          await fn(revertedTx);
+          throw new Error("commit failed");
+        },
+      }),
+    );
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });

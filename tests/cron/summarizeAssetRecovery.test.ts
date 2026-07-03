@@ -34,3 +34,33 @@ describe("summarizeAssetRecovery — exhaustive 9-literal map", () => {
     expect(summarizeAssetRecovery(one("brand_new_outcome")).outcome).toBe("partial");
   });
 });
+
+const proc = (showId: string, result: unknown) => ({ showId, result });
+
+describe("summarizeAssetRecovery — failure breadcrumb", () => {
+  test("keys on showId; omits code for partial_failure", () => {
+    const s = summarizeAssetRecovery({
+      processed: [
+        proc("s-ok", { outcome: "recovered" }),
+        proc("s-pf", { outcome: "partial_failure", snapshotRevisionId: "r1" }),
+      ],
+    } as never);
+    expect(s.outcome).toBe("partial");
+    expect(s.detail?.failures).toEqual([{ showId: "s-pf", outcome: "partial_failure" }]);
+  });
+
+  test("infra_error carries its code", () => {
+    const s = summarizeAssetRecovery({
+      processed: [proc("s-x", { outcome: "infra_error", code: "SYNC_INFRA_ERROR" })],
+    } as never);
+    expect(s.outcome).toBe("infra");
+    expect(s.detail?.failures).toEqual([
+      { showId: "s-x", outcome: "infra_error", code: "SYNC_INFRA_ERROR" },
+    ]);
+  });
+
+  test("all-ok run omits detail", () => {
+    const s = summarizeAssetRecovery({ processed: [proc("s", { outcome: "no_op" })] } as never);
+    expect(s.detail).toBeUndefined();
+  });
+});

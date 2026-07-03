@@ -176,6 +176,146 @@ test("eligible none-viewer on today's show day with entries → Mode A split-wid
 });
 
 // ---------------------------------------------------------------------------
+// TEST 2b — Mode A with NO quick cards → single-column grid (audit idx68/#48).
+// When firstHotel / venue / primaryContact are ALL absent, quickCardsStack is
+// null. Mode A must NOT apply the 1.6/1 split (which would strand a dead ~38%
+// empty right track at ≥720px) — it renders the run-of-show full-width instead,
+// mirroring how Mode B keys its split on hasRight. jsdom asserts the className
+// logic + DOM structure (the fix's logic); the pixel result (single full-width
+// column, no dead track) follows from the standard Tailwind grid classes.
+// ---------------------------------------------------------------------------
+test("Mode A with run-of-show but NO quick cards → no split class, no empty right track", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: null, // no Where card
+      dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
+    },
+    // default hotelReservations [] → no Tonight; default contacts [] → no Need-something.
+    runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
+  });
+
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+
+  // Mode A still mounts (run-of-show present) and the timeline renders.
+  const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
+  expect(grid).toBeTruthy();
+  expect(container.querySelector(`[data-testid="run-of-show-${TODAY_ISO}"]`)).toBeTruthy();
+  // quickCardsStack is null → the 2-track split class is ABSENT (single column).
+  expect(grid!.className).not.toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  // ...and there is NO empty right-track div: the quick-cards stack never mounts,
+  // so the run-of-show is the grid's ONLY child (the dead ~38% column is gone).
+  expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeNull();
+  expect(grid!.children.length).toBe(1);
+});
+
+// TEST 2c — Control for 2b: Mode A WITH a quick card → the split class IS
+// present and the right track div DOES render (the run-of-show + quick-cards
+// two-column fork). Complements TEST 2's split-grid assertions.
+test("Mode A WITH a quick card → split class present + right track div renders (control)", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: { name: "Center", address: "5 Ave" }, // one quick card → quickCardsStack non-null
+      dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
+    },
+    runOfShow: { [TODAY_ISO]: { entries: AGENDA, showStart: AGENDA[0]!.start, window: null } },
+  });
+
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+
+  const grid = container.querySelector('[data-testid="today-mode-a-grid"]');
+  expect(grid).toBeTruthy();
+  expect(grid!.className).toContain("min-[720px]:grid-cols-[1.6fr_1fr]");
+  // The right track renders the quick-cards stack (grid has BOTH children).
+  expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeTruthy();
+  expect(grid!.children.length).toBe(2);
+});
+
+// ---------------------------------------------------------------------------
+// TEST 2d — full-width Key times uses the STACK layout (audit idx70/#51).
+// The FINAL else branch (not Mode A, not hasLeft&&hasRight, not hasRight — i.e.
+// anchors present but NO hotel/venue/contact) renders the Key times card
+// FULL-WIDTH. keyTimesCard must therefore use the DEFAULT (stack) KeyTimesStrip
+// posture, NOT layout="row" — a full-width `row` strip spreads 2 anchors 50/50
+// across the whole page with a mid-page divider (the exact thing the Mode A
+// comment says `row` must be reserved AWAY from). The KeyTimesStrip row markers
+// are data-layout="row" + min-[720px]:divide-x on the container (KeyTimesStrip.tsx
+// :116-124); the default stack is data-layout="stack" with no divide-x.
+// ---------------------------------------------------------------------------
+test("final full-width else (anchors, no quick cards) → Key times uses the STACK layout, not row", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: null, // no Where card → no quick cards
+      dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
+    },
+    // GS room set/show/strike → resolveKeyTimes anchors → keyTimesCard present (hasLeft).
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "Main",
+        set_time: "11:00 AM",
+        show_time: "1:00 PM",
+        strike_time: "9:00 PM",
+      },
+    ],
+    // default hotelReservations [] + contacts [] + venue null → quickCardsStack null → hasRight false.
+    runOfShow: null, // → not Mode A
+  });
+
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+
+  // Neither grid mounts: not Mode A, and hasRight is false so not the Mode B grid.
+  expect(container.querySelector('[data-testid="today-mode-a-grid"]')).toBeNull();
+  expect(container.querySelector('[data-testid="today-mode-b-grid"]')).toBeNull();
+  expect(container.querySelector('[data-testid="today-quick-cards"]')).toBeNull();
+  // The Key times card renders full-width; its strip is the DEFAULT stack posture.
+  const card = container.querySelector('[data-testid="today-key-times"]');
+  expect(card).toBeTruthy();
+  const strip = card!.querySelector('[data-testid="key-times-strip"]')!;
+  expect(strip.getAttribute("data-layout")).toBe("stack");
+  expect(strip.className).not.toContain("divide-x");
+});
+
+// TEST 2e — Control for 2d: in the Mode B split-wide grid, the Key times card
+// lives in the BOUNDED 1.6fr day-context column and MUST keep layout="row" so
+// it fills the wide column instead of leaving a large empty right side.
+test("Mode B grid → Key times keeps the ROW layout in its bounded 1.6fr column (control)", () => {
+  const data = makeShowForViewer({
+    show: {
+      venue: { name: "Center", address: "5 Ave" }, // quick card → hasRight → Mode B grid
+      dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
+    },
+    rooms: [
+      {
+        id: "r1",
+        kind: "gs",
+        name: "Main",
+        set_time: "11:00 AM",
+        show_time: "1:00 PM",
+        strike_time: "9:00 PM",
+      },
+    ],
+    runOfShow: null, // Mode B (persistent split-wide)
+  });
+
+  const { container } = render(
+    <TodaySection data={data} viewer={{ kind: "admin" }} today={TODAY} showId={SHOW_ID} />,
+  );
+
+  const left = container.querySelector('[data-testid="today-day-context"]');
+  expect(left).toBeTruthy();
+  const strip = left!.querySelector('[data-testid="key-times-strip"]')!;
+  expect(strip.getAttribute("data-layout")).toBe("row");
+  expect(strip.className).toContain("min-[720px]:divide-x");
+});
+
+// ---------------------------------------------------------------------------
 // TEST 3 — TZ boundary (Codex plan R3 HIGH).
 // A frozen `today` whose UTC date ≠ show-tz date. `runOfShow` is keyed at BOTH
 // the show-tz ISO and the UTC ISO; Mode A must key off the SHOW-tz ISO (the

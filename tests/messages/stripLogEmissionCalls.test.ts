@@ -90,4 +90,32 @@ describe("stripLogEmissionCalls", () => {
     ].join("\n");
     expect(codes(src)).toEqual(["AFTER"]);
   });
+
+  // logAdminOutcome is the durable admin-outcome emission wrapper — its forensic
+  // `code:` literal must be stripped exactly like log.*, so the outcome codes never
+  // register in the §12.4 / internal-code-enum producer scans (spec §3, Codex spec-R3).
+  test("a logAdminOutcome(...) span is stripped (its code: literal is gone)", () => {
+    const src = [
+      'await logAdminOutcome({ code: "STAGE_APPLIED", source: "s", actorEmail: "a@b.com" });',
+      'const real = { code: "REAL_PRODUCER" };',
+    ].join("\n");
+    expect(codes(src)).toEqual(["REAL_PRODUCER"]);
+  });
+
+  test("multi-line logAdminOutcome with a nested call is balanced-stripped", () => {
+    const src = `
+      await logAdminOutcome({
+        code: "SHOW_FINALIZED",
+        source: "s",
+        extra: build({ code: "INNER_LOG" }),
+      });
+      keep({ code: "SURVIVOR" });
+    `;
+    expect(codes(src)).toEqual(["SURVIVOR"]);
+  });
+
+  test("an ident-prefixed xlogAdminOutcome( is NOT treated as an emission (its code kept)", () => {
+    const src = 'xlogAdminOutcome({ code: "NOT_STRIPPED" });';
+    expect(codes(src)).toEqual(["NOT_STRIPPED"]);
+  });
 });

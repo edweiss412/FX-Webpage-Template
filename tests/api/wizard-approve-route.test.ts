@@ -1,7 +1,16 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
 
-import { handleWizardStagedApprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
+import {
+  handleWizardStagedApprove,
+  type WizardApproveRouteTx,
+} from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
+
+// Mock the durable-outcome logger so the OUTCOME-REF emission is observable
+// WITHOUT writing app_events, and so the 409-superseded + post-success
+// commit-failure paths can be asserted to NEVER emit.
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
 
 /**
  * Task D3 — approve (check) is the LIGHTWEIGHT inverse of C3's un-approve: it
@@ -200,6 +209,7 @@ beforeAll(() => {
 });
 
 beforeEach(async () => {
+  logAdminOutcomeMock.mockClear();
   if (!dbUp) return;
   await cleanup();
 });
@@ -234,6 +244,20 @@ describe("Task D3 — approve sets durable publish-intent (lightweight, real DB)
       expect(row.wizard_reviewer_choices).toEqual(EXPECTED_CHOICES);
 
       expect(await manifestStatus()).toBe("applied");
+
+      // OUTCOME-REF (post-commit): exactly one durable actor-attributed outcome,
+      // emitted AFTER withRowTx resolved. actorEmail is the raw fixture identity
+      // the handler binds at `adminEmail` (per the outcome-ref spec).
+      expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+      expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "STAGE_APPROVED",
+          source: "api.admin.onboarding.staged.approve",
+          actorEmail: ADMIN_EMAIL,
+          driveFileId: DRIVE_FILE_ID,
+          wizardSessionId: SESSION,
+        }),
+      );
     },
   );
 
@@ -261,6 +285,10 @@ describe("Task D3 — approve sets durable publish-intent (lightweight, real DB)
       expect(row.wizard_approved).toBe(false);
       expect(row.wizard_approved_by_email).toBeNull();
       expect(await manifestStatus()).toBe("staged");
+
+      // OUTCOME-REF: the in-callback 409-superseded return leaves `outcome` null,
+      // so NO durable outcome is emitted (we only log real mutations).
+      expect(logAdminOutcomeMock).not.toHaveBeenCalled();
     },
   );
 
@@ -313,5 +341,51 @@ describe("Task D3 — approve sets durable publish-intent (lightweight, real DB)
     expect(await response.json()).toEqual({ ok: false, code: "ADMIN_FORBIDDEN" });
 
     expect((await pendingRow()).wizard_approved).toBe(false);
+  });
+
+  // No DB: an injected withRowTx drives the callback all the way to its success
+  // point (setting `outcome`) and THEN rejects — simulating a COMMIT failure after
+  // the JSON success response was built. Proves the outcome log fires strictly
+  // AFTER withRowTx resolves: the outer catch turns the rejection into a 500 and
+  // NO durable outcome is emitted (never log a rollback-able "success").
+  test("post-success commit failure → 500 and logAdminOutcome is NOT called (log is after the wrapper resolves)", async () => {
+    // A fake tx that walks the callback to the approve success path: read returns a
+    // live row (session active, no demotion code), the approve UPDATE affects a row,
+    // and the manifest UPDATE succeeds.
+    const fakeTx = {
+      async queryOne<T>(sqlText: string): Promise<T> {
+        if (/select ps\.triggered_review_items/i.test(sqlText)) {
+          return {
+            triggered_review_items: [{ id: "rev-cf-1" }],
+            last_finalize_failure_code: null,
+          } as T;
+        }
+        if (/update public\.pending_syncs/i.test(sqlText)) {
+          return { approved: true } as T;
+        }
+        if (/update public\.onboarding_scan_manifest/i.test(sqlText)) {
+          return { updated: true } as T;
+        }
+        return null as T;
+      },
+    } as unknown as WizardApproveRouteTx;
+
+    const response = await handleWizardStagedApprove(req(), context, {
+      requireAdminIdentity: async () => ({ email: ADMIN_EMAIL }),
+      // Run the callback to its success return (captures `outcome`) THEN throw, as a
+      // post-success commit failure would.
+      withRowTx: async <R>(
+        _driveFileId: string,
+        fn: (tx: WizardApproveRouteTx) => Promise<R> | R,
+      ): Promise<R> => {
+        await fn(fakeTx);
+        throw new Error("commit failed");
+      },
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
+    // The log is emitted only AFTER withRowTx resolves; a rejected wrapper skips it.
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });

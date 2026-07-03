@@ -12,6 +12,8 @@ import {
   DATA_GAP_CLASS_LABELS,
   operatorActionableWarnings,
   OPERATOR_ACTIONABLE_ANCHORED,
+  stripLegacyUnknownFieldAnchors,
+  selectActionableForDisplay,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -118,5 +120,114 @@ describe("SCHEDULE_STRIKE_DATE_OFF_SCHEDULE — operator-actionable surfacing", 
       },
     ]);
     expect(out).toHaveLength(1);
+  });
+});
+
+describe("stripLegacyUnknownFieldAnchors (Part D)", () => {
+  const legacy = (): ParseWarning[] => [
+    {
+      severity: "warn",
+      code: "UNKNOWN_FIELD",
+      message: "a",
+      rawSnippet: "Floor Plan | LINK",
+      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+    },
+    {
+      severity: "warn",
+      code: "UNKNOWN_FIELD",
+      message: "b",
+      rawSnippet: "GS Podium Type | (2) Acrylic",
+      sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+    },
+  ];
+
+  it("clears the stale range anchor on legacy UNKNOWN_FIELD", () => {
+    expect(stripLegacyUnknownFieldAnchors(legacy()).every((w) => w.sourceCell === null)).toBe(true);
+  });
+  it("is a NO-OP for a new single-cell anchor (A56)", () => {
+    const fresh: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "a",
+        sourceCell: { title: "INFO", gid: 0, a1: "A56" },
+      },
+    ];
+    expect(stripLegacyUnknownFieldAnchors(fresh)[0]!.sourceCell).toEqual({
+      title: "INFO",
+      gid: 0,
+      a1: "A56",
+    });
+  });
+  it("is a NO-OP for a new UNKNOWN_FIELD with EMPTY blockRef.name + single-cell anchor (R2 edge)", () => {
+    const fresh: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "a",
+        blockRef: { kind: "details", name: "" },
+        sourceCell: { title: "INFO", gid: 0, a1: "A56" },
+      },
+    ];
+    expect(stripLegacyUnknownFieldAnchors(fresh)[0]!.sourceCell).toEqual({
+      title: "INFO",
+      gid: 0,
+      a1: "A56",
+    });
+  });
+  it("does not touch other codes carrying a range anchor", () => {
+    const other: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "a",
+        sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+      },
+    ];
+    expect(stripLegacyUnknownFieldAnchors(other)[0]!.sourceCell).toEqual({
+      title: "INFO",
+      gid: 0,
+      a1: "A55:B74",
+    });
+  });
+});
+
+describe("selectActionableForDisplay (read-boundary seam)", () => {
+  it("legacy A55-range pair → 2 items, each link-less (count corrects, no stale link)", () => {
+    const items = selectActionableForDisplay([
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "a",
+        rawSnippet: "Floor Plan | LINK",
+        sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+      },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "b",
+        rawSnippet: "GS Podium Type | X",
+        sourceCell: { title: "INFO", gid: 0, a1: "A55:B74" },
+      },
+    ]);
+    expect(items).toHaveLength(2);
+    expect(items.every((w) => w.sourceCell === null)).toBe(true);
+  });
+  it("fresh distinct-cell pair → 2 items keeping their anchors", () => {
+    const items = selectActionableForDisplay([
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "a",
+        sourceCell: { title: "INFO", gid: 0, a1: "A56" },
+      },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "b",
+        sourceCell: { title: "INFO", gid: 0, a1: "A65" },
+      },
+    ]);
+    expect(items.map((w) => w.sourceCell?.a1).sort()).toEqual(["A56", "A65"]);
   });
 });

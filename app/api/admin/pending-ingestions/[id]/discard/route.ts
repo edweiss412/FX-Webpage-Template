@@ -7,6 +7,8 @@ import {
 } from "../retry/route";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -104,24 +106,60 @@ export async function handleLivePendingIngestionDiscard(
   const driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
   if (!driveFileId) return errorResponse(409, "PENDING_INGESTION_TRANSITIONED");
 
-  const result = await deps.withRowTryLock(driveFileId, async (tx) => {
-    const row = await readLockedPendingIngestion(tx, id);
-    if (!row) return errorResponse(409, "PENDING_INGESTION_TRANSITIONED");
-    if (row.wizard_session_id !== null) return errorResponse(409, "LIVE_ROW_REQUIRED");
-    if (row.drive_file_id !== driveFileId) {
-      return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
+  // OUTCOME-REF (#218): flip only on the committed discard return so the POST-COMMIT emit fires
+  // exactly once per real discard — never on a 409 guard, lock-skip, or infra throw.
+  let discarded = false;
+  let result: Response | { skipped: string };
+  try {
+    result = await deps.withRowTryLock(driveFileId, async (tx) => {
+      const row = await readLockedPendingIngestion(tx, id);
+      if (!row) return errorResponse(409, "PENDING_INGESTION_TRANSITIONED");
+      if (row.wizard_session_id !== null) return errorResponse(409, "LIVE_ROW_REQUIRED");
+      if (row.drive_file_id !== driveFileId) {
+        return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
+      }
+      // DEF-5: refuse discard when an associated show exists and is archived (re-read under the row lock).
+      // A first-seen pending_ingestion has no show row → readShowArchived returns false → proceeds.
+      if (await readShowArchived_unlocked(tx, row.drive_file_id)) {
+        return errorResponse(409, "SHOW_ARCHIVED_IMMUTABLE");
+      }
+      const deferralError = await upsertLiveDeferral(tx, row, kind, admin.email);
+      if (deferralError) return deferralError;
+      await deletePendingIngestion(tx, id);
+      discarded = true;
+      return NextResponse.json({ status: "discarded", kind });
+    });
+  } catch (error) {
+    // Fail-open (explicit callsite wrap): log the infra fault, then rethrow so the route's
+    // existing throw→500 behavior is byte-preserved. Forensic-only (inside a log span).
+    try {
+      await log.error("pending-ingestion discard threw", {
+        source: "api.admin.pending-ingestions.discard",
+        code: "PENDING_INGESTION_DISCARD_FAILED",
+        driveFileId,
+        error,
+      });
+    } catch {
+      /* best-effort */
     }
-    // DEF-5: refuse discard when an associated show exists and is archived (re-read under the row lock).
-    // A first-seen pending_ingestion has no show row → readShowArchived returns false → proceeds.
-    if (await readShowArchived_unlocked(tx, row.drive_file_id)) {
-      return errorResponse(409, "SHOW_ARCHIVED_IMMUTABLE");
-    }
-    const deferralError = await upsertLiveDeferral(tx, row, kind, admin.email);
-    if (deferralError) return deferralError;
-    await deletePendingIngestion(tx, id);
-    return NextResponse.json({ status: "discarded", kind });
-  });
+    throw error;
+  }
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
+  // POST-COMMIT durable outcome (#218) — withRowTryLock resolved (the discard committed).
+  // Fail-open so a logger throw can never turn a committed discard into a 500.
+  if (discarded) {
+    const actorEmail = canonicalize(admin.email);
+    try {
+      await logAdminOutcome({
+        code: "PENDING_INGESTION_DISCARDED",
+        source: "api.admin.pending-ingestions.discard",
+        ...(actorEmail ? { actorEmail } : {}),
+        driveFileId,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
   return result;
 }
 

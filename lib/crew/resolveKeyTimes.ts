@@ -1,6 +1,7 @@
 import type { DateRestriction, RunOfShow, ShowAnchor, ShowRow } from "@/lib/parser/types";
 import type { RoomRow } from "@/lib/parser/types";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
+import { TERMINAL_RE } from "@/lib/parser/blocks/scheduleTimes";
 
 /** ShowForViewer.rooms element type: a parsed RoomRow plus its DB PK. */
 export type ProjectedRoomRow = RoomRow & { id: string };
@@ -131,14 +132,18 @@ export function resolveKeyTimes(
 
     if (day) {
       // Rows 1-3: sentinel-guarded candidate loop (showStart > window.start >
-      // first NON-synthetic entry's start). Synthetic bookend entries
-      // (kind:"strike"/"loadout", D12) are skipped so a load-out/strike clock
-      // is never mistaken for a show-start anchor.
+      // first NON-synthetic, NON-terminal entry's start). Synthetic bookend
+      // entries (kind:"strike"/"loadout", D12) AND terminal-titled entries
+      // (wrap/conclusion/adjourn — TERMINAL_RE, matching the parser's showStart
+      // guard) are skipped so an END clock is never mistaken for a show-start
+      // anchor (design 4.1 step 6: terminal-only day -> room show_time / omit).
       // Each candidate is checked via isAbsentTime before becoming ShowAnchor.time.
       for (const cand of [
         day.showStart,
         day.window?.start,
-        day.entries.find((e) => e.kind !== "strike" && e.kind !== "loadout")?.start,
+        day.entries.find(
+          (e) => e.kind !== "strike" && e.kind !== "loadout" && !TERMINAL_RE.test(e.title),
+        )?.start,
       ]) {
         if (!isAbsentTime(cand)) {
           time = (cand as string).trim();

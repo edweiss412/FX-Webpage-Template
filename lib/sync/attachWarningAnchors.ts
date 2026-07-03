@@ -4,6 +4,7 @@ import {
   hasCellAnchoredWarning,
 } from "@/lib/drive/showDayTimeAnchors";
 import { extractCrewRoleAnchors } from "@/lib/drive/crewRoleAnchors";
+import { extractUnknownFieldAnchors } from "@/lib/drive/unknownFieldAnchors";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -46,6 +47,7 @@ export async function attachWarningAnchors(
   attachSourceCellAnchors(warnings, {
     showDay: safe(() => extractShowDayTimeAnchors(bytes, gids), []),
     crewRole: safe(() => extractCrewRoleAnchors(bytes, gids), []),
+    unknownField: safe(() => extractUnknownFieldAnchors(bytes, gids), []),
     region: regionAnchors ?? safe(() => extractSourceAnchors(bytes, gids), {}),
   });
 }

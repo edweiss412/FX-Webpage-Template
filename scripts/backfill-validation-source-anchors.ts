@@ -67,11 +67,18 @@ async function main(): Promise<void> {
           continue;
         }
         if (!DRY_RUN) {
-          await sql`
-            update shows
-               set source_anchors = ${sql.json(anchors)}
-             where id = ${show.id}
-          `;
+          // AGENTS.md plan-wide invariant 2: mutating `shows` must run inside the per-show
+          // advisory lock. This is an admin/blocking backfill, so take the BLOCKING
+          // pg_advisory_xact_lock (not pg_try_*) on the canonical hashkey, in the SAME
+          // transaction as the UPDATE so the xact-scoped lock is held for the write. (idx38/#178)
+          await sql.begin(async (tx) => {
+            await tx`select pg_advisory_xact_lock(hashtext('show:' || ${show.drive_file_id}))`;
+            await tx`
+              update shows
+                 set source_anchors = ${tx.json(anchors)}
+               where id = ${show.id}
+            `;
+          });
           log(`  ↳ wrote ${keys.length} anchors`);
         }
       } catch (err) {

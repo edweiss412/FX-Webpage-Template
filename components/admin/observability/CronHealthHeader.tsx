@@ -22,6 +22,7 @@ export function CronHealthHeader({ jobs, now }: { jobs: CronHealthRow[]; now: Da
               className="flex h-full flex-col gap-1 rounded-md border border-border bg-surface p-tile-pad"
             >
               <div className="text-sm font-medium text-text">{job.label}</div>
+              <p className="text-xs/snug  text-text-subtle">{job.description}</p>
               <StatusIndicator status={v.status} label={v.label} />
               {job.counts && (
                 <div className="mt-1 text-xs tabular-nums text-text-subtle">

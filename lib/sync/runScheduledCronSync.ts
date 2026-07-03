@@ -14,9 +14,10 @@ import {
   type HeartbeatWriteResult,
 } from "@/lib/appSettings/writeSyncCronHeartbeat";
 import { canonicalize } from "@/lib/email/canonicalize";
-import { log } from "@/lib/log";
+import { log, setCronInFlight } from "@/lib/log";
 import { runInvariants } from "@/lib/parser/invariants";
 import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
@@ -53,6 +54,7 @@ import { readBoundedWebStream } from "@/lib/sync/boundedBytes";
 import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import { revalidateShow, revalidateShowFromResult } from "@/lib/data/showCacheTag";
+import { classifyProcessed } from "@/lib/cron/classifyProcessed";
 import { SYNC_PROBLEM_CODES, type SyncProblemCode } from "@/lib/notify/constants";
 import {
   assertShowLockHeld,
@@ -97,6 +99,31 @@ export const SYNC_STEP_TIMEOUT = "SYNC_STEP_TIMEOUT" as const;
 export const DRIVE_METADATA_MISSING = "DRIVE_METADATA_MISSING" as const;
 export const SHEET_UNAVAILABLE = "SHEET_UNAVAILABLE" as const;
 const DRIVE_SYNC_STEP_TIMEOUT_MS = 30_000;
+/**
+ * audit idx57/#166 — enrichment gets its OWN step budget, decoupled from the 30s single-Drive-call
+ * timeout above.
+ *
+ * `enrichWithDrivePins` fans into `enrichAgenda`, which does up to `AGENDA_MAX_PDFS_PER_SHEET` (6)
+ * SEQUENTIAL agenda-PDF downloads, each bounded by `AGENDA_PDF_DEADLINE_MS` (120s). Under the old
+ * 30s budget any legitimate multi-PDF agenda pass >30s threw `SyncStepTimeoutError` and hard-failed
+ * the WHOLE show — repeatedly. So enrich needs a budget sized to real agenda work, not a single
+ * Drive round-trip.
+ *
+ * Ceiling: the cron entry point `app/api/cron/sync/route.ts` does not override `maxDuration`, so it
+ * runs under the project's serverless ceiling of 300s — the value every sibling sync route pins
+ * explicitly (`app/api/admin/onboarding/{extract-agenda,finalize,finalize-cas,scan}` all
+ * `export const maxDuration = 300`). Per-file processing also spends up to ~120s across the four
+ * OTHER 30s `withStepTimeout` Drive-call steps (captureBinding, fetch-markdown, capture-result,
+ * reverify-binding) plus ~30s of unwrapped tx/apply work. 300 − 120 − 30 ≈ 150s is the headroom a
+ * single file can safely give enrichment without risking a platform kill mid-write.
+ *
+ * The absolute worst case (6 × 120s = 720s) CANNOT fit 300s, so this budget deliberately does not
+ * try to cover it: the per-download `AGENDA_PDF_DEADLINE_MS` (120s) deadline plus the AbortSignal
+ * threaded from `withStepTimeout` (which aborts in-flight downloads on overrun) bound the
+ * pathological case. The guard is preserved — an overrun still throws `SyncStepTimeoutError`; it is
+ * just given a correct, larger budget and made to actually abort its work.
+ */
+export const ENRICH_STEP_TIMEOUT_MS = 150_000;
 type SyncFailureCode =
   | typeof SYNC_FILE_FAILED
   | typeof SYNC_INFRA_ERROR
@@ -184,7 +211,7 @@ export type ProcessOneFileResult =
   | { outcome: "skipped"; reason: string }
   | { outcome: "asset_recovery" }
   | { outcome: "stage"; stagedId: string }
-  | { outcome: "hard_fail"; code: string }
+  | { outcome: "hard_fail"; code: string; showId?: string | null }
   | {
       outcome: "applied";
       showId: string;
@@ -294,8 +321,23 @@ export type ProcessOneFileDeps = {
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; sheets?: SpreadsheetSheet[] },
+    ctx: {
+      driveFileId: string;
+      fileMeta: DriveFileMeta;
+      sheets?: SpreadsheetSheet[];
+      signal?: AbortSignal;
+    },
   ) => Promise<ParseResult>;
+  /**
+   * Finding C7: read the currently-stored `shows.agenda_links` so the fresh parse can be
+   * seeded with prior `extracted` payloads BEFORE enrich — the fresh cron/push/manual parse
+   * carries no `extracted`, unlike the admin path pre-seeded from `pending_syncs`
+   * (live-partition:n/a — doc reference, no statement). Injected in tests; defaults to an
+   * unlocked Postgres read.
+   */
+  readStoredAgendaLinks?: (
+    driveFileId: string,
+  ) => Promise<ParseResult["show"]["agenda_links"] | null>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
   runPhase2?: typeof runPhase2;
@@ -763,17 +805,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return { stagedId: upserted?.staged_id ?? row.stagedId ?? "" };
   }
 
-  async updateShowParseError(driveFileId: string, error: { code: string; message: string }) {
-    await this.rows(
+  async updateShowParseError(
+    driveFileId: string,
+    error: { code: string; message: string },
+  ): Promise<string | null> {
+    // `returning id`: the id of the existing shows row this UPDATE touched (used by phase1 to
+    // carry showId onto the hard_fail result so the crew cache tag is busted). null when the
+    // WHERE matched no row — a first-seen hard-fail writes nothing here. (idx17/#102)
+    const rows = await this.rows<{ id: string }>(
       `
         update public.shows
            set last_sync_status = 'parse_error',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
+        returning id
       `,
       [driveFileId, error.code],
     );
+    return rows[0]?.id ?? null;
   }
 
   async updateShowPendingReview(driveFileId: string) {
@@ -1428,6 +1478,21 @@ class PostgresPipelineTx implements SyncPipelineTx {
         payload.run_of_show,
       ],
     );
+    // DQIGNORE-3 — prune ignored_warnings orphaned by this parse: any standing ignore whose content
+    // fingerprint is NO LONGER present in the freshly-written parse_warnings (the warning it silenced
+    // has been fixed/removed). Runs in the SAME locked apply tx as the parse_warnings replace above —
+    // single-holder rule (no new advisory lock). A still-present warning keeps its fingerprint here,
+    // so its ignore SURVIVES (recurrence preserved); only vanished fingerprints are removed. Empty
+    // active set (no ignorable warnings this parse) → every standing ignore is orphaned → all pruned
+    // (same `not (x = any($2))` empty-array semantics as deleteCrewMembersNotIn). The fingerprint is
+    // the SAME content key the ignore route stored (lib/dataQuality/warningFingerprint).
+    const activeFingerprints = (payload.parse_warnings ?? [])
+      .map((w) => warningFingerprint(w))
+      .filter((fp): fp is string => fp !== null);
+    await this.rows(
+      "delete from public.ignored_warnings where show_id = $1 and not (fingerprint = any($2))",
+      [showId, activeFingerprints],
+    );
   }
 }
 
@@ -1450,11 +1515,11 @@ class DriveMetadataMissingError extends Error {
   }
 }
 
-class SyncStepTimeoutError extends Error {
+export class SyncStepTimeoutError extends Error {
   readonly code = SYNC_STEP_TIMEOUT;
 
-  constructor(label: string) {
-    super(`${label} timed out after ${DRIVE_SYNC_STEP_TIMEOUT_MS}ms`);
+  constructor(label: string, timeoutMs: number) {
+    super(`${label} timed out after ${timeoutMs}ms`);
     this.name = "SyncStepTimeoutError";
   }
 }
@@ -1542,16 +1607,76 @@ async function readPostgresRevisionRaceCooldown(
   }
 }
 
-async function withStepTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+/**
+ * Finding C7: seed the fresh parse's agenda_links with the stored `extracted` payloads
+ * (matched by fileId, fallback trimmed/lowercased label) so enrichAgenda's revision
+ * cache-hit and leave-existing paths become effective on the cron/push/manual prepare
+ * path. Pure + in-place; NEVER overrides a fresh-parse-carried extraction.
+ */
+export function seedPriorAgendaExtracted(
+  freshLinks: ParseResult["show"]["agenda_links"],
+  priorLinks: ParseResult["show"]["agenda_links"] | null | undefined,
+): void {
+  if (!priorLinks || priorLinks.length === 0) return;
+  type Extracted = NonNullable<ParseResult["show"]["agenda_links"][number]["extracted"]>;
+  const byFileId = new Map<string, Extracted>();
+  const byLabel = new Map<string, Extracted>();
+  for (const prior of priorLinks) {
+    if (!prior?.extracted) continue;
+    if (prior.fileId) byFileId.set(prior.fileId, prior.extracted);
+    const key = prior.label?.trim().toLowerCase(); // canonicalize-exempt: agenda label, not an email
+    if (key) byLabel.set(key, prior.extracted);
+  }
+  for (const link of freshLinks) {
+    if (link.extracted) continue;
+    const match =
+      (link.fileId ? byFileId.get(link.fileId) : undefined) ??
+      byLabel.get(link.label?.trim().toLowerCase() ?? ""); // canonicalize-exempt: agenda label, not an email
+    if (match) link.extracted = match;
+  }
+}
+
+async function readPostgresStoredAgendaLinks(
+  driveFileId: string,
+): Promise<ParseResult["show"]["agenda_links"] | null> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      `select agenda_links from public.shows where drive_file_id = $1 limit 1`,
+      [driveFileId],
+    )) as Array<{ agenda_links: ParseResult["show"]["agenda_links"] | null }>;
+    return rows[0]?.agenda_links ?? null;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+/**
+ * Race a per-step operation against a timeout. The operation is a FACTORY receiving an
+ * `AbortSignal` so an overrun can actually cancel in-flight work (audit idx57/#166): when the timer
+ * fires we `abort()` the controller BEFORE rejecting, so a wrapped op that forwards the signal
+ * (e.g. enrichment → agenda-PDF downloads) stops immediately instead of running to completion after
+ * the race was already lost. `timeoutMs` defaults to the 30s single-Drive-call budget; callers that
+ * legitimately need longer (enrichment) pass an explicit larger budget.
+ */
+export async function withStepTimeout<T>(
+  label: string,
+  op: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number = DRIVE_SYNC_STEP_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timer = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
-      reject(new SyncStepTimeoutError(label));
-    }, DRIVE_SYNC_STEP_TIMEOUT_MS);
+      // Abort in-flight work first so the losing branch stops doing (now-wasted) downloads, THEN
+      // reject the race with the timeout that actually elapsed (message stays accurate per-budget).
+      controller.abort();
+      reject(new SyncStepTimeoutError(label, timeoutMs));
+    }, timeoutMs);
   });
 
   try {
-    return await Promise.race([promise, timer]);
+    return await Promise.race([op(controller.signal), timer]);
   } finally {
     if (timeout) clearTimeout(timeout);
   }
@@ -2269,8 +2394,13 @@ export type PreparedProcessOneFile =
       resolvedMode: Exclude<ResolvedSyncMode, "asset_recovery">;
       binding: Phase1Binding;
       parseResult: ParseResult;
-      /** Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call). */
-      sourceAnchors: Record<string, SourceAnchor>;
+      /**
+       * Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call).
+       * audit idx12+idx63: `undefined` ONLY when the sheets-list fetch failed transiently — the
+       * omit-on-undefined chain + persist coalesce then PRESERVE the stored source_anchors rather
+       * than wiping them to `{}`. A successful extract (incl. genuinely-no-anchors) stays `{}`.
+       */
+      sourceAnchors?: Record<string, SourceAnchor>;
     };
 
 function defaultCooldownReader(
@@ -2322,7 +2452,7 @@ export async function prepareProcessOneFile(
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
   let binding: Phase1Binding;
   try {
-    binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
+    binding = await withStepTimeout("captureBinding", () => captureBinding(driveFileId, fileMeta));
   } catch (error) {
     return {
       kind: "fetch_failure",
@@ -2362,9 +2492,8 @@ export async function prepareProcessOneFile(
   try {
     if (deps.fetchMarkdownAtRevision) {
       // Test/injected path: markdown and bytes come from separate injected fns.
-      markdown = await withStepTimeout(
-        "fetchMarkdownAtRevision",
-        deps.fetchMarkdownAtRevision(driveFileId, binding.bindingToken),
+      markdown = await withStepTimeout("fetchMarkdownAtRevision", () =>
+        deps.fetchMarkdownAtRevision!(driveFileId, binding.bindingToken),
       );
       try {
         xlsxBytes = deps.fetchXlsxBytes
@@ -2375,8 +2504,7 @@ export async function prepareProcessOneFile(
       }
     } else {
       // Real path: single Drive export, both markdown and bytes from one HTTP call.
-      const result = await withStepTimeout(
-        "fetchMarkdownAtRevision",
+      const result = await withStepTimeout("fetchMarkdownAtRevision", () =>
         fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken),
       );
       markdown = result.markdown;
@@ -2404,27 +2532,61 @@ export async function prepareProcessOneFile(
   // extractSourceAnchors consume the same result — no second API call.
   const driveClient = deps.driveClient ?? defaultDriveClient();
   let sheets: SpreadsheetSheet[] | undefined;
+  // audit idx12+idx63: distinguish a genuine sheets-list FETCH FAILURE from the mock/no-op
+  // path (both leave `sheets` undefined). On a real fetch failure we must emit `undefined`
+  // source-anchors below so the persist coalesce PRESERVES the stored value instead of
+  // wiping it to `{}` (an empty titleToGid makes every region miss → a DEFINED `{}`).
+  let sheetsListFailed = false;
   if (!deps.enrichWithDrivePins && driveClient.listSpreadsheetSheets) {
     // Real path: fetch the sheet list once; pass into enrich via ctx.sheets so
     // extractEmbeddedImages does NOT re-call the API.
     try {
       sheets = await driveClient.listSpreadsheetSheets(driveFileId);
     } catch {
-      // Non-fatal: extractEmbeddedImages falls back gracefully when sheets is undefined.
+      // Non-fatal for enrich (extractEmbeddedImages falls back gracefully), but the empty
+      // titleToGid would otherwise produce a DEFINED `{}` that durably wipes source_anchors.
       sheets = undefined;
+      sheetsListFailed = true;
     }
   }
 
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
+
+  // Finding C7: seed prior stored `extracted` onto the fresh agenda_links BEFORE enrich, so
+  // enrichAgenda's revision cache-hit / leave-existing paths are effective. Without this a
+  // transient Drive fault leaves the fresh links unenriched and applyShowSnapshot wholesale-
+  // overwrites shows.agenda_links, erasing a published schedule (spec §240 preserve-never-clear).
+  // Best-effort read OUTSIDE the lock (a read; enrichAgenda re-validates against Drive revision).
+  // `?.length` guards fixtures/parses that leave agenda_links unset (the field is typed as a
+  // required array but mock parses may omit it) — never seed when there are no agenda links.
+  if (parsed.show.agenda_links?.length) {
+    try {
+      const priorLinks = await (deps.readStoredAgendaLinks ?? readPostgresStoredAgendaLinks)(
+        driveFileId,
+      );
+      seedPriorAgendaExtracted(parsed.show.agenda_links, priorLinks);
+    } catch {
+      // best-effort: never fail the sync because the prior-agenda read faulted.
+    }
+  }
+
   let enriched: ParseResult;
   try {
     enriched = await withStepTimeout(
       "enrichWithDrivePins",
-      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
-        driveFileId,
-        fileMeta: toDriveFileMeta(fileMeta),
-        ...(sheets !== undefined ? { sheets } : {}),
-      }),
+      // Thread the step's AbortSignal into enrich → enrichAgenda so an overrun of the enrich budget
+      // aborts the in-flight agenda-PDF downloads instead of leaving the 6-download loop running
+      // (audit idx57/#166).
+      (signal) =>
+        (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
+          driveFileId,
+          fileMeta: toDriveFileMeta(fileMeta),
+          ...(sheets !== undefined ? { sheets } : {}),
+          signal,
+        }),
+      // Enrichment gets its own (larger) budget, NOT the 30s single-Drive-call default — see
+      // ENRICH_STEP_TIMEOUT_MS. Every OTHER withStepTimeout call above keeps the 30s default.
+      ENRICH_STEP_TIMEOUT_MS,
     );
   } catch (error) {
     if (isBinaryAssetRevisionRace(error)) {
@@ -2448,19 +2610,31 @@ export async function prepareProcessOneFile(
       .filter((s): s is SpreadsheetSheet & { sheetId: number } => typeof s.sheetId === "number")
       .map((s) => [s.title, s.sheetId]),
   );
-  const sourceAnchors: Record<string, SourceAnchor> =
-    xlsxBytes !== undefined ? extractSourceAnchors(xlsxBytes, titleToGid) : {};
+  // audit idx12+idx63: on a genuine sheets-list fetch failure, emit `undefined` (NOT `{}`)
+  // so the downstream omit-on-undefined chain + persist coalesce PRESERVE the stored anchors.
+  // The mock/no-op path (sheets undefined but NOT failed) and a successful fetch that finds no
+  // anchors both still yield a DEFINED `{}` (unchanged behaviour — a real clear still overwrites).
+  const sourceAnchors: Record<string, SourceAnchor> | undefined = sheetsListFailed
+    ? undefined
+    : xlsxBytes !== undefined
+      ? extractSourceAnchors(xlsxBytes, titleToGid)
+      : {};
 
   // Populate per-warning source-cell/region deep-link anchors on the cron path
   // (parse-warning deep links). Pure raw-workbook read inside the existing prepare
   // stage — no new lock (invariant 2). Reuse the already-computed titleToGid +
-  // sourceAnchors (no extra fetch / recompute).
-  await attachWarningAnchors(enriched.warnings, xlsxBytes, async () => titleToGid, sourceAnchors);
+  // sourceAnchors (no extra fetch / recompute). attachWarningAnchors needs a defined map;
+  // on a sheets-list failure there are no anchors to attach anyway, so pass `{}`.
+  await attachWarningAnchors(
+    enriched.warnings,
+    xlsxBytes,
+    async () => titleToGid,
+    sourceAnchors ?? {},
+  );
 
   let currentBinding: Phase1Binding;
   try {
-    currentBinding = await withStepTimeout(
-      "reverifyBinding",
+    currentBinding = await withStepTimeout("reverifyBinding", () =>
       captureBinding(driveFileId, fileMeta),
     );
   } catch (error) {
@@ -2488,7 +2662,11 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: enriched,
-    sourceAnchors,
+    // audit idx12+idx63: OMIT on a genuine sheets-list fetch failure (exactOptionalPropertyTypes
+    // forbids an explicit `undefined` on an optional field). The guarded cron spread
+    // (`pipeline.sourceAnchors !== undefined`) reads an absent property identically → coalesce
+    // receives null → the stored source_anchors are PRESERVED, not wiped to `{}`.
+    ...(sourceAnchors !== undefined ? { sourceAnchors } : {}),
   };
 }
 
@@ -2562,7 +2740,14 @@ export async function processOneFile_unlocked(
     txDeps,
   );
   if (phase1.outcome === "hard_fail") {
-    const result = { outcome: "hard_fail" as const, code: phase1.code };
+    // Carry phase1's showId through: an EXISTING-show hard_fail committed
+    // shows.last_sync_status='parse_error', so revalidateShowFromResult (file-loop, post-commit)
+    // must bust the crew cache tag. null for a first-seen hard_fail (nothing written). (idx17/#102)
+    const result = {
+      outcome: "hard_fail" as const,
+      code: phase1.code,
+      showId: phase1.showId ?? null,
+    };
     await logSync(txDeps, driveFileId, result);
     const show = await tx.readShowForPhase1(driveFileId);
     if (show?.showId) {
@@ -2745,118 +2930,171 @@ export async function runScheduledCronSync(
     };
   };
 
-  const folderResult = deps.folderId
-    ? { folderId: deps.folderId }
-    : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
-  if ("kind" in folderResult) {
-    if (folderResult.kind === "no_folder_configured") {
+  let inFlightPhase:
+    | "resolve-folder"
+    | "list-folder"
+    | "list-live-shows"
+    | "missing-shows"
+    | "file-loop"
+    | "finish" = "resolve-folder";
+  let inFlightDriveFileId: string | null = null;
+  let resolvedFolderId: string | null = null;
+  const processed: RunScheduledCronSyncResult["processed"] = []; // HOISTED for throw attribution
+
+  // Keep the local lets (read by the S1 syncRunContext attach below) AND the
+  // request-context ALS in sync, so a throw that BYPASSES the S1 try (a detached
+  // Drive-promise rejection surfaced into the request) still carries which-record
+  // context via runCronRoute's ALS fallback (audit #4 PR-1).
+  const setPhase = (p: typeof inFlightPhase) => {
+    inFlightPhase = p;
+    setCronInFlight({ phase: p });
+  };
+  const setInFlightId = (id: string | null) => {
+    inFlightDriveFileId = id;
+    setCronInFlight({ driveFileId: id, processedCount: processed.length });
+  };
+  setCronInFlight({ phase: inFlightPhase, processedCount: 0 }); // seed "resolve-folder"
+
+  try {
+    const folderResult = deps.folderId
+      ? { folderId: deps.folderId }
+      : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
+    if ("kind" in folderResult) {
+      if (folderResult.kind === "no_folder_configured") {
+        await deps.logSync?.({
+          driveFileId: null,
+          outcome: "skipped",
+          code: "no_folder_configured",
+          payload: {
+            kind: "cron_no_folder_configured",
+            skip_reason: "no_folder_configured",
+          },
+        });
+        // `await` so a heartbeat-write rejection is caught by the outer catch (attributed),
+        // not returned as an unawaited rejecting promise that bypasses it.
+        return await finishCompletedRun({
+          processed: [],
+          summary: { outcome: "skipped", skipReason: "no_folder_configured" },
+        });
+      }
       await deps.logSync?.({
         driveFileId: null,
-        outcome: "skipped",
-        code: "no_folder_configured",
-        payload: {
-          kind: "cron_no_folder_configured",
-          skip_reason: "no_folder_configured",
-        },
+        outcome: "parse_error",
+        code: SYNC_INFRA_ERROR,
+        payload: errorPayload(folderResult.cause),
       });
-      return finishCompletedRun({
-        processed: [],
-        summary: { outcome: "skipped", skipReason: "no_folder_configured" },
-      });
+      return { processed: [], summary: { outcome: "parse_error", code: SYNC_INFRA_ERROR } };
     }
-    await deps.logSync?.({
-      driveFileId: null,
-      outcome: "parse_error",
-      code: SYNC_INFRA_ERROR,
-      payload: errorPayload(folderResult.cause),
-    });
-    return { processed: [], summary: { outcome: "parse_error", code: SYNC_INFRA_ERROR } };
-  }
 
-  const folderId = folderResult.folderId;
-  const listFolder = deps.listFolder ?? listDriveFolder;
-  const runOne = deps.processOneFile ?? processOneFile;
-  const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
-  const files = await listFolder(folderId);
-  const processed: RunScheduledCronSyncResult["processed"] = [];
-  const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
-  const liveShows = deps.listLiveShows
-    ? await deps.listLiveShows()
-    : deps.listFolder
-      ? []
-      : await listPostgresLiveShows();
-  const missingShows = liveShows.filter(
-    (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
-  );
-  const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
-
-  for (const show of missingShows) {
-    const result = await lockMissingShow(show.driveFileId, (lockedTx) =>
-      markMissingShow_unlocked(lockedTx, show),
+    const folderId = folderResult.folderId;
+    resolvedFolderId = folderId;
+    const listFolder = deps.listFolder ?? listDriveFolder;
+    const runOne = deps.processOneFile ?? processOneFile;
+    const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
+    setPhase("list-folder");
+    const files = await listFolder(folderId);
+    const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
+    setPhase("list-live-shows");
+    const liveShows = deps.listLiveShows
+      ? await deps.listLiveShows()
+      : deps.listFolder
+        ? []
+        : await listPostgresLiveShows();
+    const missingShows = liveShows.filter(
+      (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
     );
-    if ("skipped" in result) {
-      await log.info("missing-show sync skipped on lock contention", {
-        source: "cron/sync",
-        code: "CONCURRENT_SYNC_SKIPPED",
-        driveFileId: show.driveFileId,
-        persist: true,
-      });
-      processed.push({
-        driveFileId: show.driveFileId,
-        result,
-      });
-      continue;
-    }
-    // nav-perf tag-caching (Task 5): only a source_gone result means
-    // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
-    // inside the now-resolved lock — post-commit here, so revalidate the show's
-    // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
-    // without writing the shows row, so it is explicitly excluded.
-    // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
-    // showCacheRevalidateCoverage regexes scan for.)
-    if (result.outcome === "source_gone") {
-      revalidateShow(show.showId);
-    }
-    processed.push({
-      driveFileId: show.driveFileId,
-      result,
-    });
-  }
+    const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
 
-  for (const file of files) {
-    try {
-      // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
-      // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
-      // this await resolves the apply tx has COMMITTED. Revalidate the show's
-      // cache tag HERE — post-commit — never inside processOneFile_unlocked /
-      // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
-      // would expose a stale-read window). showId-presence gate: busts on applied
-      // AND on the parse_error/source_gone recovery outcomes (which carry showId +
-      // commit last_sync_status). No-op on skipped/stale/revision_race/stage/
-      // hard_fail (no showId). The catch-built parse_error below carries no showId.
-      const result = await runOne(file.driveFileId, "cron", file, processDeps);
-      revalidateShowFromResult(result);
+    setPhase("missing-shows");
+    for (const show of missingShows) {
+      setInFlightId(show.driveFileId);
+      const result = await lockMissingShow(show.driveFileId, (lockedTx) =>
+        markMissingShow_unlocked(lockedTx, show),
+      );
+      if ("skipped" in result) {
+        await log.info("missing-show sync skipped on lock contention", {
+          source: "cron/sync",
+          code: "CONCURRENT_SYNC_SKIPPED",
+          driveFileId: show.driveFileId,
+          persist: true,
+        });
+        processed.push({
+          driveFileId: show.driveFileId,
+          result,
+        });
+        setInFlightId(null); // benign completion
+        continue;
+      }
+      // nav-perf tag-caching (Task 5): only a source_gone result means
+      // markMissingShow_unlocked ran the markShowSheetUnavailable shows-row UPDATE
+      // inside the now-resolved lock — post-commit here, so revalidate the show's
+      // tag. The archived-skip branch (`{ outcome: "skipped" }`) silently returns
+      // without writing the shows row, so it is explicitly excluded.
+      // (Comment avoids the literal SQL pattern the _secondCopyApplyTripwire +
+      // showCacheRevalidateCoverage regexes scan for.)
+      if (result.outcome === "source_gone") {
+        revalidateShow(show.showId);
+      }
       processed.push({
-        driveFileId: file.driveFileId,
+        driveFileId: show.driveFileId,
         result,
       });
-    } catch (error) {
-      const result = {
-        outcome: "parse_error" as const,
-        code: classifySyncFailure(error),
+      setInFlightId(null); // benign completion
+    }
+
+    setPhase("file-loop");
+    for (const file of files) {
+      setInFlightId(file.driveFileId);
+      try {
+        // nav-perf tag-caching (Task 5 / whole-diff R2): `runOne` (= processOneFile) owns the
+        // per-show pipeline lock (withPostgresSyncPipelineLock → sql.begin); when
+        // this await resolves the apply tx has COMMITTED. Revalidate the show's
+        // cache tag HERE — post-commit — never inside processOneFile_unlocked /
+        // emitSuccessfulPhase2Tail (those run inside sql.begin = pre-commit, which
+        // would expose a stale-read window). showId-presence gate: busts on applied
+        // AND on the parse_error/source_gone recovery outcomes AND on an EXISTING-show
+        // hard_fail (all of which carry showId + commit last_sync_status). No-op on
+        // skipped/stale/revision_race/stage and a first-seen hard_fail (no showId — nothing
+        // written to `shows`). The catch-built parse_error below carries no showId.
+        const result = await runOne(file.driveFileId, "cron", file, processDeps);
+        revalidateShowFromResult(result);
+        processed.push({
+          driveFileId: file.driveFileId,
+          result,
+        });
+      } catch (error) {
+        const result = {
+          outcome: "parse_error" as const,
+          code: classifySyncFailure(error),
+        };
+        await deps.logSync?.({
+          driveFileId: file.driveFileId,
+          outcome: result.outcome,
+          code: result.code,
+          payload: errorPayload(error),
+        });
+        processed.push({
+          driveFileId: file.driveFileId,
+          result,
+        });
+      }
+      setInFlightId(null); // reached only if neither try nor catch re-threw
+    }
+
+    setPhase("finish");
+    // `await` (not a bare promise return) so a heartbeat-write rejection is caught by the
+    // outer catch and attributed with phase "finish", instead of bypassing it.
+    return await finishCompletedRun({ processed });
+  } catch (err) {
+    if (err && typeof err === "object") {
+      (err as { syncRunContext?: unknown }).syncRunContext = {
+        phase: inFlightPhase,
+        folderId: resolvedFolderId,
+        inFlightDriveFileId,
+        processedBeforeThrow: processed.length,
+        failures: classifyProcessed(processed).breadcrumbs,
       };
-      await deps.logSync?.({
-        driveFileId: file.driveFileId,
-        outcome: result.outcome,
-        code: result.code,
-        payload: errorPayload(error),
-      });
-      processed.push({
-        driveFileId: file.driveFileId,
-        result,
-      });
     }
+    throw err; // preserve semantics; wrapper is the sole emitter (no double-log)
   }
-
-  return finishCompletedRun({ processed });
 }

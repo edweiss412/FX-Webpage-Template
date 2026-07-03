@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { WizardStagedRouteTx } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
-import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import {
+  handleOnboardingFinalizeCas,
+  handleOnboardingFinalizeCasStream,
+} from "@/app/api/admin/onboarding/finalize-cas/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 import {
   W1,
@@ -14,6 +17,21 @@ import {
   deps,
   json,
 } from "./_finalizeCasFake";
+
+// Outcome-ref (per-committed-row SHOW_FINALIZED): mock the durable-outcome wrapper so we assert
+// exactly which committed shows get a durable log — and that a PRE-commit failure / typed 409
+// block / mid-loop throw does NOT log a show whose row transaction never committed.
+const logAdminOutcomeMock = vi.hoisted(() =>
+  vi.fn(async (_outcome: Record<string, unknown>) => {}),
+);
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+
+// File-scoped: every test starts from a clean outcome-mock so the per-committed-row assertions
+// count only THIS test's SHOW_FINALIZED emissions (the first describe's committing tests otherwise
+// accumulate into the shared mock, since vitest runs tests in a file serially).
+afterEach(() => {
+  logAdminOutcomeMock.mockClear();
+});
 
 describe("POST /api/admin/onboarding/finalize-cas", () => {
   test("commits Phase D atomically then subscribes to the watched folder after commit", async () => {
@@ -509,5 +527,190 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     ]) {
       expect(flip).toContain(fragment);
     }
+  });
+});
+
+describe("POST /api/admin/onboarding/finalize-cas — per-committed-row SHOW_FINALIZED outcome log", () => {
+  // Derived from the fake's live-show read (_finalizeCasFake read-live-show branch): every applied
+  // shadow's live show id is this constant, so the log's `showId` must equal it for each committed
+  // row. NOT hardcoded to a literal the assertion also produces — sourced from the fixture's DB read.
+  const LIVE_SHOW_ID = "22222222-2222-4222-8222-222222222222";
+  const ADMIN_EMAIL = "doug@example.com"; // the fake deps' requireAdminIdentity() identity.
+
+  function shadow(driveFileId: string) {
+    return {
+      wizard_session_id: W1,
+      drive_file_id: driveFileId,
+      show_id: LIVE_SHOW_ID,
+      applied_by_email: "apply-admin@example.com",
+      applied_at_intent: "2026-05-08T12:00:00.000Z",
+      payload: shadowPayload(),
+    };
+  }
+
+  function finalizedCalls() {
+    return logAdminOutcomeMock.mock.calls
+      .map((call) => call[0])
+      .filter((arg) => arg.code === "SHOW_FINALIZED");
+  }
+
+  test("(1) full success (non-streamed): one SHOW_FINALIZED per committed show — showId + result + actorEmail", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [shadow("existing-1"), shadow("existing-2")];
+    db.sessionCreatedDriveIds = ["first-seen-1"];
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+    expect(response.status).toBe(200);
+
+    // Expected count is DERIVED from the fixture: exactly the rows that committed to a live show.
+    expect(db.appliedShadows).toEqual(["existing-1", "existing-2"]);
+    const calls = finalizedCalls();
+    expect(calls).toHaveLength(db.appliedShadows.length);
+    for (const call of calls) {
+      expect(call).toEqual({
+        code: "SHOW_FINALIZED",
+        source: "api.admin.onboarding.finalize-cas",
+        actorEmail: ADMIN_EMAIL,
+        showId: LIVE_SHOW_ID,
+        wizardSessionId: W1,
+        result: "final_cas",
+      });
+    }
+  });
+
+  test("(1) full success (streamed): identical per-committed-row SHOW_FINALIZED logs", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [shadow("existing-1"), shadow("existing-2")];
+    db.sessionCreatedDriveIds = ["first-seen-1"];
+
+    // Drain the NDJSON stream so the ReadableStream start() (which runs runFinalizeCas) completes.
+    const res = await handleOnboardingFinalizeCasStream(request(), deps(db));
+    await res.text();
+
+    expect(db.appliedShadows).toEqual(["existing-1", "existing-2"]);
+    const calls = finalizedCalls();
+    expect(calls).toHaveLength(db.appliedShadows.length);
+    for (const call of calls) {
+      expect(call).toMatchObject({
+        code: "SHOW_FINALIZED",
+        source: "api.admin.onboarding.finalize-cas",
+        actorEmail: ADMIN_EMAIL,
+        showId: LIVE_SHOW_ID,
+        wizardSessionId: W1,
+        result: "final_cas",
+      });
+    }
+  });
+
+  test("(2) PRE-COMMIT failure (live watermark advanced → typed 409, show NOT in affectedShowIds) → no log for that show", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [shadow("existing-1")];
+    // The row refuses at the equality preflight (STAGED_PARSE_OUTDATED_AT_PHASE_D) BEFORE any
+    // apply/commit — its show never enters affectedShowIds. This drives the "nothing commits" arm.
+    db.phaseDCasFailDriveIds.add("existing-1");
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+    expect(response.status).toBe(409);
+    expect(db.appliedShadows).toEqual([]);
+    expect(finalizedCalls()).toHaveLength(0);
+  });
+
+  test("(3) COMMITTED-THEN-LOOP-THROWS: row A commits (logs), row B throws out of the loop → A's log fired, request 500s", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [shadow("existing-A"), shadow("existing-B")];
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Row A applies via the real fake path (commits → affectedShowIds → log fires as withRowTx
+    // resolves). Row B throws an UNEXPECTED error out of the per-row callback — modeling a fault
+    // that escapes the loop AFTER a sibling already committed durably.
+    const response = await handleOnboardingFinalizeCas(request(), {
+      ...deps(db),
+      withRowTx: async (driveFileId, fn) => {
+        if (driveFileId === "existing-B") {
+          throw new Error("kaboom: unexpected per-row fault escaping the loop");
+        }
+        return fn(db, makeFakePipelineTx(db));
+      },
+    });
+
+    // The throw escapes runFinalizeCas → the route's outer catch → typed 500 (never empty).
+    expect(response.status).toBe(500);
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      code: "ONBOARDING_FINALIZE_INTERNAL_ERROR",
+    });
+
+    // Row A committed BEFORE the throw, so its SHOW_FINALIZED log already fired — durable and
+    // NOT rolled back by the later throw. Row B never committed → no log for it.
+    expect(db.appliedShadows).toEqual(["existing-A"]);
+    const calls = finalizedCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      code: "SHOW_FINALIZED",
+      showId: LIVE_SHOW_ID,
+      wizardSessionId: W1,
+      result: "final_cas",
+      actorEmail: ADMIN_EMAIL,
+    });
+    errorSpy.mockRestore();
+  });
+
+  test("(4) MIXED batch: row A commits, row B typed-409-blocked (siblings continue) → log for A only, none for B", async () => {
+    const db = new FakeFinalizeCasDb();
+    // Ordered by drive_file_id (readShadowRows order by drive_file_id): existing-1 commits;
+    // existing-2's live watermark advanced → typed STAGED_PARSE_OUTDATED_AT_PHASE_D per-row 409.
+    db.shadowRows = [shadow("existing-1"), shadow("existing-2")];
+    db.phaseDCasFailDriveIds.add("existing-2");
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+    expect(response.status).toBe(409);
+    expect(await json(response)).toMatchObject({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    });
+
+    // Only existing-1 committed; existing-2 was retained (blocked). One log, for the committed show.
+    expect(db.appliedShadows).toEqual(["existing-1"]);
+    const calls = finalizedCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      code: "SHOW_FINALIZED",
+      showId: LIVE_SHOW_ID,
+      wizardSessionId: W1,
+      result: "final_cas",
+      actorEmail: ADMIN_EMAIL,
+    });
+  });
+
+  test("source-level: the SHOW_FINALIZED log fires from the per-row loop AFTER withRowTx resolves — not inside applyShadow's row tx (placement pin)", () => {
+    // Not fully drivable via the fake (both call sites would produce identical mock calls), so pin
+    // the PLACEMENT at source level: the emission is in runFinalizeCas's loop guarded by the OK
+    // branch + result.showId, NOT inside applyShadow (which runs INSIDE the pre-commit row tx).
+    const src = readFileSync(
+      join(process.cwd(), "app/api/admin/onboarding/finalize-cas/route.ts"),
+      "utf8",
+    );
+    const applyShadowStart = src.indexOf("async function applyShadow(");
+    const applyShadowEnd = src.indexOf("async function publishAppliedWizardShows(");
+    const applyShadowBody = src.slice(applyShadowStart, applyShadowEnd);
+    // applyShadow must NOT emit the outcome log (it runs before its row tx commits).
+    expect(applyShadowBody).not.toContain("logAdminOutcome");
+
+    // The emission lives in runFinalizeCas, gated by result.showId inside the OK branch.
+    const runStart = src.indexOf("async function runFinalizeCas(");
+    const runBody = src.slice(
+      runStart,
+      src.indexOf("export async function handleOnboardingFinalizeCas("),
+    );
+    const logAt = runBody.indexOf("logAdminOutcome");
+    expect(logAt).toBeGreaterThan(-1);
+    // The emission is gated on the committed-show id (only durably-applied rows carry one), so a
+    // discarded_by_choice OK or a blocked row never logs. Guard precedes the emission.
+    const guardAt = runBody.indexOf("if (showId)");
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(guardAt).toBeLessThan(logAt);
+    expect(runBody).toContain('code: "SHOW_FINALIZED"');
+    expect(runBody).toContain('source: "api.admin.onboarding.finalize-cas"');
+    expect(runBody).toContain('result: "final_cas"');
   });
 });

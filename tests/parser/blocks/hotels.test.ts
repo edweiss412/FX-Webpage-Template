@@ -1,7 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { detectVersion } from "@/lib/parser/schema";
+
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 
 // ── Fixture paths ─────────────────────────────────────────────────────────────
 const ALL_FIXTURES = [
@@ -219,6 +227,29 @@ describe("parseHotels — cardinality cap (synthetic)", () => {
   });
 });
 
+// ── Forensic code on the cardinality warn (HOTELS_PARSE_WARNING) ──────────────
+describe("parseHotels — HOTELS_PARSE_WARNING forensic code", () => {
+  it("cardinality-exceeded warn carries source + code", () => {
+    logMock.warn.mockClear();
+    // 5 inline reservation groups (each with a delimited guest) → buildInlineReservations
+    // returns 5 rows → cap() exceeds MAX_HOTELS (4) → the local warn(msg) fires once.
+    const md =
+      "| Hotel Reservations | Grand Hotel Doug Larson - 1001 Check In: 3/1 Check Out: 3/2 " +
+      "Eric Weiss - 1002 Check In: 3/1 Check Out: 3/2 " +
+      "John Carleo - 1003 Check In: 3/1 Check Out: 3/2 " +
+      "Jane Doe - 1004 Check In: 3/1 Check Out: 3/2 " +
+      "Bob Smith - 1005 Check In: 3/1 Check Out: 3/2 |";
+    const hotels = parseHotels(md, "v2");
+    // truncated to the cardinality cap
+    expect(hotels).toHaveLength(4);
+    // failure mode: a code-less warn is un-triageable in the durable log stream
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining("HOTEL_CARDINALITY_EXCEEDED"),
+      expect.objectContaining({ source: "parser.hotels", code: "HOTELS_PARSE_WARNING" }),
+    );
+  });
+});
+
 // ── Slash-separated guests (BL-HOTEL-VIEWER-NAME-MATCH) ───────────────────────
 describe("parseHotels — split slash-separated guests in a Names cell", () => {
   const md = (namesCell: string) =>
@@ -245,6 +276,30 @@ describe("parseHotels — split slash-separated guests in a Names cell", () => {
     expect(h[0]!.names).toEqual(["Alice", "Bob"]);
     // privacy: no conf# digit run survives in any split name
     expect(h[0]!.names.join(" ")).not.toMatch(/\d{4,}/);
+  });
+});
+
+// ── Stray 20xx cell token must not override show-context year (audit idx0/#40) ─
+describe("parseHotels — show-context year beats a stray 20xx street number", () => {
+  // failure mode: a bare 4-digit 20xx token in the cell (here the "2015" street
+  // number in "2015 K St NW") is captured as the reservation YEAR, mis-dating a
+  // yearless "Check In: 3/1" to 2015-03-01 instead of the show's context year.
+  // The DATES row's "3/1/26" makes inferShowYear(markdown) resolve contextYear=2026.
+  const md = [
+    "| DATES |  |",
+    "| :---: | :---: |",
+    "| Show Days | 3/1/26 |",
+    "| Hotel Reservations | Marriott Hotel 2015 K St NW Check In: 3/1 Check Out: 3/2 |",
+  ].join("\n");
+  const hotels = parseHotels(md, "v2");
+
+  it("resolves check_in/check_out to the 2026 context year, not the 2015 street number", () => {
+    expect(hotels).toHaveLength(1);
+    // context year 2026 (from DATES "3/1/26"), NOT the 2015 street number
+    expect(hotels[0]!.check_in).toBe("2026-03-01");
+    expect(hotels[0]!.check_out).toBe("2026-03-02");
+    expect(hotels[0]!.check_in).not.toBe("2015-03-01");
+    expect(hotels[0]!.check_out).not.toBe("2015-03-02");
   });
 });
 

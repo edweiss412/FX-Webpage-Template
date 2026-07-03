@@ -217,7 +217,8 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
     }
 
     // Task B2: existing-show-unchecked D10 no-op resolves the manifest to 'applied'
-    // (created_show_id=null, publish_intent=false) — distinguished by the 'applied' literal.
+    // (publish_intent=false; created_show_id is PRESERVED, not nulled — audit idx40/#180)
+    // — distinguished by the 'applied' literal.
     if (
       normalized.startsWith("update public.onboarding_scan_manifest") &&
       normalized.includes("set status = 'applied'")
@@ -394,6 +395,9 @@ export function deps(
       modifiedTime: "2026-05-08T12:00:00.000Z",
       parents: ["folder-1"],
     })),
+    // Streaming handler defers its post-commit revalidate through deps.deferRevalidate (after());
+    // real after() has no request scope in vitest — run inline so the streamed tests are deterministic.
+    deferRevalidate: (fn: () => void) => fn(),
     ...overrides,
   };
 }

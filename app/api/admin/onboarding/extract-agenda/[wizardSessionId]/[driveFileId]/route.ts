@@ -199,6 +199,11 @@ export async function handleExtractAgenda(
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
     if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
+      log.error("agenda extract admin session lookup failed", {
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        source: "api.admin.agenda.extract",
+        error,
+      });
       return NextResponse.json({ code: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
     }
     return NextResponse.json({ code: "ADMIN_FORBIDDEN" }, { status: 403 });
@@ -261,12 +266,30 @@ export async function handleExtractAgenda(
          WHERE ps.drive_file_id = ${driveFileId}
            AND ps.wizard_session_id = ${wizardSessionId}::uuid
       `;
-      if (rows.length === 0) return { kind: "missing" };
+      if (rows.length === 0) {
+        log.warn("agenda extract session gone", {
+          code: "AGENDA_EXTRACT_SESSION_GONE",
+          source: "api.admin.agenda.extract",
+          result: "missing",
+          driveFileId,
+          wizardSessionId,
+        });
+        return { kind: "missing" };
+      }
       const r = rows[0]!;
       // Superseded session OR finalize-consumed (active session cleared/rotated)
       // → no longer the active wizard session. Approved rows (wizard_approved=true)
       // are NOT stale — wizard_approved is deliberately not part of this guard.
-      if (!r.session_active) return { kind: "superseded" };
+      if (!r.session_active) {
+        log.warn("agenda extract session gone", {
+          code: "AGENDA_EXTRACT_SESSION_GONE",
+          source: "api.admin.agenda.extract",
+          result: "superseded",
+          driveFileId,
+          wizardSessionId,
+        });
+        return { kind: "superseded" };
+      }
       return {
         kind: "ok",
         stagedId: r.staged_id,
@@ -291,6 +314,12 @@ export async function handleExtractAgenda(
       // ── before-fence (Drive metadata, NO DB connection held). ──
       const beforeMeta = await fetchMeta(driveFileId);
       if (!fencePasses(beforeMeta, read.stagedModifiedTime, read.pendingFolderId)) {
+        log.warn("agenda extract stale revision", {
+          code: "AGENDA_EXTRACT_STALE",
+          source: "api.admin.agenda.extract",
+          driveFileId,
+          wizardSessionId,
+        });
         return staleResponse(); // 409, NO Drive download
       }
 
@@ -322,6 +351,20 @@ export async function handleExtractAgenda(
         // report.perLink deref). The row stays note-only; agenda lands via cron.
         controller.abort();
         await extractionPromise.catch(() => {});
+        // S6 forensic: the extraction hit its deadline (the row stays note-only; agenda lands via
+        // cron). Every sibling terminal in this route logs; this 504 branch previously did not.
+        // Fail-open at the callsite — a logger throw must not change the 504.
+        try {
+          await log.warn("agenda extract timed out", {
+            source: "api.admin.agenda.extract",
+            code: "AGENDA_EXTRACT_TIMEOUT",
+            driveFileId,
+            wizardSessionId,
+            deadlineMs,
+          });
+        } catch {
+          /* best-effort */
+        }
         return NextResponse.json({ status: "timeout" }, { status: 504 });
       }
 
@@ -391,6 +434,12 @@ export async function handleExtractAgenda(
       });
 
       if (persist.kind === "stale") {
+        log.warn("agenda extract stale revision", {
+          code: "AGENDA_EXTRACT_STALE",
+          source: "api.admin.agenda.extract",
+          driveFileId,
+          wizardSessionId,
+        });
         return staleResponse(); // 409 — lease NOT released in tx; finally releases it.
       }
 
@@ -415,6 +464,7 @@ export async function handleExtractAgenda(
       // The outer finally still fires after this return and releases the lease + slot.
       log.error("unexpected error in extract/merge region:", {
         source: "api.admin.onboarding.extractAgenda",
+        code: "AGENDA_EXTRACT_REGION_FAILED",
         error: extractErr,
       });
       return NextResponse.json({ status: "error" }, { status: 500 });
@@ -430,6 +480,7 @@ export async function handleExtractAgenda(
     // inner extract-region catch, EVERY post-auth throw path returns the typed 500.
     log.error("unexpected error before extraction:", {
       source: "api.admin.onboarding.extractAgenda",
+      code: "AGENDA_EXTRACT_PREEXTRACT_FAILED",
       error: preExtractErr,
     });
     return NextResponse.json({ status: "error" }, { status: 500 });

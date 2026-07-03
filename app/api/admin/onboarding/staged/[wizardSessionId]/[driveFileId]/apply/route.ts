@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import {
   applyStaged as defaultApplyStaged,
   type ApplyStagedDeps,
@@ -169,6 +170,14 @@ export async function handleWizardStagedApply(
     );
     if ("skipped" in result) return errorResponse(409, "SHOW_BUSY_RETRY");
     if (result.outcome === "wizard_applied") {
+      await logAdminOutcome({
+        code: "STAGE_APPLIED",
+        source: "api.admin.onboarding.staged.apply",
+        actorEmail: admin.email,
+        driveFileId,
+        wizardSessionId,
+        result: "reapplied",
+      });
       return NextResponse.json({
         status: "reapplied",
         wizard_session_id: wizardSessionId,
@@ -176,6 +185,14 @@ export async function handleWizardStagedApply(
       });
     }
     if (result.outcome === "restaged_inline") {
+      await logAdminOutcome({
+        code: "STAGE_APPLIED",
+        source: "api.admin.onboarding.staged.apply",
+        actorEmail: admin.email,
+        driveFileId,
+        wizardSessionId,
+        result: "restaged_inline",
+      });
       return NextResponse.json({
         status: "restaged_inline",
         wizard_session_id: wizardSessionId,

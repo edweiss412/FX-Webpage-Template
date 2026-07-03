@@ -1,6 +1,7 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { LogRecord } from "@/lib/log/types";
 
 type WatchRow = {
   id: string;
@@ -469,5 +470,143 @@ describe("Drive transaction-boundary class sweep", () => {
     expect(watchSource).not.toMatch(
       /withDefaultTx\(\(tx\)\s*=>\s*gcWatchChannels\(\{\s*\.\.\.deps,\s*tx\s*\}\)\)/,
     );
+  });
+});
+
+describe("Drive watch telemetry", () => {
+  let records: LogRecord[];
+
+  const dueRow = (): WatchRow => ({
+    id: "due-channel",
+    status: "active",
+    watchedFolderId: "folder-1",
+    webhookSecret: "old-secret",
+    resourceId: "resource-1",
+    // Expires before the FakeWatchTx `now` (2026-05-09T12:00Z) + 24h threshold.
+    expiresAt: "2026-05-10T00:00:00.000Z",
+  });
+
+  beforeEach(async () => {
+    records = [];
+    const { setLogSink } = await import("@/lib/log");
+    setLogSink((record) => {
+      records.push(record);
+    });
+  });
+
+  afterEach(async () => {
+    // Restore a silent, persist-free sink (NOT resetLogSink, whose default sink
+    // lazily imports persist → Supabase and can raise EnvironmentTeardownError).
+    const { setLogSink } = await import("@/lib/log");
+    setLogSink(() => {});
+  });
+
+  test("refreshWatchSubscriptions logs DRIVE_WATCH_RENEWAL_FAILED when a renewal orphans", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push(dueRow());
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribeToWatchedFolder = vi.fn(async () => ({
+      outcome: "orphaned" as const,
+      channelId: "orphan-channel",
+    }));
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder,
+    });
+
+    // Control flow unchanged: the folder is still recorded as attempted.
+    expect(result).toEqual({ refreshed: ["folder-1"] });
+
+    const warnings = records.filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED");
+    expect(warnings).toHaveLength(1);
+    const warning = warnings[0]!;
+    expect(warning.level).toBe("warn");
+    expect(warning.source).toBe("drive.watch");
+    // channelId/watchedFolderId derived from the injected SubscribeResult + due row.
+    expect(warning.context).toMatchObject({
+      channelId: "orphan-channel",
+      watchedFolderId: "folder-1",
+    });
+  });
+
+  test("refreshWatchSubscriptions does NOT log renewal-failure when the renewal succeeds", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push(dueRow());
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribeToWatchedFolder = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "renewed-channel",
+    }));
+
+    await refreshWatchSubscriptions({ tx, now: () => tx.now, subscribeToWatchedFolder });
+
+    expect(records.filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
+  });
+
+  test("subscribeToWatchedFolder create-failure does NOT log DRIVE_WATCH_RENEWAL_FAILED (not a renewal)", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => {
+        throw new Error("Drive unavailable");
+      }),
+    });
+
+    // Initial create/activate orphans raise WATCH_CHANNEL_ORPHANED, not a renewal code.
+    expect(result).toEqual({ outcome: "orphaned", channelId: "new-channel" });
+    expect(records.filter((r) => r.code === "DRIVE_WATCH_RENEWAL_FAILED")).toEqual([]);
+  });
+
+  test("refreshWatchSubscriptions logs DRIVE_WATCH_INFRA_FAULT and re-propagates on infra fault", async () => {
+    const cause = new Error("connection reset by peer");
+    class ThrowingTx extends FakeWatchTx {
+      override async listExpiringActive(
+        _thresholdIso: string,
+      ): ReturnType<FakeWatchTx["listExpiringActive"]> {
+        throw cause;
+      }
+    }
+    const tx = new ThrowingTx();
+    const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
+
+    await expect(refreshWatchSubscriptions({ tx, now: () => tx.now })).rejects.toBeInstanceOf(
+      DriveWatchInfraError,
+    );
+
+    const faults = records.filter((r) => r.code === "DRIVE_WATCH_INFRA_FAULT");
+    expect(faults).toHaveLength(1);
+    const fault = faults[0]!;
+    expect(fault.level).toBe("error");
+    expect(fault.source).toBe("drive.watch");
+    expect(fault.context.operation).toBe("drive_watch_channels.list_expiring_active");
+    // context.error is serializeError(err.rootCause) — carries the injected cause.
+    expect(fault.context.error).toMatchObject({ message: "connection reset by peer" });
+  });
+
+  test("gcWatchChannels logs DRIVE_WATCH_INFRA_FAULT and re-propagates on infra fault", async () => {
+    const cause = new Error("gc candidate query failed");
+    class ThrowingGcTx extends FakeWatchTx {
+      override async listGcCandidates(): ReturnType<FakeWatchTx["listGcCandidates"]> {
+        throw cause;
+      }
+    }
+    const tx = new ThrowingGcTx();
+    const { gcWatchChannels, DriveWatchInfraError } = await import("@/lib/drive/watch");
+
+    await expect(gcWatchChannels({ tx })).rejects.toBeInstanceOf(DriveWatchInfraError);
+
+    const faults = records.filter((r) => r.code === "DRIVE_WATCH_INFRA_FAULT");
+    expect(faults).toHaveLength(1);
+    const fault = faults[0]!;
+    expect(fault.level).toBe("error");
+    expect(fault.source).toBe("drive.watch");
+    expect(fault.context.operation).toBe("drive_watch_channels.list_gc_candidates");
+    expect(fault.context.error).toMatchObject({ message: "gc candidate query failed" });
   });
 });

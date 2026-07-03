@@ -84,6 +84,56 @@ function fillAp(h: number, m: number, floor: number): Meridiem {
   return "PM";
 }
 
+/**
+ * §4.3.1 start-meridiem resolution, extracted as a pure function so the
+ * first-of-day-bare-start-with-explicit-end case (audit idx56) is unit-testable
+ * without a crafted PDF fixture.
+ *
+ * - Explicit start → honored verbatim (never overridden).
+ * - Non-first bare start → §4.3.1 forward-monotonic fill against `prevStart`.
+ * - First-of-day bare start:
+ *   - with an EXPLICIT-meridiem range end → resolve the start AGAINST that end:
+ *     pick the meridiem that keeps `start ≤ end` with the SMALLEST non-negative
+ *     span (try the end's meridiem; if that puts the start after the end, use the
+ *     flipped meridiem; if BOTH candidates exceed the end, fall back to the
+ *     context-free seed). Without this, `seedAp` seeds "7:00 – 8:30 p.m." to AM
+ *     and renders a bogus ~13.5h span.
+ *   - otherwise → the context-free conference-plausibility seed (`seedAp`).
+ */
+export function resolveStartMeridiem(
+  start: { h: number; m: number; ap: Meridiem | null },
+  prevStart: number | null,
+  explicitEnd: { ap: Meridiem; min: number } | null,
+): Meridiem {
+  if (start.ap !== null) return start.ap;
+  if (prevStart != null) return fillAp(start.h, start.m, prevStart);
+  if (explicitEnd != null) {
+    const withEndAp = toMin(start.h, start.m, explicitEnd.ap);
+    if (withEndAp <= explicitEnd.min) return explicitEnd.ap;
+    const flipped = flip(explicitEnd.ap);
+    if (toMin(start.h, start.m, flipped) <= explicitEnd.min) return flipped;
+    // Both candidates land after the end (nonsensical against this end) → seed.
+    return seedAp(start.h);
+  }
+  return seedAp(start.h);
+}
+
+/**
+ * §4.4 ambiguous-first-clock predicate (audit idx56): is the SHOW's opener a
+ * bare (no explicit AM/PM) clock with a leading hour in 7–11? The meridiem test
+ * is scoped to the START token — a bare-start/explicit-END opener (e.g.
+ * "7:00 – 8:30 p.m.") must still be evaluated, so testing the whole range string
+ * (which contains the end's "pm") would wrongly treat it as explicit and skip
+ * the guard. The caller still applies the day-crosses-to-PM relaxation on top.
+ */
+export function firstClockIsBareAmbiguous(rawTime: string): boolean {
+  const tok = noSp(rawTime);
+  const startTok = tok.split(/[–—-]/)[0] ?? "";
+  const sp = parseClockPart(startTok);
+  const hasExplicit = /AM|PM/i.test(startTok);
+  return sp != null && !hasExplicit && sp.h >= 7 && sp.h <= 11;
+}
+
 // pdfjs's `legacy/build/pdf.mjs` references DOMMatrix/ImageData/Path2D when it is
 // evaluated. In a browser (or jsdom) those globals exist; in the Node serverless
 // runtime (Vercel) they do not. pdfjs's own fallback is to load `@napi-rs/canvas`,
@@ -175,6 +225,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
         bytes: pdfBytes.byteLength,
         numPages: doc.numPages,
         max: AGENDA_MAX_PAGES,
+        code: "AGENDA_TOO_MANY_PAGES",
       });
       return LOW();
     }
@@ -382,16 +433,21 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
           }
           const ep = parts[1] ? parseClockPart(parts[1]) : null;
 
-          // start meridiem
+          // An EXPLICIT end minute is independent of the start (its meridiem is in
+          // the source), so resolve it up-front — a first-of-day BARE start is then
+          // resolved AGAINST it (audit idx56) instead of a context-free seed.
           const startExplicit = sp.ap !== null;
-          let startAp: Meridiem =
-            sp.ap ?? (prevStart == null ? seedAp(sp.h) : fillAp(sp.h, sp.m, prevStart));
+          const endExplicit = ep?.ap != null;
+          const explicitEnd =
+            ep && ep.ap != null ? { ap: ep.ap, min: toMin(ep.h, ep.m, ep.ap) } : null;
+
+          // start meridiem
+          let startAp: Meridiem = resolveStartMeridiem(sp, prevStart, explicitEnd);
           let startMin = toMin(sp.h, sp.m, startAp);
 
           // end meridiem (resolved against the session's own start as floor)
           let endAp: Meridiem | null = null;
           let endMin: number | null = null;
-          const endExplicit = ep?.ap != null;
           if (ep) {
             endAp = ep.ap ?? fillAp(ep.h, ep.m, startMin);
             endMin = toMin(ep.h, ep.m, endAp);
@@ -504,11 +560,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     let ambiguousFirst = false;
     const first = resolved[0];
     if (first) {
-      const tok = noSp(first.rawTime);
-      const startTok = tok.split(/[–—-]/)[0] ?? "";
-      const sp = parseClockPart(startTok);
-      const hasExplicit = /AM|PM/i.test(tok);
-      if (sp && !hasExplicit && sp.h >= 7 && sp.h <= 11) {
+      if (firstClockIsBareAmbiguous(first.rawTime)) {
         // §4.4 ambiguity is REAL only when the opener's day never crosses into the
         // afternoon. A bare 7–11 open whose own day later resolves a session to PM
         // (startMin ≥ 720 = noon) is demonstrably a daytime schedule progressing
@@ -557,6 +609,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
           minTitlePct: AGENDA_CONFIDENCE.minTitlePct,
           minRoomPct: AGENDA_CONFIDENCE.minRoomPct,
         },
+        code: "AGENDA_SCHEDULE_LOW_CONFIDENCE",
       });
       return { confidence: "low", corrections, days: [], extractorVersion: EXTRACTOR_VERSION };
     }
@@ -587,6 +640,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       numPages: doc.numPages,
       days: days.length,
       sessions: n,
+      code: "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
     });
     return { confidence: "high", corrections, days, extractorVersion: EXTRACTOR_VERSION };
   } catch (err) {
@@ -596,6 +650,7 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       source: "agenda.extract",
       bytes: pdfBytes.byteLength,
       error: err,
+      code: "AGENDA_PDFJS_THREW",
     });
     return LOW();
   }

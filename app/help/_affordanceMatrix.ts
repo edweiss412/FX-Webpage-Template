@@ -228,16 +228,6 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
-    sourceSurface: "Unpublished (Held shows) page header (/admin/unpublished)",
-    sourceRoute: "/admin/unpublished",
-    affordance: "? tooltip",
-    testid: "help-affordance--unpublished-page--tooltip",
-    target: "/help/admin/onboarding-wizard#unpublished",
-    visibleAt: "both",
-    owningMilestone: "Onboarding step-3 redesign",
-  },
-  {
-    kind: "concrete",
     sourceSurface: "Ignored sheets page header (/admin/ignored-sheets)",
     sourceRoute: "/admin/ignored-sheets",
     affordance: "? tooltip",

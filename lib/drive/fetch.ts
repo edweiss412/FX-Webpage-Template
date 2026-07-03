@@ -2,6 +2,7 @@ import type { drive_v3 } from "googleapis";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { snapshotCronInFlight, type CronInFlightSnapshot } from "@/lib/log/requestContext";
 
 export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
 export const XLSX_EXPORT_MIME_TYPE =
@@ -107,12 +108,59 @@ export class DriveFetchError extends Error {
   }
 }
 
+/**
+ * An empty/blank `fileId` reaching `drive.files.get` yields Google's opaque
+ * `File not found: .` 404 with a minified googleapis stack. This typed subtype
+ * (still an `instanceof DriveFetchError`, so existing Drive-fault handlers keep
+ * classifying it) fails fast at the chokepoint with a stack pointing at the real
+ * caller, so a detached/mystery empty-id call self-identifies. See
+ * docs/superpowers/specs/2026-07-02-cron-empty-id-throw-attribution-design.md.
+ */
+export class InvalidDriveFileIdError extends DriveFetchError {
+  readonly rawFileId: string;
+  constructor(received: unknown) {
+    const raw = (() => {
+      try {
+        return (JSON.stringify(received) ?? String(received)).slice(0, 80); // jsonb-text-exempt: forensic raw-value capture for the error MESSAGE, never a postgres.js jsonb param
+      } catch {
+        return String(received).slice(0, 80);
+      }
+    })();
+    super(`Drive files.get called with an empty or blank fileId (received ${raw})`);
+    this.name = "InvalidDriveFileIdError";
+    this.rawFileId = raw;
+  }
+}
+
+/** Throws InvalidDriveFileIdError unless `fileId` is a non-empty, non-whitespace string. */
+export function assertNonEmptyDriveFileId(fileId: unknown): asserts fileId is string {
+  // `/\S/` ("contains a non-whitespace char") rejects "" and whitespace-only WITHOUT
+  // `.trim()`, which the no-inline-email-normalization structural guard forbids here.
+  if (typeof fileId !== "string" || !/\S/.test(fileId)) {
+    throw new InvalidDriveFileIdError(fileId);
+  }
+}
+
 // BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY: a single transient Drive failure
 // (rate limit / gateway / server error) otherwise aborts the whole onboarding
 // folder scan — and a cron / manual sync pass. Retry those (and ONLY those) with
 // bounded exponential backoff; non-transient errors (revision races, omitted
 // metadata, 4xx other than 429) propagate immediately so callers still fail fast.
 const TRANSIENT_DRIVE_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Low-level socket/network error codes that a native-fetch (undici) failure
+// surfaces on the nested `.cause` of a `TypeError: fetch failed`. Treated as
+// transient so a single-blip connection reset is retried, not fatal.
+const TRANSIENT_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 const DEFAULT_MAX_DRIVE_RETRIES = 3;
 
 export function driveErrorStatus(error: unknown): number | null {
@@ -137,7 +185,33 @@ export function driveErrorStatus(error: unknown): number | null {
     (error as { response?: { status?: unknown } })?.response?.status ??
     (error as { status?: unknown })?.status ??
     (error as { code?: unknown })?.code;
-  return typeof candidate === "number" ? candidate : null;
+  if (typeof candidate === "number") return candidate;
+
+  // undici double-wrap: gaxios 7 uses native fetch, which throws a bare
+  // `TypeError: fetch failed` whose OWN `.code` is undefined — the real socket
+  // error code (ECONNRESET/ENOTFOUND/…) is nested one (or more) `.cause` levels
+  // down (undici wraps the socket Error, and gaxios may wrap that again). None of
+  // the top-level checks above see it, so a transient socket blip would classify
+  // null and withDriveRetry would rethrow WITHOUT retrying — aborting the whole
+  // sync/scan pass on a single hiccup. Walk the bounded `.cause` chain (starting
+  // BELOW the top-level error, so a bare top-level string `code` keeps its
+  // existing non-retry contract — only the timeout codes above map top-level)
+  // looking for a code in the transient-network set, and map it to 503 (a
+  // TRANSIENT_DRIVE_STATUSES value) so withDriveRetry retries it.
+  for (
+    let node: unknown = (error as { cause?: unknown })?.cause, depth = 0;
+    node != null && depth < 5;
+    depth += 1
+  ) {
+    const nodeCode = (node as { code?: unknown }).code;
+    if (typeof nodeCode === "string" && TRANSIENT_NETWORK_CODES.has(nodeCode)) {
+      return 503;
+    }
+    const cause = (node as { cause?: unknown }).cause;
+    if (cause === node) break; // cycle guard
+    node = cause;
+  }
+  return null;
 }
 
 /**
@@ -232,6 +306,20 @@ async function fetchXlsxExportBytes(
 // Raw Drive files.get with transient-retry. A NAMED helper (not an inline arrow)
 // so the single-sheet scope-check contract attributes the .files.get to one
 // exemptable site (callers that PROCESS sheets still scope-check the result).
+/**
+ * Attach an immutable cron attribution snapshot (captured at Drive-call time) to a
+ * thrown error as `syncRunContext`, WITHOUT clobbering one already present (the
+ * richer runScheduledCronSync S1 attach wins if the error later traverses it). Lets
+ * runCronRoute attribute a DETACHED Drive rejection to the operation that created
+ * it, immune to later mutation of the shared ALS (audit #4 PR-1, whole-diff R1).
+ */
+function attachCronContext<T>(err: T, ctx: CronInFlightSnapshot | undefined): T {
+  if (ctx && err !== null && typeof err === "object" && !("syncRunContext" in err)) {
+    (err as { syncRunContext?: unknown }).syncRunContext = ctx;
+  }
+  return err;
+}
+
 function driveFilesGet(
   drive: drive_v3.Drive,
   params: drive_v3.Params$Resource$Files$Get,
@@ -245,9 +333,24 @@ function driveFilesGet(
   // The per-call gaxios `timeout` bounds the stall; `retry: false` keeps
   // withDriveRetry as the single retry layer (so the budget is exactly timeoutMs
   // per attempt, not multiplied by gaxios's own internal retry).
+  //
+  // Snapshot the in-flight cron context NOW — synchronously, at call time = the
+  // correct operation — and attach it to any error, so a detached rejection that
+  // surfaces after the shared ALS has advanced is still attributed to THIS call
+  // rather than the stale ALS read at throw time (whole-diff R1).
+  const cronAtCall = snapshotCronInFlight();
+  // Fail fast on an empty/blank fileId (before spending any retry budget) so it
+  // never reaches Google as an opaque `File not found: .` 404 (audit #4 PR-1).
+  try {
+    assertNonEmptyDriveFileId((params as { fileId?: unknown }).fileId);
+  } catch (err) {
+    throw attachCronContext(err, cronAtCall);
+  }
   const driveFilesGetCall = () =>
     drive.files.get({ ...params, supportsAllDrives: true }, { timeout: timeoutMs, retry: false });
-  return withDriveRetry(driveFilesGetCall, retry);
+  return withDriveRetry(driveFilesGetCall, retry).catch((err: unknown) => {
+    throw attachCronContext(err, cronAtCall);
+  });
 }
 
 function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {

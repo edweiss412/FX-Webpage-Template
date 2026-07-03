@@ -25,6 +25,14 @@ describe("CronHealthHeader", () => {
     expect(screen.getByTestId("cron-health-grid").className).toContain("auto-rows-fr");
     expect(screen.getAllByText("No run seen").length).toBeGreaterThan(0);
   });
+  test("renders a plain-English description under each job label", () => {
+    render(<CronHealthHeader jobs={rows} now={now} />);
+    // Every job carries a non-empty description, and it renders in the card.
+    for (const job of CRON_JOBS) {
+      expect(job.description.length).toBeGreaterThan(0);
+      expect(screen.getByText(job.description)).toBeInTheDocument();
+    }
+  });
   test("stale job shows 'Stale' label", () => {
     const stale = rows.map((r) =>
       r.jobName === "sync"

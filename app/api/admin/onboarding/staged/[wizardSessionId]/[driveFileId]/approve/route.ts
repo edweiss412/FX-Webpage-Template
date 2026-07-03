@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import type { AdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -215,7 +217,15 @@ export async function handleWizardStagedApprove(
   // Wrap the locked mutation so no infra fault leaks a body-less 500 (invariant 9).
   try {
     const { wizardSessionId, driveFileId } = await context.params;
-    return await deps.withRowTx(driveFileId, async (tx) => {
+    // OUTCOME-REF: the durable actor-attributed outcome is captured INSIDE the
+    // locked tx callback (at the success point) but emitted AFTER withRowTx
+    // resolves (post-commit). Emitting inside the callback would extend the
+    // per-show advisory lock and could log a success the tx then rolls back.
+    // `code` is NOT stored in the ref object: a bare `code: "…"` literal outside a
+    // logAdminOutcome(...) span would register as a §12.4 producer. It rides the
+    // logAdminOutcome CALL below (a stripped span) instead.
+    let outcome: Omit<AdminOutcome, "code"> | null = null;
+    const response = await deps.withRowTx(driveFileId, async (tx) => {
       // Read review items + the demotion code under the active-session guard FIRST. A
       // null result means the session was superseded (or the row is gone) — refuse
       // before mutating.
@@ -245,12 +255,30 @@ export async function handleWizardStagedApprove(
         return errorResponse(409, "WIZARD_SESSION_SUPERSEDED");
       }
       await markManifestApplied(tx, wizardSessionId, driveFileId);
+      outcome = {
+        source: "api.admin.onboarding.staged.approve",
+        actorEmail: adminEmail,
+        driveFileId,
+        wizardSessionId,
+      };
       return NextResponse.json({
         status: "approved",
         wizard_session_id: wizardSessionId,
         drive_file_id: driveFileId,
       });
     });
+    // Post-commit: withRowTx has resolved (the tx committed). Only NOW is the
+    // outcome durable to log. A superseded/rescan-guard return leaves `outcome`
+    // null → no log; a rejected withRowTx (commit failure) never reaches here.
+    if (outcome) {
+      // `outcome` is closure-assigned inside withRowTx, so TS control-flow narrows it to
+      // `never` in this guard (the assignment isn't tracked past the callback) — assert back
+      // to the ref type so the spread typechecks. `code` rides the CALL (a stripped span),
+      // keeping the outcome literal out of the §12.4 producer scan.
+      const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
+      await logAdminOutcome({ code: "STAGE_APPROVED", ...outcomeRef });
+    }
+    return response;
   } catch (error) {
     log.error("wizard approve: unexpected failure", {
       source: "api.admin.onboarding.staged.approve",

@@ -32,7 +32,7 @@ function warn(msg: string): void {
   // warnings are surfaced as console.warn in dev; the full ParseResult warnings
   // array is assembled at the top-level parser (Task 1.11).
 
-  log.warn(msg, { source: "parser.hotels" });
+  log.warn(msg, { source: "parser.hotels", code: "HOTELS_PARSE_WARNING" });
 }
 
 export function parseHotels(
@@ -755,11 +755,13 @@ function buildInlineHotel(
     // Year present only when there are TWO slashes (M/D/YY). The old `/\/\d{2,4}$/`
     // test matched the trailing "/11" of a yearless "5/11" and skipped back-fill.
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
-    // Yearless M/D: back-fill the year from a 4-digit year in the cell, else from
-    // the show context (its DATES). Return null when no year can be inferred —
-    // never hard-code an era, which would silently mis-date non-current shows.
-    const cellYear = /\b(20\d\d)\b/.exec(text);
-    const year = cellYear ? cellYear[1] : contextYear;
+    // Yearless M/D: back-fill the year from the show context (its DATES), which is
+    // the reliable source. A bare 20xx token in the cell is an UNRELIABLE last
+    // resort — it may be a street number ("2015 K St") or a 4-digit conf#, not a
+    // year — so only fall back to it when the show-context year is unavailable.
+    // Return null when no year can be inferred — never hard-code an era, which
+    // would silently mis-date non-current shows.
+    const year = contextYear ?? /\b(20\d\d)\b/.exec(text)?.[1] ?? null;
     if (!year) return null;
     return normalizeDate(`${raw2}/${year}`);
   }

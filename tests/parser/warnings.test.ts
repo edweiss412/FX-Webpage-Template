@@ -38,13 +38,16 @@ describe("emitFieldUnreadable", () => {
       field: "phone",
       rawSnippet: "call John",
       index: 0,
+      name: "John Smith",
     });
 
     expect(agg.warnings.length).toBe(1);
     const w = agg.warnings[0]!;
     expect(w.severity).toBe("warn");
     expect(w.code).toBe("FIELD_UNREADABLE");
-    expect(w.blockRef).toEqual({ kind: "crew", index: 0 });
+    // idx32/#154: carry the crew member's name so the resolver can anchor per-ROW
+    // (distinct rows → distinct source cells → survive operatorActionableWarnings dedup).
+    expect(w.blockRef).toEqual({ kind: "crew", index: 0, name: "John Smith" });
     expect(w.rawSnippet).toBe("call John");
     // message must surface the raw snippet so the operator sees what dropped
     expect(w.message).toContain("call John");
@@ -57,6 +60,7 @@ describe("emitFieldUnreadable", () => {
         field: "phone",
         rawSnippet: "x",
         index: 0,
+        name: "Someone",
       }),
     ).not.toThrow();
   });
@@ -95,7 +99,7 @@ describe("emitUnknownField", () => {
         severity: "warn",
         code: "UNKNOWN_FIELD",
         message: "Unrecognized event_details row label: 'Rigging'",
-        blockRef: { kind: "details" },
+        blockRef: { kind: "details", name: "Rigging" },
         rawSnippet: "Rigging | 2 motors",
       },
     ]);

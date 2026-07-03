@@ -247,6 +247,15 @@ async function runWith(
   const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
   const result = await runOnboardingScan("folder-1", W1, {
     tx,
+    // The live-row-conflict recovery now runs on a FRESH runner (real code opens a
+    // separate connection because the injected `tx` is aborted by the 23505/42P10).
+    // These mocks have no abort semantics, so the fresh runner yields the SAME fake
+    // tx — it faithfully models "a fresh tx sharing the same in-memory state" and
+    // still records the recovery manifest/alert/log + observes any session mismatch.
+    createRecoveryTxRunner: () => ({
+      withTx: <R>(fn: (recoveryTx: typeof tx) => Promise<R>) => fn(tx),
+      close: async () => {},
+    }),
     listFolder: vi.fn(async () => files),
     fetchMarkdownWithBinding: vi.fn(async (driveFileId: string) => ({
       binding: { bindingToken: `tok-${driveFileId}`, modifiedTime: "2026-05-08T12:00:00.000Z" },

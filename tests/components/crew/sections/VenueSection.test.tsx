@@ -84,7 +84,7 @@ test("parking renders only when transportTileVisible; map link only when isParse
   ).toContain("Lot B");
 });
 
-test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons + dock sub-label", () => {
+test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons (no fabricated dock sub-caption)", () => {
   const data = makeShowForViewer({
     show: {
       venue: { name: "Center", address: "5 Ave", loadingDock: "Dock at rear" },
@@ -113,8 +113,9 @@ test("Facilities renders the .kvrow FactRows with dock/parking/wifi mini-icons +
   expect(text).toContain("Lot B");
   expect(text).toContain("SSID Guest / pw 1234");
   expect(text).toContain("200A 3-phase");
-  // Loading dock carries its sub-label.
-  expect(text).toContain("Service entrance");
+  // Loading dock renders its data value only — no fabricated "Service entrance"
+  // sub-caption (C1 / PR #48: no data path ever supplies a dock sub-label).
+  expect(text).not.toContain("Service entrance");
   // Three rows carry a mini-icon square (dock + parking + wifi); Power has none.
   expect(facts!.querySelectorAll('[data-slot="fact-row-icon"]').length).toBe(3);
   // Each mini-icon square wraps an inline SVG glyph.

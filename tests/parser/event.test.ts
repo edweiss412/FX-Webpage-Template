@@ -69,6 +69,13 @@ describe("EVENT closed-vocab form-layout harvest — conditional, dropped-block 
     const ed = parseSheet(md("raw/2025-10-consultants-roundtable.md"), "c.md").show.event_details;
     expect(ed["keynote_requirements"]).toBe("TBD");
     expect(ed["opening_reel"]).toMatch(/Available if needed/i);
+    // report #237 regression guard: Floor Plan / Room Diagram are recognized in the CLASSIC
+    // DETAILS block only (their link value). They must NOT be harvested from the form-layout
+    // intake block, where those labels are PROSE questions ("You are familiar with this
+    // room/hotel. If you need a Room Diagram please let me know"), not field values
+    // (fixtures/shows/raw/2025-10-consultants-roundtable.md:255).
+    expect(ed["room_diagram"]).toBeUndefined();
+    expect(ed["floor_plan"]).toBeUndefined();
     for (const k of Object.keys(ed))
       expect(KNOWN_CANON.has(k), `consultants emitted unknown key "${k}"`).toBe(true);
     assertNoPiiOrFinancial(ed, "consultants");
@@ -129,5 +136,57 @@ describe("EVENT closed-vocab form-layout harvest — conditional, dropped-block 
     expect(ed["opening_reel"]).toBe("YES"); // classic value intact
     expect(ed["keynote_requirements"]).toBeUndefined(); // form NOT harvested (working show untouched)
     expect(ed["stage_size"]).toBeUndefined();
+  });
+});
+
+// Report #237: "Floor Plan" (and its guaranteed pre-2026-template sibling "Room Diagram") were
+// flagged UNKNOWN_FIELD across the whole pre-2026 corpus. They are the predecessors of the
+// recognized 2026 "DIagrams" row, so recognize them as known-but-unread canonical keys — the
+// value is kept in event_details (like `diagrams`), and no operator advisory fires.
+describe("EVENT DETAILS — Floor Plan / Room Diagram recognized (report #237)", () => {
+  const synthetic = [
+    "| EVENT DETAILS | EVENT DETAILS |",
+    "| :---: | :---: |",
+    "| Floor Plan | LINK |",
+    "| Room Diagram | LINK |",
+    "| Stage Size | 8x24 |",
+  ].join("\n");
+
+  it("keeps 'Floor Plan' and 'Room Diagram' values under their canonical keys", () => {
+    const ed = parseSheet(synthetic, "s.md").show.event_details;
+    expect(ed["floor_plan"]).toBe("LINK");
+    expect(ed["room_diagram"]).toBe("LINK");
+    expect(ed["stage_size"]).toBe("8x24"); // sibling known field unaffected
+  });
+
+  it("emits NO UNKNOWN_FIELD advisory for Floor Plan or Room Diagram", () => {
+    const flaggedLabels = parseSheet(synthetic, "s.md")
+      .warnings.filter((w) => w.code === "UNKNOWN_FIELD")
+      .map((w) => w.blockRef?.name ?? w.message);
+    expect(flaggedLabels).not.toContain("Floor Plan");
+    expect(flaggedLabels).not.toContain("Room Diagram");
+  });
+
+  // Harvest exclusion covers the FUZZY branch too (resolveKnownCanon fuzzy path): a plural/typo'd
+  // variant in a form-layout intake block (empty classic → harvest runs) is within edit-distance 1
+  // of FLOOR PLAN / ROOM DIAGRAM (both now in EVENT_LABEL_VOCAB) and would fuzzy-resolve to the
+  // excluded canon — it must still be skipped, not written from form prose (whole-diff review P3).
+  it("form harvest skips even a fuzzy/plural Floor Plan / Room Diagram variant", () => {
+    const formLayout = [
+      "| EVENT DETAILS | EVENT DETAILS |",
+      "| :---: | :---: |",
+      "", // classic block empty → the closed-vocab form harvest runs
+      "| Keynote Requirements | FORM-VALUE |", // known anchors so the form block is recognized
+      "| Virtual Speaker | yes |",
+      "| Stage Size | 20x30 |",
+      "| Room Diagrams | should NOT be harvested |", // plural: fuzzy dist-1 from ROOM DIAGRAM
+      "| Floor Plam | prose, not a value |", // typo: fuzzy dist-1 from FLOOR PLAN
+    ].join("\n");
+    const ed = parseSheet(formLayout, "s.md").show.event_details;
+    expect(ed["stage_size"]).toBe("20x30"); // harvest ran (known anchors recovered)
+    // Verified non-tautological: with the fuzzy-branch guard removed, these are harvested as
+    // "should NOT be harvested" / "prose". The HARVEST_EXCLUDED_CANON guard keeps them out.
+    expect(ed["room_diagram"]).toBeUndefined(); // fuzzy variant excluded from harvest
+    expect(ed["floor_plan"]).toBeUndefined();
   });
 });

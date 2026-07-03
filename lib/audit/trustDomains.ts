@@ -34,9 +34,8 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Observability "Activity" — service-role app-event log + cron-health page;
   // admin-gated (the admin layout + the page's own requireAdminIdentity chain).
   { path: "app/admin/observability/page.tsx", chain: ["requireAdmin"] },
-  // Step-3 redesign — Unpublished (Held shows) + Ignored-sheets admin views.
-  // Both call requireAdminIdentity() defensively (layout also admin-gates).
-  { path: "app/admin/unpublished/page.tsx", chain: ["requireAdmin"] },
+  // Step-3 redesign — Ignored-sheets admin view. Calls requireAdminIdentity()
+  // defensively (layout also admin-gates).
   { path: "app/admin/ignored-sheets/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
   // Dev-only dimensional-invariant harness for the source-sheet links feature
@@ -70,6 +69,8 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
+  { path: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", chain: ["requireAdmin"] },
+  { path: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/apply/[applyId]/status/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/staged/[stagedId]/apply/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/staged/[stagedId]/discard/route.ts", chain: ["requireAdmin"] },
@@ -155,6 +156,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/cron/sync/route.ts", chain: "cron" },
   { path: "app/api/drive/webhook/route.ts", chain: "public" },
   { path: "app/api/observe/client-error/route.ts", chain: "public" },
+  // Public build-metadata health endpoint (deploy-liveness): returns only
+  // VERCEL_GIT_COMMIT_SHA/ref/env, no auth, no data access — intentionally public.
+  { path: "app/api/health/route.ts", chain: "public" },
   { path: "app/api/test-auth/set-session/route.ts", chain: "public" },
   { path: "middleware.ts", chain: "auth-library-exception" },
 ];

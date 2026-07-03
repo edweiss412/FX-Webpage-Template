@@ -8,6 +8,7 @@ import {
   type ShowDayTimeAnchor,
 } from "@/lib/drive/showDayTimeAnchors";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
+import { operatorActionableWarnings } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
 // Build an .xlsx ArrayBuffer from an array-of-arrays for one named sheet.
@@ -148,6 +149,50 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(warnings[2]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2:D5" }); // crew region
   });
 
+  it("idx32/#154: DISTINCT crew rows get per-row FIELD_UNREADABLE anchors and survive dedup", () => {
+    // Two crew members, each with an unreadable field → two FIELD_UNREADABLE warnings. Pre-fix,
+    // both resolved to the SINGLE crew region anchor (A2:D5) and collapsed to one row in
+    // operatorActionableWarnings, hiding the second unreadable field.
+    const twoCrew = [
+      { name: "jane doe", anchor: { title: "INFO", gid: 0, a1: "C3" } },
+      { name: "john roe", anchor: { title: "INFO", gid: 0, a1: "C4" } },
+    ];
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "phone",
+        blockRef: { kind: "crew", index: 0, name: "Jane Doe" },
+      },
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "email",
+        blockRef: { kind: "crew", index: 1, name: "John Roe" },
+      },
+    ];
+    attachSourceCellAnchors(warnings, { showDay: [], crewRole: twoCrew, region: regionAnchors });
+    // Each row resolves to its OWN crew cell (not both collapsed to the region rect).
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C3" });
+    expect(warnings[1]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "C4" });
+    expect(warnings[0]!.sourceCell!.a1).not.toEqual(warnings[1]!.sourceCell!.a1);
+    // Distinct a1 → both survive dedup. Count derived from the fixture: 2 distinct crew rows.
+    expect(operatorActionableWarnings(warnings)).toHaveLength(2);
+  });
+
+  it("idx32/#154: FIELD_UNREADABLE with a name but no crew-anchor match falls back to the region", () => {
+    const ws: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "FIELD_UNREADABLE",
+        message: "x",
+        blockRef: { kind: "crew", index: 0, name: "Nobody Here" },
+      },
+    ];
+    attachSourceCellAnchors(ws, { showDay: [], crewRole: crewAnchors, region: regionAnchors });
+    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2:D5" });
+  });
+
   it("UNKNOWN_DAY_RESTRICTION resolves by crew name too", () => {
     const ws: ParseWarning[] = [
       {
@@ -281,16 +326,26 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
     expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
-  it("resolves UNKNOWN_FIELD by its venue region (like FIELD_UNREADABLE)", () => {
+  it("UNKNOWN_FIELD no longer region-falls-back: with no per-row anchor source it stays link-less (never the venue region)", () => {
+    // Behavior change (row-precise anchoring): UNKNOWN_FIELD resolves per-row via
+    // sources.unknownField, NOT to the whole-block venue region. A no-match leaves
+    // sourceCell undefined (spec §5.1.1: correct cell or null, never a block link).
     const ws: ParseWarning[] = [
-      { severity: "warn", code: "UNKNOWN_FIELD", message: "x", blockRef: { kind: "venue" } },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "venue", name: "Foo" },
+        rawSnippet: "Foo | bar",
+      },
     ];
     attachSourceCellAnchors(ws, {
       showDay: [],
       crewRole: [],
+      unknownField: [],
       region: { venue: { title: "INFO", gid: 0, a1: "A5" } },
     });
-    expect(ws[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A5" });
+    expect(ws[0]!.sourceCell).toBeUndefined();
   });
 
   it("UNKNOWN_FIELD with no venue region → no link", () => {
@@ -376,5 +431,65 @@ describe("attachSourceCellAnchors / hasCellAnchoredWarning", () => {
       hasCellAnchoredWarning([{ severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "x" }]),
     ).toBe(false);
     expect(hasCellAnchoredWarning([])).toBe(false);
+  });
+});
+
+describe("attachSourceCellAnchors — UNKNOWN_FIELD per-row anchor", () => {
+  it("UNKNOWN_FIELD resolves to the per-row cell, not the block region", () => {
+    const warnings = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "details", name: "GS Podium Type" },
+        rawSnippet: "GS Podium Type | (2) Acrylic Podium",
+      },
+    ] as ParseWarning[];
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      unknownField: [
+        {
+          kind: "details",
+          label: "gs podium type",
+          value: "(2) acrylic podium",
+          anchor: { title: "INFO", gid: 0, a1: "A8" },
+        },
+      ],
+      region: { details: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    });
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A8" });
+  });
+
+  it("UNKNOWN_FIELD with no matching per-row anchor gets NO region fallback", () => {
+    const warnings = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "details", name: "Mystery" },
+        rawSnippet: "Mystery | val",
+      },
+    ] as ParseWarning[];
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      unknownField: [],
+      region: { details: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    });
+    expect(warnings[0]!.sourceCell).toBeUndefined();
+  });
+
+  it("FIELD_UNREADABLE still uses the region fallback (unchanged)", () => {
+    const warnings = [
+      { severity: "warn", code: "FIELD_UNREADABLE", message: "x", blockRef: { kind: "details" } },
+    ] as ParseWarning[];
+    attachSourceCellAnchors(warnings, {
+      showDay: [],
+      crewRole: [],
+      unknownField: [],
+      region: { details: { title: "INFO", gid: 0, a1: "A55:B74" } },
+    });
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A55:B74" });
   });
 });

@@ -10,15 +10,20 @@
  * `log.error(...)` emission carrying such a field MUST NOT be mistaken for a
  * user-facing / admin_alerts code producer.
  *
- * This helper removes every `log.error|warn|info|debug( … )` span — balanced
- * parens, with string / template-literal / comment awareness so a `(` `)` `{`
- * `}` inside a string or `${…}` never throws off the matcher — so the producer
- * scanners only see real producer literals. It is intentionally conservative:
- * if a call's parens are unbalanced (truncated source), it stops stripping and
- * returns the remainder verbatim rather than risk corrupting the scan.
+ * This helper removes every `log.error|warn|info|debug( … )` AND
+ * `logAdminOutcome( … )` span — the latter is the durable admin-outcome emission
+ * wrapper (lib/log/logAdminOutcome.ts), which carries a forensic `code:` literal
+ * that is likewise NOT §12.4-gated. Both are stripped with balanced parens and
+ * string / template-literal / comment awareness so a `(` `)` `{` `}` inside a
+ * string or `${…}` never throws off the matcher — so the producer scanners only
+ * see real producer literals. It is intentionally conservative: if a call's
+ * parens are unbalanced (truncated source), it stops stripping and returns the
+ * remainder verbatim rather than risk corrupting the scan.
  */
-// Sticky (anchored) matcher: a `log.<level>(` token starting exactly at lastIndex.
-const LOG_CALL_AT = /log\.(?:error|warn|info|debug)\s*\(/y;
+// Sticky (anchored) matcher: a `log.<level>(` or `logAdminOutcome(` token starting
+// exactly at lastIndex. Both start with `l`, so the outer `c === "l"` word-boundary
+// guard (below) admits both and rejects ident-prefixed forms like `xlogAdminOutcome(`.
+const LOG_CALL_AT = /(?:log\.(?:error|warn|info|debug)|logAdminOutcome)\s*\(/y;
 
 function isIdentChar(ch: string | undefined): boolean {
   return ch !== undefined && /[A-Za-z0-9_$]/.test(ch);

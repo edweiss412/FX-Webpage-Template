@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
@@ -25,6 +26,7 @@ import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -56,6 +58,8 @@ export type FinalizeRouteDeps = {
   ) => Promise<R>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   batchCap?: number;
+  // See finalize-cas/route.ts: streaming-only post-response revalidation deferral (after()).
+  deferRevalidate?: (fn: () => void) => void;
 };
 
 /**
@@ -201,6 +205,18 @@ function depsWithDefaults(deps: FinalizeRouteDeps) {
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? defaultFetchDriveFileMetadata,
     batchCap: deps.batchCap ?? BATCH_CAP,
+    // Default schedules post-response via after(); try/catch falls back to synchronous (today's
+    // orphaned-enqueue behavior, never a 500). Only the streaming handler passes this to
+    // executeFinalizeBatch's scheduleRevalidate; the non-streaming path uses the synchronous default.
+    deferRevalidate:
+      deps.deferRevalidate ??
+      ((fn: () => void) => {
+        try {
+          after(fn);
+        } catch {
+          fn();
+        }
+      }),
   };
 }
 
@@ -650,7 +666,7 @@ async function finalizeBatchTailResponse(input: {
   remainingCount: number;
   unresolvedManifestCount: number;
   perRow: PerRowResult[];
-}): Promise<Response> {
+}): Promise<{ response: Response; status: "all_batches_complete" | "batch_complete" }> {
   const hasPerRowFailures = input.perRow.some((row) => row.code !== OK_CODE);
   const status =
     input.remainingCount === 0 && input.unresolvedManifestCount === 0 && !hasPerRowFailures
@@ -661,13 +677,14 @@ async function finalizeBatchTailResponse(input: {
     input.wizardSessionId,
     status === "all_batches_complete" ? "all_batches_complete" : "in_progress",
   );
-  return NextResponse.json({
+  const response = NextResponse.json({
     status,
     wizard_session_id: input.wizardSessionId,
     remaining_count: input.remainingCount,
     unresolved_manifest_count: input.unresolvedManifestCount,
     per_row: input.perRow,
   });
+  return { response, status };
 }
 
 async function processApprovedRow(input: {
@@ -912,14 +929,30 @@ async function processApprovedRow(input: {
       };
     }
     // existing-show + UNCHECKED — spec §7.4 D10 NO-OP. Doug left an already-Live show unchecked:
-    // do NOT stage a shadow, do NOT touch public.shows (the Live show is unchanged). Just resolve
-    // the manifest (status='applied', no created show, publish_intent=false → flip-excluded since
-    // created_show_id IS NULL) and consume the pending row so it can't block finish or orphan.
+    // do NOT stage a shadow, do NOT touch public.shows (the Live show is unchanged). Resolve the
+    // manifest (status='applied', publish_intent=false → flip-EXCLUDED: publishAppliedWizardShows
+    // requires publish_intent=true, finalize-cas/route.ts:526/552) and consume the pending row so
+    // it can't block finish or orphan.
+    //
+    // created_show_id is the SESSION PROVENANCE marker — written ONLY by the first-seen create at
+    // :516 (recordCreatedShowProvenance), never elsewhere. This UPDATE deliberately does NOT touch
+    // it (audit idx40/#180):
+    //   - spec-§7.4-intended external-Live-show case: created_show_id is ALREADY NULL (this session
+    //     never created that show), so leaving it is a no-op — publish_intent=false still flip-
+    //     excludes it exactly as before.
+    //   - a first-seen show THIS session created Held (created_show_id SET) that reaches D10 via a
+    //     CLEAN UNCHECKED rescan (its pending_syncs/shadow were consumed by the prior finalize, so
+    //     capturePriorState sees priorReady=false and re-stages it unchecked): created_show_id is
+    //     now PRESERVED, so the show stays a valid LINKED Held row (recoverable) instead of being
+    //     orphaned. The provenance join `m.created_show_id = s.id` (session cleanup at
+    //     sessionLifecycle.ts + the audit surface) stays intact, and publish_intent=false keeps it
+    //     Held (NOT published). The prior `created_show_id = null` broke that join and stranded the
+    //     Held show. Nulling was never correct when a show exists: it is a no-op for the external
+    //     case and the orphaning bug for the session-created case.
     await tx.query(
       `
         update public.onboarding_scan_manifest
            set status = 'applied',
-               created_show_id = null,
                publish_intent = false,
                transitioned_at = now()
          where drive_file_id = $1 and wizard_session_id = $2::uuid
@@ -1056,11 +1089,33 @@ async function executeFinalizeBatch(
   runtime: ReturnType<typeof depsWithDefaults>,
   finalizerEmail: string,
   callbacks?: FinalizeProgressCallbacks,
+  // Streaming callers pass runtime.deferRevalidate (after()) so the post-commit revalidate loop —
+  // which runs inside the ReadableStream start() body, after Next flushed pending revalidations —
+  // is re-registered post-response. Non-streaming callers use the default (synchronous), whose
+  // revalidate fires before the handler resolves and flushes correctly.
+  scheduleRevalidate: (fn: () => void) => void = (fn) => fn(),
 ): Promise<Response> {
   // nav-perf tag-caching (Task 6): first-seen apply created-show ids, collected DURING the apply
   // (inside the per-row txns) and revalidated AFTER deps.withTx resolves (post-commit) — never
   // inside the tx (pre-commit revalidate = stale cache bug, spec §4.2).
   const appliedShowIds = new Set<string>();
+  // OUTCOME-REF (durable finalize telemetry): capture the terminal, committed-success outcome
+  // inside the withTx callback (immediately before each committed return, once the batch's
+  // mutations are staged in the tx), but EMIT it only AFTER runtime.withTx resolves (post-commit).
+  // 409/500/rollback paths leave this null: the error returns use errorResponse (never set it) and
+  // a post-callback commit fault throws out of withTx into the outer catch, which returns the typed
+  // 500 WITHOUT reaching the emit below — so a rolled-back batch never logs SHOW_FINALIZED. Both the
+  // streaming and non-streaming handlers funnel through this one core, so this single emit covers both.
+  let outcome: Omit<AdminOutcome, "code"> | null = null;
+  // OUTCOME-REF sibling (S2 durable per-row telemetry): the committed batch's hard-fail rows,
+  // captured inside the withTx callback (once the batch's mutations are staged) but flushed as
+  // log.error/warn only AFTER runtime.withTx resolves (POST-COMMIT). A rolled-back batch throws
+  // out of withTx before this is read, so it emits nothing — same semantics as SHOW_FINALIZED.
+  let committedPerRowFailures: Array<{
+    code: string;
+    driveFileId: string;
+    wizardSessionId: string;
+  }> = [];
   try {
     const response = await runtime.withTx(async (tx) => {
       // R25-1/R29-1 lock order: discover the candidate session WITHOUT a row lock, acquire
@@ -1090,6 +1145,9 @@ async function executeFinalizeBatch(
       }
 
       if (checkpoint.status === "final_cas_done") {
+        // Idempotent re-poll: already fully finalized in a PRIOR request. No mutation
+        // commits here, so DO NOT stage an outcome log (would be a false audit entry on
+        // retries — Codex whole-diff HIGH).
         return NextResponse.json({
           status: "all_batches_complete",
           wizard_session_id: wizardSessionId,
@@ -1106,6 +1164,9 @@ async function executeFinalizeBatch(
         approvedRows.length === 0 &&
         unresolved === 0
       ) {
+        // Idempotent re-poll: session was ALREADY all_batches_complete with nothing left.
+        // No mutation commits here → no outcome log (Codex whole-diff HIGH: avoid false
+        // audit entries on re-polls).
         return NextResponse.json({
           status: "all_batches_complete",
           wizard_session_id: wizardSessionId,
@@ -1121,13 +1182,20 @@ async function executeFinalizeBatch(
       }
 
       if (approvedRows.length === 0) {
-        return await finalizeBatchTailResponse({
+        const tail = await finalizeBatchTailResponse({
           tx,
           wizardSessionId,
           remainingCount: 0,
           unresolvedManifestCount: 0,
           perRow: [],
         });
+        outcome = {
+          source: "api.admin.onboarding.finalize",
+          actorEmail: finalizerEmail,
+          wizardSessionId,
+          result: tail.status,
+        };
+        return tail.response;
       }
 
       const perRow: PerRowResult[] = [];
@@ -1189,19 +1257,76 @@ async function executeFinalizeBatch(
 
       const remainingCount = await countRemainingCleanRows(tx, wizardSessionId);
       const unresolvedAfterBatch = await unresolvedManifestCount(tx, wizardSessionId);
-      return await finalizeBatchTailResponse({
+      const tail = await finalizeBatchTailResponse({
         tx,
         wizardSessionId,
         remainingCount,
         unresolvedManifestCount: unresolvedAfterBatch,
         perRow,
       });
+      // Terminal committed-success of a real batch (all_batches_complete | batch_complete). A
+      // batch_complete carries `result: "batch_complete"`; the plan's example enumerates
+      // all_batches_complete | batch_complete | in_progress — in_progress is the checkpoint's
+      // internal advance state, never a terminal HTTP status, so the durable result mirrors the
+      // response body's `status`, not the checkpoint column.
+      outcome = {
+        source: "api.admin.onboarding.finalize",
+        actorEmail: finalizerEmail,
+        wizardSessionId,
+        result: tail.status,
+      };
+      // Capture the committed hard-fail rows for the POST-COMMIT flush (below). Mapped to the
+      // log field names now (driveFileId/wizardSessionId) so the flush is a pure emit loop.
+      committedPerRowFailures = perRow
+        .filter((r) => r.code !== OK_CODE)
+        .map((r) => ({
+          code: r.code,
+          driveFileId: r.drive_file_id,
+          wizardSessionId: r.wizard_session_id,
+        }));
+      return tail.response;
     });
     // POST-COMMIT: deps.withTx has resolved (the outer finalize transaction committed), so the
     // first-seen shows are durably visible. Revalidate each show's data-cache tag now, before the
-    // Response — a pre-commit revalidate would re-cache the OLD fan-out (spec §4.2).
-    for (const showId of appliedShowIds) {
-      revalidateShow(showId);
+    // Response — a pre-commit revalidate would re-cache the OLD fan-out (spec §4.2). scheduleRevalidate
+    // is synchronous for the non-streaming handler (flushes at handler resolution) but deferred via
+    // after() for the streaming handler (this core runs inside its ReadableStream start()).
+    scheduleRevalidate(() => {
+      for (const showId of appliedShowIds) {
+        revalidateShow(showId);
+      }
+    });
+    // POST-COMMIT durable telemetry: withTx has resolved, so the finalize batch's mutations are
+    // committed. Emit SHOW_FINALIZED here — never inside the tx (pre-commit) and never on an
+    // error/409/rollback (outcome stays null on those paths). Awaited for durability.
+    if (outcome) {
+      // `outcome` is closure-assigned inside withTx, so TS control-flow narrows it to `never`
+      // in this guard (the assignment isn't tracked past the callback) — bind it to a
+      // ref-typed local so the spread typechecks. `code` rides the CALL (a stripped span),
+      // keeping the outcome literal out of the §12.4 producer scan.
+      const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
+      await logAdminOutcome({ code: "SHOW_FINALIZED", ...outcomeRef });
+    }
+    // POST-COMMIT durable per-row telemetry (S2): the committed batch's hard-fail rows persist a
+    // failure code to pending_syncs/SSE but emitted no app_events until now. Reuses the existing
+    // catalog codes inside a stripped log span (strip-exempt; NOT §12.4). Fail-open at every
+    // callsite — a logger throw must never turn a committed finalize into a 500.
+    for (const failure of committedPerRowFailures) {
+      const fields = {
+        source: "api.admin.onboarding.finalize",
+        code: failure.code,
+        driveFileId: failure.driveFileId,
+        wizardSessionId: failure.wizardSessionId,
+      };
+      try {
+        if (severityForFinalizeRowCode(failure.code) === "error") {
+          await log.error("finalize per-row hard-fail", fields);
+        } else {
+          await log.warn("finalize per-row hard-fail", fields);
+        }
+      } catch {
+        /* best-effort */
+      }
     }
     return response;
   } catch (error) {
@@ -1256,10 +1381,16 @@ export async function handleOnboardingFinalizeStream(
         }
       };
       try {
-        const response = await executeFinalizeBatch(runtime, email, {
-          onListed: (total) => emit({ type: "listed", total }),
-          onRow: (e) => emit({ type: "row", ...e }),
-        });
+        const response = await executeFinalizeBatch(
+          runtime,
+          email,
+          {
+            onListed: (total) => emit({ type: "listed", total }),
+            onRow: (e) => emit({ type: "row", ...e }),
+          },
+          // Defer the post-commit revalidate: this core runs inside start(), after Next flushed.
+          runtime.deferRevalidate,
+        );
         emit({ type: "result", body: (await response.json()) as FinalizeResultBody });
       } catch {
         emit({ type: "result", body: { ok: false, code: ONBOARDING_FINALIZE_INTERNAL_ERROR } });

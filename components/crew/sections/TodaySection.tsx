@@ -477,25 +477,33 @@ export function TodaySection({
             anchors.set != null ||
             (anchors.shows != null && anchors.shows.length > 0) ||
             anchors.strike != null;
-          const keyTimesCard = anchorsPresent ? (
-            <div data-testid="today-key-times" data-card-id="today-key-times">
-              <SectionCard
-                icon={<ClockIcon />}
-                title="Key times"
-                action={
-                  <CardHeaderActions
-                    cardId="today-key-times"
-                    driveFileId={data.driveFileId}
-                    anchor={data.sourceAnchors[CARD_REGION_MAP["today-key-times"]]}
-                    showId={showId}
-                    cardReport={cardReport}
-                  />
-                }
-              >
-                <KeyTimesStrip anchors={anchors} layout="row" />
-              </SectionCard>
-            </div>
-          ) : null;
+          // `layout="row"` lays the anchors out as an equal-width horizontal
+          // strip — correct ONLY inside a BOUNDED column (Mode B's 1.6fr
+          // day-context column), where it fills the width. In a FULL-WIDTH
+          // context (the final else) `row` would spread 2 anchors 50/50 across
+          // the whole page with a mid-page divider, so there the DEFAULT (stack)
+          // posture is used (audit idx70/#51). Parameterized so the SAME card
+          // chrome serves both call sites.
+          const makeKeyTimesCard = (layout?: "row") =>
+            anchorsPresent ? (
+              <div data-testid="today-key-times" data-card-id="today-key-times">
+                <SectionCard
+                  icon={<ClockIcon />}
+                  title="Key times"
+                  action={
+                    <CardHeaderActions
+                      cardId="today-key-times"
+                      driveFileId={data.driveFileId}
+                      anchor={data.sourceAnchors[CARD_REGION_MAP["today-key-times"]]}
+                      showId={showId}
+                      cardReport={cardReport}
+                    />
+                  }
+                >
+                  <KeyTimesStrip anchors={anchors} {...(layout ? { layout } : {})} />
+                </SectionCard>
+              </div>
+            ) : null;
           const dressCard = showDress ? (
             <div data-testid="today-dress" data-card-id="today-dress">
               <SectionCard
@@ -588,7 +596,7 @@ export function TodaySection({
           // to a single column (the safe stack the full-width Mode B preserved).
           // When only ONE column has content the grid is skipped: a lone
           // quick-cards stack is capped (max-w-md) so it stays card-width.
-          const hasLeft = Boolean(keyTimesCard || dressCard || notesCard);
+          const hasLeft = Boolean(anchorsPresent || dressCard || notesCard);
           const hasRight = quickCardsStack !== null;
 
           return (
@@ -608,7 +616,17 @@ export function TodaySection({
                   <KeyTimesStrip anchors={anchors} />
                   <div
                     data-testid="today-mode-a-grid"
-                    className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
+                    className={[
+                      "grid grid-cols-1 gap-4 min-[720px]:items-start",
+                      // Only split into the 1.6/1 two-track grid when there IS a
+                      // right side (quick-cards). With no quick cards, keep the
+                      // run-of-show full-width single column so ≥720px never
+                      // strands a dead ~38% empty right track. Mirrors how Mode B
+                      // keys its identical split on `hasRight` (audit idx68/#48).
+                      quickCardsStack != null ? "min-[720px]:grid-cols-[1.6fr_1fr]" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     <div
                       data-testid="today-run-of-show"
@@ -643,7 +661,9 @@ export function TodaySection({
                         )}
                       </SectionCard>
                     </div>
-                    <div className="min-w-0">{quickCardsStack}</div>
+                    {quickCardsStack != null ? (
+                      <div className="min-w-0">{quickCardsStack}</div>
+                    ) : null}
                   </div>
                   {dressCard}
                   {notesCard}
@@ -654,7 +674,7 @@ export function TodaySection({
                   className="grid grid-cols-1 gap-4 min-[720px]:grid-cols-[1.6fr_1fr] min-[720px]:items-start"
                 >
                   <div data-testid="today-day-context" className="flex min-w-0 flex-col gap-4">
-                    {keyTimesCard}
+                    {makeKeyTimesCard("row")}
                     {dressCard}
                     {notesCard}
                   </div>
@@ -664,7 +684,10 @@ export function TodaySection({
                 <div className="min-[720px]:max-w-md">{quickCardsStack}</div>
               ) : (
                 <>
-                  {keyTimesCard}
+                  {/* Full-width: the carded Key times uses the DEFAULT (stack)
+                      KeyTimesStrip posture — a `row` strip here would spread the
+                      2 anchors 50/50 across the whole page (audit idx70/#51). */}
+                  {makeKeyTimesCard()}
                   {dressCard}
                   {notesCard}
                 </>

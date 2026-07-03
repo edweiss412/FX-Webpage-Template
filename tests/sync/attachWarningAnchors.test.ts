@@ -111,3 +111,26 @@ describe("attachWarningAnchors", () => {
     expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A1:D2" });
   });
 });
+
+describe("attachWarningAnchors — UNKNOWN_FIELD end-to-end", () => {
+  it("resolves an UNKNOWN_FIELD to its label cell via the raw workbook", async () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["DETAILS", ""],
+      ["GS Podium Type", "(2) Acrylic Podium"],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "INFO");
+    const bytes = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const warnings = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "x",
+        blockRef: { kind: "details", name: "GS Podium Type" },
+        rawSnippet: "GS Podium Type | (2) Acrylic Podium",
+      },
+    ] as ParseWarning[];
+    await attachWarningAnchors(warnings, bytes, async () => new Map([["INFO", 0]]));
+    expect(warnings[0]!.sourceCell).toEqual({ title: "INFO", gid: 0, a1: "A2" });
+  });
+});

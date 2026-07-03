@@ -415,7 +415,7 @@ describe("parseEventDetails — unknown-label coverage", () => {
     const uf = ufWarns(agg);
     expect(uf).toHaveLength(1);
     expect(uf[0]!.severity).toBe("warn");
-    expect(uf[0]!.blockRef).toEqual({ kind: "details" });
+    expect(uf[0]!.blockRef).toEqual({ kind: "details", name: "Rigging" });
     expect(uf[0]!.rawSnippet).toContain("Rigging");
     expect(agg.rawUnrecognized).toContainEqual({
       block: "event_details",
@@ -439,5 +439,54 @@ describe("parseEventDetails — unknown-label coverage", () => {
     // Hard leak check: the value appears in NO warning snippet and NO raw_unrecognized entry.
     expect(agg.warnings.every((w) => !(w.rawSnippet ?? "").includes(SECRET))).toBe(true);
     expect(agg.rawUnrecognized.every((r) => r.value !== SECRET && r.key !== "Budget")).toBe(true);
+  });
+});
+
+// ── idx52: form-layout harvest fuzzy recovery must warn (never a silent harvest) ──────────────
+// A form-layout show: the classic EVENT DETAILS block is empty (the blank line right after the
+// header terminates it), so the closed-vocab form-layout harvest runs over the intake table below.
+// A misspelled-but-fuzzy-correctable KNOWN label harvested there must warn — it must not reach
+// crew-visible event_details silently (spec §2 rule 4: always warn / never a silent re-route).
+describe("parseEventDetails — form-layout harvest fuzzy recovery (idx52)", () => {
+  const md = [
+    "| EVENT DETAILS | |",
+    "", // blank line terminates the classic block → result empty → harvest runs
+    "| Stage Siz | 30x18 |", // misspelled KNOWN label → stage_size via gated fuzzy
+    "| Opening Reel | Loop video |", // exact known
+    "| Internet | Wifi |", // exact known
+    "| Power | Wall outlets |", // exact known (≥3 known anchors the run)
+  ].join("\n");
+
+  it("harvests the misspelled label into event_details AND warns (FIELD_LABEL_AUTOCORRECTED)", () => {
+    const agg = newAggregator();
+    const ed = parseEventDetails(md, "v4", agg);
+    // (a) the field is harvested into event_details via the form-layout path
+    expect(ed.stage_size).toBe("30x18");
+    // sanity: the exact-label siblings also harvested (confirms the harvest anchored + ran)
+    expect(ed.opening_reel).toBe("Loop video");
+    expect(ed.internet).toBe("Wifi");
+    expect(ed.power).toBe("Wall outlets");
+    // (b) the fuzzy correction is surfaced exactly once, naming the misspelled raw label
+    const warns = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef).toEqual({ kind: "details" });
+    expect(warns[0]!.rawSnippet).toBe("Stage Siz");
+  });
+
+  it("REGRESSION: an EXACT known label harvested emits NO autocorrect warn", () => {
+    // All-exact form-layout run: harvested, but no fuzzy correction occurred → zero warns.
+    const exactMd = [
+      "| EVENT DETAILS | |",
+      "",
+      "| Stage Size | 30x18 |",
+      "| Opening Reel | Loop video |",
+      "| Internet | Wifi |",
+      "| Power | Wall outlets |",
+    ].join("\n");
+    const agg = newAggregator();
+    const ed = parseEventDetails(exactMd, "v4", agg);
+    expect(ed.stage_size).toBe("30x18");
+    expect(agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toHaveLength(0);
   });
 });
