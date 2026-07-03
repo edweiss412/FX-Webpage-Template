@@ -122,7 +122,7 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
       data-testid="auto-publish-toggle"
       disabled={isDisabled}
       className={[
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
         on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken",
       ].join(" ")}
     >

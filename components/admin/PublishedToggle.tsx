@@ -142,14 +142,14 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
       className={[
         // before:* extends the hit area to the 44px tap-min floor (DESIGN.md --spacing-tap-min)
         // without growing the 28px visual track: 28 + 2×8 = 44.
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
         on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken",
       ].join(" ")}
     >
       <span
         aria-hidden="true"
         className={[
-          "inline-block h-5 w-5 rounded-full bg-bg shadow-(--shadow-tile) transition-transform duration-fast",
+          "inline-block h-5 w-5 rounded-full bg-bg shadow-tile transition-transform duration-fast",
           on ? "translate-x-6" : "translate-x-1",
         ].join(" ")}
       />

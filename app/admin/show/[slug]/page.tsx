@@ -706,7 +706,7 @@ export default async function AdminShowPage({
           id="share-access"
           data-testid="per-show-share-col"
           aria-label="Share & access"
-          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
+          className="flex scroll-mt-4 flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">

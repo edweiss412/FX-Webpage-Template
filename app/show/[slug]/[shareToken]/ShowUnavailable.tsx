@@ -22,7 +22,7 @@ export function ShowUnavailable() {
   return (
     <main
       data-testid="crew-show-paused-root"
-      className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
+      className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
     >
       <span
         data-testid="crew-show-paused-brand-strip"
