@@ -97,6 +97,26 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/show/staged/[stagedId]/discard/route.ts",
     code: "STAGE_DISCARDED",
   },
+  // Success-path telemetry gap (2026-07-03): audit findings #5/#6/#7/#15 — durable
+  // success outcomes on state-mutating admin ops that previously logged only FAILURE.
+  // #5 changes-feed MI-11 server actions (3 emits):
+  { file: "app/admin/show/[slug]/_actions/feed.ts", code: "MI11_HOLD_APPROVED" },
+  { file: "app/admin/show/[slug]/_actions/feed.ts", code: "MI11_HOLD_REJECTED" },
+  { file: "app/admin/show/[slug]/_actions/feed.ts", code: "CHANGE_UNDONE" },
+  // #6 onboarding folder scan:
+  { file: "app/api/admin/onboarding/scan/route.ts", code: "ONBOARDING_SCAN_COMPLETED" },
+  // #7 per-show agenda extraction (logAdminOutcome on the tx#2 committed-merge branch):
+  {
+    file: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
+    code: "AGENDA_EXTRACT_COMPLETED",
+  },
+  // #15a live-staged discard (REUSED STAGE_DISCARDED — already SANCTIONED):
+  { file: "app/api/admin/staged/[fileId]/discard/route.ts", code: "STAGE_DISCARDED" },
+  // #15b live ignored-sheet un-ignore:
+  {
+    file: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts",
+    code: "IGNORED_SHEET_UNIGNORED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -126,6 +146,14 @@ const SANCTIONED_CODES = new Set([
   "PENDING_INGESTION_IGNORED",
   "SHEET_RESCANNED",
   "FINALIZE_CLEANUP_DONE",
+  // Success-path telemetry gap (2026-07-03): audit findings #5/#6/#7/#15. STAGE_DISCARDED is
+  // NOT re-listed — it is already sanctioned above and is REUSED by the #15a live-staged discard.
+  "MI11_HOLD_APPROVED",
+  "MI11_HOLD_REJECTED",
+  "CHANGE_UNDONE",
+  "ONBOARDING_SCAN_COMPLETED",
+  "AGENDA_EXTRACT_COMPLETED",
+  "IGNORED_SHEET_UNIGNORED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
