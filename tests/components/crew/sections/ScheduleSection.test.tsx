@@ -15,6 +15,7 @@ import { cleanup, render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
 import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
+import type { StageRestriction } from "@/lib/parser/types";
 
 // Task 12 per-day-meta helpers. `adminViewer` matches the none-restriction admin
 // posture; `at(iso)` freezes the clock to noon UTC of an ISO date (the show TZ is
@@ -288,5 +289,36 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
       .querySelector('[data-testid="schedule-day-today"]')!
       .querySelector('[data-slot="day-card-meta"]')!.textContent,
   ).toBe("8:00am");
+  cleanup();
+});
+
+// Stage-filtered schedule (#248): ScheduleSection is a direct resolveKeyTimes caller.
+// A Load In/Set viewer must not see the Strike time (day-list-independent anchor). RED
+// before ScheduleSection threads ctx.stageRestriction (default none → strike shown).
+test("Load In/Set stage viewer → KeyTimesStrip has NO strike anchor, Set anchor present (#248)", () => {
+  const stageLoadInSet: StageRestriction = { kind: "explicit", stages: ["Load In", "Set"] };
+  const data = {
+    ...withRooms([
+      { id: "gs", kind: "gs", name: "GS", set_time: "9:00 AM", strike_time: "5:00 PM" },
+    ]),
+    crewMembers: [
+      {
+        ...baseCrew,
+        id: "c1",
+        dateRestriction: { kind: "explicit" as const, days: [DATES.travelIn, DATES.set] },
+        stageRestriction: stageLoadInSet,
+      },
+    ],
+  };
+  const { container } = render(
+    <ScheduleSection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  expect(container.querySelector('[data-anchor="set"]')).toBeTruthy();
+  expect(container.querySelector('[data-anchor="strike"]')).toBeNull();
   cleanup();
 });
