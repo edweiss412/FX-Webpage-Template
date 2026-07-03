@@ -36,9 +36,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
-import type { ParseResult, RunOfShow } from "@/lib/parser/types";
+import type { RunOfShow } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
-import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import {
   summarizeDataGaps,
@@ -51,6 +50,7 @@ import { venueDisplay } from "@/lib/venue/venueLocation";
 // the section module never imports the card.
 import {
   arr,
+  dateSummarySegments,
   AgendaBreakdown,
   ContactsBreakdown,
   CrewBreakdown,
@@ -67,35 +67,9 @@ import {
 import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
-// ── Summary date rendering (§4.2 / plan Task 3): role-LABELED segments built
-// from the structured parser dates. Each present role becomes a "Label <date>"
-// segment; show-days collapse into a single humanized range. `set` is dropped
-// when it equals `travelIn` (the common "travel-and-set same day" case) so the
-// line doesn't read the date twice. Empty/malformed values omit their segment;
-// no dates at all → []. humanizeDate falls back to the raw ISO if a value is
-// somehow unparseable so a present date is never silently dropped. */
-function dateSummarySegments(dates: ParseResult["show"]["dates"] | undefined): string[] {
-  if (!dates) return [];
-  const segs: string[] = [];
-  if (dates.travelIn) segs.push(`Travel in ${humanizeDate(dates.travelIn) ?? dates.travelIn}`);
-  if (dates.set && dates.set !== dates.travelIn) {
-    segs.push(`Set ${humanizeDate(dates.set) ?? dates.set}`);
-  }
-  const showDays = arr(dates.showDays);
-  if (showDays.length > 0) {
-    // Fall back to the raw first–last ISO if humanizing fails, mirroring the
-    // `humanizeDate(...) ?? raw` guard used for travelIn/set/travelOut — a
-    // present show-day is never silently dropped (whole-diff review MEDIUM).
-    const range =
-      humanizeDayRange(showDays) ??
-      (showDays.length === 1
-        ? (showDays[0] ?? "")
-        : `${showDays[0] ?? ""} – ${showDays[showDays.length - 1] ?? ""}`);
-    if (range) segs.push(`Show ${range}`);
-  }
-  if (dates.travelOut) segs.push(`Travel out ${humanizeDate(dates.travelOut) ?? dates.travelOut}`);
-  return segs;
-}
+// Summary date rendering (§4.2): `dateSummarySegments` moved to
+// step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
+// header subline shares the exact derivation without importing the card.
 
 function Badge({ testId, label }: { testId: string; label: string }) {
   return (

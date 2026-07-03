@@ -587,26 +587,35 @@ body {
     opacity: 1;
   }
 }
-[data-step3-details-scrim] {
+/* The new Step-3 review modal (components/admin/wizard/Step3ReviewModal) shares
+   these keyframes via the comma-added [data-step3-review-*] selectors; the old
+   [data-step3-details-*] selectors go away with Step3DetailsDialog (Task 8). */
+[data-step3-details-scrim],
+[data-step3-review-scrim] {
   animation: step3-details-scrim-in var(--duration-normal) ease-out;
 }
-[data-step3-details-panel] {
+[data-step3-details-panel],
+[data-step3-review-panel] {
   animation: step3-details-sheet-rise var(--duration-normal) var(--ease-out-quart);
 }
 @media (min-width: 640px) {
   /* The desktop popup pops in over --duration-fast, so the scrim fades over the
      same window (it would otherwise keep darkening after the popup had landed);
      the mobile sheet keeps --duration-normal to match its longer rise. */
-  [data-step3-details-scrim] {
+  [data-step3-details-scrim],
+  [data-step3-review-scrim] {
     animation: step3-details-scrim-in var(--duration-fast) ease-out;
   }
-  [data-step3-details-panel] {
+  [data-step3-details-panel],
+  [data-step3-review-panel] {
     animation: step3-details-pop-in var(--duration-fast) var(--ease-out-quart);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   [data-step3-details-scrim],
-  [data-step3-details-panel] {
+  [data-step3-details-panel],
+  [data-step3-review-scrim],
+  [data-step3-review-panel] {
     animation: none;
   }
 }

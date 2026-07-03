@@ -243,6 +243,14 @@ This is implemented in `app/globals.css` `:root` block. Components do NOT need t
 
 Don't animate `width`, `height`, `padding`, `margin`, `top`, `left`, etc. — they trigger layout. Use `transform`, `opacity`, and `filter`. The Right Now card crossfade is `opacity` + a 4px `translateY`; the "see more" disclosure is `max-height` (the documented exception, since explicit `max-height` doesn't trigger reflow on siblings).
 
+### 5.5 Interaction constants
+
+Behavioral gesture/scroll thresholds are NOT visual tokens — they never produce a painted px, so §10's hardcoding ban doesn't apply to them. They live as named JS module constants (single source of truth) in `components/admin/wizard/Step3ReviewModal.tsx`:
+
+- `SCROLL_SPY_OFFSET_PX = 90` — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
+- `DRAG_DISMISS_THRESHOLD_PX = 110` — sheet-mode drag distance past which release dismisses the modal.
+- `DRAG_SLOP_PX = 6` — max pointer travel still treated as a tap (click) rather than a drag.
+
 ---
 
 ## 6. Breakpoints

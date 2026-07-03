@@ -65,7 +65,7 @@ import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
-import { humanizeDate } from "@/lib/dates/humanize";
+import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
@@ -147,6 +147,38 @@ export function contentRows(
 // that isn't an array becomes [].
 export function arr<T>(value: T[] | undefined | null): T[] {
   return Array.isArray(value) ? value : [];
+}
+
+// ── Summary date rendering (§4.2 / plan Task 3; moved here in Task 4 so the
+// review modal's header subline reuses it without importing the card — the
+// dependency direction stays one-way: card → this module ← modal). Each
+// present role becomes a "Label <date>" segment; show-days collapse into a
+// single humanized range. `set` is dropped when it equals `travelIn` (the
+// common "travel-and-set same day" case) so the line doesn't read the date
+// twice. Empty/malformed values omit their segment; no dates at all → [].
+// humanizeDate falls back to the raw ISO if a value is somehow unparseable so
+// a present date is never silently dropped. */
+export function dateSummarySegments(dates: ParseResult["show"]["dates"] | undefined): string[] {
+  if (!dates) return [];
+  const segs: string[] = [];
+  if (dates.travelIn) segs.push(`Travel in ${humanizeDate(dates.travelIn) ?? dates.travelIn}`);
+  if (dates.set && dates.set !== dates.travelIn) {
+    segs.push(`Set ${humanizeDate(dates.set) ?? dates.set}`);
+  }
+  const showDays = arr(dates.showDays);
+  if (showDays.length > 0) {
+    // Fall back to the raw first–last ISO if humanizing fails, mirroring the
+    // `humanizeDate(...) ?? raw` guard used for travelIn/set/travelOut — a
+    // present show-day is never silently dropped (whole-diff review MEDIUM).
+    const range =
+      humanizeDayRange(showDays) ??
+      (showDays.length === 1
+        ? (showDays[0] ?? "")
+        : `${showDays[0] ?? ""} – ${showDays[showDays.length - 1] ?? ""}`);
+    if (range) segs.push(`Show ${range}`);
+  }
+  if (dates.travelOut) segs.push(`Travel out ${humanizeDate(dates.travelOut) ?? dates.travelOut}`);
+  return segs;
 }
 
 /** A "+K more" tail line, or null when nothing is truncated. */
