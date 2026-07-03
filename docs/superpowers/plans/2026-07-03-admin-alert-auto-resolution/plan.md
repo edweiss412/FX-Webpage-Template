@@ -353,8 +353,9 @@ update public.admin_alerts a
 - [ ] **Step 1: Write the registry + assertions (this test IS the deliverable — it must fail if a code is unclassified):**
 
 ```ts
+type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
-  | { class: "auto"; resolveSites: Array<{ file: string; pattern: RegExp }> }
+  | { class: "auto"; resolveSites: [ResolveSite, ...ResolveSite[]] } // non-empty tuple — an auto code with no site cannot typecheck
   | { class: "event-manual" } | { class: "state-manual-justified" } | { class: "deferred" };
 const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecycle> = {
   // 7 precedent AUTO codes + 14 NEW codes → class "auto" with their resolve site(s), e.g.:
@@ -363,7 +364,7 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
   // … (full 42-code table per spec §3: 21 auto, 18 event-manual, TILE_SERVER_RENDER_FAILED state-manual-justified, 3 deferred)
 };
 test("every registry code declares a lifecycle", () => { /* keys(ADMIN_ALERTS_LIFECYCLE) === ADMIN_ALERTS_CODES set-equality */ });
-test("every auto code's resolve site exists on disk and matches", () => { /* readFileSync(file) → pattern.test(content) */ });
+test("every auto code's resolve site exists on disk and matches", () => { /* expect(sites.length).toBeGreaterThan(0) [runtime belt for the type-level tuple] + readFileSync(file) → pattern.test(content) for EACH site */ });
 ```
 
   (Counts cross-check spec §3: 7 AUTO + 14 NEW = 21 `auto`; 18 `event-manual`; 1 `state-manual-justified`; 3 `deferred`; total 42.)
@@ -384,6 +385,7 @@ test("every auto code's resolve site exists on disk and matches", () => { /* rea
 
 - [ ] **Step 1:** Append BACKLOG.md entries (follow its existing entry format): `BL-ALERT-GITHUB-BOT-LOGIN-AUTORESOLVE`, `BL-ALERT-BRANCH-PROTECTION-AUTORESOLVE`, `BL-ALERT-REPORT-FAMILY-AUTORESOLVE`, `BL-ALERT-TILE-RENDER-PER-TILE-KEYING` — each citing spec §3's DEFER/justified rows.
 - [ ] **Step 2: Commit** `docs(plan): BACKLOG entries for deferred alert auto-resolution families`
+- [ ] **Step 3 (deferred to after Task 12 passes):** flip the spec header `Status: Draft …` → `Status: Implemented (2026-07-03)` in `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` and commit `docs(plan): mark alert auto-resolution spec implemented` — run this as the final commit of Task 12, not before close-out is green.
 
 ### Task 10: Schema manifest + validation-project apply (AC10 gate)
 
@@ -391,7 +393,13 @@ test("every auto code's resolve site exists on disk and matches", () => { /* rea
 - Modify: `supabase/__generated__/schema-manifest.json` (regen; trigger-only migration → expect no diff, commit only if changed)
 
 - [ ] **Step 1:** `pnpm gen:schema-manifest` against the local all-migrations-applied DB; `git diff --stat supabase/__generated__/` (expect empty — the migration adds no tables/columns).
-- [ ] **Step 2:** Apply the migration surgically to the validation project. Source the env from the MAIN checkout (`TEST_DATABASE_URL` lives in `/Users/ericweiss/FX-Webpage-Template/.env.local`, NOT the worktree) but run against the WORKTREE's migration file (main doesn't contain it pre-merge): `TEST_DATABASE_URL=$(grep '^TEST_DATABASE_URL=' /Users/ericweiss/FX-Webpage-Template/.env.local | cut -d= -f2-) psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f /Users/ericweiss/FX-Webpage-Template/.claude/worktrees/alert-auto-resolution/supabase/migrations/20260703210000_admin_alert_auto_resolution.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. **This also executes the data repair on validation — verify the live stale East Coast alert resolves** (`select resolved_at from admin_alerts where code='SHOW_UNPUBLISHED'`).
+- [ ] **Step 2:** Apply the migration surgically to the validation project. Source the env from the MAIN checkout (`TEST_DATABASE_URL` lives in `/Users/ericweiss/FX-Webpage-Template/.env.local`, NOT the worktree) but run against the WORKTREE's migration file (main doesn't contain it pre-merge). Two separate commands (a same-line `VAR=$(...) cmd "$VAR"` expands the OLD/empty value — do not inline):
+
+```bash
+export TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' /Users/ericweiss/FX-Webpage-Template/.env.local | cut -d= -f2-)"
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f /Users/ericweiss/FX-Webpage-Template/.claude/worktrees/alert-auto-resolution/supabase/migrations/20260703210000_admin_alert_auto_resolution.sql
+psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
+``` **This also executes the data repair on validation — verify the live stale East Coast alert resolves** (`select resolved_at from admin_alerts where code='SHOW_UNPUBLISHED'`).
 - [ ] **Step 3:** `pnpm vitest run tests/db/validation-schema-parity.test.ts` (needs TEST_DATABASE_URL env) — PASS.
 - [ ] **Step 4: Commit** (only if manifest changed) `infra: regen schema manifest for alert auto-resolution migration`
 
