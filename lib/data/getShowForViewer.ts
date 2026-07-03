@@ -799,15 +799,20 @@ function cachedShowData(
  * realtime bridge stays correct without looping (spec §3.1).
  */
 export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
-  // Sample the LIVE token BEFORE the cached data fan-out so the rendered token can
-  // never be NEWER than the rendered data (invariant: token <= data). If a write
-  // commits during the render window, data-then-token would yield stale-data +
-  // fresh-token — the bridge's equality catch-up (ShowRealtimeBridge) then sees
-  // token === /version and suppresses router.refresh(), leaving the page stuck
-  // stale. Token-first makes the worst case old-token + fresh-data (tokens differ
-  // → refresh fires → converges), exactly-consistent otherwise. Shrinks — does not
-  // fully close, since cache-bust propagation is decoupled from read order — the
-  // stale window, and is strictly beneficial (audit idx19).
+  // Sample the LIVE token BEFORE the cached data fan-out. This closes the READ-ORDER
+  // interleaving hazard specifically: with data-then-token, a write committing BETWEEN
+  // the two reads freshens the LIVE token while the cached data stays pre-write, so the
+  // bridge (ShowRealtimeBridge) sees rendered-token === /version and suppresses
+  // router.refresh() → stuck stale. Reading the token first means a write during the
+  // render window can no longer freshen the token ahead of the data; the worst case
+  // becomes old-token + fresh-data (tokens differ → refresh fires → converges).
+  //
+  // Scope: this does NOT address cache-bust PROPAGATION lag — a write whose
+  // revalidateShow() has not yet evicted the cache entry by the time cachedShowData()
+  // runs can still yield fresh-token + stale-data. That residual is a SEPARATE mechanism,
+  // handled by the immediate { expire: 0 } tag bust in lib/data/showCacheTag.ts (and
+  // covered by getShowForViewer.cache.test.ts), not by read order. So this is a strict
+  // improvement on the interleaving window, not an absolute token<=data guarantee (audit idx19).
   const viewerVersionToken = await readViewerVersionToken(showId);
   const data = await cachedShowData(showId, viewer);
   return { ...data, viewerVersionToken };

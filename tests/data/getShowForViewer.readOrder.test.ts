@@ -1,18 +1,24 @@
 /**
- * Read-order fence (audit idx19) — getShowForViewer must sample the LIVE
- * viewer_version_token BEFORE the cached data fan-out, so the rendered token is
- * never NEWER than the rendered data (invariant: token <= data).
+ * Read-ORDER regression (audit idx19) — getShowForViewer must sample the LIVE
+ * viewer_version_token BEFORE the cached data fan-out.
  *
- * If a write commits during the render window, the OLD order (data-then-token)
- * yields stale-data + fresh-token: the realtime bridge's equality catch-up
- * (ShowRealtimeBridge — token === server → no router.refresh()) then suppresses
- * the refresh and the page stays stuck stale. Token-first makes the worst case
- * old-token + fresh-data (tokens differ → refresh fires → converges), and
- * exactly-consistent otherwise.
+ * SCOPE: this pins the read-order dimension only — that a write committing
+ * BETWEEN the two reads can no longer freshen the token ahead of the data. With
+ * the OLD order (data-then-token) such a write yields stale-data + fresh-token:
+ * the realtime bridge's equality catch-up (ShowRealtimeBridge — token === server
+ * → no router.refresh()) then suppresses the refresh and the page stays stuck
+ * stale. Token-first makes the worst case old-token + fresh-data (tokens differ →
+ * refresh fires → converges).
  *
- * This is a deterministic ordering test: a single simulated write bumps a shared
- * `version` counter between the two awaits (triggered by whichever read runs
- * first). We assert the returned token is <= the version the data was read at.
+ * This deliberately does NOT model cache-bust PROPAGATION freshness (a write whose
+ * revalidateShow() hasn't evicted the entry yet) — `unstable_cache` is mocked as a
+ * pass-through here on purpose. That dimension is a separate mechanism (immediate
+ * { expire: 0 } tag bust, showCacheTag.ts) exercised by getShowForViewer.cache.test.ts.
+ *
+ * Deterministic ordering: a single simulated write bumps a shared `version` counter
+ * between the two awaits (triggered by whichever read runs first). We assert the
+ * returned token is <= the version the data was read at — which fails on
+ * data-then-token and passes on token-then-data.
  */
 import { describe, test, expect, beforeEach, vi } from "vitest";
 
