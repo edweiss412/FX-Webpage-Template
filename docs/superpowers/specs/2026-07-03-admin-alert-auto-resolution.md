@@ -143,10 +143,20 @@ inside the function is what guarantees this.
   (`b2_show_lifecycle.sql:141`) and is the single holder; the resolve is one more statement inside
   the same locked transaction. No new holder at any layer. (`admin_alerts` is not in the
   invariant-2 lock-gated table set, so the lock is incidental, not required.)
-- Covers every republish path: admin toggle (`app/admin/show/[slug]/_actions/setPublished.ts:33`)
-  and onboarding publish (`_actions/publish.ts`) both call the `publish_show` RPC via
-  `lib/showLifecycle/publishShow.ts:16`. The first-seen auto-publish INSERT
-  (`runScheduledCronSync.ts:1226-1233`) creates a brand-new show that cannot carry an open alert.
+- **Complete `published = true` writer inventory** (why the RPC hook suffices):
+  1. `publish_show` RPC — its only JS caller chain is `lib/showLifecycle/publishShow.ts:16`,
+     invoked by the admin toggle `app/admin/show/[slug]/_actions/setPublished.ts:33` (which also
+     serves `/admin/unpublished`; the former `_actions/publish.ts` / `publishShowAction` no longer
+     exists). Gets the resolve hook (this section).
+  2. Onboarding finalize direct flip (`app/api/admin/onboarding/finalize-cas/route.ts:541-553`) —
+     constrained by `m.created_show_id = s.id AND s.wizard_created_session_id =
+     m.wizard_session_id` to shows **created by the same wizard session**, which cannot carry an
+     open SHOW_UNPUBLISHED alert: the show is created inside the session at `published = false`,
+     and `unpublish_show` on an already-unpublished show is an idempotent no-op that raises no
+     alert (published-toggle parity contract, `2026-07-01-published-toggle.md:212`). No hook
+     needed.
+  3. First-seen cron auto-publish INSERT (`runScheduledCronSync.ts:1226-1233`) — brand-new row,
+     cannot carry an open alert. No hook needed.
 - Idempotent re-apply: migration uses `create or replace function`; the data-repair UPDATE is
   naturally idempotent.
 - `tests/messages/_metaAdminAlertCatalog.test.ts:411-416` pins the unpublish migration's *producer*
@@ -176,10 +186,12 @@ Resolve `{ASSET_RECOVERY_BYTES_EXCEEDED, ASSET_RECOVERY_REVISION_DRIFT, ASSET_RE
 EMBEDDED_RECOVERY_REQUIRES_RESTAGE}` for the show when `snapshot_status` lands `'complete'`. The
 complete writer inventory (exhaustive — AC4's tests bind to these surfaces):
 
-- **Value computation sites (the only two producers of the string):**
-  `statusFor` (`lib/sync/snapshotAssets.ts:99-115`, emitted at `:180` into the pending payload) and
+- **Value computation sites (the only three producers of the string):**
+  `statusFor` (`lib/sync/snapshotAssets.ts:99-115`, emitted at `:180` into the pending payload);
   the live-effects builder (`lib/sync/applyStaged.ts:1031`,
-  `linkedDrift ? "partial_failure" : "complete"`).
+  `linkedDrift ? "partial_failure" : "complete"`); and assetRecovery's own `snapshotStatus`
+  recompute (`lib/sync/assetRecovery.ts:304-316`, `'complete'` at `:308`), which feeds the
+  `recovered.snapshot_status` branch at `:574`.
 - **Landing paths:** `assetRecovery`'s locked-tx status recompute
   (`lib/sync/assetRecovery.ts:564-580`, `'complete'` branch at `:574`); Phase-2's
   `snapshotAssetsForApply` consumption pre-commit (`lib/sync/phase2.ts:260-284`) and the
