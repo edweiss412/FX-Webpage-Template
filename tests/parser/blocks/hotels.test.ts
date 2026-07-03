@@ -461,4 +461,18 @@ describe("parseHotels — idx88 dash-prefixed street number is not deleted as a 
     );
     expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
   });
+
+  // Intentional design boundary (Codex R1 MEDIUM): a 4-5-digit number followed by a
+  // FULL street phrase (number + name + suffix) is read as an ADDRESS, not a conf#.
+  // This is correct-by-design and inherent to the street-shape discriminator the
+  // backlog prescribed (and the Hotel-Stays path already uses): a real conf# is never
+  // written followed by a street suffix ("Hotel - <conf#> Main St" is not a data
+  // shape), so the realistic reading of "hotel - number street" is a hotel + address.
+  // The discriminator keys on the street SHAPE, not the number's magnitude, so a
+  // suffix-less trailing word ("- 2069 Reservation", above) is still stripped.
+  it("a 4-digit number followed by a full street phrase is read as an address (intended)", () => {
+    const [h] = parseHotels(hotelTable("Marriott Downtown - 2069 Main St", "X 1 Main St"), "v4");
+    expect(h!.hotel_name).toBe("Marriott Downtown");
+    expect(h!.hotel_address).toBe("2069 Main St");
+  });
 });
