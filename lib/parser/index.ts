@@ -128,6 +128,23 @@ function isAcceptableTitleCell(cell: string): boolean {
   return true;
 }
 
+// A flattened multi-VALUE title banner (a combined event of 3+ forums) repeats its leading
+// "<tag> - " prefix — "II - Alpha Forum II - Beta Forum II - Gamma Summit". The exporter
+// flattens the &#10; that would otherwise mark the cell multi-value (redefining-fi's 2-forum
+// banner keeps its &#10; because <3 lines stay preserved; a 3+-line banner flattens), so the
+// repeated leading tag is the residual multi-value signal. When present, #0 must NOT adopt
+// the mashed banner as the title — let the curated "Event Name:" / "Title of Event" win
+// (BL-EXPORTER-MULTIFORUM-BANNER-TITLE). A single-forum banner (tag appears once) is a real
+// title and is kept. Note: only catches the repeated-<tag>- shape (the FXAV "II - " house
+// style); a banner combining differently-prefixed forums is out of scope.
+function isMashedMultiValueBanner(text: string): boolean {
+  const lead = /^(.{1,24}?)\s[-–—]\s/.exec(text);
+  const tag = lead?.[1]?.trim();
+  if (!tag) return false;
+  const re = new RegExp(`(?:^|\\s)${tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s[-–—]\\s`, "g");
+  return (text.match(re) ?? []).length >= 2;
+}
+
 function extractTitleFromMarkdown(
   md: string,
   eventDetails: Record<string, string>,
@@ -164,7 +181,12 @@ function extractTitleFromMarkdown(
       body.length >= 2 &&
       body.some((c, i) => i > 0 && c === col0) &&
       body.every((c) => c === "" || c === col0);
-    if (isBanner && !/&#(10|9);/.test(col0) && isAcceptableTitleCell(col0)) {
+    if (
+      isBanner &&
+      !/&#(10|9);/.test(col0) &&
+      !isMashedMultiValueBanner(col0) &&
+      isAcceptableTitleCell(col0)
+    ) {
       return col0;
     }
     break; // only the first non-separator table row is a banner candidate

@@ -103,6 +103,23 @@ describe("title banner-preference (M3)", () => {
     expect(parseSheet(md).show.title).toBe("Real Title 2026");
   });
 
+  // BL-EXPORTER-MULTIFORUM-BANNER-TITLE: a ≥3-line combined-event banner (3+ forums)
+  // is FLATTENED by the exporter (no &#10;), so the #0 multi-value guard is defeated and
+  // the mashed banner would beat the curated Event Name. A flattened banner that REPEATS
+  // its leading "<tag> - " prefix (e.g. "II - …" 3×) is recognized as multi-value → #0
+  // skips it, letting Event Name win. A single-forum banner (tag once) still wins.
+  it("a flattened multi-forum banner does NOT beat the curated Event Name", () => {
+    const banner = "II - Alpha Forum II - Beta Forum II - Gamma Summit 2025";
+    const md = `| ${banner} | ${banner} |\n| Event Name: | Alpha / Beta / Gamma Combined Forum |`;
+    expect(parseSheet(md).show.title).toBe("Alpha / Beta / Gamma Combined Forum");
+  });
+
+  it("a single-forum banner still beats the (uppercased) Event Name", () => {
+    const banner = "II - FinTech Forum CTO Summit 2026";
+    const md = `| ${banner} | ${banner} |\n| Event Name: | II - FINTECH FORUM CTO SUMMIT 2026 |`;
+    expect(parseSheet(md).show.title).toBe(banner);
+  });
+
   // Anti-regression: shows whose title should be UNCHANGED by banner-preference.
   // redefining-fi's banner carries an in-cell &#10; (a two-forum multi-value
   // cell) so #0 skips it and the existing chain keeps "RFI & PC Chicago";
