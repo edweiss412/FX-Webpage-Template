@@ -393,3 +393,72 @@ describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
     expect(h!.names.some((n) => /[-–—]/.test(n) || /\d{6,}/.test(n))).toBe(false);
   });
 });
+
+// idx88 (BL-HOTEL-DASH-STREET-NUMBER-CLIPPED): stripConfTokens' dash rule deleted a
+// dash-prefixed 4-5-digit STREET number as if it were a conf# ("Hyatt Regency - 1515
+// Madison Ave …" → the "- 1515" is dropped, so splitHotelNameAddress has no street
+// number to split on → the whole cell collapses into hotel_name with a null address).
+// Fix: a dash-number that BEGINS a street phrase (looksLikeStreetStart — the same
+// street-vs-conf discriminator the Hotel-Stays path uses) is preserved (dash dropped,
+// number kept), so the name/address boundary survives. A dash-number that is NOT a
+// street (a real conf#) is still stripped.
+describe("parseHotels — idx88 dash-prefixed street number is not deleted as a conf#", () => {
+  const hotelTable = (res1: string, res2: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 |  | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address |  | Hotel Name / Address |",
+      `|  | ${res1} |  | ${res2} |`,
+      "|  | Names on Reservation |  | Names on Reservation |",
+      "|  | Alice |  | Bob |",
+      "|  | Check In Date | Check Out Date | Check In Date |",
+      "|  | 1/1/26 | 1/5/26 | 1/2/26 |",
+    ].join("\n");
+
+  it("a SUFFIXED dash-street splits into name + address (number preserved)", () => {
+    const [h] = parseHotels(
+      hotelTable("Hyatt Regency - 1515 Madison Ave New York, NY 10036", "X 1 Main St"),
+      "v4",
+    );
+    // Pre-fix bug: name === "Hyatt Regency Madison Ave New York, NY 10036", address === null.
+    expect(h!.hotel_name).toBe("Hyatt Regency");
+    expect(h!.hotel_address).toBe("1515 Madison Ave New York, NY 10036");
+  });
+
+  it("a SUFFIXLESS dash-street stays glued but the number is NOT deleted (no data loss)", () => {
+    const [h] = parseHotels(
+      hotelTable("Hyatt Regency - 1515 Broadway New York, NY 10036", "X 1 Main St"),
+      "v4",
+    );
+    // Broadway has no street suffix so splitHotelNameAddress leaves it glued (the #3
+    // safe fallback); the separator dash is dropped and the street number survives —
+    // NOT the pre-fix "Hyatt Regency Broadway New York, NY 10036" with 1515 deleted.
+    expect(h!.hotel_name).toBe("Hyatt Regency 1515 Broadway New York, NY 10036");
+    expect(h!.hotel_name).toContain("1515");
+  });
+
+  it("a real dash-prefixed conf# (not a street) is STILL stripped (regression guard)", () => {
+    const [, h2] = parseHotels(hotelTable("A 1 Main St", "Marriott Downtown - 2069854"), "v4");
+    expect(h2!.hotel_name).toBe("Marriott Downtown");
+    expect(h2!.hotel_name).not.toMatch(/2069854/);
+    expect(h2!.hotel_address).toBeNull();
+  });
+
+  it("a 4-digit dash conf# (not a street) is STILL stripped — no false street preservation", () => {
+    const [, h2] = parseHotels(
+      hotelTable("A 1 Main St", "Marriott Downtown - 2069 Reservation"),
+      "v4",
+    );
+    // "Reservation" is not a street suffix and there is no ZIP tail, so "- 2069" is a
+    // conf# and is stripped; only a genuine street phrase after the number is kept.
+    expect(h2!.hotel_name).not.toMatch(/2069/);
+  });
+
+  it("a ZIP+4 dash is still preserved (idx4 not regressed by the idx88 branch)", () => {
+    const [h] = parseHotels(
+      hotelTable("Four Seasons 120 E Delaware Pl Chicago, IL 60611-1234", "X 1 Main St"),
+      "v4",
+    );
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
+  });
+});
