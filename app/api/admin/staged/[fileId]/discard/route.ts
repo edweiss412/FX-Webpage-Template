@@ -35,7 +35,11 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
   try {
     supabase = await createSupabaseServerClient();
   } catch (error) {
-    log.error("server client construction failed", { source: "api.admin.staged.discard", error });
+    log.error("server client construction failed", {
+      source: "api.admin.staged.discard",
+      code: "LIVE_STAGED_DISCARD_CLIENT_CONSTRUCTION_FAILED",
+      error,
+    });
     return { kind: "infra_error" };
   }
 
@@ -46,12 +50,17 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
     data = response.data;
     error = response.error;
   } catch (cause) {
-    log.error("getUser threw", { source: "api.admin.staged.discard", error: cause });
+    log.error("getUser threw", {
+      source: "api.admin.staged.discard",
+      code: "LIVE_STAGED_DISCARD_GETUSER_THREW",
+      error: cause,
+    });
     return { kind: "infra_error" };
   }
   if (error) {
     log.error("getUser failed", {
       source: "api.admin.staged.discard",
+      code: "LIVE_STAGED_DISCARD_GETUSER_FAILED",
       errorMessage: error.message,
     });
     return { kind: "infra_error" };

@@ -87,6 +87,7 @@ describe("POST /api/admin/onboarding/reap-stale-sessions", () => {
     expect(await response.json()).toEqual({ ok: false, code: "REAP_STALE_SESSIONS_FAILED" });
     expect(logMock.error).toHaveBeenCalledWith("reap-stale-sessions failed", {
       source: "api.admin.onboarding.reap",
+      code: "REAP_STALE_SESSIONS_INFRA_FAILED",
       error: cause,
     });
   });

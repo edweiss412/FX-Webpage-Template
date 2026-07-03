@@ -103,6 +103,7 @@ export async function handleClientError(req: Request): Promise<Response> {
         safeLog(() =>
           log.warn("client-error mirror rate cap hit", {
             source: "observe.client-error",
+            code: "CLIENT_ERROR_MIRROR_RATE_CAPPED",
             capped: source,
           }),
         ),

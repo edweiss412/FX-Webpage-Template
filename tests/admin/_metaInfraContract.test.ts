@@ -453,10 +453,20 @@ describe("META §B Supabase call-boundary contract", () => {
         `${entry.surface} should contain at least one supabase-derived await`,
       ).toBeGreaterThan(0);
 
+      // Forward scan window for the closing `} catch`. Loosened from 30 → 45:
+      // the grep-shape heuristic must tolerate a try body that legitimately grows
+      // (e.g. a multi-line structured-log call `log.error("...", { source, code, error })`
+      // inside the try pushes the catch further down). The CONTRACT is unchanged —
+      // the builder/await must still be wrapped in a try/catch; a genuinely unwrapped
+      // call has NO catch anywhere near and still fails. This only reduces false
+      // negatives for correctly-wrapped-but-long try bodies.
+      const CATCH_FORWARD_SCAN = 45;
       // 3. Assert every supabase-derived await is inside a try/catch.
       for (const lineIdx of awaitLineNumbers) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
-        const forward = lines.slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30)).join("\n");
+        const forward = lines
+          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + CATCH_FORWARD_SCAN))
+          .join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
         const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
@@ -474,7 +484,9 @@ describe("META §B Supabase call-boundary contract", () => {
       //    despite the await staying inside its try.
       for (const lineIdx of builderAssignLines) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
-        const forward = lines.slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30)).join("\n");
+        const forward = lines
+          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + CATCH_FORWARD_SCAN))
+          .join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
         const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(

@@ -171,6 +171,7 @@ export async function handleWizardStagedUnapprove(
   } catch (error) {
     log.error("wizard un-approve: unexpected failure", {
       source: "api.admin.onboarding.staged.unapprove",
+      code: "WIZARD_STAGED_UNAPPROVE_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");

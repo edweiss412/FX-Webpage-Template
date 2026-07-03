@@ -883,6 +883,7 @@ export async function handleOnboardingFinalizeCas(
     // handleOnboardingFinalize.
     log.error("onboarding finalize-cas: unexpected failure", {
       source: "api.admin.onboarding.finalizeCas",
+      code: "FINALIZE_CAS_UNEXPECTED_FAILURE",
       error,
     });
     return errorResponse(500, "ONBOARDING_FINALIZE_INTERNAL_ERROR");
@@ -965,6 +966,7 @@ export async function handleOnboardingFinalizeCasStream(
         // diagnosable server-side. Emitted client body is unchanged; only the log meta is added.
         log.error("onboarding finalize-cas: unexpected failure (stream)", {
           source: "api.admin.onboarding.finalizeCas",
+          code: "FINALIZE_CAS_STREAM_UNEXPECTED_FAILURE",
           error,
         });
         emit({ type: "result", body: { ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" } });

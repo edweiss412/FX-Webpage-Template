@@ -192,6 +192,7 @@ export async function handleLiveStagedApply(
     // not a body-less 500 (Codex R5 structural backstop).
     log.error("live staged apply: unexpected failure", {
       source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");

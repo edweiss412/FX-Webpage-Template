@@ -83,6 +83,7 @@ export async function handleUnignore(
   } catch (error) {
     log.error("un-ignore: unexpected failure", {
       source: "api.admin.ignoredSheets.unignore",
+      code: "IGNORED_SHEET_UNIGNORE_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");
