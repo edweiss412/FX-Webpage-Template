@@ -189,7 +189,27 @@ update public.admin_alerts
  where show_id = $1::uuid and code = any($2::text[]) and resolved_at is null
 ```
 
-  - `applyStaged.ts`: thread a `snapshotStatusComplete: boolean` flag through the live effects (source: the landed diagrams payload — `snapshot_status` at `:1031` for the effects-built path; `statusFor` output when `snapshotAssetsForApply` ran) into `result`, and in the Task-3 block append the S3 family to `toResolve` when true.
+  - `applyStaged.ts`: the live boundary does NOT surface `snapshot_status` (`Phase2Result` /
+    `ApplyStagedCoreResult` return only `snapshotRevisionId`) — do NOT thread it through those
+    result types. Instead the post-commit block re-reads the committed status: add
+    `ApplyStagedDeps.readLandedSnapshotStatus?: (showId: string) => Promise<string | null>` with a
+    default impl on the service-role client:
+
+```ts
+const { data, error } = await client.from("shows").select("diagrams").eq("id", showId).single();
+if (error) throw new Error(`landed snapshot status read failed: ${error.message}`);
+const d = (data?.diagrams ?? {}) as Record<string, { snapshot_status?: string } | null>;
+return d.pending?.snapshot_status ?? d.current?.snapshot_status ?? null;
+```
+
+    In the Task-3 block, when `await readLanded(result.showId) === "complete"`, append
+    `ASSET_RECOVERY_ALERT_FAMILY` to `toResolve`. Tests: unit-test the default impl against the
+    standard mocked client (pending-status wins over current; null diagrams → null); the
+    `applyStaged` live test injects `readLandedSnapshotStatus` returning `"complete"` /
+    `"partial_failure"` and asserts the S3 family is appended / omitted; PLUS one case in
+    `tests/db/admin-alert-auto-resolution.test.ts` seeding a real `shows.diagrams` JSONB and
+    asserting the same extraction expression via psql (proves the default's path shape against a
+    real row, not just mocks).
 - [ ] **Step 4: Run** — PASS. `pnpm typecheck`.
 - [ ] **Step 5: Commit** `feat(sync): resolve asset-recovery alert family on snapshot completion + cooldown expiry`
 
@@ -335,8 +355,15 @@ test("every auto code's resolve site exists on disk and matches", () => { /* rea
 ```
 
   (Counts cross-check spec §3: 7 AUTO + 14 NEW = 21 `auto`; 18 `event-manual`; 1 `state-manual-justified`; 3 `deferred`; total 42.)
-- [ ] **Step 2: Run** `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts` — PASS (all sites landed in Tasks 1–7). Deliberately break one pattern → confirm FAIL → restore (negative-regression verification).
-- [ ] **Step 3: Commit** `test(admin): ADMIN_ALERTS_LIFECYCLE registry pins per-code lifecycle + resolve sites`
+- [ ] **Step 2 (RED — mandatory, run before green):** author the registry with a deliberately wrong
+  resolve-site pattern for ONE new code (e.g. `SHOW_UNPUBLISHED: pattern: /nonexistent_trigger_name/`)
+  and one code deliberately omitted from the map. Run
+  `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts` — expect BOTH new tests to FAIL
+  (site-pattern miss + set-inequality). This proves the meta-test can catch a missing site and an
+  unclassified code (invariant-1 red phase; the resolve sites themselves already landed in Tasks
+  1–7, so the red phase is seeded through the registry, not the implementation).
+- [ ] **Step 3 (GREEN):** correct the pattern and restore the omitted code → run again → PASS.
+- [ ] **Step 4: Commit** (single commit at green) `test(admin): ADMIN_ALERTS_LIFECYCLE registry pins per-code lifecycle + resolve sites`
 
 ### Task 9: BACKLOG entries + spec status flip
 
