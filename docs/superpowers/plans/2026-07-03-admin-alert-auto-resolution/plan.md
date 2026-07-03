@@ -198,9 +198,19 @@ update public.admin_alerts
 ```ts
 const { data, error } = await client.from("shows").select("diagrams").eq("id", showId).single();
 if (error) throw new Error(`landed snapshot status read failed: ${error.message}`);
-const d = (data?.diagrams ?? {}) as Record<string, { snapshot_status?: string } | null>;
-return d.pending?.snapshot_status ?? d.current?.snapshot_status ?? null;
+const raw = data?.diagrams as
+  | ({ snapshot_status?: string } & { pending?: { snapshot_status?: string } | null; current?: { snapshot_status?: string } | null })
+  | null;
+// shows.diagrams has TWO live shapes: the {pending, current} wrapper AND a bare PersistedDiagrams
+// with root-level snapshot_status (lib/data/diagrams.ts:54-58 resolveCurrentDiagrams accepts both;
+// runScheduledCronSync.ts:1205 persists parseResult.diagrams directly). Precedence: pending →
+// current → root.
+return raw?.pending?.snapshot_status ?? raw?.current?.snapshot_status ?? raw?.snapshot_status ?? null;
 ```
+
+  Unit tests cover all three shapes (pending wins; current when no pending; bare root; null →
+  null); the psql case in `tests/db/admin-alert-auto-resolution.test.ts` seeds BOTH a wrapped and
+  a bare `diagrams` JSONB row and asserts the extraction for each.
 
     In the Task-3 block, when `await readLanded(result.showId) === "complete"`, append
     `ASSET_RECOVERY_ALERT_FAMILY` to `toResolve`. Tests: unit-test the default impl against the
