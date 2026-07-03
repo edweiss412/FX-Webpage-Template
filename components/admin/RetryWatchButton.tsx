@@ -17,16 +17,21 @@
  * <form action={retryWatchSubscriptionFormAction}>.
  */
 import { useFormStatus } from "react-dom";
-import { AccentButton } from "@/components/shared/AccentButton";
+import { AccentButton, type AccentButtonRingOffset } from "@/components/shared/AccentButton";
 
 export function RetryWatchButton({
   idleLabel = "Retry now",
   pendingLabel = "Retrying…",
   testId = "admin-alert-retry-button",
+  ringOffset = "warning-bg",
 }: {
   idleLabel?: string;
   pendingLabel?: string;
   testId?: string;
+  // Focus ring-offset must match the surface the button sits on (the
+  // AccentButton contract): warning-bg on the alert banner, surface on the
+  // Settings Drive panel card.
+  ringOffset?: AccentButtonRingOffset;
 }) {
   const { pending } = useFormStatus();
   return (
@@ -37,7 +42,7 @@ export function RetryWatchButton({
       aria-busy={pending}
       fontWeight="medium"
       minWidthTap
-      ringOffset="warning-bg"
+      ringOffset={ringOffset}
     >
       {pending ? pendingLabel : idleLabel}
     </AccentButton>

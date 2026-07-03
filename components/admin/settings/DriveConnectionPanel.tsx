@@ -261,6 +261,7 @@ export function DriveConnectionPanel({
                   idleLabel="Retry connection"
                   pendingLabel="Retrying…"
                   testId="drive-connection-retry-button"
+                  ringOffset="surface"
                 />
               </form>
             ) : null}

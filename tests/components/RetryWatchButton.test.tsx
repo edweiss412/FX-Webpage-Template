@@ -124,4 +124,23 @@ describe("RetryWatchButton", () => {
     expect(cls).toMatch(/\bmin-h-tap-min\b/);
     expect(cls).toMatch(/\bmin-w-tap-min\b/);
   });
+
+  it("ring-offset matches the host surface (default warning-bg; surface override)", () => {
+    // impeccable audit P2: hardcoded warning-bg offset painted a warm gap on
+    // the Settings surface card. The offset must follow the AccentButton
+    // contract ("match the surface the button sits on").
+    const { getByTestId, unmount } = render(
+      <form action={() => {}}>
+        <RetryWatchButton />
+      </form>,
+    );
+    expect(getByTestId("admin-alert-retry-button").className).toContain("ring-offset-warning-bg");
+    unmount();
+    const { getByTestId: get2 } = render(
+      <form action={() => {}}>
+        <RetryWatchButton testId="drive-connection-retry-button" ringOffset="surface" />
+      </form>,
+    );
+    expect(get2("drive-connection-retry-button").className).toContain("ring-offset-surface");
+  });
 });
