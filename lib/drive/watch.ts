@@ -442,25 +442,58 @@ export async function subscribeToWatchedFolder(
   }
 }
 
-export async function refreshWatchSubscriptions(
-  deps: RefreshDeps = {},
-): Promise<{ refreshed: string[] }> {
+export type RefreshResult = {
+  refreshed: string[];
+  orphaned: string[];
+  failures: Array<{ folderId: string; operation: string }>;
+};
+
+export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise<RefreshResult> {
   const runTx = watchTxRunner(deps);
   const now = deps.now ?? (() => new Date());
-  const threshold = new Date(now().getTime() + 24 * 60 * 60 * 1000).toISOString();
-  const due = await runTx((tx) =>
-    callWatchTx("drive_watch_channels.list_expiring_active", () =>
-      tx.listExpiringActive(threshold),
-    ),
-  );
-  const subscribe =
-    deps.subscribeToWatchedFolder ?? ((folderId) => subscribeToWatchedFolder(folderId));
   const refreshed: string[] = [];
-  for (const row of due) {
-    await subscribe(row.watchedFolderId);
-    refreshed.push(row.watchedFolderId);
+  const orphaned: string[] = [];
+  const failures: Array<{ folderId: string; operation: string }> = [];
+
+  let due: WatchChannelRow[];
+  try {
+    const threshold = new Date(now().getTime() + 24 * 60 * 60 * 1000).toISOString();
+    due = await runTx((tx) =>
+      callWatchTx("drive_watch_channels.list_expiring_active", () =>
+        tx.listExpiringActive(threshold),
+      ),
+    );
+  } catch (err) {
+    await log.error("refresh-watch list_expiring failed", {
+      source: "drive.watch",
+      errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err)),
+    });
+    return {
+      refreshed: [],
+      orphaned: [],
+      failures: [{ folderId: "*", operation: "list_expiring" }],
+    };
   }
-  return { refreshed };
+
+  const subscribe =
+    deps.subscribeToWatchedFolder ?? ((folderId: string) => subscribeToWatchedFolder(folderId));
+  for (const row of due) {
+    try {
+      const result = await subscribe(row.watchedFolderId);
+      if (result.outcome === "active") refreshed.push(row.watchedFolderId);
+      else if (result.reason === "activate_failed_after_watch_created")
+        failures.push({ folderId: row.watchedFolderId, operation: "activate_pending" });
+      else orphaned.push(row.watchedFolderId);
+    } catch (err) {
+      failures.push({ folderId: row.watchedFolderId, operation: "subscribe" });
+      await log.error("refresh-watch renewal failed", {
+        source: "drive.watch",
+        errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err)),
+        watchedFolderId: row.watchedFolderId,
+      });
+    }
+  }
+  return { refreshed, orphaned, failures };
 }
 
 export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: string[] }> {

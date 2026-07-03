@@ -775,18 +775,22 @@ describe("sync Supabase infra-failure contract", () => {
       ).rejects.toBeInstanceOf(DriveWatchInfraError);
     });
 
-    test("refreshWatchSubscriptions DB-port throw → DriveWatchInfraError", async () => {
-      const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
+    test("refreshWatchSubscriptions DB-port throw → typed failures entry, never rejects", async () => {
+      const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
 
-      await expect(
-        refreshWatchSubscriptions({
-          tx: {
-            listExpiringActive: async () => {
-              throw new Error("META: simulated watch renewal fault");
-            },
-          } as never,
-        }),
-      ).rejects.toBeInstanceOf(DriveWatchInfraError);
+      const result = await refreshWatchSubscriptions({
+        tx: {
+          listExpiringActive: async () => {
+            throw new Error("META: simulated watch renewal fault");
+          },
+        } as never,
+      });
+
+      expect(result).toEqual({
+        refreshed: [],
+        orphaned: [],
+        failures: [{ folderId: "*", operation: "list_expiring" }],
+      });
     });
 
     test("gcWatchChannels DB-port throw → DriveWatchInfraError", async () => {

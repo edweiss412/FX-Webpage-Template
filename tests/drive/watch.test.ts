@@ -98,6 +98,19 @@ class FakeWatchTx {
   }
 }
 
+function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
+  for (const folderId of folderIds) {
+    tx.rows.push({
+      id: `channel-${folderId}`,
+      status: "active",
+      watchedFolderId: folderId,
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      expiresAt: new Date(tx.now.getTime() - 60 * 60 * 1000).toISOString(),
+    });
+  }
+}
+
 describe("Drive watch lifecycle", () => {
   test("default Postgres watch path wraps supersede and activate in one transaction", () => {
     const source = readFileSync(join(process.cwd(), "lib/drive/watch.ts"), "utf8");
@@ -334,8 +347,56 @@ describe("Drive watch lifecycle", () => {
       subscribeToWatchedFolder,
     });
 
-    expect(result).toEqual({ refreshed: ["folder-1"] });
+    expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
     expect(subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
+  });
+
+  test("refresh isolates per-row failures and classifies by orphan reason", async () => {
+    const tx = new FakeWatchTx();
+    const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
+    seedActiveExpiring(tx, ["folder-a", "folder-b", "folder-c", "folder-d"]);
+    const subscribe = vi.fn(async (folderId: string) => {
+      if (folderId === "folder-a") return { outcome: "active", channelId: "a" } as const;
+      if (folderId === "folder-b")
+        return { outcome: "orphaned", channelId: "b", reason: "watch_create_failed" } as const;
+      if (folderId === "folder-c")
+        return {
+          outcome: "orphaned",
+          channelId: "c",
+          reason: "activate_failed_after_watch_created",
+        } as const;
+      throw new DriveWatchInfraError("drive_watch_channels.insert_pending", new Error("db down"));
+    });
+
+    const result = await refreshWatchSubscriptions({
+      tx,
+      now: () => tx.now,
+      subscribeToWatchedFolder: subscribe,
+    });
+
+    expect(subscribe).toHaveBeenCalledTimes(4);
+    expect(result.refreshed).toEqual(["folder-a"]);
+    expect(result.orphaned).toEqual(["folder-b"]);
+    expect(result.failures).toEqual([
+      { folderId: "folder-c", operation: "activate_pending" },
+      { folderId: "folder-d", operation: "subscribe" },
+    ]);
+  });
+
+  test("refresh catches a list_expiring DB failure into the typed failures channel (never rejects)", async () => {
+    const tx = new FakeWatchTx();
+    tx.listExpiringActive = async () => {
+      throw new Error("connection refused");
+    };
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+
+    const result = await refreshWatchSubscriptions({ tx, now: () => tx.now });
+
+    expect(result).toEqual({
+      refreshed: [],
+      orphaned: [],
+      failures: [{ folderId: "*", operation: "list_expiring" }],
+    });
   });
 
   test("refreshWatchSubscriptions commits the candidate query before Drive renewal", async () => {
@@ -367,12 +428,12 @@ describe("Drive watch lifecycle", () => {
       subscribeToWatchedFolder,
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
-    expect(result).toEqual({ refreshed: ["folder-1"] });
+    expect(result).toEqual({ refreshed: ["folder-1"], orphaned: [], failures: [] });
     expect(tx.operations).toEqual(["listExpiringActive"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
   });
 
-  test("refreshWatchSubscriptions leaves DB state unchanged when Drive renewal fails after candidate commit", async () => {
+  test("refreshWatchSubscriptions records a typed failure and leaves DB state unchanged when Drive renewal throws after candidate commit", async () => {
     const tx = new FakeWatchTx();
     tx.rows.push({
       id: "due-channel",
@@ -386,22 +447,25 @@ describe("Drive watch lifecycle", () => {
     const events: string[] = [];
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
 
-    await expect(
-      refreshWatchSubscriptions({
-        withTx: async <R>(fn: (tx: FakeWatchTx) => Promise<R>) => {
-          events.push("tx:start");
-          const value = await fn(tx);
-          events.push("tx:commit");
-          return value;
-        },
-        now: () => tx.now,
-        subscribeToWatchedFolder: vi.fn(async () => {
-          events.push("drive:subscribe");
-          throw new Error("Drive refresh failed");
-        }),
-      } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]),
-    ).rejects.toThrow("Drive refresh failed");
+    const result = await refreshWatchSubscriptions({
+      withTx: async <R>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+        events.push("tx:start");
+        const value = await fn(tx);
+        events.push("tx:commit");
+        return value;
+      },
+      now: () => tx.now,
+      subscribeToWatchedFolder: vi.fn(async () => {
+        events.push("drive:subscribe");
+        throw new Error("Drive refresh failed");
+      }),
+    } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
+    expect(result).toEqual({
+      refreshed: [],
+      orphaned: [],
+      failures: [{ folderId: "folder-1", operation: "subscribe" }],
+    });
     expect(tx.rows).toEqual(before);
     expect(tx.operations).toEqual(["listExpiringActive"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
