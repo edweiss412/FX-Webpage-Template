@@ -33,7 +33,7 @@ A crew member with a stage restriction sees a schedule filtered to **the days on
 - Not touching the `unknown_asterisk` mechanism itself. It survives verbatim for the bare-`***` case (defensive path).
 - Not removing the `UNKNOWN_DAY_RESTRICTION` code, catalog row, spec §12.4 row, or its membership in `OPERATOR_ACTIONABLE_ANCHORED`. Bare `LEAD***` still emits it.
 - No DB/schema change (`crew_members.stage_restriction jsonb` already exists and is parsed, persisted, projected — `supabase/migrations/20260501000000_initial_public_schema.sql:40`; `lib/parser/blocks/crew.ts:363`; `lib/sync/runScheduledCronSync.ts:1305-1336`).
-- No advisory-lock change. No new §12.4 code. No new component and (targeted) no component-file edit.
+- No advisory-lock change. No new §12.4 code. No new component. Two existing component files get argument-threading edits only (`ScheduleSection.tsx`, `TodaySection.tsx`, §3.4) — invariant 8 applies (§8).
 
 ## 3. Architecture — effective-restriction chokepoint
 
@@ -92,12 +92,11 @@ export function effectiveViewerDateRestriction(
     const worked = new Set(workedDays);
     return { kind: "explicit", days: dateRestriction.days.filter((d) => worked.has(d)) };
   }
-  if (dateRestriction.kind === "unknown_asterisk") {
-    // Post-parser-fix (§4) this combo cannot arise (unknown_asterisk is only set
-    // when stage kind is none). Preserve the zero-leak posture if it ever does.
-    return dateRestriction;
-  }
-  // kind === "none" — the common stage-only case (Calvin).
+  // kind === "none" (new parser, §4) OR "unknown_asterisk" (LEGACY rows the
+  // current parser already persisted before the §4 guard shipped). In BOTH
+  // cases an explicit stage_restriction is the authoritative signal, so it wins
+  // — the stale unknown_asterisk is overridden here at projection time. This is
+  // what makes the fix land WITHOUT a DB backfill or forced resync (§4.1).
   return { kind: "explicit", days: workedDays };
 }
 ```
@@ -129,13 +128,46 @@ Verified against the blast-radius sweep. All five independent day-derivation sit
 | Site | file:line | Rides narrowed restriction because… |
 |---|---|---|
 | `visibleShowDays` | `agendaDisplay.ts:102-113` | `explicit` → `showDays.filter(d ∈ days)`. Calvin's `days` include only the worked show day (the compound final day), so pure show days drop. |
-| `resolveKeyTimes` | `resolveKeyTimes.ts:97,129` | Iterates `visibleShowDays`; Set anchor from `dates.set` and Strike from room `strike_time` are day-list-independent and still render. |
+| `resolveKeyTimes` | `resolveKeyTimes.ts:97,129` | Show anchors ride `visibleShowDays` (narrowed). **Set/Strike anchors are day-list-independent → require the one explicit stage edit in §3.4.** |
 | `ScheduleSection` explicit branch | `ScheduleSection.tsx:185-191` | `allDays.filter(d => allowedShowDays.has(d) || days.includes(d))` — the branch is already built to admit **non-show** dates in `days` (travel/set), so the effective day set renders exactly the worked aggregate days. |
 | runOfShow gate | `getShowForViewer.ts:677-693` | Re-derives from the same projected row → sees the narrowed restriction; drops off-day runOfShow keys. |
 | `selectRightNowState` | `lib/time/rightNow.ts:227-295` | `viewerDays = explicit ? days : null`, using sorted min/max + `[travelIn, travelOut]` span checks — does **not** assume `days ⊆ showDays`. On a hidden show day → `viewer_off_day` (`nextAssignedDay` = next worked day); on a worked day → normal show-wide state. |
 | `TodaySection` inline `eligible` | `TodaySection.tsx:212-214` | `eligible = kind==='explicit' && days.has(todayIso)` → false on hidden show days → Mode B, correct. |
 
 `components/right-now/buildRightNowContext.ts:72-113`, `RightNowHero.tsx:359`, `_CrewShell.tsx`, `CrewSection.tsx` are pure conduits (no `kind` branching). `partialAttendanceLabel` — see §6.
+
+### 3.4 One consumer edit — `resolveKeyTimes` set/strike anchors (not day-list-gated)
+
+The chokepoint does NOT cover `resolveKeyTimes`'s **Set** and **Strike** anchors: they are emitted day-list-**independently** (Set from `dates.loadIn`/room `set_time` at `resolveKeyTimes.ts:107-113`; Strike from room `strike_time` at `:116-118`), consulting neither `dateRestriction` nor `visibleShowDays`. For Calvin (works every phase but Show) this is correct — he wants both. But for the other stage patterns it mis-shows an off-stage call time: a `Load In / Set ONLY` crew would still see the Strike time; a `Load Out / Strike ONLY` crew would still see the Set time.
+
+Fix: give `resolveKeyTimes` an OPTIONAL `stageRestriction` param (default `{ kind: "none" }` → fully backward-compatible; existing date-only-restricted crew and all 4-arg callers/tests are unaffected):
+
+```ts
+export function resolveKeyTimes(
+  show: Pick<ShowRow, "dates">,
+  rooms: ProjectedRoomRow[] | null,
+  runOfShow: RunOfShow | null,
+  dateRestriction: DateRestriction,
+  stageRestriction: StageRestriction = { kind: "none" },   // NEW
+): KeyTimeAnchors {
+  // ...
+  const worksFrontEnd =
+    stageRestriction.kind === "none" ||
+    stageRestriction.stages.some((s) => s === "Load In" || s === "Set");
+  const worksBackEnd =
+    stageRestriction.kind === "none" ||
+    stageRestriction.stages.some((s) => s === "Strike" || s === "Load Out");
+  // gate: assign anchors.set only when worksFrontEnd; anchors.strike only when worksBackEnd.
+}
+```
+
+Gating is by **stage** (not by the narrowed day list) precisely so a genuinely date-restricted-but-not-stage-restricted crew is untouched — `kind === "none"` makes both booleans true, preserving today's behavior. The Show anchors (`shows[]`) remain gated via `visibleShowDays(dateRestriction)` (already narrowed by the chokepoint), so all three anchor types are now consistent.
+
+**Call sites (2):** `ScheduleSection.tsx:108` and `TodaySection.tsx:249-254` both call `resolveKeyTimes(...)` and both already resolve `ctx.stageRestriction` via `resolveViewerContext` (`viewerContext.ts:133-135`). Add `ctx.stageRestriction` as the 5th argument at each. These two edits land in **component files**, so invariant 8 applies (§8).
+
+### 3.5 Agenda area — intentionally NOT day-filtered (scoping, F3)
+
+The Agenda area (`ScheduleSection.tsx:117-152`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted`. It is a **whole-show artifact**: `AgendaScheduleBlock` receives **no** date/stage restriction and renders the show's full agenda for **every** viewer today. The ONLY branch that suppresses it is the `unknown_asterisk` early-return (`:157-168`); every `explicit`- and `none`-restricted crew already sees the unfiltered agenda (`:170-172`). This feature therefore does **not** change the agenda's filtering contract — it only moves a stage-restricted crew (Calvin) from the `unknown_asterisk` branch (agenda suppressed) into the normal branch (agenda shown), joining every other on-show crew. Calvin legitimately works the show week (he strikes the final show day), and the agenda helps him time his strike. **Decision: the agenda area is out of scope for day/stage filtering** — filtering per-day agenda content for restricted crew would be a separate change affecting ALL date-restricted crew (a pre-existing behavior), filed to BACKLOG (`BL-AGENDA-PERDAY-VIEWER-FILTER`), not introduced or regressed here.
 
 ## 4. Parser change (Part 1)
 
@@ -156,6 +188,10 @@ if (
 **Discriminator (verified against the full corpus):** every `***` in the real show fixtures is the full-stage `Load In / Set / Strike / Load Out ONLY***` form (`fixtures/shows/exporter-xlsx/{fintech,rpas}.md`, and 2026-04-waldorf). The only bare-`***` case is the synthetic unit fixture `- LEAD***` (Amy Lane, `tests/parser/crewRoleWarningBlockRef.test.ts:23`), which has **no** stage marker → `stageRestriction.kind === "none"` → still emits `unknown_asterisk` + `UNKNOWN_DAY_RESTRICTION`. So the guard fixes Calvin without stranding the defensive path.
 
 **Interaction note:** `LOAD_IN_SET_ONLY_PATTERN` / `LOAD_OUT_STRIKE_ONLY_PATTERN` (`personalization.ts:55-56`) are fully anchored and do **not** absorb a trailing `***`. If a future cell were `- Load In / Set ONLY***`, `extractStageRestriction` returns `none` and the `***` would (correctly) still be treated as an unknown day restriction. Only the full-stage form absorbs `***` (`FULL_STAGE_ONLY_PATTERN` `\*{0,3}`), which is exactly the case we want to reclassify. This is consistent and intentional.
+
+### 4.1 Legacy persisted data — no backfill required
+
+The current parser has **already persisted** Calvin's rows with `date_restriction = unknown_asterisk` and `stage_restriction = explicit`. The §4 guard only affects **future** parses. The fix still lands immediately on live pages because the projection override in §3.1 treats an explicit `stage_restriction` as authoritative and computes worked days **regardless** of whether the stored `date_restriction` is `none` (post-guard) or `unknown_asterisk` (legacy). So **no DB backfill, migration, or forced resync is needed** — the very next page render is correct. The parser change and the projection override are complementary, not redundant: the projection fixes the **schedule** for existing+future data; the parser change kills the recurring **operator warning** (Doug's actual report, §1(b)) and stores the cleaner `none` on the next natural resync. A test asserts the legacy `unknown_asterisk` + explicit-stage row projects to the worked-day `explicit` restriction (not the `unknown_asterisk` blank branch).
 
 ## 5. Worked example (Calvin, `2026-05-fintech` DATES detail grid — dates 5/2–5/7)
 
@@ -192,11 +228,9 @@ Other stage patterns (fixtures exist — `lib/validation/fixtures.ts:365,381` = 
 
 **No copy change is required.** `UNKNOWN_DAY_RESTRICTION` stays in `MESSAGE_CATALOG` (`catalog.ts:1026-1038`), `SPEC_CODES` (spec §12.4 `:2881,:3171`), `OPERATOR_ACTIONABLE_ANCHORED` (`dataGaps.ts:126`), and the internal enum registry (`__generated__/internal-code-enums.ts:284`). Bare `LEAD***` still emits it, so the row remains valid as-is. The x1-catalog-parity gate (`tests/cross-cutting/codes.test.ts:73-87`) stays green because none of the four parity fields (`dougFacing`/`crewFacing`/`followUp`/`helpfulContext`) change. The `` `***` `` literal in `dougFacing` is preserved (guarded by `tests/messages/lookup-unknown-code.test.ts:106-113`). No `pnpm gen:spec-codes` run needed.
 
-## 8. UI-surface determination (invariant 8)
+## 8. UI-surface determination (invariant 8 APPLIES)
 
-The chokepoint architecture edits only `lib/` (parser, a new crew helper, the data projection). **No file under `app/` (except api), `components/`, `app/globals.css`, `tailwind.config.*`, or `DESIGN.md` is edited.** Therefore the invariant-8 `/impeccable critique`+`audit` dual-gate is **N/A by no-UI-diff** — it is a UI-*code* contract. The *rendered output* changes materially (Calvin's schedule goes blank → populated), so the plan MUST include a **real-browser (Playwright) behavior + layout verification** that (a) Calvin's worked day cards render and pure show days are absent, and (b) the existing `DayCard` fixed-dimension invariant still holds (the `self-stretch` vline fills the row height — `DayCard.tsx:14-17,87`; Tailwind v4 has no default `align-items: stretch`). If any copy tweak turns out to be needed in a component file, that single file's diff re-triggers invariant 8 for that file.
-
-**Watchpoint / do-not-relitigate (Codex):** the no-component-edit determination is deliberate and load-bearing, not an oversight. The feature is a data-narrowing change; all rendering is existing, battle-tested `explicit`-restriction machinery.
+The §3.4 `resolveKeyTimes` fix threads `ctx.stageRestriction` into two **component files** — `components/crew/sections/ScheduleSection.tsx:108` and `components/crew/sections/TodaySection.tsx:249-254`. These are UI-surface edits (both under `components/`), so **invariant 8 applies**: the plan's close-out runs `/impeccable critique` AND `/impeccable audit` on the affected diff, HIGH/CRITICAL findings fixed or `DEFERRED.md`-deferred, before the Codex whole-diff review. The component edits themselves are pure argument-threading (no markup/style change), but the *rendered output* changes materially for stage-restricted crew (Calvin's schedule goes blank → populated), which is exactly what the impeccable pass should evaluate. The lib-only files (`lib/parser/blocks/crew.ts`, new `lib/crew/stageSchedule.ts`, `lib/crew/resolveKeyTimes.ts`, `lib/data/getShowForViewer.ts`) are not UI surfaces themselves. In addition, the plan MUST include a **real-browser (Playwright) behavior + layout verification** that (a) a stage-restricted viewer's worked day cards render and pure show days are absent, and (b) the existing `DayCard` fixed-dimension invariant still holds (the `self-stretch` vline fills the row height — `DayCard.tsx:14-17,87`; Tailwind v4 has no default `align-items: stretch`).
 
 ## 9. Dimensional invariants
 
@@ -204,34 +238,40 @@ No new fixed-dimension parent is introduced. The only invariant in scope is the 
 
 ## 10. Meta-test inventory
 
-- **CREATE:** `tests/crew/stageSchedule.test.ts` — unit tests for `stageWorksDay` + `effectiveViewerDateRestriction` across every stage pattern and guard condition (§5, §6).
+- **CREATE:** `tests/crew/stageSchedule.test.ts` — unit tests for `stageWorksDay` + `effectiveViewerDateRestriction` across every stage pattern, every guard condition (§5, §6), AND the legacy `unknown_asterisk` + explicit-stage override (§4.1).
 - **EXTEND:** `tests/parser/blocks/crew.test.ts` — Calvin assertions flip `unknown_asterisk` → `none` (`:112-116,265-269,381-393,395-402`) + a new negative assertion that Calvin emits **no** `UNKNOWN_DAY_RESTRICTION` (via the `agg.warnings.filter` pattern at `:686-695`); Amy Lane bare-`LEAD***` unchanged.
-- **No new structural registry.** The blast-radius sweep confirmed the day-derivation sites do not share a single helper today; this feature does **not** add a shared render-time predicate (it centralizes at the projection), so there is no new drift surface to pin. The existing `tests/crew/agendaDisplay-single-source.test.ts` stays green (agendaDisplay exports/imports unchanged). Declared explicitly per the meta-test-inventory rule.
+- **EXTEND:** `tests/crew/resolveKeyTimes.test.ts` — new cases: `Load In / Set` stage → Strike anchor SUPPRESSED; `Load Out / Strike` stage → Set anchor SUPPRESSED; Calvin (all-but-Show) → both present; `kind: "none"` (all existing 4-arg callers) → unchanged (backward-compat).
+- **EXTEND:** `tests/data/getShowForViewer*.test.ts` — a stage-restricted crew row (both `none` and legacy `unknown_asterisk` stored `date_restriction`) projects to the worked-day `explicit` restriction.
+- **No new structural registry.** The blast-radius sweep confirmed the day-derivation sites do not share a single helper today; this feature centralizes narrowing at the projection (plus the one explicit `resolveKeyTimes` stage param), so there is no new render-time drift surface to pin. The existing `tests/crew/agendaDisplay-single-source.test.ts` stays green (agendaDisplay exports/imports unchanged); `tests/components/tiles/_metaSentinelHidingContract.test.ts` stays green (the `resolveKeyTimes` ShowAnchor.time sentinel-guard source is unchanged — only a new param is added). Declared explicitly per the meta-test-inventory rule.
 
 ## 11. Resolved decisions
 
-1. **Chokepoint over per-site.** Narrowing once in `getShowForViewer.readCrewMembers` beats editing the 5 independent day-derivation sites: single well-tested pure function, zero component/consumer edits, reuses the existing `explicit`-restriction path, no drift surface. (Rejected: per-site stage-awareness — 5 files, needs a new drift meta-test, higher review surface.)
+1. **Chokepoint over per-site.** Narrowing once in `getShowForViewer.readCrewMembers` covers the day-card list, show anchors, runOfShow gate, `selectRightNowState`, and TodaySection-eligible with **no** edits to those consumers — a single well-tested pure function reusing the existing `explicit`-restriction path. Only ONE consumer (`resolveKeyTimes` set/strike anchors, §3.4) needs an explicit stage param because it is day-list-independent. (Rejected: full per-site stage-awareness across all 5 day-derivation sites — needs a new drift meta-test, much higher review surface.)
 2. **`schedule_phases` union with aggregate-phase tags** as the filter primitive — handles the compound Show+Strike final day correctly (Calvin sees it because he strikes) and the travel-in day (no `schedule_phases` entry) via its phase tag. (Rejected: aggregate phase tags alone — would hide Calvin's strike day; `schedule_phases` alone — would hide travel-in.)
 3. **Compound final Show+Strike day is SHOWN** to a Strike-working, Show-excluded crew. Rationale: they physically strike that day; the day's timeline tells them when the show wraps. Not a leak (they are on-site). This refines the ratified preview (which simplified to "hide all show days").
 4. **`partialAttendanceLabel` shows the derived worked days** (no code change) — an improvement over "Partial (dates TBD)".
-5. **No component-file edits, so invariant-8 dual-gate is N/A**; a real-browser behavior+layout check substitutes.
+5. **Legacy persisted `unknown_asterisk` is overridden at projection time by an explicit stage restriction** (§3.1, §4.1) — the fix lands with no DB backfill/resync.
+6. **Set/Strike key-times anchors are stage-gated** (§3.4) so off-stage call times don't show for `Load In/Set`-only or `Load Out/Strike`-only crew. **Agenda area stays whole-show / unfiltered** (§3.5) — consistent with existing date-restricted-crew behavior; per-day agenda filtering deferred to BACKLOG.
+7. **Invariant-8 dual-gate APPLIES** — two component files get argument-threading edits (§8); the impeccable critique+audit runs on the diff at close-out.
 
 ## 12. Numeric sweep
 
 - 4 Calvin parser assertions flip (`crew.test.ts:115,268,388,401`).
-- 6 downstream consumers verified unchanged (§3.3 table); 5 are independent day-derivation sites, `resolveKeyTimes` delegates to `visibleShowDays`.
+- Chokepoint covers 5 day-derivation sites with no edits (day-cards, show anchors, runOfShow gate, `selectRightNowState`, TodaySection-eligible); exactly **1** consumer (`resolveKeyTimes` set/strike anchors) needs an explicit stage param (§3.4).
 - 3 stage patterns handled (`Load In/Set/Strike/Load Out`, `Load In/Set`, `Load Out/Strike`).
 - Worked example: 6 aggregate days → 4 visible, 2 hidden (§5 table).
-- 0 new §12.4 codes; 0 DB migrations; 0 component-file edits (target); 0 catalog copy edits.
+- Code touch points: 4 lib files (`crew.ts`, new `stageSchedule.ts`, `resolveKeyTimes.ts`, `getShowForViewer.ts`) + **2 component files** (`ScheduleSection.tsx`, `TodaySection.tsx`, arg-threading only). 0 new §12.4 codes; 0 DB migrations; 0 catalog copy edits; 1 BACKLOG entry (`BL-AGENDA-PERDAY-VIEWER-FILTER`).
 
 ## 13. Watchpoints (Codex disagreement-loop preempts)
 
 1. **`unknown_asterisk` mechanism is NOT removed** — it survives for bare-`LEAD***` (`crew.test.ts:43-46` proves it). Do not relitigate as "dead code."
-2. **No-component-edit / invariant-8 N/A** is intentional (§8). Do not require `/impeccable` on a diff that touches no UI file.
-3. **Folding stage → effective `explicit` dateRestriction** is a deliberate view-model computation, not a semantic corruption of the parsed `date_restriction` field (the projection already normalizes; §3.2). Cite `getShowForViewer.ts:407-420`.
-4. **Catalog row retained, no §12.4 lockstep needed** (§7) — the code persists; only Calvin stops emitting it.
-5. **Compound-day visibility** (§11.3) is a ratified refinement, not a bug.
+2. **Agenda area stays whole-show / unfiltered** (§3.5) — this is a deliberate scoping decision, consistent with existing date-restricted-crew behavior (`ScheduleSection.tsx:170-172`, `AgendaScheduleBlock` receives no restriction). Per-day agenda filtering is a pre-existing separate concern, deferred to `BL-AGENDA-PERDAY-VIEWER-FILTER`. Do not re-raise as a new leak introduced by this feature.
+3. **Folding stage → effective `explicit` dateRestriction** is a deliberate view-model computation, not a semantic corruption of the parsed `date_restriction` field (the projection already normalizes at `getShowForViewer.ts:413-420`; §3.2).
+4. **Legacy `unknown_asterisk` override** (§3.1/§4.1) is intentional and is what makes the fix land without a backfill — an explicit stage restriction is the authoritative signal.
+5. **Catalog row retained, no §12.4 lockstep needed** (§7) — the code persists; only Calvin stops emitting it.
+6. **Compound-day visibility** (§11.3) is a ratified refinement, not a bug.
+7. **Set/Strike anchor stage-gating** (§3.4) intentionally keys off `stage_restriction` (not the day list) so date-restricted-only crew are unaffected.
 
 ## 14. Existing-code citations (verified 2026-07-03)
 
-`crew.ts:324` (stageRestriction in scope), `:340-352` (guard); `personalization.ts:53-56` (stage patterns), `:159-169` (extractStageRestriction), `:375-377` (hasTripleAsterisk); `types.ts:24-30` (DateRestriction/StageRestriction), `:113-130` (ShowRow.dates + schedule_phases), `:141` (WorkPhase); `index.ts:333-368` (deriveSchedulePhases), `:543` (call); `getShowForViewer.ts:350,357` (show + schedule_phases), `:400-424` (readCrewMembers chokepoint), `:677-693` (runOfShow gate); `agendaDisplay.ts:66,80-93,102-113` (SchedulePhase/aggregateDays/visibleShowDays); `lib/crew/resolveKeyTimes.ts:97,129`; `lib/time/rightNow.ts:227-295`; `components/crew/sections/ScheduleSection.tsx:157-191,253`; `TodaySection.tsx:212-214`; `partialAttendance.ts:11-19`; `CrewSection.tsx:186`; `DayCard.tsx:68,72,87`; `catalog.ts:1026-1038`; `dataGaps.ts:126`; `packList.ts:83-90,122-140`; `crewRoleWarningBlockRef.test.ts:23,43-46`.
+`crew.ts:324` (stageRestriction in scope), `:340-352` (guard); `personalization.ts:53-56` (stage patterns), `:159-169` (extractStageRestriction), `:375-377` (hasTripleAsterisk); `types.ts:24-30` (DateRestriction/StageRestriction), `:113-130` (ShowRow.dates + schedule_phases), `:141` (WorkPhase); `index.ts:333-368` (deriveSchedulePhases), `:543` (call); `getShowForViewer.ts:350,357` (show + schedule_phases), `:400-424` (readCrewMembers chokepoint), `:677-693` (runOfShow gate); `agendaDisplay.ts:66,80-93,102-113` (SchedulePhase/aggregateDays/visibleShowDays); `lib/crew/resolveKeyTimes.ts:97,107-118,129` (set/strike anchors + call at `ScheduleSection.tsx:108`, `TodaySection.tsx:249-254`); `lib/time/rightNow.ts:227-295`; `components/crew/sections/ScheduleSection.tsx:117-152,157-191,253` (agenda area + branches); `TodaySection.tsx:212-214`; `partialAttendance.ts:11-19`; `CrewSection.tsx:186`; `DayCard.tsx:68,72,87`; `catalog.ts:1026-1038`; `dataGaps.ts:126`; `packList.ts:83-90,122-140`; `crewRoleWarningBlockRef.test.ts:23,43-46`.
