@@ -204,6 +204,66 @@ test("forensic code: a pdfjs throw emits code AGENDA_PDFJS_THREW with the error 
     }),
   );
 });
+// ── Audit finding #11: driveFileId correlation on the durable emits ──
+// Concrete failure mode this closes: "an extraction failure is un-joinable to a
+// sheet." The `bytes` byte-length proxy can collide across PDFs; the explicit
+// driveFileId self-correlates AGENDA_PDFJS_THREW/HIGH/TOO_MANY_PAGES to the
+// exact Drive PDF.
+const DRIVE_FILE_ID = "1AgendaPdfDriveFileId_xyz-789";
+
+test("finding #11: AGENDA_PDFJS_THREW carries the passed driveFileId", async () => {
+  await extractAgendaSchedule(new Uint8Array([0]), { driveFileId: DRIVE_FILE_ID });
+  expect(logMock.error).toHaveBeenCalledWith(
+    "pdfjs threw",
+    expect.objectContaining({
+      source: "agenda.extract",
+      code: "AGENDA_PDFJS_THREW",
+      driveFileId: DRIVE_FILE_ID,
+      error: expect.anything(),
+    }),
+  );
+});
+test("finding #11: high-confidence emit carries the passed driveFileId", async () => {
+  await extractAgendaSchedule(bytes("rfi.pdf"), { driveFileId: DRIVE_FILE_ID });
+  expect(logMock.info).toHaveBeenCalledWith(
+    "high",
+    expect.objectContaining({
+      source: "agenda.extract",
+      code: "AGENDA_SCHEDULE_HIGH_CONFIDENCE",
+      driveFileId: DRIVE_FILE_ID,
+    }),
+  );
+});
+test("finding #11: too-many-pages emit carries the passed driveFileId", async () => {
+  const getPage = vi.fn();
+  vi.resetModules();
+  vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
+    getDocument: () => ({
+      promise: Promise.resolve({ numPages: AGENDA_MAX_PAGES + 1, getPage }),
+    }),
+  }));
+  try {
+    const { extractAgendaSchedule: extract } = await import("@/lib/agenda/extractAgendaSchedule");
+    await extract(new Uint8Array([1, 2, 3]), { driveFileId: DRIVE_FILE_ID });
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "too-many-pages",
+      expect.objectContaining({
+        source: "agenda.extract",
+        code: "AGENDA_TOO_MANY_PAGES",
+        driveFileId: DRIVE_FILE_ID,
+      }),
+    );
+  } finally {
+    vi.doUnmock("pdfjs-dist/legacy/build/pdf.mjs");
+    vi.resetModules();
+  }
+});
+test("finding #11 back-compat: no opts → no driveFileId field on the emit", async () => {
+  await extractAgendaSchedule(new Uint8Array([0]));
+  const call = logMock.error.mock.calls.find((c) => c[0] === "pdfjs threw");
+  expect(call).toBeDefined();
+  expect(call![1]).not.toHaveProperty("driveFileId");
+});
 test("forensic code: low-confidence gate reuses cataloged code AGENDA_SCHEDULE_LOW_CONFIDENCE", async () => {
   vi.resetModules();
   vi.doMock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
