@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from "vitest";
-import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
+import { resolveAdminAlert, resolveAdminAlerts } from "@/lib/adminAlerts/resolveAdminAlert";
 
 function fakeResolveClient(result: { data?: unknown; error: unknown }) {
-  const calls: Array<{ method: "eq" | "is"; column: string; value: unknown }> = [];
+  const calls: Array<{ method: "eq" | "is" | "in"; column: string; value: unknown }> = [];
   const select = vi.fn().mockResolvedValue({ data: result.data ?? [], error: result.error });
   const query = {
     eq: vi.fn((column: string, value: unknown) => {
@@ -11,6 +11,10 @@ function fakeResolveClient(result: { data?: unknown; error: unknown }) {
     }),
     is: vi.fn((column: string, value: unknown) => {
       calls.push({ method: "is", column, value });
+      return query;
+    }),
+    in: vi.fn((column: string, value: unknown) => {
+      calls.push({ method: "in", column, value });
       return query;
     }),
     select,
@@ -66,6 +70,69 @@ describe("resolveAdminAlert", () => {
 
     await expect(
       resolveAdminAlert({ showId: null, code: "SYNC_STALLED" }, client as never),
+    ).rejects.toThrow(/network down/);
+  });
+});
+
+describe("resolveAdminAlerts (bulk)", () => {
+  test("codes: [] is a no-op — zero client invocations", async () => {
+    const { client, from } = fakeResolveClient({ error: null });
+
+    await resolveAdminAlerts({ showId: "s-1", codes: [] }, client);
+
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  test("filters: code IN codes, show_id exact (null → .is), resolved_at null; sets only resolved_at", async () => {
+    const { client, from, update, select, calls } = fakeResolveClient({
+      data: [{ id: "alert-1" }],
+      error: null,
+    });
+
+    await resolveAdminAlerts(
+      { showId: null, codes: ["REEL_DRIFTED", "EMBEDDED_ASSET_DRIFTED"] },
+      client,
+    );
+
+    expect(from).toHaveBeenCalledWith("admin_alerts");
+    // toHaveBeenCalledWith asserts an exact object match, so this also proves no
+    // resolved_by key is present alongside resolved_at.
+    expect(update).toHaveBeenCalledWith({
+      resolved_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+    expect(calls).toEqual([
+      { method: "in", column: "code", value: ["REEL_DRIFTED", "EMBEDDED_ASSET_DRIFTED"] },
+      { method: "is", column: "resolved_at", value: null },
+      { method: "is", column: "show_id", value: null },
+    ]);
+    expect(select).toHaveBeenCalledWith("id");
+  });
+
+  test("show-scoped: show_id exact match via .eq", async () => {
+    const { client, calls } = fakeResolveClient({ data: [{ id: "alert-1" }], error: null });
+
+    await resolveAdminAlerts({ showId: "show-1", codes: ["SYNC_STALLED"] }, client);
+
+    expect(calls).toContainEqual({ method: "eq", column: "show_id", value: "show-1" });
+  });
+
+  test("returned DB error throws", async () => {
+    const { client } = fakeResolveClient({ error: { message: "boom" } });
+
+    await expect(
+      resolveAdminAlerts({ showId: null, codes: ["SYNC_STALLED"] }, client),
+    ).rejects.toThrow(/admin alert bulk resolve failed: boom/);
+  });
+
+  test("thrown query fault throws", async () => {
+    const client = {
+      from: () => {
+        throw new Error("network down");
+      },
+    };
+
+    await expect(
+      resolveAdminAlerts({ showId: null, codes: ["SYNC_STALLED"] }, client as never),
     ).rejects.toThrow(/network down/);
   });
 });
