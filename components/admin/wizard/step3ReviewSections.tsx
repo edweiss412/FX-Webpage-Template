@@ -232,7 +232,8 @@ export function FieldRowList({ rows }: { rows: { label: string; value: string }[
  * panel card, INSTEAD of the legacy card-context `<h4>` eyebrow. Reusing the
  * body's own `count` keeps the heading count from ever drifting from the body
  * (§6.1 preamble: "every section HEADING keeps its existing count"). Outside
- * the provider (the card's Step3DetailsDialog path until Task 8) rendering is
+ * the provider (standalone/test mounts — the modal registry is the only
+ * production consumer since Task 8 retired Step3DetailsDialog) rendering is
  * byte-identical to before — existing card suites stay green.
  *
  * The heading is `<h3>` so the modal outline stays h2 (title) → h3 (§15); no

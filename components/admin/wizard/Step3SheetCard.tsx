@@ -10,16 +10,19 @@
  *   - Summary (always visible): the show title (a deep link to the SOURCE sheet
  *     that WRAPS, never truncates), client, dates, venue name, a dedicated city
  *     row, diagrams/reel badges, and the per-class data-gap chips when present.
- *   - Breakdown ("More" → details overlay): crew names+roles, schedule outline,
- *     rooms, and hotels in a balanced multi-column flow, then a FULL-WIDTH
- *     warnings callout below the rest — each list capped per §4.3. The "More"
- *     button opens <Step3DetailsDialog> (a bottom sheet on mobile, a centered
- *     popup on desktop), replacing the old inline height-morph expand.
+ *   - Details ("More" → <Step3ReviewModal>, spec 2026-07-02 §5-§10): the full
+ *     section-registry review surface (rail/chip nav + restyled section
+ *     panels), superseding the retired Step3DetailsDialog + breakdown grid.
+ *     The card builds the modal's `SectionData` from its own derived values.
  *
- * This is a PRESENTATIONAL card (a `row` prop). D2 deliberately adds NO
- * checkbox / select-all / approve / ignore wiring — those are D3/D4/D5. The
- * leading header slot is reserved (`shrink-0`) so the D3 checkbox drops in
- * without a layout change.
+ * Publish-intent wiring (spec §9.2/§9.3): the card is the single checked-state
+ * controller in BOTH modes via `requestSetChecked(next): Promise<boolean>` —
+ * controlled (the Step3Review grid) delegates to the parent's result-bearing
+ * `onToggleChecked`; uncontrolled (tests/standalone) owns the optimistic state
+ * + `postPublishIntent` + revert-on-fail (moved OUT of PublishCheckbox, which
+ * is now purely controlled). A persistent sr-only `aria-live` region announces
+ * publish success/failure (§9.3); the checkbox click path stays
+ * fire-and-forget while the modal's publish button awaits the promise.
  *
  * Guard conditions (§4.6): a null/corrupt `parseResult` renders the title
  * fallback + a human "couldn't read" sentence and NO "More" button. Undefined
@@ -27,11 +30,11 @@
  * Undefined warnings → no chip. The component never crashes on a missing
  * field (the JSONB is untyped on the wire).
  *
- * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px. The details overlay's
- * rise/pop/scrim animation lives in app/globals.css ([data-step3-details-panel]
- * / [data-step3-details-scrim]), consuming the motion tokens.
+ * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px. The review modal's
+ * rise/pop/scrim animation lives in app/globals.css ([data-step3-review-panel]
+ * / [data-step3-review-scrim]), consuming the motion tokens.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
@@ -45,26 +48,13 @@ import {
   stripLegacyUnknownFieldAnchors,
 } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
-// The section bodies + agenda live-fill machine moved to the section module
-// (Task 3, spec §4/§6.1). Dependency is ONE-WAY: the card imports the bodies;
-// the section module never imports the card.
-import {
-  arr,
-  dateSummarySegments,
-  AgendaBreakdown,
-  ContactsBreakdown,
-  CrewBreakdown,
-  EventDetailsBreakdown,
-  HotelsBreakdown,
-  OpsBreakdown,
-  PackListBreakdown,
-  RoomsBreakdown,
-  ScheduleBreakdown,
-  TransportBreakdown,
-  VenueBreakdown,
-  WarningsBreakdown,
-} from "@/components/admin/wizard/step3ReviewSections";
-import { Step3DetailsDialog } from "@/components/admin/wizard/Step3DetailsDialog";
+// The section bodies + agenda live-fill machine live in the section module
+// (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
+// Dependency is ONE-WAY: the card imports the helpers; the section module
+// never imports the card.
+import { arr, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
+import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
+import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
@@ -83,81 +73,29 @@ function Badge({ testId, label }: { testId: string; label: string }) {
 }
 
 /**
- * The durable publish-intent checkbox (§4.1/§4.6/§7.2). Checked = the row's
- * manifest status is 'applied'. On toggle it POSTs to the LIGHTWEIGHT approve /
- * un-approve pair (NOT the heavy navigation-era apply route — finalize
- * re-validates at apply time, so the checkbox stays cheap) and then refreshes the
- * RSC tree.
- *
- * In UNCONTROLLED (standalone) mode the control optimistically reflects the new
- * state and DISABLES itself while its own request is in flight (§4.6 — prevents a
- * double-toggle race). In CONTROLLED (grid) mode the parent (Step3Review) owns the
- * write and is NEVER disabled: race-safety there comes from the parent's per-row
- * coalescing, so the box stays interactive (it does not grey out mid-batch).
+ * The durable publish-intent checkbox (§4.1/§4.6/§7.2), PURELY CONTROLLED
+ * (spec 2026-07-02 §4/§9.2): `checked` + `onToggle` are required; the old
+ * uncontrolled internal mode (`initialChecked` + internal POST + self-disable)
+ * moved UP into `Step3SheetCard.requestSetChecked`, so there is ONE publish
+ * path per mode and the box itself never fetches, never disables, and carries
+ * no pending UI — race-safety comes from the owner (Step3Review's per-row
+ * coalescing, or the card's uncontrolled re-entry guard), never from greying
+ * the control.
  *
  * A real <input type=checkbox> (keyboard-operable, sr-only) backs the visible
- * tile; the tile is a ≥44px tap target via the wrapping <label>. The native input
- * is visually hidden but never removed from the tree (focusable + announced).
+ * tile; the tile is a ≥44px tap target via the wrapping <label>. The native
+ * input is visually hidden but never removed from the tree (focusable +
+ * announced).
  */
 export function PublishCheckbox({
   driveFileId,
-  wizardSessionId,
-  initialChecked,
-  controlledChecked,
+  checked,
   onToggle,
 }: {
   driveFileId: string;
-  wizardSessionId: string;
-  initialChecked: boolean;
-  // Optional CONTROLLED mode. When the parent (Step3Review) supplies `onToggle`, the
-  // publish-intent state is LIFTED: the parent owns `checked` and performs the POST +
-  // router.refresh() (with per-row coalescing), so "Select all" flips every box
-  // instantly through shared optimistic state instead of waiting on each box to
-  // re-seed from a refresh (the select-all-doesn't-stick bug — the per-box useState
-  // was decoupled from the header's optimistic state). Omitted → the box self-manages
-  // its own state and POST (standalone / single-card usage is unchanged, and the call
-  // site keeps `key={row.status}` to re-seed on refresh).
-  controlledChecked?: boolean | undefined;
-  onToggle?: ((next: boolean) => void) | undefined;
+  checked: boolean;
+  onToggle: (next: boolean) => void;
 }) {
-  const controlled = onToggle !== undefined;
-  const router = useRouter();
-  // Uncontrolled state — used only when the parent does not control this box.
-  const [checkedInternal, setCheckedInternal] = useState(initialChecked);
-  const [pendingInternal, setPendingInternal] = useState(false);
-  const checked = controlled ? !!controlledChecked : checkedInternal;
-  // Controlled mode never disables (the parent coalesces writes); only the
-  // standalone path disables itself while its own request is in flight.
-  const pending = controlled ? false : pendingInternal;
-
-  async function toggleSelf(next: boolean) {
-    if (pendingInternal) return; // §4.6 guard — ignore re-entry while a write is in flight
-    const action = next ? "approve" : "unapprove";
-    setPendingInternal(true);
-    setCheckedInternal(next); // optimistic
-    try {
-      const response = await fetch(
-        `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
-        { method: "POST" },
-      );
-      if (!response.ok) {
-        setCheckedInternal(!next); // revert optimistic state on a refused/failed write
-        return;
-      }
-      router.refresh();
-    } catch {
-      setCheckedInternal(!next); // network failure → revert
-    } finally {
-      setPendingInternal(false);
-    }
-  }
-
-  function handleChange(next: boolean) {
-    if (pending) return; // §4.6 guard (controlled or not)
-    if (controlled) onToggle?.(next);
-    else void toggleSelf(next);
-  }
-
   // A 20px visible box (size-5) with a ≥44px hit area: p-3 (12px) + the size-5
   // box = 44px clickable square, pulled back by -m-3 so the layout footprint
   // stays ~20px and the box sits flush at the card's top-left, aligned to the
@@ -165,18 +103,17 @@ export function PublishCheckbox({
   // The native input is sr-only but focusable.
   return (
     <label
-      className="relative -m-3 -mt-2.5 inline-flex shrink-0 cursor-pointer items-start justify-start p-3 has-disabled:cursor-not-allowed has-disabled:opacity-60"
+      className="relative -m-3 -mt-2.5 inline-flex shrink-0 cursor-pointer items-start justify-start p-3"
       title={checked ? "Publishing this show" : "Publish this show"}
     >
       <input
         type="checkbox"
         data-testid={`wizard-step3-checkbox-${driveFileId}`}
         checked={checked}
-        disabled={pending}
         aria-label={
           checked ? "Publishing this show. Uncheck to keep it unpublished." : "Publish this show"
         }
-        onChange={(e) => handleChange(e.currentTarget.checked)}
+        onChange={(e) => onToggle(e.currentTarget.checked)}
         className="peer sr-only"
       />
       <span
@@ -273,25 +210,85 @@ export function Step3SheetCard({
   wizardSessionId: string;
   // Optional controlled publish-intent (lifted into Step3Review). When the parent
   // supplies `onToggleChecked`, the checkbox is controlled by the shared optimistic
-  // state so "Select all" updates this box instantly. Omitted → the checkbox
-  // self-manages (standalone card usage unchanged).
+  // state so "Select all" updates this box instantly, and the RESULT-BEARING
+  // promise (spec §9.2) resolves at the row's settlement. Omitted → the CARD
+  // self-manages the optimistic state + POST (standalone/test usage).
   checked?: boolean | undefined;
-  onToggleChecked?: ((next: boolean) => void) | undefined;
+  onToggleChecked?: ((next: boolean) => Promise<boolean>) | undefined;
 }) {
   const dfid = row.driveFileId;
   const pr = row.parseResult ?? null;
+  const router = useRouter();
+  const controlled = onToggleChecked !== undefined;
   // Task 5b (spec §6.1): a row demoted by a per-sheet re-scan renders the distinct
   // "review before publishing" state (banner + reapply link), and its publish checkbox
   // is suppressed (the checkbox cannot safely clear this code).
   const isDirtyRescan = row.lastFinalizeFailureCode === RESCAN_REVIEW_REQUIRED;
-  // The details overlay is self-managed per card: "More" opens it, the dialog
-  // closes itself (Escape / scrim / close button). It is a MODAL, so only one is
-  // ever open at a time (the scrim covers the viewport) — no parent accordion
-  // state is needed, and every card stays a uniform cell in the grid.
+  // The review modal is self-managed per card: "More" opens it, the modal
+  // closes itself (Escape / scrim / drag / close button / successful publish).
+  // It is a MODAL, so only one is ever open at a time (the scrim covers the
+  // viewport) — no parent accordion state is needed, and every card stays a
+  // uniform cell in the grid.
   const [detailsOpen, setDetailsOpen] = useState(false);
-  // Stable close handler so the dialog's Escape keydown effect (keyed on onClose)
+  // Stable close handler so the modal's Escape keydown effect (keyed on onClose)
   // subscribes once per open, not on every parent re-render while it is open.
   const closeDetails = useCallback(() => setDetailsOpen(false), []);
+
+  // ── Publish-intent state (spec §9.2) — the card is the single checked-state
+  // controller in BOTH modes. Uncontrolled: card-local optimistic state (moved
+  // out of the old PublishCheckbox.toggleSelf), re-seeded when a refresh flips
+  // the server status (render-time adjust — the "state from props" pattern). ──
+  const [checkedLocal, setCheckedLocal] = useState(row.status === "applied");
+  const [prevStatus, setPrevStatus] = useState(row.status);
+  if (prevStatus !== row.status) {
+    setPrevStatus(row.status);
+    setCheckedLocal(row.status === "applied");
+  }
+  // §4.6 re-entry guard (uncontrolled only): a click while this card's own
+  // write is in flight is IGNORED — never a competing parallel POST. The box
+  // itself is never disabled (no pending UI). Controlled mode needs no guard:
+  // Step3Review's per-row coalescing is the race-safety there.
+  const uncontrolledPendingRef = useRef(false);
+  const checked = controlled ? (checkedProp ?? row.status === "applied") : checkedLocal;
+
+  // §9.3 announcer: a PERSISTENT sr-only polite live region whose text mutates
+  // (FinalizeButton.tsx pattern — a region inserted already-populated is often
+  // missed; a stable region whose text changes is announced).
+  const [liveMessage, setLiveMessage] = useState("");
+
+  /**
+   * Result-bearing publish intent (spec §9.2): true = the write settled as
+   * intended; false = refused/failed (optimistic state reverted). Controlled →
+   * the parent's settlement machinery; uncontrolled → card-local optimistic
+   * state + the shared POST helper + revert-on-fail. Both paths feed the §9.3
+   * live region: success-as-checked announces "Selected to publish"; any
+   * failure announces the shared plain-English error (never a raw §12.4 code).
+   * The checkbox click path calls this fire-and-forget; the modal awaits it.
+   */
+  async function requestSetChecked(next: boolean): Promise<boolean> {
+    if (!controlled && uncontrolledPendingRef.current) return false; // ignored re-entry — no announcement
+    let ok = false;
+    if (onToggleChecked) {
+      try {
+        ok = await onToggleChecked(next);
+      } catch {
+        ok = false;
+      }
+    } else {
+      uncontrolledPendingRef.current = true;
+      setCheckedLocal(next); // optimistic
+      try {
+        ok = await postPublishIntent(wizardSessionId, dfid, next);
+        if (ok) router.refresh();
+        else setCheckedLocal(row.status === "applied"); // revert to server truth
+      } finally {
+        uncontrolledPendingRef.current = false;
+      }
+    }
+    if (ok && next) setLiveMessage("Selected to publish");
+    else if (!ok) setLiveMessage("Couldn't update the publish selection.");
+    return ok;
+  }
 
   const titleFallback = row.driveFileName || dfid;
 
@@ -370,18 +367,13 @@ export function Step3SheetCard({
             page via the banner above). */}
         {isDirtyRescan ? null : (
           <PublishCheckbox
-            // Controlled mode (in the Step3Review grid): the parent owns the
-            // optimistic checked state, so a stable key by dfid keeps the box mounted
-            // and the parent drives it. Uncontrolled mode (standalone): re-seed
-            // (remount) on a server-status flip so a refreshed status takes effect.
-            key={onToggleChecked !== undefined ? dfid : row.status}
+            // Purely controlled by the card in BOTH modes (spec §9.2): the
+            // checked state is the shared optimistic overlay (controlled) or
+            // the card-local optimistic state (uncontrolled), and the click
+            // path is deliberately fire-and-forget — no pending UI on the box.
             driveFileId={dfid}
-            wizardSessionId={wizardSessionId}
-            initialChecked={row.status === "applied"}
-            controlledChecked={
-              onToggleChecked !== undefined ? (checkedProp ?? row.status === "applied") : undefined
-            }
-            onToggle={onToggleChecked}
+            checked={checked}
+            onToggle={(next) => void requestSetChecked(next)}
           />
         )}
         <div className="min-w-0 flex-1">
@@ -489,9 +481,21 @@ export function Step3SheetCard({
         </div>
       </div>
 
-      {/* "More" — a quiet, left-aligned TEXT button that opens the details
-          overlay (<Step3DetailsDialog>: a bottom sheet on mobile, a centered
-          popup on desktop). It replaced the old inline expand toggle, so the
+      {/* Persistent SR announcer (§9.3, FinalizeButton pattern): announces
+          publish-intent success/failure from BOTH the modal's publish button
+          and the checkbox's fire-and-forget path. */}
+      <span
+        data-testid={`wizard-step3-card-${dfid}-publish-live`}
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+      >
+        {liveMessage}
+      </span>
+
+      {/* "More" — a quiet, left-aligned TEXT button that opens the review
+          modal (<Step3ReviewModal>: a bottom sheet on mobile, a centered
+          panel on desktop). It replaced the old inline expand toggle, so the
           card stays a compact summary tile and every grid cell is uniform.
           `aria-haspopup="dialog"` announces that it opens a modal; the trailing
           chevron is the persistent (non-hover) "opens more" affordance. ≥44px
@@ -515,67 +519,35 @@ export function Step3SheetCard({
         <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
       )}
 
-      {/* The details overlay — mounted ONLY while open, so a closed card carries
-          no breakdown (and none of its focusable "Show all N times" controls) in
-          the DOM at all (absent, not merely `inert`). The breakdown lays its
-          sections out in a balanced column flow — 1 column in the mobile sheet,
-          2 in the desktop popup, both bounded by the dialog width (no longer the
-          grid cell) — with the FULL-WIDTH warnings callout below.
-          `break-inside-avoid` keeps each section whole across a column break;
-          `mb-6` carries the vertical rhythm column flow can't get from `gap`
-          (last section drops it). `wrap-break-word` bounds any unbreakable token
-          (§4.4). Column count uses the named `sm` breakpoint (DESIGN.md §6),
-          which is also the sheet→popup mode boundary, so 1-col tracks the sheet
-          and 2-col tracks the popup. */}
+      {/* The review modal — mounted ONLY while open, so a closed card carries
+          no section bodies (and none of their focusable "Show all N times"
+          controls) in the DOM at all (absent, not merely `inert`). The §6.1
+          section registry inside the modal renders EVERY section (crew,
+          schedule, …, agenda when a baseline exists, and the always-rendered
+          warnings checks row), so the card only assembles `SectionData` from
+          its existing derived values. Publish intent flows through the card's
+          result-bearing `requestSetChecked` (§9.2): the modal closes only when
+          its own request settles true (§9.2.5). */}
       {detailsOpen ? (
-        <Step3DetailsDialog dfid={dfid} title={title} onClose={closeDetails}>
-          <div
-            data-testid={`wizard-step3-card-${dfid}-breakdown-grid`}
-            className="columns-1 gap-x-8 wrap-break-word sm:columns-2 [&>section]:mb-6 [&>section]:break-inside-avoid [&>section:last-child]:mb-0"
-          >
-            <CrewBreakdown dfid={dfid} members={crewMembers} />
-            <ContactsBreakdown
-              dfid={dfid}
-              clientContact={pr.show.client_contact}
-              contacts={arr(pr.contacts)}
-            />
-            <ScheduleBreakdown dfid={dfid} ros={ros} />
-            <RoomsBreakdown dfid={dfid} rooms={rooms} />
-            <VenueBreakdown dfid={dfid} venue={pr.show.venue} />
-            <EventDetailsBreakdown dfid={dfid} eventDetails={pr.show.event_details} />
-            <PackListBreakdown dfid={dfid} cases={pullSheet} />
-            <TransportBreakdown dfid={dfid} transportation={pr.transportation} />
-            <HotelsBreakdown dfid={dfid} hotels={hotels} />
-            <OpsBreakdown dfid={dfid} show={pr.show} />
-          </div>
-          {/* Agenda PDF schedule — live-fill card (spec §5.3). Renders nothing when
-              the row has no agenda links; otherwise POSTs to the extract endpoint
-              and fills in the schedule blocks when ready. Keyed on agendaStateKey so
-              a rescan resets the per-row state. */}
-          {arr(row.adminAgendaPreview).length > 0 ? (
-            <div className="mt-6">
-              <AgendaBreakdown
-                driveFileId={dfid}
-                wizardSessionId={wizardSessionId}
-                baseline={arr(row.adminAgendaPreview)}
-                stateKey={row.agendaStateKey ?? dfid}
-              />
-            </div>
-          ) : null}
-          {/* Warnings — pulled OUT of the column flow into a FULL-WIDTH bordered
-              callout BELOW the rest, so the non-blocking data-quality notes stand
-              apart from the show data. Warm warning-bg + a full strong border
-              (DESIGN.md §1.2 — warning, not error; full border, never a
-              side-stripe). Gated on warnings so there is no empty box. */}
-          {warnings.length > 0 ? (
-            <div
-              data-testid={`wizard-step3-card-${dfid}-warnings-panel`}
-              className="mt-6 rounded-md border border-border-strong bg-warning-bg p-tile-pad"
-            >
-              <WarningsBreakdown dfid={dfid} warnings={warnings} />
-            </div>
-          ) : null}
-        </Step3DetailsDialog>
+        <Step3ReviewModal
+          data={{
+            pr,
+            row,
+            dfid,
+            wizardSessionId,
+            crewMembers,
+            rooms,
+            hotels,
+            pullSheet,
+            ros,
+            warnings,
+            agendaBaseline: arr(row.adminAgendaPreview),
+          }}
+          checked={checked}
+          isDirtyRescan={isDirtyRescan}
+          onRequestSetChecked={requestSetChecked}
+          onClose={closeDetails}
+        />
       ) : null}
     </article>
   );

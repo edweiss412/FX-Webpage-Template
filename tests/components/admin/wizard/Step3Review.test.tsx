@@ -431,20 +431,20 @@ describe("Step3Review — per-card details dialog + uniform grid (no accordion)"
     expect(spansAfter).toHaveLength(0);
   });
 
-  test("each card's 'More' opens ITS OWN details dialog; the other stays closed; Close dismisses it", () => {
+  test("each card's 'More' opens ITS OWN review modal; the other stays closed; Close dismisses it", () => {
     const { getByTestId, queryByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
     );
     // Both closed initially (modal mounted only on open).
-    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).toBeNull();
-    expect(queryByTestId("wizard-step3-card-acc-B-details-dialog")).toBeNull();
-    // Open A → only A's dialog mounts.
+    expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-B-review-modal")).toBeNull();
+    // Open A → only A's modal mounts.
     fireEvent.click(getByTestId("wizard-step3-card-acc-A-more"));
-    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).not.toBeNull();
-    expect(queryByTestId("wizard-step3-card-acc-B-details-dialog")).toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).not.toBeNull();
+    expect(queryByTestId("wizard-step3-card-acc-B-review-modal")).toBeNull();
     // Close A → dismissed.
-    fireEvent.click(getByTestId("wizard-step3-card-acc-A-details-close"));
-    expect(queryByTestId("wizard-step3-card-acc-A-details-dialog")).toBeNull();
+    fireEvent.click(getByTestId("wizard-step3-card-acc-A-review-close"));
+    expect(queryByTestId("wizard-step3-card-acc-A-review-modal")).toBeNull();
   });
 });
 
