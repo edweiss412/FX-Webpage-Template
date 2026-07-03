@@ -176,3 +176,46 @@ describe("S1 — SHOW_UNPUBLISHED resolves via the published false->true row tri
     expect(strandedOutAfterReapply).toBe("true|NULL");
   });
 });
+
+describe("S3 — landed snapshot_status extraction (current → root, pending IGNORED)", () => {
+  // Proves defaultReadLandedSnapshotStatus's path shape against real shows.diagrams JSONB rows:
+  // the extraction mirrors resolveCurrentDiagrams (lib/data/diagrams.ts:54) — current wins,
+  // bare-root fallback, and a `pending` 'complete' NEVER surfaces (pre-promotion, must not
+  // resolve S3 alerts). `lib/sync/applyStaged.ts:defaultReadLandedSnapshotStatus`.
+  const REV = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const extractionSql = (id: string) =>
+    `select coalesce(diagrams->'current'->>'snapshot_status', diagrams->>'snapshot_status')
+       from public.shows where id = '${id}'::uuid;`;
+
+  test("wrapped {current}, bare root, and pending-complete/current-partial rows each extract correctly", () => {
+    const id = randomUUID();
+
+    // Wrapped {current}: current status wins.
+    const wrapped = runPsql(`
+      ${insertShowSql(id, true)}
+      update public.shows
+         set diagrams = '{"current":{"snapshot_revision_id":"${REV}","snapshot_status":"complete"},"pending":null}'::jsonb
+       where id = '${id}'::uuid;
+      ${extractionSql(id)}
+    `);
+    expect(wrapped).toBe("complete");
+
+    // Bare-root PersistedDiagrams (no wrapper): root status is read.
+    const bare = runPsql(`
+      update public.shows
+         set diagrams = '{"snapshot_revision_id":"${REV}","snapshot_status":"complete"}'::jsonb
+       where id = '${id}'::uuid;
+      ${extractionSql(id)}
+    `);
+    expect(bare).toBe("complete");
+
+    // Pending 'complete' but current 'partial_failure': pending is ignored → 'partial_failure'.
+    const pendingComplete = runPsql(`
+      update public.shows
+         set diagrams = '{"current":{"snapshot_revision_id":"${REV}","snapshot_status":"partial_failure"},"pending":{"snapshot_revision_id":"${REV}","snapshot_status":"complete"}}'::jsonb
+       where id = '${id}'::uuid;
+      ${extractionSql(id)}
+    `);
+    expect(pendingComplete).toBe("partial_failure");
+  });
+});

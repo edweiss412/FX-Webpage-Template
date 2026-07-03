@@ -23,9 +23,11 @@ import {
   STAGED_REVIEW_ITEMS_CORRUPT,
   STAGED_PARSE_RESULT_CORRUPT,
   WIZARD_SESSION_SUPERSEDED,
+  defaultReadLandedSnapshotStatus,
   type ApplyStagedDeps,
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
+import { ASSET_RECOVERY_ALERT_FAMILY } from "@/lib/sync/assetRecovery";
 
 const logMock = vi.hoisted(() => ({
   error: vi.fn(),
@@ -179,6 +181,7 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
     bumpReviewerAuthFloors: vi.fn(async () => undefined),
     upsertAdminAlert: vi.fn(async () => undefined),
     resolveAdminAlerts: vi.fn(async () => undefined),
+    readLandedSnapshotStatus: vi.fn(async () => null),
   };
   return { ...base, ...overrides };
 }
@@ -2087,6 +2090,109 @@ describe("applyStaged live-apply family reconcile (S2)", () => {
 
     expect(result).toEqual({ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED });
     expect(resolveAdminAlerts).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyStaged snapshot-completion family reconcile (S3)", () => {
+  test("live apply landing snapshot_status 'complete' appends the asset-recovery family", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const resolveAdminAlerts = vi.fn(async () => undefined);
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      resolveAdminAlerts,
+      readLandedSnapshotStatus: vi.fn(async () => "complete"),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    expect(syncDeps.readLandedSnapshotStatus).toHaveBeenCalledWith("show-1");
+    // Clean verify (no S2 code raised) → full S2 family; complete landing → full S3 family appended.
+    expect(resolveAdminAlerts).toHaveBeenCalledTimes(1);
+    expect(resolveAdminAlerts).toHaveBeenCalledWith({
+      showId: "show-1",
+      codes: [...LIVE_VERIFY_ALERT_FAMILY, ...ASSET_RECOVERY_ALERT_FAMILY],
+    });
+  });
+
+  test("live apply landing snapshot_status 'partial_failure' omits the asset-recovery family", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const resolveAdminAlerts = vi.fn(async () => undefined);
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      resolveAdminAlerts,
+      readLandedSnapshotStatus: vi.fn(async () => "partial_failure"),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    // S2 family still reconciled; S3 family NOT appended for a non-complete landing.
+    expect(resolveAdminAlerts).toHaveBeenCalledTimes(1);
+    expect(resolveAdminAlerts).toHaveBeenCalledWith({
+      showId: "show-1",
+      codes: [...LIVE_VERIFY_ALERT_FAMILY],
+    });
+    const [{ codes }] = resolveAdminAlerts.mock.calls[0] as unknown as [{ codes: string[] }];
+    for (const code of ASSET_RECOVERY_ALERT_FAMILY) {
+      expect(codes).not.toContain(code);
+    }
+  });
+});
+
+describe("defaultReadLandedSnapshotStatus precedence (current → root, pending ignored)", () => {
+  function clientReturning(diagrams: unknown) {
+    const single = vi.fn(async () => ({ data: { diagrams }, error: null }));
+    const eq = vi.fn(() => ({ single }));
+    const select = vi.fn(() => ({ eq }));
+    const from = vi.fn(() => ({ select }));
+    return { from } as unknown as Parameters<typeof defaultReadLandedSnapshotStatus>[1];
+  }
+
+  const REV = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  test("current wins over a bare root snapshot_status", async () => {
+    const client = clientReturning({
+      current: { snapshot_revision_id: REV, snapshot_status: "complete" },
+      snapshot_status: "partial_failure",
+    });
+    expect(await defaultReadLandedSnapshotStatus("show-1", client)).toBe("complete");
+  });
+
+  test("bare root PersistedDiagrams is read when there is no wrapper", async () => {
+    const client = clientReturning({ snapshot_revision_id: REV, snapshot_status: "complete" });
+    expect(await defaultReadLandedSnapshotStatus("show-1", client)).toBe("complete");
+  });
+
+  test("pending 'complete' with current 'partial_failure' returns 'partial_failure' (pending ignored)", async () => {
+    const client = clientReturning({
+      current: { snapshot_revision_id: REV, snapshot_status: "partial_failure" },
+      pending: { snapshot_revision_id: REV, snapshot_status: "complete" },
+    });
+    expect(await defaultReadLandedSnapshotStatus("show-1", client)).toBe("partial_failure");
+  });
+
+  test("null diagrams returns null", async () => {
+    const client = clientReturning(null);
+    expect(await defaultReadLandedSnapshotStatus("show-1", client)).toBeNull();
   });
 });
 

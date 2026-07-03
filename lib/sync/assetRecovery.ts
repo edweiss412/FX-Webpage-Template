@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { drive_v3 } from "googleapis";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { resolveAdminAlert as defaultResolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import { findMediaByFingerprint } from "@/lib/drive/embeddedObjects";
@@ -31,6 +32,18 @@ export const ASSET_RECOVERY_BYTES_EXCEEDED = "ASSET_RECOVERY_BYTES_EXCEEDED";
 export const ASSET_RECOVERY_REVISION_DRIFT = "ASSET_RECOVERY_REVISION_DRIFT";
 export const ASSET_RECOVERY_DRIFT_COOLDOWN = "ASSET_RECOVERY_DRIFT_COOLDOWN";
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE";
+
+// S3 (admin-alert-auto-resolution spec) — the asset-recovery alert family resolved when a
+// snapshot lands `'complete'` (all previously-missing bytes recovered). Every code the recovery
+// pipeline can raise for a partial snapshot is moot once the snapshot is whole, so completion
+// clears the full family in one UPDATE. Consumed by both the in-tx `'complete'` hook here and the
+// live-apply post-commit reconcile in applyStaged.ts.
+export const ASSET_RECOVERY_ALERT_FAMILY = [
+  ASSET_RECOVERY_BYTES_EXCEEDED,
+  ASSET_RECOVERY_REVISION_DRIFT,
+  ASSET_RECOVERY_DRIFT_COOLDOWN,
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+] as const;
 
 const MAX_RECOVERY_ENTRIES = 60;
 const MAX_RECOVERY_SINGLE_BYTES = 50 * 1024 * 1024;
@@ -72,6 +85,9 @@ export type AssetRecoveryTx = {
   upsertRecoveryCooldown(showId: string, previewRevisionId: string): Promise<void>;
   deleteRecoveryCooldown(showId: string, snapshotRevisionId?: string): Promise<void>;
   upsertAdminAlert(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
+  // S3: resolve the asset-recovery alert family inside the same locked tx that lands the
+  // 'complete' snapshot, so completion + alert clearance commit atomically.
+  resolveAdminAlerts(showId: string, codes: readonly string[]): Promise<void>;
 };
 
 export type AssetRecoveryDeps = {
@@ -88,6 +104,9 @@ export type AssetRecoveryDeps = {
   storage: AssetRecoveryStorage;
   drive: AssetRecoveryDrive;
   upsertAdminAlert?(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
+  // S3: resolve the standalone ASSET_RECOVERY_DRIFT_COOLDOWN alert once a run proceeds past the
+  // cooldown gate (the throttling window it reports is over), independent of the run's later outcome.
+  resolveDriftCooldownAlert?(showId: string): Promise<void>;
 };
 
 type VerifiedAsset = {
@@ -466,6 +485,12 @@ export async function assetRecovery(
     return { outcome: "drift_cooldown", code: ASSET_RECOVERY_DRIFT_COOLDOWN };
   }
 
+  // S3: the run cleared the cooldown gate (no active cooldown) — the throttling condition
+  // ASSET_RECOVERY_DRIFT_COOLDOWN reports is over. Resolve it now, before any recovery work, so a
+  // run that then fails for a different reason (e.g. bytes_exceeded, which raises its own code)
+  // still clears the stale cooldown alert.
+  await deps.resolveDriftCooldownAlert?.(showId);
+
   const verifiedRun = await collectVerifiedAssets(
     showId,
     previewShow.driveFileId,
@@ -572,6 +597,9 @@ export async function assetRecovery(
         }
 
         if (recovered.snapshot_status === "complete") {
+          // S3: snapshot is whole again — every asset-recovery family code is moot. Resolve the
+          // full family inside the same locked tx so completion + clearance commit atomically.
+          await tx.resolveAdminAlerts(showId, ASSET_RECOVERY_ALERT_FAMILY);
           return {
             outcome: "recovered",
             snapshotRevisionId: recovered.snapshot_revision_id,
@@ -697,6 +725,17 @@ class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {
       context ?? {},
     ] as never[]);
   }
+
+  async resolveAdminAlerts(showId: string, codes: readonly string[]): Promise<void> {
+    await this.tx.unsafe(
+      `
+        update public.admin_alerts
+           set resolved_at = now()
+         where show_id = $1::uuid and code = any($2::text[]) and resolved_at is null
+      `,
+      [showId, [...codes]] as never[],
+    );
+  }
 }
 
 async function defaultListRecoverableShows(): Promise<string[]> {
@@ -817,6 +856,9 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
         code: code as Parameters<typeof defaultUpsertAdminAlert>[0]["code"],
         context: context ?? {},
       });
+    },
+    resolveDriftCooldownAlert: async (alertShowId) => {
+      await defaultResolveAdminAlert({ showId: alertShowId, code: ASSET_RECOVERY_DRIFT_COOLDOWN });
     },
   });
 }

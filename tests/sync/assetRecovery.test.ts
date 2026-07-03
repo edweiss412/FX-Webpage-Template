@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import {
+  ASSET_RECOVERY_ALERT_FAMILY,
   CONCURRENT_SYNC_SKIPPED,
   assetRecovery,
   runAssetRecoveryCron,
@@ -64,6 +65,7 @@ describe("assetRecovery", () => {
   test("retries missing embedded and linked entries, uploads to locked revision, and flips complete", async () => {
     const { storagePort, uploads } = storage();
     let persisted: unknown = null;
+    const resolveCalls: Array<[string, readonly string[]]> = [];
 
     const result = await assetRecovery(showId, {
       readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
@@ -77,6 +79,7 @@ describe("assetRecovery", () => {
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,
           upsertAdminAlert: async () => undefined,
+          resolveAdminAlerts: async (id, codes) => void resolveCalls.push([id, codes]),
         }),
       storage: storagePort,
       drive: {
@@ -86,6 +89,8 @@ describe("assetRecovery", () => {
     });
 
     expect(result).toEqual({ outcome: "recovered", snapshotRevisionId });
+    // S3: the 'complete' branch resolves the full asset-recovery family inside the locked tx.
+    expect(resolveCalls).toEqual([[showId, [...ASSET_RECOVERY_ALERT_FAMILY]]]);
     expect(uploads.map((upload) => upload.path)).toEqual([
       "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/embedded-embedded-1.png",
       "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/folder-linked-1.jpg",
@@ -133,6 +138,7 @@ describe("assetRecovery", () => {
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,
           upsertAdminAlert: async (_showId, code) => void alerts.push(code),
+          resolveAdminAlerts: async () => undefined,
         }),
       storage: storage().storagePort,
       drive: {
@@ -166,6 +172,7 @@ describe("assetRecovery", () => {
           upsertRecoveryCooldown: async (...args) => void cooldowns.push(args),
           deleteRecoveryCooldown: async () => undefined,
           upsertAdminAlert: async (...args) => void alerts.push(args),
+          resolveAdminAlerts: async () => undefined,
         }),
       storage: storagePort,
       drive: {
@@ -216,6 +223,7 @@ describe("assetRecovery", () => {
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,
           upsertAdminAlert: async () => undefined,
+          resolveAdminAlerts: async () => undefined,
         });
       },
       storage: storagePort,
@@ -256,6 +264,7 @@ describe("assetRecovery", () => {
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,
           upsertAdminAlert: async () => undefined,
+          resolveAdminAlerts: async () => undefined,
         });
       },
       storage: storagePort,
@@ -340,6 +349,66 @@ describe("assetRecovery", () => {
 
     expect(result).toEqual({ outcome: "bytes_exceeded", code: "ASSET_RECOVERY_BYTES_EXCEEDED" });
     expect(alerts).toEqual(["ASSET_RECOVERY_BYTES_EXCEEDED"]);
+  });
+
+  test("clearing the cooldown gate resolves the cooldown alert even when the run then fails bytes_exceeded", async () => {
+    const cooldownResolves: string[] = [];
+    // 61 unresolved embedded entries → the entry-count ceiling trips bytes_exceeded AFTER the
+    // cooldown gate has already concluded inactive/absent.
+    const diagrams: PersistedDiagrams = {
+      ...partialDiagrams(),
+      embeddedImages: Array.from({ length: 61 }, (_, index) => ({
+        ...partialDiagrams().embeddedImages[0]!,
+        objectId: `embedded-${index}`,
+      })),
+      linkedFolderItems: [],
+    };
+
+    const result = await assetRecovery(showId, {
+      readPreviewShow: async () => ({ showId, driveFileId, diagrams }),
+      readRecoveryCooldown: async () => null, // no active cooldown → gate passes
+      resolveDriftCooldownAlert: async (id) => void cooldownResolves.push(id),
+      upsertAdminAlert: async () => undefined,
+      withShowLock: async () => {
+        throw new Error("byte-ceiling abort must not acquire the show lock");
+      },
+      storage: storage().storagePort,
+      drive: {
+        fetchEmbeddedImageBytes: async () => {
+          throw new Error("byte-ceiling abort must not fetch bytes");
+        },
+        fetchLinkedRevisionBytes: async () => null,
+      },
+    });
+
+    expect(result).toEqual({ outcome: "bytes_exceeded", code: "ASSET_RECOVERY_BYTES_EXCEEDED" });
+    expect(cooldownResolves).toEqual([showId]);
+  });
+
+  test("a run that lands partial_failure does NOT resolve the asset-recovery family", async () => {
+    const resolveCalls: Array<[string, readonly string[]]> = [];
+    const result = await assetRecovery(showId, {
+      readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
+      withShowLock: async (_driveFileId, fn) =>
+        await fn({
+          readLockedShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
+          updateRecoveredDiagrams: async () => true,
+          upsertRecoveryCooldown: async () => undefined,
+          deleteRecoveryCooldown: async () => undefined,
+          upsertAdminAlert: async () => undefined,
+          resolveAdminAlerts: async (id, codes) => void resolveCalls.push([id, codes]),
+        }),
+      storage: storage().storagePort,
+      drive: {
+        // Embedded bytes mismatch the fingerprint → entry stays unresolved (recovery_disposition
+        // "normal") while the linked entry recovers → final snapshot_status "partial_failure".
+        fetchEmbeddedImageBytes: async () => new TextEncoder().encode("wrong-bytes"),
+        fetchLinkedRevisionBytes: async () => new TextEncoder().encode("linked-bytes"),
+      },
+    });
+
+    expect(result).toEqual({ outcome: "partial_failure", snapshotRevisionId });
+    expect(resolveCalls).toEqual([]);
   });
 
   test("cron enumerates recoverable shows and invokes recovery for each show", async () => {
