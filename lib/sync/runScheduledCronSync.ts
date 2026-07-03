@@ -3087,6 +3087,15 @@ export async function runScheduledCronSync(
         markMissingShow_unlocked(lockedTx, show),
       );
       if ("skipped" in result) {
+        // Finding-#16 sibling nit (ASSESSED — no code change): unlike the file-loop
+        // path (which records contention via `deps.logSync` → sync_log), this
+        // missing-show branch's durable record is the app_events channel below. That
+        // split is INTENTIONAL and acceptable — BOTH channels persist: this emit is a
+        // durable coded record (info-WITH-code, forced via `persist: true`) carrying a
+        // stable forensic `code` and the `driveFileId`, so the missing-show contention
+        // is queryable and self-correlating without duplicating it into sync_log
+        // (which is keyed to the file-loop's per-file processing, not to a show that is
+        // absent from the listing this pass).
         await log.info("missing-show sync skipped on lock contention", {
           source: "cron/sync",
           code: "CONCURRENT_SYNC_SKIPPED",

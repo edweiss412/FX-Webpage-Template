@@ -158,11 +158,18 @@ const SANCTIONED_CODES = new Set([
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
 // §12.4 codes that are (correctly) still producers — SYNC_INFRA_ERROR and
-// ADMIN_SESSION_LOOKUP_FAILED (mirrored into logs but cataloged elsewhere) — and
-// the lock-contention skip which durably persists via the cataloged
-// CONCURRENT_SYNC_SKIPPED (no new code needed).
+// ADMIN_SESSION_LOOKUP_FAILED (mirrored into logs but cataloged elsewhere). The
+// cron file-loop skip persists via the cataloged CONCURRENT_SYNC_SKIPPED; the
+// DASHBOARD Apply skip (finding #12) now carries its own forensic
+// STAGED_APPLY_CONCURRENT_SKIPPED (info-with-code, inside a log.* span; NOT cataloged).
 const NEW_FORENSIC_CODES = new Set([
   ...SANCTIONED_CODES,
+  // sync-cron surface (2026-07-03): audit findings #12/#16 — dashboard-apply
+  // lock-contention durable skip + agenda successful-refresh trace persistence
+  // (download/extracted info emits now info-WITH-code so the refresh persists).
+  "STAGED_APPLY_CONCURRENT_SKIPPED",
+  "AGENDA_PDF_DOWNLOADED",
+  "AGENDA_EXTRACTED",
   "AGENDA_EXTRACT_STALE",
   "AGENDA_EXTRACT_SESSION_GONE",
   // Carve-out (2026-07-02) plain-log forensic codes (inside log.* spans; NOT cataloged).

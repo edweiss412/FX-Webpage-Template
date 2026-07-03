@@ -202,6 +202,10 @@ export async function enrichAgenda(
           // so it does not trip the cry-wolf WARN stream.
           log.info("agenda link gone", {
             source: "sync.enrichAgenda",
+            // #16 correlation: driveFileId is the RESERVED join column so a gone
+            // breadcrumb self-correlates to the exact PDF (fileId stays as the
+            // human-readable context echo).
+            driveFileId: link.fileId,
             fileId: link.fileId,
             ordinal: i,
             status,
@@ -224,6 +228,9 @@ export async function enrichAgenda(
           // payload for diagnosis; leave-existing ("unknown") — next sync re-checks.
           log.warn("getFile threw", {
             source: "sync.enrichAgenda",
+            // #16 correlation: reserved join column → the fault self-correlates to
+            // the exact PDF an operator is diagnosing.
+            driveFileId: link.fileId,
             fileId: link.fileId,
             ordinal: i,
             status,
@@ -286,6 +293,11 @@ export async function enrichAgenda(
       );
       log.info("download", {
         source: "sync.enrichAgenda",
+        // #16 durability: info-with-code now persists so a successful refresh's download
+        // step is a durable, joinable trace (was console-only). #16 correlation: reserved
+        // driveFileId join column.
+        code: "AGENDA_PDF_DOWNLOADED",
+        driveFileId: link.fileId,
         fileId: link.fileId,
         ordinal: i,
         kind: download.kind,
@@ -372,6 +384,10 @@ export async function enrichAgenda(
 
       log.info("extracted", {
         source: "sync.enrichAgenda",
+        // #16 durability: info-with-code persists the successful-extraction trace (was
+        // console-only). #16 correlation: reserved driveFileId join column.
+        code: "AGENDA_EXTRACTED",
+        driveFileId: link.fileId,
         fileId: link.fileId,
         ordinal: i,
         bytes: download.bytes.byteLength,
