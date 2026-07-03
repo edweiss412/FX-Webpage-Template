@@ -709,6 +709,84 @@ describe("onboarding finalize-cas post-commit revalidate", () => {
     ).not.toContain(showCacheTag("throw-show-1"));
     errorSpy.mockRestore();
   });
+
+  // audit idx18 HIGH-1 — publish flip (OUTER tx) vs applyShadow (independent row tx) durability.
+  //
+  // affectedShowIds (applyShadow, route ~line 484) commits in its OWN withRowTx → durable even when
+  // the OUTER tx throws. publishedShowIds (the Held→Live publish flip, route ~line 800) runs in the
+  // OUTER tx BEFORE deleteWizardDeferrals / promoteSettings / markFinalCasDone — if one of THOSE
+  // throws, the outer tx ROLLS BACK and the flip is undone. So the finally must bust applyShadow ids
+  // ALWAYS but publish-flip ids ONLY when the outer tx committed.
+  //
+  // FIX PROOF (fails pre-split): with a single affectedShowIds set the finally busts the publish id
+  // even though the outer tx rolled it back — the not.toContain below fails.
+  test("throw AFTER the publish loop: applyShadow row revalidated, but the ROLLED-BACK publish flip is NOT", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["fs-1"];
+    db.publishedShowIds = ["pub-show-1"];
+
+    // Fault the LAST outer-tx step (markFinalCasDone), which runs AFTER the publish loop already
+    // populated publishedShowIds → the outer tx rolls back, undoing the Held→Live flip.
+    const origQuery = db.query.bind(db);
+    db.query = async function <T>(sql: string, params: readonly unknown[] = []) {
+      const n = sql.replace(/\s+/g, " ").trim();
+      if (n.startsWith("update public.wizard_finalize_checkpoints")) {
+        throw new Error("kaboom: markFinalCasDone faulted → outer tx rolls back");
+      }
+      return origQuery<T>(sql, params);
+    } as typeof db.query;
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await handleOnboardingFinalizeCas(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      casDeps(db),
+    );
+    expect(response.status).toBe(500);
+
+    const tags = (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    // The applyShadow row committed in its OWN withRowTx → durable → busted even on the outer throw.
+    expect(tags).toContain(showCacheTag("existing-show-1"));
+    // The publish flip lived in the OUTER tx that rolled back → its cache must NOT be busted.
+    expect(tags).not.toContain(showCacheTag("pub-show-1"));
+    errorSpy.mockRestore();
+  });
+
+  test("SUCCESS: BOTH the applyShadow row AND the committed publish flip are revalidated", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["fs-1"];
+    db.publishedShowIds = ["pub-show-1"];
+
+    const response = await handleOnboardingFinalizeCas(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      casDeps(db),
+    );
+    expect(response.status).toBe(200);
+
+    const tags = (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    // Both the durable applyShadow row and the committed publish flip are busted on success.
+    expect(tags).toContain(showCacheTag("existing-show-1"));
+    expect(tags).toContain(showCacheTag("pub-show-1"));
+  });
 });
 
 describe("onboarding finalize-cas STREAM defers revalidate through after()", () => {
@@ -803,6 +881,50 @@ describe("onboarding finalize-cas STREAM defers revalidate through after()", () 
 
     for (const fn of captured) fn();
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("committed-show-1"), { expire: 0 });
+    errorSpy.mockRestore();
+  });
+
+  // audit idx18 HIGH-1 (streaming) — same publish-flip rollback guard as the non-streaming sibling.
+  test("streaming: a ROLLED-BACK publish flip is NOT in the deferred revalidate, but the applyShadow row IS", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["fs-1"];
+    db.publishedShowIds = ["pub-show-1"];
+
+    const origQuery = db.query.bind(db);
+    db.query = async function <T>(sql: string, params: readonly unknown[] = []) {
+      const n = sql.replace(/\s+/g, " ").trim();
+      if (n.startsWith("update public.wizard_finalize_checkpoints")) {
+        throw new Error("kaboom: markFinalCasDone faulted → outer tx rolls back");
+      }
+      return origQuery<T>(sql, params);
+    } as typeof db.query;
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const captured: Array<() => void> = [];
+    const res = await handleOnboardingFinalizeCasStream(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      { ...casDeps(db), deferRevalidate: (fn: () => void) => captured.push(fn) },
+    );
+    await res.text();
+    expect(res.status).toBe(200);
+
+    // One deferred callback registered (via the finally); running it must bust the durable
+    // applyShadow row but NOT the rolled-back publish flip.
+    expect(captured).toHaveLength(1);
+    for (const fn of captured) fn();
+    const tags = (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(tags).toContain(showCacheTag("existing-show-1"));
+    expect(tags).not.toContain(showCacheTag("pub-show-1"));
     errorSpy.mockRestore();
   });
 });
