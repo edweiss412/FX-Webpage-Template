@@ -263,6 +263,11 @@ const NEW_FORENSIC_CODES = new Set([
   "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
   "REALTIME_TOKEN_DENIED",
   "REALTIME_TOKEN_INFRA_ERROR",
+  // Asset correlation (2026-07-03) — audit finding #8: the DEBUGGABLE-410
+  // breadcrumb emitted (fail-open, inside a log.info span; NOT cataloged) by the
+  // reel/diagram/agenda asset proxy routes so a crew-reported broken asset leaves
+  // a server trace of which show/asset/why.
+  "ASSET_UNAVAILABLE",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

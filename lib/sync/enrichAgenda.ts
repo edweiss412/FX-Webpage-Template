@@ -338,7 +338,13 @@ export async function enrichAgenda(
       // note-only, and the data-quality warning below ("no readable sessions") informs
       // the operator. Gating the verdict on confidence would break plan Task 6 + the
       // cache contract (round-12) and is intentionally NOT done.
-      const extraction = await extractAgendaSchedule(download.bytes);
+      // Thread the agenda PDF's Drive fileId so extractAgendaSchedule's durable
+      // emits (AGENDA_PDFJS_THREW / AGENDA_TOO_MANY_PAGES / low-/high-confidence)
+      // self-correlate to the exact PDF instead of relying on the `bytes`
+      // byte-length proxy alone (audit finding #11).
+      const extraction = await extractAgendaSchedule(download.bytes, {
+        driveFileId: link.fileId,
+      });
       const payload: AgendaExtraction = {
         ...extraction,
         ...(typeof currentRev === "string" && currentRev.length > 0

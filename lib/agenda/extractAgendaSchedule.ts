@@ -210,7 +210,25 @@ function loadPdfjs(): Promise<Pdfjs> {
   return pdfjsModulePromise;
 }
 
-export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<AgendaExtraction> {
+/**
+ * Optional correlation identifiers threaded onto every durable emit so a
+ * serverless extraction failure (AGENDA_PDFJS_THREW / AGENDA_TOO_MANY_PAGES /
+ * low-/high-confidence) is join-able back to the exact Drive sheet/PDF instead
+ * of relying on the `bytes` byte-length proxy alone (audit finding #11). Both
+ * fields are optional and default to undefined; callers that lack a driveFileId
+ * (unit tests, ad-hoc invocations) omit them and the field is simply absent.
+ */
+export type ExtractAgendaOptions = {
+  driveFileId?: string;
+  showId?: string;
+};
+
+export async function extractAgendaSchedule(
+  pdfBytes: Uint8Array,
+  opts?: ExtractAgendaOptions,
+): Promise<AgendaExtraction> {
+  const driveFileId = opts?.driveFileId;
+  const showId = opts?.showId;
   try {
     const pdfjs = await loadPdfjs();
     const doc = await pdfjs.getDocument({
@@ -222,6 +240,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     if (doc.numPages > AGENDA_MAX_PAGES) {
       log.warn("too-many-pages", {
         source: "agenda.extract",
+        ...(driveFileId !== undefined ? { driveFileId } : {}),
+        ...(showId !== undefined ? { showId } : {}),
         bytes: pdfBytes.byteLength,
         numPages: doc.numPages,
         max: AGENDA_MAX_PAGES,
@@ -594,6 +614,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
       // "[agenda-enrich] download" line that carries the fileId.
       log.warn("low-confidence", {
         source: "agenda.extract",
+        ...(driveFileId !== undefined ? { driveFileId } : {}),
+        ...(showId !== undefined ? { showId } : {}),
         bytes: pdfBytes.byteLength,
         numPages: doc.numPages,
         lineCount: lines.length,
@@ -636,6 +658,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
 
     log.info("high", {
       source: "agenda.extract",
+      ...(driveFileId !== undefined ? { driveFileId } : {}),
+      ...(showId !== undefined ? { showId } : {}),
       bytes: pdfBytes.byteLength,
       numPages: doc.numPages,
       days: days.length,
@@ -648,6 +672,8 @@ export async function extractAgendaSchedule(pdfBytes: Uint8Array): Promise<Agend
     // was indistinguishable from "no schedule" in production.
     log.error("pdfjs threw", {
       source: "agenda.extract",
+      ...(driveFileId !== undefined ? { driveFileId } : {}),
+      ...(showId !== undefined ? { showId } : {}),
       bytes: pdfBytes.byteLength,
       error: err,
       code: "AGENDA_PDFJS_THREW",
