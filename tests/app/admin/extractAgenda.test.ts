@@ -531,6 +531,17 @@ describe("extract-agenda — deadline race", () => {
     );
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({ status: "timeout" });
+    // S6 durable telemetry: the 504 branch now emits AGENDA_EXTRACT_TIMEOUT (previously silent
+    // while every sibling terminal logged).
+    expect(log.warn).toHaveBeenCalledWith(
+      "agenda extract timed out",
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_TIMEOUT",
+        driveFileId: dfid,
+        wizardSessionId: wiz,
+        deadlineMs: 30,
+      }),
+    );
     // tx#2 skipped → parse_result unchanged.
     expect((await readParseResult(wiz, dfid))?.show.agenda_links[0]?.extracted).toBeUndefined();
     // lease released by the finally (standalone) → a retry can claim.

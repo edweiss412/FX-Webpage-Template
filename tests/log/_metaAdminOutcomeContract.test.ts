@@ -174,6 +174,10 @@ const NEW_FORENSIC_CODES = new Set([
   "OAUTH_EXCHANGE_REJECTED",
   "OAUTH_IS_ADMIN_INFRA_ERROR",
   "OAUTH_SIGN_IN_SUCCEEDED",
+  // S5/S6/S8 — agenda enrichment + extraction forensic codes (inside log.* spans).
+  "AGENDA_ENRICH_THREW",
+  "AGENDA_EXTRACT_TIMEOUT",
+  "AGENDA_LINK_UNRESOLVED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
