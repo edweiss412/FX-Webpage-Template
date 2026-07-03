@@ -160,17 +160,26 @@ describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   });
 
   for (const row of NULLCODE_BATCH2_STAMPS) {
-    test(`${row.code} is stamped inside its intended ${row.level} call in ${row.file}`, () => {
+    test(`${row.code} is stamped as a code: property inside its intended ${row.level} call in ${row.file}`, () => {
       const src = readFileSync(join(REPO_ROOT, row.file), "utf8");
-      // global uniqueness: the code literal appears exactly once in the file
-      const occ = src.split(`"${row.code}"`).length - 1 + src.split(`'${row.code}'`).length - 1;
-      expect(occ, `${row.code} must appear exactly once in ${row.file}`).toBe(1);
-      // exactly one collected span at the intended level containing BOTH the anchor and the code
+      // The forensic codes are [A-Z0-9_]+ (no regex-special chars), so no escaping needed.
+      // Require the exact `code:` PROPERTY form — NOT a bare literal, so a wrong key like
+      // `source: "<CODE>"` inside the same call CANNOT satisfy the guard (Codex plan-R2 HIGH).
+      const codeProp = new RegExp(`\\bcode\\s*:\\s*["']${row.code}["']`);
+      // global uniqueness: the code literal appears exactly once in the file (catches duplication)
+      const occ =
+        src.split(`"${row.code}"`).length - 1 + src.split(`'${row.code}'`).length - 1;
+      expect(occ, `${row.code} literal must appear exactly once in ${row.file}`).toBe(1);
+      // and that single occurrence must be a `code:` property; catch a wrong-key placement
+      expect(codeProp.test(src), `${row.code} must be a code: property (not source:/other key)`).toBe(true);
+      // exactly one collected span at the intended level containing BOTH the anchor AND the code: property
       const spans = collectLogSpans(src).filter(
-        (s) => s.level === row.level && s.text.includes(row.anchor) &&
-          (s.text.includes(`"${row.code}"`) || s.text.includes(`'${row.code}'`)),
+        (s) => s.level === row.level && s.text.includes(row.anchor) && codeProp.test(s.text),
       );
-      expect(spans.length, `expected exactly one ${row.level} span with anchor+code for ${row.code}`).toBe(1);
+      expect(
+        spans.length,
+        `expected exactly one ${row.level} span with anchor + code: property for ${row.code}`,
+      ).toBe(1);
     });
   }
 });
@@ -194,12 +203,14 @@ describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
 
 ### Task 2: Impeccable dual-gate on the app/ non-api subset (invariant 8)
 
-**Files:** none (evaluation of the 10 UI-file diff).
+The 10 UI-surface **sites** live across **3 `app/` non-api files**: `app/admin/actions.ts` (1), `app/admin/show/[slug]/page.tsx` (8), `app/show/[slug]/[shareToken]/_CrewShell.tsx` (1). Invariant 8 requires findings + dispositions be recorded in a **tracked handoff doc**, ALWAYS — even for a clean pass — not just the PR body.
 
-- [ ] **Step 1 — run `/impeccable critique`** on the affected `app/` non-api diff (the 10 files: `app/admin/actions.ts`, `app/admin/show/[slug]/page.tsx`, `app/show/[slug]/[shareToken]/_CrewShell.tsx`), with the canonical v3 preflight (PRODUCT.md → DESIGN.md → register → preflight signal).
+**Files:** Create `docs/superpowers/handoffs/2026-07-03-nullcode-batch2-handoff.md`.
+
+- [ ] **Step 1 — run `/impeccable critique`** on the affected diff of those 3 files, with the canonical v3 preflight (PRODUCT.md → DESIGN.md → register → preflight signal).
 - [ ] **Step 2 — run `/impeccable audit`** on the same diff.
-- [ ] **Step 3 — record dispositions.** Expected: no HIGH/CRITICAL (the change adds only a server-side `code:` field with zero rendering delta). Any HIGH/CRITICAL is fixed or `DEFERRED.md`-logged. Record the finding/disposition summary in the PR body + a handoff note.
-- [ ] **Step 4 — commit (if any fix/DEFERRED.md change).** `git add -A && git commit --no-verify -m "docs(observability): impeccable dual-gate dispositions for batch-2 UI subset"`. Else no commit.
+- [ ] **Step 3 — write the tracked disposition record (ALWAYS, even on a clean pass).** Create `docs/superpowers/handoffs/2026-07-03-nullcode-batch2-handoff.md` with a `## §12 — UI close-out (impeccable v3 dual-gate)` section recording: the 3 files/10 sites in scope, the critique result, the audit result, and each HIGH/CRITICAL finding with its disposition (fixed in-diff, or `DEFERRED.md` entry with rationale). Expected outcome: no HIGH/CRITICAL — the change adds only a server-side `code:` field inside a catch/guard, zero rendering delta — and that clean result is itself the recorded disposition. If any HIGH/CRITICAL IS found, fix it in-diff or add a `DEFERRED.md` entry, and record it here.
+- [ ] **Step 4 — commit (ALWAYS — the handoff doc is a tracked artifact).** `git add -A && git commit --no-verify -m "docs(observability): impeccable v3 dual-gate close-out for batch-2 UI subset (§12 dispositions)"`
 
 ---
 
@@ -221,7 +232,7 @@ describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
 ---
 
 ## Self-review checklist
-- Spec coverage: §3 35 sites → Task 1 step 5; §4 reap rename → Task 1 steps 3+5; §5 excluded → Task 1 step 5 (do-not-touch); §6 special cases → Task 1 steps 3+5; §7 impeccable → Task 2; §8.1(a) registry → Task 1 step 1; §8.1(b) anchored guard → Task 1 step 2; §8.2 runtime → Task 1 step 3; §9 BACKLOG → Task 1 step 6 (before push). ✓
+- Spec coverage: §3 35 sites → Task 1 step 5; §4 reap rename → Task 1 steps 3+5; §5 excluded → Task 1 step 5 (do-not-touch); §6 special cases → Task 1 steps 3+5; §7 impeccable → Task 2 (always-committed §12 handoff disposition); §8.1(a) registry → Task 1 step 1; §8.1(b) anchored guard (code: PROPERTY form, not bare literal) → Task 1 step 2; §8.2 runtime → Task 1 step 3; §9 BACKLOG → Task 1 step 6 (before push). ✓
 - TDD (Codex plan-R1): all tests (structural + runtime) written and observed RED in Task 1 steps 1-4 BEFORE the stamps in step 5; single GREEN commit in step 8; NO red commit. ✓
 - Anchor uniqueness within file: finalize-cas pair uses full quoted literals (non-stream anchor `"…unexpected failure"` incl. closing quote is NOT a substring of the stream call's `"…unexpected failure (stream)"`, and the code check disambiguates); the 4 shared `"WIZARD_SESSION_SUPERSEDED_RACE alert write failed"` anchors are each in a DIFFERENT file (per-file assertion). ✓
 - Meta-test inventory: EXTENDS `_metaAdminOutcomeContract.test.ts`; adds `tests/log/nullcodeBatch2Emission.test.ts`. ✓
