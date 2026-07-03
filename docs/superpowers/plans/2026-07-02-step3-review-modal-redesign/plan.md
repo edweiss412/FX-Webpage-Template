@@ -195,14 +195,29 @@ export function activeSectionFor(scrollTop: number, clientHeight: number, scroll
   sectionTops: ReadonlyArray<{ id: SectionId; top: number }>): SectionId; // §6.3a
 ```
 
-- [ ] **Step 1: failing tests** (map each retired `Step3DetailsDialog.test.tsx` assertion to its replacement — that file is deleted in Task 8):
+- [ ] **Step 1: failing tests.** This suite REPLACES `tests/components/admin/wizard/Step3DetailsDialog.test.tsx` (deleted in Task 8); the complete retirement mapping — every old assertion must have its named replacement HERE, before the old file goes:
+  | Retired assertion | Replacement in this suite |
+  | --- | --- |
+  | labelled modal dialog (label = show title) | "dialog accessible name is the plain title (linked)" + "(unlinked)" |
+  | renders children in scrollable body | Task 5 section-panel tests (`-review-main` stub here) |
+  | initial focus → close button | "initial focus lands on the close button" |
+  | scrim pointer-only (tabIndex −1, not aria-hidden) | same assertion, `-review-backdrop` |
+  | close button / scrim / Escape call onClose | same three assertions |
+  | bottom-anchored mobile vs centered desktop | shell class assertions (`items-end sm:items-center`) + Task 10 real-browser |
+  | CSS animation hooks on scrim/panel | `data-step3-review-scrim`/`-panel` attribute assertions |
+  | body scroll lock + restore | same assertion |
+  | (new, spec §15) focus TRAP cycle | "Tab from the last focusable wraps to the first (focus stays inside the panel)" |
+  | (new, spec §15) restore-to-trigger | "focus a trigger button, mount, unmount → focus returns to the trigger" |
+
+  Full list:
   - labelled modal dialog: `role="dialog"`, `aria-modal`, `aria-labelledby` → `<h2 data-testid …-review-title>` whose text is the PLAIN title (fixture title), even with a deep link (accessible name ≠ "Open the source sheet…"); with `buildSheetDeepLink` mocked null → no `-review-sheetlink`, name still the title (§9.1/§15 both-states).
   - `-review-sheetlink` when link resolvable: `<a target="_blank" rel="noopener noreferrer">` with `aria-label` `Open the source sheet for {title}` and class `size-tap-min`, OUTSIDE the h2.
   - header anatomy: eyebrow text `Review before publishing`; subline client entry omitted when `client_label` null; dates entry always present (`Dates not detected` on empty dates fixture) (§9.1 single rule).
   - overall chip `-review-chip`: fixture with computed `flaggedCount` N>1 → `"N need a look"`; N=1 fixture → `"1 needs a look"`; zero-warn fixture → `"All clean"` (compute N via `deriveSectionStatuses` in the test — anti-tautology).
-  - initial focus on `-review-close`; Esc → `onClose`; scrim `-review-backdrop` `tabIndex=-1`, not `aria-hidden`, click → `onClose`; body scroll locked while open, restored on unmount.
+  - initial focus on `-review-close`; focus-trap cycle (Tab from the last focusable element wraps back inside the panel — fire Tab on the last focusable, assert `document.activeElement` remains within the panel); restore-to-trigger (render a `<button>` trigger, focus it, mount the modal, unmount → `document.activeElement` is the trigger again); Esc → `onClose`; scrim `-review-backdrop` `tabIndex=-1`, not `aria-hidden`, click → `onClose`; body scroll locked while open, restored on unmount.
+  - `-review-title` element `tagName === "H2"` (heading contract §15; section `<h3>` levels pinned in Task 5).
   - footer `-review-footer`: note `-review-note` (`All clear to publish` / `{N} to review · publishing isn't blocked`); RescanSheetButton present (`Re-scan this sheet` label); publish button `-review-publish` labels `Publish this show` (unchecked) / `Selected to publish` (checked); `isDirtyRescan` → NO publish button, NO rescan button, review-required note + reapply link with `RescanReviewBanner`'s copy/target (mirror its href from `Step3SheetCard.tsx:1427-1449`).
-  - publish click: `onRequestSetChecked` resolves true → `onClose` called once; resolves false → modal stays (no `onClose`), footer error note `Couldn't update the publish selection. Try again.`; while pending → button `disabled` + `aria-busy` + label `Selecting…` (drive with a controllable deferred promise).
+  - publish click: `onRequestSetChecked` is called with EXACTLY `true` in BOTH the unchecked and the checked state (assert the mock's argument — spec §9.1: idempotent approve, never a toggle); resolves true → `onClose` called once; resolves false → modal stays (no `onClose`), footer error note `Couldn't update the publish selection. Try again.`; while pending → button `disabled` + `aria-busy` + label `Selecting…` (drive with a controllable deferred promise).
   - shell classes: panel has `max-h-[85vh] … sm:max-h-[80vh] sm:max-w-5xl` and `data-step3-review-panel`; scrim `bg-overlay-scrim` + `data-step3-review-scrim`; grab strip `-review-grab` exists with `min-h-tap-min` class and `aria-label "Drag down or tap to close"`; grab tap (click, no movement) → `onClose`.
 - [ ] **Step 2:** run → FAIL.
 - [ ] **Step 3: implementation.** Shell carried from `Step3DetailsDialog.tsx:78-143` (overlay/scrim/panel topology, `useDialogFocus`, Esc listener, scroll lock) with the spec §5 sizing classes; header per §9.1 (h2 + separate icon anchor via `buildSheetDeepLink(dfid)`); footer per §9.1/§9.2-consumer (`useState<"idle"|"pending"|"error">`); nav/content/scroll-spy/drag are stubbed placeholders this task (`<div data-testid …-review-main />` body) — Tasks 5–7 fill them. globals.css: extend the selector lists at `app/globals.css:591-613` to also match `[data-step3-review-scrim]` / `[data-step3-review-panel]` (comma-added selectors; same keyframes).
@@ -220,6 +235,7 @@ export function activeSectionFor(scrollTop: number, clientHeight: number, scroll
   - `aria-current="true"` present on the active item in BOTH navs (shared state); queries scoped `within(rail)` / `within(chiprail)` (§9.4).
   - No-duplicate-id sweep: render modal, collect `[id]` elements → all unique; no `id` attributes inside either nav (§9.4).
   - Content pane: one `-review-section-<id>` per registry entry, heading row (icon chip, label, existing count, "Needs a look" chip iff flagged), flagged panel `border-border-strong`, clean `border-border`; agenda section + rail entries absent when `agendaBaseline` empty; warnings section always present.
+  - Heading levels (§15): every section heading element `tagName === "H3"` (query within each `-review-section-<id>`); the only `H2` in the modal is `-review-title`.
   - Rail/chip click calls scroll + sets active: assert `aria-current` moves to the clicked item (jsdom: `scrollTo` stubbed on the scroll container).
 - [ ] **Step 2:** run → FAIL.
 - [ ] **Step 3: implementation** per spec §6.2 (item anatomy, active `bg-surface-sunken` + `w-1 rounded-r-pill bg-accent` indicator), §6.3 (chips), §6.4 (heading rows), §5.2 (panel chrome). `renderedSections` set derives from the registry output and feeds `deriveSectionStatuses` once per render (memo).
@@ -281,7 +297,7 @@ Behavioral gesture/scroll thresholds are JS module constants, not design tokens 
 
 **Files:** Create `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx`.
 
-- [ ] **Step 1: failing test list** — enumerate every conditional render / animation hook in `Step3ReviewModal.tsx` and pin the §11 table: T1 entrance classes (`data-step3-review-panel`/`-scrim` attributes present — CSS keyframes own the animation); T2 close = instant unmount (no exit classes remain in DOM after close); T3–T5 drag states (covered in Task 7 — re-assert transition values here from the table); T6 nav active transition class `transition-colors duration-fast` on items; T7/T7b instant label swaps (no animation classes on the publish button); T9 pack-list chevron rotate class; declared-instant items carry a `// §11: instant — deliberate` comment (test greps the component source for the marker on each ternary/`&&` conditional that renders/unrenders an element — walk the file, assert every `{… ? … : null}` line either has the marker or an animation class).
+- [ ] **Step 1: failing test list** — enumerate every conditional render / animation hook in `Step3ReviewModal.tsx` and pin the FULL §11 table (all rows, none omitted): T1 entrance classes (`data-step3-review-panel`/`-scrim` attributes present — CSS keyframes own the animation); T2 close = instant unmount (no exit classes remain in DOM after close); T3–T5 drag states (covered in Task 7 — re-assert transition values here from the table); T6 nav active transition class `transition-colors duration-fast` on items; T7/T7b instant label swaps (no animation classes on the publish button); T8 re-scan pending swap instant (RescanSheetButton label + `aria-busy` change with no animation class — assert on the rendered footer); T9 pack-list chevron rotate class; T10 props change while open = instant re-render (rerender the mounted modal with an added warning → new row present immediately, no animation class on the warnings panel); C7 checked flips via the card while open (rerender with `checked=true` → footer label reads `Selected to publish` immediately, no animation class); declared-instant items carry a `// §11: instant — deliberate` comment (test greps the component source for the marker on each ternary/`&&` conditional that renders/unrenders an element — walk the file, assert every `{… ? … : null}` line either has the marker or an animation class).
 - [ ] **Step 2–4:** run FAIL → add the source markers/classes → PASS.
 - [ ] **Step 5:** commit `test(admin): transition audit for the review modal (§11 inventory)`.
 
