@@ -7,6 +7,8 @@ import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
+import { findMediaByFingerprint } from "@/lib/drive/embeddedObjects";
+import { fetchCurrentSheetXlsxBytes } from "@/lib/drive/fetch";
 import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -42,7 +44,9 @@ export type AssetRecoveryStorage = {
 export type AssetRecoveryDrive = {
   fetchEmbeddedImageBytes(
     entry: PersistedDiagrams["embeddedImages"][number],
-    options?: { onChunk?: (byteLength: number) => void },
+    // driveFileId is threaded from previewShow.driveFileId so the default port can
+    // re-export the current XLSX for an XLSX-media entry (contentUrl null).
+    options?: { onChunk?: (byteLength: number) => void; driveFileId?: string },
   ): Promise<RecoveryAssetBytes | null>;
   fetchLinkedRevisionBytes(
     entry: PersistedDiagrams["linkedFolderItems"][number],
@@ -192,9 +196,25 @@ function bytesFrom(data: unknown): Uint8Array {
 export async function fetchEmbeddedImageBytesTimed(
   entry: PersistedDiagrams["embeddedImages"][number],
   options: { onChunk?: (byteLength: number) => void } = {},
-  deps: { fetch?: typeof fetch; getAccessToken?: () => Promise<string>; timeoutMs?: number } = {},
+  deps: {
+    fetch?: typeof fetch;
+    getAccessToken?: () => Promise<string>;
+    timeoutMs?: number;
+    fetchXlsxBytes?: () => Promise<ArrayBuffer>;
+  } = {},
 ): Promise<RecoveryAssetBytes | null> {
-  if (!entry.contentUrl) return null;
+  if (!entry.contentUrl) {
+    // XLSX-media entry (contentUrl null, mediaPartName set): re-produce bytes from
+    // the current export, DIAGRAMS-tab-scoped by content hash. Fail-soft: any fault
+    // → null → the entry stays unresolved for a later recovery pass.
+    if (!entry.mediaPartName || !deps.fetchXlsxBytes) return null;
+    try {
+      const xlsx = await deps.fetchXlsxBytes();
+      return findMediaByFingerprint(xlsx, entry.mediaPartName, entry.embeddedFingerprint);
+    } catch {
+      return null;
+    }
+  }
   const fetchImpl = deps.fetch ?? fetch;
   const token = await (deps.getAccessToken ?? getDriveAccessToken)();
   const guard = createStallGuard(deps.timeoutMs ?? DRIVE_ASSET_STALL_TIMEOUT_MS);
@@ -299,6 +319,7 @@ function snapshotStatus(diagrams: PersistedDiagrams): PersistedDiagrams["snapsho
 
 async function collectVerifiedAssets(
   showId: string,
+  driveFileId: string,
   diagrams: PersistedDiagrams,
   deps: Pick<AssetRecoveryDeps, "drive">,
 ): Promise<VerifiedAssetRun | typeof ASSET_RECOVERY_BYTES_EXCEEDED> {
@@ -340,7 +361,10 @@ async function collectVerifiedAssets(
         continue;
       }
 
-      const bytes = await deps.drive.fetchEmbeddedImageBytes(entry, { onChunk: acceptChunk });
+      const bytes = await deps.drive.fetchEmbeddedImageBytes(entry, {
+        onChunk: acceptChunk,
+        driveFileId,
+      });
       if (bytes && !acceptBytes(bytes)) {
         await rm(tmpDir, { recursive: true, force: true });
         return ASSET_RECOVERY_BYTES_EXCEEDED;
@@ -442,7 +466,7 @@ export async function assetRecovery(
     return { outcome: "drift_cooldown", code: ASSET_RECOVERY_DRIFT_COOLDOWN };
   }
 
-  const verifiedRun = await collectVerifiedAssets(showId, previewDiagrams, deps);
+  const verifiedRun = await collectVerifiedAssets(showId, previewShow.driveFileId, previewDiagrams, deps);
   if (verifiedRun === ASSET_RECOVERY_BYTES_EXCEEDED) {
     await deps.upsertAdminAlert?.(showId, ASSET_RECOVERY_BYTES_EXCEEDED, {
       snapshotRevisionId: previewDiagrams.snapshot_revision_id,
@@ -721,6 +745,9 @@ async function defaultReadRecoveryCooldown(
 function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
   const storageClient = createSupabaseServiceRoleClient().storage.from("diagram-snapshots");
   const drive = getDriveClient();
+  // Memoize the current XLSX export per driveFileId for this recovery run so N
+  // XLSX-media entries for the same show cost one export, not N.
+  const xlsxByShow = new Map<string, Promise<ArrayBuffer>>();
   return assetRecovery(showId, {
     readPreviewShow: defaultReadPreviewShow,
     readRecoveryCooldown: defaultReadRecoveryCooldown,
@@ -758,7 +785,24 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
       },
     },
     drive: {
-      fetchEmbeddedImageBytes: (entry, options) => fetchEmbeddedImageBytesTimed(entry, options),
+      fetchEmbeddedImageBytes: (entry, options) =>
+        fetchEmbeddedImageBytesTimed(
+          entry,
+          options,
+          options?.driveFileId
+            ? {
+                fetchXlsxBytes: () => {
+                  const id = options.driveFileId!;
+                  let p = xlsxByShow.get(id);
+                  if (!p) {
+                    p = fetchCurrentSheetXlsxBytes(id, { drive });
+                    xlsxByShow.set(id, p);
+                  }
+                  return p;
+                },
+              }
+            : {},
+        ),
       fetchLinkedRevisionBytes: (entry, options) =>
         fetchLinkedRevisionBytesTimed(entry, options, { drive }),
     },
