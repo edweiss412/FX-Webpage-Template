@@ -170,11 +170,7 @@ describe("unpublishShowViaEmailedLink_unlocked", () => {
     expect(tx.show?.unpublishToken).toBe(STORED_TOKEN);
     expect(tx.show?.published).toBe(true);
     expect(tx.alerts).toEqual([]);
-    expect(tx.operations).toEqual([
-      "read:client-show",
-      "readAdminEmailsForShare",
-      "finalizeCheck",
-    ]);
+    expect(tx.operations).toEqual(["read:client-show", "readAdminEmailsForShare", "finalizeCheck"]);
   });
 
   test("binding INVALID + live token → neutral, token untouched, ZERO mutations (R18)", async () => {

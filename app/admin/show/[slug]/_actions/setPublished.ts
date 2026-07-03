@@ -30,9 +30,7 @@ export async function setShowPublishedAction(
   // A Supabase outage during resolution surfaces as infra_error (retry copy), NOT a missing show.
   if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
   if (resolved.kind === "not_found") return SHOW_NOT_FOUND;
-  const result = next
-    ? await publishShow(resolved.show.id)
-    : await unpublishShow(resolved.show.id);
+  const result = next ? await publishShow(resolved.show.id) : await unpublishShow(resolved.show.id);
   if (result.ok) {
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);

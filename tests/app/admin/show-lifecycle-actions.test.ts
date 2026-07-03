@@ -65,10 +65,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ from }),
 }));
 
-import {
-  archiveShowAction,
-  unarchiveShowAction,
-} from "@/app/admin/show/[slug]/_actions";
+import { archiveShowAction, unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 
 beforeEach(() => {
@@ -100,11 +97,6 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     // nav-perf tag-caching (Task 8): success revalidates the show's data-cache tag.
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
   });
-
-
-
-
-
 
   it("unarchiveShowAction resolves id→drive_file_id, invokes unarchiveShow(showId, driveFileId), returns void", async () => {
     maybeSingleResult.value = { data: { id: "show-3", drive_file_id: "drive-3" }, error: null };
@@ -141,7 +133,6 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(archiveShow).not.toHaveBeenCalled(); // fail closed — no mutation
     expect(res).toEqual({ ok: false, code: "infra_error" });
   });
-
 
   it("unarchiveShowAction (void): a resolve infra_error → no-op, does NOT invoke unarchiveShow", async () => {
     maybeSingleResult.value = { data: null, error: { message: "outage" } };
