@@ -208,10 +208,11 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
     // release. A serial impl would have started only the first
     // (hotel_reservations).
     //
-    // nav-perf tag-caching: `viewer_version_token` is NO LONGER part of this
-    // concurrent wave — it is read LIVE, OUTSIDE the cached data fan-out (spec
-    // §3.1), so it only fires AFTER the cached `readShowDataForViewer` wave
-    // resolves. It is therefore asserted post-release below, not here.
+    // `viewer_version_token` is read LIVE, OUTSIDE the cached data fan-out (spec §3.1),
+    // and — per the audit idx19 read-order fence — sampled BEFORE the cached fan-out so
+    // the rendered token can never be newer than the rendered data. It therefore fires
+    // FIRST, before the parallel data wave; the data reads below still prove the wave is
+    // concurrent (all initiated before release).
     for (const key of [
       "hotel_reservations",
       "rooms",
@@ -223,15 +224,13 @@ describe("getShowForViewer — parallel independent reads (A1)", () => {
     ]) {
       expect(harness.started).toContain(key);
     }
-    // The live version-token RPC must NOT have started yet (it runs after the
-    // cached data resolves — proving the split is sequential, not in-wave).
-    expect(harness.started).not.toContain("rpc:viewer_version_token");
+    // The live version-token RPC ran FIRST — before the cached data fan-out — so the
+    // rendered token <= the rendered data (read-order fence, audit idx19).
+    expect(harness.started).toContain("rpc:viewer_version_token");
+    expect(harness.started[0]).toBe("rpc:viewer_version_token");
 
     harness.releaseAll();
     await p;
-
-    // After the data wave resolves, the live token RPC fires (spec §3.1).
-    expect(harness.started).toContain("rpc:viewer_version_token");
   });
 
   test("per-tile discrimination: one read's returned error sets only its tileErrors entry", async () => {

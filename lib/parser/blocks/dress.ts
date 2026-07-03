@@ -8,7 +8,7 @@
  * string, then merges it into the existing `event_details.dress_code` consumer
  * via the same sentinel-aware precedence parseEventDetails uses (event.ts:314).
  */
-import { clean, splitRow } from "./_helpers";
+import { clean, presence, splitRow } from "./_helpers";
 import { normalizeHeader } from "@/lib/parser/knownSections";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
@@ -23,8 +23,15 @@ export function parseDress(markdown: string): string | null {
     const cells = splitRow(t);
     if (normalizeHeader(clean(cells[0] ?? "")) !== "DRESS") continue;
 
+    // Value reads go through presence() (= decodeEntities(clean(...)).trim()), the
+    // value-STORAGE boundary every other event_details writer uses (event.ts:314 via
+    // _helpers.presence). This decodes the exporter's `&#10;`/`&#9;` in-cell-whitespace
+    // entities to spaces so a raw entity never reaches the crew dress card (audit idx42);
+    // the inter-row join("\n") below still preserves genuine multi-row line structure.
+    // The col0 terminator check stays on clean() — it is a structural row-kind test, not a
+    // stored value.
     const collected: string[] = [];
-    const headerVal = clean(cells[1] ?? "");
+    const headerVal = presence(cells[1] ?? "");
     if (headerVal) collected.push(headerVal);
 
     for (let j = i + 1; j < lines.length; j++) {
@@ -33,7 +40,7 @@ export function parseDress(markdown: string): string | null {
       const ccells = splitRow(ct);
       if (isSeparatorRow(ccells)) continue; // skip markdown separator row
       if (clean(ccells[0] ?? "")) break; // a real labeled row ends the block
-      const val = clean(ccells[1] ?? "");
+      const val = presence(ccells[1] ?? "");
       if (val) collected.push(val);
     }
 
