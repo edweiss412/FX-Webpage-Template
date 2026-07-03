@@ -66,6 +66,13 @@ describe("withStepTimeout — per-call budget + abort-on-overrun (audit idx57/#1
     expect(seen?.aborted).toBe(true);
   });
 
+  test("ENRICH_STEP_TIMEOUT_MS fits under the cron route's 300s maxDuration contract with headroom", () => {
+    // Grounded in app/api/cron/sync/route.ts `export const maxDuration = 300` (audit idx57 HIGH-2).
+    // Must leave room for the four OTHER 30s Drive-call steps (~120s) plus unwrapped tx/apply work.
+    const CRON_ROUTE_MAX_DURATION_MS = 300_000;
+    expect(ENRICH_STEP_TIMEOUT_MS).toBeLessThanOrEqual(CRON_ROUTE_MAX_DURATION_MS - 120_000);
+  });
+
   test("timeout message reports the ACTUAL budget used, not the 30s default", async () => {
     vi.useFakeTimers();
     const p = withStepTimeout(
