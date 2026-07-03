@@ -978,10 +978,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check show status in admin",
     helpfulContext:
-      "The auto-publish undo is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already triggered it. You'll only ever see this message inside the admin — a spent emailed link shows a generic not-found page instead. Check the show's page to confirm the current state.",
+      "The auto-publish undo is single-use, and it's already been used. This outcome is internal — a spent emailed link shows a generic not-found page, and no admin surface renders it since the Published toggle replaced the in-app undo. Check the show's page to confirm the current state; you can flip Published off there any time.",
     title: "Undo already used",
     longExplanation:
-      "The auto-publish undo is single-use and has already been used. Either the show is already unpublished, or another tab or admin got there first. This message renders only inside the admin — spent emailed links show a generic not-found page. Check the show's page to confirm the current state.",
+      "The auto-publish undo is single-use and has already been used. No surface renders this outcome: spent emailed links show a generic not-found page, and the in-app undo was replaced by the show page's Published toggle. Check the show's page to confirm the current state.",
     helpHref: "/help/errors#UNPUBLISH_TOKEN_CONSUMED",
   },
   UNPUBLISH_TOKEN_EXPIRED: {

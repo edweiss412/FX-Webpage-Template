@@ -1380,7 +1380,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",
     "followUp": "Doug → check show status in admin",
-    "helpfulContext": "The auto-publish undo is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already triggered it. You'll only ever see this message inside the admin — a spent emailed link shows a generic not-found page instead. Check the show's page to confirm the current state.",
+    "helpfulContext": "The auto-publish undo is single-use, and it's already been used. This outcome is internal — a spent emailed link shows a generic not-found page, and no admin surface renders it since the Published toggle replaced the in-app undo. Check the show's page to confirm the current state; you can flip Published off there any time.",
   },
   "UNPUBLISH_TOKEN_EXPIRED": {
     "crewFacing": null,
