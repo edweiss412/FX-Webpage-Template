@@ -34,6 +34,34 @@ describe("parseDress", () => {
   it("does NOT stop at the separator (regression guard)", () => {
     expect(parseDress(DRESS_BLOCK)).toContain("Show:");
   });
+
+  // audit idx42 (#191): dress was the lone free-text value parser that stored via clean()
+  // only, skipping the decodeEntities step every other event_details writer applies at the
+  // value-storage boundary (presence, _helpers.ts). The exporter emits `&#10;`/`&#9;` for
+  // in-cell whitespace (pervasive across SET/parking/room-name cells), and React renders a
+  // JSX text node verbatim — so a raw entity reaches the crew dress card literally.
+  describe("HTML-entity decode at the value-storage boundary (audit idx42)", () => {
+    it("decodes an in-cell &#10; (exporter LF) to a space in a single-row DRESS cell", () => {
+      expect(parseDress("| DRESS | Business Casual&#10;No Denim |")).toBe(
+        "Business Casual No Denim",
+      );
+    });
+
+    it("decodes &#9; (exporter tab) as well", () => {
+      expect(parseDress("| DRESS | Black Tie&#9;(no exceptions) |")).toBe(
+        "Black Tie (no exceptions)",
+      );
+    });
+
+    it("decodes entities in a continuation-row value while preserving genuine multi-row structure", () => {
+      const md = [
+        "| DRESS | Set: Black&#10;Polo |",
+        "| :---: | :---: |",
+        "|  | Show: Black&#10;Button Down |",
+      ].join("\n");
+      expect(parseDress(md)).toBe("Set: Black Polo\nShow: Black Button Down");
+    });
+  });
 });
 
 describe("mergeDressCode (sentinel-aware precedence)", () => {
