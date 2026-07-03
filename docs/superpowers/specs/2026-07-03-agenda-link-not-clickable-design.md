@@ -35,11 +35,13 @@ An agenda-link cell can parse into a link with **no Drive `fileId`** in two shap
 
 The sole handler for a fileId-less link is the `if (!link.fileId)` block inside the capped per-link loop (loop at `:133`; every link here already failed chip recovery `:99-130`). The whole scan body is wrapped in the outer `AGENDA_ENRICH_THREW` try/catch, so the scan never breaks.
 
-**Discriminator** — reuse the parser's own regex (`lib/parser/index.ts:303`), `link.url` is typed `string | undefined` (`lib/parser/types.ts:132`):
+**Discriminator** — a **case-insensitive** http(s)-scheme test (`link.url` is typed `string | undefined`, `lib/parser/types.ts:132`):
 ```ts
-const hasClickableTarget = typeof link.url === "string" && /^https?:\/\//.test(link.url);
+const HTTP_URL_PREFIX = /^https?:\/\//i; // case-insensitive: URL schemes are case-insensitive (Codex spec-R1 HIGH)
+const hasClickableTarget = typeof link.url === "string" && HTTP_URL_PREFIX.test(link.url);
 ```
-Factor the regex into a shared, exported `const HTTP_URL_PREFIX = /^https?:\/\//;` used by **both** `parseAgendaLinks` and `enrichAgenda` so the classification can't drift. (Placement: a small shared module or an export from the parser; decided in the plan. If a shared export is awkward, define the identical literal in `enrichAgenda` with a comment citing `index.ts:303` as the source of truth — but prefer the shared const.)
+- **The `i` flag is load-bearing:** URL schemes are case-insensitive, so `HTTPS://example.com/agenda` (or `Http://…`) is a valid external link that must stay **silent** to the user. The parser's own regex at `index.ts:303` is case-**sensitive** (`/^https?:\/\//`), so it would classify an uppercase-scheme value into the `value.length > 0` bare-filename branch (`:304-306`) — **but that has no downstream effect**, because both the http branch (`:303`) and the bare branch (`:304-306`) push the *identical* `{ label, url: value }` (no `fileId`). So the parser's case sensitivity never changed behavior; the classification only becomes load-bearing HERE, at the new discriminator, which therefore MUST be case-insensitive to honor the "http URLs stay silent" rule.
+- Factor `HTTP_URL_PREFIX` (the case-insensitive form) into a shared, exported const used by **both** `enrichAgenda` and `parseAgendaLinks` (safe — the parser's two non-Drive branches produce identical output, so switching `:303` to the shared case-insensitive const is a no-op for parser behavior and prevents drift). If a shared export is impractical, define the identical case-insensitive literal in `enrichAgenda` with a comment marking it the classification source of truth. (Placement decided in the plan; the `i` flag is non-negotiable.)
 
 **User-facing push** — reuse the `AGENDA_PDF_UNREADABLE` mechanism (local `warn()` helper `:44-46` → `ParseWarning {severity:"warn", code, message}`; array aliased `:87` `const warnings = result.warnings`; precedent pushes at `:188, :222, :290, :370`):
 ```ts
@@ -60,21 +62,21 @@ if (!hasClickableTarget) {
 | link shape | `AGENDA_LINK_UNRESOLVED` (log) | `AGENDA_LINK_NOT_CLICKABLE` (warning) |
 |---|---|---|
 | bare filename / text (`url` non-http) | fires | **pushed** |
-| external `http(s)` URL | fires | **not** pushed |
+| external `http(s)` URL (any case, e.g. `HTTPS://…`) | fires | **not** pushed |
 | `url` undefined (defensive) | fires | **pushed** (no clickable target) |
 
 ---
 
 ## 4. Full §12.4 lockstep touchpoints
 
-All land in the same PR; several land in the **same commit** (the 3-way lockstep is enforced by x1-catalog-parity).
+**AGENTS.md §12.4 lockstep rule (mandatory, same-commit):** editing/adding a §12.4 code requires **three updates landing in the SAME COMMIT** — (a) the master-spec §12.4 prose, (b) the regenerated `lib/messages/__generated__/spec-codes.ts` (via `pnpm gen:spec-codes`), and (c) the matching `lib/messages/catalog.ts` row. Applies to NEW rows too. So rows 1-4 below (§12.4 table + YAML appendix + regen'd spec-codes.ts + catalog.ts row) all land in **one commit**; x1-catalog-parity fails if any of the three drifts. Row 5 (`gen:internal-code-enums`, no-delta) may land in the same commit (recommended) or an adjacent one — it is not part of the three-way lockstep.
 
 | # | Touchpoint | File / action |
 |---|---|---|
 | 1 | §12.4 table row | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (~`:2897` region, after the `AGENDA_PDF_UNREADABLE` row). Columns parsed by `scripts/extract-spec-codes.ts:271-275`: `\| \`AGENDA_LINK_NOT_CLICKABLE\` \| <trigger — cell[1], NOT extracted> \| <dougFacing — cell[2]> \| — \| Doug → check agenda link \|` |
-| 2 | §12.4 helpfulContext YAML appendix | Same spec file (~`:3214` region, inside the ```yaml block under the anchor `:3070`). **Mandatory** — `extract-spec-codes.ts:352-365` throws if a non-null-dougFacing code lacks a YAML entry. **Same commit as row 1.** |
-| 3 | `gen:spec-codes` | `pnpm gen:spec-codes` (`package.json`) → regenerate + commit `lib/messages/__generated__/spec-codes.ts` (new entry near `:119-124`). |
-| 4 | catalog row | `lib/messages/catalog.ts` (template `AGENDA_PDF_UNREADABLE` `:1234-1246`; entry type `MessageCatalogEntry` `:1-11`). Mirror the **shape**: `code`, `dougFacing` set, `crewFacing: null`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `helpHref: "/help/errors#AGENDA_LINK_NOT_CLICKABLE"`. `severity` omitted (absent passes the `severity !== "info"` renderable predicate) — matches `AGENDA_PDF_UNREADABLE`. |
+| 2 | §12.4 helpfulContext YAML appendix | Same spec file (~`:3214` region, inside the ```yaml block under the anchor `:3070`). **Mandatory** — `extract-spec-codes.ts:352-365` throws if a non-null-dougFacing code lacks a YAML entry. **Same commit (rows 1-4).** |
+| 3 | `gen:spec-codes` | `pnpm gen:spec-codes` (`package.json`) → regenerate + commit `lib/messages/__generated__/spec-codes.ts` (new entry near `:119-124`). **Same commit (rows 1-4).** |
+| 4 | catalog row | `lib/messages/catalog.ts` (template `AGENDA_PDF_UNREADABLE` `:1234-1246`; entry type `MessageCatalogEntry` `:1-11`). Mirror the **shape**: `code`, `dougFacing` set, `crewFacing: null`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `helpHref: "/help/errors#AGENDA_LINK_NOT_CLICKABLE"`. `severity` omitted (absent passes the `severity !== "info"` renderable predicate) — matches `AGENDA_PDF_UNREADABLE`. **Same commit (rows 1-4).** |
 | 5 | `gen:internal-code-enums` | `pnpm gen:internal-code-enums` → `lib/messages/__generated__/internal-code-enums.ts`. **No delta expected** (producer is `lib/sync/enrichAgenda.ts`, which matches none of the script's scanned/gated roots — same as `AGENDA_PDF_UNREADABLE`, confirmed absent). Run it anyway and commit if any delta; x2 asserts the manifest === a fresh regen. |
 | 6 | help errors page | `app/help/errors/page.tsx` — **no edit** (renders dynamically by iterating `MESSAGE_CATALOG`, `:34`, filtering `isRenderable`, `:23-31`). |
 | 7 | help families | `app/help/errors/_families.ts` — **no edit** (`AGENDA` prefix already in the crew-schedule family, `:73`). |
@@ -92,7 +94,7 @@ All land in the same PR; several land in the **same commit** (the 3-way lockstep
 - **title** (catalog): `"Agenda link isn't clickable"`.
 - **longExplanation** (catalog): `"An agenda-link cell held a file name or note with no clickable target, so crew had nothing to open. Update it to a working link or the Drive file; if it already looks right and this persists, let us know and we'll take a look."`
 - **helpHref** (catalog): `"/help/errors#AGENDA_LINK_NOT_CLICKABLE"`.
-- **§12.4 trigger cell (cell[1], NOT extracted):** `"an agenda-link cell has no clickable target — a bare file name or descriptive text rather than a Drive file or an http(s) URL"`.
+- **§12.4 trigger cell (cell[1], NOT extracted):** `"an agenda-link cell has no clickable target — a bare file name or descriptive text rather than a Drive file or an http(s) URL (scheme match is case-insensitive)"`.
 
 Guard for copy: plain-English, no raw error codes (invariant 5). `<sheet-name>` placeholder matches the `AGENDA_PDF_UNREADABLE` dougFacing convention (the surface substitutes it).
 
@@ -122,7 +124,8 @@ Add a unit test on `enrichAgenda` (sibling to the existing agenda-code coverage)
 
 1. **Bare-filename link** (`{ label: "Day 1 Agenda", url: "agenda_final.pdf" }`, no fileId) → `result.warnings` contains `{ severity: "warn", code: "AGENDA_LINK_NOT_CLICKABLE" }` AND the forensic `log.warn` fired with `code: "AGENDA_LINK_UNRESOLVED"`. **Failure mode caught:** the warning isn't emitted for the target case.
 2. **External http(s) URL** (`{ label: "Day 1 Agenda", url: "https://example.com/agenda" }`, no fileId) → `result.warnings` contains **NO** `AGENDA_LINK_NOT_CLICKABLE` AND the forensic `log.warn` **still** fired `AGENDA_LINK_UNRESOLVED`. **Failure mode caught:** narrowing the user-facing warning accidentally also silenced the broad forensic; or the http-URL case wrongly warns.
-3. **Undefined url** (`{ label: "Day 1 Agenda" }`, no fileId, no url) → treated as no-clickable-target → `AGENDA_LINK_NOT_CLICKABLE` pushed + forensic fires. **Failure mode caught:** the `typeof link.url === "string"` guard mis-handles undefined.
+3. **Uppercase-scheme URL** (`{ label: "Day 1 Agenda", url: "HTTPS://example.com/agenda" }`, no fileId) → **NO** `AGENDA_LINK_NOT_CLICKABLE` (a real external link, silent) AND forensic fires. **Failure mode caught:** a case-sensitive discriminator (`/^https?:\/\//` without `i`) would wrongly warn a valid uppercase-scheme URL — this test pins the `i` flag.
+4. **Undefined url** (`{ label: "Day 1 Agenda" }`, no fileId, no url) → treated as no-clickable-target → `AGENDA_LINK_NOT_CLICKABLE` pushed + forensic fires. **Failure mode caught:** the `typeof link.url === "string"` guard mis-handles undefined.
 
 Anti-tautology: assert warning presence against `result.warnings[*].code` (the produced data), NOT a rendered container; the forensic assertion uses a `log` spy so the two channels are proven independent. Derive nothing from hardcoded rendered output. Extend `agendaCodes.test.ts` for the catalog-presence pin (separate from the emit test).
 
@@ -135,6 +138,6 @@ No new structural meta-test. **EXTENDS** `tests/messages/agendaCodes.test.ts` (p
 
 - **Fail-open:** the `warnings.push` is synchronous and inside the outer `AGENDA_ENRICH_THREW` try/catch — it cannot break the scan. The forensic keeps its own try/catch.
 - **No raw codes in UI (invariant 5):** the code string reaches Doug only through the catalog copy (`lib/messages/lookup.ts`); this change adds no JSX literal.
-- **Discriminator single-sourced:** the `/^https?:\/\//` regex is the parser's own (`index.ts:303`); the plan factors it into one exported const used by both sites (or documents the citation if shared-export is impractical).
+- **Discriminator single-sourced + case-insensitive:** `HTTP_URL_PREFIX = /^https?:\/\//i` (the `i` flag honors case-insensitive URL schemes — Codex spec-R1). Factored into one exported const used by both `enrichAgenda` (load-bearing) and `parseAgendaLinks` (`index.ts:303`, where switching to the case-insensitive shared const is a behavior no-op since its two non-Drive branches emit identical `{label,url}`).
 - **Copy single-sourced:** the dougFacing + helpfulContext strings are written once (§5) and appear identically in the §12.4 table/YAML and the catalog; x1 enforces the match.
-- **Numeric sweep:** 1 new code; 2 spec edits (table + YAML) in one commit; 2 regen'd files (spec-codes always, internal-code-enums no-delta); 1 catalog row; 0 help edits; 1 emit-site change; 1 extended presence test + 1 new emit test. 3 forensic/warning behaviors per §3 table. These are cross-referenced in §3, §4, §7.
+- **Numeric sweep:** 1 new code; the §12.4 three-way (table + YAML + regen'd spec-codes.ts + catalog row) all in ONE commit; internal-code-enums regen (no-delta) same-or-adjacent commit; 0 help edits; 1 emit-site change (+ shared `HTTP_URL_PREFIX` const); 1 extended presence test (`agendaCodes.test.ts`) + 1 new emit test with **4** cases (bare / http / uppercase-scheme / undefined). 3 link-shape behaviors per §3 table. Cross-referenced in §3, §4, §7.
