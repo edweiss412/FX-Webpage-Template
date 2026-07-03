@@ -34,6 +34,7 @@
  * is never collapsed into "no agenda".
  */
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import { HTTP_URL_PREFIX } from "@/lib/parser/httpUrlPrefix";
 import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
@@ -148,6 +149,21 @@ export async function enrichAgenda(
           });
         } catch {
           /* best-effort */
+        }
+        // User-facing data-quality warning ONLY when the link has no clickable target
+        // (a bare filename / descriptive text / undefined url). An external http(s) URL
+        // (any case — HTTP_URL_PREFIX is case-insensitive) stays silent: it's a working
+        // link, plausibly intentional. The forensic AGENDA_LINK_UNRESOLVED above fires
+        // for BOTH shapes. Synchronous push — no try/catch needed (whole scan is already
+        // wrapped in the outer AGENDA_ENRICH_THREW try/catch).
+        const hasClickableTarget = typeof link.url === "string" && HTTP_URL_PREFIX.test(link.url);
+        if (!hasClickableTarget) {
+          warnings.push(
+            warn(
+              "AGENDA_LINK_NOT_CLICKABLE",
+              `The agenda link "${link.label}" isn't a link crew can open, so they can't reach the agenda.`,
+            ),
+          );
         }
         continue;
       }

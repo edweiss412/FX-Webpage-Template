@@ -116,6 +116,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional Report",
     "helpfulContext": "We couldn't find the run-of-show grid in the AGENDA tab — usually a renamed tab or a deleted header row. Until it's back, every day shows the standard schedule and nothing crew-facing breaks. Check the AGENDA tab still has its header row.",
   },
+  "AGENDA_LINK_NOT_CLICKABLE": {
+    "crewFacing": null,
+    "dougFacing": "The agenda link on _<sheet-name>_ isn't a link crew can open — it's a file name, note, or other text rather than a working web link or a Drive file. Update the cell to a working link (or a Drive file), or let us know if it keeps happening.",
+    "followUp": "Doug → check agenda link",
+    "helpfulContext": "An agenda-link cell held text with no clickable target — a file name, note, or an unsupported link type instead of a working web link or Drive file — so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look.",
+  },
   "AGENDA_PDF_UNREADABLE": {
     "crewFacing": null,
     "dougFacing": "We couldn't read the agenda PDF linked on _<sheet-name>_, so crew see the embedded agenda document but not a structured day-by-day schedule. Check that the agenda link still opens, or let us know if it keeps happening.",
