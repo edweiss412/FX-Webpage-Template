@@ -16,7 +16,7 @@
 - **No DB/schema change, no advisory lock, no §12.4 code, no catalog copy edit.** `stage_restriction jsonb` already exists.
 - **Invariant 8 applies** — Task 5 edits 4 UI files (`ScheduleSection.tsx`, `TodaySection.tsx`, `buildRightNowContext.ts`, `_CrewShell.tsx`); Task 9 runs `/impeccable critique`+`audit`.
 - **Advisory-lock topology:** N/A — no `pg_advisory*` touched (read path only). Declared per the writing-plans rule.
-- **Meta-test inventory** (spec §10): CREATE `tests/crew/stageSchedule.test.ts`; EXTEND `tests/parser/blocks/crew.test.ts`, `tests/crew/resolveKeyTimes.test.ts`, `tests/components/buildRightNowContext.test.ts`, `tests/data/getShowForViewer*.test.ts`. No new structural registry (narrowing centralized at the projection). Existing `tests/crew/agendaDisplay-single-source.test.ts` and `tests/components/tiles/_metaSentinelHidingContract.test.ts` stay green.
+- **Meta-test inventory** (spec §10): CREATE `tests/crew/stageSchedule.test.ts` + `tests/e2e/schedule-stage-filter.spec.ts`; EXTEND `tests/parser/blocks/crew.test.ts`, `tests/crew/resolveKeyTimes.test.ts`, `tests/components/buildRightNowContext.test.ts`, `tests/components/crew/sections/ScheduleSection.test.tsx`, `tests/components/crew/sections/TodaySection.test.tsx`, `tests/data/getShowForViewerRunOfShow.test.ts`. No new structural registry (narrowing centralized at the projection; the three `resolveKeyTimes` callers are guarded by red-before-green behavioral tests in T5). Existing `tests/crew/agendaDisplay-single-source.test.ts` and `tests/components/tiles/_metaSentinelHidingContract.test.ts` stay green.
 - **Transition-audit task:** N/A — no new component with multiple visual states; existing ScheduleSection branch transitions are unchanged. Declared.
 
 ---
@@ -304,33 +304,33 @@ dateRestriction: effectiveViewerDateRestriction(
 ```ts
 const STAGE_LOADIN_SET = { kind: "explicit", stages: ["Load In", "Set"] } as const;
 const STAGE_LOADOUT_STRIKE = { kind: "explicit", stages: ["Load Out", "Strike"] } as const;
+const STAGE_ALL_BUT_SHOW = { kind: "explicit", stages: ["Load In", "Set", "Strike", "Load Out"] } as const;
+const ANCHOR_DATES = () => dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] });
 
 it("Load In/Set stage → Strike anchor SUPPRESSED, Set anchor present", () => {
   const gs = room({ strike_time: "10/9 @ 4:30pm" });
-  const a = resolveKeyTimes(
-    dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] }),
-    [gs], null, { kind: "explicit", days: ["2026-10-07"] }, STAGE_LOADIN_SET,
-  );
+  const a = resolveKeyTimes(ANCHOR_DATES(), [gs], null, { kind: "explicit", days: ["2026-10-07"] }, STAGE_LOADIN_SET);
   expect(a.set).toBeDefined();
   expect(a.strike).toBeUndefined();
 });
 
 it("Load Out/Strike stage → Set anchor SUPPRESSED, Strike anchor present", () => {
   const gs = room({ strike_time: "10/9 @ 4:30pm" });
-  const a = resolveKeyTimes(
-    dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] }),
-    [gs], null, { kind: "explicit", days: ["2026-10-08"] }, STAGE_LOADOUT_STRIKE,
-  );
+  const a = resolveKeyTimes(ANCHOR_DATES(), [gs], null, { kind: "explicit", days: ["2026-10-08"] }, STAGE_LOADOUT_STRIKE);
   expect(a.set).toBeUndefined();
   expect(a.strike).toBeDefined();
 });
 
-it("stage none (4-arg back-compat) → both anchors present (unchanged)", () => {
+it("Calvin (all-but-Show) stage → BOTH Set and Strike anchors present (spec §10 primary persona)", () => {
   const gs = room({ strike_time: "10/9 @ 4:30pm" });
-  const a = resolveKeyTimes(
-    dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] }),
-    [gs], null, NONE, // no 5th arg
-  );
+  const a = resolveKeyTimes(ANCHOR_DATES(), [gs], null, { kind: "explicit", days: ["2026-10-08"] }, STAGE_ALL_BUT_SHOW);
+  expect(a.set).toBeDefined();
+  expect(a.strike).toBeDefined();
+});
+
+it("stage none (4-arg back-compat, param omitted) → both anchors present (unchanged)", () => {
+  const gs = room({ strike_time: "10/9 @ 4:30pm" });
+  const a = resolveKeyTimes(ANCHOR_DATES(), [gs], null, NONE); // no 5th arg — optional default
   expect(a.set).toBeDefined();
   expect(a.strike).toBeDefined();
 });
@@ -383,11 +383,44 @@ export function resolveKeyTimes(
 - Modify: `components/crew/sections/TodaySection.tsx:237-243,249-254`
 - Modify: `components/right-now/buildRightNowContext.ts:72-85`
 - Modify: `app/show/[slug]/[shareToken]/_CrewShell.tsx:222`
-- Test: `tests/components/buildRightNowContext.test.ts` (extend)
+- Test: `tests/components/buildRightNowContext.test.ts` (extend) + `tests/components/crew/sections/ScheduleSection.test.tsx` (extend) + `tests/components/crew/sections/TodaySection.test.tsx` (extend)
 
-**Concrete failure mode caught:** the Right Now hero context still exposes off-stage `loadInTime`/`strikeTime` (the 3rd `resolveKeyTimes` caller) even after Task 4, because the default `{ kind: "none" }` re-opens the leak.
+**Concrete failure mode caught:** any of the THREE `resolveKeyTimes` callers forgetting to thread `stageRestriction` re-opens the off-stage Set/Strike leak. The param is optional (28 existing 4-arg test calls stay valid), so we guard each of the 3 call sites with an explicit **red-before-green behavioral test** (not typecheck). All three tests are RED after Task 4 (callers not yet threaded → default `none` → anchor shown) and GREEN after this task's edits.
 
-- [ ] **Step 1: Write the failing test** (`tests/components/buildRightNowContext.test.ts`, reusing the file's `room()` and `show()` helpers). `loadInTime = anchors.set` and `strikeTime = anchors.strike`; with no `dates.loadIn`, `anchors.set` comes from `room.set_time`:
+- [ ] **Step 1a: Write the failing ScheduleSection test** (`tests/components/crew/sections/ScheduleSection.test.tsx`, reusing `makeShowForViewer`; extend `withRestriction` to also set `stageRestriction`, and provide a room with `strike_time`). Assert the `KeyTimesStrip` `data-anchor="strike"` is ABSENT for a Load In/Set viewer:
+
+```ts
+function withStage(dateR: unknown, stageR: unknown, roomsOverride: unknown[]) {
+  return {
+    ...makeShowForViewer({ show: { dates: DATES }, rooms: roomsOverride }),
+    crewMembers: [{ ...baseCrew, id: "c1", dateRestriction: dateR, stageRestriction: stageR }],
+  };
+}
+test("ScheduleSection: Load In/Set viewer → KeyTimesStrip has NO strike anchor (#248)", () => {
+  const { container } = render(
+    <ScheduleSection
+      data={withStage(
+        { kind: "explicit", days: [DATES.travelIn, DATES.set] },
+        { kind: "explicit", stages: ["Load In", "Set"] },
+        [{ id: "gs", kind: "gs", name: "GS", set_time: "9:00 AM", strike_time: "5:00 PM" }],
+      )}
+      viewer={{ kind: "crew", crewMemberId: "c1" }} today={TODAY} showId={SHOW_ID}
+    />,
+  );
+  expect(container.querySelector('[data-anchor="strike"]')).toBeNull();
+  expect(container.querySelector('[data-anchor="set"]')).toBeTruthy();
+});
+```
+
+- [ ] **Step 1b: Write the failing TodaySection test** (`tests/components/crew/sections/TodaySection.test.tsx`, mirroring its existing render harness + a room with `set_time`). Assert a Load Out/Strike viewer's today KeyTimesStrip has NO `data-anchor="set"` (and that a strike anchor can appear):
+
+```ts
+// Mount TodaySection with a Load Out/Strike stage viewer, dateRestriction narrowed to a strike day,
+// rooms:[{ set_time, strike_time }]. Assert the today key-times strip shows no set anchor.
+expect(container.querySelector('[data-anchor="set"]')).toBeNull();
+```
+
+- [ ] **Step 1c: Write the failing buildRightNowContext test** (`tests/components/buildRightNowContext.test.ts`, reusing the file's `room()` and `show()` helpers). `loadInTime = anchors.set` and `strikeTime = anchors.strike`; with no `dates.loadIn`, `anchors.set` comes from `room.set_time`:
 
 ```ts
 const SHOW = show({ dates: { travelIn: null, set: "2026-05-03", showDays: ["2026-05-06"], travelOut: null } });
@@ -423,65 +456,41 @@ it("stageRestriction omitted → both anchors present (backward-compat)", () => 
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/buildRightNowContext.test.ts` → FAIL (`stageRestriction` not on opts type / not forwarded).
+- [ ] **Step 2: Run all three to verify they FAIL** — `pnpm vitest run tests/components/buildRightNowContext.test.ts tests/components/crew/sections/ScheduleSection.test.tsx tests/components/crew/sections/TodaySection.test.tsx` → the 3 new tests FAIL (callers not yet threaded → default `none` → off-stage anchor still shown / opts field missing).
 
-- [ ] **Step 3: Minimal implementation.**
+- [ ] **Step 3: Minimal implementation** (thread all 4 UI files):
   - `buildRightNowContext.ts`: add `stageRestriction?: StageRestriction` to the opts object type (import `StageRestriction`); destructure with default `const { ..., stageRestriction = { kind: "none" } } = opts;`; pass as 5th arg at `:85`: `resolveKeyTimes(show, rooms, runOfShow, dateRestriction, stageRestriction)`.
   - `ScheduleSection.tsx:95`: `const { dateRestriction, isAdmin, stageRestriction } = resolveViewerContext(viewer, data);` and `:108` → `resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction, stageRestriction)`.
   - `TodaySection.tsx:249-254`: add `ctx.stageRestriction` as the 5th arg to `resolveKeyTimes`; `:237-243`: add `stageRestriction: ctx.stageRestriction` to the `buildRightNowContext({...})` opts.
   - `_CrewShell.tsx:222`: add `stageRestriction: ctx.stageRestriction` to the `buildRightNowContext({...})` opts.
 
-- [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/buildRightNowContext.test.ts` → PASS. Run the ScheduleSection + TodaySection + rightNowHero suites → PASS (no regression).
+- [ ] **Step 4: Run to verify all pass** — the same 3 files → PASS. Then run the full ScheduleSection + TodaySection + rightNowHero suites → PASS (no regression on existing tests).
 - [ ] **Step 5: Typecheck + commit** — `pnpm typecheck && git add -A && git commit --no-verify -m "feat(crew-page): thread stageRestriction through resolveKeyTimes callers + buildRightNowContext (#248)"`
 
 ---
 
-### Task 6: Component integration — ScheduleSection stage-filtered render
+### Task 6: Real-browser end-to-end — stage-filtered day cards + DayCard layout invariant
 
 **Files:**
-- Test: `tests/components/crew/sections/ScheduleSection.test.tsx` (extend)
+- Test: `tests/e2e/schedule-stage-filter.spec.ts` (new Playwright spec) or extend an existing real-browser harness (mirror the standalone real-browser layout harness pattern: tailwind CLI + static HTML + Playwright `getBoundingClientRect`).
 
-**Concrete failure mode caught:** a regression that shows pure show days to a stage-restricted viewer, or blanks their worked days. **Anti-tautology:** assert against the narrowed `data`/testids, derive expected day-count from the fixture (not hardcoded); the viewer's `dateRestriction` is the *effective* narrowed value produced by Task 3.
+**Why real-browser (not jsdom):** this task is BOTH (a) the end-to-end behavior lock — a stage-restricted viewer's worked day cards render and pure show days are absent (system-level; the pre-fix state renders the `schedule-unconfirmed` placeholder with ZERO day cards, so this assertion is genuinely **red before the fix**, green after), AND (b) the Dimensional-Invariants layout assertion, which jsdom cannot do (Tailwind v4 has no default `align-items: stretch`).
 
-- [ ] **Step 1: Write the failing test.** Render `ScheduleSection` with a `ShowForViewer` whose matched crew row carries the **narrowed** `dateRestriction` (the effective explicit worked-days from §5) and show dates 5/2–5/7. Assert:
+**Dimensional Invariants (spec §9):** inside a `day-card` for a stage-restricted viewer render — the `w-px self-stretch bg-border` divider (`DayCard.tsx:87`) fills the `flex items-center` row height (`:68`); the `w-12.5 shrink-0` date badge (`day-card-date`, `:72`) is 50px wide.
 
-```ts
-// worked-day cards present, pure show days absent — count derived from fixture, not literal.
-const dayCards = screen.queryAllByTestId(/^schedule-day/);
-const renderedDates = dayCards.map((el) => el.getAttribute("data-day"));
-expect(renderedDates).toEqual(["2026-05-02", "2026-05-03", "2026-05-06", "2026-05-07"]);
-expect(renderedDates).not.toContain("2026-05-04"); // pure show day hidden
-expect(renderedDates).not.toContain("2026-05-05");
-// NOT the unknown_asterisk placeholder:
-expect(screen.queryByTestId("schedule-unconfirmed")).toBeNull();
-```
+**Anti-tautology:** derive the expected worked-day set from the fixture dates via the same `effectiveViewerDateRestriction` math (Task 1), NOT a hardcoded literal; assert against `[data-day]` on the rendered `[data-testid^="schedule-day"]` cards (the day-card container), and confirm the pre-fix render shows `schedule-unconfirmed` + zero day cards.
 
-- [ ] **Step 2: Run to verify it fails** if the wiring is wrong — `pnpm vitest run tests/components/crew/sections/ScheduleSection.test.tsx`. (Given Tasks 1-5 pass, this should pass immediately; if so, it is a **characterization** test — note it locks the behavior and would fail if a future change reintroduced the leak. Confirm it fails when the effective restriction is replaced with `{kind:"unknown_asterisk"}` to prove it is not tautological.)
-
-- [ ] **Step 3:** No new implementation (behavior delivered by Tasks 1-5). If the assertion needs a testing-only affordance, add nothing to production — assert via existing `data-day`/testids.
-- [ ] **Step 4: Run to verify it passes** — PASS.
-- [ ] **Step 5: Typecheck + commit** — `pnpm typecheck && git add -A && git commit --no-verify -m "test(crew-page): ScheduleSection renders stage-filtered worked days, hides pure show days (#248)"`
+- [ ] **Step 1: Write the real-browser assertion.** Render the crew Schedule for a stage-restricted viewer (Calvin: dates 5/2–5/7, stage all-but-Show). Assert:
+  - rendered `[data-testid^="schedule-day"]` `data-day` set === worked days `["2026-05-02","2026-05-03","2026-05-06","2026-05-07"]` (from the helper, not a literal); `2026-05-04` and `2026-05-05` ABSENT; `schedule-unconfirmed` ABSENT.
+  - for each day card: `getBoundingClientRect()` — `divider.height === dayCardRow.height` within 0.5px (self-stretch holds); `dateBadge.width` ≈ 50px within 0.5px.
+- [ ] **Step 2: Confirm it is genuinely red before the fix.** Point the harness at the pre-fix behavior (crew row `date_restriction = unknown_asterisk`, unnarrowed) → the render shows `schedule-unconfirmed` + zero day cards → the day-set assertion FAILS. This proves the test is not tautological. (In practice Tasks 1-5 are already committed; run this mutation once to demonstrate the red, then revert.)
+- [ ] **Step 3:** No production implementation (verification-only). If it fails on layout, the fix is in scope; if it fails on filtering, Tasks 1-5 regressed.
+- [ ] **Step 4: Run** — `pnpm playwright test tests/e2e/schedule-stage-filter.spec.ts` (or the project's real-browser command) → PASS.
+- [ ] **Step 5: Commit** — `git add -A && git commit --no-verify -m "test(crew-page): real-browser stage-filtered day cards + DayCard layout invariant (#248)"`
 
 ---
 
-### Task 7: Real-browser layout assertion (Dimensional Invariants — mandatory)
-
-**Files:**
-- Test: `tests/e2e/schedule-stage-filter.spec.ts` (new Playwright spec) OR extend an existing real-browser harness.
-
-**Dimensional Invariants (spec §9):** inside a `day-card` for a stage-restricted viewer render — the `w-px self-stretch bg-border` divider (`DayCard.tsx:87`) fills the `flex items-center` row height (`:68`); the `w-12.5 shrink-0` date badge (`:72`) is 50px wide. Tailwind v4 has no default `align-items: stretch` — the invariant must be asserted in a real browser (jsdom insufficient).
-
-- [ ] **Step 1: Write the failing/real assertion.** Render the crew Schedule for a stage-restricted viewer (seed or fixture-mounted). For each `[data-testid^="schedule-day"]`, `getBoundingClientRect()` the `[data-testid="day-card-date"]` and the divider; assert:
-  - the set of rendered `data-day` values equals the worked days (no pure show days);
-  - `divider.height === dayCardRow.height` within 0.5px (self-stretch holds);
-  - `dateBadge.width` ≈ 50px within 0.5px.
-- [ ] **Step 2: Run** — `pnpm playwright test tests/e2e/schedule-stage-filter.spec.ts` (or the project's real-browser command). Confirm it exercises a real render, not jsdom.
-- [ ] **Step 3:** No implementation (verification-only). If it fails on layout, fix is in scope; if it fails on filtering, Tasks 1-5 regressed.
-- [ ] **Step 4: Commit** — `git add -A && git commit --no-verify -m "test(crew-page): real-browser layout + stage-filter invariant for DayCard (#248)"`
-
----
-
-### Task 8: BACKLOG entry for deferred agenda filtering
+### Task 7: BACKLOG entry for deferred agenda filtering
 
 **Files:**
 - Modify: `BACKLOG.md`
@@ -491,7 +500,7 @@ expect(screen.queryByTestId("schedule-unconfirmed")).toBeNull();
 
 ---
 
-### Task 9: Invariant-8 impeccable dual-gate (UI close-out)
+### Task 8: Invariant-8 impeccable dual-gate (UI close-out)
 
 - [ ] **Step 1:** Run `/impeccable critique` on the Task-5 UI diff (the 4 UI files + the rendered stage-filtered Schedule/Today/RightNow surfaces).
 - [ ] **Step 2:** Run `/impeccable audit` on the same diff.
@@ -500,7 +509,7 @@ expect(screen.queryByTestId("schedule-unconfirmed")).toBeNull();
 
 ---
 
-### Task 10: Whole-diff adversarial review (cross-model) + close-out
+### Task 9: Whole-diff adversarial review (cross-model) + close-out
 
 - [ ] **Step 1:** Run the full suite: `pnpm typecheck && pnpm test` (or the targeted structural guards + affected suites if the full run is environment-limited: `stageSchedule`, `crew.test`, `crewRoleWarningBlockRef`, `resolveKeyTimes`, `buildRightNowContext`, `getShowForViewerRunOfShow`, `no-inline-email-normalization`, `operatorActionableWarnings`, `codes`, `agendaDisplay-single-source`). Run `pnpm format:check` (—no-verify commits skip the prettier hook).
 - [ ] **Step 2:** Whole-diff **Codex adversarial review** (fresh-eyes, REVIEWER ONLY) → iterate to APPROVE. Triage findings via deferral discipline (land-now / `DEFERRED.md` / `BACKLOG.md`).
@@ -511,7 +520,9 @@ expect(screen.queryByTestId("schedule-unconfirmed")).toBeNull();
 
 ## Self-Review
 
-- **Spec coverage:** §3.1 helper → T1; §4 parser → T2; §3.2 chokepoint → T3; §3.4 resolveKeyTimes → T4; §3.4 threading → T5; §5 render behavior → T6; §9 dimensional invariants → T7; §3.5 agenda backlog → T8; §8 invariant-8 → T9; close-out → T10. All covered.
+- **Spec coverage:** §3.1 helper → T1; §4 parser → T2; §3.2 chokepoint → T3; §3.4 resolveKeyTimes gate → T4; §3.4 threading (3 callers) → T5; §5 render behavior + §9 dimensional invariants → T6 (real-browser, end-to-end); §3.5 agenda backlog → T7; §8 invariant-8 → T8; close-out → T9. All covered.
+- **TDD honesty:** every task has a genuine red→green. T4 gate tests fail before the gate. T5's three call-site tests (ScheduleSection, TodaySection, buildRightNowContext) are red before threading (default `none` → off-stage anchor shown), green after. T6 is red at the system level (pre-fix `unknown_asterisk` → placeholder, zero day cards). No characterization-only task.
 - **Type consistency:** `effectiveViewerDateRestriction`, `stageWorksDay`, `resolveKeyTimes(... , stageRestriction)` signatures match across T1/T3/T4/T5.
-- **Anti-tautology:** T6 asserts against `data-day`/testids from the narrowed data and derives the day set from the fixture (not a hardcoded top-value); explicitly checks it is not the `unknown_asterisk` placeholder and that swapping in `unknown_asterisk` flips it.
-- **No placeholders:** every code step shows real code or a precise edit against a cited line.
+- **Anti-tautology:** T6 derives the worked-day set from the fixture via the Task-1 helper (not a hardcoded literal), asserts against `[data-day]` on the day-card containers, and demonstrates the red via the pre-fix `unknown_asterisk` placeholder.
+- **All three `resolveKeyTimes` callers** (confirmed: buildRightNowContext.ts:85, ScheduleSection.tsx:108, TodaySection.tsx:249 — no 4th) get red-before-green behavioral coverage in T5.
+- **No placeholders:** every code step shows real code or a precise edit against a cited line, matching verified live helpers (`newAggregator`, `parseCrew(md,'v4',agg)`, `dates()/room()/NONE`, `makeShowForViewer`, `showRow/crewRow/setup`).
