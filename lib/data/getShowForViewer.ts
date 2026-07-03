@@ -51,6 +51,7 @@ import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
 import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import { aggregateDays } from "@/lib/crew/agendaDisplay";
+import { effectiveViewerDateRestriction } from "@/lib/crew/stageSchedule";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import { projectOpeningReelHasVideo } from "@/lib/data/openingReel";
 import type { ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
@@ -397,31 +398,43 @@ async function readShowDataForViewer(
     if (crewRes.error) {
       throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
     }
-    return (crewRes.data ?? []).map((row) => ({
-      id: row.id as string,
-      name: row.name as string,
-      email: (row.email as string | null) ?? null,
-      phone: (row.phone as string | null) ?? null,
-      role: row.role as string,
-      roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
-      // Codex round-23 HIGH: parser produces M/D tokens like "6/24"
-      // for explicit date restrictions. ScheduleTile + RightNow
-      // compare to ISO YYYY-MM-DD show dates; format mismatch left
-      // restricted crew with zero matching days. Normalize at the
-      // projection boundary so every UI consumer sees ISO. See
-      // lib/data/normalizeDateRestriction.ts.
-      dateRestriction: normalizeDateRestriction(
-        // decodeJsonbColumn: a legacy double-encoded restriction comes back from
-        // Supabase-JS as a STRING scalar; without decoding, restriction.kind is
-        // undefined → normalizeDateRestriction returns the string and ScheduleTile
-        // mis-renders all days (visibility regression). No-op for correct rows (R8).
+    return (crewRes.data ?? []).map((row) => {
+      const stageRestriction = decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {
+        kind: "none" as const,
+      };
+      // Codex round-23 HIGH: parser produces M/D tokens like "6/24" for explicit
+      // date restrictions. ScheduleTile + RightNow compare to ISO YYYY-MM-DD show
+      // dates; format mismatch left restricted crew with zero matching days.
+      // Normalize at the projection boundary so every UI consumer sees ISO.
+      // decodeJsonbColumn: a legacy double-encoded restriction comes back from
+      // Supabase-JS as a STRING scalar; without decoding, restriction.kind is
+      // undefined → normalizeDateRestriction returns the string and ScheduleTile
+      // mis-renders all days (visibility regression). No-op for correct rows (R8).
+      const normalizedDateRestriction = normalizeDateRestriction(
         decodeJsonbColumn<DateRestriction>(row.date_restriction) ?? { kind: "none" },
         show.dates,
-      ),
-      stageRestriction: decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {
-        kind: "none",
-      },
-    }));
+      );
+      return {
+        id: row.id as string,
+        name: row.name as string,
+        email: (row.email as string | null) ?? null,
+        phone: (row.phone as string | null) ?? null,
+        role: row.role as string,
+        roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
+        // Stage-filtered schedule (#248): fold an explicit stage_restriction into an
+        // effective day-explicit dateRestriction so a stage-restricted crew sees only
+        // their worked days. No-op when stage_restriction.kind === "none" (the vast
+        // majority). Overrides a legacy stored unknown_asterisk (no backfill needed).
+        // See lib/crew/stageSchedule.ts + spec §3.2.
+        dateRestriction: effectiveViewerDateRestriction(
+          show.dates,
+          show.schedule_phases,
+          normalizedDateRestriction,
+          stageRestriction,
+        ),
+        stageRestriction,
+      };
+    });
   };
 
   // === Hotel reservations (lodging tile + notes tile) ===
