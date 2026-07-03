@@ -1497,6 +1497,8 @@ Slot-integrity: the panel is a grid SIBLING of `<details>` (F18) — forms here 
 
 - [ ] **Step 5: Run** — `pnpm vitest run tests/components/RetryWatchButton.test.tsx tests/components/AlertBanner.test.tsx` → PASS.
 
+- [ ] **Step 5b: Run the Step-1a Playwright tests GREEN before committing** — `pnpm playwright test tests/e2e/admin-banner-layout.spec.ts` (dev server picks up the worktree implementation on reload). The task's commit must not carry known-red tests (invariant 1 per-task boundary; plan-R7 advisory 2). If a geometry gate fails, fix the component before committing. Task 14 remains the whole-spec regression re-run.
+
 - [ ] **Step 6: Commit**
 
 ```bash
@@ -1504,7 +1506,7 @@ git add components/admin/RetryWatchButton.tsx components/admin/AlertBanner.tsx t
 git commit --no-verify -m "feat(admin): watch-alert Retry now action slot + panel dismiss/status/error detail"
 ```
 
-(The e2e watch-variant tests authored red in Step 1a ride in this commit; they go green in Task 14's verification run once the dev server picks up this implementation.)
+(The e2e watch-variant tests authored red in Step 1a ride in this commit already GREEN per Step 5b; Task 14 re-verifies the whole spec.)
 
 ---
 
@@ -1643,7 +1645,7 @@ git commit --no-verify -m "test(db): pin dismiss-vs-retry race semantics for WAT
 
 ### Task 14: e2e — banner layout watch variant (verification run)
 
-**Files:** authored RED in Task 10 Step 1a (`tests/e2e/helpers/seedAlerts.ts` + `tests/e2e/admin-banner-layout.spec.ts`) — this task verifies them GREEN post-implementation and fixes any real-layout violations they surface. TDD ordering: red at Task 10 Step 1a → implementation Tasks 10-12 → green here.
+**Files:** authored RED in Task 10 Step 1a and already green at Task 10 Step 5b (`tests/e2e/helpers/seedAlerts.ts` + `tests/e2e/admin-banner-layout.spec.ts`) — this task re-runs the WHOLE spec (watch variant + pre-existing global/per-show gates) after Tasks 11-12 landed, catching cross-task layout regressions.
 
 Real-browser obligations (spec §3.4 dimensional invariants; jsdom computes no layout). The authored describe block (reference copy — must match what Task 10 Step 1a wrote):
 
@@ -1701,6 +1703,6 @@ UI surfaces in this diff: `AlertBanner.tsx`, `ResolveAlertButton.tsx`, `RetryWat
 
 ## Meta-test inventory (from spec §4)
 
-- EXTENDS `tests/sync/_metaInfraContract.test.ts`: rewritten `refreshWatchSubscriptions` row (Task 3); new rows `readUnresolvedWatchAlert`, `hasEscalationFired`, `persistAppEventStrict` (Task 5).
+- EXTENDS `tests/sync/_metaInfraContract.test.ts`: rewritten `refreshWatchSubscriptions` row (Task 3); `persistAppEventStrict` row (Task 4, same commit as the writer); `readUnresolvedWatchAlert` + `hasEscalationFired` rows (Task 5).
 - `tests/admin/_metaInfraContract.test.ts`: touched only if AlertBanner's registered fetch row pins its column list (check when adding `occurrence_count` in Task 10; update the row if the grep-shape breaks).
 - No new registries; no new tables/RPCs/§12.4 codes/advisory locks.
