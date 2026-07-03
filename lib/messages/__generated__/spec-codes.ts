@@ -600,7 +600,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Something is wrong on our end with this sheet's tracking data — we can't safely defer it without a watermark. The developer has been notified. Try 'Permanently ignore' if you want to dismiss this row.",
     "followUp": "Eric → investigate; Doug → use Permanently ignore as workaround",
-    "helpfulContext": "Defer-until-modified needs to know the file's current `modifiedTime` so cron knows when to resume processing. Every place that creates a pending-sheet row (Phase 1 hard-fails, Drive-fetch failures, retry handlers) populates this column. If you're seeing this code, something we wrote produced a row without it — the developer has been notified. As a workaround you can use Permanently ignore (which doesn't need the watermark).",
+    "helpfulContext": "Defer-until-modified needs to know the file's current `modifiedTime` so the scheduled sync knows when to resume processing. Every place that creates a pending-sheet row (Phase 1 hard-fails, Drive-fetch failures, retry handlers) populates this column. If you're seeing this code, something we wrote produced a row without it — the developer has been notified. As a workaround you can use Permanently ignore (which doesn't need the watermark).",
   },
   "MISSING_REVIEWER_CHOICE": {
     "crewFacing": null,
@@ -618,7 +618,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "(admin-log only on first occurrence; the dashboard explicitly shows the onboarding wizard CTA when no folder is configured, not an error)",
     "followUp": "Doug → run setup wizard",
-    "helpfulContext": "Cron ran before the setup wizard saved a watched Drive folder. That is expected during first setup: the dashboard should show the setup call to action instead of treating it as a show error. Run the setup wizard to choose the folder.",
+    "helpfulContext": "The automatic sync ran before the setup wizard saved a watched Drive folder. That is expected during first setup: the dashboard should show the setup call to action instead of treating it as a show error. Run the setup wizard to choose the folder.",
   },
   "OAUTH_IDENTITY_CLAIMED": {
     "crewFacing": null,
@@ -1218,7 +1218,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "A newer parse has already been applied. Refresh the admin page to review the latest state.",
     "followUp": "Doug → refresh",
-    "helpfulContext": "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
+    "helpfulContext": "A newer parse was applied (probably by a different admin or an automatic sync) before your Apply landed. Refresh the admin page to see the current state.",
   },
   "STAGED_REVIEW_ITEMS_CORRUPT": {
     "crewFacing": null,
@@ -1264,9 +1264,9 @@ export const SPEC_CODES = {
   },
   "SYNC_DELAYED_SEVERE": {
     "crewFacing": "This page hasn't updated recently. Text Doug to check on it.",
-    "dougFacing": "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
+    "dougFacing": "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Instant updates or the scheduled sync have stalled — check the dashboard.",
     "followUp": "Crew → text Doug; Doug → check dashboard",
-    "helpfulContext": "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
+    "helpfulContext": "The crew page hasn't synced from Drive in over six hours. That's well past the normal sync schedule, so something is stalled. Open the dashboard to check whether instant updates are healthy and whether automatic sync is running.",
   },
   "SYNC_FILE_FAILED": {
     "crewFacing": null,
