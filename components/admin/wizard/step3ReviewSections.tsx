@@ -1,0 +1,1594 @@
+"use client";
+
+/**
+ * components/admin/wizard/step3ReviewSections.tsx (Task 3 — spec §6.1/§8/§3.10/§13)
+ *
+ * The Step-3 review SECTION MODULE: every breakdown body (moved out of
+ * Step3SheetCard.tsx, restyled per spec §8's Variant-B grammar) plus the
+ * section REGISTRY (`step3Sections` + `STEP3_SECTION_GROUPS`, spec §6.1) the
+ * new review modal renders from. Dependency direction is one-way: the card
+ * imports from this module; this module never imports the card (no cycle).
+ *
+ * Restyle contract (spec §8): presentation only. Every existing cap,
+ * overflow note, disclosure, empty-state copy string, `hasContent` guard,
+ * `partialAttendanceLabel` / `labelFromRawSnippet` behavior, and every
+ * `-breakdown-*` testid is preserved verbatim — existing suites pin them.
+ *
+ * Warning-title hardening (spec §8, invariant 5): `reviewWarningTitle` is the
+ * single title derivation for the warnings panel. Persisted warnings exist
+ * whose `message` IS the raw code (`reelWarning`, lib/sync/phase2.ts —
+ * e.g. OPENING_REEL_UNREADABLE); the guard clauses below keep any machine
+ * token out of the UI.
+ *
+ * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px outside the
+ * spec-pinned grid track sizes (7.5rem / 5rem / 1.25rem, spec §8 table).
+ */
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  BedDouble,
+  CalendarDays,
+  ChevronRight,
+  FileText,
+  Info,
+  LayoutGrid,
+  Lightbulb,
+  Mail,
+  MapPin,
+  Package,
+  Phone,
+  Receipt,
+  Sparkles,
+  Theater,
+  Truck,
+  Users,
+  Video,
+  Volume2,
+  type LucideIcon,
+} from "lucide-react";
+import type {
+  AgendaEntry,
+  ClientContact,
+  ContactRow,
+  CrewMemberRow,
+  HotelReservationRow,
+  ParseResult,
+  ParseWarning,
+  PullSheetCase,
+  PullSheetItem,
+  RoomRow,
+  RunOfShow,
+  ShowRow,
+  TransportationRow,
+} from "@/lib/parser/types";
+import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import type { MessageCode } from "@/lib/messages/catalog";
+import { humanizeDate } from "@/lib/dates/humanize";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
+import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
+import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
+import { Avatar } from "@/components/atoms/Avatar";
+import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
+import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import {
+  AGENDA_CLIENT_CONCURRENCY,
+  AGENDA_CLIENT_POLL_BUDGET_MS,
+  AGENDA_CLIENT_QUEUE_BUDGET_MS,
+} from "@/lib/agenda/constants";
+
+// ── §4.3 caps (single source of truth — values unchanged, spec §13) ──
+export const CREW_CAP = 30;
+export const ROOMS_CAP = 20;
+export const HOTELS_CAP = 12;
+// Pack-list cases shown in the review breakdown; mirrors the crew GearSection
+// CASE_CAP (12) so the operator sees the same ceiling the crew page applies.
+export const PACK_LIST_CASES_CAP = 12;
+// Items shown per expanded case before a "+K more items" tail. Bounds the
+// expanded height so one fat case (e.g. a 31-item distro case) can't dominate
+// the breakdown column; deep verification continues on the source sheet.
+export const PACK_LIST_ITEMS_CAP = 8;
+export const SCHEDULE_DAYS_CAP = 14;
+export const SCHEDULE_ENTRIES_CAP = 6;
+
+// Per-room equipment-scope fields shown under each room in the review breakdown so
+// the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L) before publishing. We
+// show every NON-EMPTY value as-parsed (sentinels like "TBD"/"-" included) — this is
+// a parse-review surface, not the crew page (which sentinel-hides), so the operator
+// sees exactly what landed. Order mirrors the crew GearSection (A→V→L→Scenic→Other).
+const ROOM_SCOPE_FIELDS: ReadonlyArray<{ label: string; key: keyof RoomRow }> = [
+  { label: "Audio", key: "audio" },
+  { label: "Video", key: "video" },
+  { label: "Lighting", key: "lighting" },
+  { label: "Scenic", key: "scenic" },
+  { label: "Other", key: "other" },
+];
+
+// Scope-row icons (spec §8 rooms row): lucide best-equivalents of the mock's
+// audio/video/bulb/scenic glyphs; anything else falls back to the grid glyph.
+const ROOM_SCOPE_ICONS: Record<string, LucideIcon> = {
+  Audio: Volume2,
+  Video: Video,
+  Lighting: Lightbulb,
+  Scenic: Theater,
+};
+
+/** A string field that actually parsed to content (non-null, non-whitespace). */
+export function hasContent(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+/**
+ * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
+ * content (hasContent — non-null, non-whitespace string). Used by the operator
+ * review-modal field-group sections (Venue / Ops / Transport / Contacts).
+ */
+export function contentRows(
+  pairs: ReadonlyArray<readonly [string, unknown]>,
+): { label: string; value: string }[] {
+  const out: { label: string; value: string }[] = [];
+  // Coerce-then-keep (String().trim(), length > 0) — matches the EventDetails +
+  // RoomsDetail modal sections (#195/#197): a non-string JSONB value still shows
+  // as text, sentinels (TBD/N/A) show as-parsed, empty/whitespace is omitted.
+  for (const [label, val] of pairs) {
+    const value = String(val ?? "").trim();
+    if (value.length > 0) out.push({ label, value });
+  }
+  return out;
+}
+
+// Defensive coercion for the untyped-on-the-wire JSONB (§4.3/§4.6): anything
+// that isn't an array becomes [].
+export function arr<T>(value: T[] | undefined | null): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/** A "+K more" tail line, or null when nothing is truncated. */
+export function overflowNote(total: number, cap: number, noun: string): string | null {
+  const extra = total - cap;
+  return extra > 0 ? `…and ${extra} more ${noun}` : null;
+}
+
+/** The shared eyebrow-key style (spec §8 field-list grammar). */
+const EYEBROW_CLASS = "text-xs font-semibold uppercase text-text-subtle";
+const EYEBROW_STYLE = { letterSpacing: "var(--tracking-eyebrow)" } as const;
+
+/**
+ * Vertical label:value list shared by the review-modal field-group sections.
+ * Restyled to the mock's `fieldlist` grammar (spec §8): each row a
+ * `7.5rem + minmax(0,1fr)` grid, eyebrow key, hairline row separators. The
+ * trailing colon on the key is PRESERVED copy ("Venue:", "COI:") — existing
+ * suites pin the `Label:` textContent.
+ */
+export function FieldRowList({ rows }: { rows: { label: string; value: string }[] }) {
+  return (
+    <ul className="flex flex-col">
+      {rows.map((r) => (
+        <li
+          key={r.label}
+          className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-baseline gap-x-4 border-b border-border py-2 last:border-0"
+        >
+          <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+            {r.label}:
+          </span>
+          <span className="wrap-break-word text-sm text-text">{r.value}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** A labeled breakdown section (varying content shape per §4.3 — never an
+ * identical sub-card grid). */
+export function BreakdownSection({
+  testId,
+  label,
+  count,
+  children,
+}: {
+  testId: string;
+  label: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section data-testid={testId} className="flex flex-col gap-1.5">
+      <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        {label} <span className="tabular-nums text-text-faint">({count})</span>
+      </h4>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * The contact "blocks" the contacts body renders (client primary + optional
+ * secondary + venue / in-house-AV rows). Extracted so the §6.1 rail count and
+ * the body derive the SAME number (count={blocks.length}, the existing
+ * contract) without duplicating the shaping logic.
+ */
+export function contactBlocks(
+  clientContact: ClientContact | null,
+  contacts: ContactRow[],
+): Array<{ key: string; kind: string; name: string; rows: { label: string; value: string }[] }> {
+  // Client people: primary + optional secondary (null-safe). Each a "Client
+  // contact" (the second flagged "(secondary)" so the operator can tell the lead
+  // client rep from the backup). Index keys avoid same-name React key collisions.
+  const clientPeople = [clientContact, clientContact?.secondary].filter(Boolean) as {
+    name: string;
+    phone: string | null;
+    email: string | null;
+    officePhone?: string | null;
+  }[];
+  return [
+    ...clientPeople.map((p, i) => ({
+      key: `client-${i}`,
+      kind: i === 0 ? "Client contact" : "Client contact (secondary)",
+      name: p.name,
+      rows: contentRows([
+        ["Phone", p.phone],
+        ["Email", p.email],
+        ["Office", p.officePhone],
+      ]),
+    })),
+    ...contacts.map((c, i) => ({
+      key: `contact-${i}`,
+      kind: c.kind === "in_house_av" ? "In-house AV" : "Venue contact",
+      name: c.name ?? "",
+      rows: contentRows([
+        ["Phone", c.phone],
+        ["Email", c.email],
+      ]),
+    })),
+  ].filter((b) => hasContent(b.name) || b.rows.length > 0);
+}
+
+export function ContactsBreakdown({
+  dfid,
+  clientContact,
+  contacts,
+}: {
+  dfid: string;
+  clientContact: ClientContact | null;
+  contacts: ContactRow[];
+}) {
+  const blocks = contactBlocks(clientContact, contacts);
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-contacts`}
+      label="Contacts"
+      count={blocks.length}
+    >
+      {blocks.length === 0 ? (
+        <p className="text-sm text-text-subtle">No contacts parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {blocks.map((b) => (
+            <li key={b.key} className="flex flex-col gap-0.5 text-sm text-text">
+              <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                {b.kind}
+              </span>
+              {hasContent(b.name) ? (
+                <div className="wrap-break-word font-medium text-text-strong">{b.name}</div>
+              ) : null}
+              {b.rows.length > 0 ? (
+                // §8 meta line: phone/email entries lead with a small icon; the
+                // "Office" row keeps its "Office:" label copy (two phone numbers
+                // must stay tellable apart).
+                <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                  {b.rows.map((r) => (
+                    <span
+                      key={r.label}
+                      className="inline-flex items-center gap-1.5 text-xs text-text-subtle"
+                    >
+                      {r.label === "Email" ? (
+                        <Mail aria-hidden="true" className="size-3.5 shrink-0 text-text-faint" />
+                      ) : (
+                        <Phone aria-hidden="true" className="size-3.5 shrink-0 text-text-faint" />
+                      )}
+                      <span className="wrap-break-word">
+                        {r.label === "Office" ? `Office: ${r.value}` : r.value}
+                      </span>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </BreakdownSection>
+  );
+}
+
+export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
+  const rows = venue
+    ? contentRows([
+        ["Venue", venue.name],
+        ["Address", venue.address],
+        ["City", venue.city],
+        ["Loading dock", venue.loadingDock],
+        ["Maps link", venue.googleLink],
+      ])
+    : [];
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-venue`}
+      label="Venue"
+      count={rows.length}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-subtle">No venue details parsed.</p>
+      ) : (
+        <FieldRowList rows={rows} />
+      )}
+    </BreakdownSection>
+  );
+}
+
+export function TransportBreakdown({
+  dfid,
+  transportation,
+}: {
+  dfid: string;
+  transportation: TransportationRow | null;
+}) {
+  const t = transportation;
+  const fieldRows = t
+    ? contentRows([
+        ["Driver", t.driver_name],
+        ["Driver phone", t.driver_phone],
+        ["Driver email", t.driver_email],
+        ["Load out", t.loadout_name],
+        ["Load out phone", t.loadout_phone],
+        ["Load out email", t.loadout_email],
+        ["Vehicle", t.vehicle],
+        ["License plate", t.license_plate],
+        ["Color", t.color],
+        ["Parking", t.parking],
+        ["Notes", t.notes],
+      ])
+    : [];
+  // schedule legs — arr()-guarded against untyped JSONB; each leg gated on stage.
+  const legs = (t ? arr(t.schedule) : [])
+    .filter((leg) => hasContent(leg.stage))
+    .map((leg) => {
+      const when = [leg.date, leg.time].filter((x) => hasContent(x)).join(" ");
+      const who = arr(leg.assigned_names)
+        .filter((n) => hasContent(n))
+        .join(", ");
+      return {
+        stage: leg.stage as string,
+        meta: [when, who].filter((x) => x.length > 0).join(" · "),
+      };
+    });
+  const count = fieldRows.length + legs.length;
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-transport`}
+      label="Transport"
+      count={count}
+    >
+      {count === 0 ? (
+        <p className="text-sm text-text-subtle">No transportation parsed.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {fieldRows.length > 0 ? <FieldRowList rows={fieldRows} /> : null}
+          {legs.length > 0 ? (
+            // §8: schedule legs as a stage/meta stack under the field list.
+            <ul
+              className={`flex flex-col gap-1 ${fieldRows.length > 0 ? "border-t border-border pt-2" : ""}`}
+            >
+              {legs.map((leg, i) => (
+                <li
+                  key={`${leg.stage}-${i}`}
+                  className="flex flex-wrap items-baseline gap-x-2 wrap-break-word text-sm text-text"
+                >
+                  <span className="font-medium text-text-strong">{leg.stage}</span>
+                  {leg.meta ? <span className="text-xs text-text-subtle">{leg.meta}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+    </BreakdownSection>
+  );
+}
+
+export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
+  const rows = contentRows([
+    ["COI", show.coi_status],
+    ["Proposal", show.proposal],
+    ["PO#", show.po],
+    ["Invoice", show.invoice],
+    ["Invoice notes", show.invoice_notes],
+  ]);
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-ops`}
+      label="Billing & docs"
+      count={rows.length}
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-text-subtle">No billing details parsed.</p>
+      ) : (
+        <FieldRowList rows={rows} />
+      )}
+    </BreakdownSection>
+  );
+}
+
+export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
+  const shown = members.slice(0, CREW_CAP);
+  const note = overflowNote(members.length, CREW_CAP, "people");
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-crew`}
+      label="Crew"
+      count={members.length}
+    >
+      {members.length === 0 ? (
+        <p className="text-sm text-text-subtle">No crew parsed.</p>
+      ) : (
+        <ul className="flex flex-col">
+          {shown.map((m, i) => {
+            const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
+            const name = m.name || "Unnamed";
+            const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
+            return (
+              <li key={`${m.name}-${i}`} className="flex items-center gap-3 py-1">
+                <Avatar name={m.name || null} />
+                <span className="min-w-0 flex-1">
+                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
+                    {name}
+                  </span>
+                  {subline ? (
+                    <span className="block wrap-break-word text-xs text-text-subtle">
+                      {subline}
+                    </span>
+                  ) : null}
+                </span>
+                {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
+                    border box (`size-tap-min`); the bordered 32px square is a
+                    nested NON-interactive visual. Adjacent anchors sit flush
+                    (no gap, no negative margins) so hit areas never overlap;
+                    the centered visuals leave a natural 12px gutter. */}
+                <span className="flex shrink-0 items-center">
+                  {hasContent(m.phone) ? (
+                    <a
+                      href={`tel:${m.phone}`}
+                      aria-label={`Call ${name}`}
+                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                        <Phone aria-hidden="true" className="size-4" />
+                      </span>
+                    </a>
+                  ) : null}
+                  {hasContent(m.email) ? (
+                    <a
+                      href={`mailto:${m.email}`}
+                      aria-label={`Email ${name}`}
+                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                    >
+                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                        <Mail aria-hidden="true" className="size-4" />
+                      </span>
+                    </a>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+/**
+ * One day's run-of-show (plan Task 2). The day's entries render as a SINGLE
+ * 2-track grid so times and titles each align to one column.
+ *
+ * Dimensional invariant (Tailwind v4 does NOT default `align-items: stretch`):
+ *   - The grid is `grid-cols-[auto_1fr]`. The `auto` track sizes to the WIDEST
+ *     time across this day's entries, so ALL time cells share one left edge.
+ *   - The `1fr` track's left edge is constant, so ALL title cells share one
+ *     left edge regardless of time width. (`tabular-nums` only equalizes digit
+ *     glyphs; it does NOT align variable-length times like "9:00 AM" vs
+ *     "11:00 AM" — the shared `auto` track is what guarantees the column.)
+ *   - `items-baseline` aligns each row's time/title on the text baseline.
+ *
+ * Truncation is replaced by in-place disclosure: the first SCHEDULE_ENTRIES_CAP
+ * entries show; a "Show all M times" button reveals the rest for THIS day only
+ * (local state). No silent "…+N" tail. (Spec §8: schedule grid unchanged.)
+ */
+export function ScheduleDayRow({
+  dfid,
+  iso,
+  entries,
+}: {
+  dfid: string;
+  iso: string;
+  entries: AgendaEntry[];
+}) {
+  const [showAll, setShowAll] = useState(false);
+  // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
+  // SCHEDULE_ENTRIES_CAP; ALWAYS render the synthetic group (strike/load-out)
+  // after it. The "Show all M times" toggle + overflow count are agenda-only —
+  // a same-day load-out is never hidden behind the cap.
+  const agenda = entries.filter((e) => e.kind !== "strike" && e.kind !== "loadout");
+  const synthetic = entries.filter((e) => e.kind === "strike" || e.kind === "loadout");
+  const visibleAgenda = showAll ? agenda : agenda.slice(0, SCHEDULE_ENTRIES_CAP);
+  const hidden = agenda.length - SCHEDULE_ENTRIES_CAP;
+  // Synthetic rows always follow the (capped) agenda rows in the SAME 2-track
+  // grid, so their time/title cells share the agenda rows' column edges.
+  const rows = [...visibleAgenda, ...synthetic];
+
+  return (
+    <li className="flex flex-col gap-1">
+      <span className="text-xs font-medium tabular-nums text-text-strong">
+        {humanizeDate(iso) ?? iso}
+      </span>
+      <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
+        {rows.map((e, i) => {
+          const isSynthetic = e.kind === "strike" || e.kind === "loadout";
+          return (
+            <Fragment key={`${iso}-${i}`}>
+              <span
+                data-testid={`wizard-step3-card-${dfid}-sched-time`}
+                className="whitespace-nowrap text-sm tabular-nums text-text-subtle"
+              >
+                {e.start}
+              </span>
+              {/* Title cell = the 1fr track. A synthetic entry (strike/load-out)
+                  carries a MUTED tone + a leading hairline rule INSIDE this cell
+                  (§9.3 "muted-title" option — no kind-word badge that would repeat
+                  the title's own leading word), so the two-track alignment holds. */}
+              <span
+                data-testid={`wizard-step3-card-${dfid}-sched-title`}
+                data-entry-kind={isSynthetic ? e.kind : undefined}
+                className={`text-sm ${
+                  isSynthetic ? "border-l border-border pl-2 text-text-subtle" : "text-text"
+                }`}
+              >
+                {e.title || ""}
+              </span>
+            </Fragment>
+          );
+        })}
+      </div>
+      {hidden > 0 && !showAll ? (
+        <button
+          type="button"
+          data-testid={`wizard-step3-card-${dfid}-sched-expand-${iso}`}
+          onClick={() => setShowAll(true)}
+          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          {`Show all ${agenda.length} times`}
+        </button>
+      ) : null}
+    </li>
+  );
+}
+
+export function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
+  const dayKeys = Object.keys(ros);
+  // Day cap-exemption (spec §9.2): a day whose entries contain a strike/load-out
+  // is ALWAYS rendered (a malformed/long sheet could push the exact admin-only
+  // synthetic day past the cap). shownDays = (first SCHEDULE_DAYS_CAP days) ∪
+  // (every synthetic-bearing day); the "…and N more days" note counts only the
+  // dropped NON-synthetic days.
+  const isSyntheticDay = (iso: string): boolean =>
+    arr(ros[iso]?.entries).some((e) => e.kind === "strike" || e.kind === "loadout");
+  const shownDays = dayKeys.filter((iso, idx) => idx < SCHEDULE_DAYS_CAP || isSyntheticDay(iso));
+  const droppedNonSynthetic = dayKeys.filter(
+    (iso, idx) => idx >= SCHEDULE_DAYS_CAP && !isSyntheticDay(iso),
+  ).length;
+  const daysNote = droppedNonSynthetic > 0 ? `…and ${droppedNonSynthetic} more days` : null;
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-schedule`}
+      label="Crew Schedule"
+      count={dayKeys.length}
+    >
+      {dayKeys.length === 0 ? (
+        <p className="text-sm text-text-subtle">No run-of-show parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {shownDays.map((iso) => (
+            <ScheduleDayRow key={iso} dfid={dfid} iso={iso} entries={arr(ros[iso]?.entries)} />
+          ))}
+        </ul>
+      )}
+      {daysNote ? <p className="text-xs text-text-subtle">{daysNote}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
+  const shown = rooms.slice(0, ROOMS_CAP);
+  const note = overflowNote(rooms.length, ROOMS_CAP, "rooms");
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-rooms`}
+      label="Rooms"
+      count={rooms.length}
+    >
+      {rooms.length === 0 ? (
+        <p className="text-sm text-text-subtle">No rooms parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {shown.map((r, i) => {
+            const scope = ROOM_SCOPE_FIELDS.filter((f) => hasContent(r[f.key]));
+            return (
+              <li key={`${r.name}-${i}`} className="text-sm text-text">
+                {/* §8 room header: name + kind eyebrow on one baseline row. */}
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="wrap-break-word font-semibold text-text-strong">
+                    {r.name || "Room"}
+                  </span>
+                  {r.kind ? (
+                    <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                      {r.kind}
+                    </span>
+                  ) : null}
+                </div>
+                {scope.length > 0 ? (
+                  <ul
+                    data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
+                    className="mt-1.5 flex flex-col gap-1 text-xs text-text-subtle"
+                  >
+                    {scope.map((f) => {
+                      const ScopeIcon = ROOM_SCOPE_ICONS[f.label] ?? LayoutGrid;
+                      return (
+                        // §8 scope grammar: icon / key / value tracks.
+                        <li
+                          key={f.label}
+                          className="grid grid-cols-[1.25rem_5rem_minmax(0,1fr)] items-start gap-x-2"
+                        >
+                          <ScopeIcon
+                            aria-hidden="true"
+                            className="mt-px size-3.5 text-accent-on-bg"
+                          />
+                          <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                            {f.label}:
+                          </span>
+                          <span className="wrap-break-word text-text">{r[f.key] as string}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+                {(() => {
+                  // Per-room physical + schedule detail (BL-ROOM-DETAIL-UNRENDERED).
+                  // Coerce once; keep non-empty AS-PARSED (sentinels visible — review
+                  // surface, NOT sentinel-hidden like the crew page).
+                  const detail = ROOM_DETAIL_FIELDS.map((f) => ({
+                    label: f.label,
+                    value: String(r[f.key] ?? "").trim(),
+                  })).filter((d) => d.value.length > 0);
+                  return detail.length > 0 ? (
+                    <ul
+                      data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
+                      className="mt-1 flex flex-col gap-0.5 pl-7 text-xs text-text-subtle"
+                    >
+                      {detail.map((d) => (
+                        <li key={d.label} className="wrap-break-word">
+                          <span className="font-medium text-text">{d.label}:</span> {d.value}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null;
+                })()}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+// Show-level event-detail fields the crew GearSection surfaces — keynote + opening
+// reel — so the operator can verify them at the publish gate. opening_reel is
+// URL-stripped (stripOpeningReelText) for a clean line; values shown as-parsed.
+export function EventDetailsBreakdown({
+  dfid,
+  eventDetails,
+}: {
+  dfid: string;
+  eventDetails: Record<string, string> | undefined;
+}) {
+  const ed = eventDetails ?? {};
+  // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
+  // is excluded there — folder link) so the operator sees the full picture
+  // pre-publish (BL-EVENT-DETAILS-UNRENDERED). This is a REVIEW surface, so
+  // sentinels are shown AS-PARSED (a 'TBD'/'N/A' tells the operator the cell
+  // parsed-but-unfilled) — deliberately NOT sentinel-hidden like the crew card.
+  // This asymmetry is the existing, tested contract (Step3Review.test.tsx
+  // "shown as-parsed (review surface, not sentinel-hidden like the crew page)").
+  // Coerce FIRST (String() is null/non-string-safe), then keep any non-empty
+  // value; `opening_reel` keeps its URL-strip cleanup; trim prevents whitespace
+  // from inflating `count`.
+  const fields: { label: string; value: string }[] = [];
+  for (const [key, label] of Object.entries(EVENT_DETAILS_LABELS)) {
+    const text = String(ed[key] ?? "").trim();
+    const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
+    if (value.length > 0) fields.push({ label, value });
+  }
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-event-details`}
+      label="Event details"
+      count={fields.length}
+    >
+      {fields.length === 0 ? (
+        <p className="text-sm text-text-subtle">No event details parsed.</p>
+      ) : (
+        <FieldRowList rows={fields} />
+      )}
+    </BreakdownSection>
+  );
+}
+
+// One parsed PULL-sheet item rendered as the crew GearSection renders it
+// (GearSection.tsx:339-345): `qty × item (cat / subCat)`, with the decorative
+// cat/subCat taxonomy sentinel-guarded (hidden when TBD/N/A/empty) and the qty
+// prefix dropped when null. The item NAME itself is shown as-parsed — this is a
+// review surface, so a garbled name must be visible, not hidden.
+export function packItemLabel(item: PullSheetItem): string {
+  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
+  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
+  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
+  const qtyPart = item.qty !== null && item.qty !== undefined ? `${item.qty} × ` : "";
+  // Defensive (§4.6, untyped-on-wire JSONB): the type says `item: string`, but a
+  // malformed row must never render the literal "undefined". A nameless item is
+  // itself a parse signal worth seeing on a review surface, so label it.
+  const name = hasContent(item.item) ? item.item : "(unnamed item)";
+  return `${qtyPart}${name}${taxonomy ? ` (${taxonomy})` : ""}`;
+}
+
+/** The §8 pack-case count pill ("N items", singular-aware — copy preserved). */
+function PackCountPill({ count }: { count: number }) {
+  return (
+    <span className="shrink-0 rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text-subtle">
+      <span className="tabular-nums">{count}</span> {count === 1 ? "item" : "items"}
+    </span>
+  );
+}
+
+// The parsed PULL-tab pack list (`pr.pullSheet`) — the same data the crew
+// GearSection renders, surfaced here so the operator can verify it parsed at the
+// publish gate. Each case is a native <details>: the COLLAPSED summary is the
+// case label (or "Case N" fallback) + item count; EXPANDING reveals the parsed
+// items (qty × item (cat/subCat)), capped at PACK_LIST_ITEMS_CAP, so the default
+// view stays compact while full crew parity is one click away. Cases are capped
+// at PACK_LIST_CASES_CAP (the crew CASE_CAP). UNGATED — unlike the crew page
+// (which date-gates pack-list visibility via isPackListVisibleToday), a review
+// surface always shows what parsed. A case with zero items renders as a plain
+// non-expandable line.
+export function PackListBreakdown({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
+  const shown = cases.slice(0, PACK_LIST_CASES_CAP);
+  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-pack-list`}
+      label="Pack list"
+      count={cases.length}
+    >
+      {cases.length === 0 ? (
+        <p className="text-sm text-text-subtle">No pack list parsed.</p>
+      ) : (
+        <ul className="flex flex-col">
+          {shown.map((c, i) => {
+            const items = arr(c.items);
+            const label = c.caseLabel || `Case ${i + 1}`;
+            // No items → nothing to expand; render a plain line (the count still
+            // tells the operator the case parsed but is empty).
+            if (items.length === 0) {
+              return (
+                <li
+                  key={`${label}-${i}`}
+                  className="flex min-h-tap-min items-center gap-2 border-b border-border text-sm text-text last:border-0"
+                >
+                  <span aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="wrap-break-word flex-1 font-medium text-text-strong">
+                    {label}
+                  </span>
+                  <PackCountPill count={items.length} />
+                </li>
+              );
+            }
+            const shownItems = items.slice(0, PACK_LIST_ITEMS_CAP);
+            const itemsNote = overflowNote(items.length, PACK_LIST_ITEMS_CAP, "items");
+            return (
+              <li
+                key={`${label}-${i}`}
+                className="border-b border-border text-sm text-text last:border-0"
+              >
+                <details className="group" data-testid={`wizard-step3-card-${dfid}-pack-case-${i}`}>
+                  {/* §8 summary row: ≥44px tap target, chevron rotate on open
+                      (transform only), count pill. Native marker hidden — the
+                      chevron IS the disclosure affordance. */}
+                  <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+                    <ChevronRight
+                      aria-hidden="true"
+                      className="size-4 shrink-0 text-text-subtle transition-transform duration-fast group-open:rotate-90"
+                    />
+                    <span className="wrap-break-word flex-1 font-medium text-text-strong">
+                      {label}
+                    </span>
+                    <PackCountPill count={items.length} />
+                  </summary>
+                  <ul className="mb-2 flex flex-col gap-0.5 pl-6 text-xs text-text-subtle">
+                    {shownItems.map((item, j) => (
+                      <li key={`${item.item}-${j}`} className="wrap-break-word">
+                        {packItemLabel(item)}
+                      </li>
+                    ))}
+                    {itemsNote ? <li className="text-text-faint">{itemsNote}</li> : null}
+                  </ul>
+                </details>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
+  const shown = hotels.slice(0, HOTELS_CAP);
+  const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-hotels`}
+      label="Hotels"
+      count={hotels.length}
+    >
+      {hotels.length === 0 ? (
+        <p className="text-sm text-text-subtle">No hotels parsed.</p>
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {shown.map((h, i) => (
+            <li
+              key={`${h.hotel_name ?? "hotel"}-${i}`}
+              className="flex items-start gap-3 text-sm text-text"
+            >
+              {/* §8 hotel row: icon chip + info stack + right-aligned dates. */}
+              <span
+                aria-hidden="true"
+                className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-sunken text-text-subtle"
+              >
+                <BedDouble className="size-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block wrap-break-word font-medium text-text-strong">
+                  {h.hotel_name || "Hotel"}
+                </span>
+                {arr(h.names).length > 0 ? (
+                  <span className="block wrap-break-word text-xs text-text-subtle">
+                    {arr(h.names).join(", ")}
+                  </span>
+                ) : null}
+                {hasContent(h.hotel_address) ? (
+                  <span className="block wrap-break-word text-xs text-text-subtle">
+                    {h.hotel_address}
+                  </span>
+                ) : null}
+              </span>
+              {h.check_in || h.check_out ? (
+                <span className="shrink-0 text-xs tabular-nums text-text-subtle">
+                  {h.check_in ?? "?"} → {h.check_out ?? "?"}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+    </BreakdownSection>
+  );
+}
+
+/**
+ * Hardened warning-title derivation (spec §8, invariant 5). Order:
+ *   1. Cataloged code with a non-null catalog title → that title.
+ *   2. `w.message` ONLY when, after trim, it is non-empty AND does not
+ *      contain the raw code token (case-insensitive — catches exact
+ *      equality, embedded codes, whitespace and case variants) AND is not
+ *      itself machine-token-shaped (`/^[A-Z0-9_]{2,}$/`).
+ *   3. Otherwise the generic human fallback.
+ *
+ * Rationale: persisted warnings exist whose `message` IS the raw code
+ * (`reelWarning`, lib/sync/phase2.ts — e.g. OPENING_REEL_UNREADABLE); the
+ * per-show page already pins the no-raw-code rule. A cataloged code with a
+ * NULL title (some §12.4 rows are title-less) falls through to the same
+ * message guards rather than rendering an empty title.
+ */
+export function reviewWarningTitle(w: ParseWarning): string {
+  if (isMessageCode(w.code)) {
+    const title = messageFor(w.code as MessageCode).title;
+    if (title) return title;
+  }
+  const msg = (w.message ?? "").trim();
+  if (
+    msg.length > 0 &&
+    !msg.toLowerCase().includes(w.code.toLowerCase()) &&
+    !/^[A-Z0-9_]{2,}$/.test(msg)
+  ) {
+    return msg;
+  }
+  return "A parse issue was recorded for this sheet.";
+}
+
+/**
+ * Parse-warnings breakdown (plan Task 4; Task 3 restyle + hardening). The full
+ * `parseResult.warnings` list is surfaced here. Each warning's TITLE goes
+ * through `reviewWarningTitle` (hardened, spec §8); cataloged codes also show
+ * their `helpfulContext`. The bare `code` is NEVER rendered (invariant 5).
+ *
+ * One explicit line states that warnings are informational and do NOT block
+ * publishing, so the count badge stops reading as an error. Severity is shown
+ * as an icon chip (warn/info) + a small dot + label. Zero warnings render the
+ * AFFIRMATIVE empty state (spec §3.10) — the all-clean state is a sentence,
+ * not an absent panel. No publish-gate logic changes here.
+ */
+export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWarning[] }) {
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
+      label="Warnings"
+      count={warnings.length}
+    >
+      {warnings.length === 0 ? (
+        <p
+          data-testid={`wizard-step3-card-${dfid}-warnings-empty`}
+          className="text-sm text-text-subtle"
+        >
+          No parse warnings for this sheet.
+        </p>
+      ) : (
+        <>
+          <p
+            data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
+            className="text-xs text-text-subtle"
+          >
+            These are informational and don&rsquo;t block publishing.
+          </p>
+          <ul className="flex flex-col gap-3">
+            {warnings.map((w, i) => {
+              const title = reviewWarningTitle(w);
+              const context = isMessageCode(w.code)
+                ? (messageFor(w.code as MessageCode).helpfulContext ?? null)
+                : null;
+              const isWarn = w.severity === "warn";
+              return (
+                <li
+                  key={`${w.code}-${i}`}
+                  data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
+                  className="flex gap-3"
+                >
+                  {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
+                  <span
+                    aria-hidden="true"
+                    className={`grid size-7 shrink-0 place-items-center rounded-sm ${
+                      isWarn ? "bg-warning-bg text-warning-text" : "bg-info-bg text-text-subtle"
+                    }`}
+                  >
+                    {isWarn ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-text">
+                      <span
+                        aria-hidden="true"
+                        className={`size-1.5 shrink-0 self-center rounded-pill ${
+                          isWarn ? "bg-warning-text" : "bg-text-faint"
+                        }`}
+                      />
+                      <span className="wrap-break-word font-medium text-text-strong">
+                        {renderEmphasis(title)}
+                      </span>
+                      <span className="text-xs uppercase text-text-subtle">
+                        {isWarn ? "warn" : "info"}
+                      </span>
+                    </span>
+                    {(() => {
+                      // The offending row label (from rawSnippet "<label> | <value>"): the
+                      // catalog title is generic ("Unrecognized row in sheet"), so this is
+                      // the only per-row discriminator — makes otherwise-identical entries
+                      // scannable and identifies the row when the deep link is absent.
+                      const rowLabel = labelFromRawSnippet(w.rawSnippet);
+                      return rowLabel ? (
+                        <span
+                          data-testid={`wizard-step3-card-${dfid}-warning-${i}-label`}
+                          className="wrap-break-word text-xs text-text-subtle"
+                        >
+                          {rowLabel}
+                        </span>
+                      ) : null;
+                    })()}
+                    {context ? (
+                      <p className="text-xs text-text-subtle">{renderEmphasis(context)}</p>
+                    ) : null}
+                    {(() => {
+                      // Exact-cell deep link: when the scan captured the offending
+                      // source cell, offer a one-click jump to it in the Sheet. Falls
+                      // back to the base sheet URL for a non-allowlisted tab (still
+                      // useful); omitted when no anchor or no driveFileId.
+                      const href = w.sourceCell ? buildSheetDeepLink(dfid, w.sourceCell) : null;
+                      return href ? (
+                        <a
+                          data-testid={`wizard-step3-card-${dfid}-warning-${i}-open`}
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                        >
+                          Open in Sheet <span aria-hidden="true">↗</span>
+                        </a>
+                      ) : null;
+                    })()}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </BreakdownSection>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Agenda PDF schedule — live-fill card + 5-state machine (spec §5.3).
+ *
+ * The card renders the server-built `AdminAgendaItem[]` (note-only baseline at
+ * first paint), POSTs to the extract endpoint, polls while "Parsing agenda…",
+ * then fills in the schedule blocks (with the server-validated Open-PDF anchors)
+ * when the extraction is ready. It NEVER computes an href itself — it renders
+ * `item.href` only when the server supplied one AND the state is `ready`.
+ *
+ * States (keyed on `stateKey` = the row's `agendaStateKey`):
+ *   idle → loading → { ready | stale | error }
+ * A NEW `stateKey` resets to loading, clears the upgraded items back to the
+ * baseline, and re-fires the POST.
+ *
+ *   - loading: baseline note-only items + "Parsing agenda… (N PDFs)" eyebrow,
+ *     NO Open-PDF anchor.
+ *   - ready (200): `agenda-schedule` blocks (via AgendaScheduleBlock) + overflow
+ *     notes, WITH the server-validated anchors.
+ *   - error (network / 5xx / 504 timeout / 500): note-only, NO anchor, + a
+ *     source-sheet link.
+ *   - stale (409): sanitized note, NO anchor, NO block.
+ *   - Anchors render ONLY in `ready` (loading/error/stale all have zero).
+ *
+ * Late-response suppression (plan round-24): the effect captures the current
+ * `stateKey` into a const + creates an `AbortController`; cleanup `abort()`s the
+ * in-flight fetch on key change, and EVERY resolution checks `capturedKey ===
+ * currentKeyRef.current` before any `setState` — so a late 200/409 from an old
+ * generation is DROPPED and never sets `ready`/`stale` for the new generation.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+type AgendaState = "idle" | "loading" | "ready" | "stale" | "error";
+
+// ── Module-level POST throttle: at most AGENDA_CLIENT_CONCURRENCY in-flight
+// extraction POSTs across every mounted card (spec §5.3). A FIFO of pending
+// grants drains as slots are released. ──
+let agendaActiveSlots = 0;
+const agendaSlotWaiters: Array<() => void> = [];
+
+function acquireAgendaSlot(): Promise<() => void> {
+  return new Promise<() => void>((resolve) => {
+    const grant = () => {
+      agendaActiveSlots++;
+      let released = false;
+      resolve(() => {
+        if (released) return;
+        released = true;
+        agendaActiveSlots--;
+        const next = agendaSlotWaiters.shift();
+        if (next) next();
+      });
+    };
+    if (agendaActiveSlots < AGENDA_CLIENT_CONCURRENCY) grant();
+    else agendaSlotWaiters.push(grant);
+  });
+}
+
+/** Test-only seam: reset the module-level POST throttle between test cases. */
+export function __resetAgendaThrottleForTests(): void {
+  agendaActiveSlots = 0;
+  agendaSlotWaiters.length = 0;
+}
+
+/** Retry-After is delta-seconds (the endpoint sends "10"); fall back to 5s. */
+function parseRetryAfterMs(header: string | null): number {
+  if (!header) return 5_000;
+  const secs = Number.parseInt(header, 10);
+  return Number.isFinite(secs) && secs >= 0 ? secs * 1_000 : 5_000;
+}
+
+/** An abortable delay; resolves immediately if already aborted. */
+function agendaSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+function agendaOverflowNotes(block: NonNullable<AdminAgendaItem["block"]>): string[] {
+  const notes: string[] = [];
+  if (block.droppedSessions > 0) notes.push(`…and ${block.droppedSessions} more sessions`);
+  if (block.droppedDays > 0) notes.push(`…and ${block.droppedDays} more days`);
+  if (block.droppedTracks > 0) notes.push(`…and ${block.droppedTracks} more tracks`);
+  return notes;
+}
+
+/** The per-state note line for a note-only item (never a raw error/status code —
+ * invariant 5). */
+function agendaItemNote(state: AgendaState): string {
+  switch (state) {
+    case "error":
+      return "We couldn’t read this agenda’s schedule.";
+    case "stale":
+      return "This agenda changed since the last scan. Re-scan to refresh.";
+    case "ready":
+      return "No schedule detected in this PDF.";
+    default:
+      return "Reading the schedule…";
+  }
+}
+
+function AgendaItemRow({
+  item,
+  state,
+  index,
+}: {
+  item: AdminAgendaItem;
+  state: AgendaState;
+  index: number;
+}) {
+  const showBlock = state === "ready" && item.block !== null;
+  // Anchors render ONLY in `ready`, and ONLY when the server validated an href.
+  const showAnchor = state === "ready" && !!item.href;
+  return (
+    <li data-testid="agenda-item" className="flex min-w-0 flex-col gap-1.5">
+      {item.badge ? (
+        <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+          {item.badge}
+        </span>
+      ) : null}
+      {showBlock && item.block ? (
+        <>
+          <AgendaScheduleBlock extraction={item.block.extraction} label={null} />
+          {agendaOverflowNotes(item.block).map((note) => (
+            <p key={note} className="text-xs text-text-subtle">
+              {note}
+            </p>
+          ))}
+        </>
+      ) : (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid="agenda-note"
+          className={state === "error" ? "text-sm text-warning-text" : "text-sm text-text-subtle"}
+        >
+          {agendaItemNote(state)}
+        </p>
+      )}
+      {showAnchor && item.href ? (
+        <a
+          data-testid="agenda-open-pdf"
+          href={item.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Open PDF <span aria-hidden="true">↗</span>
+        </a>
+      ) : (
+        // Keep the index referenced so the key is stable + lint-clean.
+        <span hidden data-agenda-index={index} />
+      )}
+    </li>
+  );
+}
+
+export function AgendaBreakdown({
+  driveFileId,
+  wizardSessionId,
+  baseline,
+  stateKey,
+  onLiveKeyLayout,
+}: {
+  driveFileId: string;
+  wizardSessionId: string;
+  baseline: AdminAgendaItem[];
+  stateKey: string;
+  /**
+   * Test-only observability seam (production never passes it): receives
+   * `currentKeyRef.current` in the LAYOUT-effect phase — after commit, before
+   * passive effects — which is the only window that reflects ONLY the
+   * render-time live-key write (the generation-race fix) and not the later
+   * passive-effect write. Per-instance (no shared module state).
+   */
+  onLiveKeyLayout?: (liveKey: string) => void;
+}) {
+  const [state, setState] = useState<AgendaState>(() => (baseline.length > 0 ? "loading" : "idle"));
+  const [items, setItems] = useState<AdminAgendaItem[]>(baseline);
+  // A ref tracking the LIVE generation key — every late resolution checks the
+  // captured key against this before any setState (round-24 suppression).
+  const currentKeyRef = useRef<string>(stateKey);
+  // The latest baseline read inside the keyed effect WITHOUT making the effect
+  // re-run on every parent render (the parent rebuilds the array each render).
+  // Updated in its own effect so the keyed effect (declared after) sees the
+  // current generation's baseline; the generation itself is keyed on `stateKey`.
+  const baselineRef = useRef<AdminAgendaItem[]>(baseline);
+  useEffect(() => {
+    baselineRef.current = baseline;
+  }, [baseline]);
+
+  // Generation reset — adjust state during render when `stateKey` changes (the
+  // React "reset state on prop change" pattern). Clears any prior `ready` items
+  // back to the baseline note-only and returns to loading; the keyed effect
+  // below then re-fires the POST for the new generation.
+  const [trackedKey, setTrackedKey] = useState<string>(stateKey);
+  if (stateKey !== trackedKey) {
+    setTrackedKey(stateKey);
+    setState(baseline.length > 0 ? "loading" : "idle");
+    setItems(baseline);
+    // Intentional render-time ref update (react-hooks/refs disable below):
+    // the effect also sets this, but passive-effect flush is too late for the
+    // live() guard in a concurrent generation window.
+    // eslint-disable-next-line react-hooks/refs
+    currentKeyRef.current = stateKey;
+  }
+
+  useEffect(() => {
+    if (baselineRef.current.length === 0) return;
+
+    const capturedKey = stateKey;
+    currentKeyRef.current = stateKey;
+    const controller = new AbortController();
+    let cancelled = false;
+    const live = () => !cancelled && capturedKey === currentKeyRef.current;
+
+    void (async () => {
+      const release = await acquireAgendaSlot();
+      try {
+        if (!live()) return;
+        const startedAt = Date.now();
+        let admittedAt: number | null = null;
+
+        // Poll loop — 200 ready / 409 stale / 202 retry / everything else error.
+        for (;;) {
+          if (!live()) return;
+          let res: Response;
+          try {
+            res = await fetch(
+              `/api/admin/onboarding/extract-agenda/${wizardSessionId}/${driveFileId}`,
+              { method: "POST", signal: controller.signal },
+            );
+          } catch {
+            if (!live()) return;
+            setState("error");
+            return;
+          }
+          if (!live()) return;
+
+          if (res.status === 200) {
+            let body: { items?: AdminAgendaItem[] } = {};
+            try {
+              body = (await res.json()) as { items?: AdminAgendaItem[] };
+            } catch {
+              /* malformed 200 → fall back to baseline note-only */
+            }
+            if (!live()) return;
+            setItems(Array.isArray(body.items) ? body.items : baselineRef.current);
+            setState("ready");
+            return;
+          }
+
+          if (res.status === 409) {
+            if (!live()) return;
+            setState("stale");
+            return;
+          }
+
+          if (res.status === 202) {
+            let body: { reason?: "in_progress" | "queued" } = {};
+            try {
+              body = (await res.json()) as { reason?: "in_progress" | "queued" };
+            } catch {
+              /* default to in_progress budget below */
+            }
+            if (!live()) return;
+            const reason = body.reason === "queued" ? "queued" : "in_progress";
+            const now = Date.now();
+            // Reason-aware budgets: in_progress window starts at admission; the
+            // queued window starts when the first poll was issued.
+            let deadline: number;
+            if (reason === "in_progress") {
+              if (admittedAt === null) admittedAt = now;
+              deadline = admittedAt + AGENDA_CLIENT_POLL_BUDGET_MS;
+            } else {
+              deadline = startedAt + AGENDA_CLIENT_QUEUE_BUDGET_MS;
+            }
+            if (now >= deadline) {
+              setState("error");
+              return;
+            }
+            await agendaSleep(parseRetryAfterMs(res.headers.get("Retry-After")), controller.signal);
+            continue;
+          }
+
+          // 504 timeout, 500, 403, and any other non-2xx → error.
+          if (!live()) return;
+          setState("error");
+          return;
+        }
+      } finally {
+        release();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [stateKey, driveFileId, wizardSessionId]);
+
+  // Test-only observability (no-op in production — `onLiveKeyLayout` is never
+  // passed): report the live generation key in the layout phase so the g3
+  // regression can observe the render-time fix without reading the ref during
+  // render. Layout effects fire after DOM mutations but before passive effects,
+  // the only window that distinguishes the render-time live-key write from the
+  // passive-effect write.
+  useLayoutEffect(() => {
+    onLiveKeyLayout?.(currentKeyRef.current);
+  });
+
+  // §4.6 guard: no agenda links → no breakdown at all (and the effect above
+  // never POSTs).
+  if (baseline.length === 0) return null;
+
+  const sourceHref = buildSheetDeepLink(driveFileId);
+
+  return (
+    <section
+      data-testid={`wizard-step3-card-${driveFileId}-agenda`}
+      className="flex flex-col gap-2"
+    >
+      {/* Non-heading eyebrow label: the reused AgendaScheduleBlock emits its own
+          <h3> day labels, so a real <h4> here would invert the heading order
+          (h4 > h3). Rendering the section label as a styled <p> keeps the inner
+          <h3> from nesting under a higher-level heading. */}
+      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        Agenda
+      </p>
+      {state === "loading" ? (
+        <p
+          role="status"
+          aria-live="polite"
+          data-testid={`wizard-step3-card-${driveFileId}-agenda-parsing`}
+          className="text-xs text-text-subtle"
+        >
+          {`Parsing agenda… (${items.length} ${items.length === 1 ? "PDF" : "PDFs"})`}
+        </p>
+      ) : null}
+      <ul className="flex flex-col gap-3">
+        {items.map((item, i) => (
+          <AgendaItemRow key={`${item.label}-${i}`} item={item} state={state} index={i} />
+        ))}
+      </ul>
+      {state === "error" && sourceHref ? (
+        <a
+          data-testid="agenda-source-link"
+          href={sourceHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Open the source sheet <span aria-hidden="true">↗</span>
+        </a>
+      ) : null}
+    </section>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Section registry (spec §6.1) — the single source of truth the review modal
+ * (Task 4+) renders: rail items, chip rail, content-pane sections.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Everything a section body needs, assembled once by the caller. */
+export type SectionData = {
+  pr: ParseResult;
+  row: Step3Row;
+  dfid: string;
+  wizardSessionId: string;
+  crewMembers: CrewMemberRow[];
+  rooms: RoomRow[];
+  hotels: HotelReservationRow[];
+  pullSheet: PullSheetCase[];
+  ros: RunOfShow;
+  warnings: ParseWarning[];
+  agendaBaseline: AdminAgendaItem[];
+};
+
+export type Step3SectionDef = {
+  id: SectionId;
+  label: string;
+  group: string;
+  /** Lucide glyph per the §6.1 table. */
+  Icon: LucideIcon;
+  /** Rail count for the list-shaped subset (§6.1); null → no rail count. */
+  railCount: ((d: SectionData) => number) | null;
+  /** The restyled section body. */
+  render: (d: SectionData) => React.ReactNode;
+};
+
+/** Rail group order (spec §6.1). */
+export const STEP3_SECTION_GROUPS: readonly string[] = [
+  "The show",
+  "People",
+  "Schedule",
+  "Logistics",
+  "Gear",
+  "Money",
+  "Checks",
+];
+
+/**
+ * The §6.1 registry. 12 defs when the row has an agenda baseline, 11 without
+ * (`agenda` renders — rail entry AND section — only when the baseline is
+ * non-empty, the same gate the card uses today). Every other section always
+ * renders (empty states preserved); `warnings` always renders (§3.10).
+ */
+export function step3Sections(d: SectionData): Step3SectionDef[] {
+  const defs: Step3SectionDef[] = [
+    {
+      id: "venue",
+      label: "Venue",
+      group: "The show",
+      Icon: MapPin,
+      railCount: null,
+      render: (s) => <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />,
+    },
+    {
+      id: "event",
+      label: "Event details",
+      group: "The show",
+      Icon: Sparkles,
+      railCount: null,
+      render: (s) => <EventDetailsBreakdown dfid={s.dfid} eventDetails={s.pr.show.event_details} />,
+    },
+    {
+      id: "crew",
+      label: "Crew",
+      group: "People",
+      Icon: Users,
+      railCount: (s) => s.crewMembers.length,
+      render: (s) => <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />,
+    },
+    {
+      id: "contacts",
+      label: "Contacts",
+      group: "People",
+      Icon: Phone,
+      // Contact-BLOCK count, exactly as the body renders it today
+      // (count={blocks.length}) — shared shaping via contactBlocks.
+      railCount: (s) => contactBlocks(s.pr.show.client_contact, arr(s.pr.contacts)).length,
+      render: (s) => (
+        <ContactsBreakdown
+          dfid={s.dfid}
+          clientContact={s.pr.show.client_contact}
+          contacts={arr(s.pr.contacts)}
+        />
+      ),
+    },
+    {
+      id: "schedule",
+      label: "Crew schedule",
+      group: "Schedule",
+      Icon: CalendarDays,
+      // Day count (incl. synthetic bookend days), matching the heading count.
+      railCount: (s) => Object.keys(s.ros).length,
+      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} />,
+    },
+  ];
+  if (d.agendaBaseline.length > 0) {
+    defs.push({
+      id: "agenda",
+      label: "Agenda",
+      group: "Schedule",
+      Icon: FileText,
+      railCount: null,
+      render: (s) => (
+        <AgendaBreakdown
+          driveFileId={s.dfid}
+          wizardSessionId={s.wizardSessionId}
+          baseline={s.agendaBaseline}
+          stateKey={s.row.agendaStateKey ?? s.dfid}
+        />
+      ),
+    });
+  }
+  defs.push(
+    {
+      id: "hotels",
+      label: "Hotels",
+      group: "Logistics",
+      Icon: BedDouble,
+      railCount: (s) => s.hotels.length,
+      render: (s) => <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />,
+    },
+    {
+      id: "transport",
+      label: "Transport",
+      group: "Logistics",
+      Icon: Truck,
+      railCount: null,
+      render: (s) => <TransportBreakdown dfid={s.dfid} transportation={s.pr.transportation} />,
+    },
+    {
+      id: "rooms",
+      label: "Rooms & scope",
+      group: "Gear",
+      Icon: LayoutGrid,
+      railCount: (s) => s.rooms.length,
+      render: (s) => <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />,
+    },
+    {
+      id: "packlist",
+      label: "Pack list",
+      group: "Gear",
+      Icon: Package,
+      railCount: (s) => s.pullSheet.length,
+      render: (s) => <PackListBreakdown dfid={s.dfid} cases={s.pullSheet} />,
+    },
+    {
+      id: "billing",
+      label: "Billing & docs",
+      group: "Money",
+      Icon: Receipt,
+      railCount: null,
+      render: (s) => <OpsBreakdown dfid={s.dfid} show={s.pr.show} />,
+    },
+    {
+      id: "warnings",
+      label: "Parse warnings",
+      group: "Checks",
+      Icon: AlertTriangle,
+      // Both severities — the rail count counts list rows (§3.3).
+      railCount: (s) => s.warnings.length,
+      render: (s) => <WarningsBreakdown dfid={s.dfid} warnings={s.warnings} />,
+    },
+  );
+  return defs;
+}

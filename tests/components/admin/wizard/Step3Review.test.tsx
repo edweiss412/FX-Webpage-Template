@@ -849,10 +849,15 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-cp-more"));
-    const t = getByTestId("wizard-step3-card-drive-cp-breakdown-crew").textContent ?? "";
-    expect(t).toContain("Doug Larson");
-    expect(t).toContain("917-331-4885"); // phone shown
-    expect(t).toContain("doug@fxav.com"); // email shown (parity with the crew page)
+    const region = getByTestId("wizard-step3-card-drive-cp-breakdown-crew");
+    expect(region.textContent).toContain("Doug Larson");
+    // Task 3 restyle (spec §8): phone/email surface as tel:/mailto: ACTION
+    // anchors (44×44 tap targets) rather than inline text — the as-parsed
+    // values live in the hrefs, the accessible names identify the member.
+    const call = within(region).getByLabelText("Call Doug Larson");
+    expect(call.getAttribute("href")).toBe("tel:917-331-4885"); // phone as-parsed
+    const email = within(region).getByLabelText("Email Doug Larson");
+    expect(email.getAttribute("href")).toBe("mailto:doug@fxav.com"); // email as-parsed
   });
 
   test("hotels breakdown shows hotel_address, never confirmation_no (BL-REVIEW-MODAL-COMPLETENESS)", () => {
@@ -967,12 +972,17 @@ describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSec
 
   test("caps at 12 cases and appends an overflow note for the remainder", () => {
     const CASES = Array.from({ length: 14 }, (_, i) => caseRow(`Case L${i}`, 2));
-    const { getByTestId } = openPack("pack-2", packPr(CASES));
-    const t = getByTestId("wizard-step3-card-pack-2-breakdown-pack-list").textContent ?? "";
+    const { getByTestId, queryByText, getByText } = openPack("pack-2", packPr(CASES));
+    const region = getByTestId("wizard-step3-card-pack-2-breakdown-pack-list");
+    const t = region.textContent ?? "";
     expect(t).toContain(`(${CASES.length})`); // header count is the FULL total, not the cap
-    expect(t).toContain("Case L0"); // first shown
-    expect(t).toContain("Case L11"); // 12th shown (index 11)
-    expect(t).not.toContain("Case L12"); // 13th NOT shown (beyond cap)
+    // Exact-node label queries (Task 3 restyle: the label and the count pill are
+    // separate nodes with no " · " separator, so "Case L1"+"2 items" would
+    // substring-satisfy a textContent scan for "Case L12" — query the label
+    // node exactly instead).
+    expect(getByText("Case L0")).toBeTruthy(); // first shown
+    expect(getByText("Case L11")).toBeTruthy(); // 12th shown (index 11)
+    expect(queryByText("Case L12")).toBeNull(); // 13th NOT shown (beyond cap)
     expect(t).toContain(`…and ${CASES.length - 12} more cases`); // overflow note, derived
   });
 
