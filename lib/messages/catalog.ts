@@ -2757,8 +2757,7 @@ export const MESSAGE_CATALOG = {
   CREW_SHOW_PAUSED: {
     code: "CREW_SHOW_PAUSED",
     dougFacing: null,
-    crewFacing:
-      "This show isn't available right now. Check back soon — if you're expecting it, text Doug.",
+    crewFacing: "It may be back soon. If you're expecting this show, text Doug.",
     followUp: "Crew → check back later",
     helpfulContext: null,
     title: null,

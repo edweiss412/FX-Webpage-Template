@@ -69,7 +69,7 @@ export function PublishedToggle({
   return (
     <div
       data-testid="published-toggle-row"
-      className="flex items-start justify-between gap-3 rounded-sm border border-border bg-surface-sunken p-tile-pad"
+      className="flex items-start justify-between gap-3 rounded-sm border border-border bg-surface p-tile-pad"
     >
       <div className="min-w-0">
         <h3 className="text-base font-semibold text-text-strong">Published</h3>
@@ -140,7 +140,9 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
       data-testid="published-toggle"
       disabled={isDisabled}
       className={[
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+        // before:* extends the hit area to the 44px tap-min floor (DESIGN.md --spacing-tap-min)
+        // without growing the 28px visual track: 28 + 2×8 = 44.
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
         on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken",
       ].join(" ")}
     >

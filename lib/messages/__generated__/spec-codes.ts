@@ -243,7 +243,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "CREW_SHOW_PAUSED": {
-    "crewFacing": "This show isn't available right now. Check back soon — if you're expecting it, text Doug.",
+    "crewFacing": "It may be back soon. If you're expecting this show, text Doug.",
     "dougFacing": null,
     "followUp": "Crew → check back later",
     "helpfulContext": null,

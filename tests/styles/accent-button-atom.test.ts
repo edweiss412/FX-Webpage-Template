@@ -49,7 +49,6 @@ const MIGRATED_FILES = [
   "ResolveAlertButton.tsx",
   "PendingPanelRetryButton.tsx",
   "ReSyncButton.tsx",
-  "PublishShowButton.tsx",
   "RunFinalCASButton.tsx",
   "ResumeFinalizeButton.tsx",
   "FinalizeButton.tsx",

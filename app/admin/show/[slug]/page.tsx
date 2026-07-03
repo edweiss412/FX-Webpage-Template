@@ -528,7 +528,11 @@ export default async function AdminShowPage({
         rightSlot={chip}
       />
 
-      <PerShowAlertSection showId={show.id} slug={show.slug} highlightAlertId={sp.alert_id ?? null} />
+      <PerShowAlertSection
+        showId={show.id}
+        slug={show.slug}
+        highlightAlertId={sp.alert_id ?? null}
+      />
 
       {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
           - Archived → persistent "links are dead" disclosure + one-tap Unarchive.
@@ -564,7 +568,11 @@ export default async function AdminShowPage({
                 role="status"
                 className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
               >
-                Held — not published. Turn on Published in Share &amp; access to make it live.
+                Held — not published. Turn on{" "}
+                <a href="#share-access" className="font-semibold text-text-strong underline">
+                  Published in Share &amp; access
+                </a>{" "}
+                to make it live.
               </p>
               <div className="flex flex-wrap items-start gap-3">
                 <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
@@ -695,6 +703,7 @@ export default async function AdminShowPage({
 
         {/* Share & access column (rotate/reset folded in, gated) */}
         <section
+          id="share-access"
           data-testid="per-show-share-col"
           aria-label="Share & access"
           className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
