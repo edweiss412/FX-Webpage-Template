@@ -2582,6 +2582,8 @@ export async function prepareProcessOneFile(
           driveFileId,
           fileMeta: toDriveFileMeta(fileMeta),
           ...(sheets !== undefined ? { sheets } : {}),
+          // Surface DIAGRAMS-tab embedded images from the already-fetched export.
+          ...(xlsxBytes !== undefined ? { xlsxBytes } : {}),
           signal,
         }),
       // Enrichment gets its own (larger) budget, NOT the 30s single-Drive-call default — see
