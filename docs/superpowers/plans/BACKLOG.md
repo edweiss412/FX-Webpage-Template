@@ -25,6 +25,12 @@ Promotion is a real decision — same gate as any other milestone (brainstorming
 
 ## Open backlog (not yet promoted)
 
+### BL-ROOMS-BREAKOUT-REUSE-DROP — A breakout reused across days is silently dropped by the venue-name dedup
+
+**Origin:** PR #38–#217 bug audit finding idx20 (#106), re-verified at HEAD 2026-07-03. `parseBoRooms` (`lib/parser/blocks/rooms.ts`) dedups numbered breakouts by their bare venue name (`headerKey = split.name.toUpperCase()`, where `splitRoomHeader` strips the `BREAKOUT N` prefix). So two genuinely-distinct entries that reuse the SAME physical room across days — e.g. `BREAKOUT 1 SALON A` (Day-1 setup/time) and `BREAKOUT 2 SALON A` (Day-2 setup/time) — collapse to one key and the second is SILENTLY dropped (no warning), losing that day's schedule/AV. Probe-confirmed on constructed input; **not present in the current 7-show corpus** (every corpus breakout has a distinct venue), so latent — but a multi-day show reusing a room is a probable future input.
+
+**Why backlog (not a one-line fix):** un-deduping in `parseBoRooms` alone does not fix it — `mergeRooms` ALSO keys on `kind + name` (`keyOf = \`${r.kind}::${name.toUpperCase()}\``), so two rooms both named `SALON A` re-collapse there. A correct fix needs a room-MODEL decision: (a) keep two DISTINCT entries (needs distinct names/keys — changes displayed names, and the crew UI shows a room card per entry), or (b) MERGE across days like the east-coast `MABEL 1` GS/breakout reconciliation (but room fields `setup`/`show_time`/`strike_time` are single-valued, so a merge is lossy unless the model gains per-day slots). This is a product/data-model call, not a mechanical parser tweak; forcing a fix risks confusing duplicate cards or lossy merges. Pick up with an owner decision on the multi-day-room model. `idx23`/`idx22` (non-ordinal floors, dangling dims) from the same audit shipped separately (they are contained `splitRoomHeader` corrections).
+
 ### BL-ONBOARDING-CAS-SOURCE-ANCHORS — Compute source_anchors on the existing-show finalize-cas apply
 
 **Origin:** PR #179 (2026-06-28) wired `source_anchors` computation into the FIRST-SEEN onboarding materialization (`handleOnboardingFinalize` → `processApprovedRow` → `applyStagedCore`) so freshly-onboarded shows get correct "In sheet" deep-link anchors immediately, matching the cron path. The EXISTING-SHOW re-onboard path (`finalize-cas` shadow apply → `applyShadow` → `applyStagedCore`) has the same gap: it never computes/threads `source_anchors`, so a re-onboarded existing show is not refreshed at apply time.

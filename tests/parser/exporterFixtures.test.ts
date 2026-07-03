@@ -1108,7 +1108,10 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
   const EXPECTED: Record<string, RoomTriple[]> = {
     // v4 fused GS + breakout headers (the egregious cases)
     fintech: [
-      { kind: "gs", name: "ADLER BALLROOM", dimensions: "75' x 37' x", floor: "15th Floor" },
+      // The live fintech ADLER BALLROOM cell leaves the height blank ("75' x 37' x "),
+      // so the flattened header ends in a dangling "x". audit idx22 strips that trailing
+      // incomplete token — was pinned as "75' x 37' x" (the raw dangling-x defect).
+      { kind: "gs", name: "ADLER BALLROOM", dimensions: "75' x 37'", floor: "15th Floor" },
     ],
     "fixed-income": [
       { kind: "gs", name: "SALON ABC", dimensions: "43' x 49' x 12'", floor: null },
