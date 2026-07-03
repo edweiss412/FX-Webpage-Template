@@ -15,6 +15,12 @@ import { readFileSync } from "node:fs";
  * in ScheduleSection.test.tsx + TodaySection.test.tsx.)
  */
 
+/** Strip block + line comments so a bare `fn(` mention in prose (e.g. TodaySection's
+ *  JSDoc "`resolveKeyTimes(show, rooms)` resolver") is not mistaken for a real call. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+}
+
 /** Balanced-paren argument substrings of EVERY `${fn}(` occurrence in `src`. */
 function allCallArgs(src: string, fn: string): string[] {
   const out: string[] = [];
@@ -48,15 +54,18 @@ const CASES: Array<{ file: string; fn: string }> = [
 
 describe("stage_restriction threading through resolveKeyTimes / buildRightNowContext callers (#248)", () => {
   for (const { file, fn } of CASES) {
-    it(`${file} threads stageRestriction into ${fn}(...)`, () => {
-      const src = readFileSync(file, "utf8");
+    it(`${file}: EVERY ${fn}(...) call threads stageRestriction`, () => {
+      const src = stripComments(readFileSync(file, "utf8"));
       const argsList = allCallArgs(src, fn);
-      // At least one real call (a bare `${fn}(...)` mention in a comment has different args).
       expect(argsList.length, `no ${fn}( call found in ${file}`).toBeGreaterThan(0);
-      expect(
-        argsList.some((a) => a.includes("stageRestriction")),
-        `at least one ${fn}( call in ${file} must thread stageRestriction (off-stage-leak guard, #248)`,
-      ).toBe(true);
+      // EVERY real call must thread it — a future second call that forgets re-opens the
+      // off-stage Set/Strike leak (spec §3.4). "at least one" would let that slip through.
+      for (const args of argsList) {
+        expect(
+          args.includes("stageRestriction"),
+          `a ${fn}( call in ${file} does NOT thread stageRestriction (off-stage-leak guard, #248): ${fn}(${args.trim().slice(0, 80)}…)`,
+        ).toBe(true);
+      }
     });
   }
 });
