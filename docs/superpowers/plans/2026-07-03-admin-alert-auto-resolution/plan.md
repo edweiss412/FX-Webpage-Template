@@ -53,12 +53,12 @@
 ```ts
 describe("resolveAdminAlerts (bulk)", () => {
   test("codes: [] is a no-op — zero client invocations", async () => {
-    const client = fakeResolveClient(); // the file's factory, extended with an `in` recorder
+    const client = fakeResolveClient({ error: null }); // the file's factory (requires a result object), extended with an `in` recorder
     await resolveAdminAlerts({ showId: "s-1", codes: [] }, client as never);
     expect(client.from).not.toHaveBeenCalled();
   });
   test("filters: code IN codes, show_id exact (null → .is), resolved_at null; sets only resolved_at", async () => {
-    const client = fakeResolveClient();
+    const client = fakeResolveClient({ error: null });
     await resolveAdminAlerts({ showId: null, codes: ["REEL_DRIFTED", "EMBEDDED_ASSET_DRIFTED"] }, client as never);
     // assert .update({resolved_at: <iso>}) with NO resolved_by key, .in("code", [...]), .is("show_id", null), .is("resolved_at", null)
   });
