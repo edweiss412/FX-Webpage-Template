@@ -346,6 +346,16 @@ describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
     expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
   });
 
+  it("requires the trailing word boundary — '60611-1234A' is not a true ZIP+4 (Codex R4)", () => {
+    // The predicate is EXACTLY \b\d{5}-\d{4}\b. A letter immediately after the +4 means it
+    // is NOT a ZIP+4, so the "-1234" is treated as a conf# run and stripped (no residue).
+    const h = parseHotels(
+      hotelTable("Kimpton Gray 122 W Monroe St Chicago, IL 60611-1234A"),
+      "v4",
+    )[0];
+    expect(h!.hotel_address).not.toMatch(/-1234/);
+  });
+
   it("still strips a real dash-prefixed conf# from the guest name (regression guard)", () => {
     // The conf# on the Names row must still be stripped (parsed-not-persisted); the guest
     // name resolves cleanly and the plain-ZIP control address is unchanged.

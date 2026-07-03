@@ -175,11 +175,16 @@ function stripConfTokens(name: string): string {
           offset: number,
           str: string,
         ) => {
+          // The predicate is EXACTLY `\b\d{5}-\d{4}\b`: a boundary 5-digit ZIP before, an
+          // ASCII hyphen (en/em-dash is a conf# delimiter — Codex R3), no separator, exactly
+          // 4 digits, and a trailing word boundary (Codex R4 — "60611-1234A" is not a ZIP+4).
+          const afterMatch = str.charAt(offset + whole.length);
           const isZip4 =
-            dashes === "-" && // ASCII hyphen only; an en/em-dash is a conf# delimiter (Codex R3)
+            dashes === "-" &&
             sep.length === 0 &&
             digits.length === 4 &&
-            /\b\d{5}$/.test(str.slice(0, offset + ws.length));
+            /\b\d{5}$/.test(str.slice(0, offset + ws.length)) &&
+            (afterMatch === "" || !/\w/.test(afterMatch));
           return isZip4 ? whole : " ";
         },
       )
