@@ -259,7 +259,8 @@ describe("validation-schema-parity", () => {
         raw,
         "-qAtc",
         "select conname from pg_constraint where conname like " +
-          "'%\\_drive\\_file\\_id\\_nonblank' and connamespace = 'public'::regnamespace",
+          "'%\\_drive\\_file\\_id\\_nonblank' and connamespace = 'public'::regnamespace " +
+          "and contype = 'c'",
       ],
       {
         encoding: "utf8",
