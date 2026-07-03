@@ -50,7 +50,7 @@ Rule: **every public column named exactly `drive_file_id`** (14) gets a non-blan
 
 ### 2.3 `dev.*` mirror subset (5) — same constraint name, same predicate
 
-`dev.shows` (`20260502000000_dev_schema_clone.sql:47`, NOT NULL), `dev.pending_syncs` (:209, NOT NULL), `dev.pending_ingestions` (:260, NOT NULL), `dev.sync_audit` (:283, NOT NULL), `dev.sync_log` (:303, NULLABLE). The other 9 public tables have **no** dev mirror — nothing to add. Use unconditional `alter table dev.<t>` (matches the transportation-loadout precedent, which applies cleanly to the validation project).
+`dev.shows` (`20260502000000_dev_schema_clone.sql:47`, NOT NULL), `dev.pending_syncs` (:209, NOT NULL), `dev.pending_ingestions` (:260, NOT NULL), `dev.sync_audit` (:283, NOT NULL), `dev.sync_log` (:303, NULLABLE). The other 9 public tables have **no** dev mirror — nothing to add. Use **`alter table if exists dev.<t>`** (the `IF EXISTS` makes the dev block a no-op-with-notice on any target that lacks the `dev` clone — e.g. a validation project without the local-seed schema — so the single migration applies cleanly everywhere, and the migration shape never needs a per-target rewrite). `ALTER TABLE IF EXISTS <missing>` is not an error; a `drop constraint if exists` + `add constraint` inside it simply skips when the table is absent.
 
 ### 2.4 Constraint naming
 
@@ -97,12 +97,13 @@ alter table public.app_events add constraint app_events_drive_file_id_nonblank
   check (drive_file_id is null or drive_file_id ~ '[^[:space:]]');
 
 -- dev.* mirror — 5 (shows/pending_syncs/pending_ingestions/sync_audit NOT NULL; sync_log NULLABLE)
-alter table dev.shows drop constraint if exists shows_drive_file_id_nonblank;
-alter table dev.shows add constraint shows_drive_file_id_nonblank
+-- `if exists`: no-op on a target lacking the dev clone (e.g. validation), so the shape never needs rewriting.
+alter table if exists dev.shows drop constraint if exists shows_drive_file_id_nonblank;
+alter table if exists dev.shows add constraint shows_drive_file_id_nonblank
   check (drive_file_id ~ '[^[:space:]]');
 -- … dev.pending_syncs, dev.pending_ingestions, dev.sync_audit (NOT NULL) …
-alter table dev.sync_log drop constraint if exists sync_log_drive_file_id_nonblank;
-alter table dev.sync_log add constraint sync_log_drive_file_id_nonblank
+alter table if exists dev.sync_log drop constraint if exists sync_log_drive_file_id_nonblank;
+alter table if exists dev.sync_log add constraint sync_log_drive_file_id_nonblank
   check (drive_file_id is null or drive_file_id ~ '[^[:space:]]');
 ```
 
@@ -180,8 +181,8 @@ union all select 'dev.sync_log', drive_file_id from dev.sync_log where drive_fil
 
 1. **Local (TDD):** failing test first → write migration → apply locally (`psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/migrations/20260702120200_drive_file_id_nonblank.sql`) + `notify pgrst, 'reload schema';` → tests pass.
 2. `pnpm gen:schema-manifest` — a **CHECK-only migration adds no column/table**, so the columns-only manifest (`scripts/schema-manifest/lib.ts`) sees **zero diff**. Run it anyway per discipline; expect nothing to stage.
-3. **Surgical validation apply** (`supabase db push` is blocked by Phase-0 divergence): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260702120200_drive_file_id_nonblank.sql` + `notify pgrst,'reload schema';`. **`TEST_DATABASE_URL` lives in MAIN `.env.local`, not the worktree.** Run the §6 detector against validation first.
-   - If the validation project lacks the `dev` schema, the `alter table dev.*` lines error → fall back to `alter table if exists dev.<t>` for the dev block and re-apply. (The transportation-loadout precedent applied its unconditional `dev.` block to validation without issue, so `dev` is expected to exist there; verify at apply time.)
+3. **Surgical validation apply** (`supabase db push` is blocked by Phase-0 divergence): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260702120200_drive_file_id_nonblank.sql` + `notify pgrst,'reload schema';`. **`TEST_DATABASE_URL` lives in MAIN `.env.local`, not the worktree.** Run the §6 public detector against validation first (and the dev detector only if `to_regclass('dev.shows')` is non-NULL there).
+   - The migration's dev block uses `alter table if exists dev.<t>` (§2.3), so it applies cleanly whether or not the validation project has the `dev` clone — **no per-target migration rewrite is ever needed** (this is why the migration shape is fixed and the static-parse test never has to change).
 
 ### 7.1 Gate blind-spot → close it with a validation-observable CHECK layer (Codex R1 HIGH-2)
 
@@ -219,9 +220,10 @@ Assert the extract-agenda route returns **400** for a whitespace-encoded `driveF
 
 Extend the existing parity test (same file → same `validation-schema-parity` CI job, same `TEST_DATABASE_URL`, same `execFileSync("psql", …)` helper + connect-guard/skip logic at `tests/db/validation-schema-parity.test.ts:75-114,166-204`) with a third layer:
 
-1. **Derive the expected set from the migration file (no hardcoding):** read `supabase/migrations/20260702120200_drive_file_id_nonblank.sql`, extract every `add constraint <name> … check` where the target is a `public.` table (regex on the normalized SQL) → the set of expected public `*_drive_file_id_nonblank` constraint names (currently 14; auto-covers any future addition to this migration).
-2. **Assert against the validation DB (only when `TEST_DATABASE_URL` is set):** `psql "$TEST_DATABASE_URL" -qAtc "select conname from pg_constraint where conname like '%\_drive\_file\_id\_nonblank' and connamespace = 'public'::regnamespace"` → assert the returned set is a **superset** of the expected set. A missing constraint (i.e. the surgical validation apply was skipped) → **test fails → red CI**.
-3. **Skip gracefully** when `TEST_DATABASE_URL` is unset (local dev) — mirror the existing Layer-2 skip so local `pnpm test` is unaffected; the assertion is meaningful only against the validation target in CI.
+1. **Derive the expected set from the migration file (no hardcoding):** read `supabase/migrations/20260702120200_drive_file_id_nonblank.sql`, extract every `alter table public.<t> add constraint (<name>) … check` (scoped to `public.` — must NOT match the `dev.` / `if exists dev.` lines) → the set of expected public `*_drive_file_id_nonblank` constraint names.
+2. **Non-vacuity guard (closes Codex plan-R1 HIGH):** assert `expected.size === 14` **before** querying validation. Without this, a drifted/broken parse regex could yield an empty expected set, making the superset assertion trivially pass and silently defeating the whole guard. The literal `14` is this spec's canonical public-column count (§10 numeric sweep); a deliberate future change to the migration's public constraint count must update this literal in lockstep — that coupling is intentional.
+3. **Assert against the validation DB (only when `TEST_DATABASE_URL` is set):** `psql "$TEST_DATABASE_URL" -qAtc "select conname from pg_constraint where conname like '%\_drive\_file\_id\_nonblank' and connamespace = 'public'::regnamespace"` → assert the returned set is a **superset** of the expected 14. A missing constraint (i.e. the surgical validation apply was skipped) → **test fails → red CI**.
+4. **Skip gracefully** when `TEST_DATABASE_URL` is unset (local dev) — mirror the existing Layer-2 skip so local `pnpm test` is unaffected; the assertion is meaningful only against the validation target in CI.
 
 This is the CI leg that makes "the migration reached validation" observable for a CHECK-only change — the columns-only Layers 1-2 cannot. (Scope note: it checks `public.` only; `dev.*` is local-seed infra, not a validation deploy target, consistent with the existing gate's public-only posture.)
 

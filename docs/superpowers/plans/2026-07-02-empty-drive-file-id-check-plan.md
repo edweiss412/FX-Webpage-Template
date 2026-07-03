@@ -27,9 +27,9 @@
 
 **Interfaces produced:** the 14 public constraint names `<table>_drive_file_id_nonblank` (shows, pending_syncs, pending_ingestions, sync_audit, deferred_ingestions, onboarding_scan_manifest, pending_snapshot_uploads, revision_race_cooldowns, shows_pending_changes, show_change_log, sync_holds, agenda_extract_leases, sync_log, app_events) + 5 dev-mirror (dev.shows/pending_syncs/pending_ingestions/sync_audit/sync_log).
 
-- [ ] **Step 1 — static-parse test (RED).** In `tests/db/schema.test.ts`, add `describe("drive_file_id nonblank CHECK migration")` modeled on the transportation-loadout block (`:260-290`): read `20260702120200_drive_file_id_nonblank.sql`, `.replace(/\s+/g," ")`, and for each of the 14 public tables assert the file contains `drop constraint if exists <name>` AND `add constraint <name> … check ( drive_file_id ~ '[^[:space:]]' )` (whitespace-insensitive regex; nullable tables `sync_log`/`app_events` assert the `is null or` form). Loop `[public, dev]` only for the 5 dev-subset tables. Run `pnpm vitest run tests/db/schema.test.ts` → RED (file absent).
+- [ ] **Step 1 — static-parse test (RED).** In `tests/db/schema.test.ts`, add `describe("drive_file_id nonblank CHECK migration")` modeled on the transportation-loadout block (`:260-290`): read `20260702120200_drive_file_id_nonblank.sql`, `.replace(/\s+/g," ")`, and for each of the 14 public tables assert the file contains `alter table public.<t> drop constraint if exists <name>` AND `alter table public.<t> add constraint <name> … check ( drive_file_id ~ '[^[:space:]]' )` (whitespace-insensitive regex; nullable tables `sync_log`/`app_events` assert the `is null or` form). Loop `[public, dev]` only for the 5 dev-subset tables — **the dev assertions match the `alter table if exists dev.<t>` form** (the migration uses `if exists` on dev; the regex must include the optional `if exists`, e.g. `alter table (if exists )?dev\.<t>`). Run `pnpm vitest run tests/db/schema.test.ts` → RED (file absent).
 - [ ] **Step 2 — behavioral test (RED).** Create `tests/db/driveFileIdNonblank.db.test.ts` (postgres.js against local DB; skip if unreachable, mirror an existing `.db.test`). Assertions: (a) `agenda_extract_leases` insert of `''`, `'   '`, `'\t'` → `check_violation` (23514), valid id → ok; (b) `shows` blank `drive_file_id` → 23514 (reuse the held-show insert shape from `tests/onboarding/finalizeHeldCreation.db.test.ts`), valid → ok; (c) `app_events` NULL → ok, `''` → 23514, valid → ok; (d) introspect `pg_constraint` and assert all 14 public `*_drive_file_id_nonblank` constraints exist. Run → RED (constraints not applied yet).
-- [ ] **Step 3 — write migration.** Create the migration with all 14 public + 5 dev constraints per spec §4 (header comment: purpose + idempotency + faithful-`/\S/` rationale). Each constraint: `alter table <schema>.<t> drop constraint if exists <name>; alter table <schema>.<t> add constraint <name> check (<predicate>);`.
+- [ ] **Step 3 — write migration.** Create the migration with all 14 public + 5 dev constraints per spec §4 (header comment: purpose + idempotency + faithful-`/\S/` rationale). Public: `alter table public.<t> drop constraint if exists <name>; alter table public.<t> add constraint <name> check (<predicate>);`. Dev (5): **`alter table if exists dev.<t> …`** (the `if exists` makes the dev block a no-op on any target lacking the dev clone — e.g. a validation project without it — so the migration shape is fixed and never rewritten per-target).
 - [ ] **Step 4 — static parse GREEN.** `pnpm vitest run tests/db/schema.test.ts` → PASS.
 - [ ] **Step 5 — pre-apply detector (local).** Run the §6 public detector AND dev detector against local (`psql $LOCAL -f` or `-c`). MUST return 0 rows. If any row → STOP, investigate (do not auto-heal).
 - [ ] **Step 6 — apply locally + idempotency.** `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 -f supabase/migrations/20260702120200_drive_file_id_nonblank.sql` then `psql … -c "notify pgrst, 'reload schema';"`. Re-run the same `-f` apply a SECOND time → must succeed with no error (proves apply-twice idempotency).
@@ -47,7 +47,7 @@
 - [ ] **Step 1 — guard test (RED).** Assert the route returns **400** for a whitespace-only `driveFileId` (e.g. `" "`), and that `claimExtractLease` is **NOT** called (spy/mock it). Model the invalid-input set on `tests/drive/invalidDriveFileId.test.ts`. Run → RED.
 - [ ] **Step 2 — add guard.** Immediately after `const { wizardSessionId, driveFileId } = await context.params;` (`:212`), before `claimExtractLease`: `if (!/\S/.test(driveFileId)) { return NextResponse.json({ error: "invalid driveFileId" }, { status: 400 }); }`. Conform to the exact error-body shape used by sibling early returns in this file.
 - [ ] **Step 3 — GREEN.** Run the guard test → PASS.
-- [ ] **Step 4 — commit.** `git commit --no-verify -m "fix(admin): reject whitespace driveFileId at extract-agenda entry with HTTP 400 before lease insert"`
+- [ ] **Step 4 — commit.** `git add -A && git commit --no-verify -m "fix(admin): reject whitespace driveFileId at extract-agenda entry with HTTP 400 before lease insert"`
 
 ---
 
@@ -56,9 +56,9 @@
 **Files:**
 - Modify: `tests/db/validation-schema-parity.test.ts` (new Layer 3)
 
-- [ ] **Step 1 — write Layer 3.** Add a describe/it that: (a) reads `supabase/migrations/20260702120200_drive_file_id_nonblank.sql`, extracts every `alter table public.<t> add constraint (<name>) … check` → expected public constraint-name set (auto-derived, no hardcode); (b) when `TEST_DATABASE_URL` is set, runs `psql "$TEST_DATABASE_URL" -qAtc "select conname from pg_constraint where conname like '%\_drive\_file\_id\_nonblank' and connamespace='public'::regnamespace"` and asserts the returned set ⊇ expected set; (c) skips when `TEST_DATABASE_URL` unset (mirror the existing Layer-2 skip at `:166-204`). Reuse the file's existing `execFileSync("psql", …)` helper + connect-guard.
+- [ ] **Step 1 — write Layer 3.** Add a describe/it that: (a) reads `supabase/migrations/20260702120200_drive_file_id_nonblank.sql`, extracts every `alter table public.<t> add constraint (<name>) … check` → expected public constraint-name set (auto-derived, scoped to `public.` so it does NOT match the `if exists dev.` lines); (b) **non-vacuity guard (Codex plan-R1 HIGH):** `expect(expected.size).toBe(14)` BEFORE any validation query — a drifted/empty parse would otherwise make the superset check trivially pass and silently defeat the guard; the `14` is the spec §10 canonical public count and must move in lockstep with any deliberate count change; (c) when `TEST_DATABASE_URL` is set, runs `psql "$TEST_DATABASE_URL" -qAtc "select conname from pg_constraint where conname like '%\_drive\_file\_id\_nonblank' and connamespace='public'::regnamespace"` and asserts the returned set ⊇ expected set; (d) skips when `TEST_DATABASE_URL` unset (mirror the existing Layer-2 skip at `:166-204`). Reuse the file's existing `execFileSync("psql", …)` helper + connect-guard.
 - [ ] **Step 2 — local run (skips).** `pnpm vitest run tests/db/validation-schema-parity.test.ts` with `TEST_DATABASE_URL` UNSET → Layer 3 skips; existing layers unaffected. PASS/skip.
-- [ ] **Step 3 — commit.** `git commit --no-verify -m "test(db): Layer-3 validation-observable CHECK-constraint parity for drive_file_id nonblank"`
+- [ ] **Step 3 — commit.** `git add -A && git commit --no-verify -m "test(db): Layer-3 validation-observable CHECK-constraint parity for drive_file_id nonblank"`
 
 ---
 
@@ -68,11 +68,11 @@
 
 - [ ] **Step 1 — export creds.** `export TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' /Users/ericweiss/FX-Webpage-Template/.env.local | cut -d= -f2-)"`.
 - [ ] **Step 2 — Layer-3 RED against validation (pre-apply).** Run `pnpm vitest run tests/db/validation-schema-parity.test.ts` WITH `TEST_DATABASE_URL` → Layer 3 should FAIL (constraints not yet in validation). This confirms the guard actually detects a missing apply.
-- [ ] **Step 3 — pre-apply detector (validation).** Run the §6 public detector against `$TEST_DATABASE_URL` → 0 rows. Check `select to_regclass('dev.shows')`: if non-NULL, run the dev detector too and keep the migration's unconditional `dev.*` block; if NULL, the validation project has no dev clone → change the migration's dev block to `alter table if exists dev.<t> …` (and note it) before applying.
+- [ ] **Step 3 — pre-apply detector (validation).** Run the §6 public detector against `$TEST_DATABASE_URL` → 0 rows. Then `select to_regclass('dev.shows')`: if non-NULL, also run the dev detector → 0 rows. **The migration shape is NOT touched here** — the dev block already uses `alter table if exists dev.<t>` (Task 1 step 3), so it applies cleanly whether or not validation has the dev clone; no rewrite, no static-parse-test breakage.
 - [ ] **Step 4 — apply to validation + idempotency.** `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260702120200_drive_file_id_nonblank.sql`; then `notify pgrst,'reload schema';`. Apply a SECOND time → no error.
 - [ ] **Step 5 — manifest.** `pnpm gen:schema-manifest` → expect ZERO diff (CHECK-only). If it produced a diff, investigate + commit it.
 - [ ] **Step 6 — Layer-3 GREEN.** Re-run `pnpm vitest run tests/db/validation-schema-parity.test.ts` WITH `TEST_DATABASE_URL` → all layers PASS.
-- [ ] **Step 7 — commit (only if files changed).** If the migration's dev block was switched to `if exists` (Step 3) or the manifest changed, commit: `git commit --no-verify -m "chore(db): validation apply parity for drive_file_id nonblank"`. Else no commit (verification-only task).
+- [ ] **Step 7 — commit (only if files changed).** If the manifest changed (unexpected for a CHECK-only migration), commit: `git add -A && git commit --no-verify -m "chore(db): validation apply parity for drive_file_id nonblank"`. Else no commit (this is a verification-only task — the migration is already committed with the fixed `if exists dev` shape).
 
 ---
 
@@ -81,7 +81,7 @@
 **Files:** Modify `BACKLOG.md`
 
 - [ ] **Step 1 — add entries.** Add `BL-OPENING-REEL-DRIVE-ID-NONBLANK` (shows.opening_reel_drive_file_id, non-reachable-empty, source returns non-empty-or-null) and `BL-CHECKPOINT-CURSOR-DRIVE-ID-NONBLANK` (wizard_finalize_checkpoints.last_processed_drive_file_id, cursor copy of already-CHECK'd id). Reference the spec §9.
-- [ ] **Step 2 — commit.** `git commit --no-verify -m "docs(plan): backlog the 2 secondary-name Drive-ID columns (out of nonblank scope)"`
+- [ ] **Step 2 — commit.** `git add -A && git commit --no-verify -m "docs(plan): backlog the 2 secondary-name Drive-ID columns (out of nonblank scope)"`
 
 ---
 
