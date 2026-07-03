@@ -290,7 +290,7 @@ test("compound: toggling expand while CONFIRMING neither closes details nor RESE
   // (b) it reverts to idle on the ORIGINAL ~3s schedule (≈0.7s after this toggle).
   //     A reset-on-toggle regression keeps confirm until ~t0+5.3s → this times out.
   await expect(confirmBtn).toBeHidden({ timeout: 1500 }); // gone by ~t0+4.0s
-  await expect(action.getByRole("button", { name: /^resolve$/i })).toBeVisible(); // back to idle
+  await expect(action.getByRole("button", { name: /^dismiss$/i })).toBeVisible(); // back to idle
 });
 
 test("reduced-motion: details toggle is instant (no transition wait needed)", async ({
@@ -397,6 +397,10 @@ test.describe("watch-alert variant (WATCH_CHANNEL_ORPHANED)", () => {
   }) => {
     await page.setViewportSize({ width: 390, height: 1000 });
     await page.goto("/admin");
+    // Wait for the action cell to be painted before capturing the baseline rect —
+    // reading getBoundingClientRect() immediately post-goto can race the initial
+    // paint and return a stale/zeroed box (same class as the F-P21 known flake).
+    await expect(page.getByTestId("admin-alert-action")).toBeVisible();
     // (idle) expanding the panel must not shift the action cell (self-start, row-1).
     const actBefore = await rect(page, "admin-alert-action");
     await page.locator(OUTER_SUMMARY).click();
@@ -422,6 +426,8 @@ test.describe("watch-alert variant (WATCH_CHANNEL_ORPHANED)", () => {
   }) => {
     await page.setViewportSize({ width: 390, height: 1000 });
     await page.goto("/admin");
+    // See "action slot does not move..." above — wait for paint before baseline.
+    await expect(page.getByTestId("admin-alert-action")).toBeVisible();
     const actBefore = await rect(page, "admin-alert-action");
     await page.locator(OUTER_SUMMARY).click(); // expand
     const panel = page.getByTestId("admin-alert-panel");
