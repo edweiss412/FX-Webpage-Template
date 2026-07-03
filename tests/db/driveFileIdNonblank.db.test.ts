@@ -60,7 +60,7 @@ afterAll(async () => {
 });
 
 /** Assert a mutation is rejected with SQLSTATE 23514 (check_violation). Always rolls back. */
-async function expectRejected(query: string, params: unknown[]): Promise<void> {
+async function expectRejected(query: string, params: (string | null)[]): Promise<void> {
   let rejected = false;
   try {
     await sql!.begin(async (tx) => {
@@ -77,7 +77,7 @@ async function expectRejected(query: string, params: unknown[]): Promise<void> {
 }
 
 /** Assert a mutation is accepted (no 23514). Always rolls back (no residue). */
-async function expectAccepted(query: string, params: unknown[]): Promise<void> {
+async function expectAccepted(query: string, params: (string | null)[]): Promise<void> {
   let violated = false;
   try {
     await sql!.begin(async (tx) => {
