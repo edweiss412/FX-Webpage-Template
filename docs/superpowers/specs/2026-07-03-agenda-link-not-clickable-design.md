@@ -73,7 +73,7 @@ if (!hasClickableTarget) {
 
 | # | Touchpoint | File / action |
 |---|---|---|
-| 1 | §12.4 table row | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (~`:2897` region, after the `AGENDA_PDF_UNREADABLE` row). Columns parsed by `scripts/extract-spec-codes.ts:271-275`: `\| \`AGENDA_LINK_NOT_CLICKABLE\` \| <trigger — cell[1], NOT extracted> \| <dougFacing — cell[2]> \| — \| Doug → check agenda link \|` |
+| 1 | §12.4 table row | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`, inserted after the `AGENDA_SCHEDULE_TIME_ADJUSTED` row (~`:2900`, i.e. as the last of the grouped `AGENDA_*` cluster that begins at `AGENDA_PDF_UNREADABLE` `:2897`). Columns parsed by `scripts/extract-spec-codes.ts:271-275`: `\| \`AGENDA_LINK_NOT_CLICKABLE\` \| <trigger — cell[1], NOT extracted> \| <dougFacing — cell[2]> \| — \| Doug → check agenda link \|` |
 | 2 | §12.4 helpfulContext YAML appendix | Same spec file (~`:3214` region, inside the ```yaml block under the anchor `:3070`). **Mandatory** — `extract-spec-codes.ts:352-365` throws if a non-null-dougFacing code lacks a YAML entry. **Same commit (rows 1-4).** |
 | 3 | `gen:spec-codes` | `pnpm gen:spec-codes` (`package.json`) → regenerate + commit `lib/messages/__generated__/spec-codes.ts` (new entry near `:119-124`). **Same commit (rows 1-4).** |
 | 4 | catalog row | `lib/messages/catalog.ts` (template `AGENDA_PDF_UNREADABLE` `:1234-1246`; entry type `MessageCatalogEntry` `:1-11`). Mirror the **shape**: `code`, `dougFacing` set, `crewFacing: null`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `helpHref: "/help/errors#AGENDA_LINK_NOT_CLICKABLE"`. `severity` omitted (absent passes the `severity !== "info"` renderable predicate) — matches `AGENDA_PDF_UNREADABLE`. **Same commit (rows 1-4).** |
