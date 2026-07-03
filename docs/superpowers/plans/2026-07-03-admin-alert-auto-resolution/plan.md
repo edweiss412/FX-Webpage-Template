@@ -215,7 +215,8 @@ return raw?.current?.snapshot_status ?? raw?.snapshot_status ?? null;
 
     In the Task-3 block, when `await readLanded(result.showId) === "complete"`, append
     `ASSET_RECOVERY_ALERT_FAMILY` to `toResolve`. Tests: unit-test the default impl against the
-    standard mocked client (pending-status wins over current; null diagrams → null); the
+    standard mocked client (precedence current → root with `pending` IGNORED —
+    pending-complete/current-partial returns `"partial_failure"`; null diagrams → null); the
     `applyStaged` live test injects `readLandedSnapshotStatus` returning `"complete"` /
     `"partial_failure"` and asserts the S3 family is appended / omitted; PLUS one case in
     `tests/db/admin-alert-auto-resolution.test.ts` seeding a real `shows.diagrams` JSONB and
