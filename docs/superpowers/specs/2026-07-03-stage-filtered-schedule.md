@@ -163,11 +163,11 @@ export function resolveKeyTimes(
 
 Gating is by **stage** (not by the narrowed day list) precisely so a genuinely date-restricted-but-not-stage-restricted crew is untouched — `kind === "none"` makes both booleans true, preserving today's behavior. The Show anchors (`shows[]`) remain gated via `visibleShowDays(dateRestriction)` (already narrowed by the chokepoint), so all three anchor types are now consistent.
 
-**`resolveKeyTimes` has THREE callers — all must pass the stage restriction, or the default `{ kind: "none" }` re-opens the leak:**
+**`resolveKeyTimes` has THREE callers — all must pass the stage restriction, or the default `{ kind: "none" }` re-opens the leak.** `resolveViewerContext` returns `stageRestriction: StageRestriction` on its result (`viewerContext.ts:79,133-135`); each call site reads it per its OWN binding style (verified live):
 
-1. `ScheduleSection.tsx:108` — direct call. Add `ctx.stageRestriction` (5th arg).
-2. `TodaySection.tsx:249-254` — direct call. Add `ctx.stageRestriction` (5th arg).
-3. `components/right-now/buildRightNowContext.ts:85` — **indirect** (feeds the Right Now hero's `loadInTime`/`strikeTime` at `:86,91`). `buildRightNowContext` takes no `stageRestriction` today, so it also gains an OPTIONAL `stageRestriction: StageRestriction` param (opts object, default `{ kind: "none" }`) and forwards it to `resolveKeyTimes`. **Its two callers** — `TodaySection.tsx:237-243` and `app/show/[slug]/[shareToken]/_CrewShell.tsx:222` — both already resolve `ctx.stageRestriction` (`resolveViewerContext`, `viewerContext.ts:133-135`) and add `stageRestriction: ctx.stageRestriction` to the opts.
+1. `ScheduleSection.tsx:95,108` — this file **destructures**: `const { dateRestriction, isAdmin } = resolveViewerContext(...)` (`:95`). Add `stageRestriction` to the destructure → `const { dateRestriction, isAdmin, stageRestriction } = resolveViewerContext(...)`, then pass `stageRestriction` as the 5th arg to `resolveKeyTimes` (`:108`).
+2. `TodaySection.tsx:170,249-254` — this file **binds `ctx`**: `const ctx = resolveViewerContext(...)` (`:170`). Pass `ctx.stageRestriction` as the 5th arg to `resolveKeyTimes` (`:249-254`).
+3. `components/right-now/buildRightNowContext.ts:85` — **indirect** (feeds the Right Now hero's `loadInTime`/`strikeTime` at `:86,91`). `buildRightNowContext` takes no `stageRestriction` today, so it gains an OPTIONAL `stageRestriction: StageRestriction` field on its `opts` object (default `{ kind: "none" }`) and forwards it to `resolveKeyTimes` (`:85`). **Its two callers** both bind `ctx`: `TodaySection.tsx:237-243` and `app/show/[slug]/[shareToken]/_CrewShell.tsx:222` (`ctx` bound at `:170` / `:183` respectively) — each adds `stageRestriction: ctx.stageRestriction` to the opts.
 
 All four affected render files (`ScheduleSection.tsx`, `TodaySection.tsx`, `_CrewShell.tsx`, `buildRightNowContext.ts`) are UI surfaces (`components/**` / `app/show/**`, not `app/api/**`), so invariant 8 applies (§8). The edits are pure argument-threading (no markup/style change).
 
@@ -259,7 +259,7 @@ No new fixed-dimension parent is introduced. The only invariant in scope is the 
 4. **`partialAttendanceLabel` shows the derived worked days** (no code change) — an improvement over "Partial (dates TBD)".
 5. **Legacy persisted `unknown_asterisk` is overridden at projection time by an explicit stage restriction** (§3.1, §4.1) — the fix lands with no DB backfill/resync.
 6. **Set/Strike key-times anchors are stage-gated** (§3.4) so off-stage call times don't show for `Load In/Set`-only or `Load Out/Strike`-only crew. **Agenda area stays whole-show / unfiltered** (§3.5) — consistent with existing date-restricted-crew behavior; per-day agenda filtering deferred to BACKLOG.
-7. **Invariant-8 dual-gate APPLIES** — two component files get argument-threading edits (§8); the impeccable critique+audit runs on the diff at close-out.
+7. **Invariant-8 dual-gate APPLIES** — four UI files get argument-threading edits (`ScheduleSection.tsx`, `TodaySection.tsx`, `buildRightNowContext.ts`, `_CrewShell.tsx`, §8); the impeccable critique+audit runs on the diff at close-out.
 
 ## 12. Numeric sweep
 
