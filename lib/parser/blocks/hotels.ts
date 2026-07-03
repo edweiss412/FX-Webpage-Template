@@ -157,12 +157,32 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
 function stripConfTokens(name: string): string {
   return (
     name
-      // dash-prefixed conf# (#optional). The `(?<!\b\d{5})` guards ONLY the ZIP+4 shape — a
-      // dash preceded by a word-boundary-delimited 5-digit ZIP ("…IL 60611-1234") — so its
-      // "+4" is not clipped from crew-visible hotel_address (audit idx4). Scoped to exactly-5
-      // (not "any digit") so a numeric-ending token before a real conf# ("Studio 54-2035940")
-      // still strips cleanly (Codex R1): "54" is not a 5-digit ZIP, so its dash is stripped.
-      .replace(/\s*(?<!\b\d{5})[-–—]{1,3}\s*#?\s*\d{4,}/g, " ")
+      // dash-prefixed conf# (#optional). Preserve ONLY a true ZIP+4 hyphen: a
+      // word-boundary 5-digit ZIP immediately before, a SINGLE "-" with NO separator, and
+      // EXACTLY 4 trailing digits ("…IL 60611-1234"), so the crew-visible "+4" is not
+      // clipped (audit idx4). Every other dash-number is a conf# and is stripped — including
+      // a conf# after a 5-digit token ("Suite 12345-2069854"), a #/spaced/multi-dash conf#,
+      // and any run of 5+ trailing digits (Codex R1/R2). A left-only lookbehind can't gate
+      // the right side, so use a replacer that inspects both.
+      .replace(
+        /(\s*)([-–—]{1,3})(\s*#?\s*)(\d{4,})/g,
+        (
+          whole,
+          ws: string,
+          dashes: string,
+          sep: string,
+          digits: string,
+          offset: number,
+          str: string,
+        ) => {
+          const isZip4 =
+            dashes.length === 1 &&
+            sep.length === 0 &&
+            digits.length === 4 &&
+            /\b\d{5}$/.test(str.slice(0, offset + ws.length));
+          return isZip4 ? whole : " ";
+        },
+      )
       .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
       .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
       .replace(/\s+/g, " ")
