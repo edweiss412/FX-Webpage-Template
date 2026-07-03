@@ -176,8 +176,8 @@ export async function CrewShell({
   } else {
     // S6: healthy render — resolve any open TILE_PROJECTION_FETCH_FAILED alert.
     // Scheduled via after() so the resolve write never adds response latency;
-    // the resolve is fail-quiet (same posture as the raise above) and reuses
-    // the raise path's log code with phase: "resolve" (no new §12.4 code).
+    // the resolve is fail-quiet (same posture as the raise above) with its own
+    // forensic log code (app_events-only, §12.4-scanner-exempt like the raise's).
     // not-subject-to-meta: best-effort observability write, fail-quiet
     const doResolve = async () => {
       try {
@@ -185,8 +185,7 @@ export async function CrewShell({
       } catch (e) {
         void log.warn("projection-alert resolve failed (fail-quiet):", {
           source: "crew.shell",
-          code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
-          phase: "resolve",
+          code: "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
           error: e,
         });
       }

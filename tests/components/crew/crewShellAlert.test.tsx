@@ -11,8 +11,8 @@
 // best-effort TILE_PROJECTION_FETCH_FAILED resolve via next/server after(),
 // so a recovered projection clears the observability alert the raise path
 // above set. The resolve is fail-quiet (a resolve failure never breaks the
-// crew render) and reuses the raise path's CREW_PROJECTION_ALERT_UPSERT_FAILED
-// log code with phase: "resolve" — no new §12.4 code.
+// crew render) and stamps its own CREW_PROJECTION_ALERT_RESOLVE_FAILED
+// forensic log code (app_events-only — no new §12.4 catalog code).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 
@@ -190,7 +190,7 @@ describe("CrewShell projection-alert producer", () => {
     expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
   });
 
-  it("renders fine and log.warns (phase: resolve) when the healthy-render resolve rejects", async () => {
+  it("renders fine and log.warns (CREW_PROJECTION_ALERT_RESOLVE_FAILED) when the healthy-render resolve rejects", async () => {
     const { log } = await import("@/lib/log");
     const warnSpy = vi.spyOn(log, "warn").mockImplementation(async () => {});
     resolveAdminAlert.mockRejectedValue(new Error("resolve rpc down"));
@@ -204,8 +204,7 @@ describe("CrewShell projection-alert producer", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
-        phase: "resolve",
+        code: "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
       }),
     );
     warnSpy.mockRestore();
