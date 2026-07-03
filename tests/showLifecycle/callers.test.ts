@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { archiveShow } from "@/lib/showLifecycle/archiveShow";
 import { publishShow } from "@/lib/showLifecycle/publishShow";
 import { unarchiveShow } from "@/lib/showLifecycle/unarchiveShow";
+import { unpublishShow } from "@/lib/showLifecycle/unpublishShow";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { LifecycleResult, LifecycleRpc } from "@/lib/showLifecycle/_shared";
 
@@ -37,6 +38,14 @@ describe("lifecycle callers — default RPC binding (R-impl-1)", () => {
     expect(sessionRpc).toHaveBeenCalledWith("publish_show", { p_show_id: "show-1" });
     expect(serviceRoleClient).not.toHaveBeenCalled();
   });
+
+  it("unpublishShow with NO injected rpc also routes through the session client", async () => {
+    sessionRpc.mockClear();
+    serviceRoleClient.mockClear();
+    await unpublishShow("show-1");
+    expect(sessionRpc).toHaveBeenCalledWith("unpublish_show", { p_show_id: "show-1" });
+    expect(serviceRoleClient).not.toHaveBeenCalled();
+  });
 });
 
 describe("lifecycle callers", () => {
@@ -60,6 +69,25 @@ describe("lifecycle callers", () => {
   it("archiveShow surfaces an unmapped RETURNED error as infra_error (not silent)", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "connection reset" } });
     expect(await archiveShow("show-1", { rpc })).toEqual({ ok: false, code: "infra_error" });
+  });
+
+  it("unpublishShow returns {ok:true} on RPC success", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const res = await unpublishShow("show-1", { rpc });
+    expect(rpc).toHaveBeenCalledWith("unpublish_show", { p_show_id: "show-1" });
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("unpublishShow maps FINALIZE_OWNED_SHOW and SHOW_ARCHIVED_IMMUTABLE to typed refusals", async () => {
+    for (const code of ["FINALIZE_OWNED_SHOW", "SHOW_ARCHIVED_IMMUTABLE"] as const) {
+      const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: code } });
+      expect(await unpublishShow("show-1", { rpc })).toEqual({ ok: false, code });
+    }
+  });
+
+  it("unpublishShow surfaces an unmapped RETURNED error as infra_error (not silent)", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "connection reset" } });
+    expect(await unpublishShow("show-1", { rpc })).toEqual({ ok: false, code: "infra_error" });
   });
 
   it("publishShow maps PUBLISH_BLOCKED_PENDING_REVIEW to a typed refusal", async () => {
@@ -122,6 +150,7 @@ describe("lifecycle callers — THROWN Supabase faults map to infra_error (R7, i
     ["archiveShow", (rpc) => archiveShow("show-1", { rpc })],
     ["publishShow", (rpc) => publishShow("show-1", { rpc })],
     ["unarchiveShow", (rpc) => unarchiveShow("show-1", "drive-1", { rpc })],
+    ["unpublishShow", (rpc) => unpublishShow("show-1", { rpc })],
   ];
   it.each(throwingCallers)(
     "%s: an rpc that THROWS resolves to { ok:false, code:'infra_error' } (no unhandled rejection)",

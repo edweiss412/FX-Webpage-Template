@@ -120,19 +120,19 @@ describe("M6 sync message catalog", () => {
         // M12.13: the undo now DELIVERS (in-app always; emailed token+r
         // confirm link when configured) — the copy stopped pretending
         // archive-from-the-page is the only recovery.
-        "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** You have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its page instead. Either way its crew link switches off until you republish.",
+        "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link.",
       crewFacing: null,
       followUp: null,
       helpfulContext:
-        "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, you have 24 hours to Undo auto-publish — while that window is open, the button is on this alert and on the show's page, and when email is set up the published notice carries the same undo link. After it closes, archive the show from its per-show page instead. Either way the crew link stops resolving until you republish.",
+        "We auto-published this show because the parse looked clean \u2014 all the safety checks passed. The crew page is now live at its share-token URL. If you dragged in the wrong sheet or weren't ready, flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on, and the same crew link works again when you do. When email is set up, the published notice also carries a 24-hour undo link that does the same thing.",
     });
     expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
       dougFacing:
-        "_<sheet-name>_ has been unpublished. Its share-token URL no longer works. Drag the sheet back into your watched folder when you're ready to publish again.",
+        "_<sheet-name>_ has been unpublished. Its crew link is paused \u2014 crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
       crewFacing: null,
-      followUp: "Doug → optionally re-share when ready",
+      followUp: "Doug → republish from the show's page when ready",
       helpfulContext:
-        "You clicked Unpublish on a recently-published show. The show is now archived, its share-token URL no longer resolves, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+        "This show has been unpublished \u2014 from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed \u2014 the same link works again when you republish, your sheet is unchanged and keeps syncing, and the show stays in Active shows. Turn Published back on from the show's page when you're ready.",
     });
   });
 });

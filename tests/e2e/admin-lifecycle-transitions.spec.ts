@@ -44,6 +44,7 @@ import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedHeldShow, readShow, sqlClient, type SeededShow } from "../db/_b2Helpers";
+import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 
 const REPO_ROOT = resolve(__dirname, "../..");
 
@@ -52,7 +53,7 @@ const CHANGED_COMPONENTS = [
   "components/admin/DashboardBucketSegmentedControl.tsx",
   "components/admin/ArchivedShowRow.tsx",
   "components/admin/ArchiveShowButton.tsx",
-  "components/admin/PublishShowButton.tsx",
+  "components/admin/PublishedToggle.tsx",
   "components/admin/UnarchiveShowButton.tsx",
 ];
 
@@ -93,11 +94,19 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       expect(src, `${rel}: no framer-motion import`).not.toMatch(/from\s+["']framer-motion["']/);
       expect(src, `${rel}: no motion.<tag> element`).not.toMatch(/\bmotion\.[a-zA-Z]/);
       // No STATE animations: opacity/transform/translate/scale/height tweens.
-      // transition-colors (hover) is the ONLY permitted transition-* utility.
-      const stateTransitions = src.match(/transition-(?!colors\b)[a-z]+/g) ?? [];
+      // transition-colors (hover) is the ONLY permitted transition-* utility —
+      // EXCEPT PublishedToggle's switch knob: the published-toggle spec §3.3
+      // transition inventory declares every §3.4 STATE pair instant but keeps
+      // AutoPublishToggle's built-in knob transition-transform (a within-control
+      // micro-interaction, the settings-toggle precedent, not a state swap).
+      const permitted =
+        rel === "components/admin/PublishedToggle.tsx"
+          ? /transition-(?!colors\b|transform\b)[a-z]+/g
+          : /transition-(?!colors\b)[a-z]+/g;
+      const stateTransitions = src.match(permitted) ?? [];
       expect(
         stateTransitions,
-        `${rel}: only transition-colors permitted (no transition-all/opacity/transform — §3.4 instant)`,
+        `${rel}: only transition-colors permitted (no transition-all/opacity — §3.4 instant)`,
       ).toEqual([]);
       // No animate-* (keyframe) utilities driving state changes.
       expect(src, `${rel}: no animate-* keyframe utility`).not.toMatch(/\banimate-[a-z]/);
@@ -200,11 +209,12 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
     await page.getByTestId("archive-show-button").click();
     await expect(page.getByTestId("archive-show-confirm-button")).toBeVisible();
 
-    // Dispatch the OTHER action (Publish) while Archive is armed. Its form
-    // action runs the server action then router.refresh() on success.
-    const publish = page.getByTestId("publish-show-button");
-    await expect(publish).toBeVisible();
-    await publish.click();
+    // Dispatch the OTHER action (the Published toggle, which replaced the Held
+    // Publish button) while Archive is armed. Its form action runs the server
+    // action then router.refresh() on success.
+    const toggle = page.getByTestId("published-toggle");
+    await expect(toggle).toBeVisible();
+    await toggle.click();
 
     // Let the dispatch + any refresh settle.
     await page.waitForLoadState("networkidle");
@@ -226,6 +236,53 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       await expect(page.getByTestId("archive-show-button")).toBeVisible();
     } else if (confirmCount === 1) {
       await expect(page.getByTestId("archive-show-confirm-button")).toBeVisible();
+    }
+  });
+
+  test("Published toggle round-trip: OFF → crew URL shows the paused page (no show data); ON → same URL is live again", async ({
+    page,
+    browser,
+  }) => {
+    const seeded = await seedShowWithCrew({ title: "Published Toggle E2E Show" });
+    try {
+      const crewUrl = `/show/${seeded.slug}/${seeded.shareToken}`;
+
+      // Flip OFF from the admin page.
+      await page.goto(`/admin/show/${seeded.slug}`);
+      const toggle = page.getByTestId("published-toggle");
+      await expect(toggle).toHaveAttribute("aria-checked", "true");
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-checked", "false");
+      // The read-only title pill reflects the paused state.
+      await expect(page.getByText("Held — not published").first()).toBeVisible();
+
+      // Crew view in a FRESH context (no admin session — admins bypass the gate).
+      const crewContext = await browser.newContext();
+      try {
+        const crewPage = await crewContext.newPage();
+        await crewPage.goto(crewUrl);
+        // Assert on the CREW page's own DOM (anti-tautology): paused surface
+        // present, seeded title ABSENT (zero show data on the paused page).
+        await expect(crewPage.getByTestId("crew-show-paused-root")).toBeVisible();
+        await expect(crewPage.locator("body")).not.toContainText("Published Toggle E2E Show");
+
+        // Flip back ON; the SAME crew URL leaves the paused surface and renders
+        // the live crew route again. A fresh context has no picker identity, so
+        // "live" here is the picker welcome (the route's real first surface) —
+        // a paused link renders crew-show-paused-root instead, so the welcome
+        // appearing IS the republish signal.
+        await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-checked", "true");
+        await crewPage.goto(crewUrl);
+        await expect(crewPage.getByTestId("crew-show-paused-root")).not.toBeVisible({
+          timeout: 10_000,
+        });
+        await expect(crewPage.locator("body")).toContainText("Skip and pick your name");
+      } finally {
+        await crewContext.close();
+      }
+    } finally {
+      await deleteSeededShow(seeded.driveFileId);
     }
   });
 });

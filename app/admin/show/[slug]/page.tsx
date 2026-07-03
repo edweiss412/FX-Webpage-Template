@@ -37,17 +37,15 @@ import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
-import { PublishShowButton } from "@/components/admin/PublishShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
-import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
+import { PublishedToggle } from "@/components/admin/PublishedToggle";
 import {
   archiveShowAction,
-  publishShowAction,
+  setShowPublishedAction,
   unarchiveShowAction,
   mi11ApproveAction,
   mi11RejectAction,
   undoChangeAction,
-  undoAutoPublishAction,
 } from "./_actions";
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -92,10 +90,6 @@ type ShowLookupRow = {
   archived: boolean;
   last_synced_at: string | null;
   last_sync_status: string | null;
-  // M12.13 §6.1: the EXPIRY only (never the token itself — the secret stays
-  // server-side; the undo action re-reads the token by slug). Drives
-  // `undoWindowOpen = expires_at != null && expires_at > now`.
-  unpublish_token_expires_at: string | null;
 };
 
 type CrewMemberRow = {
@@ -169,7 +163,7 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status, unpublish_token_expires_at",
+        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
       )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
@@ -393,25 +387,19 @@ export default async function AdminShowPage({
   const archived = Boolean(show.archived);
   const published = show.published;
 
-  // M12.13 §6.1 — the auto-publish undo safety net is OPEN iff a live token mint
-  // exists and hasn't expired. The page never sees the token (secret stays
-  // server-side); the expiry alone gates both in-app affordances (the footer
-  // button and the SHOW_FIRST_PUBLISHED alert-row action). A manual publish mints
-  // no token (B2), so its expiry is null → window closed → no affordance.
-  const undoExpiresAt = show.unpublish_token_expires_at;
-  const undoExpiresMs = undoExpiresAt ? Date.parse(undoExpiresAt) : NaN;
-  const undoWindowOpen = Number.isFinite(undoExpiresMs) && undoExpiresMs > now.getTime();
-
   // §3.2 finalize-owned ("Publishing…") vs Held discriminator. Same
   // authoritative source as the dashboard (components/admin/Dashboard.tsx:287):
   // the SECURITY DEFINER predicate public.readfinalizeowned_b2(p_show_id)
   // (migration 20260601000000:13, granted to authenticated in 20260601000002).
-  // Queried ONLY for the in-flight case (!published && !archived) — a published
-  // or archived row is never finalize-owned. Fail toward NOT-finalize-owned
-  // (i.e. "Held") on ANY RPC error: a returned error, a non-true value, or a
-  // thrown fault all leave finalizeOwned=false, the safe/non-alarming label.
+  // Queried for EVERY non-archived show (published-toggle R3): the predicate's
+  // shows_pending_changes branch is NOT constrained to unpublished rows, so a
+  // LIVE show mid-pending-changes-finalize is finalize-owned too — the toggle
+  // must render ON-disabled there. Fail toward NOT-finalize-owned on ANY RPC
+  // error (returned error, non-true value, or thrown fault): a transiently
+  // enabled toggle is safe — the RPC's hard FINALIZE_OWNED_SHOW refusal is the
+  // backstop (defense in depth).
   let finalizeOwned = false;
-  if (!published && !archived) {
+  if (!archived) {
     try {
       const { data, error } = await supabase.rpc("readfinalizeowned_b2", {
         p_show_id: show.id,
@@ -544,11 +532,6 @@ export default async function AdminShowPage({
         showId={show.id}
         slug={show.slug}
         highlightAlertId={sp.alert_id ?? null}
-        /* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows render the shared undo action
-           iff the token window is still open. The bound action is passed down so
-           the section reuses the SAME server action as the footer button. */
-        undoWindowOpen={undoWindowOpen}
-        undoAutoPublishAction={undoAutoPublishAction.bind(null, show.slug)}
       />
 
       {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
@@ -585,13 +568,13 @@ export default async function AdminShowPage({
                 role="status"
                 className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
               >
-                Held — not published. Publish to make it live, then issue a crew link.
+                Held — not published. Turn on{" "}
+                <a href="#share-access" className="font-semibold text-text-strong underline">
+                  Published in Share &amp; access
+                </a>{" "}
+                to make it live.
               </p>
               <div className="flex flex-wrap items-start gap-3">
-                <PublishShowButton
-                  publishAction={publishShowAction.bind(null, show.slug)}
-                  slug={show.slug}
-                />
                 <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
               </div>
             </>
@@ -720,15 +703,28 @@ export default async function AdminShowPage({
 
         {/* Share & access column (rotate/reset folded in, gated) */}
         <section
+          id="share-access"
           data-testid="per-show-share-col"
           aria-label="Share & access"
-          className="flex flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
+          className="flex scroll-mt-4 flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
         >
           <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
           <p className="text-sm text-text-subtle">
             One share-link reaches the whole crew. Rotate the link if it leaks; reset the picker if
             a crew member needs to re-pick their identity.
           </p>
+          {/* Published toggle (spec §3.3, D2/D3): the single publish control — replaces the
+              window-gated Undo auto-publish and the Held Publish button. Hidden ONLY on
+              archived shows (their lifecycle section owns Unarchive); disabled whenever a
+              finalize owns the show, in BOTH published states. */}
+          {!archived ? (
+            <PublishedToggle
+              slug={show.slug}
+              published={published}
+              finalizeOwned={finalizeOwned}
+              setPublished={setShowPublishedAction.bind(null, show.slug)}
+            />
+          ) : null}
           {isShowEligibleForCrewLink ? (
             // Pass the page's SINGLE token snapshot (Codex R2) so the header
             // chip and this panel can never render two different tokens from a
@@ -953,17 +949,6 @@ export default async function AdminShowPage({
             Archive shows ONLY for a Live show (published && !archived); Held
             keeps Archive grouped with Publish above, Archived shows Unarchive. */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* M12.13 §6.2/§6.4 — the in-app undo, beside Archive/Re-sync, rendered
-              iff the token window is open AND the show is Live (published &&
-              !archived). Post-undo the show is archived → this disappears and the
-              Re-sync-paused note + archived affordances take over. */}
-          {undoWindowOpen && published && !archived ? (
-            <UndoAutoPublishButton
-              slug={show.slug}
-              undoAction={undoAutoPublishAction.bind(null, show.slug)}
-              testId="undo-auto-publish-footer"
-            />
-          ) : null}
           {isShowEligibleForCrewLink ? (
             <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
           ) : null}

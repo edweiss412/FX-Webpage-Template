@@ -2,7 +2,7 @@
 // bare-token rejection without consuming; invalid-r × {live, expired,
 // consumed} → neutral 404 + ZERO state change (in particular the expired
 // branch's token-clear side effect must NOT fire for an invalid r — R18);
-// valid token+r → 200 + archived; post-consumption token+old-r → neutral 404
+// valid token+r → 200 + pure-unpublished; post-consumption token+old-r → neutral 404
 // with no code; expired+valid-r → the catalog-coded expired shape (and only
 // THAT path may clear the token). Drives the real route handler against the
 // local stack — the mocked sibling file pins shape mapping; this one pins
@@ -124,7 +124,7 @@ describe("POST /api/show/[slug]/unpublish — real-DB state matrix", () => {
     expect(await fullShowSnapshot(seeded.showId)).toEqual(before);
   });
 
-  it("valid token+r → 200 { ok:true, showId }; show archived + token consumed", async () => {
+  it("valid token+r → 200 { ok:true, showId }; show PURE-unpublished + token consumed", async () => {
     const seeded = await seedAutoPublishedShowWithUnpublishToken();
     const email = await seedActiveAdminEmail();
     const r = recipientBindingFor(email, seeded.showId, mintIdFor(seeded.unpublishToken));
@@ -134,7 +134,7 @@ describe("POST /api/show/[slug]/unpublish — real-DB state matrix", () => {
     expect(response.status).toBe(200);
 
     const after = await fullShowSnapshot(seeded.showId);
-    expect(after.archived).toBe(true);
+    expect(after.archived).toBe(false); // published-toggle D1: pure unpublish never archives
     expect(after.published).toBe(false);
     expect(after.unpublish_token).toBeNull();
   });

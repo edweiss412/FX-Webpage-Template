@@ -108,6 +108,21 @@ describe("GET /api/show/[slug]/version", () => {
     expect(body.version_token).toBe("9876543210:2");
   });
 
+  test("show_unavailable (unpublished/archived show) maps to 410 — the crew missed-broadcast durability pin (published-toggle R6/R9)", async () => {
+    // An unpublished show resolves show_unavailable BEFORE the token read
+    // (lib/auth/picker/resolvePickerSelection.ts:84); the bridge maps 410 →
+    // auth_denied → forced router.refresh, landing the crew page on the
+    // paused surface even when the realtime broadcast was missed.
+    state.picker = { kind: "show_unavailable" };
+
+    const res = await GET(fakeReq("__Host-fxav_picker=signed"), {
+      params: Promise.resolve({ slug: "test-show" }),
+    });
+
+    expect(res.status).toBe(410);
+    expect(state.rpcCalls).toEqual([]);
+  });
+
   test("session_mismatch maps to 410 and does not call viewer_version_token", async () => {
     state.picker = {
       kind: "identity_invalidated",

@@ -8,8 +8,8 @@ import {
   type CandidateSql,
 } from "@/lib/notify/detect/candidates";
 import type { SendArgs } from "@/lib/notify/send";
-import { mintIdFor } from "@/lib/sync/unpublishBinding";
-import { unpublishShow } from "@/lib/sync/unpublishShow";
+import { mintIdFor, recipientBindingFor } from "@/lib/sync/unpublishBinding";
+import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 
 const DB_URL = process.env.TEST_DATABASE_URL;
 const ORIGIN = "https://crew.fxav.app";
@@ -74,8 +74,14 @@ describe("auto_publish_undo deliver-time currentness — real DB (spec §4.3)", 
 
         const candidate = await detectUndoCandidate(sql, showId);
 
-        // Consume between detection and delivery via the REAL in-app path.
-        const undone = await unpublishShow({ slug: seeded.slug, token });
+        // Consume between detection and delivery via the REAL emailed-link path
+        // (the in-app leg died with the Published toggle; the recipient seeded
+        // above is the active admin the binding derives from).
+        const undone = await unpublishShowViaEmailedLink({
+          slug: seeded.slug,
+          token,
+          r: recipientBindingFor(recipient, showId, mintIdFor(token)),
+        });
         expect(undone.outcome).toBe("success");
 
         const sendEmail = vi.fn(async () => ({ ok: true as const, messageId: "never" }));

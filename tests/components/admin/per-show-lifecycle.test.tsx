@@ -46,10 +46,9 @@ vi.mock("next/navigation", () => ({
 // The server actions are bound in the page; stub them so the bind() target exists.
 vi.mock("@/app/admin/show/[slug]/_actions", () => ({
   archiveShowAction: async () => ({ ok: true }),
-  publishShowAction: async () => ({ ok: true }),
   unarchiveShowAction: async () => undefined,
-  // M12.13 — the page binds undoAutoPublishAction for the footer + alert section.
-  undoAutoPublishAction: async () => ({ outcome: "success" }),
+  // Published toggle — the page binds setShowPublishedAction for the Share & access switch.
+  setShowPublishedAction: async () => ({ ok: true }),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -119,20 +118,23 @@ describe("per-show lifecycle presentation (§2.2–§2.4)", () => {
     expect(screen.queryByTestId("publish-show-button")).toBeNull();
   });
 
-  it("Held: disclosure + one-tap Publish + Archive button", async () => {
+  it("Held: disclosure points at the Published toggle; Archive stays; toggle renders OFF-enabled", async () => {
     state.show = { ...baseShow, published: false, archived: false };
     state.finalizeOwned = false;
     await renderPage();
     const disclosure = screen.getByTestId("held-disclosure");
     expect(disclosure.textContent).toContain(
-      "Held — not published. Publish to make it live, then issue a crew link.",
+      "Held — not published. Turn on Published in Share & access to make it live.",
     );
-    expect(screen.getByTestId("publish-show-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("publish-show-button")).toBeNull(); // toggle replaced it (D2)
+    const toggle = screen.getByTestId("published-toggle");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.hasAttribute("disabled")).toBe(false);
     expect(screen.getByTestId("archive-show-button")).toBeInTheDocument();
     expect(screen.queryByTestId("archived-disclosure")).toBeNull();
   });
 
-  it("Publishing… (finalize-owned): no Held disclosure, no Publish/Unarchive/Archive", async () => {
+  it("Publishing… (finalize-owned): no Held disclosure, no Publish/Unarchive/Archive; toggle OFF-disabled", async () => {
     state.show = { ...baseShow, published: false, archived: false };
     state.finalizeOwned = true;
     await renderPage();
@@ -140,13 +142,34 @@ describe("per-show lifecycle presentation (§2.2–§2.4)", () => {
     expect(screen.queryByTestId("publish-show-button")).toBeNull();
     expect(screen.queryByTestId("archive-show-button")).toBeNull();
     expect(screen.queryByTestId("unarchive-show-button-s1")).toBeNull();
+    const toggle = screen.getByTestId("published-toggle");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(toggle.hasAttribute("disabled")).toBe(true);
   });
 
-  it("Live: Archive button present, no Held/Archived disclosures, no Publish", async () => {
+  it("Live + finalize-owned (pending-changes finalize): toggle renders ON-DISABLED before any click (spec R3)", async () => {
+    state.show = { ...baseShow, published: true, archived: false };
+    state.finalizeOwned = true;
+    await renderPage();
+    const toggle = screen.getByTestId("published-toggle");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("Archived: the Published toggle is NOT mounted at all", async () => {
+    state.show = { ...baseShow, published: false, archived: true };
+    await renderPage();
+    expect(screen.queryByTestId("published-toggle")).toBeNull();
+  });
+
+  it("Live: Archive button present, no Held/Archived disclosures, no Publish; toggle ON-enabled", async () => {
     await renderPage();
     expect(screen.getByTestId("archive-show-button")).toBeInTheDocument();
     expect(screen.queryByTestId("held-disclosure")).toBeNull();
     expect(screen.queryByTestId("archived-disclosure")).toBeNull();
     expect(screen.queryByTestId("publish-show-button")).toBeNull();
+    const toggle = screen.getByTestId("published-toggle");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.hasAttribute("disabled")).toBe(false);
   });
 });

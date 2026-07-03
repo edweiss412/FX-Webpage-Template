@@ -15,7 +15,7 @@
  *     REAL `public.email_deliveries` row and rendering the REAL per-recipient email;
  *   - REAL recipient binding: the email URL's `r` validates for the seeded admin
  *     via `bindingMatchesActiveAdmin` (the same predicate the confirm page uses);
- *   - REAL in-app undo: plain `unpublishShow({slug, token})` consumes the token;
+ *   - REAL emailed-link undo: `unpublishShowViaEmailedLink({slug, token, r})` consumes the token;
  *   - the residue-scrub zero-row invariant on `admin_alerts` (plan T4.5 recurring guard).
  *
  * The ONLY mocked seam is Resend (`lib/notify/send.ts`): an injected `sendEmail`
@@ -43,7 +43,7 @@ import {
   mintIdFor,
   recipientBindingFor,
 } from "@/lib/sync/unpublishBinding";
-import { unpublishShow } from "@/lib/sync/unpublishShow";
+import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 
 // The probe drives the LOCAL stack explicitly (see header) — never the
 // .env.local validation pooler. The presence of TEST_DATABASE_URL is the gate;
@@ -238,9 +238,14 @@ describe("auto_publish_undo LIVE-INTEGRATION probe — real local DB (M12.13 T14
       `;
       expect(afterDedup[0]!.n).toBe("1");
 
-      // --- 5. Currentness: a REAL in-app undo consumes the token; re-detection
-      //        finds nothing and delivery sends nothing new. ---
-      const undone = await unpublishShow({ slug, token });
+      // --- 5. Currentness: a REAL emailed-link undo consumes the token (the
+      //        in-app leg died with the Published toggle); re-detection finds
+      //        nothing and delivery sends nothing new. ---
+      const undone = await unpublishShowViaEmailedLink({
+        slug,
+        token,
+        r: recipientBindingFor(recipient, showId, mintIdFor(token)),
+      });
       expect(undone.outcome).toBe("success");
 
       const afterUndo = await listRealtimeCandidates(sql as unknown as CandidateSql);

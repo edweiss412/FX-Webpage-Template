@@ -56,13 +56,6 @@ const lockHolderRegistry = [
   },
   {
     path: "lib/sync/unpublishShow.ts",
-    holder: "unpublishShow",
-    layer:
-      "resolves slug to drive_file_id before delegating token consumption/link revocation to withShowLock; unpublishShow_unlocked never locks",
-    key: "hashtext('show:' || drive_file_id)",
-  },
-  {
-    path: "lib/sync/unpublishShow.ts",
     holder: "unpublishShowViaEmailedLink",
     layer:
       "mirrors unpublishShow's topology — slug bootstrap read, then ONE withShowLock holder; the FOR-SHARE recipient-binding re-validation runs inside that same holder (no new lock layer); unpublishShowViaEmailedLink_unlocked never locks",
@@ -362,11 +355,6 @@ describe("M6 advisory-lock single-holder contract", () => {
           key: "hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({
-          holder: "unpublishShow",
-          layer: expect.stringContaining("withShowLock"),
-          key: "hashtext('show:' || drive_file_id)",
-        }),
-        expect.objectContaining({
           holder: "cleanupAbandonedFinalize",
           layer: expect.stringContaining("sorted per-drive_file_id show locks"),
           key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
@@ -457,6 +445,21 @@ describe("M6 advisory-lock single-holder contract", () => {
     expect(cleanupSource).toMatch(
       /await lockCleanupDriveFiles\(tx, sessionId\);[\s\S]*delete from public\.shows_pending_changes[\s\S]*delete from public\.shows/,
     );
+  });
+
+  test("unpublish_show admin path holds the show lock in-RPC only (single-holder)", () => {
+    // Published-toggle spec §3.4 topology: admin toggle OFF locks IN-RPC (like publish_show);
+    // the JS lifecycle caller must NOT add a second layer. The core-lockless + grant assertions
+    // live in tests/db/b2-lifecycle-rpc-meta.test.ts (DB truth); this pins the source LAYERING.
+    const migration = read(
+      "supabase/migrations/20260701000000_published_toggle_unpublish_show.sql",
+    );
+    expect(migration).toMatch(
+      /create or replace function public\.unpublish_show[\s\S]*?pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'/,
+    );
+    expect(migration).toContain("_unpublish_show_core");
+    const caller = read("lib/showLifecycle/unpublishShow.ts");
+    expect(caller).not.toMatch(/pg_(?:try_)?advisory_xact_lock|withShowLock/);
   });
 
   test("snapshot rollback repair keeps the mandated promote-then-show lock order", () => {

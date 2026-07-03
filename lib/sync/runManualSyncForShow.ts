@@ -5,6 +5,7 @@ import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
+  type LockableSyncTx,
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import {
@@ -112,7 +113,9 @@ function errorMessage(error: unknown): string {
 }
 
 export async function readFinalizeOwnershipGuard_unlocked(
-  tx: LockedShowTx<SyncPipelineTx>,
+  // Widened to the minimal queryOne seam (published-toggle §3.4): the emailed-link unpublish
+  // engine calls this from its own locked raw-postgres tx, which is not a SyncPipelineTx.
+  tx: LockedShowTx<LockableSyncTx>,
   driveFileId: string,
 ): Promise<boolean> {
   const row = await tx.queryOne<{

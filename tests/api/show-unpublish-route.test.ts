@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { BUSY_BODY } from "@/app/show/[slug]/unpublish/copy";
 import { revalidateTag } from "next/cache";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 import type { UnpublishShowResult } from "@/lib/sync/unpublishShow";
@@ -84,6 +85,17 @@ describe("POST /api/show/[slug]/unpublish — token+r contract (M12.13 R8)", () 
       expect(response.status).toBe(404);
     }
     expect(routeMock.calls).toEqual([]);
+  });
+
+  test("finalize_owned outcome → 409 { ok:false, busy:true, message: BUSY_BODY } (never the 404 collapse)", async () => {
+    routeMock.result = { outcome: "finalize_owned", status: 409, showId: "show-1" };
+    const response = await post(`${BASE}?token=tok-1&r=0123456789abcdef`);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      busy: true,
+      message: BUSY_BODY,
+    });
   });
 
   test("not_found outcome (covers invalid-r, unknown slug, and post-consumption token+old-r) → neutral 404, NO code", async () => {
