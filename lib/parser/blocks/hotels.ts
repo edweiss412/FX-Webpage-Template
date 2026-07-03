@@ -185,7 +185,24 @@ function stripConfTokens(name: string): string {
             digits.length === 4 &&
             /\b\d{5}$/.test(str.slice(0, offset + ws.length)) &&
             (afterMatch === "" || !/\w/.test(afterMatch));
-          return isZip4 ? whole : " ";
+          if (isZip4) return whole;
+          // idx88: a dash-prefixed number that BEGINS A STREET PHRASE is a street
+          // address, not a conf#. Deleting it strands splitHotelNameAddress with no
+          // street number to split on, collapsing the whole cell into hotel_name with
+          // a null address ("Hyatt Regency - 1515 Madison Ave …" → the "- 1515" is
+          // dropped). looksLikeStreetStart is the SAME street-vs-conf discriminator the
+          // Hotel-Stays path uses (suffixed street OR "…, ST ZIP" tail). A "#"-marked
+          // run ("- #1515") is always a conf#, so only a plain dash qualifies. Keep the
+          // NUMBER but DROP the separator dash, yielding the flattened "name number
+          // street" form splitHotelNameAddress expects (matching the inline no-guest
+          // path). A dash-number that is NOT a street phrase stays stripped.
+          if (
+            !sep.includes("#") &&
+            looksLikeStreetStart(" " + digits + str.slice(offset + whole.length))
+          ) {
+            return " " + digits;
+          }
+          return " ";
         },
       )
       .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash

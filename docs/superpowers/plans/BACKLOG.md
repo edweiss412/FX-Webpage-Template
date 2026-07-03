@@ -25,7 +25,9 @@ Promotion is a real decision — same gate as any other milestone (brainstorming
 
 ## Open backlog (not yet promoted)
 
-### BL-HOTEL-DASH-STREET-NUMBER-CLIPPED — A dash-prefixed street number is deleted as a conf# and the address is lost
+### BL-HOTEL-DASH-STREET-NUMBER-CLIPPED — A dash-prefixed street number is deleted as a conf# and the address is lost — ✅ RESOLVED (2026-07-03)
+
+**Resolution (2026-07-03):** Fixed in `stripConfTokens` (`lib/parser/blocks/hotels.ts`). The dash-conf# replacer now threads the street-vs-conf discriminator: a `dash + 4–5-digit` run whose number BEGINS a street phrase (`looksLikeStreetStart` — suffixed street OR `…, ST ZIP` tail, the same discriminator the Hotel-Stays path uses) is preserved, keeping the number but dropping the separator dash so the flattened `name number street` form is exactly what `splitHotelNameAddress` expects. A `#`-marked run (`- #1515`) or a non-street dash-number (a real conf#) is still stripped. A suffixed dash-street now splits into name+address; a suffixless one stays glued but the number is no longer lost (the #3 safe fallback, no data loss). TDD: 5 cases in `tests/parser/blocks/hotels.test.ts` (suffixed split, suffixless glued-but-preserved, dash-conf# still stripped, 4-digit non-street conf# stripped, ZIP+4 idx4 not regressed); full parser suite (1412) + typecheck green; Codex-reviewed.
 
 **Origin:** PR #38–#217 audit finding idx88, probe-confirmed 2026-07-03. `stripConfTokens` (`lib/parser/blocks/hotels.ts`) deletes a `dash + 4+ digits` run as a confirmation number. For a hotel written `"Hyatt Regency - 1515 Broadway New York, NY 10036"`, the `- 1515` street number is deleted; the remaining `"Hyatt Regency  Broadway New York, NY 10036"` then has no leading street number for `splitHotelNameAddress` to split on, so the WHOLE string becomes `hotel_name` and `hotel_address` is **null**. Probe: `{name:"Hyatt Regency Broadway New York, NY 10036", address:null}`. (The sibling idx4 ZIP+4 clip — a dash IMMEDIATELY after a digit — was fixed 2026-07-03 via a `(?<!\d)` lookbehind; this dash-STREET case has a space before the dash, so that lookbehind does not cover it.)
 
