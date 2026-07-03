@@ -2,7 +2,9 @@ import { describe, expect, test, vi } from "vitest";
 import { maybeEscalateWatchOrphaned } from "@/lib/drive/watchEscalation";
 import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
 
-const ALERT = (over: Partial<{ id: string; occurrence_count: number; context: Record<string, unknown> }> = {}) => ({
+const ALERT = (
+  over: Partial<{ id: string; occurrence_count: number; context: Record<string, unknown> }> = {},
+) => ({
   id: "alert-1",
   occurrence_count: ESCALATION_THRESHOLD,
   context: { error_class: "drive_api" },
@@ -25,14 +27,24 @@ function makeDeps(over: Record<string, unknown> = {}) {
 
 describe("maybeEscalateWatchOrphaned", () => {
   test("below threshold, non-config → no escalation, no reads consumed", async () => {
-    const deps = makeDeps({ readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD - 1 })) });
+    const deps = makeDeps({
+      readUnresolvedWatchAlert: vi
+        .fn()
+        .mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD - 1 })),
+    });
     const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r).toEqual({ escalated: false, faults: [] });
     expect(deps.persistAppEventStrict).not.toHaveBeenCalled();
   });
   test("config class escalates at count 1", async () => {
-    const deps = makeDeps({ readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: 1, context: { error_class: "config" } })) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated).toBe(true);
+    const deps = makeDeps({
+      readUnresolvedWatchAlert: vi
+        .fn()
+        .mockResolvedValue(ALERT({ occurrence_count: 1, context: { error_class: "config" } })),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated,
+    ).toBe(true);
   });
   test("existing guard row → zero sends, zero guard writes (fired-once across restarts)", async () => {
     const deps = makeDeps({ hasEscalationFired: vi.fn().mockResolvedValue(true) });
@@ -42,12 +54,19 @@ describe("maybeEscalateWatchOrphaned", () => {
     expect(deps.sendEmail).not.toHaveBeenCalled();
   });
   test("still fires above threshold when no guard exists (multi-bump robustness)", async () => {
-    const deps = makeDeps({ readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD + 4 })) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated).toBe(true);
+    const deps = makeDeps({
+      readUnresolvedWatchAlert: vi
+        .fn()
+        .mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD + 4 })),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated,
+    ).toBe(true);
   });
   test("R6-1: recheck read failure aborts BEFORE the guard write; retryable next cycle", async () => {
     // recheck = second readUnresolvedWatchAlert call
-    const read = vi.fn()
+    const read = vi
+      .fn()
       .mockResolvedValueOnce(ALERT())
       .mockResolvedValueOnce("infra_error" as const);
     const deps = makeDeps({ readUnresolvedWatchAlert: read });
@@ -65,18 +84,28 @@ describe("maybeEscalateWatchOrphaned", () => {
   test("R5-2: alert resolved at recheck → benign abort, no guard, no sends, no fault", async () => {
     const read = vi.fn().mockResolvedValueOnce(ALERT()).mockResolvedValueOnce(null);
     const deps = makeDeps({ readUnresolvedWatchAlert: read });
-    expect(await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).toEqual({ escalated: false, faults: [] });
+    expect(
+      await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps),
+    ).toEqual({ escalated: false, faults: [] });
     expect(deps.persistAppEventStrict).not.toHaveBeenCalled();
   });
   test("guard write failure → guard_write fault, zero sends", async () => {
-    const deps = makeDeps({ persistAppEventStrict: vi.fn().mockResolvedValue({ ok: false, error: "x" }) });
+    const deps = makeDeps({
+      persistAppEventStrict: vi.fn().mockResolvedValue({ ok: false, error: "x" }),
+    });
     const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r).toEqual({ escalated: false, faults: ["guard_write"] });
     expect(deps.sendEmail).not.toHaveBeenCalled();
   });
   test("Sentry throwing never breaks the cycle", async () => {
-    const deps = makeDeps({ captureException: vi.fn(() => { throw new Error("sentry down"); }) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated).toBe(true);
+    const deps = makeDeps({
+      captureException: vi.fn(() => {
+        throw new Error("sentry down");
+      }),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated,
+    ).toBe(true);
   });
   test("configValid false → deliberate email skip, not a fault; Sentry still fired; pref NOT read (gate order)", async () => {
     // R1(plan)-4 failure mode: with Resend unconfigured AND the pref read faulting,
@@ -92,25 +121,45 @@ describe("maybeEscalateWatchOrphaned", () => {
     expect(deps.sendEmail).not.toHaveBeenCalled();
   });
   test("pref off → skip; pref infra_error → pref_read fault, no fail-open", async () => {
-    const off = makeDeps({ getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "value", enabled: false }) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, off)).faults).toEqual([]);
+    const off = makeDeps({
+      getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "value", enabled: false }),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, off)).faults,
+    ).toEqual([]);
     expect(off.sendEmail).not.toHaveBeenCalled();
-    const infra = makeDeps({ getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "infra_error" }) });
+    const infra = makeDeps({
+      getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "infra_error" }),
+    });
     const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, infra);
     expect(r.faults).toEqual(["pref_read"]);
     expect(infra.sendEmail).not.toHaveBeenCalled();
   });
   test("R3-3: recipients infra_error → recipients_read fault; zero recipients → benign skip", async () => {
-    const infra = makeDeps({ activeRecipients: vi.fn().mockResolvedValue({ kind: "infra_error" }) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, infra)).faults).toEqual(["recipients_read"]);
-    const empty = makeDeps({ activeRecipients: vi.fn().mockResolvedValue({ kind: "ok", recipients: [] }) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, empty)).faults).toEqual([]);
+    const infra = makeDeps({
+      activeRecipients: vi.fn().mockResolvedValue({ kind: "infra_error" }),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, infra)).faults,
+    ).toEqual(["recipients_read"]);
+    const empty = makeDeps({
+      activeRecipients: vi.fn().mockResolvedValue({ kind: "ok", recipients: [] }),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, empty)).faults,
+    ).toEqual([]);
   });
   test("sendEmail mapping: retry_later benign; conflict/infra → email_send fault (once)", async () => {
     const retry = makeDeps({ sendEmail: vi.fn().mockResolvedValue({ ok: "retry_later" }) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, retry)).faults).toEqual([]);
-    const bad = makeDeps({ sendEmail: vi.fn().mockResolvedValue({ ok: false, kind: "infra_error", message: "x" }) });
-    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, bad)).faults).toEqual(["email_send"]);
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, retry)).faults,
+    ).toEqual([]);
+    const bad = makeDeps({
+      sendEmail: vi.fn().mockResolvedValue({ ok: false, kind: "infra_error", message: "x" }),
+    });
+    expect(
+      (await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, bad)).faults,
+    ).toEqual(["email_send"]);
   });
   test("idempotency key derives from alert row id + recipient", async () => {
     const deps = makeDeps();

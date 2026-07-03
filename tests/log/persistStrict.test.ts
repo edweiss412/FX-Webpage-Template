@@ -30,7 +30,11 @@ describe("persistAppEventStrict", () => {
     const result = await persistAppEventStrict(RECORD);
     expect(result).toEqual({ ok: true });
     expect(insertMock).toHaveBeenCalledWith(
-      expect.objectContaining({ level: "info", source: "drive.watch.escalation", message: "watch escalation fired" }),
+      expect.objectContaining({
+        level: "info",
+        source: "drive.watch.escalation",
+        message: "watch escalation fired",
+      }),
     );
   });
   test("returned error → { ok: false, error }", async () => {
@@ -50,7 +54,10 @@ describe("persistAppEventStrict", () => {
     // Failure mode: strict writer bypassing buildRecord's sanitizeContext →
     // unsanitized PII persisting to app_events (spec §3.2.5 "same sanitization path").
     insertMock.mockResolvedValue({ error: null });
-    await persistAppEventStrict({ ...RECORD, context: { alertId: "a-1", note: "reach doug@example.com" } });
+    await persistAppEventStrict({
+      ...RECORD,
+      context: { alertId: "a-1", note: "reach doug@example.com" },
+    });
     const inserted = insertMock.mock.calls[0]![0] as { context: Record<string, unknown> };
     expect(JSON.stringify(inserted.context)).not.toContain("doug@example.com");
   });

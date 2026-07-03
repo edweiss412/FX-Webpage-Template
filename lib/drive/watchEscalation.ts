@@ -117,7 +117,12 @@ export async function maybeEscalateWatchOrphaned(
     level: "info",
     source: ESCALATION_EVENT_SOURCE,
     message: "watch escalation fired",
-    context: { alertId: alert.id, errorClass, occurrenceCount: alert.occurrence_count, watchedFolderId: input.folderId },
+    context: {
+      alertId: alert.id,
+      errorClass,
+      occurrenceCount: alert.occurrence_count,
+      watchedFolderId: input.folderId,
+    },
   });
   if (!guard.ok) return { escalated: false, faults: ["guard_write"] };
 
@@ -125,7 +130,10 @@ export async function maybeEscalateWatchOrphaned(
   try {
     (deps.captureException ?? Sentry.captureException)(
       new Error("WATCH_CHANNEL_ORPHANED escalated"),
-      { tags: { errorClass }, extra: { occurrenceCount: alert.occurrence_count, watchedFolderId: input.folderId } },
+      {
+        tags: { errorClass },
+        extra: { occurrenceCount: alert.occurrence_count, watchedFolderId: input.folderId },
+      },
     );
   } catch {
     // Sentry is a notification channel, not the durable record (spec §3.3).

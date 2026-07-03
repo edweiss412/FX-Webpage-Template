@@ -206,29 +206,35 @@ describe("WATCH_CHANNEL_ORPHANED dismiss-vs-retry race (global alert)", () => {
   async function cleanupGlobal() {
     await sql!`delete from public.admin_alerts where code = ${WATCH_CODE} and show_id is null`;
   }
-  test.skipIf(!sql)("post-dismiss failed retry INSERTS a fresh unresolved row (honest re-raise)", async () => {
-    await cleanupGlobal();
-    await sql!`select public.upsert_admin_alert(null::uuid, ${WATCH_CODE}, ${sql!.json({ reason: "watch_create_failed" })})`;
-    await sql!`update public.admin_alerts set resolved_at = now() where code = ${WATCH_CODE} and show_id is null and resolved_at is null`;
-    await sql!`select public.upsert_admin_alert(null::uuid, ${WATCH_CODE}, ${sql!.json({ reason: "watch_create_failed" })})`;
-    const rows = await sql!<{ resolved_at: string | null; occurrence_count: number }[]>`
+  test.skipIf(!sql)(
+    "post-dismiss failed retry INSERTS a fresh unresolved row (honest re-raise)",
+    async () => {
+      await cleanupGlobal();
+      await sql!`select public.upsert_admin_alert(null::uuid, ${WATCH_CODE}, ${sql!.json({ reason: "watch_create_failed" })})`;
+      await sql!`update public.admin_alerts set resolved_at = now() where code = ${WATCH_CODE} and show_id is null and resolved_at is null`;
+      await sql!`select public.upsert_admin_alert(null::uuid, ${WATCH_CODE}, ${sql!.json({ reason: "watch_create_failed" })})`;
+      const rows = await sql!<{ resolved_at: string | null; occurrence_count: number }[]>`
       select resolved_at, occurrence_count from public.admin_alerts
        where code = ${WATCH_CODE} and show_id is null order by raised_at`;
-    expect(rows).toHaveLength(2);
-    expect(rows[0]!.resolved_at).not.toBeNull(); // dismissed row untouched
-    expect(rows[1]!.resolved_at).toBeNull(); // fresh incident row
-    expect(rows[1]!.occurrence_count).toBe(1);
-    await cleanupGlobal();
-  });
-  test.skipIf(!sql)("retry-success after dismiss: unresolved-only resolve UPDATE affects zero rows (convergence)", async () => {
-    await cleanupGlobal();
-    await sql!`select public.upsert_admin_alert(null::uuid, ${WATCH_CODE}, ${sql!.json({})})`;
-    await sql!`update public.admin_alerts set resolved_at = now() where code = ${WATCH_CODE} and show_id is null and resolved_at is null`;
-    const updated = await sql!<{ id: string }[]>`
+      expect(rows).toHaveLength(2);
+      expect(rows[0]!.resolved_at).not.toBeNull(); // dismissed row untouched
+      expect(rows[1]!.resolved_at).toBeNull(); // fresh incident row
+      expect(rows[1]!.occurrence_count).toBe(1);
+      await cleanupGlobal();
+    },
+  );
+  test.skipIf(!sql)(
+    "retry-success after dismiss: unresolved-only resolve UPDATE affects zero rows (convergence)",
+    async () => {
+      await cleanupGlobal();
+      await sql!`select public.upsert_admin_alert(null::uuid, ${WATCH_CODE}, ${sql!.json({})})`;
+      await sql!`update public.admin_alerts set resolved_at = now() where code = ${WATCH_CODE} and show_id is null and resolved_at is null`;
+      const updated = await sql!<{ id: string }[]>`
       update public.admin_alerts set resolved_at = now()
        where code = ${WATCH_CODE} and show_id is null and resolved_at is null
        returning id`;
-    expect(updated).toHaveLength(0); // resolveAdminAlert's WHERE shape no-ops — no error, no dup
-    await cleanupGlobal();
-  });
+      expect(updated).toHaveLength(0); // resolveAdminAlert's WHERE shape no-ops — no error, no dup
+      await cleanupGlobal();
+    },
+  );
 });

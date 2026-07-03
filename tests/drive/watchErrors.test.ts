@@ -13,7 +13,9 @@ describe("classifyWatchError", () => {
   });
   test("DRIVE_WEBHOOK_BASE_URL throw → config", () => {
     expect(
-      classifyWatchError(new Error("DRIVE_WEBHOOK_BASE_URL is required for Drive watch subscriptions")),
+      classifyWatchError(
+        new Error("DRIVE_WEBHOOK_BASE_URL is required for Drive watch subscriptions"),
+      ),
     ).toBe("config");
   });
   test("invalid_grant / default-credentials / GOOGLE_SERVICE_ACCOUNT_JSON → config", () => {
@@ -22,7 +24,9 @@ describe("classifyWatchError", () => {
     expect(classifyWatchError(new Error("GOOGLE_SERVICE_ACCOUNT_JSON is unset"))).toBe("config");
   });
   test("Drive HTTP / malformed-watch errors → drive_api", () => {
-    expect(classifyWatchError(new Error("Drive files.watch response missing id/resourceId/expiration"))).toBe("drive_api");
+    expect(
+      classifyWatchError(new Error("Drive files.watch response missing id/resourceId/expiration")),
+    ).toBe("drive_api");
     expect(classifyWatchError(new Error("Request failed with status code 500"))).toBe("drive_api");
   });
   test("total over unknown: string, undefined, null → drive_api (never throws)", () => {
