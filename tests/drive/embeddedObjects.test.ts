@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { zipSync, strToU8 } from "fflate";
 import { extractEmbeddedObjects, findMediaByFingerprint } from "@/lib/drive/embeddedObjects";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 
@@ -43,6 +44,30 @@ describe("extractEmbeddedObjects", () => {
     const b = extractEmbeddedObjects(bad);
     expect(a).toEqual({ allTabTitles: [], objectsByTab: new Map(), bytesByObjectId: new Map() });
     expect(a.objectsByTab).not.toBe(b.objectsByTab); // fresh instances, not shared mutable state
+  });
+
+  it("does not throw when a relationship Target is a corrupted URL-like string", () => {
+    // A malformed absolute-URL Target would make new URL(...) throw inside norm();
+    // the module must stay fail-soft (skip it), not propagate (whole-diff LOW).
+    const files: Record<string, Uint8Array> = {
+      "xl/workbook.xml": strToU8(
+        `<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="DIAGRAMS" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      ),
+      "xl/_rels/workbook.xml.rels": strToU8(
+        `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="ws" Target="worksheets/sheet1.xml"/></Relationships>`,
+      ),
+      "xl/worksheets/sheet1.xml": strToU8(
+        `<?xml version="1.0"?><worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><drawing r:id="rIdD"/></worksheet>`,
+      ),
+      "xl/worksheets/_rels/sheet1.xml.rels": strToU8(
+        `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdD" Type="drawing" Target="http://[not-a-valid-url"/></Relationships>`,
+      ),
+    };
+    const zip = zipSync(files, { mtime: new Date("2020-01-01T00:00:00Z") });
+    const buf = zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength);
+    const result = extractEmbeddedObjects(buf);
+    expect(result.allTabTitles).toEqual(["DIAGRAMS"]);
+    expect(result.objectsByTab.size).toBe(0); // corrupted Target skipped, no throw
   });
 });
 

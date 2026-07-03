@@ -63,9 +63,18 @@ function relMap(xml: string): Map<string, string> {
   return m;
 }
 
-/** Resolve an OOXML relative Target (e.g. "../media/x.png") against the rels' owning part. */
+/**
+ * Resolve an OOXML relative Target (e.g. "../media/x.png") against the rels'
+ * owning part. Returns "" for a malformed Target (e.g. a corrupted absolute
+ * URL-like string) so the caller skips it — upholds the module's never-throws
+ * contract even on a corrupted workbook.
+ */
 function norm(base: string, target: string): string {
-  return new URL(target, "http://x/" + base).pathname.replace(/^\//, "");
+  try {
+    return new URL(target, "http://x/" + base).pathname.replace(/^\//, "");
+  } catch {
+    return "";
+  }
 }
 
 /** Path of the `.rels` companion for a part (e.g. xl/worksheets/sheet1.xml → xl/worksheets/_rels/sheet1.xml.rels). */
