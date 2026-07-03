@@ -49,7 +49,7 @@ if (!hasClickableTarget) {
   warnings.push(
     warn(
       "AGENDA_LINK_NOT_CLICKABLE",
-      `The agenda link "${link.label}" is just a file name with nothing to open, so crew can't reach the agenda.`,
+      `The agenda link "${link.label}" isn't a link crew can open, so they can't reach the agenda.`,
     ),
   );
 }
@@ -87,12 +87,12 @@ if (!hasClickableTarget) {
 
 ## 5. Copy (final)
 
-- **dougFacing** (table cell[2] + catalog + becomes spec-codes): `"An agenda link on _<sheet-name>_ is just a file name or note with nothing to open, so crew can't reach that agenda. Update the cell to a working link (or a Drive file), or let us know if it keeps happening."`
+- **dougFacing** (table cell[2] + catalog + becomes spec-codes): `"The agenda link on _<sheet-name>_ isn't a link crew can open — it's a file name, note, or other text rather than a working web link or a Drive file. Update the cell to a working link (or a Drive file), or let us know if it keeps happening."`
 - **crewFacing:** `null` (— in the table).
 - **followUp:** `"Doug → check agenda link"`.
-- **helpfulContext** (YAML appendix + catalog): `"An agenda-link cell contained a file name or descriptive text instead of a clickable link, so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look."`
+- **helpfulContext** (YAML appendix + catalog): `"An agenda-link cell held text with no clickable target — a file name, note, or an unsupported link type instead of a working web link or Drive file — so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look."`
 - **title** (catalog): `"Agenda link isn't clickable"`.
-- **longExplanation** (catalog): `"An agenda-link cell held a file name or note with no clickable target, so crew had nothing to open. Update it to a working link or the Drive file; if it already looks right and this persists, let us know and we'll take a look."`
+- **longExplanation** (catalog): `"An agenda-link cell held text with no clickable target — a file name, note, or unsupported link type rather than a working web link or Drive file — so crew had nothing to open. Update it to a working link or the Drive file; if it already looks right and this persists, let us know and we'll take a look."`
 - **helpHref** (catalog): `"/help/errors#AGENDA_LINK_NOT_CLICKABLE"`.
 - **§12.4 trigger cell (cell[1], NOT extracted):** `"an agenda-link cell has no clickable target — a bare file name or descriptive text rather than a Drive file or an http(s) URL (scheme match is case-insensitive)"`.
 
