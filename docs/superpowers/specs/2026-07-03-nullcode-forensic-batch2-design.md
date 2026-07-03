@@ -105,9 +105,15 @@ Four `log.error`/`warn` calls in these same files ALREADY carry a `code:` and ar
 
 ---
 
-## 7. UI-Opus disposition (impeccable dual-gate = N/A)
+## 7. UI-Opus disposition (impeccable dual-gate RUNS on the app/ non-api subset)
 
-The 10 §3.2 sites are `app/` non-api (UI-Opus-owned by the routing rule). **Impeccable v3 critique/audit (invariant 8) is N/A** for all of them: invariant 8 gates *rendering quality*, and adding a `code:` field to an existing server-side `log.error`/`log.warn` inside an RSC-loader catch or a fail-quiet upsert changes **zero** rendered output — no JSX, DOM, CSS/token, or copy. These are observability strings never surfaced to a user. Recorded as an explicit **"N/A — no rendering delta"** disposition (not a skipped gate). The UI-Opus authorship rule is honored: Opus (this session, and its own subagent) authors the edits; no Codex UI authorship.
+The 10 §3.2 sites are `app/` non-api files → **UI surface by the path-based definition of invariant 8** (any file under `app/` except `app/api/**`). Invariant 8 is a hard constraint (P0 regardless of test status), and this spec does **not** claim an unciteable exception. Therefore:
+
+- **The impeccable v3 dual-gate RUNS** on the affected `app/` non-api diff: `/impeccable critique` AND `/impeccable audit`, with the canonical v3 preflight (PRODUCT.md → DESIGN.md → register → preflight signal). HIGH/CRITICAL findings are fixed or explicitly `DEFERRED.md`-logged. Dispositions land in the PR body + handoff, per invariant 8.
+- **Expected outcome:** both gates pass with no HIGH/CRITICAL, because the change adds only a server-side `code:` field inside an RSC-loader catch (`page.tsx`), a Server-Action guard (`actions.ts`), and a fail-quiet upsert (`_CrewShell.tsx`) — **zero rendering delta** (no JSX/DOM/CSS/token/copy change). The gate is run to honor the invariant's letter, and its clean result is the recorded disposition — not an a-priori "N/A" claim.
+- **Authorship:** Opus owns these edits (this session + its own subagent); no Codex UI authorship, per the routing rule.
+
+This is the correct autonomous posture: run the required gate rather than assert it away. (Empirically the critique/audit will have no rendering surface to flag; that clean result is what ships.)
 
 ---
 
@@ -115,15 +121,21 @@ The 10 §3.2 sites are `app/` non-api (UI-Opus-owned by the routing rule). **Imp
 
 The change is a pure registry + field addition; the **structural meta-test IS the test**.
 
-### 8.1 `tests/log/_metaAdminOutcomeContract.test.ts` — the registry (EXTENDED)
-- Add all 35 forensic codes to `NEW_FORENSIC_CODES` (meta-test `:134`). **Assertion 4** (`:243-246`) then proves none leak into `codeProducerLiterals()` — this is the real guard (a code that's secretly a §12.4 producer fails here).
-- These are `log.error`/`warn` codes, NOT `logAdminOutcome` → **zero** additions to `SANCTIONED_CODES` and **zero** to `AUDITABLE_MUTATIONS` (Assertion 3 governs sanctioned mutation codes; not applicable here).
+### 8.1 `tests/log/_metaAdminOutcomeContract.test.ts` — the registry + per-site structural guard (EXTENDED)
 
-### 8.2 Per-site emission tests (behavioral, representative — not tautological)
-For a representative, high-value subset, assert the stamped code actually reaches the log sink (not just that the registry lists it) — this catches a code added to the registry but the wrong/no field on the call:
-- **`loadAppEvents` + `loadCronHealth`** (lib, easily unit-testable): force the returned-error and thrown paths; assert `log.error` was called with `code: "APP_EVENTS_READ_RETURNED_ERROR"` / `_THREW` / `CRON_HEALTH_*`. Use the existing test harness for these loaders if present; else spy on `log`.
-- **One app/api route** (e.g. `reap-stale-sessions`): force the catch; assert `log.error` called with `code: "REAP_STALE_SESSIONS_INFRA_FAILED"` AND the response body still returns the unchanged `REAP_STALE_SESSIONS_FAILED` producer (proves the rename didn't alter the contract).
-- Concrete failure mode each catches: a registry entry with no matching call-site stamp (or a typo'd code) — the tautology the meta-test alone can't catch.
+Two additions to the meta-test:
+
+**(a) Registry membership.** Add all 35 forensic codes to `NEW_FORENSIC_CODES` (meta-test `:134`). **Assertion 4** (`:243-246`) then proves none leak into `codeProducerLiterals()` — a code that's secretly a §12.4 producer fails here. These are `log.error`/`warn` codes, NOT `logAdminOutcome` → **zero** additions to `SANCTIONED_CODES` and **zero** to `AUDITABLE_MUTATIONS`.
+
+**(b) Per-site stamp-existence guard (closes Codex spec-R1 HIGH-1 — anti-tautology for ALL 35, not a representative subset).** Add a `NULLCODE_BATCH2_STAMPS: ReadonlyArray<{ file: string; code: string }>` registry — one row per site (35 rows). A new assertion, modeled on the existing `AUDITABLE_MUTATIONS` Assertion 1 (which scans a route file's text for its code literal), asserts for **every** row: the named file's source text contains the **exact stamp form** `code: "<CODE>"` (double- or single-quoted) AND contains a `log.error(` or `log.warn(` call. This structurally proves each of the 35 stamps actually landed on its call site — an omitted or typo'd stamp fails the assertion for that row. (Robust to line drift; matches by file+literal, not line.) It is NOT tautological: the meta-test derives the expectation from the registry, and the source file is the independent thing-under-test — a missing stamp makes the file text lack `code: "<CODE>"` and the row fails.
+
+Cross-guard: assert `NULLCODE_BATCH2_STAMPS.map(r => r.code)` set == the 35 codes added to `NEW_FORENSIC_CODES` in (a) (no drift between the two lists), and that all 35 are distinct.
+
+### 8.2 Per-site emission tests (behavioral — proves the code reaches the sink)
+On top of the structural guard, assert for a representative high-value subset that the stamped code actually reaches the log sink at runtime (structural text-match can't prove the field is in the *fields object* vs a stray string):
+- **`loadAppEvents` + `loadCronHealth`** (lib, easily unit-testable): force the returned-error and thrown paths; assert `log.error` was called with `code: "APP_EVENTS_READ_RETURNED_ERROR"` / `_THREW` / `CRON_HEALTH_*` in its fields arg. Use the existing loader test harness if present; else spy on `log`.
+- **`reap-stale-sessions`**: force the catch; assert `log.error` called with `code: "REAP_STALE_SESSIONS_INFRA_FAILED"` AND the response body still returns the unchanged `REAP_STALE_SESSIONS_FAILED` producer (proves the rename didn't alter the response contract).
+- Concrete failure mode: a code stamped as a stray string / on the wrong argument that the text-match (8.1b) would still pass — the runtime spy catches it.
 
 ### 8.3 Full-suite gate
 Run the FULL vitest suite before push (source-scanning meta-tests: `_metaAdminOutcomeContract`, `codeProducers`, and any `code:`-scanning gate). Typecheck (`pnpm typecheck`) before push (vitest strips types).
