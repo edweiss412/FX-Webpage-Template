@@ -125,3 +125,29 @@ describe("splitRoomHeader — regression guards (existing corpus shapes unchange
     expect(lunch?.dimensions).toBeNull();
   });
 });
+
+describe("splitRoomHeader — idx25 unlabeled A/B section suffix stays in the name", () => {
+  it("keeps a trailing 'A/B' in the NAME when dims follow with NO TOTAL:/A/B: label", () => {
+    // "A/B" is a real room-name suffix (the room spans sections A and B). The dims
+    // prefix group treated A/B as a colon-OPTIONAL label (PR #114), so an unlabeled
+    // "GRAND BALLROOM A/B 82' x …" wrongly pulled "A/B" out of the name into the dims.
+    expect(gsOf("GENERAL SESSION GRAND BALLROOM A/B 82' x 94' x 14' 8th Floor")).toEqual({
+      name: "GRAND BALLROOM A/B",
+      dimensions: "82' x 94' x 14'",
+      floor: "8th Floor",
+    });
+  });
+
+  it("still treats a LABELED 'A/B:' / 'TOTAL:' as the dims prefix (unchanged)", () => {
+    expect(gsOf("GENERAL SESSION GRAND BALLROOM A/B A/B: 82' x 94' x 14' 8th Floor")).toEqual({
+      name: "GRAND BALLROOM A/B",
+      dimensions: "A/B: 82' x 94' x 14'",
+      floor: "8th Floor",
+    });
+    expect(gsOf("GENERAL SESSION GRAND BALLROOM A/B TOTAL: 82' x 94' x 14' 8th Floor")).toEqual({
+      name: "GRAND BALLROOM A/B",
+      dimensions: "TOTAL: 82' x 94' x 14'",
+      floor: "8th Floor",
+    });
+  });
+});

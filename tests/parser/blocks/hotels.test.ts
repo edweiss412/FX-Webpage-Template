@@ -319,3 +319,41 @@ describe("parseHotels — corpus coverage (every fixture returns array)", () => 
     });
   }
 });
+
+// idx4 (#42): stripConfTokens' dash rule (\s*[-–—]{1,3}\s*#?\s*\d{4,}) clipped a ZIP+4
+// hyphen ("60611-1234" -> "60611"), losing the +4 from crew-visible hotel_address. A
+// real conf# always has a space / '#' / name before its dash — never a bare digit — so a
+// dash IMMEDIATELY preceded by a digit is a ZIP+4 (or intra-number) hyphen, not a conf#.
+describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
+  const hotelTable = (addr: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address |",
+      `|  | ${addr} | ${addr} |`,
+      "|  | Names on Reservation | Names on Reservation |",
+      "|  | Douglas Larson - \\#2069854 | Douglas Larson - \\#2069854 |",
+      "|  | Check In Date | Check Out Date |",
+      "|  | 3/22/26 | 3/26/26 |",
+    ].join("\n");
+
+  it("keeps the +4 of a ZIP+4 in hotel_address", () => {
+    const h = parseHotels(
+      hotelTable("Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611-1234"),
+      "v4",
+    )[0];
+    expect(h!.hotel_name).toBe("Four Seasons Hotel Chicago");
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
+  });
+
+  it("still strips a real dash-prefixed conf# from the guest name (regression guard)", () => {
+    // The conf# on the Names row must still be stripped (parsed-not-persisted); the guest
+    // name resolves cleanly and the plain-ZIP control address is unchanged.
+    const h = parseHotels(
+      hotelTable("Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611"),
+      "v4",
+    )[0];
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611");
+    expect(h!.names).toContain("Douglas Larson");
+  });
+});

@@ -155,12 +155,18 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
  * gated at 6+ digits so a US ZIP (5) or street number survives.
  */
 function stripConfTokens(name: string): string {
-  return name
-    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ") // dash-prefixed (#optional)
-    .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
-    .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    name
+      // dash-prefixed conf# (#optional). The `(?<!\d)` guards a dash IMMEDIATELY preceded by
+      // a digit: that is a ZIP+4 hyphen ("60611-1234") or an intra-number dash, NOT a conf#
+      // (a real conf# always has a space / '#' / name before its dash). Without it the "+4"
+      // of a ZIP+4 was clipped from crew-visible hotel_address (audit idx4).
+      .replace(/\s*(?<!\d)[-–—]{1,3}\s*#?\s*\d{4,}/g, " ")
+      .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
+      .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /**
