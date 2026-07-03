@@ -23,7 +23,9 @@ describe("fetchCurrentSheetXlsxBytes", () => {
   test("returns the exported bytes when the binding token stays stable", async () => {
     const filesGet = vi.fn().mockResolvedValue(meta("head-1"));
     const bytes = new ArrayBuffer(8);
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(bytes) });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(bytes) });
     const { fetchCurrentSheetXlsxBytes } = await import("@/lib/drive/fetch");
 
     const out = await fetchCurrentSheetXlsxBytes("sheet-1", {
@@ -38,8 +40,13 @@ describe("fetchCurrentSheetXlsxBytes", () => {
   });
 
   test("throws when the binding token changes during export", async () => {
-    const filesGet = vi.fn().mockResolvedValueOnce(meta("head-1")).mockResolvedValueOnce(meta("head-2"));
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) });
+    const filesGet = vi
+      .fn()
+      .mockResolvedValueOnce(meta("head-1"))
+      .mockResolvedValueOnce(meta("head-2"));
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue({ ok: true, arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)) });
     const { fetchCurrentSheetXlsxBytes } = await import("@/lib/drive/fetch");
 
     await expect(

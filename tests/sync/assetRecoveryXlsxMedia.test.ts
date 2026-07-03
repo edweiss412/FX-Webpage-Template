@@ -38,7 +38,11 @@ describe("fetchEmbeddedImageBytesTimed — XLSX-media branch (recovery port)", (
   test("resolves DIAGRAMS-tab bytes matching the fingerprint", async () => {
     const target = diagObjs[0]!;
     const bytes = await fetchEmbeddedImageBytesTimed(
-      stub({ objectId: target.objectId, mediaPartName: target.mediaPartName, embeddedFingerprint: fp(target.objectId) }),
+      stub({
+        objectId: target.objectId,
+        mediaPartName: target.mediaPartName,
+        embeddedFingerprint: fp(target.objectId),
+      }),
       {},
       { fetchXlsxBytes: async () => sampleXlsx() },
     );
@@ -47,7 +51,11 @@ describe("fetchEmbeddedImageBytesTimed — XLSX-media branch (recovery port)", (
 
   test("returns null for a fingerprint whose bytes live only on a non-DIAGRAMS tab", async () => {
     const bytes = await fetchEmbeddedImageBytesTimed(
-      stub({ objectId: infoObj.objectId, mediaPartName: infoObj.mediaPartName, embeddedFingerprint: fp(infoObj.objectId) }),
+      stub({
+        objectId: infoObj.objectId,
+        mediaPartName: infoObj.mediaPartName,
+        embeddedFingerprint: fp(infoObj.objectId),
+      }),
       {},
       { fetchXlsxBytes: async () => sampleXlsx() },
     );
@@ -97,7 +105,12 @@ describe("assetRecovery — driveFileId threading", () => {
       snapshot_revision_id: snapshotRevisionId,
       snapshot_status: "partial_failure",
       linkedFolder: null,
-      embeddedImages: [stub({ objectId: "embedded-1", embeddedFingerprint: sha256Base64Url(new TextEncoder().encode("x")) })],
+      embeddedImages: [
+        stub({
+          objectId: "embedded-1",
+          embeddedFingerprint: sha256Base64Url(new TextEncoder().encode("x")),
+        }),
+      ],
       linkedFolderItems: [],
     };
   }

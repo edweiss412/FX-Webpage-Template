@@ -156,7 +156,9 @@ export function findMediaByFingerprint(
   if (!diagramsTitle) return null;
   const objs = objectsByTab.get(diagramsTitle) ?? [];
   const ordered = partHint
-    ? [...objs].sort((a, b) => (a.mediaPartName === partHint ? -1 : b.mediaPartName === partHint ? 1 : 0))
+    ? [...objs].sort((a, b) =>
+        a.mediaPartName === partHint ? -1 : b.mediaPartName === partHint ? 1 : 0,
+      )
     : objs;
   for (const o of ordered) {
     const bytes = bytesByObjectId.get(o.objectId);

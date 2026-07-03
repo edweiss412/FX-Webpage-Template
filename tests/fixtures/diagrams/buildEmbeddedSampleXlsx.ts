@@ -40,7 +40,12 @@ function makePng(r: number, g: number, b: number): Uint8Array {
   const ihdr = new Uint8Array([...u32(1), ...u32(1), 8, 2, 0, 0, 0]); // 1x1, 8-bit, RGB
   const raw = Uint8Array.from([0, r, g, b]); // filter byte 0 + one RGB pixel
   const idat = new Uint8Array(deflateSync(raw));
-  return new Uint8Array([...sig, ...chunk("IHDR", ihdr), ...chunk("IDAT", idat), ...chunk("IEND", new Uint8Array())]);
+  return new Uint8Array([
+    ...sig,
+    ...chunk("IHDR", ihdr),
+    ...chunk("IDAT", idat),
+    ...chunk("IEND", new Uint8Array()),
+  ]);
 }
 
 const PNG_A = makePng(255, 0, 0);

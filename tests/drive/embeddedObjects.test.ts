@@ -87,7 +87,9 @@ describe("findMediaByFingerprint", () => {
   });
 
   it("returns null on malformed input or null fingerprint", () => {
-    expect(findMediaByFingerprint(new TextEncoder().encode("x").buffer, "xl/media/a.png", "abc")).toBeNull();
+    expect(
+      findMediaByFingerprint(new TextEncoder().encode("x").buffer, "xl/media/a.png", "abc"),
+    ).toBeNull();
     expect(findMediaByFingerprint(xlsx(), "xl/media/a.png", null)).toBeNull();
   });
 });

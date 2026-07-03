@@ -466,7 +466,12 @@ export async function assetRecovery(
     return { outcome: "drift_cooldown", code: ASSET_RECOVERY_DRIFT_COOLDOWN };
   }
 
-  const verifiedRun = await collectVerifiedAssets(showId, previewShow.driveFileId, previewDiagrams, deps);
+  const verifiedRun = await collectVerifiedAssets(
+    showId,
+    previewShow.driveFileId,
+    previewDiagrams,
+    deps,
+  );
   if (verifiedRun === ASSET_RECOVERY_BYTES_EXCEEDED) {
     await deps.upsertAdminAlert?.(showId, ASSET_RECOVERY_BYTES_EXCEEDED, {
       snapshotRevisionId: previewDiagrams.snapshot_revision_id,

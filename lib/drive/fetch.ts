@@ -512,7 +512,12 @@ export async function fetchCurrentSheetXlsxBytes(
   options: DriveFetchOptions = {},
 ): Promise<ArrayBuffer> {
   const drive = options.drive ?? getDriveClient();
-  const before = await fetchFileForExport(driveFileId, drive, options.retry, options.metadataTimeoutMs);
+  const before = await fetchFileForExport(
+    driveFileId,
+    drive,
+    options.retry,
+    options.metadataTimeoutMs,
+  );
   const token = bindingToken(before);
   const exportUrl = before.exportLinks?.[XLSX_EXPORT_MIME_TYPE];
   if (!exportUrl) {
@@ -529,7 +534,12 @@ export async function fetchCurrentSheetXlsxBytes(
     options.exportTimeoutMs ?? DRIVE_EXPORT_TIMEOUT_MS,
     options.retry,
   );
-  const after = await fetchFileForExport(driveFileId, drive, options.retry, options.metadataTimeoutMs);
+  const after = await fetchFileForExport(
+    driveFileId,
+    drive,
+    options.retry,
+    options.metadataTimeoutMs,
+  );
   if (bindingToken(after) !== token) {
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }
