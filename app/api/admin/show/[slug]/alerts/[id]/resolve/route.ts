@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type AdminAlertShowResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -90,30 +92,35 @@ export async function handleAdminAlertShowResolve(
   }
 
   const { slug, id } = await context.params;
-  return await deps.withTx(async (tx) => {
-    const show = await tx.queryOne<ShowRow>(
-      `select id, slug from public.shows where slug = $1 limit 1`,
-      [slug],
-    );
-    if (!show) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+  // OUTCOME-REF (#218): capture the committed show id only on the real mutation return so the
+  // POST-COMMIT logAdminOutcome fires once per actual resolve — not on 404/idempotent paths.
+  let committedShowId: string | null = null;
+  let response: Response;
+  try {
+    response = await deps.withTx(async (tx) => {
+      const show = await tx.queryOne<ShowRow>(
+        `select id, slug from public.shows where slug = $1 limit 1`,
+        [slug],
+      );
+      if (!show) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
 
-    const row = await tx.queryOne<AlertRow>(
-      `
+      const row = await tx.queryOne<AlertRow>(
+        `
         select id, show_id, resolved_at
           from public.admin_alerts
          where id = $1::uuid
            and show_id = $2::uuid
          for update
       `,
-      [id, show.id],
-    );
-    if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
-    if (row.resolved_at) {
-      return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
-    }
+        [id, show.id],
+      );
+      if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      if (row.resolved_at) {
+        return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
+      }
 
-    const updated = await tx.queryOne<AlertRow>(
-      `
+      const updated = await tx.queryOne<AlertRow>(
+        `
         update public.admin_alerts
            set resolved_at = now(),
                resolved_by = $3
@@ -122,11 +129,41 @@ export async function handleAdminAlertShowResolve(
            and resolved_at is null
         returning id, show_id, resolved_at
       `,
-      [id, show.id, canonicalize(admin.email)],
-    );
-    if (!updated) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
-    return NextResponse.json({ status: "resolved", id, resolved_at: updated.resolved_at });
-  });
+        [id, show.id, canonicalize(admin.email)],
+      );
+      if (!updated) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      committedShowId = show.id;
+      return NextResponse.json({ status: "resolved", id, resolved_at: updated.resolved_at });
+    });
+  } catch (error) {
+    // Fail-open (explicit callsite wrap): log then rethrow so throw→500 stays byte-preserved.
+    try {
+      await log.error("admin alert resolve threw", {
+        source: "api.admin.show.alerts.resolve",
+        code: "ADMIN_ALERT_RESOLVE_FAILED",
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
+    throw error;
+  }
+  // POST-COMMIT durable outcome (#218) — withTx resolved. Show-scoped: carries the show id.
+  if (committedShowId) {
+    const actorEmail = canonicalize(admin.email);
+    try {
+      await logAdminOutcome({
+        code: "ADMIN_ALERT_RESOLVED",
+        source: "api.admin.show.alerts.resolve",
+        // exactOptionalPropertyTypes: canonicalize may return null → conditional spread.
+        ...(actorEmail ? { actorEmail } : {}),
+        showId: committedShowId,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+  return response;
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

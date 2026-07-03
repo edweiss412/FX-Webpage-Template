@@ -54,6 +54,14 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/show/[slug]/unpublish/route.ts",
     code: "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
   },
+  {
+    file: "app/api/admin/admin-alerts/[id]/resolve/route.ts",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
+  {
+    file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -77,6 +85,7 @@ const SANCTIONED_CODES = new Set([
   "WARNING_UNIGNORED",
   // Observability PR-2 (2026-07-03).
   "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
+  "ADMIN_ALERT_RESOLVED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -117,6 +126,7 @@ const NEW_FORENSIC_CODES = new Set([
   "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
   // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
   "UNPUBLISH_INFRA_FAILED",
+  "ADMIN_ALERT_RESOLVE_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
