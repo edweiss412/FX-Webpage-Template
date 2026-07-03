@@ -99,7 +99,7 @@
 | Digital Signage | N/A |
 | :---: | :---: |
 
-| BREAKOUT&#10;LASALLE A | BREAKOUT&#10;LASALLE A |
+| BREAKOUT LASALLE A | BREAKOUT LASALLE A |
 | :---: | :---: |
 | BO Setup | Theater set up, no audio needed but TBD on projector and screen. We will know closer to the date.&#10;&#10;*GETS RESET ON  5/13 AFTERWARDS TO COMBINED ROOM |
 | BO Set Time | 5/13 @ 6:30 AM |
