@@ -6,11 +6,36 @@
 // CONSTANT message, sorted failedKeys derived from the tileErrors map, and
 // context.sheet_name === data.show.title. A healthy projection fires no write,
 // and an upsert rejection is swallowed (fail-quiet — the shell still renders).
+//
+// Task 7 (S6): a HEALTHY render (empty tileErrors) additionally schedules a
+// best-effort TILE_PROJECTION_FETCH_FAILED resolve via next/server after(),
+// so a recovered projection clears the observability alert the raise path
+// above set. The resolve is fail-quiet (a resolve failure never breaks the
+// crew render) and reuses the raise path's CREW_PROJECTION_ALERT_UPSERT_FAILED
+// log code with phase: "resolve" — no new §12.4 code.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 
 const upsertAdminAlert = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert }));
+
+const resolveAdminAlert = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/adminAlerts/resolveAdminAlert", () => ({ resolveAdminAlert }));
+
+// Capture the work `after()` is asked to defer instead of running it inline —
+// the test flushes captured callbacks explicitly (post-render, pre-assert),
+// mirroring how the Next.js runtime runs after() work post-response.
+const afterCallbacks = vi.hoisted(() => [] as Array<() => unknown>);
+vi.mock("next/server", () => ({
+  after: (cb: () => unknown) => {
+    afterCallbacks.push(cb);
+  },
+}));
+
+async function flushAfterCallbacks() {
+  for (const cb of afterCallbacks) await cb();
+  afterCallbacks.length = 0;
+}
 
 // Under client-side section toggle, CrewShell renders all entitled section
 // bodies and hands them to the <CrewSections> controller. This suite asserts
@@ -84,6 +109,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  afterCallbacks.length = 0;
 });
 
 type TileErrors = Record<string, string>;
@@ -139,11 +165,21 @@ describe("CrewShell projection-alert producer", () => {
     // No leaked viewer/version identifiers in the observability context.
     expect(arg.context).not.toHaveProperty("signature");
     expect(arg.context).not.toHaveProperty("viewerVersionToken");
+    // S6: an unhealthy render never schedules the resolve.
+    await flushAfterCallbacks();
+    expect(resolveAdminAlert).not.toHaveBeenCalled();
   });
 
   it("fires NO upsert when the projection is healthy (empty tileErrors)", async () => {
     await renderShell({ data: makeData({}), showId: "show-healthy" });
     expect(upsertAdminAlert).not.toHaveBeenCalled();
+    // S6: a healthy render schedules exactly one resolve via after().
+    await flushAfterCallbacks();
+    expect(resolveAdminAlert).toHaveBeenCalledTimes(1);
+    expect(resolveAdminAlert).toHaveBeenCalledWith({
+      showId: "show-healthy",
+      code: "TILE_PROJECTION_FETCH_FAILED",
+    });
   });
 
   it("renders (fail-quiet) even when the upsert rejects", async () => {
@@ -152,5 +188,26 @@ describe("CrewShell projection-alert producer", () => {
       renderShell({ data: makeData({ hotel: "boom" }), showId: "show-x" }),
     ).resolves.toBeUndefined();
     expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders fine and log.warns (phase: resolve) when the healthy-render resolve rejects", async () => {
+    const { log } = await import("@/lib/log");
+    const warnSpy = vi.spyOn(log, "warn").mockImplementation(async () => {});
+    resolveAdminAlert.mockRejectedValue(new Error("resolve rpc down"));
+
+    await expect(
+      renderShell({ data: makeData({}), showId: "show-healthy" }),
+    ).resolves.toBeUndefined();
+    await flushAfterCallbacks();
+
+    expect(resolveAdminAlert).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
+        phase: "resolve",
+      }),
+    );
+    warnSpy.mockRestore();
   });
 });

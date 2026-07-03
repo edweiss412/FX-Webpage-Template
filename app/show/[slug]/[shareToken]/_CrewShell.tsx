@@ -35,6 +35,7 @@
  *      no retryHref per §4.14) rather than an unrestricted page.
  */
 import type { JSX } from "react";
+import { after } from "next/server";
 
 import { IdentityChip } from "@/components/auth/IdentityChip";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
@@ -50,6 +51,7 @@ import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
+import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
 import {
@@ -170,6 +172,31 @@ export async function CrewShell({
         code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
         error: e,
       });
+    }
+  } else {
+    // S6: healthy render — resolve any open TILE_PROJECTION_FETCH_FAILED alert.
+    // Scheduled via after() so the resolve write never adds response latency;
+    // the resolve is fail-quiet (same posture as the raise above) and reuses
+    // the raise path's log code with phase: "resolve" (no new §12.4 code).
+    // not-subject-to-meta: best-effort observability write, fail-quiet
+    const doResolve = async () => {
+      try {
+        await resolveAdminAlert({ showId, code: "TILE_PROJECTION_FETCH_FAILED" });
+      } catch (e) {
+        void log.warn("projection-alert resolve failed (fail-quiet):", {
+          source: "crew.shell",
+          code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
+          phase: "resolve",
+          error: e,
+        });
+      }
+    };
+    // Outside a request scope (unit tests) after() throws synchronously — fall
+    // back to a plain fire-and-forget, mirroring WrappedSection.tsx:117-121.
+    try {
+      after(doResolve);
+    } catch {
+      void doResolve();
     }
   }
 
