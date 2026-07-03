@@ -81,6 +81,18 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
     code: "PENDING_INGESTION_RETRIED",
   },
+  {
+    file: "app/api/admin/onboarding/rescan-sheet/route.ts",
+    code: "SHEET_RESCANNED",
+  },
+  {
+    file: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+    code: "FINALIZE_CLEANUP_DONE",
+  },
+  {
+    file: "app/api/admin/show/staged/[stagedId]/discard/route.ts",
+    code: "STAGE_DISCARDED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -108,6 +120,8 @@ const SANCTIONED_CODES = new Set([
   "PENDING_INGESTION_DISCARDED",
   "PENDING_INGESTION_DEFERRED",
   "PENDING_INGESTION_IGNORED",
+  "SHEET_RESCANNED",
+  "FINALIZE_CLEANUP_DONE",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -151,6 +165,9 @@ const NEW_FORENSIC_CODES = new Set([
   "ADMIN_ALERT_RESOLVE_FAILED",
   "PENDING_INGESTION_DISCARD_FAILED",
   "PENDING_INGESTION_ACTION_FAILED",
+  "RESCAN_INFRA_ERROR",
+  "FINALIZE_CLEANUP_FAILED",
+  "STAGE_DISCARD_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
