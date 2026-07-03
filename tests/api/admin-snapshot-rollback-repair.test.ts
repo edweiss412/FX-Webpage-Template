@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 
 const ledgerId = "11111111-1111-4111-8111-111111111111";
 // requireAdminIdentity returns an ALREADY-canonical email (see invariant 3); the
@@ -161,5 +163,75 @@ describe("POST /api/admin/snapshot-rollback/[id]/repair", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ error: "SYNC_INFRA_ERROR" });
     expect(routeMock.repairSnapshotRollback).not.toHaveBeenCalled();
+  });
+});
+
+// P1 dark-path telemetry — the outer catch previously swallowed every infra 500 with a
+// bare `catch {}` (zero record), and the ledger-read returned-error 500 was equally dark.
+// These tests pin the forensic emit on both: a thrown repair op → SNAPSHOT_ROLLBACK_REPAIR_FAILED
+// log.error + a preserved 500; the ledger-read returned-error → same code with a discriminator.
+describe("POST /api/admin/snapshot-rollback/[id]/repair — dark-path telemetry", () => {
+  function capture(): LogRecord[] {
+    const sink: LogRecord[] = [];
+    setLogSink((r) => {
+      sink.push(r);
+    });
+    return sink;
+  }
+  afterEach(() => resetLogSink());
+
+  beforeEach(() => {
+    routeMock.requireAdmin.mockClear();
+    routeMock.requireAdminIdentity.mockClear();
+    routeMock.requireAdminIdentity.mockResolvedValue({ email: adminEmail });
+    routeMock.repairSnapshotRollback.mockClear();
+    logAdminOutcomeMock.mockClear();
+    routeMock.ledger = {
+      drive_file_id: "drive-file-1",
+      snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    };
+    routeMock.ledgerError = null;
+    routeMock.repairSnapshotRollback.mockResolvedValue({
+      outcome: "repaired",
+      snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    } as never);
+  });
+
+  test("repair op throw → SNAPSHOT_ROLLBACK_REPAIR_FAILED (error) + 500 preserved", async () => {
+    const sink = capture();
+    routeMock.repairSnapshotRollback.mockRejectedValueOnce(new Error("promote boom"));
+
+    const response = await post();
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "SYNC_INFRA_ERROR" });
+    const rec = sink.filter((r) => r.code === "SNAPSHOT_ROLLBACK_REPAIR_FAILED");
+    expect(rec).toHaveLength(1);
+    expect(rec[0]!.level).toBe("error");
+    expect(rec[0]!.source).toBe("api.admin.snapshotRollback.repair");
+  });
+
+  test("ledger-read returned-error → SNAPSHOT_ROLLBACK_REPAIR_FAILED (error) + 500", async () => {
+    const sink = capture();
+    routeMock.ledgerError = { message: "db unavailable" };
+
+    const response = await post();
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "SYNC_INFRA_ERROR" });
+    const rec = sink.filter((r) => r.code === "SNAPSHOT_ROLLBACK_REPAIR_FAILED");
+    expect(rec).toHaveLength(1);
+    expect(rec[0]!.level).toBe("error");
+    // Discriminator distinguishes the ledger-read failure from the generic catch.
+    expect(rec[0]!.context).toMatchObject({ result: "ledger_read" });
+  });
+
+  test("repaired (success) path emits NO SNAPSHOT_ROLLBACK_REPAIR_FAILED", async () => {
+    const sink = capture();
+
+    const response = await post();
+
+    expect(response.status).toBe(200);
+    expect(sink.some((r) => r.code === "SNAPSHOT_ROLLBACK_REPAIR_FAILED")).toBe(false);
   });
 });
