@@ -34,6 +34,7 @@
 | `app/show/[slug]/[shareToken]/_CrewShell.tsx` | healthy-render resolve via `after()` | S6 (UI-surface file — invariant 8) |
 | `tests/…` | per-surface tests as listed in tasks | — |
 | `BACKLOG.md` | DEFER entries | — |
+| `docs/superpowers/plans/2026-07-03-admin-alert-auto-resolution/handoff.md` | created by Task 11 (§12 UI-gate dispositions) | — |
 | `supabase/__generated__/schema-manifest.json` | regen (no table changes expected → likely no diff) | S1 |
 
 ---
@@ -47,17 +48,17 @@
 **Interfaces:**
 - Produces: `resolveAdminAlerts(input: { showId: string | null; codes: readonly AdminAlertCode[] }, client?: SupabaseClient): Promise<void>` — early no-op on `codes.length === 0`; throws on returned DB error and on thrown fault; sets only `resolved_at`.
 
-- [ ] **Step 1: Write failing tests** in `tests/adminAlerts/resolveAdminAlert.test.ts` (follow the existing mocked-client pattern in that file):
+- [ ] **Step 1: Write failing tests** in `tests/adminAlerts/resolveAdminAlert.test.ts`. The file's existing mock factory is `fakeResolveClient` and records only `eq`/`is`/`select` — FIRST extend it with an `in` recorder (same recording shape as `eq`) so the bulk tests can assert `.in("code", [...])`, then:
 
 ```ts
 describe("resolveAdminAlerts (bulk)", () => {
   test("codes: [] is a no-op — zero client invocations", async () => {
-    const client = makeMockClient(); // reuse the file's existing mock factory
+    const client = fakeResolveClient(); // the file's factory, extended with an `in` recorder
     await resolveAdminAlerts({ showId: "s-1", codes: [] }, client as never);
     expect(client.from).not.toHaveBeenCalled();
   });
   test("filters: code IN codes, show_id exact (null → .is), resolved_at null; sets only resolved_at", async () => {
-    const client = makeMockClient();
+    const client = fakeResolveClient();
     await resolveAdminAlerts({ showId: null, codes: ["REEL_DRIFTED", "EMBEDDED_ASSET_DRIFTED"] }, client as never);
     // assert .update({resolved_at: <iso>}) with NO resolved_by key, .in("code", [...]), .is("show_id", null), .is("resolved_at", null)
   });
@@ -399,14 +400,16 @@ test("every auto code's resolve site exists on disk and matches", () => { /* exp
 export TEST_DATABASE_URL="$(grep '^TEST_DATABASE_URL=' /Users/ericweiss/FX-Webpage-Template/.env.local | cut -d= -f2-)"
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f /Users/ericweiss/FX-Webpage-Template/.claude/worktrees/alert-auto-resolution/supabase/migrations/20260703210000_admin_alert_auto_resolution.sql
 psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
-``` **This also executes the data repair on validation — verify the live stale East Coast alert resolves** (`select resolved_at from admin_alerts where code='SHOW_UNPUBLISHED'`).
+```
+
+  **This also executes the data repair on validation — verify the live stale East Coast alert resolves** (`select resolved_at from admin_alerts where code='SHOW_UNPUBLISHED'`).
 - [ ] **Step 3:** `pnpm vitest run tests/db/validation-schema-parity.test.ts` (needs TEST_DATABASE_URL env) — PASS.
 - [ ] **Step 4: Commit** (only if manifest changed) `infra: regen schema manifest for alert auto-resolution migration`
 
 ### Task 11: Invariant-8 impeccable dual-gate on the S6 diff (AC11)
 
 - [ ] **Step 1:** Run `/impeccable critique` on the diff touching `_CrewShell.tsx`; then `/impeccable audit` on the same diff (canonical v3 preflight gates: PRODUCT.md → DESIGN.md → register → preflight signal).
-- [ ] **Step 2:** Fix HIGH/CRITICAL findings or defer via `DEFERRED.md` entry. Record findings + dispositions in the plan-dir handoff notes (`docs/superpowers/plans/2026-07-03-admin-alert-auto-resolution/handoff.md` §12).
+- [ ] **Step 2:** Fix HIGH/CRITICAL findings or defer via `DEFERRED.md` entry. Create `docs/superpowers/plans/2026-07-03-admin-alert-auto-resolution/handoff.md` if absent (header + a `## §12 UI-gate findings & dispositions` section) and record every finding + disposition there.
 - [ ] **Step 3: Commit** any fixes `fix(crew-page): impeccable dual-gate dispositions for S6`
 
 ### Task 12: Full-suite close-out (AC10)
