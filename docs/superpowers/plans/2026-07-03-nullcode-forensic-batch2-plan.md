@@ -27,12 +27,10 @@ This is ONE TDD cycle for the whole mechanical batch: the structural guard + the
 
 - [ ] **Step 1 — add the 35 codes to `NEW_FORENSIC_CODES`.** Insert all 35 (spec §3) into the `NEW_FORENSIC_CODES` set (`:134`). This alone changes nothing failing yet.
 
-- [ ] **Step 2 — add the registry + helper + assertions (RED).** Add near the top of the file:
+- [ ] **Step 2 — add the registry + AST guard + assertions (RED).** The file ALREADY imports `readFileSync` (line 1) — do NOT re-import it. Add only the imports not already present: `import { join } from "node:path";` and `import ts from "typescript";` (typescript@5.9.3 is a dep; precedent: `tests/sync/runScheduledCronSync.test.ts` et al. import it). Then add:
 
 ```ts
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
+// (readFileSync already imported at top of file; add `join` + `ts` imports there)
 const REPO_ROOT = join(__dirname, "..", "..");
 
 // {file, code, level, anchor} — anchor is a substring UNIQUE WITHIN THE FILE that
@@ -79,75 +77,48 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
   { file: "lib/admin/loadCronHealth.ts", code: "CRON_HEALTH_APP_EVENTS_READ_THREW", level: "error", anchor: '"app_events read threw"' },
 ];
 
-// Positive-extraction sibling of stripLogEmissionCalls: same balanced-paren +
-// string/comment-aware tokenizer, but COLLECTS each log.<level>(…)/logAdminOutcome(…)
-// span's {level, text} instead of deleting it.
-const LOG_CALL_AT = /(?:log\.(error|warn|info|debug)|logAdminOutcome)\s*\(/y;
-const isIdentChar = (ch?: string) => ch !== undefined && /[A-Za-z0-9_$]/.test(ch);
-function skipQuoted(s: string, i: number, q: string): number {
-  for (let j = i + 1; j < s.length; j++) {
-    if (s[j] === "\\") { j++; continue; }
-    if (s[j] === q) return j;
-    if (s[j] === "\n") return j - 1;
-  }
-  return s.length - 1;
-}
-function skipTemplate(s: string, i: number): number {
-  for (let j = i + 1; j < s.length; j++) {
-    if (s[j] === "\\") { j++; continue; }
-    if (s[j] === "`") return j;
-    if (s[j] === "$" && s[j + 1] === "{") {
-      let d = 1; j += 2;
-      while (j < s.length && d > 0) {
-        const cc = s[j];
-        if (cc === "\\") { j += 2; continue; }
-        if (cc === '"' || cc === "'") { j = skipQuoted(s, j, cc) + 1; continue; }
-        if (cc === "`") { j = skipTemplate(s, j) + 1; continue; }
-        if (cc === "{") d++;
-        else if (cc === "}") { d--; if (d === 0) break; }
-        j++;
-      }
-    }
-  }
-  return s.length - 1;
-}
-function matchParen(s: string, openIdx: number): number {
-  let depth = 0;
-  for (let i = openIdx; i < s.length; i++) {
-    const c = s[i];
-    if (c === '"' || c === "'") { i = skipQuoted(s, i, c); continue; }
-    if (c === "`") { i = skipTemplate(s, i); continue; }
-    if (c === "/" && s[i + 1] === "/") { const nl = s.indexOf("\n", i); if (nl === -1) return -1; i = nl; continue; }
-    if (c === "/" && s[i + 1] === "*") { const e = s.indexOf("*/", i + 2); if (e === -1) return -1; i = e + 1; continue; }
-    if (c === "(") depth++;
-    else if (c === ")") { depth--; if (depth === 0) return i; }
-  }
-  return -1;
-}
-function collectLogSpans(source: string): Array<{ level: string; text: string }> {
-  const spans: Array<{ level: string; text: string }> = [];
-  let i = 0; const n = source.length;
-  while (i < n) {
-    const c = source[i];
-    if (c === '"' || c === "'") { i = skipQuoted(source, i, c) + 1; continue; }
-    if (c === "`") { i = skipTemplate(source, i) + 1; continue; }
-    if (c === "/" && source[i + 1] === "/") { const nl = source.indexOf("\n", i); i = nl === -1 ? n : nl; continue; }
-    if (c === "/" && source[i + 1] === "*") { const e = source.indexOf("*/", i + 2); i = e === -1 ? n : e + 2; continue; }
-    if (c === "l" && !isIdentChar(source[i - 1])) {
-      LOG_CALL_AT.lastIndex = i;
-      const m = LOG_CALL_AT.exec(source);
-      if (m) {
-        const openParen = i + m[0].length - 1;
-        const close = matchParen(source, openParen);
-        if (close !== -1) {
-          spans.push({ level: m[1] ?? "adminOutcome", text: source.slice(i, close + 1) });
-          i = close + 1; continue;
+// AST-based guard (Codex plan-R3 HIGH): the runtime logger persists ONLY the
+// top-level `code` of the SECOND argument (lib/log/logger.ts). Text/regex matching
+// can't distinguish that from a nested object / 3rd arg / comment / wrong key. So we
+// parse the AST and read args[1]'s top-level `code` PropertyAssignment directly.
+// Returns one entry per log.error/log.warn CallExpression in the file.
+function findLogErrorWarnCalls(
+  src: string,
+  file: string,
+): Array<{ level: "error" | "warn"; firstArgText: string; secondArgTopLevelCode: string | null }> {
+  const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, /*setParentNodes*/ true, kind);
+  const out: Array<{ level: "error" | "warn"; firstArgText: string; secondArgTopLevelCode: string | null }> = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "log" &&
+      (node.expression.name.text === "error" || node.expression.name.text === "warn")
+    ) {
+      const level = node.expression.name.text as "error" | "warn";
+      const firstArgText = node.arguments[0]?.getText(sf) ?? "";
+      let secondArgTopLevelCode: string | null = null;
+      const arg2 = node.arguments[1];
+      if (arg2 && ts.isObjectLiteralExpression(arg2)) {
+        for (const p of arg2.properties) {
+          if (
+            ts.isPropertyAssignment(p) &&
+            ((ts.isIdentifier(p.name) && p.name.text === "code") ||
+              (ts.isStringLiteral(p.name) && p.name.text === "code")) &&
+            ts.isStringLiteralLike(p.initializer)
+          ) {
+            secondArgTopLevelCode = p.initializer.text;
+          }
         }
       }
+      out.push({ level, firstArgText, secondArgTopLevelCode });
     }
-    i++;
-  }
-  return spans;
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
 }
 
 describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
@@ -160,30 +131,32 @@ describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   });
 
   for (const row of NULLCODE_BATCH2_STAMPS) {
-    test(`${row.code} is stamped as a code: property inside its intended ${row.level} call in ${row.file}`, () => {
+    test(`${row.code} is the top-level 2nd-arg fields.code of its intended ${row.level} call in ${row.file}`, () => {
       const src = readFileSync(join(REPO_ROOT, row.file), "utf8");
-      // The forensic codes are [A-Z0-9_]+ (no regex-special chars), so no escaping needed.
-      // Require the exact `code:` PROPERTY form — NOT a bare literal, so a wrong key like
-      // `source: "<CODE>"` inside the same call CANNOT satisfy the guard (Codex plan-R2 HIGH).
-      const codeProp = new RegExp(`\\bcode\\s*:\\s*["']${row.code}["']`);
-      // global uniqueness: the code literal appears exactly once in the file (catches duplication)
-      const occ =
-        src.split(`"${row.code}"`).length - 1 + src.split(`'${row.code}'`).length - 1;
-      expect(occ, `${row.code} literal must appear exactly once in ${row.file}`).toBe(1);
-      // and that single occurrence must be a `code:` property; catch a wrong-key placement
-      expect(codeProp.test(src), `${row.code} must be a code: property (not source:/other key)`).toBe(true);
-      // exactly one collected span at the intended level containing BOTH the anchor AND the code: property
-      const spans = collectLogSpans(src).filter(
-        (s) => s.level === row.level && s.text.includes(row.anchor) && codeProp.test(s.text),
-      );
+      const calls = findLogErrorWarnCalls(src, row.file);
+      // (1) exactly one log call in the file carries fields.code === this code as its
+      //     2nd-arg TOP-LEVEL property → closes nested-object / 3rd-arg / comment / wrong-key
+      //     (a `source:"X"`, a nested `{code:"X"}`, or a commented `code:"X"` are NOT matched),
+      //     and closes duplication (a second stamp of the same code makes length 2).
+      const bearers = calls.filter((c) => c.secondArgTopLevelCode === row.code);
       expect(
-        spans.length,
-        `expected exactly one ${row.level} span with anchor + code: property for ${row.code}`,
+        bearers.length,
+        `exactly one log call must carry top-level fields.code === ${row.code} in ${row.file}`,
       ).toBe(1);
+      // (2) that call is the INTENDED one + at the intended level → closes wrong-call / wrong-level
+      //     (a code stamped on log.info/log.debug/logAdminOutcome isn't collected at all; a code on
+      //     the wrong log.error/warn fails the anchor check because that call's message differs).
+      expect(bearers[0]!.level, `${row.code} must be on a log.${row.level}`).toBe(row.level);
+      expect(
+        bearers[0]!.firstArgText.includes(row.anchor),
+        `${row.code} must be on the call whose message matches its anchor (${row.anchor})`,
+      ).toBe(true);
     });
   }
 });
 ```
+
+**Why this is class-closing (all of Codex R1/R2/R3's modes):** parsing the AST and reading `args[1]`'s top-level `code` PropertyAssignment is exactly what `lib/log/logger.ts` persists. A `code:` in a nested object, a 3rd argument, a comment, or under a different key (`source:`) is NOT a top-level property of `args[1]` → not matched. A code on `log.info`/`log.debug`/`logAdminOutcome` is never collected (only `log.error`/`log.warn` are). Duplication makes `bearers.length === 2`. Cross-wiring to the wrong `log.error`/`warn` fails the `firstArgText.includes(anchor)` message check. This also covers `selectIdentity` structurally (its `args[1]` is the fields object; a code wrongly placed in the `JSON.stringify` *first* arg would leave `args[1]` without the code → `bearers.length === 0`), so the §8.2 `selectIdentity` runtime test is now belt-and-suspenders sink-delivery proof rather than the sole guard.
 
 - [ ] **Step 3 — write the runtime emission tests.** Create `tests/log/nullcodeBatch2Emission.test.ts`:
   - **`selectIdentity` (REQUIRED — the one site the structural guard can't fully pin):** drive the `PICKER_IDENTITY_CLAIMED` tamper branch; spy on `log.warn`; assert its **2nd arg (fields object)** has `code: "PICKER_IDENTITY_CLAIMED_TAMPER"` (NOT inside the stringified 1st arg). Use the existing selectIdentity test harness if present.
@@ -232,7 +205,7 @@ The 10 UI-surface **sites** live across **3 `app/` non-api files**: `app/admin/a
 ---
 
 ## Self-review checklist
-- Spec coverage: §3 35 sites → Task 1 step 5; §4 reap rename → Task 1 steps 3+5; §5 excluded → Task 1 step 5 (do-not-touch); §6 special cases → Task 1 steps 3+5; §7 impeccable → Task 2 (always-committed §12 handoff disposition); §8.1(a) registry → Task 1 step 1; §8.1(b) anchored guard (code: PROPERTY form, not bare literal) → Task 1 step 2; §8.2 runtime → Task 1 step 3; §9 BACKLOG → Task 1 step 6 (before push). ✓
+- Spec coverage: §3 35 sites → Task 1 step 5; §4 reap rename → Task 1 steps 3+5; §5 excluded → Task 1 step 5 (do-not-touch); §6 special cases → Task 1 steps 3+5; §7 impeccable → Task 2 (always-committed §12 handoff disposition); §8.1(a) registry → Task 1 step 1; §8.1(b) guard → Task 1 step 2, now an **AST guard proving the top-level 2nd-arg `fields.code`** (not a text/regex match), closing nested/3rd-arg/comment/wrong-key/wrong-level/duplication/cross-wire; §8.2 runtime → Task 1 step 3 (belt-and-suspenders sink delivery); §9 BACKLOG → Task 1 step 6 (before push). ✓
 - TDD (Codex plan-R1): all tests (structural + runtime) written and observed RED in Task 1 steps 1-4 BEFORE the stamps in step 5; single GREEN commit in step 8; NO red commit. ✓
 - Anchor uniqueness within file: finalize-cas pair uses full quoted literals (non-stream anchor `"…unexpected failure"` incl. closing quote is NOT a substring of the stream call's `"…unexpected failure (stream)"`, and the code check disambiguates); the 4 shared `"WIZARD_SESSION_SUPERSEDED_RACE alert write failed"` anchors are each in a DIFFERENT file (per-file assertion). ✓
 - Meta-test inventory: EXTENDS `_metaAdminOutcomeContract.test.ts`; adds `tests/log/nullcodeBatch2Emission.test.ts`. ✓
