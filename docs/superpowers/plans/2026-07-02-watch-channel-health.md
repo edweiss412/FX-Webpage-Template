@@ -956,6 +956,9 @@ test("stale-pending sweep flips only rows older than STALE_PENDING_MAX_AGE_MS an
   // seed pending rows at cutoff ± epsilon derived from the constant; assert tx.alerts unchanged
 });
 test("fault mapping: folder infra_error → folder_read; hasLiveActiveChannel throw → channel_read; resolve throw → alert_resolve_write; subscribe DriveWatchInfraError throw → subscribe_infra; sweep throw → pending_sweep; any fault → outcome infra_error", ...);
+test("plan-R3-1: getActiveWatchedFolder THROWING (not returning infra_error) → folder_read fault, typed return, no throw out of reconcile", ...);
+test("plan-R3-1: maybeEscalateWatchOrphaned THROWING → escalation_helper fault, typed return, no throw", ...);
+test("plan-R3-2: thrown subscribe (subscribe_infra) still runs the escalation branch (deps.maybeEscalateWatchOrphaned called) — a down-and-unrecoverable watch is support-worthy", ...);
 test("active subscribe + resolveAdminAlert throw → alert_resolve_write fault, outcome stays recovered-shaped, NO escalation call", () => {
   // plan-R2 finding 1: a successful re-subscribe followed by a resolve DB fault
   // must not send Sentry/email as if the channel were still broken.
@@ -1024,8 +1027,17 @@ export async function reconcileWatchChannels(
 
   const resolve = deps.resolveAdminAlert ?? defaultResolveAdminAlert;
 
-  // 2. Configured folder.
-  const folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
+  // 2. Configured folder. The helper returns a typed infra_error, but a THROWN
+  // failure (client construction, unexpected reject) must also map to the fault —
+  // recorded-not-thrown, spec §3.2: an unhandled throw out of the route handler
+  // is a contract violation (plan-R3 finding 1).
+  let folder: Awaited<ReturnType<typeof defaultGetActiveWatchedFolder>>;
+  try {
+    folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
+  } catch {
+    faults.push("folder_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
   if ("kind" in folder && folder.kind === "infra_error") {
     faults.push("folder_read");
     return { outcome: "infra_error", sweptPending, escalated: false, faults };
@@ -1100,14 +1112,25 @@ export async function reconcileWatchChannels(
   }
 
   // 5. Escalation — on EVERY unhealthy outcome, incl. renewal_failing (R9-2).
+  // Deliberate (plan-R3 finding 2): a thrown subscribe (subscribe_infra) leaves
+  // outcome = still_orphaned and the branch still runs — the escalation check
+  // reads the pre-existing unresolved alert row, and a watch that is BOTH down
+  // and failing to re-subscribe is exactly the support-worthy state. The helper
+  // itself is failure-isolated: every dependency inside it already maps to a
+  // named fault, and a residual throw maps to escalation_helper here
+  // (recorded-not-thrown, plan-R3 finding 1).
   let escalated = false;
   if (outcome === "still_orphaned" || outcome === "renewal_failing") {
-    const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
-      folderId: folder.folderId,
-      folderName: folder.folderName,
-    });
-    escalated = esc.escalated;
-    faults.push(...esc.faults);
+    try {
+      const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
+        folderId: folder.folderId,
+        folderName: folder.folderName,
+      });
+      escalated = esc.escalated;
+      faults.push(...esc.faults);
+    } catch {
+      faults.push("escalation_helper");
+    }
   }
 
   return {
@@ -1151,7 +1174,8 @@ test("200 ok — still_orphaned and renewal_failing and vacuous are NOT 5xx", ..
    // parameterize outcome; assert status 200, body.ok true, body.reconcile.outcome passthrough
 test("500 infra — reconcile outcome infra_error (each fault name) → status 500, body.ok false, body.reconcile.faults present", ...);
    // parameterize over: folder_read, pending_sweep, channel_read, subscribe_infra, activate_write,
-   // alert_resolve_write, alert_row_read, guard_read, guard_write, pref_read, recipients_read, email_send
+   // alert_resolve_write, alert_row_read, guard_read, guard_write, pref_read, recipients_read,
+   // email_send, escalation_helper
 test("500 infra — refresh.failures non-empty (incl. { folderId: '*', operation: 'list_expiring' } and activate_pending) even when reconcile is clean", ...);
 test("sendEmail retry_later is NOT a fault (reconcile returns clean → 200)", ...);
 test("401 without bearer", ...);
