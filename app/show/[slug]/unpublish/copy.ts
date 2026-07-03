@@ -38,12 +38,13 @@ export const NEUTRAL_HEADING = "We couldn’t open this link";
 
 export const NEUTRAL_BODY =
   "It may be incomplete, out of date, or already spent — either way, nothing has changed. " +
-  "If a show needs to come offline, you can always archive it from the admin.";
+  "If a show needs to come offline, you can always turn it off from its page in the admin.";
 
 export const CONFIRM_HEADING = "Take this show offline?";
 
 /** Spec §5: plain-language consequence line. */
-export const CONFIRM_CONSEQUENCE = "Crew links switch off until you republish it from the admin.";
+export const CONFIRM_CONSEQUENCE =
+  "Crew links pause until you turn Published back on from the admin.";
 
 export const CONFIRM_BUTTON_LABEL = "Take it offline";
 
@@ -57,6 +58,6 @@ export const SUCCESS_HEADING = "Done — it’s offline";
 
 /** Rendered as: <strong>{title}</strong> {SUCCESS_BODY_AFTER_TITLE} */
 export const SUCCESS_BODY_AFTER_TITLE =
-  "is now offline. Crew links are switched off; you can publish it again any time from the admin.";
+  "is now offline. Crew links are paused; flip Published back on from its page in the admin any time — the same link starts working again.";
 
 export const SUCCESS_ADMIN_LINK_LABEL = "Open it in the admin";

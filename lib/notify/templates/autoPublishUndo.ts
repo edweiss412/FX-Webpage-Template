@@ -58,7 +58,7 @@ export function renderAutoPublishUndo(input: AutoPublishUndoInput): RenderedEmai
     now,
   )} from now).`;
   const whatUndoDoes =
-    "Undoing takes the show offline; crew links switch off until it is republished.";
+    "Undoing takes the show offline; crew links pause until Published is turned back on from the show's page.";
   const ignoring = "If everything looks right, ignore this email and the show stays live.";
   const linkLabel = "Take this show offline";
 

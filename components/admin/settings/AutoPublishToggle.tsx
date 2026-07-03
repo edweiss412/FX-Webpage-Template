@@ -66,8 +66,8 @@ export function AutoPublishToggle({ initial, setAutoPublish, icon }: AutoPublish
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">Auto-publish clean new shows</h3>
           <p className="mt-1 max-w-prose text-sm text-text-subtle">
-            Publish brand-new sheets automatically when they parse with no warnings. You can still
-            undo within 24 hours.
+            Publish brand-new sheets automatically when they parse with no warnings. You can turn
+            any show off later with its Published toggle.
           </p>
           {!on && !degraded ? (
             <p
