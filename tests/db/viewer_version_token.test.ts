@@ -66,9 +66,11 @@ describe("viewer_version_token", () => {
         .map((line) => line.split("=")),
     );
 
-    expect(tokens.v1).toMatch(/^\d+:1$/);
-    expect(tokens.v2).toMatch(/^\d+:2$/);
-    expect(tokens.v3).toMatch(/^\d+:3$/);
+    // Third component = shows.published (published-toggle migration 20260701000000);
+    // the seeded show is published, so ":true".
+    expect(tokens.v1).toMatch(/^\d+:1:true$/);
+    expect(tokens.v2).toMatch(/^\d+:2:true$/);
+    expect(tokens.v3).toMatch(/^\d+:3:true$/);
     expect(tokens.v2).not.toBe(tokens.v1);
     expect(tokens.v3).not.toBe(tokens.v2);
   });

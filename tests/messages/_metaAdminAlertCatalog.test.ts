@@ -403,6 +403,19 @@ describe("META admin_alerts catalog contract", () => {
     expect(orphanCodes).toEqual([]);
   });
 
+  // SHOW_UNPUBLISHED has TWO producers (published-toggle spec §3.1/§3.4): the JS emailed-link
+  // engine (lib/sync/unpublishShow.ts — the registry row above) AND the SQL-side
+  // _unpublish_show_core RPC (the admin Published toggle's OFF path). The registry model pins
+  // one file per code, so the SQL producer gets its own pattern assertion here — a future edit
+  // that drops the alert upsert from the migration breaks this, not just prod behavior.
+  test("SHOW_UNPUBLISHED second producer: the unpublish_show RPC core upserts the alert", () => {
+    const migration = readFileSync(
+      join(ROOT, "supabase/migrations/20260701000000_published_toggle_unpublish_show.sql"),
+      "utf8",
+    );
+    expect(migration).toMatch(/upsert_admin_alert\(p_show_id, 'SHOW_UNPUBLISHED'/);
+  });
+
   // Registered admin_alerts codes that are produced WITHOUT the typed
   // `upsertAdminAlert()` entry point — raw `INSERT INTO admin_alerts`
   // (the M8 bug-report pipeline / report-reaper) or a standalone script

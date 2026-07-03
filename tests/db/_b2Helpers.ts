@@ -34,6 +34,7 @@ type AdminRpcFn =
   | "archive_show"
   | "unarchive_show"
   | "publish_show"
+  | "unpublish_show"
   | "rotate_show_share_token"
   | "reset_picker_epoch_atomic";
 
@@ -371,6 +372,15 @@ export async function callReadFinalizeOwnedAsNonAdmin(showId: string): Promise<v
     await tx`select set_config('role', 'authenticated', true)`;
     await tx`select set_config('request.jwt.claims', ${NON_ADMIN_CLAIMS}, true)`;
     await tx.unsafe(`select public.readfinalizeowned_b2($1::uuid)`, [showId]);
+  });
+}
+
+/** Call unpublish_show as a signed-in NON-admin (crew). Rejects with the RPC's admin-gate RAISE. */
+export async function callUnpublishShowAsNonAdmin(showId: string): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`select set_config('role', 'authenticated', true)`;
+    await tx`select set_config('request.jwt.claims', ${NON_ADMIN_CLAIMS}, true)`;
+    await tx.unsafe(`select public.unpublish_show($1::uuid)`, [showId]);
   });
 }
 
