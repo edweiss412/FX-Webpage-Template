@@ -113,7 +113,7 @@ The claimed-row recovery control is `<form action={signInRecoveryUrl} method="GE
 
 ## Secondary-name Drive-ID columns — deferred from the drive_file_id nonblank CHECK (2026-07-02)
 
-The empty/whitespace `drive_file_id` DB-CHECK work (migration `20260702120200_drive_file_id_nonblank.sql`; spec `docs/superpowers/specs/2026-07-02-empty-drive-file-id-check-design.md` §9) deliberately scoped itself to **every column named exactly `drive_file_id`** (14 public + 5 dev mirror). The two columns below are Drive-ID-bearing but carry a *secondary* name and are **not reachable-empty**, so they were documented out of scope rather than silently dropped. The scope rule stays crisp ("every column named exactly `drive_file_id`").
+The empty/whitespace `drive_file_id` DB-CHECK work (migration `20260702120200_drive_file_id_nonblank.sql`; spec `docs/superpowers/specs/2026-07-02-empty-drive-file-id-check-design.md` §9) deliberately scoped itself to **every column named exactly `drive_file_id`** (14 public + 5 dev mirror). The two columns below are Drive-ID-bearing but carry a _secondary_ name and are **not reachable-empty**, so they were documented out of scope rather than silently dropped. The scope rule stays crisp ("every column named exactly `drive_file_id`").
 
 ### BL-OPENING-REEL-DRIVE-ID-NONBLANK — nonblank CHECK on `shows.opening_reel_drive_file_id`
 

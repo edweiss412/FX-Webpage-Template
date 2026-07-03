@@ -130,21 +130,18 @@ describe("drive_file_id nonblank CHECK — behavioral (local Postgres)", () => {
     },
   );
 
-  test.skipIf(!dbUp)(
-    "all 14 public *_drive_file_id_nonblank CHECK constraints exist",
-    async () => {
-      const rows = await sql!.unsafe(
-        `select conname from pg_constraint
+  test.skipIf(!dbUp)("all 14 public *_drive_file_id_nonblank CHECK constraints exist", async () => {
+    const rows = await sql!.unsafe(
+      `select conname from pg_constraint
           where contype = 'c'
             and connamespace = 'public'::regnamespace
             and conname like '%_drive_file_id_nonblank'`,
-        [],
-      );
-      const found = new Set((rows as unknown as { conname: string }[]).map((r) => r.conname));
-      for (const t of PUBLIC_NONBLANK_TABLES) {
-        expect(found.has(`${t}_drive_file_id_nonblank`), `missing constraint for ${t}`).toBe(true);
-      }
-      expect(PUBLIC_NONBLANK_TABLES.length).toBe(14);
-    },
-  );
+      [],
+    );
+    const found = new Set((rows as unknown as { conname: string }[]).map((r) => r.conname));
+    for (const t of PUBLIC_NONBLANK_TABLES) {
+      expect(found.has(`${t}_drive_file_id_nonblank`), `missing constraint for ${t}`).toBe(true);
+    }
+    expect(PUBLIC_NONBLANK_TABLES.length).toBe(14);
+  });
 });

@@ -303,10 +303,7 @@ describe("drive_file_id nonblank CHECK migration", () => {
       schema === "dev"
         ? String.raw`alter\s+table\s+if\s+exists\s+dev\.${table}`
         : String.raw`alter\s+table\s+public\.${table}`;
-    const dropRe = new RegExp(
-      `${prefix}\\s+drop\\s+constraint\\s+if\\s+exists\\s+${name}`,
-      "i",
-    );
+    const dropRe = new RegExp(`${prefix}\\s+drop\\s+constraint\\s+if\\s+exists\\s+${name}`, "i");
     const body = nullable ? NULLABLE_PREDICATE : PREDICATE;
     const addRe = new RegExp(
       `${prefix}\\s+add\\s+constraint\\s+${name}\\s+check\\s*\\(\\s*${body}\\s*\\)`,
