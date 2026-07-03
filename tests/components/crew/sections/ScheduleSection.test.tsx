@@ -323,9 +323,9 @@ test("Load In/Set stage viewer → KeyTimesStrip has NO strike anchor, Set ancho
   expect(container.querySelector('[data-anchor="strike"]')).toBeNull();
   // Headline behavior lock: a Load In/Set viewer (worked days = travelIn + set) sees
   // exactly those day cards; the pure show days are hidden; NOT the unconfirmed placeholder.
-  const renderedDays = Array.from(
-    container.querySelectorAll('[data-testid^="schedule-day"]'),
-  ).map((el) => el.getAttribute("data-day"));
+  const renderedDays = Array.from(container.querySelectorAll('[data-testid^="schedule-day"]')).map(
+    (el) => el.getAttribute("data-day"),
+  );
   expect(new Set(renderedDays)).toEqual(new Set([DATES.travelIn, DATES.set]));
   expect(renderedDays).not.toContain(DATES.showDays[0]);
   expect(renderedDays).not.toContain(DATES.showDays[1]);

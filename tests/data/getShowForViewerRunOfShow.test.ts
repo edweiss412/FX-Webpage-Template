@@ -366,7 +366,10 @@ describe("getShowForViewer — stage_restriction narrows projected dateRestricti
     showDays: ["2026-05-04", "2026-05-05", "2026-05-06"],
     travelOut: "2026-05-07",
   };
-  const CALVIN_STAGE = { kind: "explicit", stages: ["Load In", "Set", "Strike", "Load Out"] } as const;
+  const CALVIN_STAGE = {
+    kind: "explicit",
+    stages: ["Load In", "Set", "Strike", "Load Out"],
+  } as const;
   const EXPECTED = {
     kind: "explicit",
     days: ["2026-05-02", "2026-05-03", "2026-05-06", "2026-05-07"],

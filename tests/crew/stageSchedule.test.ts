@@ -50,18 +50,28 @@ describe("effectiveViewerDateRestriction", () => {
   });
 
   it("Load In / Set ONLY → {Travel In, Set}; hides show days + Travel Out", () => {
-    const r = effectiveViewerDateRestriction(DATES, PHASES, { kind: "none" }, {
-      kind: "explicit",
-      stages: ["Load In", "Set"],
-    });
+    const r = effectiveViewerDateRestriction(
+      DATES,
+      PHASES,
+      { kind: "none" },
+      {
+        kind: "explicit",
+        stages: ["Load In", "Set"],
+      },
+    );
     expect(r).toEqual({ kind: "explicit", days: ["2026-05-02", "2026-05-03"] });
   });
 
   it("Load Out / Strike ONLY → {compound Show+Strike day, Travel Out}; hides Travel In, Set, pure show days", () => {
-    const r = effectiveViewerDateRestriction(DATES, PHASES, { kind: "none" }, {
-      kind: "explicit",
-      stages: ["Load Out", "Strike"],
-    });
+    const r = effectiveViewerDateRestriction(
+      DATES,
+      PHASES,
+      { kind: "none" },
+      {
+        kind: "explicit",
+        stages: ["Load Out", "Strike"],
+      },
+    );
     expect(r).toEqual({ kind: "explicit", days: ["2026-05-06", "2026-05-07"] });
   });
 
@@ -77,10 +87,15 @@ describe("effectiveViewerDateRestriction", () => {
   });
 
   it("empty stages array → no day matches → days:[] (safe degradation, no crash)", () => {
-    const r = effectiveViewerDateRestriction(DATES, PHASES, { kind: "none" }, {
-      kind: "explicit",
-      stages: [],
-    });
+    const r = effectiveViewerDateRestriction(
+      DATES,
+      PHASES,
+      { kind: "none" },
+      {
+        kind: "explicit",
+        stages: [],
+      },
+    );
     expect(r).toEqual({ kind: "explicit", days: [] });
   });
 
