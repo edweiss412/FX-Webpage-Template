@@ -134,7 +134,9 @@ export class InvalidDriveFileIdError extends DriveFetchError {
 
 /** Throws InvalidDriveFileIdError unless `fileId` is a non-empty, non-whitespace string. */
 export function assertNonEmptyDriveFileId(fileId: unknown): asserts fileId is string {
-  if (typeof fileId !== "string" || fileId.trim() === "") {
+  // `/\S/` ("contains a non-whitespace char") rejects "" and whitespace-only WITHOUT
+  // `.trim()`, which the no-inline-email-normalization structural guard forbids here.
+  if (typeof fileId !== "string" || !/\S/.test(fileId)) {
     throw new InvalidDriveFileIdError(fileId);
   }
 }
