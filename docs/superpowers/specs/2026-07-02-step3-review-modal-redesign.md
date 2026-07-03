@@ -188,7 +188,7 @@ Same registry, rendered as pill chips in one horizontal row: icon + label + stat
 
 ### 6.3a Scroll-spy algorithm (deterministic contract)
 
-Constants: `SCROLL_SPY_OFFSET_PX = 90` (module constant in `Step3ReviewModal.tsx`, same value as the mock).
+Constants: `SCROLL_SPY_OFFSET_PX = 90` (module constant in `Step3ReviewModal.tsx`, same value as the mock). **Token-contract disposition (applies to this and `DRAG_DISMISS_THRESHOLD_PX`, §10):** these are behavioral gesture/scroll thresholds, not rendered visual values — they never produce a painted px. DESIGN.md §10's ban targets visual hardcoding (hex/ms/px SPACING). To keep a single source of truth anyway, the implementation adds a short **"Interaction constants"** note to DESIGN.md §5 (same commit that introduces the constants) naming both constants, their values, and where they live, so the impeccable audit and future readers find them documented rather than treating them as spacing magic numbers.
 
 - **Root/scroll container:** the content pane (`…-review-main`'s scrollable child, the element that owns `overflow-y-auto`). No `IntersectionObserver` — a rAF-throttled `scroll` listener (passive), exactly the mock's mechanism, so the rule below is the single source of truth.
 - **Coordinate contract:** DOM `offsetTop` is relative to `offsetParent`, NOT necessarily the scroll container — it is NOT used. Each section's top is computed as `sectionTop = section.getBoundingClientRect().top − scroller.getBoundingClientRect().top + scroller.scrollTop` (container-relative by construction, immune to padding/panel nesting/offsetParent changes). Tops are recomputed on each rAF pass (cheap: ≤12 rects) so disclosure/`<details>` expansion never leaves stale positions.
@@ -293,7 +293,7 @@ On a SUCCESSFUL `requestSetChecked(true)` from the modal (promise resolved `true
 | Side rail | — | — | ✓ |
 | Chip rail | ✓ | ✓ | — |
 
-**Duplicate-navigation contract:** both nav structures are always in the JSX (mode switching is CSS-only, no JS viewport listeners) and mode exclusivity is `display: none` via Tailwind responsive classes — side rail `hidden lg:flex`, chip rail `flex lg:hidden`. `display: none` removes the inactive structure from BOTH the accessibility tree and the tab order (no `aria-hidden`/`inert` needed — and none is added, to avoid a second mechanism drifting from the first). jsdom asserts the class contract; Playwright asserts per mode that exactly one nav is visible AND that Tab traversal never reaches a control inside the hidden one (§16).
+**Duplicate-navigation contract:** both nav structures are always in the JSX (mode switching for RENDERING is CSS-only; the single JS viewport listener in the component is the drag-cleanup `matchMedia` in §10, which affects no render output) and mode exclusivity is `display: none` via Tailwind responsive classes — side rail `hidden lg:flex`, chip rail `flex lg:hidden`. `display: none` removes the inactive structure from BOTH the accessibility tree and the tab order (no `aria-hidden`/`inert` needed — and none is added, to avoid a second mechanism drifting from the first). jsdom asserts the class contract; Playwright asserts per mode that exactly one nav is visible AND that Tab traversal never reaches a control inside the hidden one (§16).
 | Footer note | — | ✓ | ✓ |
 | Footer buttons | ✓ (publish `flex-1`) | ✓ | ✓ |
 
@@ -308,6 +308,7 @@ Constants (JS module constants in `Step3ReviewModal.tsx`): `DRAG_DISMISS_THRESHO
 - `onPointerMove`: `translateY(max(0, clientY − startY))` on the panel (transform only, `DESIGN.md:242-246`).
 - `onPointerUp/Cancel`: if `dy > DRAG_DISMISS_THRESHOLD_PX` → set `transition: transform var(--duration-normal) var(--ease-out-quart)`, `translateY(100%)`, close on `transitionend` (with a `--duration-normal`-matched timeout fallback); else same transition back to `translateY(0)`.
 - Plain click (no meaningful movement) closes immediately.
+- **Mode-boundary cleanup (concrete mechanism for §11 C6):** the component registers ONE `matchMedia('(min-width: 640px)')` change listener (matching the `sm` token; mounted with the modal, removed on unmount). On entering `≥ sm` it cancels any drag in progress: releases pointer capture, clears the panel's inline `transform`/`transition`/`animation` styles, and resets the drag ref. This is required because a sheet-mode drag writes an INLINE `translateY` that CSS mode classes cannot clear — an orientation change/resize mid-drag would otherwise leave the popup/two-pane panel translated. Playwright test: start a drag at 390px, resize across the `sm` boundary mid-drag, assert the panel has no inline transform and remains fully interactive.
 - Reduced motion: the existing `@media (prefers-reduced-motion: reduce)` block collapses entrance animations (`app/globals.css:607-611`); the dismiss transition uses duration tokens so it inherits the project-wide reduction; drag STILL WORKS (it is direct manipulation, not an animation).
 
 ---
@@ -339,7 +340,7 @@ Compound transitions:
 | C3 | Publish click while `rescanPending` | Allowed; independent controls. The re-scan continues server-side; intent POST is unaffected. |
 | C4 | Rail click during an in-flight smooth scroll | Clicking sets `activeSection` immediately; scroll-spy may flip intermediate items during the glide and converges on the target. Accepted (mock behavior). |
 | C5 | Drag while content pane is mid-scroll | Grab strip is outside the scroll container; `touch-action:none` on the strip prevents scroll/drag contention. Content-pane scrolling never triggers drag. |
-| C6 | Viewport crosses a mode boundary while open | Pure CSS/conditional re-render; no animation. Drag state resets (sheet-only handlers unmount). |
+| C6 | Viewport crosses a mode boundary while open | Rendering switches via CSS; no animation. Drag state resets via the §10 `matchMedia` cleanup (pointer capture released, inline transform/transition/animation cleared, drag ref reset). |
 | C7 | `checked` flips via card checkbox while modal open | Footer label updates instantly (shared state), no animation. |
 
 ---
