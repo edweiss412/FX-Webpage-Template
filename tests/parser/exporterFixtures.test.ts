@@ -1094,10 +1094,11 @@ describe("exporter fidelity — audit-followup: HTML-entity decode (#8) + hotel 
 // consultants LUNCH BALLROOM C). Expected values are derived from the committed
 // exporter-xlsx fixtures (creds-free), NOT the live sheet.
 //
-// 1b (DEFERRED): the v2 shows whose venue dims/floor live in a SEPARATE
-// "<NAME> - <Nth Floor> ROOM DIMENSIONS: <dims>" / "<NAME>\n<dims>" row
-// (redefining/ria GS) + east-coast's MABEL/GS tangle keep name "General Session"
-// with null dims/floor here — a future 1b will intentionally update those rows.
+// 1b (RESOLVED 2026-07-03 via exporter fix): the v2 GS venue (consultants/ria/
+// redefining) rides in the fused INFO header `GENERAL SESSION␊NAME␊DIMS␊FLOOR`, which
+// the exporter's normalizeBlock was DROPPING (pre-#1a workaround) — so these rooms
+// previously parsed as "General Session" with null dims/floor. With the drop removed,
+// the real NAME + dims (+ floor) are recovered; expectations updated below.
 describe("exporter fidelity — #1a room header name/dims/floor split", () => {
   type RoomTriple = { kind: string; name: string; dimensions: string | null; floor: string | null };
   const triples = (slug: string): RoomTriple[] =>
@@ -1127,27 +1128,35 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
       { kind: "breakout", name: "STATE A", dimensions: "38' x 29' x 12'", floor: "8th Floor" },
       { kind: "breakout", name: "STATE B", dimensions: "38' x 29' x 12'", floor: "8th Floor" },
     ],
-    // v2 numbered-breakout headers carrying a trailing floor / placeholder words
+    // v2 GS header now PRESERVED by the exporter (was dropped by the obsolete
+    // normalizeBlock GENERAL-SESSION/GS-Setup slice) → dims + floor recovered from
+    // the fused INFO header via splitRoomHeader.
     consultants: [
-      { kind: "gs", name: "GRAND BALLROOM A/B", dimensions: null, floor: null },
+      {
+        kind: "gs",
+        name: "GRAND BALLROOM A/B",
+        dimensions: "A/B: 82' x 63' x 14'",
+        floor: "8th Floor",
+      },
       { kind: "breakout", name: "DELAWARE", dimensions: null, floor: "7th Floor" },
       { kind: "breakout", name: "LASALLE", dimensions: null, floor: "7th Floor" },
       { kind: "breakout", name: "WALTON", dimensions: null, floor: "7th Floor" },
       { kind: "breakout", name: "STATE B", dimensions: null, floor: "8th Floor" },
       { kind: "breakout", name: "BALLROOM C", dimensions: null, floor: null },
     ],
-    // ria / redefining-fi: these STALE 2026-06-18 fixtures predate Doug adding an
-    // inline GENERAL SESSION header — their GS venue only lives in a separate row, so
-    // they correctly stay "General Session". The LIVE sheets now use the inline header
-    // (locked by the "#1a inline GENERAL SESSION header" suite below), which is why the
-    // separate-ROOM-DIMENSIONS-row "#1b" is obsolete. Breakouts are already clean.
+    // ria / redefining-fi: the fused GENERAL SESSION header lived in the INFO cell all
+    // along (verified against the frozen .xlsx — the data never changed); it was the
+    // EXPORTER that dropped that header row, collapsing the GS room to a generic
+    // "General Session" with no dims/floor. With the drop removed, the real venue NAME +
+    // dims (+ floor) are recovered. (The prior "Doug added an inline header / #1b
+    // obsolete" note was a misdiagnosis of this exporter bug.)
     ria: [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null },
+      { kind: "gs", name: "SALON ABCD", dimensions: "41' x 73' x 13'", floor: null },
       { kind: "breakout", name: "DRAWING ROOM A", dimensions: null, floor: null },
       { kind: "breakout", name: "DRAWING ROOM B", dimensions: null, floor: null },
     ],
     "redefining-fi": [
-      { kind: "gs", name: "General Session", dimensions: null, floor: null },
+      { kind: "gs", name: "LAKEVIEW BALLROOM", dimensions: "61' x 55' x 11'", floor: "7th Floor" },
       { kind: "breakout", name: "LASALLE A", dimensions: null, floor: null },
       { kind: "breakout", name: "WALTON ROOM", dimensions: null, floor: null },
     ],
@@ -1170,14 +1179,13 @@ describe("exporter fidelity — #1a room header name/dims/floor split", () => {
   }
 });
 
-// Regression lock — the LIVE v2 sheets (redefining/ria/consultants) have since moved
-// their GS venue into an inline "GENERAL SESSION\nNAME\nDIMS\nFLOOR" header cell
-// (verified against the live INFO tabs 2026-06-23 via gsheets MCP) — a format NO
-// committed fixture exercises (those are stale 2026-06-18 snapshots), but which #1a's
-// parseGsRoom + splitRoomHeader MUST keep parsing. This pins it so a future refactor
-// can't silently regress live parsing. It's also why the separate-ROOM-DIMENSIONS-row
-// "#1b" is obsolete: no live sheet uses that shape anymore. The exporter flattens the
-// cell's newlines to spaces and column-duplicates it.
+// Regression lock — the v2 sheets (redefining/ria/consultants) carry their GS venue in
+// an inline "GENERAL SESSION\nNAME\nDIMS\nFLOOR" header cell (byte-identical in the
+// frozen 2026-06-18 .xlsx and the live INFO tab — the data never changed), which #1a's
+// parseGsRoom + splitRoomHeader parse into name/dims/floor. Since the exporter's
+// header-drop was removed (2026-07-03), the COMMITTED fixtures now exercise this exact
+// shape too (see the per-show table above), so it is pinned end-to-end. The exporter
+// flattens the cell's newlines to spaces and column-duplicates it.
 describe("exporter fidelity — #1a inline GENERAL SESSION header (live v2 format)", () => {
   const cases: Array<
     [string, string, { name: string; dimensions: string | null; floor: string | null }]

@@ -141,12 +141,17 @@ function normalizeBlock(block: CellGrid): CellGrid {
   // markdown converter, not the source. The value column is now preserved so
   // parseEventDetails populates event_details + openingReel.
   // See DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
-  if (
-    /^GENERAL SESSION/i.test(block[0]?.[0] ?? "") &&
-    /^(?:GS|BO) Setup$/i.test(block[1]?.[0] ?? "")
-  ) {
-    return block.slice(1);
-  }
+  //
+  // A v2 GS block's first row is the fused header
+  // `GENERAL SESSION␊<NAME>␊<DIMS>␊<FLOOR>` (INFO cell), followed by a
+  // `GS Setup` value row. This row was previously DROPPED (`block.slice(1)`) as
+  // a pre-parser workaround — at the time the parser could not read the fused
+  // header, so the header was discarded and the room name recovered from the
+  // GEAR/DIAGRAMS representation, which silently LOST the INFO dims + floor (and,
+  // for ria/redefining, the room NAME → generic "General Session"). Since #1a the
+  // parser's `parseGsRoom` + `splitRoomHeader` read that fused header directly,
+  // so dropping it is now pure data loss (3 corpus shows: consultants GRAND
+  // BALLROOM A/B, redefining LAKEVIEW BALLROOM, ria SALON ABCD). Preserve it.
   return block;
 }
 

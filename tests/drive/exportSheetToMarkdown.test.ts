@@ -183,7 +183,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
   });
 
-  test("drops merged room-title rows before GS/BO equipment tables", () => {
+  test("PRESERVES the fused GS/BO room-title header before equipment tables", () => {
+    // This header row was previously DROPPED (block.slice(1)) as a pre-parser
+    // workaround. Since #1a the parser's parseGsRoom + splitRoomHeader read the fused
+    // `GENERAL SESSION␊NAME␊DIMS␊FLOOR` header directly, so dropping it silently lost
+    // the v2 GS room's dims + floor (and, for ria/redefining, its NAME → generic
+    // "General Session"). Keep it — the multi-line cell space-joins per normalizeNewlines.
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
@@ -198,7 +203,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
 
     expect(markdown).toBe(
-      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join("\n"),
+      [
+        "| GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor |  |",
+        "| :---: | :---: |",
+        "| GS Setup | Pods |",
+        "| GS Set Time | 5/12 @ 6:30 AM |",
+      ].join("\n"),
     );
   });
 
