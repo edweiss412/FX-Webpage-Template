@@ -5,9 +5,9 @@
  *
  * The NEW Step-3 review modal: a bottom SHEET below `sm` and a centered panel
  * above it (popup < lg, two-pane ≥ lg). Task 4 shipped the shell/header/
- * footer; Task 5 fills the body — side rail + chip rail (§6.2/§6.3, twin navs
- * per §9.4) + the §6.4 section panels; scroll-spy wiring and sheet drag land
- * in Tasks 6-7.
+ * footer; Task 5 filled the body — side rail + chip rail (§6.2/§6.3, twin
+ * navs per §9.4) + the §6.4 section panels; Task 6 (below) wires the §6.3a
+ * deterministic scroll-spy; sheet drag lands in Task 7.
  * It supersedes Step3DetailsDialog (removed in Task 8) and carries its
  * topology: tap-out scrim + focus-trapped `role="dialog" aria-modal` panel
  * (`useDialogFocus` — initial focus on the close button, Tab trap,
@@ -60,8 +60,8 @@ export const DRAG_SLOP_PX = 6;
  * Pure scroll-spy rule (spec §6.3a): the active section is the LAST one whose
  * top is at/above `scrollTop + SCROLL_SPY_OFFSET_PX`; when the pane is scrolled
  * to the bottom the last section wins (it may be too short to ever cross the
- * offset line). Task 6 wires this to the panes and pins its boundary cases;
- * the shape ships here so the module contract is complete from day one.
+ * offset line). Task 6 wires this to the content pane's rAF-throttled scroll
+ * listener below (`sectionTopFor` + the effect after `handleNavClick`).
  */
 export function activeSectionFor(
   scrollTop: number,
@@ -79,6 +79,21 @@ export function activeSectionFor(
     else break;
   }
   return current;
+}
+
+/** Coordinate contract (§6.3a): DOM `offsetTop` is relative to `offsetParent`,
+ *  NOT necessarily the scroll container — it is NOT used. `el`'s top is
+ *  container-relative by construction (immune to padding/panel
+ *  nesting/offsetParent changes), so it stays correct across the chip rail /
+ *  side rail's differing ancestor chains. Shared by the click override
+ *  (`handleNavClick`) and the scroll-spy wiring effect so there is exactly
+ *  one place this math lives. */
+function sectionTopFor(scroller: Element, el: Element): number {
+  return (
+    el.getBoundingClientRect().top -
+    scroller.getBoundingClientRect().top +
+    (scroller as HTMLElement).scrollTop
+  );
 }
 
 type PublishState = "idle" | "pending" | "error";
@@ -139,13 +154,54 @@ export function Step3ReviewModal({
     const scroller = contentRef.current;
     const target = sectionElsRef.current.get(id);
     if (!scroller || !target || typeof scroller.scrollTo !== "function") return;
-    const top =
-      target.getBoundingClientRect().top -
-      scroller.getBoundingClientRect().top +
-      scroller.scrollTop -
-      8;
-    scroller.scrollTo({ top });
+    scroller.scrollTo({ top: sectionTopFor(scroller, target) - 8 });
   }
+
+  // Deterministic scroll-spy (§6.3a): a rAF-throttled PASSIVE `scroll`
+  // listener on the content pane recomputes every rendered section's
+  // container-relative top each pass (cheap: ≤12 rects; keeps `<details>`
+  // disclosure expansion from leaving stale positions) and derives `active`
+  // via the pure `activeSectionFor` rule above — the SAME coordinate
+  // contract `handleNavClick` uses, via the shared `sectionTopFor` helper.
+  // No `IntersectionObserver` — the rule is the single source of truth.
+  // Registered on mount, cleaned up on unmount (pending rAF cancelled).
+  useEffect(() => {
+    const scroller = contentRef.current;
+    if (!scroller) return;
+    let rafId: number | null = null;
+
+    function evaluate() {
+      rafId = null;
+      const el = contentRef.current;
+      if (!el) return;
+      // Unmeasured pane (no real layout yet — e.g. not yet painted, or a
+      // jsdom test that hasn't stubbed geometry): both dimensions read 0,
+      // which would otherwise satisfy the bottom-clamp's `0 >= -1` and
+      // spuriously jump `active` to the last section. Skip until the pane
+      // actually has a size; the initial-render default (first section)
+      // stands until then.
+      if (el.clientHeight === 0 && el.scrollHeight === 0) return;
+      const tops: Array<{ id: SectionId; top: number }> = [];
+      for (const s of sections) {
+        const sectionEl = sectionElsRef.current.get(s.id);
+        if (sectionEl) tops.push({ id: s.id, top: sectionTopFor(el, sectionEl) });
+      }
+      if (tops.length === 0) return;
+      setActive(activeSectionFor(el.scrollTop, el.clientHeight, el.scrollHeight, tops));
+    }
+
+    function onScroll() {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(evaluate);
+    }
+
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    evaluate(); // initial state (§6.3a): rule evaluated once on mount
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [sections]);
 
   // Initial focus → close button; Tab-trap inside the panel; restore focus to
   // the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)

@@ -40,7 +40,11 @@ import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
-import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
+import {
+  activeSectionFor,
+  SCROLL_SPY_OFFSET_PX,
+  Step3ReviewModal,
+} from "@/components/admin/wizard/Step3ReviewModal";
 import {
   __resetAgendaThrottleForTests,
   contactBlocks,
@@ -861,7 +865,7 @@ describe("Step3ReviewModal — conditional agenda + always-on warnings (spec §6
   });
 });
 
-describe("Step3ReviewModal — rail/chip click navigation (Task 5 slice; scroll-spy lands in Task 6)", () => {
+describe("Step3ReviewModal — rail/chip click navigation (Task 5; shares Task 6's coordinate contract)", () => {
   /** jsdom has no Element scroll methods — stub scrollTo on the prototype. */
   function withScrollToStub(run: (scrollTo: ReturnType<typeof vi.fn>) => void) {
     const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
@@ -912,5 +916,168 @@ describe("Step3ReviewModal — rail/chip click navigation (Task 5 slice; scroll-
       );
       expect(scrollTo).toHaveBeenCalled();
     });
+  });
+});
+
+describe("Step3ReviewModal — activeSectionFor pure rule (Task 6, spec §6.3a)", () => {
+  // Fixture per the task-6 brief: tops strictly increasing in registry order.
+  // Every expectation below is derived from THIS array (by index/property),
+  // never a hardcoded id — anti-tautology.
+  const CLIENT_HEIGHT = 600;
+  const SCROLL_HEIGHT = 1800;
+  const sectionTops: ReadonlyArray<{ id: SectionId; top: number }> = [
+    { id: "venue", top: 0 },
+    { id: "crew", top: 400 },
+    { id: "warnings", top: 1200 },
+  ];
+
+  test("exactly at an offset line: scrollTop = nextTop − SCROLL_SPY_OFFSET_PX activates that section", () => {
+    const boundary = sectionTops[1]!;
+    const scrollTop = boundary.top - SCROLL_SPY_OFFSET_PX;
+    expect(activeSectionFor(scrollTop, CLIENT_HEIGHT, SCROLL_HEIGHT, sectionTops)).toBe(
+      boundary.id,
+    );
+  });
+
+  test("between two section tops: the earlier one stays active until the next crosses the offset line", () => {
+    const scrollTop = sectionTops[1]!.top + 100;
+    // Sanity-check the fixture actually exercises "between" (not yet past the
+    // next section's own offset line).
+    expect(scrollTop + SCROLL_SPY_OFFSET_PX).toBeLessThan(sectionTops[2]!.top);
+    expect(activeSectionFor(scrollTop, CLIENT_HEIGHT, SCROLL_HEIGHT, sectionTops)).toBe(
+      sectionTops[1]!.id,
+    );
+  });
+
+  test("tall-section span: deep inside a tall section, short of the next section's offset line, keeps it active", () => {
+    const scrollTop = sectionTops[0]!.top + 300; // 300px into the first section's 400px span
+    expect(scrollTop + SCROLL_SPY_OFFSET_PX).toBeLessThan(sectionTops[1]!.top);
+    expect(activeSectionFor(scrollTop, CLIENT_HEIGHT, SCROLL_HEIGHT, sectionTops)).toBe(
+      sectionTops[0]!.id,
+    );
+  });
+
+  test("above the first section's offset line: no top qualifies, so the first rendered section wins", () => {
+    // A dedicated fixture whose FIRST top itself sits beyond scrollTop+offset
+    // — this exercises the "none qualifies" fallback branch distinctly from
+    // a coincidental match on the first entry.
+    const aboveFirstTops: ReadonlyArray<{ id: SectionId; top: number }> = [
+      { id: "venue", top: 150 },
+      { id: "crew", top: 500 },
+      { id: "warnings", top: 1300 },
+    ];
+    const scrollTop = 0;
+    expect(scrollTop + SCROLL_SPY_OFFSET_PX).toBeLessThan(aboveFirstTops[0]!.top);
+    expect(activeSectionFor(scrollTop, CLIENT_HEIGHT, SCROLL_HEIGHT, aboveFirstTops)).toBe(
+      aboveFirstTops[0]!.id,
+    );
+  });
+
+  test("bottom clamp: scrolled to the bottom activates the last section even though its top is still beyond the offset line", () => {
+    // Dedicated fixture where the last top is deliberately far enough that,
+    // WITHOUT the clamp, the ordinary rule would pick an earlier section —
+    // proving the clamp (not a coincidental match) drives the result.
+    const bottomClampTops: ReadonlyArray<{ id: SectionId; top: number }> = [
+      { id: "venue", top: 0 },
+      { id: "crew", top: 400 },
+      { id: "warnings", top: 1400 },
+    ];
+    const scrollTop = SCROLL_HEIGHT - CLIENT_HEIGHT; // 1200 — exactly at the bottom
+    expect(scrollTop + CLIENT_HEIGHT).toBeGreaterThanOrEqual(SCROLL_HEIGHT - 1);
+    expect(scrollTop + SCROLL_SPY_OFFSET_PX).toBeLessThan(bottomClampTops[2]!.top);
+    expect(activeSectionFor(scrollTop, CLIENT_HEIGHT, SCROLL_HEIGHT, bottomClampTops)).toBe(
+      bottomClampTops[bottomClampTops.length - 1]!.id,
+    );
+  });
+});
+
+describe("Step3ReviewModal — scroll-spy wiring (Task 6, spec §6.3a)", () => {
+  /** jsdom computes no real layout: every `getBoundingClientRect()` returns
+   *  zeros and `clientHeight`/`scrollHeight` read 0 unless stubbed. Stub
+   *  `getBoundingClientRect` per-element (keyed by identity) so the
+   *  component's container-relative math (`sectionTop = section.rect.top −
+   *  scroller.rect.top + scroller.scrollTop`) sees the geometry this test
+   *  wants. */
+  function stubGetBoundingClientRect(rectsByEl: Map<Element, number>) {
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const top = rectsByEl.get(this) ?? 0;
+      return {
+        top,
+        bottom: top,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    return () => {
+      Element.prototype.getBoundingClientRect = original;
+    };
+  }
+
+  test("scrolling the content pane recomputes active via the container-relative rule (rAF-throttled)", () => {
+    // Run requestAnimationFrame synchronously so the rAF-throttled scroll
+    // handler resolves within this tick.
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      }) as typeof requestAnimationFrame,
+    );
+    vi.stubGlobal("cancelAnimationFrame", (() => {}) as typeof cancelAnimationFrame);
+
+    const { q, d } = renderModal();
+    const defs = step3Sections(d);
+    const targetIndex = Math.floor(defs.length / 2); // interior — distinct from first AND last
+    const target = defs[targetIndex]!;
+    expect(target.id).not.toBe(defs[0]!.id);
+    expect(target.id).not.toBe(defs[defs.length - 1]!.id);
+
+    const content = q.getByTestId(tid("content"));
+    const targetTop = targetIndex * 1000; // absolute (container-relative) top
+    const scrollTop = targetTop + 10; // past target's own line, short of the next section's
+
+    // `getBoundingClientRect().top` is VIEWPORT-relative — it shrinks as the
+    // pane scrolls down — while the component's formula
+    // (`sectionTop = rect.top − scroller.rect.top + scroller.scrollTop`)
+    // recovers the absolute container-relative top. So each stub here is the
+    // absolute top MINUS the scroll position, matching what a real scrolled
+    // pane would report (can be negative for sections already scrolled past).
+    const rects = new Map<Element, number>();
+    rects.set(content, 0); // scroller's own rect.top — the coordinate origin
+    defs.forEach((s, i) => {
+      rects.set(q.getByTestId(tid(`section-${s.id}`)), i * 1000 - scrollTop);
+    });
+    const restoreRects = stubGetBoundingClientRect(rects);
+    try {
+      const scrollHeight = defs.length * 1000 + 400;
+      Object.defineProperty(content, "clientHeight", { value: 600, configurable: true });
+      Object.defineProperty(content, "scrollHeight", {
+        value: scrollHeight,
+        configurable: true,
+      });
+      // Sanity-check this scroll position doesn't accidentally trip the
+      // bottom clamp — the assertion below is exercising the ordinary rule.
+      expect(scrollTop + 600).toBeLessThan(scrollHeight - 1);
+      content.scrollTop = scrollTop;
+
+      fireEvent.scroll(content);
+
+      expect(q.getByTestId(tid("rail")).querySelector('[aria-current="true"]')).toBe(
+        q.getByTestId(tid(`rail-item-${target.id}`)),
+      );
+      expect(q.getByTestId(tid("chiprail")).querySelector('[aria-current="true"]')).toBe(
+        q.getByTestId(tid(`chip-item-${target.id}`)),
+      );
+    } finally {
+      restoreRects();
+    }
   });
 });
