@@ -68,7 +68,16 @@ export function PerShowActionableWarnings({
               // The offending row label (from rawSnippet "<label> | <value>"): the
               // catalog title is generic, so this identifies the row even when the
               // deep link is absent (legacy/ambiguous anchor).
-              const rowLabel = labelFromRawSnippet(w.rawSnippet);
+              //
+              // ONLY UNKNOWN_FIELD writes rawSnippet in the `<label> | <value>` shape
+              // (lib/parser/warnings.ts emitUnknownField). Other
+              // OPERATOR_ACTIONABLE_ANCHORED codes — PULL_SHEET_AMBIGUOUS_FORMAT /
+              // PULL_SHEET_PARSE_PARTIAL — carry a RAW pipe-delimited markdown ROW as
+              // rawSnippet, so labelFromRawSnippet would render a garbled first-cell
+              // fragment as a fake field label. Gate the muted label on UNKNOWN_FIELD
+              // (audit idx46/#217).
+              const rowLabel =
+                w.code === "UNKNOWN_FIELD" ? labelFromRawSnippet(w.rawSnippet) : null;
               return rowLabel ? (
                 <span
                   data-testid="per-show-actionable-row-label"

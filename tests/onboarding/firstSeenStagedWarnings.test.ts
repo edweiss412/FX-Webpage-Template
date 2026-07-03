@@ -49,9 +49,38 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
 
     // warningSummary is built from the DATA-QUALITY warnings array (data source),
     // NOT the hardcoded "" and NOT the pre-joined persisted string (R1 [high]).
-    expect(staged.warningSummary).toBe("Crew phone unreadable; Hotel block vanished");
-    // dataGaps derives from the SEEDED warnings array (the data source), not the card.
+    // FIELD_UNREADABLE is operator-actionable-anchored, so it renders via
+    // operatorActionable (titled card + deep link) and is EXCLUDED from this flat
+    // summary line (audit idx90/#154 — no double-render). Only the non-actionable
+    // data-gap (BLOCK_DISAPPEARED) remains in the summary.
+    expect(staged.warningSummary).toBe("Hotel block vanished");
+    // dataGaps derives from the SEEDED warnings array (the data source), not the card,
+    // and is UNCHANGED by the summary exclusion (it still counts FIELD_UNREADABLE).
     expect(staged.dataGaps).toEqual(summarizeDataGaps(warnings));
+    expect(staged.dataGaps?.total).toBe(2);
+  });
+
+  // audit idx90/#154: FIELD_UNREADABLE is in BOTH the data-gap set AND
+  // OPERATOR_ACTIONABLE_ANCHORED. It surfaces as a titled actionable card (with a
+  // deep link) via `operatorActionable`; it must therefore be EXCLUDED from the flat
+  // `warningSummary` line so the staged card does not double-render it. Mirrors the
+  // per-show digest at app/admin/show/[slug]/page.tsx (isDataQualityWarning &&
+  // !OPERATOR_ACTIONABLE_ANCHORED.has(code)).
+  test("excludes operator-actionable codes (FIELD_UNREADABLE) from warningSummary; they surface only via operatorActionable", () => {
+    const warnings: ParseWarning[] = [
+      { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone unreadable" },
+      { severity: "warn", code: "BLOCK_DISAPPEARED", message: "Hotel block vanished" },
+    ];
+    const staged = stagedRowFromLiveFirstSeen(
+      liveRow({ parse_result: { show: { title: "X" }, warnings } }),
+    );
+    // FIELD_UNREADABLE is surfaced ONCE, via the actionable list (titled card + link).
+    expect(staged.operatorActionable?.some((w) => w.code === "FIELD_UNREADABLE")).toBe(true);
+    // …and NOT also in the flat summary line (no double-render).
+    expect(staged.warningSummary).not.toContain("Crew phone unreadable");
+    // A non-actionable data-gap (BLOCK_DISAPPEARED) still appears in the summary.
+    expect(staged.warningSummary).toContain("Hotel block vanished");
+    // The data-gap COUNT is unchanged (still counts FIELD_UNREADABLE).
     expect(staged.dataGaps?.total).toBe(2);
   });
 
@@ -61,7 +90,10 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
   // and build only from the DATA-QUALITY warnings, so no raw code can leak (invariant 5).
   test("ignores the persisted warning_summary and excludes a non-DQ raw-code warning", () => {
     const warnings: ParseWarning[] = [
-      { severity: "warn", code: "FIELD_UNREADABLE", message: "Crew phone unreadable" },
+      // A non-actionable DQ code (survives the summary) is the control here — the
+      // former FIELD_UNREADABLE control now renders only via operatorActionable
+      // (audit idx90/#154), so use BLOCK_DISAPPEARED to isolate the raw-code check.
+      { severity: "warn", code: "BLOCK_DISAPPEARED", message: "Hotel block vanished" },
       // reelWarning() shape: non-DQ, message === code.
       { severity: "warn", code: "OPENING_REEL_UNREADABLE", message: "OPENING_REEL_UNREADABLE" },
     ];
@@ -69,12 +101,47 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
       liveRow({
         parse_result: { show: { title: "X" }, warnings },
         // A persisted summary that DOES contain the raw code — must be ignored.
-        warning_summary: "Crew phone unreadable; OPENING_REEL_UNREADABLE",
+        warning_summary: "Hotel block vanished; OPENING_REEL_UNREADABLE",
       }),
     );
-    expect(staged.warningSummary).toBe("Crew phone unreadable");
+    expect(staged.warningSummary).toBe("Hotel block vanished");
     expect(staged.warningSummary).not.toContain("OPENING_REEL_UNREADABLE");
     expect(staged.dataGaps?.total).toBe(1);
+  });
+
+  // audit idx45/#217: the staged surface must route its operator-actionable read
+  // through selectActionableForDisplay (which applies stripLegacyUnknownFieldAnchors
+  // BEFORE filter+dedup), matching the per-show surface. Two LEGACY UNKNOWN_FIELD
+  // warnings carrying a stale block-RANGE anchor (a1 contains ":") would, via the bare
+  // operatorActionableWarnings path, collapse to ONE row (shared a1 dedup) AND keep the
+  // wrong block-header deep link. The shim clears the stale anchor so both distinct rows
+  // survive (count corrects) and neither carries a wrong link.
+  test("routes operatorActionable through the legacy-anchor shim (selectActionableForDisplay)", () => {
+    const legacyAnchor = { title: "INFO", gid: 7, a1: "A1:D5" }; // block RANGE (contains ":")
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized INFO row label: 'Podium'",
+        rawSnippet: "Podium | (2)",
+        sourceCell: legacyAnchor,
+      },
+      {
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: "Unrecognized INFO row label: 'Riser'",
+        rawSnippet: "Riser | (1)",
+        sourceCell: legacyAnchor,
+      },
+    ];
+    const staged = stagedRowFromLiveFirstSeen(
+      liveRow({ parse_result: { show: { title: "X" }, warnings } }),
+    );
+    // Shim strips the stale block-range anchor → both distinct legacy rows survive
+    // (bare operatorActionableWarnings would dedup them to ONE by their shared a1).
+    expect(staged.operatorActionable).toHaveLength(2);
+    // …and neither keeps the wrong block-header deep link (sourceCell cleared to null).
+    expect(staged.operatorActionable?.every((w) => w.sourceCell == null)).toBe(true);
   });
 
   test("no warnings → empty warningSummary and total:0 dataGaps (no chip)", () => {
