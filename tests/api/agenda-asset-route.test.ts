@@ -888,4 +888,87 @@ describe("/api/asset/agenda/[show]/[id] — infra-500 logging (Task 5)", () => {
     expect(res.status).toBe(410);
     expect(infraErrors()).toEqual([]);
   });
+
+  // Findings #8/#14: the infra 500 must carry showId + assetKey + a serialized error.
+  test("finding #8/#14: GET infra fault carries showId + assetKey + serialized error", async () => {
+    routeMock.driveError = Object.assign(new Error("kaboom"), { code: 500 });
+    const res = await getAgenda();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.showId).toBe(showId);
+    expect(emitted[0]!.context).toMatchObject({ assetKey: agendaFileId });
+    expect(emitted[0]!.context).toHaveProperty("error");
+  });
+});
+
+describe("/api/asset/agenda — ASSET_UNAVAILABLE breadcrumb (finding #8)", () => {
+  const breadcrumbs = () =>
+    assetLogRecords.filter(
+      (r) =>
+        r.level === "info" && r.code === "ASSET_UNAVAILABLE" && r.source === "api.asset.agenda",
+    );
+
+  test("debuggable 410 (Drive metadata 404 → gone) emits reason=not_found + showId + assetKey", async () => {
+    routeMock.driveError = Object.assign(new Error("not found"), { code: 404 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({ reason: "not_found", assetKey: agendaFileId });
+  });
+
+  test("debuggable 410 (permission denied) emits reason=permission_denied", async () => {
+    routeMock.driveError = Object.assign(new Error("forbidden"), { code: 403 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs().map((c) => (c.context as { reason?: string }).reason)).toEqual([
+      "permission_denied",
+    ]);
+  });
+
+  test("debuggable 410 (oversize metadata pre-flight) emits reason=oversize", async () => {
+    routeMock.driveMeta = {
+      mimeType: "application/pdf",
+      trashed: false,
+      size: String(51 * 1024 * 1024),
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs().map((c) => (c.context as { reason?: string }).reason)).toEqual([
+      "oversize",
+    ]);
+  });
+
+  test("BENIGN 410 (non-PDF mime → Open-in-Drive fallback) emits NO breadcrumb", async () => {
+    routeMock.driveMeta = { mimeType: "text/plain", trashed: false, size: "10" };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unmatched agenda link) emits NO breadcrumb", async () => {
+    routeMock.showRow = { id: showId, published: true, agenda_links: [] };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unpublished show) emits NO breadcrumb", async () => {
+    routeMock.showRow = {
+      id: showId,
+      published: false,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const res = await getAgenda();
+    await expectPickerShowUnavailable(res);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("success 200 emits NO breadcrumb", async () => {
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
+    expect(breadcrumbs()).toEqual([]);
+  });
 });
