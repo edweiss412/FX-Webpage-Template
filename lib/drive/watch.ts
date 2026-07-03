@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
+import { classifyWatchError, redactWatchError } from "@/lib/drive/watchErrors";
+import { log } from "@/lib/log";
 
 export const WATCH_CHANNEL_ORPHANED = "WATCH_CHANNEL_ORPHANED" as const;
 
@@ -49,9 +51,11 @@ export type WatchTx = {
   deleteOldStopped(): Promise<void>;
 };
 
+export type SubscribeOrphanReason = "watch_create_failed" | "activate_failed_after_watch_created";
+
 export type SubscribeResult =
   | { outcome: "active"; channelId: string }
-  | { outcome: "orphaned"; channelId: string };
+  | { outcome: "orphaned"; channelId: string; reason: SubscribeOrphanReason };
 
 export type SubscribeDeps = {
   tx?: WatchTx;
@@ -380,20 +384,37 @@ export async function subscribeToWatchedFolder(
       channelId,
       webhookSecret,
     });
-  } catch {
+  } catch (err) {
+    const errorClass = classifyWatchError(err);
+    const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
+      webhookSecret,
+    });
     await runTx((tx) =>
       markWatchOrphanedWithTx(tx, channelId, {
         watched_folder_id: folderId,
         channel_id: channelId,
         reason: "watch_create_failed",
+        error_class: errorClass,
+        error_message: errorMessage,
       }),
     );
-    return { outcome: "orphaned", channelId };
+    await log.error("drive watch subscribe failed", {
+      source: "drive.watch",
+      errorMessage,
+      watchedFolderId: folderId,
+      channelId,
+      errorClass,
+    });
+    return { outcome: "orphaned", channelId, reason: "watch_create_failed" };
   }
 
   try {
     return await runTx((tx) => activateWithTx(tx, folderId, watch));
-  } catch {
+  } catch (err) {
+    const errorClass = classifyWatchError(err);
+    const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
+      webhookSecret,
+    });
     await runTx((tx) =>
       markWatchOrphanedWithTx(tx, channelId, {
         watched_folder_id: folderId,
@@ -402,9 +423,22 @@ export async function subscribeToWatchedFolder(
         resource_id: watch.resourceId,
         expiration: watch.expiration,
         reason: "activate_failed_after_watch_created",
+        error_class: errorClass,
+        error_message: errorMessage,
       }),
     );
-    return { outcome: "orphaned", channelId: watch.id };
+    await log.error("drive watch subscribe failed", {
+      source: "drive.watch",
+      errorMessage,
+      watchedFolderId: folderId,
+      channelId: watch.id,
+      errorClass,
+    });
+    return {
+      outcome: "orphaned",
+      channelId: watch.id,
+      reason: "activate_failed_after_watch_created",
+    };
   }
 }
 

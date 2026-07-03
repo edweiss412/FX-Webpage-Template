@@ -1,6 +1,17 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+// R5-1 durable-log leak class (spec §3.1.4 / §4.1): assert the subscribe
+// failure log sink never carries a raw error object or unredacted secret.
+vi.mock("@/lib/log", () => ({
+  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+import { log } from "@/lib/log";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 type WatchRow = {
   id: string;
@@ -133,28 +144,75 @@ describe("Drive watch lifecycle", () => {
   test("watch creation failure leaves orphaned row and raises WATCH_CHANNEL_ORPHANED", async () => {
     const tx = new FakeWatchTx();
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const capturedSecret = "secret-1";
 
     const result = await subscribeToWatchedFolder("folder-1", {
       tx,
       uuid: () => "new-channel",
-      webhookSecret: () => "secret-1",
-      watchFolder: vi.fn(async () => {
-        throw new Error("Drive unavailable");
-      }),
+      webhookSecret: () => capturedSecret,
+      watchFolder: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(`files.watch failed: token=${capturedSecret} Bearer ya29.zzz`),
+        ),
     });
 
-    expect(result).toEqual({ outcome: "orphaned", channelId: "new-channel" });
     expect(tx.rows).toEqual([expect.objectContaining({ id: "new-channel", status: "orphaned" })]);
-    expect(tx.alerts).toEqual([
-      {
-        code: "WATCH_CHANNEL_ORPHANED",
-        context: {
-          watched_folder_id: "folder-1",
-          channel_id: "new-channel",
-          reason: "watch_create_failed",
-        },
-      },
-    ]);
+    const alert = tx.alerts[0]!;
+    expect(alert.code).toBe("WATCH_CHANNEL_ORPHANED");
+    expect(alert.context.watched_folder_id).toBe("folder-1");
+    expect(alert.context.channel_id).toBe("new-channel");
+    expect(alert.context.reason).toBe("watch_create_failed");
+    expect(alert.context.error_class).toBe("drive_api");
+    expect(String(alert.context.error_message)).not.toContain(capturedSecret);
+    expect(String(alert.context.error_message)).not.toContain("ya29.zzz");
+    expect(result).toEqual({
+      outcome: "orphaned",
+      channelId: expect.any(String),
+      reason: "watch_create_failed",
+    });
+  });
+
+  test("subscribe failure log payload is redacted and carries no raw error object", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+    const secret = "sec-leak-1";
+
+    await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "chan-1",
+      webhookSecret: () => secret,
+      watchFolder: () =>
+        Promise.reject(new Error(`files.watch failed token=${secret} Bearer ya29.zzz`)),
+    });
+
+    const [message, fields] = (log.error as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(message).toBe("drive watch subscribe failed");
+    expect(fields).not.toHaveProperty("error");
+    const flat = JSON.stringify(fields);
+    expect(flat).not.toContain(secret);
+    expect(flat).not.toContain("ya29.zzz");
+    expect(fields.errorMessage).toContain("files.watch failed");
+    expect(fields.errorClass).toBe("drive_api");
+  });
+
+  test("DRIVE_WEBHOOK_BASE_URL config error is classified config in the orphan alert", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "chan-1",
+      webhookSecret: () => "sec-1",
+      watchFolder: () =>
+        Promise.reject(
+          new Error("DRIVE_WEBHOOK_BASE_URL is required for Drive watch subscriptions"),
+        ),
+    });
+
+    expect(result.outcome).toBe("orphaned");
+    expect(tx.alerts[0]!.context.error_class).toBe("config");
+    expect(tx.alerts[0]!.context.error_message).toContain("DRIVE_WEBHOOK_BASE_URL is required");
   });
 
   test("subscription failure commits pending before Drive call then marks orphaned in a later phase", async () => {
@@ -181,7 +239,11 @@ describe("Drive watch lifecycle", () => {
       }),
     });
 
-    expect(result).toEqual({ outcome: "orphaned", channelId: "new-channel" });
+    expect(result).toEqual({
+      outcome: "orphaned",
+      channelId: "new-channel",
+      reason: "watch_create_failed",
+    });
     expect(tx.rows).toEqual([expect.objectContaining({ id: "new-channel", status: "orphaned" })]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:watch", "tx:start", "tx:commit"]);
     expect(tx.alerts).toEqual([
@@ -191,6 +253,8 @@ describe("Drive watch lifecycle", () => {
           watched_folder_id: "folder-1",
           channel_id: "new-channel",
           reason: "watch_create_failed",
+          error_class: "drive_api",
+          error_message: "Drive unavailable",
         },
       },
     ]);
@@ -222,7 +286,11 @@ describe("Drive watch lifecycle", () => {
       })),
     });
 
-    expect(result).toEqual({ outcome: "orphaned", channelId: "google-channel" });
+    expect(result).toEqual({
+      outcome: "orphaned",
+      channelId: "google-channel",
+      reason: "activate_failed_after_watch_created",
+    });
     expect(tx.rows).toEqual([
       expect.objectContaining({ id: "requested-channel", status: "orphaned" }),
     ]);
@@ -236,6 +304,9 @@ describe("Drive watch lifecycle", () => {
           resource_id: "resource-1",
           expiration: "2026-05-10T13:00:00.000Z",
           reason: "activate_failed_after_watch_created",
+          error_class: "db",
+          error_message:
+            "Drive watch infrastructure failure during drive_watch_channels.activate_pending",
         },
       },
     ]);
