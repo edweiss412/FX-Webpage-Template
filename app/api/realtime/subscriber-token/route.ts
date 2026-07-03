@@ -30,7 +30,7 @@
  * be cacheable + replayable, which is wrong for credentialed minting.
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { log } from "@/lib/log";
+import { log, runWithRequestContext, deriveRequestId } from "@/lib/log";
 import { SignJWT } from "jose";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { resolvePickerSelection } from "@/lib/auth/picker/resolvePickerSelection";
@@ -48,7 +48,20 @@ const MIN_HS256_SECRET_BYTES = 32;
 
 type ApiViewer =
   | { ok: true; showId: string; sub: string; viewerKind: "admin" | "crew" }
-  | { ok: false; status: 401 | 410 | 500; error: string; reason?: string };
+  | {
+      ok: false;
+      status: 401 | 410 | 500;
+      error: string;
+      reason?: string;
+      // P1 dark-path telemetry: denial/infra branches carry the resolved showId (null for
+      // unknown_slug, which has no show), plus discriminators so the POST boundary can tell
+      // an INFRA fault (→ REALTIME_TOKEN_INFRA_ERROR error) from an expected credential
+      // DENIAL (→ REALTIME_TOKEN_DENIED warn). `alreadyLogged` marks the show-lookup infra
+      // fault, which emits its own specific code inline → the boundary must stay silent.
+      showId: string | null;
+      infra?: boolean;
+      alreadyLogged?: boolean;
+    };
 
 function pickerCookieFromRequest(request: Request): string | undefined {
   const raw = request.headers.get("cookie");
@@ -89,7 +102,16 @@ async function resolveRealtimeViewer(request: NextRequest, slug: string): Promis
     } catch {
       /* best-effort */
     }
-    return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
+    // Already emitted REALTIME_TOKEN_SHOW_LOOKUP_FAILED above → alreadyLogged so the POST
+    // boundary does NOT re-emit REALTIME_TOKEN_INFRA_ERROR for this same fault.
+    return {
+      ok: false,
+      status: 500,
+      error: "ADMIN_SESSION_LOOKUP_FAILED",
+      showId: null,
+      infra: true,
+      alreadyLogged: true,
+    };
   }
   if (!showId) {
     return {
@@ -97,13 +119,20 @@ async function resolveRealtimeViewer(request: NextRequest, slug: string): Promis
       status: 401,
       error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
       reason: "unknown_slug",
+      showId: null,
     };
   }
 
   const admin = await isAdminSession(request);
   if (admin.ok) return { ok: true, showId, sub: "<admin>", viewerKind: "admin" };
   if (admin.reason === "infra_error") {
-    return { ok: false, status: 500, error: "ADMIN_SESSION_LOOKUP_FAILED" };
+    return {
+      ok: false,
+      status: 500,
+      error: "ADMIN_SESSION_LOOKUP_FAILED",
+      showId,
+      infra: true,
+    };
   }
 
   const picker = await resolvePickerSelection({
@@ -114,16 +143,23 @@ async function resolveRealtimeViewer(request: NextRequest, slug: string): Promis
     case "resolved":
       return { ok: true, showId, sub: picker.crewMemberId, viewerKind: "crew" };
     case "show_unavailable":
-      return { ok: false, status: 410, error: "PICKER_SHOW_UNAVAILABLE" };
+      // NOTE: no `reason` field — the original 410 body was `{error}` only, and the POST
+      // boundary spreads `viewer.reason` into the response JSON. Adding a telemetry `reason`
+      // here would leak a new client-visible body field (invariant 9: telemetry must not
+      // change status/body). The denial log derives its reason from `viewer.error` instead.
+      return { ok: false, status: 410, error: "PICKER_SHOW_UNAVAILABLE", showId };
     case "identity_invalidated":
       return {
         ok: false,
         status: 410,
         error: "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER",
+        // Byte-preserve the original body: `reason: picker.reason` exactly (no `??` fallback,
+        // which would add a `reason` key when picker.reason is undefined).
         reason: picker.reason,
+        showId,
       };
     case "infra_error":
-      return { ok: false, status: 500, error: picker.code };
+      return { ok: false, status: 500, error: picker.code, showId, infra: true };
     case "no_selection":
     case "epoch_stale":
     case "removed_from_roster":
@@ -132,11 +168,21 @@ async function resolveRealtimeViewer(request: NextRequest, slug: string): Promis
         status: 401,
         error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
         reason: picker.kind,
+        showId,
       };
   }
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
+  // Correlation (MEDIUM #10): thread a requestId through every emit in this handler so a
+  // denial/infra log can be tied to its request. deriveRequestId prefers x-vercel-id.
+  return runWithRequestContext(
+    { requestId: deriveRequestId(request.headers) },
+    async () => await handleSubscriberTokenPost(request),
+  );
+}
+
+async function handleSubscriberTokenPost(request: NextRequest): Promise<Response> {
   let body: { slug?: unknown };
   try {
     body = (await request.json()) as { slug?: unknown };
@@ -150,6 +196,29 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const viewer = await resolveRealtimeViewer(request, slug);
   if (!viewer.ok) {
+    // P1 dark-path telemetry: emit ONCE at the single denial/infra boundary rather than
+    // scattering across resolveRealtimeViewer. An expected credential DENIAL → WARN
+    // (fire-and-forget, invariant 9). An INFRA fault → ERROR (unless it already logged its
+    // own specific code inline — `alreadyLogged`). Never let a logger throw change status.
+    if (viewer.infra) {
+      if (!viewer.alreadyLogged) {
+        void log.error("realtime subscriber-token infra error", {
+          source: "api.realtime.subscriberToken",
+          code: "REALTIME_TOKEN_INFRA_ERROR",
+          showId: viewer.showId,
+          reason: viewer.reason ?? viewer.error,
+        });
+      }
+    } else {
+      void log.warn("realtime subscriber-token denied", {
+        source: "api.realtime.subscriberToken",
+        code: "REALTIME_TOKEN_DENIED",
+        // unknown_slug has no showId → null; carry slug instead so the denial is traceable.
+        showId: viewer.showId,
+        reason: viewer.reason ?? viewer.error,
+        ...(viewer.showId === null ? { slug } : {}),
+      });
+    }
     return NextResponse.json(
       { error: viewer.error, reason: viewer.reason },
       { status: viewer.status },
@@ -173,6 +242,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     log.error("SUPABASE_JWT_SECRET is shorter than 32 bytes; refusing to mint HS256 JWT", {
       source: "api.realtime.subscriberToken",
       code: "REALTIME_JWT_SECRET_TOO_SHORT",
+      showId: viewer.showId,
     });
     return NextResponse.json({ error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" }, { status: 500 });
   }
