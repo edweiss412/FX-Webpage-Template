@@ -13,8 +13,9 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { publishShow, type LifecycleResult } from "@/lib/showLifecycle/publishShow";
 import { unpublishShow } from "@/lib/showLifecycle/unpublishShow";
 import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
@@ -24,6 +25,7 @@ export async function setShowPublishedAction(
   next: boolean,
 ): Promise<LifecycleResult> {
   await requireAdmin();
+  const { email } = await requireAdminIdentity();
   const resolved = await resolveShowBySlug(slug);
   // A Supabase outage during resolution surfaces as infra_error (retry copy), NOT a missing show.
   if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
@@ -35,6 +37,15 @@ export async function setShowPublishedAction(
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show/${slug}`);
     revalidatePath("/admin");
+    // Durable admin-outcome telemetry — POST-COMMIT (both RPCs self-lock and have
+    // committed by resolve time). Code literals ride the logAdminOutcome span
+    // (stripped → §12.4-scanner-exempt), same contract as _actions/publish.ts.
+    await logAdminOutcome({
+      code: next ? "SHOW_PUBLISHED" : "SHOW_UNPUBLISHED_BY_ADMIN",
+      source: "admin.show.setPublished",
+      actorEmail: email,
+      showId: resolved.show.id,
+    });
   }
   return result;
 }

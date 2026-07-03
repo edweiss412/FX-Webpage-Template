@@ -13,6 +13,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const requireAdmin = vi.fn(async () => undefined);
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: () => requireAdmin(),
+  requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+}));
+
+const logAdminOutcome = vi.fn(async () => {});
+vi.mock("@/lib/log/logAdminOutcome", () => ({
+  logAdminOutcome: (...a: unknown[]) => (logAdminOutcome as (...a: unknown[]) => unknown)(...a),
 }));
 
 const publishShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
@@ -91,11 +97,23 @@ describe("setShowPublishedAction", () => {
     expect(publishShow).not.toHaveBeenCalled();
   });
 
-  it("on ok: revalidates the show tag + both paths (POST-COMMIT)", async () => {
+  it("on ok: revalidates the show tag + both paths (POST-COMMIT) and emits direction-correct telemetry", async () => {
     await setShowPublishedAction("slug-1", false);
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
     expect(revalidatePath).toHaveBeenCalledWith("/admin/show/slug-1");
     expect(revalidatePath).toHaveBeenCalledWith("/admin");
+    expect(logAdminOutcome).toHaveBeenCalledWith({
+      code: "SHOW_UNPUBLISHED_BY_ADMIN",
+      source: "admin.show.setPublished",
+      actorEmail: "admin@example.com",
+      showId: "show-1",
+    });
+
+    logAdminOutcome.mockClear();
+    await setShowPublishedAction("slug-1", true);
+    expect(logAdminOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "SHOW_PUBLISHED" }),
+    );
   });
 
   it("on refusal: returns the typed result and does NOT revalidate", async () => {
@@ -107,6 +125,7 @@ describe("setShowPublishedAction", () => {
     expect(res).toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
     expect(revalidateTag).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
+    expect(logAdminOutcome).not.toHaveBeenCalled(); // outcome telemetry is committed-success only
   });
 
   it("a non-admin caller propagates the requireAdmin failure and never resolves or dispatches", async () => {
