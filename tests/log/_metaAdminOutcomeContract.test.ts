@@ -62,6 +62,25 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
     code: "ADMIN_ALERT_RESOLVED",
   },
+  {
+    file: "app/api/admin/pending-ingestions/[id]/discard/route.ts",
+    code: "PENDING_INGESTION_DISCARDED",
+  },
+  // Wizard shared handler (handleWizardPendingIngestionAction lives in the retry route file):
+  // defer/ignore/retry all emit here; the thin defer_until_modified/permanent_ignore route files
+  // re-export it and are NOT registered. RETRIED is REUSED (already SANCTIONED via the live route).
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_DEFERRED",
+  },
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_IGNORED",
+  },
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    code: "PENDING_INGESTION_RETRIED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -86,6 +105,9 @@ const SANCTIONED_CODES = new Set([
   // Observability PR-2 (2026-07-03).
   "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
   "ADMIN_ALERT_RESOLVED",
+  "PENDING_INGESTION_DISCARDED",
+  "PENDING_INGESTION_DEFERRED",
+  "PENDING_INGESTION_IGNORED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -127,6 +149,8 @@ const NEW_FORENSIC_CODES = new Set([
   // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
   "UNPUBLISH_INFRA_FAILED",
   "ADMIN_ALERT_RESOLVE_FAILED",
+  "PENDING_INGESTION_DISCARD_FAILED",
+  "PENDING_INGESTION_ACTION_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
