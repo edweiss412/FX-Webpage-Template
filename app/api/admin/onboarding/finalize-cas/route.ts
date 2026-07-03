@@ -839,14 +839,6 @@ export async function handleOnboardingFinalizeCas(
     const result = await deps.withTx((tx) =>
       runFinalizeCas(tx, deps, affectedShowIds, admin.email),
     );
-    // POST-COMMIT: per-row shadow applies commit via their OWN `withRowTx` (independent of the
-    // outer result), so a MIXED batch can durably apply early rows and THEN return a 409 for a
-    // later blocked sibling. Revalidate every committed show BEFORE the Response check — whole-diff
-    // R1 CRITICAL: otherwise a successfully-mutated show's data cache stays stale until the 300s TTL
-    // backstop. Safe to over-bust: affectedShowIds only gains an id once its applyShadow committed.
-    for (const showId of affectedShowIds) {
-      revalidateShow(showId);
-    }
     if (result instanceof Response) return result;
     await deps.subscribeToWatchedFolder(result.watched_folder_id);
     return NextResponse.json(result);
@@ -859,6 +851,18 @@ export async function handleOnboardingFinalizeCas(
       error,
     });
     return errorResponse(500, "ONBOARDING_FINALIZE_INTERNAL_ERROR");
+  } finally {
+    // POST-COMMIT: per-row shadow applies commit via their OWN `withRowTx` (independent of the
+    // outer result), so a MIXED batch can durably apply early rows and THEN return a 409 for a
+    // later blocked sibling OR throw out of a later row. Revalidate every committed show in
+    // `finally` so the bust runs on ALL exits — success, the 409-Response path, AND the throw/500
+    // path (audit idx18/#102: a bare in-try loop was skipped by the throw, leaving a durably
+    // -mutated show's data cache stale until the 300s TTL backstop). Safe to over-bust:
+    // affectedShowIds only gains an id once its applyShadow committed (never busts an uncommitted
+    // show), so busting on throw is always correct.
+    for (const showId of affectedShowIds) {
+      revalidateShow(showId);
+    }
   }
 }
 
@@ -902,14 +906,6 @@ export async function handleOnboardingFinalizeCasStream(
             emit({ type: "phase", phase: p }),
           ),
         );
-        // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): a mixed batch may have
-        // committed early shadow applies via their own withRowTx, so bust their caches before the
-        // terminal event regardless of the outcome. Deferred through after() because this loop runs
-        // inside the ReadableStream start() body — Next already flushed pending tag revalidations
-        // when the handler returned new Response(stream), so a bare revalidateShow here is orphaned.
-        deps.deferRevalidate(() => {
-          for (const showId of affectedShowIds) revalidateShow(showId);
-        });
         if (result instanceof Response) {
           emit({ type: "result", body: (await result.json()) as FinalizeCasResultBody });
         } else {
@@ -928,6 +924,18 @@ export async function handleOnboardingFinalizeCasStream(
         });
         emit({ type: "result", body: { ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" } });
       } finally {
+        // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): a mixed batch may have
+        // committed early shadow applies via their own withRowTx, so bust their caches regardless
+        // of the outcome — success, the 409-Response path, OR a mid-batch throw that hit the catch
+        // above. In `finally` so a throw still REGISTERS the bust (audit idx18/#102: a bare in-try
+        // deferRevalidate was skipped by the throw, stranding a durably-applied show on the stale
+        // crew cache until the 300s TTL). Deferred through after() because this runs inside the
+        // ReadableStream start() body — Next already flushed pending tag revalidations when the
+        // handler returned new Response(stream), so a bare revalidateShow here is orphaned. Safe to
+        // over-bust: affectedShowIds only gains an id once its applyShadow durably committed.
+        deps.deferRevalidate(() => {
+          for (const showId of affectedShowIds) revalidateShow(showId);
+        });
         try {
           controller.close();
         } catch {
