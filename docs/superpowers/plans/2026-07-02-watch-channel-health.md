@@ -468,12 +468,20 @@ describe("persistAppEventStrict", () => {
     insertMock.mockRejectedValue(new Error("net down"));
     expect((await persistAppEventStrict(RECORD)).ok).toBe(false);
   });
+  test("sanitizes context through the logger chokepoint (emails redacted)", async () => {
+    // Failure mode: strict writer bypassing buildRecord's sanitizeContext →
+    // unsanitized PII persisting to app_events (spec §3.2.5 "same sanitization path").
+    insertMock.mockResolvedValue({ error: null });
+    await persistAppEventStrict({ ...RECORD, context: { alertId: "a-1", note: "reach doug@example.com" } });
+    const inserted = insertMock.mock.calls[0]![0] as { context: Record<string, unknown> };
+    expect(JSON.stringify(inserted.context)).not.toContain("doug@example.com");
+  });
 });
 ```
 
 - [ ] **Step 2: Run to verify failure** — `pnpm vitest run tests/log/persistStrict.test.ts` → FAIL (`persistAppEventStrict` not exported).
 
-- [ ] **Step 3: Implement** (append to `lib/log/persist.ts`):
+- [ ] **Step 3: Implement** (append to `lib/log/persist.ts`; add `import { sanitizeContext } from "./sanitize";` — signature `sanitizeContext(message, context)` returning `{ message, context }`, the same call `buildRecord` makes at `lib/log/logger.ts:36`):
 
 ```ts
 // Failure-visible sibling of persistAppEvent for callers that need a durable,
@@ -498,17 +506,21 @@ export async function persistAppEventStrict(
   record: StrictAppEvent,
 ): Promise<{ ok: true } | { ok: false; error: unknown }> {
   try {
+    // Same sanitization chokepoint as the logger path (spec §3.2.5): buildRecord
+    // runs sanitizeContext before persistAppEvent; this writer bypasses buildRecord,
+    // so it must sanitize itself.
+    const { message, context } = sanitizeContext(record.message, record.context);
     const supabase = createSupabaseServiceRoleClient();
     const { error } = await supabase.from("app_events").insert({
       level: record.level,
       source: record.source,
-      message: record.message,
+      message,
       code: record.code ?? null,
       request_id: record.requestId ?? null,
       show_id: record.showId ?? null,
       drive_file_id: record.driveFileId ?? null,
       actor_hash: record.actorHash ?? null,
-      context: record.context,
+      context,
     });
     if (error) return { ok: false, error };
     return { ok: true };
@@ -944,6 +956,13 @@ test("stale-pending sweep flips only rows older than STALE_PENDING_MAX_AGE_MS an
   // seed pending rows at cutoff ± epsilon derived from the constant; assert tx.alerts unchanged
 });
 test("fault mapping: folder infra_error → folder_read; hasLiveActiveChannel throw → channel_read; resolve throw → alert_resolve_write; subscribe DriveWatchInfraError throw → subscribe_infra; sweep throw → pending_sweep; any fault → outcome infra_error", ...);
+test("active subscribe + resolveAdminAlert throw → alert_resolve_write fault, outcome stays recovered-shaped, NO escalation call", () => {
+  // plan-R2 finding 1: a successful re-subscribe followed by a resolve DB fault
+  // must not send Sentry/email as if the channel were still broken.
+  // deps.resolveAdminAlert rejects; assert deps.maybeEscalateWatchOrphaned NOT called;
+  // result.faults contains "alert_resolve_write"; result.outcome === "infra_error"
+  // (fault forces infra_error, but the escalation branch was never entered).
+});
 test("escalation faults propagate into reconcile faults", () => {
   // maybeEscalateWatchOrphaned → { escalated: true, faults: ["email_send"] } → outcome infra_error, escalated true
 });
@@ -1062,9 +1081,13 @@ export async function reconcileWatchChannels(
         folder.folderId,
       );
       if (result.outcome === "active") {
+        // The channel IS healthy the moment subscribe returns active — set
+        // recovered BEFORE attempting resolve, so a resolve-write fault can
+        // never route a recovered channel into the escalation branch
+        // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+        outcome = "recovered";
         try {
           await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
-          outcome = "recovered";
         } catch {
           faults.push("alert_resolve_write");
         }
@@ -1229,7 +1252,7 @@ git commit --no-verify -m "feat(admin): de-jargon WATCH_CHANNEL_ORPHANED copy (�
 - Test: `tests/admin/retryWatchAction.test.ts` (create; mock `requireAdmin`, `getActiveWatchedFolder`, `subscribeToWatchedFolder`, `resolveAdminAlert`, `revalidatePath`)
 
 **Interfaces:**
-- Produces: `retryWatchSubscriptionFormAction(): Promise<void>` — Tasks 10 and 12 bind it to `<form action=…>`.
+- Produces: `retryWatchSubscriptionFormAction(formData: FormData): Promise<void>` (spec §3.6 signature; the parameter is received from the form binding and deliberately unused — name it `_formData`). Tasks 10 and 12 bind it to `<form action=…>`; tests invoke with `new FormData()`.
 
 - [ ] **Step 1: Write failing tests** (spec §3.6 + §4.5 incl. R11 advisory 1 — every fail-visible path pinned):
 
@@ -1237,7 +1260,7 @@ git commit --no-verify -m "feat(admin): de-jargon WATCH_CHANNEL_ORPHANED copy (�
 test("calls requireAdmin before any read", ...);
 test("no_folder_configured → returns without subscribe, no throw, no revalidate", ...);
 test("folder infra_error → REJECTS (no subscribe, no revalidate)", async () => {
-  await expect(retryWatchSubscriptionFormAction()).rejects.toThrow();
+  await expect(retryWatchSubscriptionFormAction(new FormData())).rejects.toThrow();
 });
 test("active outcome → resolveAdminAlert({showId:null, code:'WATCH_CHANNEL_ORPHANED'}) + both revalidatePaths", ...);
    // anti-tautology: assert the resolve SPY args, not DOM
@@ -1260,7 +1283,7 @@ import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 // Infra faults THROW (invariant 9 / R2-3) — the Next error boundary surfaces them;
 // no_folder_configured is a deliberate no-op (nothing to retry; the hourly
 // reconcile treats no-folder as vacuous-healthy).
-export async function retryWatchSubscriptionFormAction(): Promise<void> {
+export async function retryWatchSubscriptionFormAction(_formData: FormData): Promise<void> {
   await requireAdmin();
   const folder = await getActiveWatchedFolder();
   if ("kind" in folder && folder.kind === "infra_error") {
