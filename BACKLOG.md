@@ -126,3 +126,21 @@ The empty/whitespace `drive_file_id` DB-CHECK work (migration `20260702120200_dr
 **Status:** OPEN · **Severity:** low (cursor copy of an already-CHECK'd id) · **Class:** DEFENSE-IN-DEPTH
 
 `wizard_finalize_checkpoints.last_processed_drive_file_id` (`supabase/migrations/20260501001000_internal_and_admin.sql:423`, nullable) is a cursor copy of a `drive_file_id` that is itself already covered by the primary nonblank CHECK, so a blank cannot originate here. **Fix (when prioritized):** add the nullable-form nonblank CHECK (+ dev mirror if the column is cloned) for defense-in-depth. Ref spec §9.
+
+---
+
+## BL-NULLCODE-STAMP-BATCH-2 residuals (2026-07-03)
+
+Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/2026-07-03-nullcode-forensic-batch2-design.md` §9) — separate user-facing / alerting surfaces beyond the pure log-code enrichment.
+
+### BL-SCAN-SSE-BODY-NULL-CODE — onboarding scan SSE result body emits a user-facing `code:null`
+
+**Status:** OPEN · **Severity:** low · **Class:** USER-FACING SURFACE
+
+`app/api/admin/onboarding/scan/route.ts` emits `{ type: "result", body: { ok: false, code: null } }` to the client on catch (adjacent to the now-forensic-coded `ONBOARDING_SCAN_FAILED` log). The `code:null` is a distinct client-facing surface — arguably warrants a real §12.4 code so the client can catalog-look-up, but that is an expensive 3-way §12.4 change out of scope for the forensic batch. **Fix (when prioritized):** assign a cataloged code + regen `gen:spec-codes` + add the `catalog.ts` row.
+
+### BL-PICKER-TAMPER-ADMIN-ALERT — selectIdentity tamper breadcrumb could also raise an `admin_alerts` upsert
+
+**Status:** OPEN · **Severity:** low · **Class:** ALERTING GAP
+
+`lib/auth/picker/selectIdentity.ts` logs a `PICKER_IDENTITY_CLAIMED_TAMPER` forensic warn on a hand-crafted claimed-row bypass, but does not raise an `admin_alerts` upsert. The forensic batch is code-stamping only; whether this security/tamper breadcrumb should also surface as an operator-visible admin alert is a separate alerting decision. **Fix (when prioritized):** design the alert severity/dedupe + add the `admin_alerts.upsert` under the per-show lock.

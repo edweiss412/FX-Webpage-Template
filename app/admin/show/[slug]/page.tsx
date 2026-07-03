@@ -153,6 +153,7 @@ export default async function AdminShowPage({
   } catch (err) {
     void log.error("supabase client construction threw:", {
       source: "admin.show",
+      code: "ADMIN_SHOW_CLIENT_CONSTRUCTION_FAILED",
       error: err,
     });
     throw new Error("supabase_client_construction_failed");
@@ -168,7 +169,11 @@ export default async function AdminShowPage({
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
     if (showError) {
-      void log.error("show lookup failed:", { source: "admin.show", error: showError.message });
+      void log.error("show lookup failed:", {
+        source: "admin.show",
+        code: "ADMIN_SHOW_LOOKUP_FAILED",
+        error: showError.message,
+      });
       throw new Error("show_lookup_failed");
     }
     show = data;
@@ -176,6 +181,7 @@ export default async function AdminShowPage({
     if (err instanceof Error && err.message === "show_lookup_failed") throw err;
     void log.error("show lookup threw:", {
       source: "admin.show",
+      code: "ADMIN_SHOW_LOOKUP_THREW",
       error: err,
     });
     throw new Error("show_lookup_failed");
@@ -220,6 +226,7 @@ export default async function AdminShowPage({
       ) {
         void log.error("changes feed read failed:", {
           source: "admin.show",
+          code: "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
           error: err,
         });
         return { feed: null, feedInfraError: true };
@@ -239,6 +246,7 @@ export default async function AdminShowPage({
       if (error) {
         void log.error("crew_members lookup failed:", {
           source: "admin.show",
+          code: "ADMIN_SHOW_CREW_LOOKUP_FAILED",
           error: error.message,
         });
         return { crew: [], crewLookupFailed: true };
@@ -247,6 +255,7 @@ export default async function AdminShowPage({
     } catch (err) {
       void log.error("crew_members lookup threw:", {
         source: "admin.show",
+        code: "ADMIN_SHOW_CREW_LOOKUP_THREW",
         error: err,
       });
       return { crew: [], crewLookupFailed: true };
@@ -290,6 +299,7 @@ export default async function AdminShowPage({
       if (error) {
         void log.error("shows_internal read failed:", {
           source: "admin.show",
+          code: "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED",
           error: error.message,
         });
         return { digest: [], actionable: [], failed: true };
@@ -298,6 +308,7 @@ export default async function AdminShowPage({
     } catch (err) {
       void log.error("shows_internal read threw:", {
         source: "admin.show",
+        code: "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_THREW",
         error: err,
       });
       return { digest: [], actionable: [], failed: true };

@@ -266,6 +266,7 @@ export async function handleWizardManifestIgnore(
       } catch (alertError) {
         log.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", {
           source: "api.admin.onboarding.ignore",
+          code: "WIZARD_IGNORE_SUPERSEDED_ALERT_WRITE_FAILED",
           error: alertError,
         });
       }

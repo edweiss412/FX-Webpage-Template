@@ -1338,6 +1338,7 @@ async function executeFinalizeBatch(
     // smoke-3 structural defense.)
     log.error("onboarding finalize: unexpected failure", {
       source: "api.admin.onboarding.finalize",
+      code: "FINALIZE_UNEXPECTED_FAILURE",
       error,
     });
     return errorResponse(500, ONBOARDING_FINALIZE_INTERNAL_ERROR);

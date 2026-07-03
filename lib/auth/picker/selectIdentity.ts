@@ -61,7 +61,7 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
         crewMemberId,
         reason: "hand_crafted_post_bypassed_deactivated_row",
       }),
-      { source: "auth.picker.selectIdentity" },
+      { source: "auth.picker.selectIdentity", code: "PICKER_IDENTITY_CLAIMED_TAMPER" },
     );
     redirect(
       `/auth/sign-in?next=${encodeURIComponent(buildShowReturnUrl(slug, shareToken, { s }))}`,

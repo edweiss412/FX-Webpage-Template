@@ -182,7 +182,11 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
         scheduleAfterResponse(
           async () =>
             await promoteSnapshotUpload(result.snapshotRevisionId!).catch((error) => {
-              log.error("snapshot promotion failed", { source: "api.admin.staged.apply", error });
+              log.error("snapshot promotion failed", {
+                source: "api.admin.staged.apply",
+                code: "LIVE_STAGED_APPLY_SNAPSHOT_PROMOTION_FAILED",
+                error,
+              });
             }),
         );
         return NextResponse.json(

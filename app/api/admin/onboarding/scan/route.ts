@@ -276,6 +276,7 @@ export async function handleOnboardingScan(
       } catch (error) {
         void log.error("onboarding scan failed", {
           source: "admin/onboarding/scan",
+          code: "ONBOARDING_SCAN_FAILED",
           requestId: scanRequestId,
           error,
         });

@@ -282,6 +282,7 @@ export async function handleWizardStagedApprove(
   } catch (error) {
     log.error("wizard approve: unexpected failure", {
       source: "api.admin.onboarding.staged.approve",
+      code: "WIZARD_STAGED_APPROVE_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");
