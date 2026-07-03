@@ -285,12 +285,16 @@ describe("POST /api/admin/onboarding/scan", () => {
     expect(db.operations).toEqual([]);
   });
 
-  test("re-call against the same session id reuses the id and purges prior rows for that session", async () => {
+  test("re-scan of the SAME folder reuses the session id and purges prior rows for that session", async () => {
+    // Control for audit idx55/#115: a same-folder re-scan must NOT mint a fresh
+    // session — it reuses the in-flight id (pending_wizard_session_at unchanged)
+    // and purges that session's rows. Fixture's pending_folder_id MATCHES the
+    // requested folder.
     const db = new FakeScanDb();
     db.settings = {
       pending_wizard_session_id: W2,
       pending_wizard_session_at: "OLD_DB_NOW",
-      pending_folder_id: "old-folder",
+      pending_folder_id: "folder-2",
     };
     db.pendingSyncs = [
       {
@@ -321,6 +325,57 @@ describe("POST /api/admin/onboarding/scan", () => {
     expect(db.pendingIngestions).toEqual([]);
     expect(db.manifest).toEqual([]);
     expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-2", W2, expectsOnProgress());
+  });
+
+  test("re-scan of a DIFFERENT folder mints a fresh session, superseding the abandoned one (audit idx55/#115)", async () => {
+    // The abandoned in-flight scan of the OLD folder must be superseded: an
+    // in-flight session for `old-folder` must not be reused for a scan of
+    // `folder-2`, or the old scan's rows interleave into the new folder's
+    // manifest (the per-file upsert guard keys only on pending_wizard_session_id).
+    const db = new FakeScanDb();
+    db.settings = {
+      pending_wizard_session_id: W2,
+      pending_wizard_session_at: "OLD_DB_NOW",
+      pending_folder_id: "old-folder",
+    };
+    db.pendingSyncs = [
+      {
+        drive_file_id: "old-sheet",
+        wizard_session_id: W2,
+        wizard_approved: false,
+        triggered_review_items: ["OLD"],
+      },
+    ];
+    const routeDeps = deps(db, {
+      randomUUID: () => W1,
+      verifyFolder: vi.fn(async () => okFolder("folder-2")),
+    });
+
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-2"),
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    await readNdjson(response); // drive the streamed scan to completion
+    // Fresh session minted (≠ the abandoned W2) with a refreshed timestamp.
+    expect(db.settings.pending_wizard_session_id).toBe(W1);
+    expect(db.settings.pending_wizard_session_id).not.toBe(W2);
+    expect(db.settings.pending_wizard_session_at).toBe("DB_NOW");
+    expect(db.settings.pending_folder_id).toBe("folder-2");
+    // The scan runs under the NEW session, so its staged rows can never interleave
+    // into the old folder's manifest (different session key).
+    expect(routeDeps.runOnboardingScan).toHaveBeenCalledWith("folder-2", W1, expectsOnProgress());
+    // The old folder's abandoned rows are isolated by their (different) session id;
+    // the fresh-session purge keys on W1, so the W2 rows are untouched, not merged.
+    expect(db.pendingSyncs).toEqual([
+      {
+        drive_file_id: "old-sheet",
+        wizard_session_id: W2,
+        wizard_approved: false,
+        triggered_review_items: ["OLD"],
+      },
+    ]);
   });
 
   test("Amendment 9 clean first-seen onboarding fixture stays staged for review", async () => {
