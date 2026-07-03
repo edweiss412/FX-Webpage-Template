@@ -164,9 +164,12 @@ const SANCTIONED_CODES = new Set([
 // STAGED_APPLY_CONCURRENT_SKIPPED (info-with-code, inside a log.* span; NOT cataloged).
 const NEW_FORENSIC_CODES = new Set([
   ...SANCTIONED_CODES,
-  // sync-cron surface (2026-07-03): audit finding #12 — dashboard-apply
-  // lock-contention durable skip.
+  // sync-cron surface (2026-07-03): audit findings #12/#16 — dashboard-apply
+  // lock-contention durable skip + agenda successful-refresh trace persistence
+  // (download/extracted info emits now info-WITH-code so the refresh persists).
   "STAGED_APPLY_CONCURRENT_SKIPPED",
+  "AGENDA_PDF_DOWNLOADED",
+  "AGENDA_EXTRACTED",
   "AGENDA_EXTRACT_STALE",
   "AGENDA_EXTRACT_SESSION_GONE",
   // Carve-out (2026-07-02) plain-log forensic codes (inside log.* spans; NOT cataloged).
