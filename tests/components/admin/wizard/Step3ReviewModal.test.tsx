@@ -42,8 +42,11 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import {
+  __resetAgendaThrottleForTests,
+  contactBlocks,
   dateSummarySegments,
   step3Sections,
+  STEP3_SECTION_GROUPS,
   type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
@@ -57,6 +60,7 @@ const TITLE = "Asset Mgmt Summit"; // fixture show title (_step3ReviewFixture.ts
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function warning(kind: string): ParseWarning {
@@ -515,5 +519,398 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
       resolveReq(true);
     });
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ── Task 5: rails + chip rail + section panels (spec §6.2–§6.4, §9.4, §15) ───
+
+/** An info-severity warning: counts in the warnings list, never flags (§3.3). */
+function infoWarning(kind: string): ParseWarning {
+  return { severity: "info", code: "SOME_CODE", message: "", blockRef: { kind } };
+}
+
+/** flagged SET computed via the mapping lib over the registry's rendered ids
+ *  (anti-tautology: expectations derive from the data path, not the render). */
+function flaggedSetFor(d: SectionData): ReadonlySet<SectionId> {
+  const rendered = new Set<SectionId>(step3Sections(d).map((s) => s.id));
+  return deriveSectionStatuses(d.warnings, rendered).flagged;
+}
+
+describe("Step3ReviewModal — duplicate navigation (spec §9.4)", () => {
+  test("body wrapper hosts BOTH navs with the exact §9.4 mode classes", () => {
+    const { q } = renderModal();
+    const main = q.getByTestId(tid("main"));
+    const mainClasses = main.className.split(/\s+/);
+    for (const c of ["flex", "min-h-0", "flex-1", "flex-col", "items-stretch", "lg:flex-row"]) {
+      expect(mainClasses).toContain(c);
+    }
+
+    // Side rail: hidden below lg (catches the twin-nav double-render bug —
+    // both navs visible at once in popup mode).
+    const rail = q.getByTestId(tid("rail"));
+    expect(rail.tagName).toBe("NAV");
+    expect(rail.getAttribute("aria-label")).toBe("Review sections");
+    expect(main.contains(rail)).toBe(true);
+    const railClasses = rail.className.split(/\s+/);
+    for (const c of ["hidden", "lg:flex", "w-60", "shrink-0", "overflow-y-auto"]) {
+      expect(railClasses).toContain(c);
+    }
+
+    // Chip rail: the exact inverse visibility pair.
+    const chiprail = q.getByTestId(tid("chiprail"));
+    expect(chiprail.tagName).toBe("NAV");
+    expect(chiprail.getAttribute("aria-label")).toBe("Review sections");
+    expect(main.contains(chiprail)).toBe(true);
+    const chipClasses = chiprail.className.split(/\s+/);
+    for (const c of ["flex", "lg:hidden", "overflow-x-auto", "shrink-0"]) {
+      expect(chipClasses).toContain(c);
+    }
+  });
+
+  test("content pane is the scrollable flex column with the motion-safe smooth-scroll opt-in", () => {
+    const { q } = renderModal();
+    const content = q.getByTestId(tid("content"));
+    const classes = content.className.split(/\s+/);
+    for (const c of [
+      "min-w-0",
+      "flex-1",
+      "overflow-y-auto",
+      "flex",
+      "flex-col",
+      "gap-6",
+      "p-tile-pad",
+      // Canonical Tailwind form of `motion-safe [scroll-behavior:smooth]`
+      // (better-tailwindcss/enforce-canonical-classes) — same CSS output.
+      "motion-safe:scroll-smooth",
+    ]) {
+      expect(classes).toContain(c);
+    }
+  });
+
+  test("aria-current='true' on the SAME active item in BOTH navs (initially the first registry section)", () => {
+    const { q, d } = renderModal();
+    const first = step3Sections(d)[0]!;
+    const rail = q.getByTestId(tid("rail"));
+    const chiprail = q.getByTestId(tid("chiprail"));
+    const railCurrent = rail.querySelectorAll('[aria-current="true"]');
+    expect(railCurrent).toHaveLength(1);
+    expect(railCurrent[0]).toBe(q.getByTestId(tid(`rail-item-${first.id}`)));
+    const chipCurrent = chiprail.querySelectorAll('[aria-current="true"]');
+    expect(chipCurrent).toHaveLength(1);
+    expect(chipCurrent[0]).toBe(q.getByTestId(tid(`chip-item-${first.id}`)));
+  });
+
+  test("no id attributes inside either nav; every [id] in the modal is unique (twin-nav §9.4 rule)", () => {
+    const { q } = renderModal();
+    expect(q.getByTestId(tid("rail")).querySelectorAll("[id]")).toHaveLength(0);
+    expect(q.getByTestId(tid("chiprail")).querySelectorAll("[id]")).toHaveLength(0);
+    const ids = Array.from(q.getByTestId(tid("modal")).querySelectorAll("[id]")).map((el) => el.id);
+    expect(ids.length).toBeGreaterThan(0); // the h2 title id exists
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
+  test("one rail item per registry entry, in registry order, under group eyebrows in STEP3_SECTION_GROUPS order", () => {
+    const { q, d } = renderModal();
+    const defs = step3Sections(d);
+    const rail = q.getByTestId(tid("rail"));
+    const itemIds = Array.from(rail.querySelectorAll("[data-testid]"))
+      .map((el) => el.getAttribute("data-testid")!)
+      .filter((t) => t.includes("-review-rail-item-"));
+    expect(itemIds).toEqual(defs.map((s) => tid(`rail-item-${s.id}`)));
+    // Group eyebrow labels, in spec order (all 7 groups non-empty here).
+    const groups = Array.from(rail.querySelectorAll("[data-rail-group]"));
+    expect(groups.map((el) => el.textContent)).toEqual([...STEP3_SECTION_GROUPS]);
+    // Every item is a ≥44px button (§15).
+    for (const s of defs) {
+      const item = q.getByTestId(tid(`rail-item-${s.id}`));
+      expect(item.tagName).toBe("BUTTON");
+      expect(item.className).toMatch(/\bmin-h-tap-min\b/);
+    }
+  });
+
+  test("rail counts render exactly for the §6.1 counted subset, values derived from the fixture", () => {
+    const { q, d } = renderModal();
+    const expected: Partial<Record<SectionId, number>> = {
+      crew: d.crewMembers.length,
+      contacts: contactBlocks(d.pr.show.client_contact, d.pr.contacts ?? []).length,
+      schedule: Object.keys(d.ros).length,
+      hotels: d.hotels.length,
+      rooms: d.rooms.length,
+      packlist: d.pullSheet.length,
+      warnings: d.warnings.length,
+    };
+    expect(d.crewMembers.length).toBeGreaterThan(0); // fixture sanity: a nonzero count is exercised
+    for (const s of step3Sections(d)) {
+      const ct = q.getByTestId(tid(`rail-item-${s.id}`)).querySelector(".tabular-nums");
+      if (s.id in expected) {
+        // Catches a count wired to the wrong data source (fixture-derived value).
+        expect(ct?.textContent).toBe(String(expected[s.id]));
+      } else {
+        // venue/event/transport/billing (and agenda) never show a rail count.
+        expect(ct).toBeNull();
+      }
+    }
+  });
+
+  test("status dots follow the mapping lib; the warnings dot is red for a MAPPED warn (row-local rule)", () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const flagged = flaggedSetFor(d);
+    expect(flagged.has("crew")).toBe(true); // fixture sanity
+    // The mapped warn does NOT flag the checks row — but the row-local dot IS red.
+    expect(flagged.has("warnings")).toBe(false);
+    const { q } = renderModal({ d });
+    for (const s of step3Sections(d)) {
+      const item = q.getByTestId(tid(`rail-item-${s.id}`));
+      const dot = item.querySelector(".bg-status-review, .bg-status-positive");
+      expect(dot).not.toBeNull();
+      const expectRed = s.id === "warnings" ? true : flagged.has(s.id);
+      expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bbg-status-positive\b/);
+      expect(dot!.className).toMatch(/\bsize-2\b/);
+      expect(dot!.className).toMatch(/\brounded-pill\b/);
+    }
+  });
+
+  test("active rail item: bg-surface-sunken + w-1 rounded-r-pill bg-accent indicator; inactive has neither", () => {
+    const { q, d } = renderModal();
+    const first = step3Sections(d)[0]!;
+    const activeItem = q.getByTestId(tid(`rail-item-${first.id}`));
+    expect(activeItem.className).toMatch(/\bbg-surface-sunken\b/);
+    const indicator = activeItem.querySelector(".bg-accent");
+    expect(indicator).not.toBeNull();
+    expect(indicator!.className).toMatch(/\bw-1\b/);
+    expect(indicator!.className).toMatch(/\brounded-r-pill\b/);
+    const idle = q.getByTestId(tid("rail-item-warnings"));
+    expect(idle.querySelector(".bg-accent")).toBeNull();
+  });
+
+  test("warnings dot is ROW-LOCAL: info-only warnings → positive dot while the count still shows", () => {
+    const d = sectionData({ warnings: [infoWarning("crew")] });
+    expect(flaggedSetFor(d).size).toBe(0); // info never flags (§3.3)
+    const { q } = renderModal({ d });
+    const item = q.getByTestId(tid("rail-item-warnings"));
+    expect(item.querySelector(".tabular-nums")?.textContent).toBe("1");
+    const dot = item.querySelector(".bg-status-review, .bg-status-positive");
+    expect(dot!.className).toMatch(/\bbg-status-positive\b/);
+    // Same rule on the chip twin.
+    const chipDot = q
+      .getByTestId(tid("chip-item-warnings"))
+      .querySelector(".bg-status-review, .bg-status-positive");
+    expect(chipDot!.className).toMatch(/\bbg-status-positive\b/);
+  });
+});
+
+describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
+  test("one chip per registry entry: pill classes, 44px hit height, icon+label+dot, NO counts", () => {
+    const { q, d } = renderModal();
+    const defs = step3Sections(d);
+    const chiprail = q.getByTestId(tid("chiprail"));
+    const chipIds = Array.from(chiprail.querySelectorAll("[data-testid]"))
+      .map((el) => el.getAttribute("data-testid")!)
+      .filter((t) => t.includes("-review-chip-item-"));
+    expect(chipIds).toEqual(defs.map((s) => tid(`chip-item-${s.id}`)));
+    for (const s of defs) {
+      const chip = q.getByTestId(tid(`chip-item-${s.id}`));
+      expect(chip.tagName).toBe("BUTTON");
+      const classes = chip.className.split(/\s+/);
+      for (const c of ["shrink-0", "whitespace-nowrap", "min-h-tap-min", "rounded-pill"]) {
+        expect(classes).toContain(c);
+      }
+      expect(chip.querySelector(".tabular-nums")).toBeNull(); // chips never show counts
+      expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+      // Label ONLY — a stray count/extra text would change textContent.
+      expect(chip.textContent).toBe(s.label);
+    }
+  });
+
+  test("active chip: bg-surface-sunken + border-transparent; inactive: border-border bg-surface", () => {
+    const { q, d } = renderModal();
+    const defs = step3Sections(d);
+    const activeChip = q.getByTestId(tid(`chip-item-${defs[0]!.id}`));
+    expect(activeChip.className).toMatch(/\bbg-surface-sunken\b/);
+    expect(activeChip.className).toMatch(/\bborder-transparent\b/);
+    const idle = q.getByTestId(tid(`chip-item-${defs[1]!.id}`));
+    expect(idle.className).toMatch(/\bborder-border\b/);
+    expect(idle.className).toMatch(/\bbg-surface\b/);
+  });
+});
+
+describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
+  test("one -review-section-<id> per registry entry, in registry order, inside the content pane", () => {
+    const { q, d } = renderModal();
+    const defs = step3Sections(d);
+    const content = q.getByTestId(tid("content"));
+    const secIds = Array.from(content.querySelectorAll("[data-testid]"))
+      .map((el) => el.getAttribute("data-testid")!)
+      .filter((t) => t.includes("-review-section-"));
+    expect(secIds).toEqual(defs.map((s) => tid(`section-${s.id}`)));
+  });
+
+  test("heading row: registry label as the section's first <h3>, with the body's existing count", () => {
+    const { q, d } = renderModal();
+    for (const s of step3Sections(d)) {
+      const sec = q.getByTestId(tid(`section-${s.id}`));
+      const headings = Array.from(sec.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+      expect(headings.length).toBeGreaterThan(0);
+      expect(headings[0]!.tagName).toBe("H3");
+      expect(headings[0]!.textContent).toBe(s.label);
+      for (const c of ["text-base", "font-semibold", "text-text-strong"]) {
+        expect(headings[0]!.className.split(/\s+/)).toContain(c);
+      }
+    }
+    // Counts stay the body's own (§6.1 preamble): fixture-derived, incl. a zero.
+    const crewHead = q.getByTestId(tid("section-crew")).querySelector("h3")!.parentElement!;
+    expect(crewHead.textContent).toContain(`(${d.crewMembers.length})`);
+    const venueHead = q.getByTestId(tid("section-venue")).querySelector("h3")!.parentElement!;
+    expect(venueHead.textContent).toContain("(0)"); // fixture venue is null → 0 rows
+    const warnHead = q.getByTestId(tid("section-warnings")).querySelector("h3")!.parentElement!;
+    expect(warnHead.textContent).toContain(`(${d.warnings.length})`);
+  });
+
+  test("every heading inside the body region is an H3; the modal's only H2 is the title (§15)", () => {
+    const { q } = renderModal();
+    const main = q.getByTestId(tid("main"));
+    const headings = Array.from(main.querySelectorAll("h1,h2,h3,h4,h5,h6"));
+    expect(headings.length).toBeGreaterThan(0);
+    for (const h of headings) expect(h.tagName).toBe("H3"); // catches a leftover BreakdownSection <h4>
+    const h2s = Array.from(q.getByTestId(tid("modal")).querySelectorAll("h2"));
+    expect(h2s).toEqual([q.getByTestId(tid("title"))]);
+  });
+
+  test("flagged section: warning icon chip + 'Needs a look' chip + border-border-strong panel; clean stays neutral", () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const flagged = flaggedSetFor(d);
+    expect(flagged.has("crew")).toBe(true);
+    const { q } = renderModal({ d });
+
+    const crewSec = q.getByTestId(tid("section-crew"));
+    const needsChip = within(crewSec).getByText("Needs a look");
+    expect(needsChip.className).toMatch(/\bbg-warning-bg\b/);
+    expect(needsChip.className).toMatch(/\btext-warning-text\b/);
+    expect(needsChip.className).toMatch(/\brounded-pill\b/);
+    expect(needsChip.className).toMatch(/\bborder-border-strong\b/);
+    expect(crewSec.querySelector(".border-border-strong.rounded-md")).not.toBeNull();
+    const crewIconChip = crewSec.querySelector(".size-7")!;
+    expect(crewIconChip.className).toMatch(/\bbg-warning-bg\b/);
+    expect(crewIconChip.className).toMatch(/\btext-warning-text\b/);
+
+    // Clean section: no chip, neutral border, sunken icon chip.
+    const hotelsSec = q.getByTestId(tid("section-hotels"));
+    expect(within(hotelsSec).queryByText("Needs a look")).toBeNull();
+    expect(hotelsSec.querySelector(".border-border-strong")).toBeNull();
+    expect(hotelsSec.querySelector(".border-border.rounded-md")).not.toBeNull();
+    const hotelsIconChip = hotelsSec.querySelector(".size-7")!;
+    expect(hotelsIconChip.className).toMatch(/\bbg-surface-sunken\b/);
+
+    // The warnings section is NOT flagged here (the warn is mapped to crew).
+    const warnSec = q.getByTestId(tid("section-warnings"));
+    expect(within(warnSec).queryByText("Needs a look")).toBeNull();
+  });
+
+  test("UNMAPPED warn → the warnings section itself is flagged (chip + strong border)", () => {
+    const d = sectionData({ warnings: [warning("unknown_section")] });
+    expect(flaggedSetFor(d).has("warnings")).toBe(true); // §7 degradation rule
+    const { q } = renderModal({ d });
+    const warnSec = q.getByTestId(tid("section-warnings"));
+    expect(within(warnSec).getByText("Needs a look")).toBeTruthy();
+    expect(warnSec.querySelector(".border-border-strong.rounded-md")).not.toBeNull();
+  });
+});
+
+describe("Step3ReviewModal — conditional agenda + always-on warnings (spec §6.1)", () => {
+  test("agendaBaseline empty → NO agenda rail item, chip, or section", () => {
+    const { q } = renderModal();
+    expect(q.queryByTestId(tid("rail-item-agenda"))).toBeNull();
+    expect(q.queryByTestId(tid("chip-item-agenda"))).toBeNull();
+    expect(q.queryByTestId(tid("section-agenda"))).toBeNull();
+  });
+
+  test("agendaBaseline non-empty → agenda appears in rail, chips, and sections (single 'Agenda' label, no count)", () => {
+    __resetAgendaThrottleForTests();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<never>(() => {})), // pending forever — loading state
+    );
+    const d = sectionData(
+      {},
+      { agendaBaseline: [{ label: "Agenda PDF", badge: null, href: null, block: null }] },
+    );
+    const { q } = renderModal({ d });
+    expect(q.getByTestId(tid("rail-item-agenda"))).toBeTruthy();
+    expect(q.getByTestId(tid("chip-item-agenda"))).toBeTruthy();
+    const sec = q.getByTestId(tid("section-agenda"));
+    const h = sec.querySelector("h3")!;
+    expect(h.textContent).toBe("Agenda");
+    expect(h.parentElement!.textContent).not.toMatch(/\(\d+\)/); // agenda has no count
+    // The body's card-context "Agenda" eyebrow must NOT double-render under the h3.
+    expect(within(sec).getAllByText("Agenda")).toHaveLength(1);
+    // No duplicate ids with the conditional section mounted either.
+    const ids = Array.from(q.getByTestId(tid("modal")).querySelectorAll("[id]")).map((el) => el.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("warnings section always renders — zero warnings → rail count 0 + affirmative empty state", () => {
+    const { q, d } = renderModal();
+    expect(d.warnings).toHaveLength(0);
+    expect(
+      q.getByTestId(tid("rail-item-warnings")).querySelector(".tabular-nums")?.textContent,
+    ).toBe("0");
+    const sec = q.getByTestId(tid("section-warnings"));
+    expect(within(sec).getByText("No parse warnings for this sheet.")).toBeTruthy();
+  });
+});
+
+describe("Step3ReviewModal — rail/chip click navigation (Task 5 slice; scroll-spy lands in Task 6)", () => {
+  /** jsdom has no Element scroll methods — stub scrollTo on the prototype. */
+  function withScrollToStub(run: (scrollTo: ReturnType<typeof vi.fn>) => void) {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: scrollTo,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      run(scrollTo);
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+      else delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+    }
+  }
+
+  test("clicking a rail item moves aria-current in BOTH navs and scrolls the content pane", () => {
+    withScrollToStub((scrollTo) => {
+      const { q, d } = renderModal();
+      const defs = step3Sections(d);
+      const target = defs[defs.length - 1]!; // warnings — far from the initial active
+      fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+      const rail = q.getByTestId(tid("rail"));
+      const chiprail = q.getByTestId(tid("chiprail"));
+      expect(rail.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+      expect(rail.querySelector('[aria-current="true"]')).toBe(
+        q.getByTestId(tid(`rail-item-${target.id}`)),
+      );
+      expect(chiprail.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+      expect(chiprail.querySelector('[aria-current="true"]')).toBe(
+        q.getByTestId(tid(`chip-item-${target.id}`)),
+      );
+      expect(scrollTo).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test("clicking a chip moves aria-current in BOTH navs and scrolls", () => {
+    withScrollToStub((scrollTo) => {
+      const { q, d } = renderModal();
+      const target = step3Sections(d).find((s) => s.id === "crew")!;
+      fireEvent.click(q.getByTestId(tid(`chip-item-${target.id}`)));
+      expect(q.getByTestId(tid("rail")).querySelector('[aria-current="true"]')).toBe(
+        q.getByTestId(tid(`rail-item-${target.id}`)),
+      );
+      expect(q.getByTestId(tid("chiprail")).querySelector('[aria-current="true"]')).toBe(
+        q.getByTestId(tid(`chip-item-${target.id}`)),
+      );
+      expect(scrollTo).toHaveBeenCalled();
+    });
   });
 });

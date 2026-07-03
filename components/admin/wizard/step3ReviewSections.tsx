@@ -23,7 +23,15 @@
  * Tokens only (DESIGN.md §10): no hardcoded hex / ms / px outside the
  * spec-pinned grid track sizes (7.5rem / 5rem / 1.25rem, spec §8 table).
  */
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  createContext,
+  Fragment,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   BedDouble,
@@ -216,8 +224,80 @@ export function FieldRowList({ rows }: { rows: { label: string; value: string }[
   );
 }
 
+/**
+ * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
+ * registry body in this provider; `BreakdownSection` (and `AgendaBreakdown`)
+ * then render the §6.4 heading row — icon chip + `<h3>` registry label + the
+ * body's EXISTING count + "Needs a look" chip when flagged — plus the §5.2
+ * panel card, INSTEAD of the legacy card-context `<h4>` eyebrow. Reusing the
+ * body's own `count` keeps the heading count from ever drifting from the body
+ * (§6.1 preamble: "every section HEADING keeps its existing count"). Outside
+ * the provider (the card's Step3DetailsDialog path until Task 8) rendering is
+ * byte-identical to before — existing card suites stay green.
+ *
+ * The heading is `<h3>` so the modal outline stays h2 (title) → h3 (§15); no
+ * `id` attributes are emitted anywhere here (§9.4 twin-nav DOM-identity rule).
+ */
+export type Step3SectionChrome = {
+  /** Registry glyph (§6.1) — the rail, chips, and heading row share it. */
+  Icon: LucideIcon;
+  /** Registry label (§6.1) — ditto (NOT the body's legacy h4 label). */
+  label: string;
+  /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). */
+  flagged: boolean;
+};
+export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
+
+/** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
+function ModalSectionChrome({
+  chrome,
+  count,
+  children,
+}: {
+  chrome: Step3SectionChrome;
+  /** The body's existing BreakdownSection count; null → no count (agenda). */
+  count: number | null;
+  children: React.ReactNode;
+}) {
+  const { Icon, label, flagged } = chrome;
+  return (
+    <>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span
+          aria-hidden="true"
+          className={`grid size-7 shrink-0 place-items-center rounded-sm ${
+            flagged ? "bg-warning-bg text-warning-text" : "bg-surface-sunken text-text-subtle"
+          }`}
+        >
+          <Icon className="size-4" />
+        </span>
+        <h3 className="min-w-0 wrap-break-word text-base font-semibold text-text-strong">
+          {label}
+        </h3>
+        {count !== null ? (
+          <span className="shrink-0 text-sm tabular-nums text-text-faint">({count})</span>
+        ) : null}
+        <span className="flex-1" />
+        {flagged ? (
+          <span className="shrink-0 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-warning-text">
+            Needs a look
+          </span>
+        ) : null}
+      </div>
+      <div
+        className={`flex min-w-0 flex-col gap-1.5 rounded-md border bg-surface p-tile-pad shadow-(--shadow-tile) ${
+          flagged ? "border-border-strong" : "border-border"
+        }`}
+      >
+        {children}
+      </div>
+    </>
+  );
+}
+
 /** A labeled breakdown section (varying content shape per §4.3 — never an
- * identical sub-card grid). */
+ * identical sub-card grid). Inside the review modal's chrome provider it
+ * renders the §6.4 heading row + §5.2 panel card instead (see above). */
 export function BreakdownSection({
   testId,
   label,
@@ -229,6 +309,16 @@ export function BreakdownSection({
   count: number;
   children: React.ReactNode;
 }) {
+  const chrome = useContext(Step3SectionChromeContext);
+  if (chrome) {
+    return (
+      <section data-testid={testId} className="flex min-w-0 flex-col">
+        <ModalSectionChrome chrome={chrome} count={count}>
+          {children}
+        </ModalSectionChrome>
+      </section>
+    );
+  }
   return (
     <section data-testid={testId} className="flex flex-col gap-1.5">
       <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
@@ -1271,6 +1361,9 @@ export function AgendaBreakdown({
    */
   onLiveKeyLayout?: (liveKey: string) => void;
 }) {
+  // Modal chrome (Task 5): inside the review modal the §6.4 heading row
+  // replaces the card-context "Agenda" eyebrow (no double label).
+  const chrome = useContext(Step3SectionChromeContext);
   const [state, setState] = useState<AgendaState>(() => (baseline.length > 0 ? "loading" : "idle"));
   const [items, setItems] = useState<AdminAgendaItem[]>(baseline);
   // A ref tracking the LIVE generation key — every late resolution checks the
@@ -1411,18 +1504,8 @@ export function AgendaBreakdown({
 
   const sourceHref = buildSheetDeepLink(driveFileId);
 
-  return (
-    <section
-      data-testid={`wizard-step3-card-${driveFileId}-agenda`}
-      className="flex flex-col gap-2"
-    >
-      {/* Non-heading eyebrow label: the reused AgendaScheduleBlock emits its own
-          <h3> day labels, so a real <h4> here would invert the heading order
-          (h4 > h3). Rendering the section label as a styled <p> keeps the inner
-          <h3> from nesting under a higher-level heading. */}
-      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        Agenda
-      </p>
+  const body = (
+    <>
       {state === "loading" ? (
         <p
           role="status"
@@ -1449,6 +1532,38 @@ export function AgendaBreakdown({
           Open the source sheet <span aria-hidden="true">↗</span>
         </a>
       ) : null}
+    </>
+  );
+
+  if (chrome) {
+    return (
+      <section
+        data-testid={`wizard-step3-card-${driveFileId}-agenda`}
+        className="flex min-w-0 flex-col"
+      >
+        {/* No count: agenda has no BreakdownSection count today (§6.1). The
+            inner AgendaScheduleBlock <h3> day labels sit at the same level as
+            the section heading — sibling h3s, no skipped level (§15). */}
+        <ModalSectionChrome chrome={chrome} count={null}>
+          {body}
+        </ModalSectionChrome>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      data-testid={`wizard-step3-card-${driveFileId}-agenda`}
+      className="flex flex-col gap-2"
+    >
+      {/* Non-heading eyebrow label: the reused AgendaScheduleBlock emits its own
+          <h3> day labels, so a real <h4> here would invert the heading order
+          (h4 > h3). Rendering the section label as a styled <p> keeps the inner
+          <h3> from nesting under a higher-level heading. */}
+      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        Agenda
+      </p>
+      {body}
     </section>
   );
 }
