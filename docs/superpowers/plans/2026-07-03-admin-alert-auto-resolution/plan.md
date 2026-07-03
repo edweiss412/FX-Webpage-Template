@@ -72,19 +72,24 @@ describe("resolveAdminAlerts (bulk)", () => {
 ```ts
 export async function resolveAdminAlerts(
   input: { showId: string | null; codes: readonly AdminAlertCode[] },
-  client = createSupabaseServiceRoleClient(),
+  client?: Client,
 ): Promise<void> {
   if (input.codes.length === 0) return; // empty .in() must never reach PostgREST (spec §4)
-  let query = client
+  const supabase = client ?? createSupabaseServiceRoleClient();
+  let query = supabase
     .from("admin_alerts")
     .update({ resolved_at: new Date().toISOString() })
     .in("code", [...input.codes])
     .is("resolved_at", null);
   query = input.showId === null ? query.is("show_id", null) : query.eq("show_id", input.showId);
-  const { error } = await query;
+  const { error } = await query.select("id"); // execution shape mirrors resolveAdminAlert.ts:24 (mocks are select-terminated)
   if (error) throw new Error(`admin alert bulk resolve failed: ${error.message ?? String(error)}`);
 }
 ```
+
+Test mocks MUST be `.select("id")`-terminated thenables, exactly like the existing
+`resolveAdminAlert` mocks in `tests/adminAlerts/resolveAdminAlert.test.ts` — do not await the
+builder directly.
 
 - [ ] **Step 4: Extend** `tests/notify/_metaInfraContract.test.ts` behavioral test (:177 block): add the same returned-error/thrown-fault assertions for `resolveAdminAlerts` (registry row `lib/adminAlerts/resolveAdminAlert.ts` already exists at :16 — no registry change).
 - [ ] **Step 5: Run** both test files — expect PASS. Also `pnpm typecheck`.
@@ -106,7 +111,11 @@ export async function resolveAdminAlerts(
 // 2. publish_show RPC on unpublished show with open alert → published AND resolved (same tx durability: assert post-call)
 // 3. refused publish (archived=true show) → RPC raises SHOW_ARCHIVED_IMMUTABLE, alert still open
 // 4. flip on show with no open alert → no rows touched, no error
-// 5. unpublished show + open alert, migration data-repair block re-run (psql -f the migration file twice) → alert untouched while published=false; set published=true directly, re-run repair → resolved  [apply-twice idempotency]
+// 5. DATA-REPAIR (non-tautological — must prove the repair block, not the trigger): INSERT a show
+//    directly with published=true (an INSERT never fires the after-UPDATE trigger) + open
+//    SHOW_UNPUBLISHED alert via upsert_admin_alert → re-run the migration file (psql -f) → alert
+//    resolved by the repair UPDATE alone. Also: unpublished show + open alert → repair re-run leaves
+//    it open. Run the file twice overall → no error (apply-twice idempotency).
 // 6. resolved_by stays NULL for every trigger/repair resolution; manual-resolve regression is covered by existing route tests (do not duplicate)
 ```
 
@@ -272,8 +281,12 @@ update public.admin_alerts a
 - Modify: `app/show/[slug]/[shareToken]/_CrewShell.tsx` (:151-176 producer block)
 - Test: `tests/components/crew/crewShellAlert.test.tsx` (extend)
 
-- [ ] **Step 1: Failing tests** (reuse the file's existing render harness + upsert spy pattern; add a `resolveAdminAlert` spy):
-  - render with empty `data.tileErrors` and an injected resolve spy → spy called once with `{ showId, code: "TILE_PROJECTION_FETCH_FAILED" }`; no upsert call;
+- [ ] **Step 1: Failing tests.** `_CrewShell` has no resolver prop — use module mocks:
+  `vi.mock("@/lib/adminAlerts/resolveAdminAlert", ...)` for the resolve spy (matching how the file
+  mocks the upsert module) AND `vi.mock("next/server", ...)` where `after` is mocked to capture its
+  callback into an array; the test flushes captured callbacks (`for (const cb of afterCallbacks) await cb()`)
+  BEFORE asserting. Cases:
+  - render with empty `data.tileErrors` → after-callback flush → resolve spy called once with `{ showId, code: "TILE_PROJECTION_FETCH_FAILED" }`; no upsert call;
   - render with `tileErrors` non-empty → upsert called (existing behavior), resolve NOT called;
   - resolve spy throws → render still succeeds (fail-quiet, `log.warn` with a `code:`-stamped payload mirroring `CREW_PROJECTION_ALERT_UPSERT_FAILED` — reuse that exact code? No: stamp `code: "CREW_PROJECTION_ALERT_RESOLVE_FAILED"` is a NEW internal code → NOT allowed without §12.4 work. Reuse the existing `CREW_PROJECTION_ALERT_UPSERT_FAILED` code with `phase: "resolve"` in the payload instead — zero catalog impact.)
 - [ ] **Step 2: Run** — FAIL.
