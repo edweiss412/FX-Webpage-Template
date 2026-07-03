@@ -799,7 +799,16 @@ function cachedShowData(
  * realtime bridge stays correct without looping (spec §3.1).
  */
 export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
-  const data = await cachedShowData(showId, viewer);
+  // Sample the LIVE token BEFORE the cached data fan-out so the rendered token can
+  // never be NEWER than the rendered data (invariant: token <= data). If a write
+  // commits during the render window, data-then-token would yield stale-data +
+  // fresh-token — the bridge's equality catch-up (ShowRealtimeBridge) then sees
+  // token === /version and suppresses router.refresh(), leaving the page stuck
+  // stale. Token-first makes the worst case old-token + fresh-data (tokens differ
+  // → refresh fires → converges), exactly-consistent otherwise. Shrinks — does not
+  // fully close, since cache-bust propagation is decoupled from read order — the
+  // stale window, and is strictly beneficial (audit idx19).
   const viewerVersionToken = await readViewerVersionToken(showId);
+  const data = await cachedShowData(showId, viewer);
   return { ...data, viewerVersionToken };
 }
