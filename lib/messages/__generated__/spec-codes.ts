@@ -318,7 +318,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. Check that the email provider key, the sending address, and the site address are all configured.",
     "followUp": "Doug → check email provider key, sending address, and site address",
-    "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and the in-app undo button still work; set whichever is missing to enable email.",
+    "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and each show's Published toggle still work; set whichever is missing to enable email.",
   },
   "EMBEDDED_ASSET_DRIFTED": {
     "crewFacing": null,

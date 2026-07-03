@@ -1972,10 +1972,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → check email provider key, sending address, and site address",
     helpfulContext:
-      "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and the in-app undo button still work; set whichever is missing to enable email.",
+      "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and each show's Published toggle still work; set whichever is missing to enable email.",
     title: "Email notifications not set up",
     longExplanation:
-      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. Sync-problem alerts, the daily digest, and auto-publish undo emails all wait on the same three settings. You'll still see alerts — and the in-app undo button — in the dashboard.",
+      "The app can't send email until three things are configured: the provider API key, the verified sending address, and the public site address used for links in the emails. Sync-problem alerts, the daily digest, and auto-publish undo emails all wait on the same three settings. You'll still see alerts in the dashboard, and each show's Published toggle keeps working.",
     helpHref: "/help/errors#EMAIL_NOT_CONFIGURED",
   },
   TILE_SERVER_RENDER_FAILED: {
