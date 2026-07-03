@@ -69,6 +69,13 @@ describe("EVENT closed-vocab form-layout harvest — conditional, dropped-block 
     const ed = parseSheet(md("raw/2025-10-consultants-roundtable.md"), "c.md").show.event_details;
     expect(ed["keynote_requirements"]).toBe("TBD");
     expect(ed["opening_reel"]).toMatch(/Available if needed/i);
+    // report #237 regression guard: Floor Plan / Room Diagram are recognized in the CLASSIC
+    // DETAILS block only (their link value). They must NOT be harvested from the form-layout
+    // intake block, where those labels are PROSE questions ("You are familiar with this
+    // room/hotel. If you need a Room Diagram please let me know"), not field values
+    // (fixtures/shows/raw/2025-10-consultants-roundtable.md:255).
+    expect(ed["room_diagram"]).toBeUndefined();
+    expect(ed["floor_plan"]).toBeUndefined();
     for (const k of Object.keys(ed))
       expect(KNOWN_CANON.has(k), `consultants emitted unknown key "${k}"`).toBe(true);
     assertNoPiiOrFinancial(ed, "consultants");

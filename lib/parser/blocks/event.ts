@@ -261,10 +261,19 @@ export function parseEventDetails(
   return result;
 }
 
+// Canonical keys recognized in the CLASSIC EVENT DETAILS block (where they carry the diagram
+// link value) but EXCLUDED from the form-layout harvest: in a form-layout intake block these
+// labels appear as PROSE questions, not field values, so harvesting them would inject junk
+// prose into crew-adjacent event_details (report #237: consultants' form row "Room Diagram |
+// You are familiar with this room/hotel. If you need a Room Diagram please let me know").
+const HARVEST_EXCLUDED_CANON = new Set(["floor_plan", "room_diagram"]);
+
 /**
  * Resolve a form label to its KNOWN canonical key (CANONICAL_KEY_MAP exact, or a gated
  * fuzzy correction into EVENT_LABEL_VOCAB) — or `null` if the label is not a known event
  * field. The closed-vocabulary gate for the form harvest: `null` means "skip this row".
+ * Keys in HARVEST_EXCLUDED_CANON also resolve to `null` here (harvest-only exclusion; the
+ * classic-block exact path at CANONICAL_KEY_MAP[col0Lower] still recognizes them).
  *
  * Returns `{ canon, corrected }` so the harvest can honor the "always warn / never a silent
  * re-route" contract (spec §2 rule 4): `corrected:false` on an EXACT map hit, `corrected:true`
@@ -273,11 +282,13 @@ export function parseEventDetails(
  */
 function resolveKnownCanon(label: string): { canon: string; corrected: boolean } | null {
   const exact = CANONICAL_KEY_MAP[label.toLowerCase().trim()];
-  if (exact !== undefined) return { canon: exact, corrected: false };
+  if (exact !== undefined) {
+    return HARVEST_EXCLUDED_CANON.has(exact) ? null : { canon: exact, corrected: false };
+  }
   const fix = gatedVocabCorrect(label.toUpperCase(), EVENT_LABEL_VOCAB, EVENT_GATE_OPTS);
   if (fix?.corrected) {
     const canon = CANONICAL_KEY_MAP[fix.match.toLowerCase()];
-    if (canon) return { canon, corrected: true };
+    if (canon && !HARVEST_EXCLUDED_CANON.has(canon)) return { canon, corrected: true };
   }
   return null;
 }
