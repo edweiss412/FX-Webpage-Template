@@ -104,6 +104,6 @@ export function buildEmbeddedSampleXlsx(): Uint8Array {
 
 if (process.argv[1]?.endsWith("buildEmbeddedSampleXlsx.ts")) {
   writeFileSync(new URL("./embedded-sample.xlsx", import.meta.url), buildEmbeddedSampleXlsx());
-   
+  // eslint-disable-next-line no-console
   console.log("wrote tests/fixtures/diagrams/embedded-sample.xlsx");
 }
