@@ -2560,4 +2560,99 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(mintCount).toBe(mintCountAtSnapshot);
     expect(subscribeMock.state.subscribeCalls.length).toBe(subscribesAtSnapshot);
   });
+
+  // === Teardown-noise class fix — readiness-rejection log gated behind the abort guard ===
+  // When the bridge unmounts (e.g. navigation away from the crew page) BEFORE
+  // a channel reaches SUBSCRIBED, the effect cleanup's supabase.removeChannel()
+  // synchronously delivers a 'CLOSED' status that REJECTS the still-pending
+  // readiness Promise. That rejection is the bridge tearing down its OWN
+  // channel — NOT a realtime failure. The readiness catch must therefore stay
+  // SILENT when the effect is aborted / unmounted / the generation advanced,
+  // instead of emitting a false-positive warning that ALSO mirrors to
+  // app_events via clientLog. Two sites share this shape (initial + renewal);
+  // both are pinned below. The positive control (genuine failure WHILE mounted
+  // still logs) is Test B at ~line 1642 and Test A at ~line 1508.
+  test("teardown noise (initial mount) — readiness rejection caused by unmount does NOT log 'subscription readiness failed'", async () => {
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    // Mount WITHOUT firing SUBSCRIBED so the readiness Promise stays pending.
+    const utils = await mountBridgeAndAwaitSubscribe({ fireSubscribed: false });
+    const channel = subscribeMock.state.currentChannel;
+    if (!channel) throw new Error("channel not registered");
+
+    // Unmount FIRST — cleanup sets effectToken.aborted, advances the
+    // generation, and calls removeChannel. In production removeChannel is what
+    // delivers the CLOSED; here we drive it explicitly AFTER unmount to model
+    // the "CLOSED arrives during/after teardown" race that rejects the
+    // still-parked `await subscribedPromise`.
+    utils.unmount();
+    await act(async () => {
+      channel.fireStatus("CLOSED");
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    const loggedReadinessFailure = consoleWarnSpy.mock.calls.some((args) =>
+      args.some((a) => typeof a === "string" && a.includes("subscription readiness failed")),
+    );
+    expect(loggedReadinessFailure).toBe(false);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  test("teardown noise (renewal) — readiness rejection caused by unmount does NOT log renewal 'readiness_failed'", async () => {
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    // Healthy initial subscribe.
+    const utils = await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    // Drive a renewal via system.disconnected; leave the NEW channel's
+    // readiness pending (parked at `await newSubscribed`).
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    const renewalChannel = subscribeMock.state.currentChannel;
+    if (!renewalChannel) throw new Error("renewal channel not registered");
+    expect(renewalChannel).not.toBe(firstChannel);
+
+    // Unmount FIRST, then deliver CLOSED to the renewal channel — the
+    // rejection is teardown, not a real BROADCAST failure.
+    utils.unmount();
+    await act(async () => {
+      renewalChannel.fireStatus("CLOSED");
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    const loggedReadinessFailed = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "readiness_failed",
+      ),
+    );
+    expect(loggedReadinessFailed).toBe(false);
+
+    consoleWarnSpy.mockRestore();
+  });
 });
