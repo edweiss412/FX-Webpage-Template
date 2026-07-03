@@ -543,6 +543,7 @@ export function Step3ReviewModal({
                   {title}
                 </span>
               </h2>
+              {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
               {sheetLink !== null ? (
                 <a
                   data-testid={`wizard-step3-card-${dfid}-review-sheetlink`}
@@ -559,6 +560,7 @@ export function Step3ReviewModal({
             {/* Subline: client entry (omitted when null) + dates entry ALWAYS
                 (joined segments or the "Dates not detected" fallback). */}
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-text-subtle">
+              {/* §11: instant — deliberate (client presence follows data, not a state transition) */}
               {client !== null ? (
                 <>
                   <span className="min-w-0 wrap-break-word">{client}</span>
@@ -574,6 +576,7 @@ export function Step3ReviewModal({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* §11 T10: instant — deliberate (chip swaps with flaggedCount; no animation on rescan) */}
             {flaggedCount > 0 ? (
               <span
                 data-testid={`wizard-step3-card-${dfid}-review-chip`}
@@ -646,6 +649,7 @@ export function Step3ReviewModal({
                           isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
                         }`}
                       >
+                        {/* §11 T6: instant — deliberate (indicator mounts with the active item; position does not slide) */}
                         {isActive ? (
                           <span
                             aria-hidden="true"
@@ -665,6 +669,7 @@ export function Step3ReviewModal({
                         >
                           {s.label}
                         </span>
+                        {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                         {s.railCount !== null ? (
                           <span className="shrink-0 text-xs font-medium tabular-nums text-text-faint">
                             {s.railCount(data)}
@@ -754,6 +759,7 @@ export function Step3ReviewModal({
           data-testid={`wizard-step3-card-${dfid}-review-footer`}
           className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
         >
+          {/* §11 T10: instant — deliberate (footer swaps on isDirtyRescan/props change; server truth) */}
           {isDirtyRescan ? (
             /* Dirty re-scan (spec §9.2): the plain publish approve cannot clear
                RESCAN_REVIEW_REQUIRED, so BOTH the publish and re-scan buttons
@@ -783,6 +789,7 @@ export function Step3ReviewModal({
                   ? `${flaggedCount} to review · publishing isn't blocked`
                   : "All clear to publish"}
               </span>
+              {/* §11 T7b: instant — deliberate (error note appears instantly, no animation) */}
               {publishState === "error" ? (
                 <span className="min-w-0 text-sm font-medium text-warning-text">
                   Couldn&apos;t update the publish selection. Try again.
@@ -797,6 +804,7 @@ export function Step3ReviewModal({
                 aria-busy={publishState === "pending" || undefined}
                 className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
               >
+                {/* §11 T7/C7: instant — deliberate (check icon swaps with checked; no animation) */}
                 {checked && publishState !== "pending" ? (
                   <Check aria-hidden="true" className="size-4" />
                 ) : null}
