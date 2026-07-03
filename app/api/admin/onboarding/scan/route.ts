@@ -164,8 +164,17 @@ async function reserveWizardSession(input: {
     `,
   );
   const settings = rows[0];
-  const wizardSessionId = settings?.pending_wizard_session_id ?? input.randomUUID();
-  const isMint = settings?.pending_wizard_session_id == null;
+  const existingSessionId = settings?.pending_wizard_session_id ?? null;
+  // Mint a fresh session when there is no in-flight one OR when this scan targets a
+  // DIFFERENT folder than the stored one — a folder-change re-scan must supersede the
+  // abandoned session with a new id, else the old scan's rows interleave into the new
+  // folder's manifest (the per-file upsert guard keys only on the session id). The
+  // null-check lives in the ternary condition so TS narrows existingSessionId to string
+  // on the reuse branch (audit idx55/#115).
+  const folderMatches = settings?.pending_folder_id === input.folderId;
+  const wizardSessionId =
+    existingSessionId != null && folderMatches ? existingSessionId : input.randomUUID();
+  const isMint = existingSessionId == null || !folderMatches;
 
   await input.tx.query<AppSettingsForScan>(
     `
