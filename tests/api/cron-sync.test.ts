@@ -5,7 +5,17 @@ const cronMock = vi.hoisted(() => ({
   runScheduledCronSync: vi.fn(async () => ({
     processed: [{ driveFileId: "file-1", result: { outcome: "applied", showId: "show-1" } }],
   })),
-  refreshWatchSubscriptions: vi.fn(async () => ({ refreshed: ["folder-1"] })),
+  refreshWatchSubscriptions: vi.fn(async () => ({
+    refreshed: ["folder-1"],
+    orphaned: [],
+    failures: [],
+  })),
+  reconcileWatchChannels: vi.fn(async () => ({
+    outcome: "healthy",
+    sweptPending: 0,
+    escalated: false,
+    faults: [],
+  })),
   gcWatchChannels: vi.fn(async () => ({ stopped: ["channel-1"] })),
   runAssetRecoveryCron: vi.fn(async () => ({
     processed: [
@@ -30,6 +40,7 @@ vi.mock("@/lib/sync/syncLog", () => ({
 
 vi.mock("@/lib/drive/watch", () => ({
   refreshWatchSubscriptions: cronMock.refreshWatchSubscriptions,
+  reconcileWatchChannels: cronMock.reconcileWatchChannels,
   gcWatchChannels: cronMock.gcWatchChannels,
 }));
 
@@ -125,6 +136,7 @@ describe("/api/cron/refresh-watch", () => {
 
   beforeEach(() => {
     cronMock.refreshWatchSubscriptions.mockClear();
+    cronMock.reconcileWatchChannels.mockClear();
     process.env.CRON_SECRET = "cron-test-secret";
   });
 
@@ -154,7 +166,13 @@ describe("/api/cron/refresh-watch", () => {
       }),
     );
 
-    await expect(response.json()).resolves.toEqual({ ok: true, refreshed: ["folder-1"] });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      refreshed: ["folder-1"],
+      refreshOrphaned: [],
+      refreshFailures: 0,
+      reconcile: { outcome: "healthy", sweptPending: 0, escalated: false },
+    });
     expect(cronMock.refreshWatchSubscriptions).toHaveBeenCalledOnce();
   });
 });

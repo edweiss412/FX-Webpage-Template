@@ -94,7 +94,17 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
   test("refresh-watch: authorized → one ok summary with counts.refreshed", async () => {
     vi.resetModules();
     vi.doMock("@/lib/drive/watch", () => ({
-      refreshWatchSubscriptions: async () => ({ refreshed: ["a", "b"] }),
+      refreshWatchSubscriptions: async () => ({
+        refreshed: ["a", "b"],
+        orphaned: [],
+        failures: [],
+      }),
+      reconcileWatchChannels: async () => ({
+        outcome: "healthy",
+        sweptPending: 0,
+        escalated: false,
+        faults: [],
+      }),
       gcWatchChannels: async () => ({ stopped: [] }),
     }));
     const sink = await setSink();
@@ -107,7 +117,10 @@ describe("cron routes emit one CRON_RUN_SUMMARY per authorized run", () => {
     const summaries = sink.filter((s) => s.code === "CRON_RUN_SUMMARY");
     expect(summaries).toHaveLength(1);
     expect(summaries[0]!.source).toBe("cron.refresh-watch");
-    expect(summaries[0]!.context).toMatchObject({ outcome: "ok", counts: { refreshed: 2 } });
+    expect(summaries[0]!.context).toMatchObject({
+      outcome: "ok",
+      counts: { refreshed: 2, refreshFailures: 0, sweptPending: 0, escalated: 0 },
+    });
   });
 
   test("gc-watch: authorized → one ok summary with counts.stopped", async () => {
