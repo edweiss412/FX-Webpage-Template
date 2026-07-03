@@ -141,10 +141,11 @@ The DB CHECK on `agenda_extract_leases.drive_file_id` remains the backstop even 
 
 ## 6. Existing-data safety (pre-apply)
 
-`ADD CONSTRAINT` validates existing rows immediately — one offending row errors the migration mid-apply. **Before applying** (local AND validation), run the detector across every affected table:
+`ADD CONSTRAINT` validates existing rows immediately — one offending row errors the migration mid-apply. The migration validates **19 tables** (14 public + 5 dev), so the detector must cover **all 19** — a blank in any `dev.*` table would fail the apply after a public-only preflight reported "clean" (Codex R1 HIGH-1). Run **both** detectors below against **every target the migration will be applied to** (local; validation).
 
+**Public detector (run against local AND validation — always safe):**
 ```sql
--- returns the offending (table, drive_file_id) rows; MUST be empty before the ADD
+-- returns offending (table, drive_file_id) rows; MUST be empty before the ADD
 select 'shows' as t, drive_file_id from public.shows where drive_file_id !~ '[^[:space:]]'
 union all select 'pending_syncs', drive_file_id from public.pending_syncs where drive_file_id !~ '[^[:space:]]'
 union all select 'pending_ingestions', drive_file_id from public.pending_ingestions where drive_file_id !~ '[^[:space:]]'
@@ -161,7 +162,16 @@ union all select 'sync_log', drive_file_id from public.sync_log where drive_file
 union all select 'app_events', drive_file_id from public.app_events where drive_file_id is not null and drive_file_id !~ '[^[:space:]]';
 ```
 
-- **Expected: 0 rows.** No committed fixture/seed produces a blank (`supabase/seed.ts:93-95` `"seed-fixture:"+…`; `seedWalkerFixtures.ts:100-120`; `dev:fixture:`/`validation_` prefixes).
+**Dev detector (run against every target that has the `dev` schema).** The migration touches `dev.*` unconditionally, so wherever the migration is applied the `dev` clone must exist — run this there too. To avoid a hard error on a target that lacks `dev`, guard on `to_regclass` first (`select to_regclass('dev.shows')` — if NULL, the target has no dev clone and neither the dev detector nor the migration's `dev.*` ALTERs apply; see §7 step 3):
+```sql
+select 'dev.shows' as t, drive_file_id from dev.shows where drive_file_id !~ '[^[:space:]]'
+union all select 'dev.pending_syncs', drive_file_id from dev.pending_syncs where drive_file_id !~ '[^[:space:]]'
+union all select 'dev.pending_ingestions', drive_file_id from dev.pending_ingestions where drive_file_id !~ '[^[:space:]]'
+union all select 'dev.sync_audit', drive_file_id from dev.sync_audit where drive_file_id !~ '[^[:space:]]'
+union all select 'dev.sync_log', drive_file_id from dev.sync_log where drive_file_id is not null and drive_file_id !~ '[^[:space:]]';
+```
+
+- **Expected: 0 rows from both.** No committed fixture/seed produces a blank (`supabase/seed.ts:93-95` `"seed-fixture:"+…`; `seedWalkerFixtures.ts:100-120`; `dev:fixture:`/`validation_` prefixes).
 - **If rows return: STOP and investigate — do NOT auto-heal.** A NOT-NULL column cannot be NULLed; deleting a `shows` row cascades destructively. Remediate deliberately, re-run, then apply. (Validation/prod rows aren't inspectable from the tree; the query is the only proof.)
 
 ---
@@ -173,11 +183,16 @@ union all select 'app_events', drive_file_id from public.app_events where drive_
 3. **Surgical validation apply** (`supabase db push` is blocked by Phase-0 divergence): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260702120200_drive_file_id_nonblank.sql` + `notify pgrst,'reload schema';`. **`TEST_DATABASE_URL` lives in MAIN `.env.local`, not the worktree.** Run the §6 detector against validation first.
    - If the validation project lacks the `dev` schema, the `alter table dev.*` lines error → fall back to `alter table if exists dev.<t>` for the dev block and re-apply. (The transportation-loadout precedent applied its unconditional `dev.` block to validation without issue, so `dev` is expected to exist there; verify at apply time.)
 
-### 7.1 Gate blind-spot (must be stated in the PR + handoff)
+### 7.1 Gate blind-spot → close it with a validation-observable CHECK layer (Codex R1 HIGH-2)
 
-`validation-schema-parity` (`tests/db/validation-schema-parity.test.ts`) is **columns-only** across all three layers — it parses `add column`/`create table` and does byte-equality on the columns manifest. **It does NOT observe CHECK constraints.** Consequences:
-- The CI parity gate will pass **whether or not** step 3 ran — it cannot catch a skipped validation apply for a CHECK-only migration.
-- Enforcement therefore comes from (a) not skipping the surgical validation apply, and (b) the local behavioral `.db.test` (§8.2) — the only test that actually exercises the constraint.
+`validation-schema-parity` (`tests/db/validation-schema-parity.test.ts`) is **columns-only** today — its two layers parse `add column`/`create table` and do byte-equality on the columns manifest; **neither observes CHECK constraints.** So the CI parity gate would pass **whether or not** the step-3 surgical apply ran — knowingly leaving the exact historical "committed migration never reached the validation DB" drift class unguarded for CHECK-only migrations.
+
+**We do not accept that.** This spec adds **Layer 3: CHECK-constraint parity** to the same test (§8.5), which runs in the same `validation-schema-parity` CI job (with `TEST_DATABASE_URL` set, `x-audits.yml:369-402`) and **fails CI if the surgical validation apply was skipped**. Enforcement is therefore three-legged, and the CI leg is now real:
+- (a) the CI Layer-3 check (§8.5) — validation-observable; a skipped apply → red CI;
+- (b) the local behavioral `.db.test` (§8.2) — proves the predicate actually rejects blanks;
+- (c) not skipping the surgical apply (§7 step 3) — now enforced by (a), not just discipline.
+
+This follows the AGENTS.md structural-defense calibration: ship the structural guard (the Layer-3 meta-assertion) in this same PR rather than relying on a human remembering the apply.
 
 ---
 
@@ -200,9 +215,19 @@ Anti-tautology split: §8.1 proves the DDL is declared; this proves the predicat
 
 Assert the extract-agenda route returns **400** for a whitespace-encoded `driveFileId` **before** `claimExtractLease` writes a lease (spy/mock the lease claim and assert it was **not** called). Template: the existing `assertNonEmptyDriveFileId` unit coverage at `tests/drive/invalidDriveFileId.test.ts:11-20` (already asserts the `/\S/` predicate for `["", "   ", "\t", undefined, null]`). Locate the route's existing test file during implementation; add the case there.
 
-### 8.4 Meta-test
+### 8.4 `tests/db/validation-schema-parity.test.ts` — **Layer 3: CHECK-constraint parity** (validation-observable; closes Codex R1 HIGH-2)
 
-No new structural meta-test — §8.1 extending `schema.test.ts` is the structural coverage. (Declared explicitly per the AGENTS.md meta-test-inventory rule.)
+Extend the existing parity test (same file → same `validation-schema-parity` CI job, same `TEST_DATABASE_URL`, same `execFileSync("psql", …)` helper + connect-guard/skip logic at `tests/db/validation-schema-parity.test.ts:75-114,166-204`) with a third layer:
+
+1. **Derive the expected set from the migration file (no hardcoding):** read `supabase/migrations/20260702120200_drive_file_id_nonblank.sql`, extract every `add constraint <name> … check` where the target is a `public.` table (regex on the normalized SQL) → the set of expected public `*_drive_file_id_nonblank` constraint names (currently 14; auto-covers any future addition to this migration).
+2. **Assert against the validation DB (only when `TEST_DATABASE_URL` is set):** `psql "$TEST_DATABASE_URL" -qAtc "select conname from pg_constraint where conname like '%\_drive\_file\_id\_nonblank' and connamespace = 'public'::regnamespace"` → assert the returned set is a **superset** of the expected set. A missing constraint (i.e. the surgical validation apply was skipped) → **test fails → red CI**.
+3. **Skip gracefully** when `TEST_DATABASE_URL` is unset (local dev) — mirror the existing Layer-2 skip so local `pnpm test` is unaffected; the assertion is meaningful only against the validation target in CI.
+
+This is the CI leg that makes "the migration reached validation" observable for a CHECK-only change — the columns-only Layers 1-2 cannot. (Scope note: it checks `public.` only; `dev.*` is local-seed infra, not a validation deploy target, consistent with the existing gate's public-only posture.)
+
+### 8.5 Meta-test inventory
+
+**EXTENDS** the structural meta-test `tests/db/validation-schema-parity.test.ts` (new Layer 3, §8.4) and **EXTENDS** `tests/db/schema.test.ts` (new static-parse describe, §8.1). No brand-new meta-test file. (Declared explicitly per the AGENTS.md meta-test-inventory rule.)
 
 ---
 
@@ -220,4 +245,4 @@ Both excluded to keep the scope rule crisp ("every column named exactly `drive_f
 - **PostgREST DML lockdown:** unchanged — CHECKs don't alter grants.
 - **No raw error codes in UI (#5):** the route 400 returns a generic `{ error: "invalid driveFileId" }` body (an API JSON error, not user-facing copy); no §12.4 code is introduced. This is a backend API contract, not a rendered surface.
 - **Predicate single-sourced:** `~ '[^[:space:]]'` (SQL) and `/\S/` (JS) are stated once here (§3) and referenced everywhere; every DDL row and test uses the identical predicate.
-- **Numeric sweep:** 14 public `drive_file_id` columns (12 NOT NULL + 2 nullable), 5 dev-mirror, 19 constraints total, 1 route guard, longest constraint name 47 ≤ 63. These counts are cross-referenced in §2, §4, §8 and must stay consistent.
+- **Numeric sweep:** 14 public `drive_file_id` columns (12 NOT NULL + 2 nullable), 5 dev-mirror, **19 constraints total**, 1 route guard, longest constraint name 47 ≤ 63. The §6 pre-apply detector covers **all 19 tables** (14 public + 5 dev, the latter `to_regclass`-guarded). Test surface = §8.1 static-parse (19 constraints) + §8.2 behavioral `.db.test` + §8.3 route-guard + §8.4 CI Layer-3 validation parity (public 14). These counts are cross-referenced in §2, §4, §6, §8 and must stay consistent.
