@@ -56,6 +56,10 @@ export type SpreadsheetEmbeddedObject = {
   mimeType: string;
   alt?: string;
   contentUrl?: string | null;
+  // OOXML media part (e.g. "xl/media/image3.png"). Set only on the XLSX-media
+  // extraction path; the Apply/recovery byte re-fetch uses it as a fast-path
+  // hint, with embeddedFingerprint as the authoritative content join.
+  mediaPartName?: string;
 };
 
 export type SpreadsheetSheet = {
@@ -137,6 +141,14 @@ export type EnrichContext = {
    * count at one per sync pass.
    */
   sheets?: SpreadsheetSheet[];
+  /**
+   * The already-fetched XLSX export bytes for this pass. When present,
+   * `extractEmbeddedImages` discovers DIAGRAMS-tab embedded images from the
+   * OOXML media parts (self-sufficiently, via `extractEmbeddedObjects`) instead
+   * of the (empty) Sheets-API embedded-object list — and needs no Sheets-API
+   * method, so it works on the onboarding client (`getFile`/`listFolder` only).
+   */
+  xlsxBytes?: ArrayBuffer;
   /**
    * audit idx57/#166 — the enclosing step's AbortSignal (from `withStepTimeout`'s enrich budget).
    * Forwarded to `enrichAgenda` so an overrun of the enrich budget aborts the in-flight agenda-PDF
