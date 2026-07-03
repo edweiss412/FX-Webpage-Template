@@ -383,6 +383,12 @@ const infraRegistry = [
     contract:
       "geocode cache upsert (geocoding-at-ingest): a thrown service-role construction / .from() fault AND a returned {error} both map to { kind:'infra_error' }; success → { kind:'ok' }. Never throws (invariant 9).",
   },
+  {
+    helper: "persistAppEventStrict",
+    path: "lib/log/persist.ts",
+    contract:
+      "watch escalation guard strict writer (spec §3.2.5): returned Supabase {error} AND thrown faults (construction/insert) both map to { ok:false, error }; success → { ok:true }. Never throws (invariant 9).",
+  },
 ] as const;
 
 function read(path: string): string {
