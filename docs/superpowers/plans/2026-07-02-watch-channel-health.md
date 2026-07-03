@@ -221,6 +221,30 @@ expect(result).toEqual({
   reason: "watch_create_failed",
 });
 
+// New sibling test: the log sink is redacted (spec §3.1.4 / §4.1 — the R5-1 durable-log
+// leak class). Failure mode: implementation adds error: err or passes the unredacted
+// message; both would persist the webhook secret to app_events.
+// Top of file: vi.mock("@/lib/log", () => ({ log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
+// import { log } from "@/lib/log";
+test("subscribe failure log payload is redacted and carries no raw error object", async () => {
+  const tx = new FakeWatchTx();
+  const secret = "sec-leak-1";
+  await subscribeToWatchedFolder("folder-1", {
+    tx,
+    uuid: () => "chan-1",
+    webhookSecret: () => secret,
+    watchFolder: () => Promise.reject(new Error(`files.watch failed token=${secret} Bearer ya29.zzz`)),
+  });
+  const [message, fields] = (log.error as ReturnType<typeof vi.fn>).mock.calls[0]!;
+  expect(message).toBe("drive watch subscribe failed");
+  expect(fields).not.toHaveProperty("error");
+  const flat = JSON.stringify(fields);
+  expect(flat).not.toContain(secret);
+  expect(flat).not.toContain("ya29.zzz");
+  expect(fields.errorMessage).toContain("files.watch failed");
+  expect(fields.errorClass).toBe("drive_api");
+});
+
 // New sibling test: config-class error classification flows into context
 test("DRIVE_WEBHOOK_BASE_URL config error is classified config in the orphan alert", async () => {
   const tx = new FakeWatchTx();
@@ -1282,9 +1306,14 @@ git commit --no-verify -m "feat(admin): de-jargon WATCH_CHANNEL_ORPHANED copy (�
 
 ```ts
 test("calls requireAdmin before any read", ...);
-test("no_folder_configured → returns without subscribe, no throw, no revalidate", ...);
-test("folder infra_error → REJECTS (no subscribe, no revalidate)", async () => {
-  await expect(retryWatchSubscriptionFormAction(new FormData())).rejects.toThrow();
+test("no_folder_configured → returns without subscribe, no throw, no revalidate; logs the deliberate skip (log.info spy: source 'admin.watchRetry')", ...);
+test("folder infra_error → REJECTS with the typed WatchRetryInfraError (kind discriminator), no subscribe, no revalidate", async () => {
+  // Failure mode: a generic Error keeps fail-visibility but loses the discriminable
+  // typed-result contract (invariant 9 / spec §3.6.2 "throw a typed error").
+  await expect(retryWatchSubscriptionFormAction(new FormData())).rejects.toMatchObject({
+    kind: "watch_retry_infra_error",
+    operation: "folder_read",
+  });
 });
 test("active outcome → resolveAdminAlert({showId:null, code:'WATCH_CHANNEL_ORPHANED'}) + both revalidatePaths", ...);
    // anti-tautology: assert the resolve SPY args, not DOM
@@ -1301,19 +1330,32 @@ test("resolveAdminAlert throwing after active → REJECTS (fail-visible)", ...);
 import { getActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
 import { subscribeToWatchedFolder } from "@/lib/drive/watch";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
+import { log } from "@/lib/log";
+
+// Typed throw for the retry action (invariant 9: discriminable, never a bare Error).
+export class WatchRetryInfraError extends Error {
+  readonly kind = "watch_retry_infra_error" as const;
+  constructor(readonly operation: "folder_read") {
+    super(`watch retry: ${operation} failed (infra)`);
+    this.name = "WatchRetryInfraError";
+  }
+}
 
 // Admin self-service retry for the Drive push subscription (spec §3.6).
 // Shared by the AlertBanner action slot and the Settings Drive panel.
-// Infra faults THROW (invariant 9 / R2-3) — the Next error boundary surfaces them;
-// no_folder_configured is a deliberate no-op (nothing to retry; the hourly
-// reconcile treats no-folder as vacuous-healthy).
+// Infra faults THROW typed (invariant 9 / R2-3) — the Next error boundary surfaces
+// them; no_folder_configured is a deliberate, logged no-op (nothing to retry; the
+// hourly reconcile treats no-folder as vacuous-healthy).
 export async function retryWatchSubscriptionFormAction(_formData: FormData): Promise<void> {
   await requireAdmin();
   const folder = await getActiveWatchedFolder();
   if ("kind" in folder && folder.kind === "infra_error") {
-    throw new Error("watch retry: active-folder read failed (infra)");
+    throw new WatchRetryInfraError("folder_read");
   }
-  if ("kind" in folder) return; // no_folder_configured
+  if ("kind" in folder) {
+    await log.info("watch retry skipped: no folder configured", { source: "admin.watchRetry" });
+    return;
+  }
   const result = await subscribeToWatchedFolder(folder.folderId);
   if (result.outcome === "active") {
     await resolveAdminAlert({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
