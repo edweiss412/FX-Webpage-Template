@@ -459,6 +459,21 @@ describe("M6 advisory-lock single-holder contract", () => {
     );
   });
 
+  test("unpublish_show admin path holds the show lock in-RPC only (single-holder)", () => {
+    // Published-toggle spec §3.4 topology: admin toggle OFF locks IN-RPC (like publish_show);
+    // the JS lifecycle caller must NOT add a second layer. The core-lockless + grant assertions
+    // live in tests/db/b2-lifecycle-rpc-meta.test.ts (DB truth); this pins the source LAYERING.
+    const migration = read(
+      "supabase/migrations/20260701000000_published_toggle_unpublish_show.sql",
+    );
+    expect(migration).toMatch(
+      /create or replace function public\.unpublish_show[\s\S]*?pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'/,
+    );
+    expect(migration).toContain("_unpublish_show_core");
+    const caller = read("lib/showLifecycle/unpublishShow.ts");
+    expect(caller).not.toMatch(/pg_(?:try_)?advisory_xact_lock|withShowLock/);
+  });
+
   test("snapshot rollback repair keeps the mandated promote-then-show lock order", () => {
     const source = read("lib/sync/promoteSnapshot.ts");
     expect(source).toMatch(
