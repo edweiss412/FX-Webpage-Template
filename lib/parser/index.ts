@@ -11,6 +11,7 @@
 
 import { detectVersion } from "./schema";
 import { isAgendaLinkRow } from "./agendaLinkRow";
+import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
 import { newAggregator, emitUnknownSection } from "./warnings";
 import { isKnownSectionHeader, isKnownSubLabel, countFieldHeaderWords } from "./knownSections";
 import { parseClient } from "./blocks/client";
@@ -299,7 +300,7 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
     const driveFileMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (driveFileMatch?.[1]) {
       links.push({ label, fileId: driveFileMatch[1] });
-    } else if (/^https?:\/\//.test(value)) {
+    } else if (HTTP_URL_PREFIX.test(value)) {
       links.push({ label, url: value });
     } else if (value.length > 0) {
       // Plain filename or descriptive text — preserve as `url` (label-only carry)

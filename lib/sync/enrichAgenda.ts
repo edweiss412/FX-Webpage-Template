@@ -34,6 +34,7 @@
  * is never collapsed into "no agenda".
  */
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import { HTTP_URL_PREFIX } from "@/lib/parser/httpUrlPrefix";
 import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
@@ -94,6 +95,12 @@ export async function enrichAgenda(
 
   // Track fileIds recovered via chip correlation (for the recoveredFileId verdict field).
   const recoveredFileIds = new Map<number, string>();
+  // When the INFO-tab chip read infra-fails, a still-fileId-less link is NOT conclusively
+  // a broken (non-clickable) link — recovery simply couldn't run this pass. So suppress the
+  // user-facing AGENDA_LINK_NOT_CLICKABLE warning on such a pass (same "absence of recovery,
+  // not a fault" principle as the getAgendaChips infra_error branch below / invariant 9).
+  // The forensic AGENDA_LINK_UNRESOLVED still fires regardless.
+  let chipReadInfraFailed = false;
 
   try {
     // ── 1. fileId recovery via capped ordinal + label chip correlation ─────────
@@ -106,6 +113,7 @@ export async function enrichAgenda(
         signal !== undefined ? { signal } : undefined,
       );
       if (chips.kind === "infra_error") {
+        chipReadInfraFailed = true;
         // Couldn't read the INFO tab → recover NO fileIds this pass. Do NOT abort
         // the whole enrichment (Codex whole-diff R3): the chip read only serves the
         // fileId-LESS links (smart-chip recovery). On failure those links simply stay
@@ -148,6 +156,21 @@ export async function enrichAgenda(
           });
         } catch {
           /* best-effort */
+        }
+        // User-facing data-quality warning ONLY when the link has no clickable target
+        // (a bare filename / descriptive text / undefined url). An external http(s) URL
+        // (any case — HTTP_URL_PREFIX is case-insensitive) stays silent: it's a working
+        // link, plausibly intentional. The forensic AGENDA_LINK_UNRESOLVED above fires
+        // for BOTH shapes. Synchronous push — no try/catch needed (whole scan is already
+        // wrapped in the outer AGENDA_ENRICH_THREW try/catch).
+        const hasClickableTarget = typeof link.url === "string" && HTTP_URL_PREFIX.test(link.url);
+        if (!hasClickableTarget && !chipReadInfraFailed) {
+          warnings.push(
+            warn(
+              "AGENDA_LINK_NOT_CLICKABLE",
+              `The agenda link "${link.label}" isn't a link crew can open, so they can't reach the agenda.`,
+            ),
+          );
         }
         continue;
       }

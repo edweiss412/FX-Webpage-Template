@@ -1270,6 +1270,19 @@ export const MESSAGE_CATALOG = {
       "At least one agenda session time was auto-corrected because it looked like a typo. Crew see the corrected schedule; confirm it against the agenda and fix the source cell if the original was wrong.",
     helpHref: "/help/errors#AGENDA_SCHEDULE_TIME_ADJUSTED",
   },
+  AGENDA_LINK_NOT_CLICKABLE: {
+    code: "AGENDA_LINK_NOT_CLICKABLE",
+    dougFacing:
+      "The agenda link on _<sheet-name>_ isn't a link crew can open — it's a file name, note, or other text rather than a working web link or a Drive file. Update the cell to a working link (or a Drive file), or let us know if it keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → check agenda link",
+    helpfulContext:
+      "An agenda-link cell held text with no clickable target — a file name, note, or an unsupported link type instead of a working web link or Drive file — so there was nothing for crew to open. Replace it with a working link (or the Drive file) so crew can reach the agenda; if the cell already looks like a link and this keeps appearing, let us know and we'll take a look.",
+    title: "Agenda link isn't clickable",
+    longExplanation:
+      "An agenda-link cell held text with no clickable target — a file name, note, or unsupported link type rather than a working web link or Drive file — so crew had nothing to open. Update it to a working link or the Drive file; if it already looks right and this persists, let us know and we'll take a look.",
+    helpHref: "/help/errors#AGENDA_LINK_NOT_CLICKABLE",
+  },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     code: "PULL_SHEET_AMBIGUOUS_FORMAT",
     dougFacing:
