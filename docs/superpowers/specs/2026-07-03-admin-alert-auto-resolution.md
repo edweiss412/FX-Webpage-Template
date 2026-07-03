@@ -59,7 +59,7 @@ Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
 | EMAIL_DELIVERY_FAILED | AUTO | `lib/notify/deliver.ts:382`; `emailDeliveryFailed.ts:282` | failed deliveries current | reconciler (`emailDeliveryFailed.ts:296`) |
 | EMAIL_NOT_CONFIGURED | AUTO | `emailDeliveryFailed.ts:306` | email config invalid | reconciler (`emailDeliveryFailed.ts:309`) |
 | WATCH_CHANNEL_ORPHANED | AUTO | `lib/drive/watch.ts:393` | no live watch channel | watch reconcile (`watch.ts:658,692,720`) |
-| SHOW_UNPUBLISHED | **NEW** | RPC `20260701000000...sql:16`; `lib/sync/unpublishShow.ts:240` | show unpublished, crew link paused | **S1**: `publish_show` RPC resolves; migration data-repair for already-republished shows |
+| SHOW_UNPUBLISHED | **NEW** | RPC `20260701000000...sql:16`; `lib/sync/unpublishShow.ts:240` | show unpublished, crew link paused | **S1**: DB trigger on the `published` false→true flip (covers every writer); migration data-repair for already-republished shows |
 | REEL_DRIFTED | **NEW** | `lib/sync/applyStaged.ts:996` via `verifyReelOnApply` | opening reel drifted at last verify | **S2**: next live apply where `verifyReelOnApply` returns `warningCode: null` (`verifyReelOnApply.ts:139`) |
 | OPENING_REEL_PERMISSION_DENIED | **NEW** | `verifyReelOnApply.ts:113` | reel 403 at last verify | **S2** |
 | OPENING_REEL_NOT_VIDEO | **NEW** | `verifyReelOnApply.ts:129` | reel wrong MIME at last verify | **S2** |
@@ -107,58 +107,59 @@ posture; registered per §8). **Guard:** `codes.length === 0` returns early as a
 call is issued (an empty `.in()` list must never reach PostgREST). Dedicated tests are required
 (AC12), not incidental coverage via AC3.
 
-### S1 — SHOW_UNPUBLISHED: resolve in `publish_show` (migration)
+### S1 — SHOW_UNPUBLISHED: resolve via a `published` flip trigger (migration)
 
-New migration redefines `_publish_show_core` (`20260601000000_b2_show_lifecycle.sql:115-131`). The
-resolve statement is:
+**Design note (R4→R6 structural correction):** three review rounds surfaced successive
+`published = true` writers a per-writer RPC hook would miss (`publish_show`; onboarding
+finalize-cas; the validation fixture mint RPC). Per the AGENTS.md structural-defense calibration
+rule, S1 closes the class structurally instead of hooking writers one by one: a **row-level
+trigger** on the `published` false→true transition resolves the alert no matter which code path
+performs the flip — including any future writer.
+
+New migration adds (no `_publish_show_core` redefinition):
 
 ```sql
-update public.admin_alerts
-   set resolved_at = now()
- where show_id = p_show_id and code = 'SHOW_UNPUBLISHED' and resolved_at is null;
+create or replace function public.resolve_show_unpublished_alert_on_publish()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  update public.admin_alerts
+     set resolved_at = now()
+   where show_id = new.id and code = 'SHOW_UNPUBLISHED' and resolved_at is null;
+  return new;
+end $$;
+
+drop trigger if exists shows_resolve_unpublished_alert_on_publish on public.shows;
+create trigger shows_resolve_unpublished_alert_on_publish
+  after update of published on public.shows
+  for each row
+  when (old.published is distinct from new.published and new.published)
+  execute function public.resolve_show_unpublished_alert_on_publish();
 ```
 
-**Exact control flow (binding on the plan)** — the current core reads state, early-returns on
-`v_pub` (`b2_show_lifecycle.sql:121` `if v_pub then return; end if;`), then runs the refusal gates,
-then flips `published`. The new core places the resolve statement in exactly two positions and
-nowhere else:
-
-1. **Inside the already-published branch, before its `return`** — `if v_pub then <resolve>; return;
-   end if;`. The idempotent no-op heals a stale alert without running the refusal gates, exactly as
-   already-published calls bypass them today (no behavior change for the gates).
-2. **After the `update public.shows set published = true` flip** (and before/alongside
-   `publish_show_invalidation`) — the normal republish path.
-
-The resolve statement must NOT run before the refusal gates on the unpublished path: a refused
-publish (archived / finalize-owned / pending-review raises) leaves the show unpublished, so the
-alert must stay open (§6). The `raise exception` in each gate aborts the transaction, so ordering
-inside the function is what guarantees this.
-
-- The already-published branch is what heals a stale alert when the show was republished before this
-  ships — but only if a subsequent publish_show call happens; see data repair below for rows that
-  would otherwise never see one.
+- **Covered writers (documentation, not hook sites):** `publish_show` →
+  `_publish_show_core`'s flip (`20260601000000_b2_show_lifecycle.sql:129`, reached via
+  `lib/showLifecycle/publishShow.ts:16` from `app/admin/show/[slug]/_actions/setPublished.ts:33`);
+  the onboarding finalize flip (`app/api/admin/onboarding/finalize-cas/route.ts:541-553`); the
+  validation fixture mint baseline restore
+  (`supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql:138`); and any future
+  `published` writer. INSERT paths (first-seen cron auto-publish,
+  `runScheduledCronSync.ts:1226-1233`) need no trigger: a freshly inserted show cannot carry an
+  open alert (FK on `show_id`), so `after update of published` is the complete surface.
+- **Refusal gates unaffected:** a refused publish (archived / finalize-owned / pending-review,
+  `_publish_show_core` raises) never reaches the `published` UPDATE, so the trigger never fires and
+  the alert stays open (§6). An idempotent `publish_show` call on an already-published show
+  early-returns without an UPDATE — also no fire; see data repair for why no stale state can
+  survive to need it.
 - **One-time data repair in the same migration:** resolve open SHOW_UNPUBLISHED rows whose show is
-  currently `published = true` (heals the live validation alert with no admin action).
-- **Advisory-lock topology unchanged:** `publish_show` already takes `pg_advisory_xact_lock` in-RPC
-  (`b2_show_lifecycle.sql:141`) and is the single holder; the resolve is one more statement inside
-  the same locked transaction. No new holder at any layer. (`admin_alerts` is not in the
-  invariant-2 lock-gated table set, so the lock is incidental, not required.)
-- **Complete `published = true` writer inventory** (why the RPC hook suffices):
-  1. `publish_show` RPC — its only JS caller chain is `lib/showLifecycle/publishShow.ts:16`,
-     invoked by the admin toggle `app/admin/show/[slug]/_actions/setPublished.ts:33` (which also
-     serves `/admin/unpublished`; the former `_actions/publish.ts` / `publishShowAction` no longer
-     exists). Gets the resolve hook (this section).
-  2. Onboarding finalize direct flip (`app/api/admin/onboarding/finalize-cas/route.ts:541-553`) —
-     constrained by `m.created_show_id = s.id AND s.wizard_created_session_id =
-     m.wizard_session_id` to shows **created by the same wizard session**, which cannot carry an
-     open SHOW_UNPUBLISHED alert: the show is created inside the session at `published = false`,
-     and `unpublish_show` on an already-unpublished show is an idempotent no-op that raises no
-     alert (published-toggle parity contract, `2026-07-01-published-toggle.md:212`). No hook
-     needed.
-  3. First-seen cron auto-publish INSERT (`runScheduledCronSync.ts:1226-1233`) — brand-new row,
-     cannot carry an open alert. No hook needed.
-- Idempotent re-apply: migration uses `create or replace function`; the data-repair UPDATE is
-  naturally idempotent.
+  currently `published = true` (heals the live validation alert with no admin action). Post-repair,
+  the trigger maintains the invariant `published = true ⇒ no open SHOW_UNPUBLISHED alert` across
+  every write path, so the "stale alert on an already-published show" state can no longer arise.
+- **Advisory-lock topology unchanged:** the trigger runs inside whichever transaction flips
+  `published` (publish_show's in-RPC `pg_advisory_xact_lock`, `b2_show_lifecycle.sql:141`;
+  finalize-cas's per-show locks, `finalize-cas/route.ts:534`; the mint RPC's lock). No new lock
+  holder at any layer; `admin_alerts` is not in the invariant-2 lock-gated table set anyway.
+- Idempotent re-apply: `create or replace function` + `drop trigger if exists` + `create trigger`;
+  the data-repair UPDATE is naturally idempotent.
 - `tests/messages/_metaAdminAlertCatalog.test.ts:411-416` pins the unpublish migration's *producer*
   regex; this migration adds no producer and must not alter that match.
 
@@ -290,10 +291,11 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
   routes are untouched; manual resolve still stamps `resolved_by = canonicalize(email)`.
 - No new §12.4 codes, no catalog rows, no copy edits → x1/x2/spec-codes/help-families gates do not
   move.
-- No new tables/columns. The only DDL-adjacent change is the `_publish_show_core` redefinition +
-  data-repair UPDATE (migration → local apply → `pnpm gen:schema-manifest` → validation surgical
-  apply, per AGENTS.md; note the manifest is function-body-insensitive but the parity job's Layer 2
-  still requires the validation apply).
+- No new tables/columns. The only DDL change is the S1 trigger function + trigger + data-repair
+  UPDATE (migration → local apply → `pnpm gen:schema-manifest` → validation surgical apply, per
+  AGENTS.md; note the manifest is function/trigger-insensitive but the parity job's Layer 2 still
+  requires the validation apply). Existing RPCs (`publish_show`, `_publish_show_core`,
+  `unpublish_show`, mint/finalize) are untouched.
 - Dedup/occurrence semantics unchanged: resolving then re-raising creates a fresh row (partial
   unique index `admin_alerts_one_unresolved_idx`, `20260501001000_internal_and_admin.sql:279`),
   preserving history.
@@ -304,9 +306,10 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
 
 | Surface | Edge | Behavior |
 |---|---|---|
-| S1 | publish refused (archived / finalize-owned / pending-review) | refusal raises before the resolve statement — alert stays open (show is still unpublished) |
-| S1 | republish of never-alerted show | UPDATE matches 0 rows; no-op |
-| S1 | concurrent unpublish/publish | both RPCs serialize on the same in-RPC advisory lock; last committed state wins and its alert state is consistent with `published` |
+| S1 | publish refused (archived / finalize-owned / pending-review) | refusal raises before the `published` UPDATE — trigger never fires; alert stays open (show is still unpublished) |
+| S1 | republish of never-alerted show | trigger's UPDATE matches 0 rows; no-op |
+| S1 | idempotent publish_show on already-published show | early-return, no UPDATE, trigger doesn't fire — safe because post-repair no open alert can coexist with `published = true` |
+| S1 | concurrent unpublish/publish | both RPCs serialize on the same in-RPC advisory lock; last committed flip decides, and the trigger fires inside that same transaction |
 | S2 | apply raises one family code, others open | only non-raised codes resolve (family-minus-current) |
 | S2 | `result.showId` null / outcome ≠ applied / scope ≠ live | no resolve (same guards as the existing upsert block) |
 | S3 | recovery succeeds for revision N while alert context names revision N-1 | resolve is keyed (show_id, code) — context revision is informational; correct because the *show-level* condition (recovery incomplete) has cleared |
@@ -319,9 +322,11 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
 
 ## 7. Acceptance criteria
 
-- **AC1** `publish_show` on an unpublished show with an open SHOW_UNPUBLISHED alert → published AND
-  alert resolved (`resolved_at` set, `resolved_by` NULL), in one transaction. Idempotent re-call on
-  an already-published show with a (synthetically stale) open alert also resolves it.
+- **AC1** Any `published` false→true flip resolves an open SHOW_UNPUBLISHED alert in the same
+  transaction (`resolved_at` set, `resolved_by` NULL) — asserted for at least (a) the `publish_show`
+  RPC and (b) a raw `UPDATE public.shows SET published = true` (proving trigger-level coverage of
+  arbitrary writers, incl. finalize-cas/mint). A refused `publish_show` (e.g. archived) leaves the
+  alert open. A publish flip on a show with no open alert is a no-op.
 - **AC2** Migration data repair: open SHOW_UNPUBLISHED + `published = true` → resolved by applying
   the migration; open alert + `published = false` → untouched. Applying the migration twice is safe.
 - **AC3** Live apply with clean reel + no drift resolves all open codes in the S2 family; an apply
@@ -393,6 +398,10 @@ thrown-fault both throw), alongside the AC12 empty-codes test. The auth registry
 - **§4.6 "deliberate acknowledgment" vs auto-resolution:** §4.6:966 governs event notices; seven
   ratified precedents already auto-resolve state codes (citations in §2). This spec formalizes the
   boundary rather than introducing it.
+- **S1 is a trigger, not per-writer RPC hooks — settled:** rounds 4-6 each surfaced another
+  `published = true` writer (publish_show / finalize-cas / mint fixture RPC); the trigger closes
+  the whole class including future writers, per the AGENTS.md structural-defense calibration rule.
+  Do not re-propose hooking individual writers.
 - **Published-toggle deferral:** `2026-07-01-published-toggle.md:208` deliberately deferred S1; this
   spec is that deferral landing, not a contradiction.
 - **WEBHOOK_TOKEN_INVALID event-vs-state:** classification and the probing trade-off are resolved in
