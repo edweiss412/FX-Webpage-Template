@@ -554,12 +554,14 @@ export async function persistAppEventStrict(
 }
 ```
 
-- [ ] **Step 4: Run tests** — `pnpm vitest run tests/log/persistStrict.test.ts tests/log/_metaAppEventsWriter.test.ts` → PASS (writer guard still sees only persist.ts inserts).
+- [ ] **Step 4: Add the invariant-9 registry row in the SAME task** — `tests/sync/_metaInfraContract.test.ts` gains the `persistAppEventStrict` row (helper: `persistAppEventStrict`, path: `lib/log/persist.ts`, contract: "insert error/throw → { ok: false, error }, never throws"), following the file's existing row format. A new Supabase call boundary never lands a commit ahead of its structural coverage (invariant 9; plan-R6 finding 1).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run tests** — `pnpm vitest run tests/log/persistStrict.test.ts tests/log/_metaAppEventsWriter.test.ts tests/sync/_metaInfraContract.test.ts` → PASS (writer guard still sees only persist.ts inserts; registry row satisfied).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/log/persist.ts tests/log/persistStrict.test.ts
+git add lib/log/persist.ts tests/log/persistStrict.test.ts tests/sync/_metaInfraContract.test.ts
 git commit --no-verify -m "feat(sync): persistAppEventStrict failure-visible app_events writer"
 ```
 
@@ -570,7 +572,7 @@ git commit --no-verify -m "feat(sync): persistAppEventStrict failure-visible app
 **Files:**
 - Create: `lib/drive/watchEscalation.ts`
 - Test: `tests/drive/watchEscalation.test.ts`
-- Modify: `tests/sync/_metaInfraContract.test.ts` (registry rows for the alert-row read, guard read, and `persistAppEventStrict` — mirror the file's row format)
+- Modify: `tests/sync/_metaInfraContract.test.ts` (registry rows for the alert-row read and guard read — `persistAppEventStrict`'s row landed with Task 4; mirror the file's row format)
 
 **Interfaces:**
 - Consumes: `ESCALATION_THRESHOLD` (Task 1), `persistAppEventStrict` (Task 4), `sendEmail` (`lib/notify/send.ts:28`), `baseKey` (`lib/notify/idempotencyKey.ts:5-7`), `configValid` (`lib/notify/config.ts:6`), `getAlertOnSyncProblems` (`lib/appSettings/getAlertOnSyncProblems.ts:12`), `activeRecipients` (`lib/notify/recipients.ts:13`), `escapeHtml` (`lib/notify/templates/escapeHtml.ts:10`), `@sentry/nextjs`.
@@ -882,7 +884,7 @@ export async function maybeEscalateWatchOrphaned(
 
 - [ ] **Step 4: Run tests** — `pnpm vitest run tests/drive/watchEscalation.test.ts` → PASS.
 
-- [ ] **Step 5: Add registry rows** in `tests/sync/_metaInfraContract.test.ts` for `readUnresolvedWatchAlert`, `hasEscalationFired` (both in `lib/drive/watchEscalation.ts`), and `persistAppEventStrict` (`lib/log/persist.ts`), following the file's existing row format; run that meta-test → PASS.
+- [ ] **Step 5: Add registry rows** in `tests/sync/_metaInfraContract.test.ts` for `readUnresolvedWatchAlert` and `hasEscalationFired` (both in `lib/drive/watchEscalation.ts`), following the file's existing row format (`persistAppEventStrict`'s row already landed with Task 4); run that meta-test → PASS.
 
 - [ ] **Step 6: Commit**
 
