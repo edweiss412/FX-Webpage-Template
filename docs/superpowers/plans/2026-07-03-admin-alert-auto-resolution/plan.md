@@ -199,18 +199,19 @@ update public.admin_alerts
 const { data, error } = await client.from("shows").select("diagrams").eq("id", showId).single();
 if (error) throw new Error(`landed snapshot status read failed: ${error.message}`);
 const raw = data?.diagrams as
-  | ({ snapshot_status?: string } & { pending?: { snapshot_status?: string } | null; current?: { snapshot_status?: string } | null })
+  | ({ snapshot_status?: string } & { current?: { snapshot_status?: string } | null })
   | null;
-// shows.diagrams has TWO live shapes: the {pending, current} wrapper AND a bare PersistedDiagrams
-// with root-level snapshot_status (lib/data/diagrams.ts:54-58 resolveCurrentDiagrams accepts both;
-// runScheduledCronSync.ts:1205 persists parseResult.diagrams directly). Precedence: pending →
-// current → root.
-return raw?.pending?.snapshot_status ?? raw?.current?.snapshot_status ?? raw?.snapshot_status ?? null;
+// "Landed" means the LIVE snapshot: mirror resolveCurrentDiagrams (lib/data/diagrams.ts:54-58),
+// which accepts the {current} wrapper OR a bare PersistedDiagrams root and IGNORES `pending` —
+// a pending payload is pre-promotion (promoteSnapshot may still fail/roll back), so pending
+// status must NEVER resolve S3 alerts. Precedence: current → root.
+return raw?.current?.snapshot_status ?? raw?.snapshot_status ?? null;
 ```
 
-  Unit tests cover all three shapes (pending wins; current when no pending; bare root; null →
-  null); the psql case in `tests/db/admin-alert-auto-resolution.test.ts` seeds BOTH a wrapped and
-  a bare `diagrams` JSONB row and asserts the extraction for each.
+  Unit tests cover: current wins; bare root; **pending-complete with current-partial → returns
+  "partial_failure" (S3 family NOT resolved — promotion not landed)**; null → null. The psql case
+  in `tests/db/admin-alert-auto-resolution.test.ts` seeds a wrapped row, a bare row, AND a
+  pending-complete/current-partial row and asserts the extraction for each.
 
     In the Task-3 block, when `await readLanded(result.showId) === "complete"`, append
     `ASSET_RECOVERY_ALERT_FAMILY` to `toResolve`. Tests: unit-test the default impl against the
@@ -389,7 +390,7 @@ test("every auto code's resolve site exists on disk and matches", () => { /* rea
 - Modify: `supabase/__generated__/schema-manifest.json` (regen; trigger-only migration → expect no diff, commit only if changed)
 
 - [ ] **Step 1:** `pnpm gen:schema-manifest` against the local all-migrations-applied DB; `git diff --stat supabase/__generated__/` (expect empty — the migration adds no tables/columns).
-- [ ] **Step 2:** Apply the migration surgically to the validation project from the MAIN checkout (TEST_DATABASE_URL lives in `/Users/ericweiss/FX-Webpage-Template/.env.local`, NOT the worktree — memory: validation creds in main env): `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20260703210000_admin_alert_auto_resolution.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. **This also executes the data repair on validation — verify the live stale East Coast alert resolves** (`select resolved_at from admin_alerts where code='SHOW_UNPUBLISHED'`).
+- [ ] **Step 2:** Apply the migration surgically to the validation project. Source the env from the MAIN checkout (`TEST_DATABASE_URL` lives in `/Users/ericweiss/FX-Webpage-Template/.env.local`, NOT the worktree) but run against the WORKTREE's migration file (main doesn't contain it pre-merge): `TEST_DATABASE_URL=$(grep '^TEST_DATABASE_URL=' /Users/ericweiss/FX-Webpage-Template/.env.local | cut -d= -f2-) psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f /Users/ericweiss/FX-Webpage-Template/.claude/worktrees/alert-auto-resolution/supabase/migrations/20260703210000_admin_alert_auto_resolution.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. **This also executes the data repair on validation — verify the live stale East Coast alert resolves** (`select resolved_at from admin_alerts where code='SHOW_UNPUBLISHED'`).
 - [ ] **Step 3:** `pnpm vitest run tests/db/validation-schema-parity.test.ts` (needs TEST_DATABASE_URL env) — PASS.
 - [ ] **Step 4: Commit** (only if manifest changed) `infra: regen schema manifest for alert auto-resolution migration`
 
@@ -405,9 +406,13 @@ test("every auto code's resolve site exists on disk and matches", () => { /* rea
 - [ ] **Step 2:** Verify pre-existing failures (if any) at merge-base before attributing.
 - [ ] **Step 3: Commit** fixes `test(sync): full-suite fallout fixes` (or scoped equivalents).
 
-### Task 13: Adversarial review (cross-model) — REQUIRED before execution handoff
+## Pre-execution gate: Adversarial review (cross-model) — NOT an implementation task
 
-- [ ] Send THIS PLAN to Codex (fresh-eyes, REVIEWER ONLY, no round budget) per the adversarial-review skill; iterate to APPROVE; class-sweep every finding.
+Per AGENTS.md, the plan-level cross-model review sits between plan self-review and execution
+handoff — i.e. BEFORE Task 1 runs, not after Task 12. This plan does not execute until Codex
+returns APPROVE on the plan itself (fresh-eyes, REVIEWER ONLY, no round budget; class-sweep every
+finding). A SEPARATE whole-diff cross-model review happens at milestone close-out (pipeline Stage
+4), after Task 12.
 
 ---
 
