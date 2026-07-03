@@ -2,8 +2,15 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
-import { classifyWatchError, redactWatchError } from "@/lib/drive/watchErrors";
+import {
+  classifyWatchError,
+  redactWatchError,
+  STALE_PENDING_MAX_AGE_MS,
+} from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
+import { getActiveWatchedFolder as defaultGetActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
+import { resolveAdminAlert as defaultResolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
+import { maybeEscalateWatchOrphaned as defaultMaybeEscalate } from "@/lib/drive/watchEscalation";
 
 export const WATCH_CHANNEL_ORPHANED = "WATCH_CHANNEL_ORPHANED" as const;
 
@@ -49,6 +56,8 @@ export type WatchTx = {
   listGcCandidates(): Promise<WatchChannelRow[]>;
   markStopped(id: string): Promise<void>;
   deleteOldStopped(): Promise<void>;
+  sweepStalePending(cutoffIso: string): Promise<string[]>;
+  hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
 };
 
 export type SubscribeOrphanReason = "watch_create_failed" | "activate_failed_after_watch_created";
@@ -241,6 +250,31 @@ class PostgresWatchTx implements WatchTx {
            and stopped_at < now() - interval '7 days'
       `,
     );
+  }
+
+  async sweepStalePending(cutoffIso: string): Promise<string[]> {
+    const rows = await this.rows<{ id: string }>(
+      `
+        update public.drive_watch_channels
+           set status = 'orphaned'
+         where status = 'pending' and created_at < $1::timestamptz
+         returning id
+      `,
+      [cutoffIso],
+    );
+    return rows.map((r) => r.id);
+  }
+
+  async hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean> {
+    const rows = await this.rows<{ id: string }>(
+      `
+        select id from public.drive_watch_channels
+         where watched_folder_id = $1 and status = 'active' and expires_at > $2::timestamptz
+         limit 1
+      `,
+      [folderId, nowIso],
+    );
+    return rows.length > 0;
   }
 }
 
@@ -520,4 +554,173 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped()),
   );
   return { stopped };
+}
+
+export type ReconcileOutcome =
+  | "healthy"
+  | "recovered"
+  | "still_orphaned"
+  | "renewal_failing"
+  | "vacuous"
+  | "infra_error";
+export type ReconcileResult = {
+  outcome: ReconcileOutcome;
+  sweptPending: number;
+  escalated: boolean;
+  faults: string[];
+};
+export type ReconcileDeps = {
+  tx?: WatchTx;
+  withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
+  now?: () => Date;
+  getActiveWatchedFolder?: typeof defaultGetActiveWatchedFolder;
+  resolveAdminAlert?: typeof defaultResolveAdminAlert;
+  maybeEscalateWatchOrphaned?: typeof defaultMaybeEscalate;
+  subscribeToWatchedFolder?: (folderId: string) => Promise<SubscribeResult>;
+};
+
+export async function reconcileWatchChannels(
+  refresh: RefreshResult,
+  deps: ReconcileDeps = {},
+): Promise<ReconcileResult> {
+  const runTx = watchTxRunner(deps);
+  const now = deps.now ?? (() => new Date());
+  const faults: string[] = [];
+  let sweptPending = 0;
+
+  // 1. Stale-pending sweep — silent hygiene, ZERO admin_alerts writes (spec §3.2.1).
+  try {
+    const cutoff = new Date(now().getTime() - STALE_PENDING_MAX_AGE_MS).toISOString();
+    const swept = await runTx((tx) =>
+      callWatchTx("drive_watch_channels.sweep_stale_pending", () => tx.sweepStalePending(cutoff)),
+    );
+    sweptPending = swept.length;
+    if (swept.length > 0) {
+      await log.warn("stale pending watch channels swept", {
+        source: "drive.watch.reconcile",
+        sweptIds: swept,
+      });
+    }
+  } catch {
+    faults.push("pending_sweep");
+  }
+
+  const resolve = deps.resolveAdminAlert ?? defaultResolveAdminAlert;
+
+  // 2. Configured folder. The helper returns a typed infra_error, but a THROWN
+  // failure (client construction, unexpected reject) must also map to the fault —
+  // recorded-not-thrown, spec §3.2: an unhandled throw out of the route handler
+  // is a contract violation (plan-R3 finding 1).
+  let folder: Awaited<ReturnType<typeof defaultGetActiveWatchedFolder>>;
+  try {
+    folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
+  } catch {
+    faults.push("folder_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
+  if ("kind" in folder && folder.kind === "infra_error") {
+    faults.push("folder_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
+  if ("kind" in folder) {
+    // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
+    try {
+      await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+    } catch {
+      faults.push("alert_resolve_write");
+    }
+    return {
+      outcome: faults.length ? "infra_error" : "vacuous",
+      sweptPending,
+      escalated: false,
+      faults,
+    };
+  }
+
+  // 3. Health predicate — (a) live channel AND (b) clean same-cycle renewal (R4-1, R10-1).
+  let live: boolean;
+  try {
+    live = await runTx((tx) =>
+      callWatchTx("drive_watch_channels.has_live_active", () =>
+        tx.hasLiveActiveChannel(folder.folderId, now().toISOString()),
+      ),
+    );
+  } catch {
+    faults.push("channel_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
+  const renewalFailed =
+    refresh.orphaned.includes(folder.folderId) ||
+    refresh.failures.some((f) => f.folderId === folder.folderId);
+
+  if (live && !renewalFailed) {
+    try {
+      await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+    } catch {
+      faults.push("alert_resolve_write");
+    }
+    return {
+      outcome: faults.length ? "infra_error" : "healthy",
+      sweptPending,
+      escalated: false,
+      faults,
+    };
+  }
+
+  // 4. Unhealthy — subscribe only when there is NO live channel (renewal-failing
+  //    already had its attempt via refresh; a second call would double the
+  //    occurrence_count cadence — spec §3.2.3).
+  let outcome: ReconcileOutcome = live ? "renewal_failing" : "still_orphaned";
+  if (!live) {
+    try {
+      const result = await (deps.subscribeToWatchedFolder ?? subscribeToWatchedFolder)(
+        folder.folderId,
+      );
+      if (result.outcome === "active") {
+        // The channel IS healthy the moment subscribe returns active — set
+        // recovered BEFORE attempting resolve, so a resolve-write fault can
+        // never route a recovered channel into the escalation branch
+        // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+        outcome = "recovered";
+        try {
+          await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+        } catch {
+          faults.push("alert_resolve_write");
+        }
+      } else if (result.reason === "activate_failed_after_watch_created") {
+        faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+      }
+    } catch {
+      faults.push("subscribe_infra");
+    }
+  }
+
+  // 5. Escalation — on EVERY unhealthy outcome, incl. renewal_failing (R9-2).
+  // Deliberate (plan-R3 finding 2): a thrown subscribe (subscribe_infra) leaves
+  // outcome = still_orphaned and the branch still runs — the escalation check
+  // reads the pre-existing unresolved alert row, and a watch that is BOTH down
+  // and failing to re-subscribe is exactly the support-worthy state. The helper
+  // itself is failure-isolated: every dependency inside it already maps to a
+  // named fault, and a residual throw maps to escalation_helper here
+  // (recorded-not-thrown, plan-R3 finding 1).
+  let escalated = false;
+  if (outcome === "still_orphaned" || outcome === "renewal_failing") {
+    try {
+      const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
+        folderId: folder.folderId,
+        folderName: folder.folderName,
+      });
+      escalated = esc.escalated;
+      faults.push(...esc.faults);
+    } catch {
+      faults.push("escalation_helper");
+    }
+  }
+
+  return {
+    outcome: faults.length ? "infra_error" : outcome,
+    sweptPending,
+    escalated,
+    faults,
+  };
 }

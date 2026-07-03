@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { STALE_PENDING_MAX_AGE_MS } from "@/lib/drive/watchErrors";
 
 // R5-1 durable-log leak class (spec §3.1.4 / §4.1): assert the subscribe
 // failure log sink never carries a raw error object or unredacted secret.
@@ -20,6 +21,7 @@ type WatchRow = {
   webhookSecret: string;
   resourceId: string | null;
   expiresAt: string | null;
+  createdAt?: string;
 };
 
 class FakeWatchTx {
@@ -96,6 +98,31 @@ class FakeWatchTx {
   async deleteOldStopped() {
     this.operations.push("deleteOldStopped");
   }
+
+  async sweepStalePending(cutoffIso: string) {
+    this.operations.push("sweepStalePending");
+    const cutoff = Date.parse(cutoffIso);
+    const swept: string[] = [];
+    for (const row of this.rows) {
+      if (row.status === "pending" && row.createdAt && Date.parse(row.createdAt) < cutoff) {
+        row.status = "orphaned";
+        swept.push(row.id);
+      }
+    }
+    return swept;
+  }
+
+  async hasLiveActiveChannel(folderId: string, nowIso: string) {
+    this.operations.push("hasLiveActiveChannel");
+    const now = Date.parse(nowIso);
+    return this.rows.some(
+      (row) =>
+        row.watchedFolderId === folderId &&
+        row.status === "active" &&
+        row.expiresAt !== null &&
+        Date.parse(row.expiresAt) > now,
+    );
+  }
 }
 
 function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
@@ -109,6 +136,31 @@ function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
       expiresAt: new Date(tx.now.getTime() - 60 * 60 * 1000).toISOString(),
     });
   }
+}
+
+function seedLiveActive(tx: FakeWatchTx, folderId: string, id = `live-${folderId}`) {
+  tx.rows.push({
+    id,
+    status: "active",
+    watchedFolderId: folderId,
+    webhookSecret: "secret",
+    resourceId: "resource-1",
+    expiresAt: new Date(tx.now.getTime() + 60 * 60 * 1000).toISOString(),
+  });
+}
+
+const NO_REFRESH = { refreshed: [], orphaned: [], failures: [] };
+
+function reconcileDeps(tx: FakeWatchTx, over: Record<string, unknown> = {}) {
+  return {
+    tx,
+    now: () => tx.now,
+    getActiveWatchedFolder: vi.fn().mockResolvedValue({ folderId: "folder-1", folderName: "F" }),
+    resolveAdminAlert: vi.fn().mockResolvedValue(undefined),
+    maybeEscalateWatchOrphaned: vi.fn().mockResolvedValue({ escalated: false, faults: [] }),
+    subscribeToWatchedFolder: vi.fn().mockResolvedValue({ outcome: "active", channelId: "c" }),
+    ...over,
+  };
 }
 
 describe("Drive watch lifecycle", () => {
@@ -566,6 +618,350 @@ describe("Drive watch lifecycle", () => {
       "tx:start",
       "tx:commit",
     ]);
+  });
+});
+
+describe("reconcileWatchChannels", () => {
+  test("healthy: live channel + clean refresh → resolve + healthy", async () => {
+    // catches: status='active'-only class regressing; resolve not firing on recovery
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result).toEqual({ outcome: "healthy", sweptPending: 0, escalated: false, faults: [] });
+    expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(deps.maybeEscalateWatchOrphaned).not.toHaveBeenCalled();
+  });
+
+  test("vacuous: no folder → resolve stale alert, no subscribe", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi.fn().mockResolvedValue({ kind: "no_folder_configured" }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result).toEqual({ outcome: "vacuous", sweptPending: 0, escalated: false, faults: [] });
+    expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+  });
+
+  test("no live channel → exactly one subscribe; active → recovered + resolve", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result).toEqual({ outcome: "recovered", sweptPending: 0, escalated: false, faults: [] });
+    expect(deps.subscribeToWatchedFolder).toHaveBeenCalledTimes(1);
+    expect(deps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
+    expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "WATCH_CHANNEL_ORPHANED",
+    });
+  });
+
+  test("no live channel, subscribe orphaned watch_create_failed → still_orphaned, no resolve, escalation runs", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned",
+        channelId: "c",
+        reason: "watch_create_failed",
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("still_orphaned");
+    expect(deps.resolveAdminAlert).not.toHaveBeenCalled();
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalledWith({
+      folderId: "folder-1",
+      folderName: "F",
+    });
+  });
+
+  test("no live channel, subscribe orphaned activate_failed → activate_write fault → infra_error outcome", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned",
+        channelId: "c",
+        reason: "activate_failed_after_watch_created",
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("activate_write");
+    expect(result.outcome).toBe("infra_error");
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalled();
+  });
+
+  test("R4-1/R10-1 renewal_failing leg 1 (orphaned list): live channel BUT refresh.orphaned names the folder → renewal_failing, NO resolve, NO second subscribe, escalation runs", async () => {
+    // catches: resolve-defeats-renewal-alert; double-subscribe count distortion
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(
+      { refreshed: [], orphaned: ["folder-1"], failures: [] },
+      deps,
+    );
+
+    expect(result.outcome).toBe("renewal_failing");
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(deps.resolveAdminAlert).not.toHaveBeenCalled();
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalled();
+  });
+
+  test("R4-1/R10-1 renewal_failing leg 2 (failures list, activate_pending): live channel BUT refresh.failures names the folder → renewal_failing, NO resolve, NO second subscribe, escalation runs (R9-2: never-escalates-on-renewal-failing)", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(
+      {
+        refreshed: [],
+        orphaned: [],
+        failures: [{ folderId: "folder-1", operation: "activate_pending" }],
+      },
+      deps,
+    );
+
+    expect(result.outcome).toBe("renewal_failing");
+    expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(deps.resolveAdminAlert).not.toHaveBeenCalled();
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalled();
+  });
+
+  test("folder-switch: old folder's live channel does NOT satisfy the predicate", async () => {
+    // active channel rows for folder-OLD; configured folder folder-NEW → subscribe fires for folder-NEW
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-old");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi
+        .fn()
+        .mockResolvedValue({ folderId: "folder-new", folderName: "F" }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(deps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-new");
+    expect(result.outcome).toBe("recovered");
+  });
+
+  test("stale-pending sweep flips only rows older than STALE_PENDING_MAX_AGE_MS and writes ZERO alerts", async () => {
+    const tx = new FakeWatchTx();
+    const cutoff = tx.now.getTime() - STALE_PENDING_MAX_AGE_MS;
+    tx.rows.push(
+      {
+        id: "stale-1",
+        status: "pending",
+        watchedFolderId: "folder-1",
+        webhookSecret: "s1",
+        resourceId: null,
+        expiresAt: null,
+        createdAt: new Date(cutoff - 1000).toISOString(),
+      },
+      {
+        id: "fresh-1",
+        status: "pending",
+        watchedFolderId: "folder-1",
+        webhookSecret: "s2",
+        resourceId: null,
+        expiresAt: null,
+        createdAt: new Date(cutoff + 1000).toISOString(),
+      },
+    );
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi.fn().mockResolvedValue({ kind: "no_folder_configured" }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.sweptPending).toBe(1);
+    expect(tx.rows.find((r) => r.id === "stale-1")!.status).toBe("orphaned");
+    expect(tx.rows.find((r) => r.id === "fresh-1")!.status).toBe("pending");
+    expect(tx.alerts).toEqual([]);
+  });
+
+  test("fault mapping: folder infra_error → folder_read fault, outcome infra_error", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi.fn().mockResolvedValue({
+        kind: "infra_error",
+        operation: "readActiveWatchedFolderId",
+        source: "returned_error",
+        cause: new Error("db down"),
+      }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("folder_read");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("fault mapping: hasLiveActiveChannel throw → channel_read fault, outcome infra_error", async () => {
+    const tx = new FakeWatchTx();
+    tx.hasLiveActiveChannel = async () => {
+      throw new Error("connection refused");
+    };
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("channel_read");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("fault mapping: resolve throw on healthy path → alert_resolve_write fault, outcome infra_error", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      resolveAdminAlert: vi.fn().mockRejectedValue(new Error("db down")),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("alert_resolve_write");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("fault mapping: subscribe throw (DriveWatchInfraError) → subscribe_infra fault", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels, DriveWatchInfraError } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi
+        .fn()
+        .mockRejectedValue(
+          new DriveWatchInfraError("drive_watch_channels.insert_pending", new Error("db down")),
+        ),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("subscribe_infra");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("fault mapping: sweep throw → pending_sweep fault; any fault forces outcome infra_error", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1");
+    tx.sweepStalePending = async () => {
+      throw new Error("db down");
+    };
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("pending_sweep");
+    expect(result.sweptPending).toBe(0);
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("plan-R3-1: getActiveWatchedFolder THROWING (not returning infra_error) → folder_read fault, typed return, no throw out of reconcile", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("folder_read");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("plan-R3-1: maybeEscalateWatchOrphaned THROWING → escalation_helper fault, typed return, no throw", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned",
+        channelId: "c",
+        reason: "watch_create_failed",
+      }),
+      maybeEscalateWatchOrphaned: vi.fn().mockRejectedValue(new Error("boom")),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("escalation_helper");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("plan-R3-2: thrown subscribe (subscribe_infra) still runs the escalation branch — a down-and-unrecoverable watch is support-worthy", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockRejectedValue(new Error("drive down")),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.faults).toContain("subscribe_infra");
+    expect(deps.maybeEscalateWatchOrphaned).toHaveBeenCalled();
+  });
+
+  test("active subscribe + resolveAdminAlert throw → alert_resolve_write fault, outcome infra_error, NO escalation call", async () => {
+    // plan-R2 finding 1: a successful re-subscribe followed by a resolve DB fault
+    // must not send Sentry/email as if the channel were still broken.
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      resolveAdminAlert: vi.fn().mockRejectedValue(new Error("db down")),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(deps.maybeEscalateWatchOrphaned).not.toHaveBeenCalled();
+    expect(result.faults).toContain("alert_resolve_write");
+    expect(result.outcome).toBe("infra_error");
+  });
+
+  test("escalation faults propagate into reconcile faults", async () => {
+    const tx = new FakeWatchTx();
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      subscribeToWatchedFolder: vi.fn().mockResolvedValue({
+        outcome: "orphaned",
+        channelId: "c",
+        reason: "watch_create_failed",
+      }),
+      maybeEscalateWatchOrphaned: vi
+        .fn()
+        .mockResolvedValue({ escalated: true, faults: ["email_send"] }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("infra_error");
+    expect(result.escalated).toBe(true);
+    expect(result.faults).toContain("email_send");
   });
 });
 
