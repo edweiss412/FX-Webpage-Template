@@ -114,4 +114,19 @@ describe("enrichAgenda AGENDA_LINK_NOT_CLICKABLE", () => {
     expect(hasNotClickable(result)).toBe(true);
     expect(sink.some((r) => r.code === "AGENDA_LINK_UNRESOLVED")).toBe(true);
   });
+
+  test("chip-read infra_error → NO user-facing warning (recovery couldn't run); forensic still fires", async () => {
+    // A bare-filename link that would normally warn, BUT the chip read infra-failed this pass,
+    // so its fileId-less-ness is not conclusive — suppress AGENDA_LINK_NOT_CLICKABLE (same
+    // "absence of recovery, not a fault" principle as the existing infra_error handling).
+    const sink = capture();
+    const result = makeResult([{ label: "Day 1 Agenda", url: "agenda_final.pdf" }]);
+    await enrichAgenda(
+      result,
+      makeClient({ getAgendaChips: async () => ({ kind: "infra_error" as const }) }),
+      "sheet-1",
+    );
+    expect(hasNotClickable(result)).toBe(false);
+    expect(sink.some((r) => r.code === "AGENDA_LINK_UNRESOLVED")).toBe(true);
+  });
 });

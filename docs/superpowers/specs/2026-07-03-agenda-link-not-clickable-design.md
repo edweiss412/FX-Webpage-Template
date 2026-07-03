@@ -43,9 +43,11 @@ const hasClickableTarget = typeof link.url === "string" && HTTP_URL_PREFIX.test(
 - **The `i` flag is load-bearing:** URL schemes are case-insensitive, so `HTTPS://example.com/agenda` (or `Http://…`) is a valid external link that must stay **silent** to the user. The parser's own regex at `index.ts:303` is case-**sensitive** (`/^https?:\/\//`), so it would classify an uppercase-scheme value into the `value.length > 0` bare-filename branch (`:304-306`) — **but that has no downstream effect**, because both the http branch (`:303`) and the bare branch (`:304-306`) push the *identical* `{ label, url: value }` (no `fileId`). So the parser's case sensitivity never changed behavior; the classification only becomes load-bearing HERE, at the new discriminator, which therefore MUST be case-insensitive to honor the "http URLs stay silent" rule.
 - Factor `HTTP_URL_PREFIX` (the case-insensitive form) into a shared, exported const used by **both** `enrichAgenda` and `parseAgendaLinks` (safe — the parser's two non-Drive branches produce identical output, so switching `:303` to the shared case-insensitive const is a no-op for parser behavior and prevents drift). If a shared export is impractical, define the identical case-insensitive literal in `enrichAgenda` with a comment marking it the classification source of truth. (Placement decided in the plan; the `i` flag is non-negotiable.)
 
+**Chip-read-infra-failure gate (invariant-9 alignment).** A link is fileId-less at `:137` for two reasons: (a) genuinely non-recoverable (its cell is a bare filename and no INFO-tab chip matched), or (b) the INFO-tab chip read **infra-failed** this pass (`getAgendaChips` returned `infra_error`, `:109`), so recovery *couldn't run* and the link *might* have recovered a fileId. Case (b) must NOT produce a user-facing data-quality warning — the existing design (`enrichAgenda.ts:116`) explicitly surfaces a chip-read infra failure as "the absence of recovery, not a swallowed fault... NOT AGENDA_PDF_UNREADABLE" (invariant 9). `AGENDA_LINK_NOT_CLICKABLE` honors the same principle: track `let chipReadInfraFailed = false;` (set `true` in the `chips.kind === "infra_error"` branch) and gate the warning on `!chipReadInfraFailed`. On a chip-infra-fail pass, no user-facing warning fires; if the link is genuinely broken, the next successful-chip-read pass warns. The **forensic `AGENDA_LINK_UNRESOLVED` still fires** on every pass regardless.
+
 **User-facing push** — reuse the `AGENDA_PDF_UNREADABLE` mechanism (local `warn()` helper `:44-46` → `ParseWarning {severity:"warn", code, message}`; array aliased `:87` `const warnings = result.warnings`; precedent pushes at `:188, :222, :290, :370`):
 ```ts
-if (!hasClickableTarget) {
+if (!hasClickableTarget && !chipReadInfraFailed) {
   warnings.push(
     warn(
       "AGENDA_LINK_NOT_CLICKABLE",
@@ -61,9 +63,10 @@ if (!hasClickableTarget) {
 **Forensic stays:** `AGENDA_LINK_UNRESOLVED` (`:141-151`) is unchanged and keeps firing for **every** fileId-less link (both url shapes). Per-link net behavior:
 | link shape | `AGENDA_LINK_UNRESOLVED` (log) | `AGENDA_LINK_NOT_CLICKABLE` (warning) |
 |---|---|---|
-| bare filename / text (`url` non-http) | fires | **pushed** |
+| bare filename / text (`url` non-http), chip read OK | fires | **pushed** |
 | external `http(s)` URL (any case, e.g. `HTTPS://…`) | fires | **not** pushed |
-| `url` undefined (defensive) | fires | **pushed** (no clickable target) |
+| `url` undefined (defensive), chip read OK | fires | **pushed** (no clickable target) |
+| any fileId-less link on a **chip-read-infra-fail** pass | fires | **not** pushed (recovery couldn't run — invariant 9) |
 
 ---
 
@@ -126,6 +129,7 @@ Add a unit test on `enrichAgenda` (sibling to the existing agenda-code coverage)
 2. **External http(s) URL** (`{ label: "Day 1 Agenda", url: "https://example.com/agenda" }`, no fileId) → `result.warnings` contains **NO** `AGENDA_LINK_NOT_CLICKABLE` AND the forensic `log.warn` **still** fired `AGENDA_LINK_UNRESOLVED`. **Failure mode caught:** narrowing the user-facing warning accidentally also silenced the broad forensic; or the http-URL case wrongly warns.
 3. **Uppercase-scheme URL** (`{ label: "Day 1 Agenda", url: "HTTPS://example.com/agenda" }`, no fileId) → **NO** `AGENDA_LINK_NOT_CLICKABLE` (a real external link, silent) AND forensic fires. **Failure mode caught:** a case-sensitive discriminator (`/^https?:\/\//` without `i`) would wrongly warn a valid uppercase-scheme URL — this test pins the `i` flag.
 4. **Undefined url** (`{ label: "Day 1 Agenda" }`, no fileId, no url) → treated as no-clickable-target → `AGENDA_LINK_NOT_CLICKABLE` pushed + forensic fires. **Failure mode caught:** the `typeof link.url === "string"` guard mis-handles undefined.
+5. **Chip-read infra_error** (bare-filename link, but `getAgendaChips` → `{ kind: "infra_error" }`) → **NO** `AGENDA_LINK_NOT_CLICKABLE` (recovery couldn't run — not conclusively broken) AND forensic still fires. **Failure mode caught:** warning a transient chip-infra failure as a data-quality problem (violates invariant 9 / `enrichAgenda.ts:116`).
 
 Anti-tautology: assert warning presence against `result.warnings[*].code` (the produced data), NOT a rendered container; the forensic assertion uses a `log` spy so the two channels are proven independent. Derive nothing from hardcoded rendered output. Extend `agendaCodes.test.ts` for the catalog-presence pin (separate from the emit test).
 
