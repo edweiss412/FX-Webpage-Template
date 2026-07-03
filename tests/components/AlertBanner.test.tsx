@@ -627,7 +627,7 @@ describe("AlertBanner", () => {
     expect(queryByTestId("admin-alert-queue-chip")).toBeNull();
   });
 
-  test("M9 C4 / M5-D3: Resolve button starts in idle state (text 'Resolve')", async () => {
+  test("M9 C4 / M5-D3: Dismiss button starts in idle state (text 'Dismiss')", async () => {
     setRows([
       {
         id: "alert-resolve-idle",
@@ -639,7 +639,7 @@ describe("AlertBanner", () => {
     ]);
     const { getByTestId, queryByTestId } = render(await AlertBanner());
     const btn = getByTestId("admin-alert-resolve-button");
-    expect(btn.textContent?.trim()).toBe("Resolve");
+    expect(btn.textContent?.trim()).toBe("Dismiss");
     // The confirm-row is NOT in the DOM in idle state.
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
   });
