@@ -156,9 +156,9 @@ Each returned object:
 }
 ```
 
-**`objectId` derivation:** the content fingerprint is the only stable identity available (there is no Sheets object id on this path). Derive `objectId = "x-" + sha256Base64Url(bytes).slice(0, 24)` — deterministic, URL-safe (base64url has no `/` or `.`), stable across re-export (content-addressed). This makes the Storage asset key (`embedded-${objectId}.${ext}`, `snapshotAssets.ts:139`) content-addressed and idempotent. Two byte-identical images on the tab collapse to one key (harmless — same content).
+**`objectId` derivation:** the content fingerprint is the only stable identity available (there is no Sheets object id on this path). Derive `objectId = "x-" + sha256Base64Url(bytes).slice(0, 24)` — deterministic, URL-safe (base64url has no `/` or `.`), stable across re-export (content-addressed). This makes the Storage asset key (`embedded-${objectId}.${ext}`, `snapshotAssets.ts:139`) content-addressed and idempotent.
 
-`bytesByObjectId` is keyed by the same synthesized `objectId`.
+**Per-tab dedup by `objectId` (round-2 MEDIUM #2).** `extractEmbeddedObjects` returns **at most one object per distinct `objectId` per tab**: if a tab references the same image bytes twice (a duplicated placement), only the first is emitted. This is required, not cosmetic — the persisted `objectId` becomes the crew gallery's React `<li key>` and failed-image-set key (`components/crew/DiagramsBlock.tsx:67-75` → `components/diagrams/Gallery.tsx:76,91-97,135-140`); two entries sharing an `objectId` would produce duplicate React keys and shared runtime failure state. Deduping at extract yields one gallery tile for a duplicated image (correct — the content is identical) and guarantees unique keys downstream. `bytesByObjectId` is a `Map` keyed by `objectId`, so it is inherently deduped.
 
 ### 5.5 Guard conditions
 
@@ -166,7 +166,7 @@ Each returned object:
 - No `xl/workbook.xml`, or a worksheet with no `<drawing>` → that tab contributes no objects.
 - A `<drawing>` relationship pointing at a missing media part → skip that object.
 - A media part with an unmapped extension → skip (raster filter).
-- Duplicate byte-identical images → same `objectId` (dedup), each still returned once per media relationship but collapsing on key.
+- Duplicate byte-identical images on a tab → **deduped to a single object** by `objectId` (first occurrence wins); see §5.4.
 
 ---
 
@@ -212,10 +212,13 @@ if (ctx.xlsxBytes) {
   const keptObjects = imageObjects.slice(0, MAX_TOTAL_DIAGRAM_ITEMS);
   if (imageObjects.length > keptObjects.length) warnings.push(warning("DIAGRAMS_EMBEDDED_CAP_EXCEEDED", …));
 
-  // Revision token from fileMeta (always present — DriveFileMeta.headRevisionId is required, :42),
-  // NOT getSpreadsheetRevisionId. sheetsRevisionId is an approval/identity token only; it is NOT
-  // used for the Apply re-export (§8.3), so its exact token space is immaterial.
-  const sheetsRevisionId = ctx.fileMeta.headRevisionId;
+  // Revision token from fileMeta, NOT getSpreadsheetRevisionId. sheetsRevisionId is an
+  // approval/identity token only; it is NOT used for the Apply re-export (§8.3), so its exact
+  // token space is immaterial — but it MUST be non-empty. Live callers normalize a missing
+  // headRevisionId to "" (runScheduledCronSync.ts:1688, runOnboardingScan.ts:215, retry
+  // route.ts:126) and the fetch layer itself falls back to modifiedTime (fetch.ts:374-380), so
+  // mirror that fallback here rather than persisting an empty approval token:
+  const sheetsRevisionId = ctx.fileMeta.headRevisionId || ctx.fileMeta.modifiedTime;
 
   const embeddedImages: EmbeddedImageStub[] = [];
   for (const object of keptObjects) {
@@ -284,12 +287,14 @@ if (!entry.contentUrl) {
 
 **The `try` wraps BOTH the export and `findMediaByFingerprint`** — a malformed-XLSX unzip throw inside the finder must return `null` (fail-soft, `partial_failure`), never propagate. If it escaped the port, `snapshotAssets` would `markPendingSnapshotDeleteStarted` and rethrow (`snapshotAssets.ts:193-195`), aborting the entire Apply — the opposite of the promised partial-failure degradation.
 
-`findMediaByFingerprint(xlsx, partHint, fingerprint)`:
-- unzip once; try `partHint` first; if its `sha256Base64Url` === `fingerprint`, return those bytes;
-- else scan all `xl/media/*` and return the first whose hash === `fingerprint`;
-- else return `null`.
+`findMediaByFingerprint(xlsx, partHint, fingerprint)` — **DIAGRAMS-tab-scoped, not workbook-wide** (round-2 HIGH #1). It reuses the same extractor so attribution matches extract exactly:
+- `const { allTabTitles, objectsByTab, bytesByObjectId } = extractEmbeddedObjects(xlsx)` (memoized with the export in practice);
+- resolve the DIAGRAMS title from `allTabTitles` via the same case-insensitive match as §7; if none, return `null`;
+- among **only that tab's** objects (`objectsByTab.get(diagramsTitle)`), pick the one whose bytes hash to `fingerprint` (prefer the object whose `mediaPartName === partHint` as a fast path, but the fingerprint is authoritative); return its `bytesByObjectId` bytes, else `null`.
 
-Because Apply re-verifies at `snapshotAssets.ts:144`, `findMediaByFingerprint` returning the fingerprint-matched bytes always passes the verify; a drifted image (no media matches) → `null` → no upload → `partial_failure` (self-heals next sync). This is the **same content-hash posture as the linked-folder md5 re-verify** (`snapshotAssets.ts:164`).
+A raw `xl/media/*` scan is explicitly **rejected**: a byte-identical image still present on INFO (or any non-DIAGRAMS tab) after the floor plan was removed from DIAGRAMS would otherwise hash-match and be snapshotted, breaking the "only DIAGRAMS-tab images" contract even though the SHA matches. Scoping to the tab's current objects closes that hole and also transparently handles `xl/media` part renumbering across re-export.
+
+Because Apply re-verifies at `snapshotAssets.ts:144` (and recovery at `assetRecovery.ts:348`), `findMediaByFingerprint` returning the fingerprint-matched bytes always passes the verify; a drifted image (no DIAGRAMS-tab object matches) → `null` → no upload → `partial_failure` (self-heals next sync). This is the **same content-hash posture as the linked-folder md5 re-verify** (`snapshotAssets.ts:164`).
 
 ### 8.2 Current XLSX re-export, memoized
 
@@ -317,9 +322,35 @@ Resolution: **export the current sheet and let `embeddedFingerprint` be the sole
 
 ### 8.4 Recovery port branch
 
-`assetRecovery.ts` `collectVerifiedAssets` (`:300-387`) calls `deps.drive.fetchEmbeddedImageBytes(entry, { onChunk })` (`:343`); the default wiring is `fetchEmbeddedImageBytesTimed(entry, options)` (`:761`). The show's `driveFileId` is **not** in `collectVerifiedAssets`'s scope but **is** available at the recovery entry as `previewShow.driveFileId` (read from the row in `defaultReadPreviewShow`, `.select("id,drive_file_id,diagrams")`, `:687-699`; used at `:455`,`:496`).
+The recovery port lives in a **different** function from the Apply port, and the show's `driveFileId` is **not** in scope where the default recovery port is constructed. Precisely:
+- `collectVerifiedAssets(showId, diagrams, deps)` (`assetRecovery.ts:300-304`) loops entries and calls `deps.drive.fetchEmbeddedImageBytes(entry, { onChunk: acceptChunk })` (`:343`); it re-verifies `recoverySha256(bytes) === entry.embeddedFingerprint` (`:348`) — the same content-hash fence.
+- The default `drive` port is built generically in `defaultRecover()` (`:760-764`): `fetchEmbeddedImageBytes: (entry, options) => fetchEmbeddedImageBytesTimed(entry, options)` (`:761`) — **no show, no `driveFileId` in scope here.**
+- `driveFileId` exists only one frame up, as `previewShow.driveFileId` in `assetRecovery()` (`:432`, used at `:455`), which is the caller of `collectVerifiedAssets` (`:445`).
 
-Wire the recovery `fetchEmbeddedImageBytes` port (at `:761`) to build the same per-run memoized `fetchXlsxBytes` thunk over `previewShow.driveFileId` + `getDriveClient()`, and add the identical `!entry.contentUrl && entry.mediaPartName` re-export branch to `fetchEmbeddedImageBytesTimed` (`:192-219`) — deps extended to include `fetchXlsxBytes?`. Legacy `contentUrl` entries are unaffected: the new branch is entered only when `contentUrl` is falsy **and** `mediaPartName` is set, so a null-`contentUrl` legacy `restage_required` entry (no `mediaPartName`) still early-returns `null` exactly as at `:197` today.
+So the recovery wiring cannot "close over `previewShow.driveFileId` at `:761`" — it must **thread `driveFileId` down through the call**:
+
+1. Add a `driveFileId` parameter to `collectVerifiedAssets` → `collectVerifiedAssets(showId, driveFileId, diagrams, deps)`; the caller at `:445` passes `previewShow.driveFileId`.
+2. Pass it into the port call at `:343`: `deps.drive.fetchEmbeddedImageBytes(entry, { onChunk: acceptChunk, driveFileId })`.
+3. Extend the port's options type `AssetRecoveryDrive.fetchEmbeddedImageBytes` (`:42-46`) with `driveFileId?: string`.
+4. In `defaultRecover()` (`:760-764`), close over a per-recovery memo `const xlsxByShow = new Map<string, Promise<ArrayBuffer>>()` and wire the XLSX thunk from `options.driveFileId`:
+
+```ts
+fetchEmbeddedImageBytes: (entry, options) =>
+  fetchEmbeddedImageBytesTimed(entry, options, {
+    fetchXlsxBytes: options?.driveFileId
+      ? () => {
+          const id = options.driveFileId!;
+          let p = xlsxByShow.get(id);
+          if (!p) { p = fetchCurrentSheetXlsxBytes(id, { drive }); xlsxByShow.set(id, p); }
+          return p;
+        }
+      : undefined,
+  }),
+```
+
+5. Extend `fetchEmbeddedImageBytesTimed` deps (`:192-196`) with `fetchXlsxBytes?: () => Promise<ArrayBuffer>` and add the identical XLSX branch as §8.1 (`!entry.contentUrl && entry.mediaPartName && deps.fetchXlsxBytes` → try `findMediaByFingerprint` → `null` on any throw).
+
+Legacy `contentUrl` entries are unaffected: the new branch is entered only when `contentUrl` is falsy **and** `mediaPartName` is set, so a null-`contentUrl` legacy `restage_required` entry (no `mediaPartName`) still early-returns `null` exactly as at `:197` today. The `readPreviewShow` row already selects `drive_file_id` (`AssetRecoveryShow.driveFileId`, `:55-58`), so no new DB read is needed.
 
 ---
 
@@ -355,7 +386,7 @@ Apply side is a single chokepoint — all three Apply callers (`applyStaged.ts:1
 | State | Behavior |
 |---|---|
 | `ctx.xlsxBytes` absent (dev/mocks) | Legacy `contentUrl` extraction; unchanged. |
-| `xlsxBytes` present but not a valid ZIP / `unzipSync` throws | `extractEmbeddedObjects` returns empty maps (best-effort try/catch in caller); `imageObjects=[]` → `DIAGRAMS_EMBEDDED_NONE_FOUND` (if no linked folder). No throw to sync. |
+| `xlsxBytes` present but not a valid ZIP / `unzipSync` throws | `extractEmbeddedObjects` returns empty maps (best-effort try/catch in caller) → `allTabTitles=[]` → no diagrams title → `DIAGRAMS_TAB_MISSING`. Non-fatal; no throw to sync; next sync heals if it was transient. |
 | DIAGRAMS tab present, no `<drawing>` / no media | `imageObjects=[]` → existing none-found warning. |
 | DIAGRAMS tab has only non-raster media (emf/wmf/svg) | Those are dropped at extract → `imageObjects=[]` → none-found warning (no new code). |
 | `> 60` embedded images | Existing cap: keep 60, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` (`:190-199`). |
@@ -363,7 +394,7 @@ Apply side is a single chokepoint — all three Apply callers (`applyStaged.ts:1
 | Apply: current export fails (Drive fault) | Port returns `null` → no upload → `partial_failure` → retried next sync. |
 | Apply: image drifted since extract (no media hashes to fingerprint) | Port returns `null` → `partial_failure`; unrelated cell edits do NOT cause this (§8.3). |
 | Recovery: `driveFileId` unavailable / export fails | Port returns `null`; entry stays unresolved for a later pass. Legacy `restage_required` entries are still skipped by recovery's existing filter. |
-| Two byte-identical images on the tab | Same `objectId` → one Storage key; both render pointing at identical content. |
+| Two byte-identical images on the tab | Deduped at extract by `objectId` → one gallery tile, one Storage key, unique React key (§5.4). |
 
 ---
 
@@ -377,10 +408,10 @@ Add `fflate` (`unzipSync`) to `package.json` **dependencies**. Rationale: SheetJ
 
 Concrete failure mode stated for each.
 
-1. **`extractEmbeddedObjects` — real OOXML fixture.** Build a committed XLSX fixture (or reuse a captured test-show export trimmed to DIAGRAMS + INFO tabs) with ≥1 PNG on DIAGRAMS and ≥1 image on INFO. Assert: DIAGRAMS objects returned, INFO objects **excluded** (attribution correctness — catches "dump all `xl/media`" bug); `bytesByObjectId` bytes hash to the objects' `objectId` suffix; a non-raster media part is dropped (catches raster-filter bug); malformed input → empty maps, no throw.
+1. **`extractEmbeddedObjects` — real OOXML fixture.** Build a committed XLSX fixture (or reuse a captured test-show export trimmed to DIAGRAMS + INFO tabs) with ≥1 PNG on DIAGRAMS and ≥1 image on INFO. Assert: `allTabTitles` lists both tabs (incl. an empty tab if present); DIAGRAMS objects returned, INFO objects **excluded** (attribution correctness — catches "dump all `xl/media`" bug); `bytesByObjectId` bytes hash to the objects' `objectId` suffix; a non-raster media part is dropped (catches raster-filter bug); a tab with the **same image placed twice** yields **one** object (dedup, MEDIUM #2); malformed input → empty maps + `allTabTitles: []`, no throw.
 2. **`extractEmbeddedImages` dual-path + self-sufficiency.** With `ctx.xlsxBytes` set (fixture) **and a Drive client that implements only `getFile`/`listFolder` (onboarding shape — no `listSpreadsheetSheets`, no `getSpreadsheetRevisionId`)** → entries are still produced, carrying `contentUrl: null`, non-null `embeddedFingerprint`, `mediaPartName`, `recovery_disposition: "normal"`, `sheetTab` = the resolved DIAGRAMS title, and `sheetsRevisionId` = `fileMeta.headRevisionId`. This is the direct HIGH-#1 regression guard: it fails if the XLSX path early-returns on the missing Sheets method. Also assert `DIAGRAMS_TAB_MISSING` when the OOXML has no diagrams-titled tab and `DIAGRAMS_EMBEDDED_NONE_FOUND` when the tab exists but has no raster media. Without `xlsxBytes` (existing `clientWithEmbedded` mock, `tests/sync/embeddedImages.test.ts:55-140`) → **byte-identical existing behavior** (legacy-path regression; expected-entry `toEqual` at `:117-140` unchanged because `mediaPartName` is absent, not `undefined`).
-3. **Apply port re-export.** Given a persisted entry with `contentUrl:null` + `mediaPartName` + `embeddedFingerprint`, inject `fetchXlsxBytes` returning a fixture whose media matches the fingerprint → upload happens, `snapshotPath` set (catches "port returns null for XLSX-media → never snapshots"). Fingerprint-mismatch fixture → `null` → no upload, `partial_failure` (catches drift handling). Assert re-export is memoized (one `fetchXlsxBytes` call for N entries).
-4. **Recovery port re-export.** `driveFileId` sourced from `previewShow` → an unresolved XLSX-media entry re-exports and resolves; legacy `restage_required` entries stay skipped.
+3. **Apply port re-export + tab scoping.** Given a persisted entry with `contentUrl:null` + `mediaPartName` + `embeddedFingerprint`, inject `fetchXlsxBytes` returning a fixture whose DIAGRAMS media matches the fingerprint → upload happens, `snapshotPath` set (catches "port returns null for XLSX-media → never snapshots"). **Fixture where the matching bytes exist ONLY on a non-DIAGRAMS tab (INFO) → `null`, no upload** (HIGH #1 regression — catches the workbook-wide-scan hole). Fingerprint-mismatch fixture → `null` → `partial_failure`. Malformed-XLSX fixture (unzip throws inside `findMediaByFingerprint`) → `null`, Apply not aborted (MEDIUM #1 round-1). Assert re-export is memoized (one `fetchXlsxBytes` call for N entries).
+4. **Recovery port re-export + `driveFileId` threading.** Assert `collectVerifiedAssets` receives `driveFileId` from `previewShow.driveFileId` and forwards it to the port options; an unresolved XLSX-media entry re-exports (DIAGRAMS-scoped) and resolves; a run with `driveFileId` undefined does NOT attempt an XLSX re-export (returns `null`); legacy `restage_required`/null-`mediaPartName` entries stay skipped.
 5. **Retry route byte wiring.** After the swap, the retry path produces embedded-image entries from a fixture export (catches "retry silently drops diagrams").
 6. **Existing contracts still green (regression guard, not new behavior):** `defaultDriveClientSheetsFieldsMask.test.ts` (fields mask titles-only, `embeddedObjects:[]`, source has no `drawings`); `realSheetsListSpreadsheetSheetsSmoke.test.ts` (`embeddedObjects===[]`); `_storageWriteSurfaceContract.test.ts` (new module not a storage-write surface); `driveClientImplCompleteness.test.ts` (no DriveClient shape change).
 7. **Live smoke (opt-in, gsheets-gated).** Against a real test show, `extractEmbeddedObjects(export)` yields ≥1 DIAGRAMS-tab raster object whose bytes hash-match — proves the extractor works on genuine Google exporter output, not just a hand-built fixture (guards the "mocked-only tautological pass" class).
@@ -421,7 +452,7 @@ Cite these to pre-empt re-derivation:
 - `lib/sync/enrichWithDrivePins.ts:54-59` `SpreadsheetEmbeddedObject`; `:61-65` `SpreadsheetSheet`; `:127-146` `EnrichContext`; `:152-158` `isImageLike`/`isImageMimeType`; `:160-246` `extractEmbeddedImages` (tab resolve `:169-171`, cap `:190-199`, revision `:201-210`, per-object `:212-243`); `:27` `sha256Base64Url` import; `:31` `MAX_TOTAL_DIAGRAM_ITEMS = 60`.
 - `lib/sync/snapshotAssets.ts:64-69` `extForMime`; `:119-197` `snapshotAssets` (embedded loop `:136-157`, key `:139`, verify `:144`, linked md5 verify `:164`, prefixes `:91-97`).
 - `lib/sync/defaultSnapshotAssetsForApply.ts:37-60` `snapshotFetchEmbeddedImageBytesTimed` (`:41` null-contentUrl); `:68-103` linked revision port; `:105-138` `makeSnapshotAssetsForApply` (drive wiring `:132-136`, `args.driveFileId` `:117`).
-- `lib/sync/assetRecovery.ts:192-219` `fetchEmbeddedImageBytesTimed` (`:197` null-contentUrl); `:300-387` `collectVerifiedAssets` (call `:343`); port wiring `:761`; `defaultReadPreviewShow` `:687-699`; `previewShow.driveFileId` `:455`/`:496`.
+- `lib/sync/assetRecovery.ts:42-46` `AssetRecoveryDrive.fetchEmbeddedImageBytes(entry, options?)`; `:55-58` `AssetRecoveryShow.driveFileId`; `:192-196` `fetchEmbeddedImageBytesTimed` deps (`:197` null-contentUrl); `:300-304` `collectVerifiedAssets(showId, diagrams, deps)`; port call `:343`; content re-verify `:348`; `:428-432` `assetRecovery`/`previewShow`; caller of collect `:445`; `previewShow.driveFileId` used `:455`; default port wiring `:760-764` (`:761`).
 - `lib/drive/fetch.ts:374-381` `bindingToken`; `:383-403` `fetchFileForExport`; `:452-498` `fetchSheetMarkdownAndBytesAtRevision`; `:479` `fetchXlsxExportBytes`.
 - `lib/data/diagrams.ts:30-41` `ALLOWED_DIAGRAM_MIMES`/`isAllowedDiagramMime`.
 - `lib/sync/runScheduledCronSync.ts:1753-1778` `listSpreadsheetSheets` (mask `:1765`, `embeddedObjects:[]` `:1775`); `:1782-1794` `getSpreadsheetRevisionId`; `:2491`/`:2511` `xlsxBytes`; `:2580-2586` enrich ctx; `:2617-2621` `extractSourceAnchors`; `:2798` Apply wiring.
@@ -430,6 +461,7 @@ Cite these to pre-empt re-derivation:
 - `lib/sync/applyStaged.ts:1596-1607` wizard revision-race restage (injected `fetchMarkdownWithBinding` returns markdown-only, `:1601-1605`); `:1261` Apply chokepoint.
 - `lib/sync/enrichWithDrivePins.ts:40-47` `DriveFileMeta` (`headRevisionId: string` required, `:42`).
 - `app/api/admin/pending-ingestions/[id]/retry/route.ts:150-182` `prepareFirstSeenStage` (markdown-only `:159`, enrich `:170`).
-- `components/crew/DiagramsBlock.tsx:56-88` gallery mapping; `:103` `shouldHideDiagrams`. `app/api/asset/diagram/[show]/[rev]/[key]/route.ts:66-83` match; `lib/visibility/emptyState.ts:105-110` `shouldHideDiagrams`.
+- `components/crew/DiagramsBlock.tsx:56-88` gallery mapping (entry `key`/`objectId` `:67-75`); `:103` `shouldHideDiagrams`. `components/diagrams/Gallery.tsx:76,91-97,135-140` React `<li key>` + failed-image set. `app/api/asset/diagram/[show]/[rev]/[key]/route.ts:66-83` match; `lib/visibility/emptyState.ts:105-110` `shouldHideDiagrams`.
+- Caller `headRevisionId` normalization to `""`: `runScheduledCronSync.ts:1688`, `runOnboardingScan.ts:215`, `app/api/admin/pending-ingestions/[id]/retry/route.ts:126`; fetch-layer `headRevisionId ?? modifiedTime` fallback `lib/drive/fetch.ts:374-380` (tested `tests/drive/fetch.test.ts:481-509`).
 - Tests: `tests/sync/defaultDriveClientSheetsFieldsMask.test.ts:51-52,59-62,70-71`; `tests/sync/realSheetsListSpreadsheetSheetsSmoke.test.ts:26-32`; `tests/sync/embeddedImages.test.ts:55-140`; `tests/sync/_storageWriteSurfaceContract.test.ts:7-13,28-44`; `tests/sync/driveClientImplCompleteness.test.ts:16-25`.
 - `package.json:71` `xlsx@^0.18.5`; `fflate`/`jszip`/`adm-zip` absent as direct deps.
