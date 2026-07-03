@@ -1387,7 +1387,9 @@ git commit --no-verify -m "feat(admin): retryWatchSubscriptionFormAction — sha
 - Consumes: Task 9's action; `ESCALATION_THRESHOLD` (Task 1); `AccentButton` (`components/shared/AccentButton.tsx:103`, props `fontWeight`/`ringOffset`/`minWidthTap`).
 - Produces: testids `admin-alert-retry-button`, `admin-alert-watch-status`, `admin-alert-error-detail`, `admin-alert-panel-dismiss` (Task 14 e2e consumes these).
 
-- [ ] **Step 1: `RetryWatchButton` failing test** — idle label `Retry now`; `useFormStatus` pending → `Retrying…` + `disabled` + `aria-busy` (mirror `tests/components/ResolveAlertButton.test.tsx` harness; regression: pending derives ONLY from `useFormStatus`, no local flag — M9-D-C4-1).
+- [ ] **Step 1a: Write the FAILING real-browser e2e tests first (TDD for the layout contract).** Add `seedWatchAlert(opts: { occurrenceCount?: number; errorClass?: string; errorMessage?: string })` to `tests/e2e/helpers/seedAlerts.ts` (inserts the single global `WATCH_CHANNEL_ORPHANED` row with context via the existing `admin` client + `clearAlerts` pattern), and the watch-alert describe block in `tests/e2e/admin-banner-layout.spec.ts` (full test list in Task 14 — author ALL of it now). Run `pnpm playwright test tests/e2e/admin-banner-layout.spec.ts` against the dev server: the new describe MUST FAIL (no Retry button exists yet; the seeded watch alert renders the old Dismiss slot). Commit the red e2e tests together with this task's component work at Step 6 — Task 14 later re-runs them green.
+
+- [ ] **Step 1b: `RetryWatchButton` failing test** — idle label `Retry now`; `useFormStatus` pending → `Retrying…` + `disabled` + `aria-busy` (mirror `tests/components/ResolveAlertButton.test.tsx` harness; regression: pending derives ONLY from `useFormStatus`, no local flag — M9-D-C4-1).
 
 - [ ] **Step 2: Implement**
 
@@ -1496,9 +1498,11 @@ Slot-integrity: the panel is a grid SIBLING of `<details>` (F18) — forms here 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add components/admin/RetryWatchButton.tsx components/admin/AlertBanner.tsx tests/components/RetryWatchButton.test.tsx tests/components/AlertBanner.test.tsx
+git add components/admin/RetryWatchButton.tsx components/admin/AlertBanner.tsx tests/components/RetryWatchButton.test.tsx tests/components/AlertBanner.test.tsx tests/e2e/helpers/seedAlerts.ts tests/e2e/admin-banner-layout.spec.ts
 git commit --no-verify -m "feat(admin): watch-alert Retry now action slot + panel dismiss/status/error detail"
 ```
+
+(The e2e watch-variant tests authored red in Step 1a ride in this commit; they go green in Task 14's verification run once the dev server picks up this implementation.)
 
 ---
 
@@ -1635,15 +1639,11 @@ git commit --no-verify -m "test(db): pin dismiss-vs-retry race semantics for WAT
 
 ---
 
-### Task 14: e2e — banner layout watch variant
+### Task 14: e2e — banner layout watch variant (verification run)
 
-**Files:**
-- Modify: `tests/e2e/helpers/seedAlerts.ts` (add `seedWatchAlert(opts: { occurrenceCount?: number; errorClass?: string; errorMessage?: string })` — inserts the single global `WATCH_CHANNEL_ORPHANED` row with context, via the existing `admin` client + `clearAlerts` pattern)
-- Modify: `tests/e2e/admin-banner-layout.spec.ts` (new describe block)
+**Files:** authored RED in Task 10 Step 1a (`tests/e2e/helpers/seedAlerts.ts` + `tests/e2e/admin-banner-layout.spec.ts`) — this task verifies them GREEN post-implementation and fixes any real-layout violations they surface. TDD ordering: red at Task 10 Step 1a → implementation Tasks 10-12 → green here.
 
-Real-browser obligations (spec §3.4 dimensional invariants; jsdom computes no layout):
-
-- [ ] **Step 1: Write the spec additions**
+Real-browser obligations (spec §3.4 dimensional invariants; jsdom computes no layout). The authored describe block (reference copy — must match what Task 10 Step 1a wrote):
 
 ```ts
 test.describe("watch-alert variant (WATCH_CHANNEL_ORPHANED)", () => {
@@ -1669,13 +1669,8 @@ test.describe("watch-alert variant (WATCH_CHANNEL_ORPHANED)", () => {
 });
 ```
 
-- [ ] **Step 2: Run** — `pnpm playwright test tests/e2e/admin-banner-layout.spec.ts` (requires e2e env: dev server :3000 + Supabase; see the file header). Expected: new tests FAIL before Task 10 is deployed to the dev server, PASS after (`pnpm dev` picks up the worktree code).
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/e2e/helpers/seedAlerts.ts tests/e2e/admin-banner-layout.spec.ts
-git commit --no-verify -m "test(admin): e2e watch-alert banner variant — retry slot geometry + panel rows"
-```
+- [ ] **Step 2: Run** — `pnpm playwright test tests/e2e/admin-banner-layout.spec.ts` (requires e2e env: dev server :3000 + Supabase; see the file header). Expected: the ENTIRE spec passes — the watch-variant describe (red since Task 10 Step 1a) now green, and the pre-existing global/per-show gates unregressed.
+- [ ] **Step 3:** If a geometry gate fails, fix the component (not the test) and commit as `fix(admin): e2e layout <violation>`. When green with no fixes needed, commit nothing (tests landed in Task 10) and mark the task complete.
 
 ---
 
