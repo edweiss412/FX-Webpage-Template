@@ -166,4 +166,27 @@ describe("EVENT DETAILS — Floor Plan / Room Diagram recognized (report #237)",
     expect(flaggedLabels).not.toContain("Floor Plan");
     expect(flaggedLabels).not.toContain("Room Diagram");
   });
+
+  // Harvest exclusion covers the FUZZY branch too (resolveKnownCanon fuzzy path): a plural/typo'd
+  // variant in a form-layout intake block (empty classic → harvest runs) is within edit-distance 1
+  // of FLOOR PLAN / ROOM DIAGRAM (both now in EVENT_LABEL_VOCAB) and would fuzzy-resolve to the
+  // excluded canon — it must still be skipped, not written from form prose (whole-diff review P3).
+  it("form harvest skips even a fuzzy/plural Floor Plan / Room Diagram variant", () => {
+    const formLayout = [
+      "| EVENT DETAILS | EVENT DETAILS |",
+      "| :---: | :---: |",
+      "", // classic block empty → the closed-vocab form harvest runs
+      "| Keynote Requirements | FORM-VALUE |", // known anchors so the form block is recognized
+      "| Virtual Speaker | yes |",
+      "| Stage Size | 20x30 |",
+      "| Room Diagrams | should NOT be harvested |", // plural: fuzzy dist-1 from ROOM DIAGRAM
+      "| Floor Plam | prose, not a value |", // typo: fuzzy dist-1 from FLOOR PLAN
+    ].join("\n");
+    const ed = parseSheet(formLayout, "s.md").show.event_details;
+    expect(ed["stage_size"]).toBe("20x30"); // harvest ran (known anchors recovered)
+    // Verified non-tautological: with the fuzzy-branch guard removed, these are harvested as
+    // "should NOT be harvested" / "prose". The HARVEST_EXCLUDED_CANON guard keeps them out.
+    expect(ed["room_diagram"]).toBeUndefined(); // fuzzy variant excluded from harvest
+    expect(ed["floor_plan"]).toBeUndefined();
+  });
 });
