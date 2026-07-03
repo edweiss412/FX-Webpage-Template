@@ -212,4 +212,74 @@ describe("validation-schema-parity", () => {
         `Run \`pnpm gen:schema-manifest\` and commit.`,
     ).toEqual(committed);
   });
+
+  // ── CHECK-constraint parity (validation-observable) ─────────────────────
+  // Layers 1-2 are COLUMNS-only — they parse `add column`/`create table` and never
+  // observe CHECK constraints, so a CHECK-only migration (20260702120200 drive_file_id
+  // nonblank) that never reached validation would slip past them silently. This layer
+  // closes that blind spot: it derives the expected public constraint-name set FROM the
+  // migration (no hardcoding) and asserts the validation DB contains all of them. A
+  // skipped surgical validation apply → missing constraint → red CI.
+  it("CHECK parity — validation has every public *_drive_file_id_nonblank CHECK the migration defines", () => {
+    const migrationSql = readFileSync(
+      join(MIGRATIONS_DIR, "20260702120200_drive_file_id_nonblank.sql"),
+      "utf8",
+    );
+    // Scoped to `public.` so it does NOT match the `alter table if exists dev.<t>` lines.
+    const expected = new Set<string>();
+    const re = /alter\s+table\s+public\.\w+\s+add\s+constraint\s+(\w+)\s+check/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(migrationSql)) !== null) expected.add(m[1]!);
+
+    // Non-vacuity guard (Codex plan-R1 HIGH): a drifted/empty parse would make the
+    // superset check trivially pass and silently defeat the guard. `14` is the spec §10
+    // canonical public count and must move in lockstep with any deliberate count change.
+    expect(expected.size, "migration parse must yield exactly 14 public CHECK names").toBe(14);
+
+    // Meaningful only against the validation target. Skip when TEST_DATABASE_URL is unset
+    // (local dev) — mirror the Layer-2/set-but-empty posture above.
+    const raw = process.env.TEST_DATABASE_URL;
+    if (raw === undefined) return; // skip locally
+    if (raw.trim() === "") {
+      throw new Error(
+        "TEST_DATABASE_URL is set but empty — likely a GitHub Actions secret " +
+          "registered with an empty value. Re-run `gh secret set " +
+          "SUPABASE_TEST_DATABASE_URL` with the validation session-pooler URL.",
+      );
+    }
+    if (!canConnect(raw)) {
+      throw new Error(
+        `Cannot connect to the validation DB for CHECK-constraint parity. In CI set ` +
+          `TEST_DATABASE_URL to the validation session-pooler URL.`,
+      );
+    }
+    const stdout = execFileSync(
+      "psql",
+      [
+        raw,
+        "-qAtc",
+        "select conname from pg_constraint where conname like " +
+          "'%\\_drive\\_file\\_id\\_nonblank' and connamespace = 'public'::regnamespace",
+      ],
+      {
+        encoding: "utf8",
+        timeout: PSQL_PROCESS_TIMEOUT_MS,
+        env: { ...process.env, PGCONNECT_TIMEOUT: PSQL_CONNECT_TIMEOUT_S },
+      },
+    );
+    const live = new Set(
+      stdout
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+    const missing = [...expected].filter((c) => !live.has(c));
+    expect(
+      missing,
+      `The validation project is missing drive_file_id nonblank CHECK constraint(s) — ` +
+        `apply supabase/migrations/20260702120200_drive_file_id_nonblank.sql to validation ` +
+        `via \`psql "$TEST_DATABASE_URL" -f <migration>\`, then \`notify pgrst, 'reload schema'\`:\n` +
+        missing.map((c) => `  - ${c}`).join("\n"),
+    ).toEqual([]);
+  });
 });
