@@ -5,7 +5,7 @@ import { getDriveClient } from "@/lib/drive/client";
 import {
   DRIVE_FILES_GET_TIMEOUT_MS,
   fetchDriveFileMetadata,
-  fetchSheetAsMarkdownAtRevision,
+  fetchSheetMarkdownAndBytesAtRevision,
   withDriveRetry,
   type DriveRetryOptions,
 } from "@/lib/drive/fetch";
@@ -1600,8 +1600,15 @@ async function prepareWizardRestageInline(
     // under the per-show lock).
     fetchMarkdownWithBinding: async (driveFileId) => {
       const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
-      const markdown = await fetchSheetAsMarkdownAtRevision(driveFileId, bindingToken);
-      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown };
+      // Fetch BOTH markdown AND the xlsx bytes at the pinned revision so prepareOne
+      // can extractSourceAnchors. The markdown-only sibling left bytes undefined →
+      // sourceAnchors stayed {} and the restage upsert clobbered the good anchors
+      // captured by the initial scan (audit idx14/#77).
+      const { markdown, bytes } = await fetchSheetMarkdownAndBytesAtRevision(
+        driveFileId,
+        bindingToken,
+      );
+      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown, bytes };
     },
   });
   return { folderId: reverify.pendingFolderId, prepared };
