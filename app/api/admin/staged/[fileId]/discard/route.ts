@@ -4,6 +4,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { discardStaged, type DiscardVariant } from "@/lib/sync/discardStaged";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -127,6 +128,22 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
   }
   if (result.outcome === "discarded") {
+    // Durable success telemetry (audit finding #15a): discardStaged owns its per-show lock/tx and
+    // has committed by the time it resolves, so this is POST-COMMIT. REUSED code (STAGE_DISCARDED,
+    // already SANCTIONED). Fail-open at the callsite (invariant 9). admin.email is canonical
+    // (readAdminEmail canonicalize()s it). Emitted ONLY on the discarded branch — never on a
+    // skipped-409 / not-found-404 / conflict path (no false audit row).
+    try {
+      await logAdminOutcome({
+        code: "STAGE_DISCARDED",
+        source: "api.admin.staged.discard",
+        actorEmail: admin.email,
+        driveFileId: fileId,
+        extra: { variant },
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ ok: true, result });
   }
   return NextResponse.json(
