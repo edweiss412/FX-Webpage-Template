@@ -163,7 +163,7 @@ export function Step3ReviewModal({
 
   return (
     <div
-      data-testid={`wizard-step3-card-${dfid}-review-dialog`}
+      data-testid={`wizard-step3-card-${dfid}-review-modal`}
       role="dialog"
       aria-modal="true"
       aria-labelledby={h2Id}

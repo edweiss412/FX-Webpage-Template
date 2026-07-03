@@ -345,6 +345,12 @@ describe("Step3ReviewModal — shell (spec §5)", () => {
     expect(dialog.className).toMatch(/\bsm:items-center\b/);
   });
 
+  test("dialog root (role=dialog) has data-testid = wizard-step3-card-<dfid>-review-modal", () => {
+    const { q } = renderModal();
+    const dialog = q.getByTestId(tid("modal"));
+    expect(dialog.getAttribute("role")).toBe("dialog");
+  });
+
   test("panel carries the §5 sizing classes and the CSS animation hook", () => {
     renderModal();
     const panel = document.querySelector("[data-step3-review-panel]") as HTMLElement;
