@@ -82,8 +82,9 @@ export function buildRightNowContext(opts: {
   rooms: ProjectedRoomRow[] | null;
   runOfShow: RunOfShow | null; // NEW — per-day RunOfShow for ShowAnchor carry
   // Stage-filtered schedule (#248): forwarded to resolveKeyTimes so off-stage Set/Strike
-  // times don't leak into the Right Now hero. Optional (default "none") = unchanged for
-  // date-restricted-but-not-stage-restricted crew and any caller that omits it.
+  // times don't leak into the Right Now hero. Optional (default "none") for date-restricted-
+  // but-not-stage-restricted crew; the caller-threading is pinned by the source-scan guard
+  // tests/crew/stageRestrictionThreading.test.ts so a dropped thread fails CI, not silently.
   stageRestriction?: StageRestriction;
 }): RightNowContext {
   const {
