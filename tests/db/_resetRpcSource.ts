@@ -23,30 +23,48 @@ const BODY_RE =
   /create\s+(?:or\s+replace\s+)?function\s+public\.reset_validation_data\s*\([\s\S]*?\$\$([\s\S]*?)\$\$/i;
 
 /**
- * Returns the $$ … $$ body of the LATEST definition of
- * public.reset_validation_data() across all supabase/migrations/*.sql files.
+ * Locate the LATEST migration that defines/replaces public.reset_validation_data()
+ * and return both its filename and its $$ … $$ body.
  *
  * Throws if no defining migration is found, so audit tests fail loudly
  * rather than silently skipping.
  */
-export function latestResetValidationDataBody(): string {
+function findLatestResetMigration(): { filename: string; body: string } {
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql"))
     .sort()
     .reverse(); // DESC — newest timestamp-prefixed file first
 
   for (const filename of files) {
-    const fullPath = join(MIGRATIONS_DIR, filename);
-    const source = stripSqlComments(readFileSync(fullPath, "utf8"));
+    const source = stripSqlComments(readFileSync(join(MIGRATIONS_DIR, filename), "utf8"));
     const m = source.match(BODY_RE);
     if (m && m[1]) {
-      return m[1];
+      return { filename, body: m[1] };
     }
   }
 
   throw new Error(
-    "latestResetValidationDataBody(): no migration in supabase/migrations/*.sql defines " +
+    "findLatestResetMigration(): no migration in supabase/migrations/*.sql defines " +
       "`create or replace function public.reset_validation_data` — " +
       "was the migration deleted or renamed?",
   );
+}
+
+/**
+ * Returns the $$ … $$ body of the LATEST definition of
+ * public.reset_validation_data() across all supabase/migrations/*.sql files.
+ */
+export function latestResetValidationDataBody(): string {
+  return findLatestResetMigration().body;
+}
+
+/**
+ * Repo-relative path of the migration file that ships the LATEST
+ * public.reset_validation_data() definition. Callers that scan a migration for
+ * the RPC (e.g. lock-taker name detection) use this instead of hardcoding a
+ * timestamped filename, so a future `create or replace` is picked up
+ * automatically rather than silently validating a superseded body (audit idx78).
+ */
+export function latestResetValidationDataFile(): string {
+  return `supabase/migrations/${findLatestResetMigration().filename}`;
 }
