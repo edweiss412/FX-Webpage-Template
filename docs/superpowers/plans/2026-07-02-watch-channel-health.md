@@ -48,9 +48,7 @@
 
 **Interfaces:**
 - Produces: `classifyWatchError(err: unknown): WatchErrorClass`; `redactWatchError(message: string, secrets?: { webhookSecret?: string }): string`; `export const ESCALATION_THRESHOLD = 3`; `export const STALE_PENDING_MAX_AGE_MS = 3_600_000`; `export type WatchErrorClass = "config" | "drive_api" | "db"`. Consumed by Tasks 2, 5, 6, 10.
-- Note: `classifyWatchError` imports `DriveWatchInfraError` from `@/lib/drive/watch` (exported at `lib/drive/watch.ts:10`). This is a type/instanceof-only import; no cycle (watch.ts imports the pure functions from watchErrors.ts — watchErrors.ts must NOT import anything else from watch.ts).
-
-To avoid the cycle entirely: move `DriveWatchInfraError` is NOT moved; `import { DriveWatchInfraError } from "./watch"` from watchErrors.ts would create `watch → watchErrors → watch`. Instead `classifyWatchError` takes a structural check:
+- **Import-direction rule (hard):** `lib/drive/watchErrors.ts` imports NOTHING from `lib/drive/watch.ts` — watch.ts imports from watchErrors.ts, so any reverse import creates a `watch → watchErrors → watch` cycle. `classifyWatchError` detects `DriveWatchInfraError` STRUCTURALLY via its `kind === "drive_watch_infra_error"` marker (`lib/drive/watch.ts:10-12`), never via `instanceof`. Only the **test file** may import `DriveWatchInfraError` from `@/lib/drive/watch` (tests are outside the module graph of the two production files, so no cycle).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -428,7 +426,7 @@ git commit --no-verify -m "feat(sync): refresh returns typed refreshed/orphaned/
 - Test: `tests/log/persistStrict.test.ts` (create)
 
 **Interfaces:**
-- Produces: `persistAppEventStrict(record: LogRecord): Promise<{ ok: true } | { ok: false; error: unknown }>` — failure-visible insert into `app_events`, all NOT-NULL columns supplied by the caller. Task 5 consumes it. Lives in `lib/log/persist.ts` because `tests/log/_metaAppEventsWriter.test.ts:29` pins that file as the SOLE `app_events` insert site (spec §3.2.5 guard write contract, R3-1).
+- Produces: `export type StrictAppEvent = { level: LogLevel; source: string; message: string; context: Record<string, unknown>; code?: string | null; requestId?: string | null; showId?: string | null; driveFileId?: string | null; actorHash?: string | null }` and `persistAppEventStrict(record: StrictAppEvent): Promise<{ ok: true } | { ok: false; error: unknown }>` — failure-visible insert into `app_events`. The input type is deliberately NARROWER than `LogRecord` (`lib/log/types.ts:16-25` makes `code`/`requestId`/`showId`/`driveFileId`/`actorHash` required — forcing guard callers to spell out five nulls is noise; the insert coalesces the optional fields to `null`). Task 5 consumes it. Lives in `lib/log/persist.ts` because `tests/log/_metaAppEventsWriter.test.ts:29` pins that file as the SOLE `app_events` insert site (spec §3.2.5 guard write contract, R3-1).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -482,9 +480,22 @@ describe("persistAppEventStrict", () => {
 // checkable write (watch-escalation fired-once guard, spec §3.2.5). Same sole-writer
 // file per tests/log/_metaAppEventsWriter.test.ts. Registered in
 // tests/sync/_metaInfraContract.test.ts (invariant 9) — unlike the best-effort
-// sibling above, this one surfaces the error.
+// sibling above, this one surfaces the error. Input is narrower than LogRecord:
+// guard callers have no request/show/actor context.
+export type StrictAppEvent = {
+  level: LogRecord["level"];
+  source: string;
+  message: string;
+  context: Record<string, unknown>;
+  code?: string | null;
+  requestId?: string | null;
+  showId?: string | null;
+  driveFileId?: string | null;
+  actorHash?: string | null;
+};
+
 export async function persistAppEventStrict(
-  record: LogRecord,
+  record: StrictAppEvent,
 ): Promise<{ ok: true } | { ok: false; error: unknown }> {
   try {
     const supabase = createSupabaseServiceRoleClient();
@@ -492,11 +503,11 @@ export async function persistAppEventStrict(
       level: record.level,
       source: record.source,
       message: record.message,
-      code: record.code,
-      request_id: record.requestId,
-      show_id: record.showId,
-      drive_file_id: record.driveFileId,
-      actor_hash: record.actorHash,
+      code: record.code ?? null,
+      request_id: record.requestId ?? null,
+      show_id: record.showId ?? null,
+      drive_file_id: record.driveFileId ?? null,
+      actor_hash: record.actorHash ?? null,
       context: record.context,
     });
     if (error) return { ok: false, error };
@@ -527,7 +538,7 @@ git commit --no-verify -m "feat(sync): persistAppEventStrict failure-visible app
 
 **Interfaces:**
 - Consumes: `ESCALATION_THRESHOLD` (Task 1), `persistAppEventStrict` (Task 4), `sendEmail` (`lib/notify/send.ts:28`), `baseKey` (`lib/notify/idempotencyKey.ts:5-7`), `configValid` (`lib/notify/config.ts:6`), `getAlertOnSyncProblems` (`lib/appSettings/getAlertOnSyncProblems.ts:12`), `activeRecipients` (`lib/notify/recipients.ts:13`), `escapeHtml` (`lib/notify/templates/escapeHtml.ts:10`), `@sentry/nextjs`.
-- Produces: `maybeEscalateWatchOrphaned(input: { folderName: string | null }, deps?: EscalationDeps): Promise<{ escalated: boolean; faults: string[] }>` — Task 6 calls it on every unhealthy outcome. All deps injectable for tests.
+- Produces: `maybeEscalateWatchOrphaned(input: { folderId: string; folderName: string | null }, deps?: EscalationDeps): Promise<{ escalated: boolean; faults: string[] }>` — Task 6 calls it on every unhealthy outcome. All deps injectable for tests.
 
 Step order is LOAD-BEARING (spec §3.2.5, R6-1): trigger read → due? → guard read → **recheck → guard write → sends**. A recheck/guard fault aborts BEFORE anything is consumed.
 
@@ -563,24 +574,24 @@ function makeDeps(over: Record<string, unknown> = {}) {
 describe("maybeEscalateWatchOrphaned", () => {
   test("below threshold, non-config → no escalation, no reads consumed", async () => {
     const deps = makeDeps({ readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD - 1 })) });
-    const r = await maybeEscalateWatchOrphaned({ folderName: "F" }, deps);
+    const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r).toEqual({ escalated: false, faults: [] });
     expect(deps.persistAppEventStrict).not.toHaveBeenCalled();
   });
   test("config class escalates at count 1", async () => {
     const deps = makeDeps({ readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: 1, context: { error_class: "config" } })) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, deps)).escalated).toBe(true);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated).toBe(true);
   });
   test("existing guard row → zero sends, zero guard writes (fired-once across restarts)", async () => {
     const deps = makeDeps({ hasEscalationFired: vi.fn().mockResolvedValue(true) });
-    const r = await maybeEscalateWatchOrphaned({ folderName: "F" }, deps);
+    const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r.escalated).toBe(false);
     expect(deps.persistAppEventStrict).not.toHaveBeenCalled();
     expect(deps.sendEmail).not.toHaveBeenCalled();
   });
   test("still fires above threshold when no guard exists (multi-bump robustness)", async () => {
     const deps = makeDeps({ readUnresolvedWatchAlert: vi.fn().mockResolvedValue(ALERT({ occurrence_count: ESCALATION_THRESHOLD + 4 })) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, deps)).escalated).toBe(true);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated).toBe(true);
   });
   test("R6-1: recheck read failure aborts BEFORE the guard write; retryable next cycle", async () => {
     // recheck = second readUnresolvedWatchAlert call
@@ -588,13 +599,13 @@ describe("maybeEscalateWatchOrphaned", () => {
       .mockResolvedValueOnce(ALERT())
       .mockResolvedValueOnce("infra_error" as const);
     const deps = makeDeps({ readUnresolvedWatchAlert: read });
-    const r1 = await maybeEscalateWatchOrphaned({ folderName: "F" }, deps);
+    const r1 = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r1).toEqual({ escalated: false, faults: ["alert_row_read"] });
     expect(deps.persistAppEventStrict).not.toHaveBeenCalled();
     expect(deps.sendEmail).not.toHaveBeenCalled();
     // cycle 2: recheck succeeds → full fire (two-cycle retryability, spec §4.4)
     const deps2 = makeDeps();
-    const r2 = await maybeEscalateWatchOrphaned({ folderName: "F" }, deps2);
+    const r2 = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps2);
     expect(r2.escalated).toBe(true);
     expect(deps2.persistAppEventStrict).toHaveBeenCalledTimes(1);
     expect(deps2.sendEmail).toHaveBeenCalledTimes(2);
@@ -602,53 +613,62 @@ describe("maybeEscalateWatchOrphaned", () => {
   test("R5-2: alert resolved at recheck → benign abort, no guard, no sends, no fault", async () => {
     const read = vi.fn().mockResolvedValueOnce(ALERT()).mockResolvedValueOnce(null);
     const deps = makeDeps({ readUnresolvedWatchAlert: read });
-    expect(await maybeEscalateWatchOrphaned({ folderName: "F" }, deps)).toEqual({ escalated: false, faults: [] });
+    expect(await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).toEqual({ escalated: false, faults: [] });
     expect(deps.persistAppEventStrict).not.toHaveBeenCalled();
   });
   test("guard write failure → guard_write fault, zero sends", async () => {
     const deps = makeDeps({ persistAppEventStrict: vi.fn().mockResolvedValue({ ok: false, error: "x" }) });
-    const r = await maybeEscalateWatchOrphaned({ folderName: "F" }, deps);
+    const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r).toEqual({ escalated: false, faults: ["guard_write"] });
     expect(deps.sendEmail).not.toHaveBeenCalled();
   });
   test("Sentry throwing never breaks the cycle", async () => {
     const deps = makeDeps({ captureException: vi.fn(() => { throw new Error("sentry down"); }) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, deps)).escalated).toBe(true);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps)).escalated).toBe(true);
   });
-  test("configValid false → deliberate email skip, not a fault; Sentry still fired", async () => {
-    const deps = makeDeps({ configValid: vi.fn().mockReturnValue({ ok: false, reason: "unconfigured" }) });
-    const r = await maybeEscalateWatchOrphaned({ folderName: "F" }, deps);
+  test("configValid false → deliberate email skip, not a fault; Sentry still fired; pref NOT read (gate order)", async () => {
+    // R1(plan)-4 failure mode: with Resend unconfigured AND the pref read faulting,
+    // a wrong gate order emits a false pref_read infra fault.
+    const deps = makeDeps({
+      configValid: vi.fn().mockReturnValue({ ok: false, reason: "unconfigured" }),
+      getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "infra_error" }),
+    });
+    const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     expect(r).toEqual({ escalated: true, faults: [] });
     expect(deps.captureException).toHaveBeenCalled();
+    expect(deps.getAlertOnSyncProblems).not.toHaveBeenCalled();
     expect(deps.sendEmail).not.toHaveBeenCalled();
   });
   test("pref off → skip; pref infra_error → pref_read fault, no fail-open", async () => {
     const off = makeDeps({ getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "value", enabled: false }) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, off)).faults).toEqual([]);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, off)).faults).toEqual([]);
     expect(off.sendEmail).not.toHaveBeenCalled();
     const infra = makeDeps({ getAlertOnSyncProblems: vi.fn().mockResolvedValue({ kind: "infra_error" }) });
-    const r = await maybeEscalateWatchOrphaned({ folderName: "F" }, infra);
+    const r = await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, infra);
     expect(r.faults).toEqual(["pref_read"]);
     expect(infra.sendEmail).not.toHaveBeenCalled();
   });
   test("R3-3: recipients infra_error → recipients_read fault; zero recipients → benign skip", async () => {
     const infra = makeDeps({ activeRecipients: vi.fn().mockResolvedValue({ kind: "infra_error" }) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, infra)).faults).toEqual(["recipients_read"]);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, infra)).faults).toEqual(["recipients_read"]);
     const empty = makeDeps({ activeRecipients: vi.fn().mockResolvedValue({ kind: "ok", recipients: [] }) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, empty)).faults).toEqual([]);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, empty)).faults).toEqual([]);
   });
   test("sendEmail mapping: retry_later benign; conflict/infra → email_send fault (once)", async () => {
     const retry = makeDeps({ sendEmail: vi.fn().mockResolvedValue({ ok: "retry_later" }) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, retry)).faults).toEqual([]);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, retry)).faults).toEqual([]);
     const bad = makeDeps({ sendEmail: vi.fn().mockResolvedValue({ ok: false, kind: "infra_error", message: "x" }) });
-    expect((await maybeEscalateWatchOrphaned({ folderName: "F" }, bad)).faults).toEqual(["email_send"]);
+    expect((await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, bad)).faults).toEqual(["email_send"]);
   });
   test("idempotency key derives from alert row id + recipient", async () => {
     const deps = makeDeps();
-    await maybeEscalateWatchOrphaned({ folderName: "F" }, deps);
+    await maybeEscalateWatchOrphaned({ folderId: "folder-1", folderName: "F" }, deps);
     const call = (deps.sendEmail as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(call.idempotencyKey).toMatch(/^fxav:watch_escalation:/);
     expect(call.subject).toBe("FXAV: the live-updates connection needs attention (F)");
+    expect((deps.captureException as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toMatchObject({
+      extra: { watchedFolderId: "folder-1" },
+    });
   });
 });
 ```
@@ -748,7 +768,7 @@ export type EscalationDeps = {
 };
 
 export async function maybeEscalateWatchOrphaned(
-  input: { folderName: string | null },
+  input: { folderId: string; folderName: string | null },
   deps: EscalationDeps = {},
 ): Promise<{ escalated: boolean; faults: string[] }> {
   const faults: string[] = [];
@@ -777,7 +797,7 @@ export async function maybeEscalateWatchOrphaned(
     level: "info",
     source: ESCALATION_EVENT_SOURCE,
     message: "watch escalation fired",
-    context: { alertId: alert.id, errorClass, occurrenceCount: alert.occurrence_count },
+    context: { alertId: alert.id, errorClass, occurrenceCount: alert.occurrence_count, watchedFolderId: input.folderId },
   });
   if (!guard.ok) return { escalated: false, faults: ["guard_write"] };
 
@@ -785,17 +805,21 @@ export async function maybeEscalateWatchOrphaned(
   try {
     (deps.captureException ?? Sentry.captureException)(
       new Error("WATCH_CHANNEL_ORPHANED escalated"),
-      { tags: { errorClass }, extra: { occurrenceCount: alert.occurrence_count } },
+      { tags: { errorClass }, extra: { occurrenceCount: alert.occurrence_count, watchedFolderId: input.folderId } },
     );
   } catch {
     // Sentry is a notification channel, not the durable record (spec §3.3).
   }
 
+  // Gate 1 FIRST — configValid (spec §3.3.2): unconfigured email is a deliberate
+  // skip, and it must short-circuit BEFORE the pref read so "Resend unset +
+  // transient pref fault" never surfaces as a scheduler-visible infra failure.
+  if (!(deps.configValid ?? defaultConfigValid)().ok) return { escalated: true, faults };
+
+  // Gate 2 — the alert_on_sync_problems pref; infra_error → fault, never fail-open.
   const pref = await (deps.getAlertOnSyncProblems ?? defaultGetPref)();
   if (pref.kind === "infra_error") return { escalated: true, faults: ["pref_read"] };
   if (!pref.enabled) return { escalated: true, faults };
-
-  if (!(deps.configValid ?? defaultConfigValid)().ok) return { escalated: true, faults };
 
   const recipients = await (deps.activeRecipients ?? defaultActiveRecipients)();
   if (recipients.kind === "infra_error") return { escalated: true, faults: ["recipients_read"] };
@@ -1056,6 +1080,7 @@ export async function reconcileWatchChannels(
   let escalated = false;
   if (outcome === "still_orphaned" || outcome === "renewal_failing") {
     const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
+      folderId: folder.folderId,
       folderName: folder.folderName,
     });
     escalated = esc.escalated;
@@ -1086,7 +1111,9 @@ git commit --no-verify -m "feat(sync): reconcileWatchChannels — sweep, dual-co
 
 **Files:**
 - Modify: `app/api/cron/refresh-watch/route.ts` (all 16 lines)
-- Test: `tests/cron/refreshWatchRoute.test.ts` (create; if a route test exists for refresh-watch, extend it instead — check `tests/cron/`)
+- Test: `tests/cron/refreshWatchRoute.test.ts` (create — the new contract cases below)
+- Modify: `tests/api/cron-sync.test.ts:123-158` — the existing `/api/cron/refresh-watch` describe mocks only `refreshWatchSubscriptions` and expects the old `{ ok: true, refreshed }` body; its `cronMock` must gain `reconcileWatchChannels: vi.fn().mockResolvedValue({ outcome: "healthy", sweptPending: 0, escalated: false, faults: [] })` and refresh mocks return the Task-3 `{ refreshed, orphaned: [], failures: [] }` shape; body expectations update to the new shape (`refreshOrphaned`, `refreshFailures`, `reconcile`).
+- Modify: `tests/cron/cronRouteSummaries.test.ts:94-110` — the refresh-watch summary test's `vi.doMock("@/lib/drive/watch", ...)` must also export `reconcileWatchChannels`; its summary expectation becomes `{ outcome: "ok", counts: { refreshed: 2, refreshFailures: 0, sweptPending: 0, escalated: 0 } }`.
 
 **Interfaces:**
 - Consumes: Tasks 3+6. `runCronRoute` (`lib/cron/withCronRunSummary.ts:11`), `rejectUnauthorizedCron` (`app/api/cron/_auth.ts:3`), `CronRunOutcome = "ok" | "partial" | "infra"` (`lib/cron/runSummary.ts:6`).
@@ -1152,12 +1179,12 @@ export async function GET(request: NextRequest): Promise<Response> {
 
 (No `runtime`/`dynamic` exports — cron routes have none; match `CronRunSummary`'s exact type for `summary`.)
 
-- [ ] **Step 4: Run tests** — route tests + `pnpm typecheck` → PASS.
+- [ ] **Step 4: Run tests** — `pnpm vitest run tests/cron/refreshWatchRoute.test.ts tests/api/cron-sync.test.ts tests/cron/cronRouteSummaries.test.ts && pnpm typecheck` → PASS (all three files; the two pre-existing files updated per the Files list).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/api/cron/refresh-watch/route.ts tests/cron/refreshWatchRoute.test.ts
+git add app/api/cron/refresh-watch/route.ts tests/cron/refreshWatchRoute.test.ts tests/api/cron-sync.test.ts tests/cron/cronRouteSummaries.test.ts
 git commit --no-verify -m "feat(sync): refresh-watch route runs reconcile; scheduler-visible 500 on infra faults"
 ```
 
@@ -1287,23 +1314,33 @@ git commit --no-verify -m "feat(admin): retryWatchSubscriptionFormAction — sha
 import { useFormStatus } from "react-dom";
 import { AccentButton } from "@/components/shared/AccentButton";
 
-export function RetryWatchButton() {
+export function RetryWatchButton({
+  idleLabel = "Retry now",
+  pendingLabel = "Retrying…",
+  testId = "admin-alert-retry-button",
+}: {
+  idleLabel?: string;
+  pendingLabel?: string;
+  testId?: string;
+}) {
   const { pending } = useFormStatus();
   return (
     <AccentButton
       type="submit"
-      data-testid="admin-alert-retry-button"
+      data-testid={testId}
       disabled={pending}
       aria-busy={pending}
       fontWeight="medium"
       minWidthTap
       ringOffset="warning-bg"
     >
-      {pending ? "Retrying…" : "Retry now"}
+      {pending ? pendingLabel : idleLabel}
     </AccentButton>
   );
 }
 ```
+
+Banner (Task 10) uses the defaults; Settings (Task 12) passes `idleLabel="Retry connection"` + `testId="drive-connection-retry-button"` — the spec's Settings affordance is named "Retry connection" (spec §3.6 panel copy "Use Retry connection to reconnect"), while the banner's is "Retry now" (spec §3.4.2).
 
 (Verify `AccentButton` forwards `type`/`data-testid`/`disabled`/`aria-busy` — it does for `ResolveAlertButton`'s confirm row; mirror exactly.)
 
@@ -1435,10 +1472,16 @@ test("Retry form submits retryWatchSubscriptionFormAction (form action identity)
 ```tsx
 {showRetry ? (
   <form data-testid="drive-connection-retry-form" action={retryWatchSubscriptionFormAction}>
-    <RetryWatchButton />
+    <RetryWatchButton
+      idleLabel="Retry connection"
+      pendingLabel="Retrying…"
+      testId="drive-connection-retry-button"
+    />
   </form>
 ) : null}
 ```
+
+(The Settings label is "Retry connection" per spec §3.6 — the panel explainer says "Use Retry connection to reconnect"; the test asserting the form also pins this label.)
 
 - [ ] **Step 4:** `pnpm vitest run tests/components/admin/settings/DriveConnectionPanel.test.tsx` → PASS.
 - [ ] **Step 5: Commit**
