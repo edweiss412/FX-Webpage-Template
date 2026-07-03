@@ -70,7 +70,7 @@ Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
 | EMBEDDED_RECOVERY_REQUIRES_RESTAGE | **NEW** | `assetRecovery.ts:565`; `applyStaged.ts:1069,1072` | restage-only nulls stuck | **S3** |
 | PENDING_SNAPSHOT_PROMOTE_STUCK | **NEW** | `lib/sync/diagramGc.ts:298-312` | promote started >15min, not promoted | **S4**: gc-cycle anti-join reconcile (promote succeeds at `promoteSnapshot.ts:286`) |
 | PENDING_SNAPSHOT_DELETE_STUCK | **NEW** | `diagramGc.ts:315-328` | delete claim expired, not promoted | **S4** |
-| PENDING_SNAPSHOT_ROLLBACK_STUCK | **NEW** | `promoteSnapshot.ts:132-141` | rollback threw | **S4**: rollback completes (`clearRolledBack`, `promoteSnapshot.ts:158`) / gc reconcile |
+| PENDING_SNAPSHOT_ROLLBACK_STUCK | **NEW** | `promoteSnapshot.ts:132-141` | rollback threw | **S4**: solely at rollback completion (`clearRolledBack`, `promoteSnapshot.ts:158-175`) — no gc sweep (no DB predicate survives the reset) |
 | WEBHOOK_TOKEN_INVALID | **NEW** | `app/api/drive/webhook/route.ts:277,287` | channel receiving invalid deliveries | **S5**: verified delivery for same `channel_id`; watch-reconcile resolves rows for non-active channels |
 | TILE_PROJECTION_FETCH_FAILED | **NEW** | `app/show/[slug]/[shareToken]/_CrewShell.tsx:157` | projection sub-fetch failing on crew page | **S6**: healthy shell render (`failedKeys.length === 0`, `_CrewShell.tsx:153`) |
 | TILE_SERVER_RENDER_FAILED | EVENT* | `components/crew/WrappedSection.tsx:95`; `components/shared/TileServerFallback.tsx:88` | a tile's server render threw | *State-shaped but **no aggregation point**: tiles render/stream independently per-request; the open row is deduped per (show, code) with `context.tileId` replaced on re-raise, so tile A's success cannot prove tile B (which may hold the row) is healthy. Auto-resolving on any tile success would mask live failures. Manual; per-tile keyed redesign → BACKLOG. |
@@ -103,7 +103,10 @@ in-tx SQL for sync/cron paths (mirroring `resolveStaleSyncProblemAlerts_unlocked
 A new bulk variant `resolveAdminAlerts({ showId, codes })` is added beside `resolveAdminAlert`
 (`lib/adminAlerts/resolveAdminAlert.ts`) — same filters (`resolved_at IS NULL`, exact `show_id`
 match incl. NULL), `.in("code", codes)`, sets only `resolved_at`, throws on error (invariant-9
-posture; registered per §8).
+posture; registered per §8). **Guard:** `codes.length === 0` returns early as a no-op — no Supabase
+call is issued (an empty `.in()` list must never reach PostgREST). A focused unit test pins this
+guard (AC-level: covered under AC3's family-minus-current test where the "minus" set can be the
+whole family).
 
 ### S1 — SHOW_UNPUBLISHED: resolve in `publish_show` (migration)
 
@@ -171,13 +174,32 @@ failure, not a silent continue).
 ### S3 — Snapshot recovery completion
 
 Resolve `{ASSET_RECOVERY_BYTES_EXCEEDED, ASSET_RECOVERY_REVISION_DRIFT, ASSET_RECOVERY_DRIFT_COOLDOWN,
-EMBEDDED_RECOVERY_REQUIRES_RESTAGE}` for the show at every writer that lands
-`snapshot_status = 'complete'`:
+EMBEDDED_RECOVERY_REQUIRES_RESTAGE}` for the show when `snapshot_status` lands `'complete'`. The
+complete writer inventory (exhaustive — AC4's tests bind to these surfaces):
 
-- `assetRecovery` success (`lib/sync/assetRecovery.ts:571-574` region, in the locked tx alongside
-  `deleteRecoveryCooldown`), and
-- the Phase-2 staging/apply path when a fresh snapshot lands complete (plan enumerates the exact
-  `snapshot_status` writers by grep; the invariant is the status transition, not a named line).
+- **Value computation sites (the only two producers of the string):**
+  `statusFor` (`lib/sync/snapshotAssets.ts:99-115`, emitted at `:180` into the pending payload) and
+  the live-effects builder (`lib/sync/applyStaged.ts:1031`,
+  `linkedDrift ? "partial_failure" : "complete"`).
+- **Landing paths:** `assetRecovery`'s locked-tx status recompute
+  (`lib/sync/assetRecovery.ts:564-580`, `'complete'` branch at `:574`); Phase-2's
+  `snapshotAssetsForApply` consumption pre-commit (`lib/sync/phase2.ts:260-284`) and the
+  post-apply `applyDiagramSnapshot` branch (`lib/sync/phase2.ts:309-334`).
+
+Resolution hooks (two, exhaustive):
+
+1. **assetRecovery:** inside the locked tx at the `'complete'` branch (`assetRecovery.ts:574`),
+   alongside the existing `deleteRecoveryCooldown` (`:571`).
+2. **Live apply:** in the same post-commit block as S2 (`applyStaged.ts:1804-1821` site), iff the
+   apply committed a diagrams payload with `snapshot_status === 'complete'` (payload built at
+   `applyStaged.ts:1031` / `snapshotAssets.ts:180` via the phase2 landing paths above). Wizard-scope
+   applies (`applyStaged.ts:1091`) are first-time onboarding shows and are exempt — a show being
+   onboarded cannot carry open recovery alerts.
+
+Additionally, `ASSET_RECOVERY_DRIFT_COOLDOWN` alone is resolved whenever an assetRecovery run
+**proceeds past the cooldown gate** (`assetRecovery.ts:445-450` returns inactive) — the throttling
+condition it reports is over even if the run then fails for a different reason (which raises its own
+code).
 
 Additionally, `ASSET_RECOVERY_DRIFT_COOLDOWN` alone is resolved whenever an assetRecovery run
 **proceeds past the cooldown gate** (`assetRecovery.ts:445-450` returns inactive) — the throttling
@@ -188,11 +210,18 @@ code).
 
 In the same gc cycle that raises (`emitStuckAlerts`, `diagramGc.ts:295-330`): resolve each of
 `PENDING_SNAPSHOT_PROMOTE_STUCK` / `PENDING_SNAPSHOT_DELETE_STUCK` for shows with an open alert
-where **no** `pending_snapshot_uploads` row still matches that code's stuck predicate (the raise
-SQL's WHERE, anti-joined). `PENDING_SNAPSHOT_ROLLBACK_STUCK` resolves when the failed rollback
-completes (`clearRolledBack`, `promoteSnapshot.ts:158`) and is also swept by the gc anti-join if a
-DB-observable rolled-back-pending predicate exists (plan pins the exact columns; the invariant:
-resolve when the rollback that failed has since completed and no row remains stuck).
+where **no** `pending_snapshot_uploads` row still matches that code's stuck predicate — the raise
+SQL's WHERE, anti-joined (promote: `promote_started_at is not null and promoted_at is null and
+promote_started_at < now() - interval '15 minutes'`, `diagramGc.ts:307-310`; delete:
+`delete_started_at is not null and promoted_at is null and claim_expires_at < now()`,
+`diagramGc.ts:323-327`).
+
+`PENDING_SNAPSHOT_ROLLBACK_STUCK` resolves **solely at `clearRolledBack` success**
+(`promoteSnapshot.ts:158-175`, via the same `promoteTx`): a completed rollback resets
+`promote_started_at` / `claim_token` / `claimed_at` to NULL, which is indistinguishable from a
+never-promoted row, so no DB predicate can drive a gc-side anti-join for this code — the code
+point where the rollback completes is the only sound resolve trigger. It is deliberately NOT part
+of the gc sweep.
 
 Cadence: the gc cron (`app/api/cron/diagram-gc/route.ts:10`) already runs these queries; the
 reconcile adds inverted-predicate UPDATEs in the same pass. No advisory lock (not required for
@@ -279,9 +308,12 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
   the migration; open alert + `published = false` → untouched. Applying the migration twice is safe.
 - **AC3** Live apply with clean reel + no drift resolves all open codes in the S2 family; an apply
   that raises exactly one family code resolves the other three and leaves the raised one open.
-- **AC4** assetRecovery completing (`snapshot_status → 'complete'`) resolves all four S3 codes; a
+- **AC4** assetRecovery completing (`snapshot_status → 'complete'`, `assetRecovery.ts:574`) resolves
+  all four S3 codes in the locked tx; a live apply committing a `snapshot_status === 'complete'`
+  payload (built at `applyStaged.ts:1031` / `snapshotAssets.ts:180`) resolves them post-commit; a
   run proceeding past an expired cooldown resolves ASSET_RECOVERY_DRIFT_COOLDOWN even when the run
-  then fails with BYTES_EXCEEDED (which stays open).
+  then fails with BYTES_EXCEEDED (which stays open). Tests bind to the writer surfaces enumerated
+  in S3, not to log output.
 - **AC5** GC reconcile resolves a stuck alert whose pending row has since promoted, and does NOT
   resolve one whose row still matches the stuck predicate (expectations derived from fixture rows,
   not hardcoded).
