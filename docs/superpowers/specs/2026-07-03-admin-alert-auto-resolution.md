@@ -52,17 +52,17 @@ Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
 
 | Code | Class | Raise site(s) | Condition | Clear detection → resolution |
 |---|---|---|---|---|
-| DRIVE_FETCH_FAILED | AUTO | cron sync | show fetch failing | next successful sync (`runScheduledCronSync.ts:190-208`; `recoveryResolution.ts:35-74`) |
-| PARSE_ERROR_LAST_GOOD | AUTO | cron sync | parse failing | same |
-| SHEET_UNAVAILABLE | AUTO | cron sync | source missing | same |
+| DRIVE_FETCH_FAILED | AUTO | cron sync pipeline (status→code map `runScheduledCronSync.ts:181-187`) | show fetch failing | next successful sync (`runScheduledCronSync.ts:190-208`; `recoveryResolution.ts:35-74`) |
+| PARSE_ERROR_LAST_GOOD | AUTO | same map | parse failing | same |
+| SHEET_UNAVAILABLE | AUTO | same map | source missing | same |
 | SYNC_STALLED | AUTO | `lib/notify/detect/stall.ts:15` | global heartbeat stale | heartbeat fresh (`stall.ts:17`) |
-| EMAIL_DELIVERY_FAILED | AUTO | notify deliver | failed deliveries current | reconciler (`emailDeliveryFailed.ts:296`) |
-| EMAIL_NOT_CONFIGURED | AUTO | notify deliver | email config invalid | reconciler (`emailDeliveryFailed.ts:309`) |
-| WATCH_CHANNEL_ORPHANED | AUTO | `lib/drive/watch.ts` | no live watch channel | watch reconcile (`watch.ts:658,692,720`) |
+| EMAIL_DELIVERY_FAILED | AUTO | `lib/notify/deliver.ts:382`; `emailDeliveryFailed.ts:282` | failed deliveries current | reconciler (`emailDeliveryFailed.ts:296`) |
+| EMAIL_NOT_CONFIGURED | AUTO | `emailDeliveryFailed.ts:306` | email config invalid | reconciler (`emailDeliveryFailed.ts:309`) |
+| WATCH_CHANNEL_ORPHANED | AUTO | `lib/drive/watch.ts:393` | no live watch channel | watch reconcile (`watch.ts:658,692,720`) |
 | SHOW_UNPUBLISHED | **NEW** | RPC `20260701000000...sql:16`; `lib/sync/unpublishShow.ts:240` | show unpublished, crew link paused | **S1**: `publish_show` RPC resolves; migration data-repair for already-republished shows |
 | REEL_DRIFTED | **NEW** | `lib/sync/applyStaged.ts:996` via `verifyReelOnApply` | opening reel drifted at last verify | **S2**: next live apply where `verifyReelOnApply` returns `warningCode: null` (`verifyReelOnApply.ts:139`) |
 | OPENING_REEL_PERMISSION_DENIED | **NEW** | `verifyReelOnApply.ts:113` | reel 403 at last verify | **S2** |
-| OPENING_REEL_NOT_VIDEO | **NEW** | `verifyReelOnApply.ts` MIME branch | reel wrong MIME at last verify | **S2** |
+| OPENING_REEL_NOT_VIDEO | **NEW** | `verifyReelOnApply.ts:129` | reel wrong MIME at last verify | **S2** |
 | EMBEDDED_ASSET_DRIFTED | **NEW** | `applyStaged.ts:994`; `lib/sync/snapshotAssets.ts:151,171` | embedded/linked asset drifted | **S2** (live-apply reconcile) |
 | ASSET_RECOVERY_BYTES_EXCEEDED | **NEW** | `lib/sync/assetRecovery.ts:476` | recovery over byte budget | **S3**: `snapshot_status` lands `'complete'` |
 | ASSET_RECOVERY_REVISION_DRIFT | **NEW** | `assetRecovery.ts:494,535,554` | recovery raced newer revision | **S3** |
@@ -78,22 +78,22 @@ Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
 | LIVE_ROW_CONFLICT | EVENT | `lib/sync/runOnboardingScan.ts:831-843` | onboarding scan hit live-row conflict | Wizard-scoped incident; the wizard review/ignore workflow is the disposition (`Step3Review.tsx:487`). |
 | ROLE_FLAGS_NOTICE | EVENT | `lib/sync/phase2.ts:422-432` | non-LEAD role_flags auto-applied | Info-severity audit record. |
 | SHOW_FIRST_PUBLISHED | EVENT | `applyStaged.ts:1369`; `runScheduledCronSync.ts:1990` | first-seen auto-publish happened | Info-severity confirmation. |
-| OAUTH_IDENTITY_CLAIMED | EVENT | `app/auth/callback/route.ts:125-134`; picker-bootstrap | identity first-claimed a crew row | One-shot claim audit. |
+| OAUTH_IDENTITY_CLAIMED | EVENT | `app/auth/callback/route.ts:127`; picker-bootstrap analogue (`app/api/auth/picker-bootstrap/route.ts`) | identity first-claimed a crew row | One-shot claim audit. |
 | PICKER_BOOTSTRAP_RPC_FAILED | EVENT | `app/api/auth/picker-bootstrap/route.ts:97` | one bootstrap request failed | Transient request incident; later success has no row-state to reconcile. |
 | PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED | EVENT | `picker-bootstrap/route.ts:74` | one resolve-show call failed | Same. |
 | CALLBACK_CLAIM_THREW | EVENT | `app/auth/callback/route.ts:155` | claim-stamp block threw once | Same. |
 | PICKER_SELECTION_RACE | EVENT | `lib/auth/picker/cleanupStaleEntry.ts:108-116` | stale selection CAS-deleted (already fixed) | Observational. |
 | PICKER_EPOCH_RESET | EVENT | `lib/auth/picker/resetPickerEpoch.ts:29-37` | admin reset epoch | Admin-action audit. |
-| WIZARD_SESSION_SUPERSEDED_RACE | EVENT | 4 wizard routes (apply/discard/retry/ignore) | wizard action lost a CAS race | Transient race incident. |
-| REPORT_ORPHANED_LOST_LEASE | EVENT | `lib/reports/submit.ts`; report-reaper cron | orphaned GH issue was closed | Incident acknowledgment (external GitHub state). |
-| REPORT_LOOKUP_INCONCLUSIVE | EVENT | `lib/reports/submit.ts` | report lookup failed closed | Same. |
-| REPORT_DUPLICATE_LIVE_MATCHES | EVENT | report pipeline | duplicate live markers | Same. |
-| REPORT_OPEN_ORPHAN_LABEL | EVENT | report pipeline | impossible open-orphan state | Impossible-state alarm. |
-| REPORT_LEASE_THRASHING | EVENT | report pipeline | repeated lease races | Same. |
-| STALE_ORPHAN_REPORT | EVENT | report-reaper | stale reservation reaped | Reaper audit record. |
+| WIZARD_SESSION_SUPERSEDED_RACE | EVENT | `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts:218`, `.../discard/route.ts:158`, `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:543`, `app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts:255` | wizard action lost a CAS race | Transient race incident. |
+| REPORT_ORPHANED_LOST_LEASE | EVENT | `lib/reports/submit.ts:977` | orphaned GH issue was closed | Incident acknowledgment (external GitHub state). |
+| REPORT_LOOKUP_INCONCLUSIVE | EVENT | `lib/reports/submit.ts:806-809` (via `lookupAlertCode`, `:205-208`) | report lookup failed closed | Same. |
+| REPORT_DUPLICATE_LIVE_MATCHES | EVENT | `lib/reports/submit.ts:206` (mapped by `lookupAlertCode`) | duplicate live markers | Same. |
+| REPORT_OPEN_ORPHAN_LABEL | EVENT | `lib/reports/submit.ts:207` (mapped by `lookupAlertCode`) | impossible open-orphan state | Impossible-state alarm. |
+| REPORT_LEASE_THRASHING | EVENT | `lib/reports/submit.ts:847-848` | repeated lease races | Same. |
+| STALE_ORPHAN_REPORT | EVENT | `app/api/cron/report-reaper/route.ts:74` | stale reservation reaped | Reaper audit record. |
 | GITHUB_BOT_LOGIN_MISSING | DEFER | `lib/reports/submit.ts:778` | bot login env unset | Config STATE, but the healthy observation point is inside the M8 report pipeline whose review discipline requires live GitHub integration probes (`feedback_mocked_only_tests_invite_tautological_approve`) — out of scope; BACKLOG. |
-| BRANCH_PROTECTION_DRIFT | DEFER | `scripts/verify-branch-protection.ts` | branch protection drifted | STATE, but raised by a CI-side ops script outside the app runtime; BACKLOG. |
-| BRANCH_PROTECTION_MONITOR_AUTH_FAILED | DEFER | `scripts/verify-branch-protection.ts` | monitor auth failing | Same. |
+| BRANCH_PROTECTION_DRIFT | DEFER | `scripts/verify-branch-protection.ts:326` | branch protection drifted | STATE, but raised by a CI-side ops script outside the app runtime; BACKLOG. |
+| BRANCH_PROTECTION_MONITOR_AUTH_FAILED | DEFER | `scripts/verify-branch-protection.ts:266,286,309` | monitor auth failing | Same. |
 
 ## 4. New resolution surfaces
 
@@ -107,9 +107,8 @@ posture; registered per §8).
 
 ### S1 — SHOW_UNPUBLISHED: resolve in `publish_show` (migration)
 
-New migration redefines `_publish_show_core` (`20260601000000_b2_show_lifecycle.sql:115-131`) to add,
-**after** its refusal gates (archived / finalize-owned / pending-review) and regardless of whether
-`published` actually flips:
+New migration redefines `_publish_show_core` (`20260601000000_b2_show_lifecycle.sql:115-131`). The
+resolve statement is:
 
 ```sql
 update public.admin_alerts
@@ -117,9 +116,25 @@ update public.admin_alerts
  where show_id = p_show_id and code = 'SHOW_UNPUBLISHED' and resolved_at is null;
 ```
 
-- Runs on the **idempotent already-published no-op** too — that is what heals a stale alert when the
-  show was republished before this ships (only a subsequent publish_show call re-runs the core; see
-  data repair below for rows that would otherwise never see one).
+**Exact control flow (binding on the plan)** — the current core reads state, early-returns on
+`v_pub` (`b2_show_lifecycle.sql:121` `if v_pub then return; end if;`), then runs the refusal gates,
+then flips `published`. The new core places the resolve statement in exactly two positions and
+nowhere else:
+
+1. **Inside the already-published branch, before its `return`** — `if v_pub then <resolve>; return;
+   end if;`. The idempotent no-op heals a stale alert without running the refusal gates, exactly as
+   already-published calls bypass them today (no behavior change for the gates).
+2. **After the `update public.shows set published = true` flip** (and before/alongside
+   `publish_show_invalidation`) — the normal republish path.
+
+The resolve statement must NOT run before the refusal gates on the unpublished path: a refused
+publish (archived / finalize-owned / pending-review raises) leaves the show unpublished, so the
+alert must stay open (§6). The `raise exception` in each gate aborts the transaction, so ordering
+inside the function is what guarantees this.
+
+- The already-published branch is what heals a stale alert when the show was republished before this
+  ships — but only if a subsequent publish_show call happens; see data repair below for rows that
+  would otherwise never see one.
 - **One-time data repair in the same migration:** resolve open SHOW_UNPUBLISHED rows whose show is
   currently `published = true` (heals the live validation alert with no admin action).
 - **Advisory-lock topology unchanged:** `publish_show` already takes `pg_advisory_xact_lock` in-RPC
@@ -297,9 +312,13 @@ every code in `ADMIN_ALERTS_CODES` maps to `'auto' | 'event-manual' | 'state-man
 'deferred'`, and every `auto` entry carries a resolve-site `{ file, pattern }` the test asserts
 exists (mirroring the existing `ADMIN_ALERTS_WRITE_SITES` shape). This closes the class at CI time:
 a future code cannot land without declaring its lifecycle, and an auto code cannot lose its resolve
-site silently. The new `resolveAdminAlerts` helper is registered in
-`tests/auth/_metaInfraContract.test.ts` (or carries the documented exemption comment) per
-plan-wide invariant 9.
+site silently. The new `resolveAdminAlerts` bulk helper lands in
+`lib/adminAlerts/resolveAdminAlert.ts`, which is already registered in the notify infra-contract
+registry (`tests/notify/_metaInfraContract.test.ts:6-17`, `REGISTERED` row
+`lib/adminAlerts/resolveAdminAlert.ts`) — the registry is file-scoped, so the existing row covers
+the new export; the plan's meta-test task must confirm that registry still passes against the
+extended file (invariant 9). The auth registry (`tests/auth/_metaInfraContract.test.ts`) is not the
+right home — this is not an auth helper.
 
 ## 9. Alternatives considered
 
