@@ -25,6 +25,7 @@ import type {
   ParseWarning,
 } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
+import { extractEmbeddedObjects, type ExtractedEmbeddedObjects } from "@/lib/drive/embeddedObjects";
 import { enrichAgenda } from "@/lib/sync/enrichAgenda";
 import { enrichVenueGeocode } from "@/lib/sync/enrichVenueGeocode";
 
@@ -175,6 +176,70 @@ async function extractEmbeddedImages(
   ctx: EnrichContext,
   warnings: ParseWarning[],
 ): Promise<EmbeddedImageStub[]> {
+  // Self-sufficient XLSX-media path: derive the DIAGRAMS tab, its images, and the
+  // revision token from ctx.xlsxBytes + ctx.fileMeta alone — no Sheets-API method,
+  // so it works on the onboarding client (getFile/listFolder only). See spec §7.
+  if (ctx.xlsxBytes) {
+    let extracted: ExtractedEmbeddedObjects = {
+      allTabTitles: [],
+      objectsByTab: new Map(),
+      bytesByObjectId: new Map(),
+    };
+    try {
+      extracted = extractEmbeddedObjects(ctx.xlsxBytes);
+    } catch {
+      /* malformed xlsx → treat as no embedded objects (best-effort, never wedges the sync) */
+    }
+    const diagramsTitle = extracted.allTabTitles.find(
+      (title) => title.localeCompare("diagrams", undefined, { sensitivity: "accent" }) === 0,
+    );
+    if (!diagramsTitle) {
+      warnings.push(
+        warning("DIAGRAMS_TAB_MISSING", "No DIAGRAMS tab was found in the spreadsheet."),
+      );
+      return [];
+    }
+    const imageObjects = (extracted.objectsByTab.get(diagramsTitle) ?? []).filter(isImageLike);
+    if (imageObjects.length === 0) {
+      if (!parsed.diagrams.linkedFolder) {
+        warnings.push(
+          warning(
+            "DIAGRAMS_EMBEDDED_NONE_FOUND",
+            "DIAGRAMS tab was found, but no embedded images or linked folder were found.",
+          ),
+        );
+      }
+      return [];
+    }
+    const keptObjects = imageObjects.slice(0, MAX_TOTAL_DIAGRAM_ITEMS);
+    const droppedCount = imageObjects.length - keptObjects.length;
+    if (droppedCount > 0) {
+      warnings.push(
+        warning(
+          "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+          `DIAGRAMS tab has ${imageObjects.length} embedded images; dropped ${droppedCount} over the ${MAX_TOTAL_DIAGRAM_ITEMS} item cap.`,
+        ),
+      );
+    }
+    // Revision token from fileMeta (NOT getSpreadsheetRevisionId). It is an
+    // approval/identity token only — NOT used for the Apply re-export (§8.3) — but
+    // must be non-empty; mirror bindingToken's headRevisionId ?? modifiedTime fallback.
+    const sheetsRevisionId = ctx.fileMeta.headRevisionId || ctx.fileMeta.modifiedTime;
+    return keptObjects.map((object) => {
+      const bytes = extracted.bytesByObjectId.get(object.objectId) ?? null;
+      return {
+        sheetTab: diagramsTitle,
+        objectId: object.objectId,
+        mimeType: object.mimeType,
+        contentUrl: null,
+        ...(object.mediaPartName ? { mediaPartName: object.mediaPartName } : {}),
+        sheetsRevisionId,
+        embeddedFingerprint: bytes ? sha256Base64Url(bytes) : null,
+        recovery_disposition: bytes ? "normal" : "restage_required",
+        snapshotPath: null,
+      };
+    });
+  }
   if (!ctx.sheets && !driveClient.listSpreadsheetSheets) return [];
 
   const sheets = ctx.sheets ?? (await driveClient.listSpreadsheetSheets!(ctx.driveFileId));
