@@ -67,7 +67,7 @@ EXTRACT (Phase-1 enrich, xlsxBytes in-memory)
       → extractEmbeddedImages:
           if ctx.xlsxBytes present:
             { objectsByTab, bytesByObjectId } = extractEmbeddedObjects(ctx.xlsxBytes)   ← NEW module
-            objects = objectsByTab for the DIAGRAMS tab (accent-insensitive title match)
+            objects = objectsByTab for the DIAGRAMS tab (case-insensitive title match)
             for each object:
               bytes = bytesByObjectId.get(object.objectId)          ← in-memory, extract-time only
               embeddedFingerprint = sha256Base64Url(bytes)          ← the immutable content join key
@@ -100,6 +100,8 @@ SERVE + RENDER — unchanged; gallery renders once snapshotPath is populated
 
 ```ts
 export type ExtractedEmbeddedObjects = {
+  /** Every worksheet title in workbook order (incl. tabs with no images). */
+  allTabTitles: string[];
   /** Map keyed by the exact OOXML sheet title → its embedded image objects. */
   objectsByTab: Map<string, SpreadsheetEmbeddedObject[]>;
   /** Map objectId → raw image bytes, for extract-time fingerprinting only. */
@@ -111,7 +113,7 @@ export function extractEmbeddedObjects(xlsx: ArrayBuffer): ExtractedEmbeddedObje
 
 - Pure + synchronous. No Drive, no Supabase, no Storage. (This keeps it off the `_storageWriteSurfaceContract` allowlist and the `no-inline-email-normalization` surfaces.)
 - Uses `fflate.unzipSync(new Uint8Array(xlsx))` to read ZIP entries.
-- **Tab-agnostic:** returns objects for *every* worksheet keyed by title; the caller selects the DIAGRAMS tab. This keeps the module free of DIAGRAMS-specific policy and independently testable.
+- **Tab-agnostic + self-describing:** returns `allTabTitles` (every `<sheet name=…>` in `xl/workbook.xml`, so the caller can resolve the DIAGRAMS tab and distinguish "tab missing" from "tab present, no images" **without any Sheets-API call**) plus `objectsByTab` keyed by title. This keeps the module free of DIAGRAMS-specific policy and independently testable, and — critically — makes the extract path independent of `DriveClient.listSpreadsheetSheets`, which the onboarding client does not implement (`runOnboardingScan.ts:48`).
 
 ### 5.2 OOXML relationship walk (per tab)
 
@@ -182,62 +184,65 @@ Three optional-field additions. All are `?:` optional and set via conditional sp
 
 ## 7. Extract-time change — `extractEmbeddedImages` (`enrichWithDrivePins.ts:160-246`)
 
-Introduce a **dual source** for `imageObjects`, gated on `ctx.xlsxBytes`:
+The current function has two hard dependencies on the Drive client — the early-return gate `if (!ctx.sheets && !driveClient.listSpreadsheetSheets) return []` (`:166`) and the revision fetch `driveClient.getSpreadsheetRevisionId?.(…)` (`:201`). **Neither is satisfiable on the onboarding path**, whose client implements only `getFile`/`listFolder` (`runOnboardingScan.ts:48,223`). So merely adding `xlsxBytes` is insufficient — the function must branch into a **fully self-sufficient XLSX path** that derives the tab, the objects, and the revision token from `ctx.xlsxBytes` + `ctx.fileMeta` alone, touching no Sheets-API method.
 
 ```ts
-// after diagramsSheet is resolved (unchanged, :169-175):
-let imageObjects: SpreadsheetEmbeddedObject[];
-let xlsxBytesById: Map<string, Uint8Array> | null = null;
-
+// Replaces the body from the :166 gate onward:
 if (ctx.xlsxBytes) {
-  let extracted: ExtractedEmbeddedObjects = { objectsByTab: new Map(), bytesByObjectId: new Map() };
+  // ---- self-sufficient XLSX path: no listSpreadsheetSheets, no getSpreadsheetRevisionId ----
+  let extracted: ExtractedEmbeddedObjects = { allTabTitles: [], objectsByTab: new Map(), bytesByObjectId: new Map() };
   try {
-    extracted = extractEmbeddedObjects(ctx.xlsxBytes);          // best-effort
+    extracted = extractEmbeddedObjects(ctx.xlsxBytes);          // best-effort; malformed → empty
   } catch {
-    /* malformed xlsx → treat as no embedded objects */
+    /* treat as no embedded objects */
   }
-  xlsxBytesById = extracted.bytesByObjectId;
-  const forTab =
-    extracted.objectsByTab.get(diagramsSheet.title) ??
-    // fallback: accent-insensitive title match (corpus 'DIagrams' typo, mirrors :170)
-    findTabAccentInsensitive(extracted.objectsByTab, diagramsSheet.title);
-  imageObjects = (forTab ?? []).filter(isImageLike);
-} else {
-  imageObjects = (diagramsSheet.embeddedObjects ?? []).filter(isImageLike);   // legacy
+  // DIAGRAMS tab resolved from OOXML titles, mirroring the live case-insensitive match (:170):
+  const diagramsTitle = extracted.allTabTitles.find(
+    (t) => t.localeCompare("diagrams", undefined, { sensitivity: "accent" }) === 0,
+  );
+  if (!diagramsTitle) {
+    warnings.push(warning("DIAGRAMS_TAB_MISSING", "No DIAGRAMS tab was found in the spreadsheet."));
+    return [];
+  }
+  const imageObjects = (extracted.objectsByTab.get(diagramsTitle) ?? []).filter(isImageLike);
+  if (imageObjects.length === 0) {
+    if (!parsed.diagrams.linkedFolder) warnings.push(warning("DIAGRAMS_EMBEDDED_NONE_FOUND", …));
+    return [];
+  }
+  const keptObjects = imageObjects.slice(0, MAX_TOTAL_DIAGRAM_ITEMS);
+  if (imageObjects.length > keptObjects.length) warnings.push(warning("DIAGRAMS_EMBEDDED_CAP_EXCEEDED", …));
+
+  // Revision token from fileMeta (always present — DriveFileMeta.headRevisionId is required, :42),
+  // NOT getSpreadsheetRevisionId. sheetsRevisionId is an approval/identity token only; it is NOT
+  // used for the Apply re-export (§8.3), so its exact token space is immaterial.
+  const sheetsRevisionId = ctx.fileMeta.headRevisionId;
+
+  const embeddedImages: EmbeddedImageStub[] = [];
+  for (const object of keptObjects) {
+    const bytes = extracted.bytesByObjectId.get(object.objectId) ?? null;  // always present on this path
+    embeddedImages.push({
+      sheetTab: diagramsTitle,
+      objectId: object.objectId,
+      mimeType: object.mimeType,
+      ...(object.alt ? { alt: object.alt } : {}),
+      contentUrl: null,
+      ...(object.mediaPartName ? { mediaPartName: object.mediaPartName } : {}),
+      sheetsRevisionId,
+      embeddedFingerprint: bytes ? sha256Base64Url(bytes) : null,          // non-null on this path
+      recovery_disposition: bytes ? "normal" : "restage_required",         // "normal" on this path
+      snapshotPath: null,
+    });
+  }
+  return embeddedImages;
 }
+// ---- legacy Sheets-API path (UNCHANGED: existing :166 gate + :168-245 body) ----
+if (!ctx.sheets && !driveClient.listSpreadsheetSheets) return [];
+// …existing listSpreadsheetSheets → diagramsSheet → getSpreadsheetRevisionId → contentUrl bytes …
 ```
 
-The existing cap logic (`:190-199`, slice to `MAX_TOTAL_DIAGRAM_ITEMS` = 60, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED`) and the "no images found" warning (`:178-188`, `DIAGRAMS_EMBEDDED_NONE_FOUND`) are unchanged.
-
-Per-object mapping (`:212-243`) changes so the XLSX path fingerprints from the **in-memory** map instead of `getEmbeddedImageBytes`:
-
-```ts
-for (const object of keptObjects) {
-  let bytes: Uint8Array | null = null;
-  if (xlsxBytesById) {
-    bytes = xlsxBytesById.get(object.objectId) ?? null;         // XLSX path: always present
-  } else if (object.contentUrl && driveClient.getEmbeddedImageBytes) {
-    bytes = await driveClient.getEmbeddedImageBytes(ctx.driveFileId, object.objectId, object.contentUrl); // legacy
-  }
-  if (!bytes) warnings.push(warning("DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE", …));  // unchanged
-  embeddedImages.push({
-    sheetTab: diagramsSheet.title,
-    objectId: object.objectId,
-    mimeType: object.mimeType,
-    ...(object.alt ? { alt: object.alt } : {}),
-    contentUrl: object.contentUrl ?? null,                      // XLSX path: null
-    ...(object.mediaPartName ? { mediaPartName: object.mediaPartName } : {}),
-    sheetsRevisionId,
-    embeddedFingerprint: bytes ? sha256Base64Url(bytes) : null,
-    recovery_disposition: bytes ? "normal" : "restage_required",
-    snapshotPath: null,
-  });
-}
-```
-
-`sheetsRevisionId` is still captured via `driveClient.getSpreadsheetRevisionId?.(…)` (`:201`) exactly as today — its meaning (immutable approval token / cross-sync identity) is unchanged. **It is NOT used for the Apply re-export** (see §8.3).
-
-Note: on the XLSX path, `bytes` is always present for a returned object (the object exists precisely because its bytes were in `xl/media`), so `embeddedFingerprint` is non-null and `recovery_disposition === "normal"`. The null-fingerprint / `restage_required` branch remains reachable only on the legacy `contentUrl` path.
+- The legacy branch is byte-for-byte the current `:166-245` logic (Sheets list, `getSpreadsheetRevisionId`, `getEmbeddedImageBytes(contentUrl)`), preserving all existing tests. It runs only when `ctx.xlsxBytes` is absent (dev panel / mocks).
+- On the XLSX path, `bytes` is always present for a returned object (it exists precisely because its bytes were in `xl/media`), so `embeddedFingerprint` is non-null and `recovery_disposition === "normal"`. The null-fingerprint / `restage_required` state is reachable only on the legacy path.
+- Because the XLSX path owns tab resolution, cap, and revision itself, the `MAX_TOTAL_DIAGRAM_ITEMS` cap and the `DIAGRAMS_TAB_MISSING` / `DIAGRAMS_EMBEDDED_NONE_FOUND` / `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warnings are reproduced (same codes, no new codes). `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` (`:202-210`) and `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` (`:224-229`) are legacy-path-only.
 
 ---
 
@@ -267,15 +272,17 @@ Port body (XLSX branch, inserted before the existing `if (!entry.contentUrl) ret
 ```ts
 if (!entry.contentUrl) {
   if (!entry.mediaPartName || !deps.fetchXlsxBytes) return null;
-  let xlsx: ArrayBuffer;
   try {
-    xlsx = await deps.fetchXlsxBytes();                   // memoized current export, once per pass (§8.2)
-  } catch { return null; }                                // Drive fault → fail-soft
-  return findMediaByFingerprint(xlsx, entry.mediaPartName, entry.embeddedFingerprint);
-  // null if no media hashes to the fingerprint
+    const xlsx = await deps.fetchXlsxBytes();             // memoized current export, once per pass (§8.2)
+    return findMediaByFingerprint(xlsx, entry.mediaPartName, entry.embeddedFingerprint);
+  } catch {
+    return null;                                          // Drive fault OR unzip/parse throw → fail-soft
+  }
 }
 // …existing contentUrl branch unchanged…
 ```
+
+**The `try` wraps BOTH the export and `findMediaByFingerprint`** — a malformed-XLSX unzip throw inside the finder must return `null` (fail-soft, `partial_failure`), never propagate. If it escaped the port, `snapshotAssets` would `markPendingSnapshotDeleteStarted` and rethrow (`snapshotAssets.ts:193-195`), aborting the entire Apply — the opposite of the promised partial-failure degradation.
 
 `findMediaByFingerprint(xlsx, partHint, fingerprint)`:
 - unzip once; try `partHint` first; if its `sha256Base64Url` === `fingerprint`, return those bytes;
@@ -318,14 +325,19 @@ Wire the recovery `fetchEmbeddedImageBytes` port (at `:761`) to build the same p
 
 ## 9. Write-through completeness matrix (extract paths)
 
-| Caller | File:line | XLSX bytes in scope? | Action |
+Every path that produces a ParseResult which can be **applied** (snapshotted) must reach the XLSX path with bytes in scope. The self-sufficient extract path (§7) means a caller needs only to (a) have XLSX bytes and (b) pass them as `ctx.xlsxBytes` — no Sheets-client capability is required.
+
+| Caller | File:line | Bytes available? | Action |
 |---|---|---|---|
 | Scheduled cron sync | `runScheduledCronSync.ts:2581` | Yes — `xlsxBytes` @ `:2491`/`:2511` | Add `...(xlsxBytes !== undefined ? { xlsxBytes } : {})` to the ctx |
-| Onboarding scan | `runOnboardingScan.ts:947` | Yes — `bytes` @ `:945` | Add `...(bytes ? { xlsxBytes: bytes } : {})` to the ctx |
-| Pending-ingestion retry | `.../pending-ingestions/[id]/retry/route.ts:170` | No — fetches markdown only (`fetchSheetAsMarkdownAtRevision`, `:159`) | Swap to `fetchSheetMarkdownAndBytesAtRevision`, pass `xlsxBytes: result.bytes` |
-| Dev panel preview | `app/admin/dev/actions.ts:139` | No — `mockDriveClient`, preview-only, no Apply | N/A — legacy path (embedded images empty in preview) |
+| Onboarding scan (main) | `runOnboardingScan.ts:947` | Yes — `bytes` @ `:945`; default `fetchSheetMarkdownWithBinding` returns `bytes` (`fetch.ts:522,566`) | Add `...(bytes ? { xlsxBytes: bytes } : {})` to the ctx; **update the DI callback ctx type** at `:161-165` to include `xlsxBytes?: ArrayBuffer` (MEDIUM #2) |
+| Wizard revision-race restage | `applyStaged.ts:1596-1607` (injects `fetchMarkdownWithBinding`) | **No** — injected fetch returns `{ binding, markdown }` only (`fetchSheetAsMarkdownAtRevision`, `:1603`) | Swap the injected fetch to `fetchSheetMarkdownAndBytesAtRevision`, return `{ binding, markdown, bytes }` so `prepareOne` (`:945`) has `bytes` |
+| Pending-ingestion retry | `.../pending-ingestions/[id]/retry/route.ts:170` | **No** — fetches markdown only (`fetchSheetAsMarkdownAtRevision`, `:159`) | Swap to `fetchSheetMarkdownAndBytesAtRevision`; pass `xlsxBytes: result.bytes` to the ctx |
+| Dev panel preview | `app/admin/dev/actions.ts:139` | No — `mockDriveClient`, preview-only, never applied | N/A — legacy path (embedded images empty in preview; harmless) |
 
-Apply side is a single chokepoint — all three Apply callers (`applyStaged.ts:1261`, `runManualStageForFirstSeen.ts:89/94`, `runScheduledCronSync.ts:2798`) route through `makeSnapshotAssetsForApply`, so the §8.1 port wiring reaches every one.
+**Why self-sufficiency is load-bearing here:** onboarding's client (`runOnboardingScan.ts:48,223`) and the wizard-restage path both run through `prepareOnboardingFiles`/`enrichWithDrivePins` with a client that has no `listSpreadsheetSheets`/`getSpreadsheetRevisionId`. Without §7's self-sufficient path, adding `xlsxBytes` alone would still yield `[]` (early return at the old `:166` gate). With §7, bytes are the only requirement.
+
+Apply side is a single chokepoint — all three Apply callers (`applyStaged.ts:1261`, `runManualStageForFirstSeen.ts:89/94`, `runScheduledCronSync.ts:2798`) route through `makeSnapshotAssetsForApply`, so the §8.1 port wiring reaches every one. The wizard restage's ParseResult is applied through this same chokepoint.
 
 ---
 
@@ -347,7 +359,7 @@ Apply side is a single chokepoint — all three Apply callers (`applyStaged.ts:1
 | DIAGRAMS tab present, no `<drawing>` / no media | `imageObjects=[]` → existing none-found warning. |
 | DIAGRAMS tab has only non-raster media (emf/wmf/svg) | Those are dropped at extract → `imageObjects=[]` → none-found warning (no new code). |
 | `> 60` embedded images | Existing cap: keep 60, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` (`:190-199`). |
-| Sheets title ≠ OOXML title (whitespace/casing) | Caller falls back to accent-insensitive scan of `objectsByTab` keys (mirrors `:170`). |
+| DIAGRAMS tab title casing (corpus `DIagrams` typo) | Resolved from `allTabTitles` via `localeCompare("diagrams", undefined, { sensitivity: "accent" })` — **case-insensitive** (handles the capitalization typo). This is accent-SENSITIVE and does not trim whitespace, exactly mirroring the live match at `:170`; matching that existing behavior is intentional (no scope creep into accent/whitespace normalization). |
 | Apply: current export fails (Drive fault) | Port returns `null` → no upload → `partial_failure` → retried next sync. |
 | Apply: image drifted since extract (no media hashes to fingerprint) | Port returns `null` → `partial_failure`; unrelated cell edits do NOT cause this (§8.3). |
 | Recovery: `driveFileId` unavailable / export fails | Port returns `null`; entry stays unresolved for a later pass. Legacy `restage_required` entries are still skipped by recovery's existing filter. |
@@ -366,7 +378,7 @@ Add `fflate` (`unzipSync`) to `package.json` **dependencies**. Rationale: SheetJ
 Concrete failure mode stated for each.
 
 1. **`extractEmbeddedObjects` — real OOXML fixture.** Build a committed XLSX fixture (or reuse a captured test-show export trimmed to DIAGRAMS + INFO tabs) with ≥1 PNG on DIAGRAMS and ≥1 image on INFO. Assert: DIAGRAMS objects returned, INFO objects **excluded** (attribution correctness — catches "dump all `xl/media`" bug); `bytesByObjectId` bytes hash to the objects' `objectId` suffix; a non-raster media part is dropped (catches raster-filter bug); malformed input → empty maps, no throw.
-2. **`extractEmbeddedImages` dual-path.** With `ctx.xlsxBytes` set (fixture) → entries carry `contentUrl: null`, non-null `embeddedFingerprint`, `mediaPartName`, `recovery_disposition: "normal"` (catches "still routes through Sheets `contentUrl`"). Without `xlsxBytes` (existing `clientWithEmbedded` mock, `tests/sync/embeddedImages.test.ts:55-140`) → **byte-identical existing behavior** (catches legacy-path regression; expected-entry `toEqual` at `:117-140` unchanged because `mediaPartName` is absent, not `undefined`). Cap + none-found cases still pass.
+2. **`extractEmbeddedImages` dual-path + self-sufficiency.** With `ctx.xlsxBytes` set (fixture) **and a Drive client that implements only `getFile`/`listFolder` (onboarding shape — no `listSpreadsheetSheets`, no `getSpreadsheetRevisionId`)** → entries are still produced, carrying `contentUrl: null`, non-null `embeddedFingerprint`, `mediaPartName`, `recovery_disposition: "normal"`, `sheetTab` = the resolved DIAGRAMS title, and `sheetsRevisionId` = `fileMeta.headRevisionId`. This is the direct HIGH-#1 regression guard: it fails if the XLSX path early-returns on the missing Sheets method. Also assert `DIAGRAMS_TAB_MISSING` when the OOXML has no diagrams-titled tab and `DIAGRAMS_EMBEDDED_NONE_FOUND` when the tab exists but has no raster media. Without `xlsxBytes` (existing `clientWithEmbedded` mock, `tests/sync/embeddedImages.test.ts:55-140`) → **byte-identical existing behavior** (legacy-path regression; expected-entry `toEqual` at `:117-140` unchanged because `mediaPartName` is absent, not `undefined`).
 3. **Apply port re-export.** Given a persisted entry with `contentUrl:null` + `mediaPartName` + `embeddedFingerprint`, inject `fetchXlsxBytes` returning a fixture whose media matches the fingerprint → upload happens, `snapshotPath` set (catches "port returns null for XLSX-media → never snapshots"). Fingerprint-mismatch fixture → `null` → no upload, `partial_failure` (catches drift handling). Assert re-export is memoized (one `fetchXlsxBytes` call for N entries).
 4. **Recovery port re-export.** `driveFileId` sourced from `previewShow` → an unresolved XLSX-media entry re-exports and resolves; legacy `restage_required` entries stay skipped.
 5. **Retry route byte wiring.** After the swap, the retry path produces embedded-image entries from a fixture export (catches "retry silently drops diagrams").
@@ -399,6 +411,7 @@ Cite these to pre-empt re-derivation:
 6. **Raster-only is intentional scope**, aligned with the pre-existing `ALLOWED_DIAGRAM_MIMES` allowlist; non-raster media is dropped at extract rather than captured-then-rejected downstream. §3, §5.3.
 7. **`fflate` as a direct dep is required** — SheetJS does not expose `xl/media`. §12.
 8. **Legacy `contentUrl` path is retained** for byte-less callers (dev panel/mocks); it is not dead code and its tests must stay green. §7.
+9. **The XLSX extract path is deliberately self-sufficient** — it derives the DIAGRAMS tab from `extractEmbeddedObjects(...).allTabTitles` and the revision from `ctx.fileMeta.headRevisionId`, using **no** `listSpreadsheetSheets`/`getSpreadsheetRevisionId`. This is required, not optional: the onboarding and wizard-restage clients implement only `getFile`/`listFolder` (`runOnboardingScan.ts:48,223`), so a Sheets-API-dependent extract would silently yield `[]` there. §7, §9. (This was the round-1 HIGH finding; the fix is structural.)
 
 ---
 
@@ -412,7 +425,10 @@ Cite these to pre-empt re-derivation:
 - `lib/drive/fetch.ts:374-381` `bindingToken`; `:383-403` `fetchFileForExport`; `:452-498` `fetchSheetMarkdownAndBytesAtRevision`; `:479` `fetchXlsxExportBytes`.
 - `lib/data/diagrams.ts:30-41` `ALLOWED_DIAGRAM_MIMES`/`isAllowedDiagramMime`.
 - `lib/sync/runScheduledCronSync.ts:1753-1778` `listSpreadsheetSheets` (mask `:1765`, `embeddedObjects:[]` `:1775`); `:1782-1794` `getSpreadsheetRevisionId`; `:2491`/`:2511` `xlsxBytes`; `:2580-2586` enrich ctx; `:2617-2621` `extractSourceAnchors`; `:2798` Apply wiring.
-- `lib/sync/runOnboardingScan.ts:945` `bytes`; `:947-951` enrich ctx; `:961-980` `extractSourceAnchors` (try/catch).
+- `lib/sync/runOnboardingScan.ts:48` reduced-client doc ("only `getFile` + `listFolder`"); `:161-165` `RunOnboardingScanDeps.enrichWithDrivePins` DI ctx type (`{driveFileId, fileMeta, binding}` — needs `xlsxBytes?`); `:223` local `defaultDriveClient`; `:920-951` `prepareOnboardingFiles`/`prepareOne`; `:945` `bytes`; `:947-951` enrich ctx; `:961-980` `extractSourceAnchors` (try/catch).
+- `lib/drive/fetch.ts:513-567` `fetchSheetMarkdownWithBinding` (returns `{ binding, markdown, bytes }`, `:522`,`:566`).
+- `lib/sync/applyStaged.ts:1596-1607` wizard revision-race restage (injected `fetchMarkdownWithBinding` returns markdown-only, `:1601-1605`); `:1261` Apply chokepoint.
+- `lib/sync/enrichWithDrivePins.ts:40-47` `DriveFileMeta` (`headRevisionId: string` required, `:42`).
 - `app/api/admin/pending-ingestions/[id]/retry/route.ts:150-182` `prepareFirstSeenStage` (markdown-only `:159`, enrich `:170`).
 - `components/crew/DiagramsBlock.tsx:56-88` gallery mapping; `:103` `shouldHideDiagrams`. `app/api/asset/diagram/[show]/[rev]/[key]/route.ts:66-83` match; `lib/visibility/emptyState.ts:105-110` `shouldHideDiagrams`.
 - Tests: `tests/sync/defaultDriveClientSheetsFieldsMask.test.ts:51-52,59-62,70-71`; `tests/sync/realSheetsListSpreadsheetSheetsSmoke.test.ts:26-32`; `tests/sync/embeddedImages.test.ts:55-140`; `tests/sync/_storageWriteSurfaceContract.test.ts:7-13,28-44`; `tests/sync/driveClientImplCompleteness.test.ts:16-25`.
