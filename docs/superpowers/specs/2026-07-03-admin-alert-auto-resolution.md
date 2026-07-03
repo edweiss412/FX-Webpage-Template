@@ -70,7 +70,7 @@ Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
 | EMBEDDED_RECOVERY_REQUIRES_RESTAGE | **NEW** | `assetRecovery.ts:565`; `applyStaged.ts:1069,1072` | restage-only nulls stuck | **S3** |
 | PENDING_SNAPSHOT_PROMOTE_STUCK | **NEW** | `lib/sync/diagramGc.ts:298-312` | promote started >15min, not promoted | **S4**: gc-cycle anti-join reconcile (promote succeeds at `promoteSnapshot.ts:286`) |
 | PENDING_SNAPSHOT_DELETE_STUCK | **NEW** | `diagramGc.ts:315-328` | delete claim expired, not promoted | **S4** |
-| PENDING_SNAPSHOT_ROLLBACK_STUCK | **NEW** | `promoteSnapshot.ts:132-141` | rollback threw | **S4**: solely at rollback completion (`clearRolledBack`, `promoteSnapshot.ts:158-175`) — no gc sweep (no DB predicate survives the reset) |
+| PENDING_SNAPSHOT_ROLLBACK_STUCK | **NEW** | `promoteSnapshot.ts:132-141` | rollback threw | **S4**: at the two rollback-completion points — `clearRolledBack` (`promoteSnapshot.ts:158-175`) and `repairSnapshotRollback` repaired branch (`:410-440`) — no gc sweep (no DB predicate survives the reset) |
 | WEBHOOK_TOKEN_INVALID | **NEW** | `app/api/drive/webhook/route.ts:277,287` | channel receiving invalid deliveries | **S5**: verified delivery for same `channel_id`; watch-reconcile resolves rows for non-active channels |
 | TILE_PROJECTION_FETCH_FAILED | **NEW** | `app/show/[slug]/[shareToken]/_CrewShell.tsx:157` | projection sub-fetch failing on crew page | **S6**: healthy shell render (`failedKeys.length === 0`, `_CrewShell.tsx:153`) |
 | TILE_SERVER_RENDER_FAILED | EVENT* | `components/crew/WrappedSection.tsx:95`; `components/shared/TileServerFallback.tsx:88` | a tile's server render threw | *State-shaped but **no aggregation point**: tiles render/stream independently per-request; the open row is deduped per (show, code) with `context.tileId` replaced on re-raise, so tile A's success cannot prove tile B (which may hold the row) is healthy. Auto-resolving on any tile success would mask live failures. Manual; per-tile keyed redesign → BACKLOG. |
@@ -104,9 +104,8 @@ A new bulk variant `resolveAdminAlerts({ showId, codes })` is added beside `reso
 (`lib/adminAlerts/resolveAdminAlert.ts`) — same filters (`resolved_at IS NULL`, exact `show_id`
 match incl. NULL), `.in("code", codes)`, sets only `resolved_at`, throws on error (invariant-9
 posture; registered per §8). **Guard:** `codes.length === 0` returns early as a no-op — no Supabase
-call is issued (an empty `.in()` list must never reach PostgREST). A focused unit test pins this
-guard (AC-level: covered under AC3's family-minus-current test where the "minus" set can be the
-whole family).
+call is issued (an empty `.in()` list must never reach PostgREST). Dedicated tests are required
+(AC12), not incidental coverage via AC3.
 
 ### S1 — SHOW_UNPUBLISHED: resolve in `publish_show` (migration)
 
@@ -201,11 +200,6 @@ Additionally, `ASSET_RECOVERY_DRIFT_COOLDOWN` alone is resolved whenever an asse
 condition it reports is over even if the run then fails for a different reason (which raises its own
 code).
 
-Additionally, `ASSET_RECOVERY_DRIFT_COOLDOWN` alone is resolved whenever an assetRecovery run
-**proceeds past the cooldown gate** (`assetRecovery.ts:445-450` returns inactive) — the throttling
-condition it reports is over even if the run then fails for a different reason (which raises its own
-code).
-
 ### S4 — Diagram-GC stuck-alert reconcile
 
 In the same gc cycle that raises (`emitStuckAlerts`, `diagramGc.ts:295-330`): resolve each of
@@ -216,12 +210,20 @@ promote_started_at < now() - interval '15 minutes'`, `diagramGc.ts:307-310`; del
 `delete_started_at is not null and promoted_at is null and claim_expires_at < now()`,
 `diagramGc.ts:323-327`).
 
-`PENDING_SNAPSHOT_ROLLBACK_STUCK` resolves **solely at `clearRolledBack` success**
-(`promoteSnapshot.ts:158-175`, via the same `promoteTx`): a completed rollback resets
-`promote_started_at` / `claim_token` / `claimed_at` to NULL, which is indistinguishable from a
-never-promoted row, so no DB predicate can drive a gc-side anti-join for this code — the code
-point where the rollback completes is the only sound resolve trigger. It is deliberately NOT part
-of the gc sweep.
+`PENDING_SNAPSHOT_ROLLBACK_STUCK` resolves at **rollback-completion code points only** — there are
+exactly two, and both get the hook:
+
+1. `clearRolledBack` success (`promoteSnapshot.ts:158-175`, via the same `promoteTx`) — the
+   automatic retry path;
+2. the `repairSnapshotRollback` **`repaired`** branch (`lib/sync/promoteSnapshot.ts:410-440`,
+   reached via the admin repair route
+   `app/api/admin/snapshot-rollback/[id]/repair/route.ts:47`) — the catalog-prescribed manual
+   repair path, which performs the same ledger reset.
+
+A completed rollback resets `promote_started_at` / `claim_token` / `claimed_at` to NULL, which is
+indistinguishable from a never-promoted row, so no DB predicate can drive a gc-side anti-join for
+this code — the completion code points are the only sound resolve triggers. It is deliberately NOT
+part of the gc sweep.
 
 Cadence: the gc cron (`app/api/cron/diagram-gc/route.ts:10`) already runs these queries; the
 reconcile adds inverted-predicate UPDATEs in the same pass. No advisory lock (not required for
@@ -234,10 +236,14 @@ Two triggers, both global-scoped (`show_id IS NULL`, matching the raise):
 1. **Verified delivery:** in the webhook route, once the delivery passes both the token check
    (`route.ts:274`) and resource-id check (`route.ts:284`) for the active channel, resolve open
    `WEBHOOK_TOKEN_INVALID` rows whose `context->>'channel_id'` equals that channel's id.
-2. **Stale channel:** in the watch-reconcile healthy paths that already resolve
-   `WATCH_CHANNEL_ORPHANED` (`lib/drive/watch.ts:658,692,720`), also resolve open
-   `WEBHOOK_TOKEN_INVALID` rows whose `context->>'channel_id'` does **not** match the now-active
-   channel id (the misconfigured channel no longer exists; the condition is moot).
+2. **Stale channel:** in the watch-reconcile paths that already resolve
+   `WATCH_CHANNEL_ORPHANED`, split by whether an active channel exists:
+   - live-channel paths (`lib/drive/watch.ts:692,720`): resolve open `WEBHOOK_TOKEN_INVALID` rows
+     whose `context->>'channel_id'` does **not** match the now-active channel id (the misconfigured
+     channel no longer exists; the condition is moot);
+   - the no-folder-configured path (`lib/drive/watch.ts:655-667`): there is no active channel id to
+     compare against — resolve **all** open `WEBHOOK_TOKEN_INVALID` rows, since with no watched
+     folder no webhook deliveries are expected and every channel-token alert is moot.
 
 Accepted trade-off (do not relitigate): a probing attack that sends bad-token deliveries to a live,
 otherwise-healthy channel will see its alert auto-resolved at the next legitimate delivery. The
@@ -318,8 +324,9 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
   resolve one whose row still matches the stuck predicate (expectations derived from fixture rows,
   not hardcoded).
 - **AC6** A verified webhook delivery resolves an open token-invalid alert with matching
-  `channel_id`; watch reconcile resolves one with a non-active `channel_id`; an alert for the active
-  channel with no intervening valid delivery stays open.
+  `channel_id`; watch reconcile resolves one with a non-active `channel_id`; the no-folder-configured
+  reconcile path resolves all open token-invalid rows; an alert for the active channel with no
+  intervening valid delivery stays open.
 - **AC7** Healthy `_CrewShell` render resolves an open projection alert; a render with `tileErrors`
   does not, and still raises.
 - **AC8** Structural: the lifecycle registry (§8) classifies every `ADMIN_ALERTS_CODES` entry and
@@ -331,6 +338,10 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
 - **AC11** Invariant-8 UI gate: `/impeccable critique` AND `/impeccable audit` run on the affected
   diff (S6 touches `app/show/[slug]/[shareToken]/_CrewShell.tsx`), with every HIGH/CRITICAL finding
   fixed or explicitly deferred via a `DEFERRED.md` entry, BEFORE the whole-diff cross-model review.
+- **AC12** `resolveAdminAlerts` helper contract: (a) `codes: []` → returns without issuing any
+  Supabase call (spy/mock asserts zero client invocations); (b) returned DB error → throws;
+  (c) thrown query fault → throws — mirroring the existing `resolveAdminAlert` behavioral test at
+  `tests/notify/_metaInfraContract.test.ts:177`.
 
 Anti-tautology notes for the test plan (binding on the plan): S2/S3/S4 assertions read
 `admin_alerts` rows directly (not UI or log output); AC3's "raises one, resolves three" derives the
@@ -347,10 +358,12 @@ a future code cannot land without declaring its lifecycle, and an auto code cann
 site silently. The new `resolveAdminAlerts` bulk helper lands in
 `lib/adminAlerts/resolveAdminAlert.ts`, which is already registered in the notify infra-contract
 registry (`tests/notify/_metaInfraContract.test.ts:6-17`, `REGISTERED` row
-`lib/adminAlerts/resolveAdminAlert.ts`) — the registry is file-scoped, so the existing row covers
-the new export; the plan's meta-test task must confirm that registry still passes against the
-extended file (invariant 9). The auth registry (`tests/auth/_metaInfraContract.test.ts`) is not the
-right home — this is not an auth helper.
+`lib/adminAlerts/resolveAdminAlert.ts`) — the file-scoped registry row covers the contract SCAN,
+but the registry row alone is not behavioral coverage: the existing behavioral test at
+`tests/notify/_metaInfraContract.test.ts:177` ("resolveAdminAlert throws for returned DB errors and
+thrown query faults") must gain an analogous case for `resolveAdminAlerts` (returned-error AND
+thrown-fault both throw), alongside the AC12 empty-codes test. The auth registry
+(`tests/auth/_metaInfraContract.test.ts`) is not the right home — this is not an auth helper.
 
 ## 9. Alternatives considered
 
