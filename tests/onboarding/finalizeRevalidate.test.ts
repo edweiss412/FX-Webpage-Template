@@ -644,6 +644,149 @@ describe("onboarding finalize-cas post-commit revalidate", () => {
       (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
     ).not.toContain(showCacheTag("blocked-show-1"));
   });
+
+  // audit idx18/#102 — the THROW/500 sibling of the 409 guard above.
+  //
+  // A MIXED batch can durably commit an EARLY row (its withRowTx resolves, its show id lands in
+  // affectedShowIds) and THEN an unexpected fault escapes a LATER row's callback → the throw
+  // propagates through withTx → the route's outer catch → typed 500. Pre-fix the post-commit
+  // revalidate loop sat INSIDE the try (after withTx), so the throw skipped it entirely and the
+  // durably-applied show served a stale crew cache until the 300s TTL. The fix moves the loop to a
+  // `finally`, so it runs on success, on the 409-Response path, AND on the throw/500 path.
+  //
+  // FIX PROOF (fails pre-fix): the committed show is revalidated even though the request 500s. With
+  // the pre-fix in-try loop, the throw jumps straight to the catch and revalidateTag is never called.
+  test("revalidates an EARLY committed show even though a LATER row throws → 500 (finally, not in-try)", async () => {
+    const db = new FakeFinalizeCasDb();
+    // Ordered by drive_file_id: "aa-early" commits first, then "zz-throws" faults out of the loop.
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "aa-early",
+        show_id: "committed-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+      {
+        wizard_session_id: W1,
+        drive_file_id: "zz-throws",
+        show_id: "throw-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = [];
+    db.publishedShowIds = [];
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await handleOnboardingFinalizeCas(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      {
+        ...casDeps(db),
+        // aa-early applies via the real fake path (commits → affectedShowIds). zz-throws raises an
+        // UNEXPECTED error out of the per-row callback AFTER the sibling committed durably.
+        withRowTx: async (driveFileId, fn) => {
+          if (driveFileId === "zz-throws") {
+            throw new Error("kaboom: unexpected per-row fault escaping the loop");
+          }
+          return fn(db, casPipelineTx());
+        },
+      },
+    );
+
+    // The throw escapes runFinalizeCas → the route's outer catch → typed 500 (never empty).
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { code: string };
+    expect(body.code).toBe("ONBOARDING_FINALIZE_INTERNAL_ERROR");
+
+    // CRITICAL: despite the 500, the EARLY committed show IS revalidated with { expire: 0 }.
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("committed-show-1"), { expire: 0 });
+    // The throwing sibling never committed, so it is NOT revalidated.
+    expect(
+      (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+    ).not.toContain(showCacheTag("throw-show-1"));
+    errorSpy.mockRestore();
+  });
+
+  // audit idx18 HIGH-1 — publish flip (OUTER tx) vs applyShadow (independent row tx) durability.
+  //
+  // affectedShowIds (applyShadow, route ~line 484) commits in its OWN withRowTx → durable even when
+  // the OUTER tx throws. publishedShowIds (the Held→Live publish flip, route ~line 800) runs in the
+  // OUTER tx BEFORE deleteWizardDeferrals / promoteSettings / markFinalCasDone — if one of THOSE
+  // throws, the outer tx ROLLS BACK and the flip is undone. So the finally must bust applyShadow ids
+  // ALWAYS but publish-flip ids ONLY when the outer tx committed.
+  //
+  // FIX PROOF (fails pre-split): with a single affectedShowIds set the finally busts the publish id
+  // even though the outer tx rolled it back — the not.toContain below fails.
+  test("throw AFTER the publish loop: applyShadow row revalidated, but the ROLLED-BACK publish flip is NOT", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["fs-1"];
+    db.publishedShowIds = ["pub-show-1"];
+
+    // Fault the LAST outer-tx step (markFinalCasDone), which runs AFTER the publish loop already
+    // populated publishedShowIds → the outer tx rolls back, undoing the Held→Live flip.
+    const origQuery = db.query.bind(db);
+    db.query = async function <T>(sql: string, params: readonly unknown[] = []) {
+      const n = sql.replace(/\s+/g, " ").trim();
+      if (n.startsWith("update public.wizard_finalize_checkpoints")) {
+        throw new Error("kaboom: markFinalCasDone faulted → outer tx rolls back");
+      }
+      return origQuery<T>(sql, params);
+    } as typeof db.query;
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await handleOnboardingFinalizeCas(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      casDeps(db),
+    );
+    expect(response.status).toBe(500);
+
+    const tags = (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    // The applyShadow row committed in its OWN withRowTx → durable → busted even on the outer throw.
+    expect(tags).toContain(showCacheTag("existing-show-1"));
+    // The publish flip lived in the OUTER tx that rolled back → its cache must NOT be busted.
+    expect(tags).not.toContain(showCacheTag("pub-show-1"));
+    errorSpy.mockRestore();
+  });
+
+  test("SUCCESS: BOTH the applyShadow row AND the committed publish flip are revalidated", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["fs-1"];
+    db.publishedShowIds = ["pub-show-1"];
+
+    const response = await handleOnboardingFinalizeCas(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      casDeps(db),
+    );
+    expect(response.status).toBe(200);
+
+    const tags = (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    // Both the durable applyShadow row and the committed publish flip are busted on success.
+    expect(tags).toContain(showCacheTag("existing-show-1"));
+    expect(tags).toContain(showCacheTag("pub-show-1"));
+  });
 });
 
 describe("onboarding finalize-cas STREAM defers revalidate through after()", () => {
@@ -678,5 +821,110 @@ describe("onboarding finalize-cas STREAM defers revalidate through after()", () 
 
     for (const fn of captured) fn();
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("existing-show-1"), { expire: 0 });
+  });
+
+  // audit idx18/#102 — streaming sibling of the non-streaming throw guard.
+  //
+  // The streaming handler defers its post-commit revalidate through deferRevalidate(after()).
+  // Pre-fix that deferRevalidate call sat INSIDE the try (after withTx), so an unexpected fault out
+  // of a later row jumped to the catch and the defer was NEVER REGISTERED — the durably-applied
+  // early show stranded on the stale crew cache. The fix registers the defer in a `finally`.
+  //
+  // FIX PROOF (fails pre-fix): deferRevalidate is registered (captured length 1) despite the throw,
+  // and running it revalidates the committed show. Pre-fix `captured` is empty.
+  test("streaming handler still REGISTERS the post-commit revalidate when a later row throws (finally)", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "aa-early",
+        show_id: "committed-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+      {
+        wizard_session_id: W1,
+        drive_file_id: "zz-throws",
+        show_id: "throw-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = [];
+    db.publishedShowIds = [];
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const captured: Array<() => void> = [];
+    const res = await handleOnboardingFinalizeCasStream(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      {
+        ...casDeps(db),
+        deferRevalidate: (fn: () => void) => captured.push(fn),
+        withRowTx: async (driveFileId, fn) => {
+          if (driveFileId === "zz-throws") {
+            throw new Error("kaboom: unexpected per-row fault escaping the loop");
+          }
+          return fn(db, casPipelineTx());
+        },
+      },
+    );
+    const text = await res.text(); // drain the NDJSON so start() runs to completion
+    // The stream itself is always 200; the fault surfaces as a terminal error result frame.
+    expect(res.status).toBe(200);
+    expect(text).toContain("ONBOARDING_FINALIZE_INTERNAL_ERROR");
+
+    // FIX PROOF: the defer WAS registered despite the throw, and it is still deferred (not fired).
+    expect(captured).toHaveLength(1);
+    expect(order.filter((o) => o.startsWith("revalidate:"))).toHaveLength(0);
+
+    for (const fn of captured) fn();
+    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("committed-show-1"), { expire: 0 });
+    errorSpy.mockRestore();
+  });
+
+  // audit idx18 HIGH-1 (streaming) — same publish-flip rollback guard as the non-streaming sibling.
+  test("streaming: a ROLLED-BACK publish flip is NOT in the deferred revalidate, but the applyShadow row IS", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        wizard_session_id: W1,
+        drive_file_id: "existing-1",
+        show_id: "existing-show-1",
+        applied_by_email: "doug@example.com",
+        applied_at_intent: "2026-05-08T12:34:56.789Z",
+        payload: shadowPayload(),
+      },
+    ];
+    db.sessionCreatedDriveIds = ["fs-1"];
+    db.publishedShowIds = ["pub-show-1"];
+
+    const origQuery = db.query.bind(db);
+    db.query = async function <T>(sql: string, params: readonly unknown[] = []) {
+      const n = sql.replace(/\s+/g, " ").trim();
+      if (n.startsWith("update public.wizard_finalize_checkpoints")) {
+        throw new Error("kaboom: markFinalCasDone faulted → outer tx rolls back");
+      }
+      return origQuery<T>(sql, params);
+    } as typeof db.query;
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const captured: Array<() => void> = [];
+    const res = await handleOnboardingFinalizeCasStream(
+      new Request("https://x/finalize-cas", { method: "POST" }),
+      { ...casDeps(db), deferRevalidate: (fn: () => void) => captured.push(fn) },
+    );
+    await res.text();
+    expect(res.status).toBe(200);
+
+    // One deferred callback registered (via the finally); running it must bust the durable
+    // applyShadow row but NOT the rolled-back publish flip.
+    expect(captured).toHaveLength(1);
+    for (const fn of captured) fn();
+    const tags = (revalidateTag as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(tags).toContain(showCacheTag("existing-show-1"));
+    expect(tags).not.toContain(showCacheTag("pub-show-1"));
+    errorSpy.mockRestore();
   });
 });

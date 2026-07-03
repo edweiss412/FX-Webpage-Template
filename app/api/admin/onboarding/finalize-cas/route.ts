@@ -681,10 +681,14 @@ async function markFinalCasDone(tx: FinalizeCasRouteTx, wizardSessionId: string)
 async function runFinalizeCas(
   tx: FinalizeCasRouteTx,
   deps: ReturnType<typeof depsWithDefaults>,
-  // nav-perf tag-caching (Task 6): accumulates every show whose rendered crew DATA this final CAS
-  // mutates — applied existing-show shadows + the first-seen publish flip. The handler revalidates
-  // each AFTER deps.withTx resolves (post-commit), never inside this transaction.
+  // nav-perf tag-caching (Task 6): DURABLE-on-throw ids. applyShadow (existing-show shadows) commits
+  // in its OWN per-row withRowTx, independent of the outer tx — so these stay committed even if the
+  // outer tx later throws. The handler revalidates them in `finally` on EVERY exit (post-commit).
   affectedShowIds: Set<string>,
+  // audit idx18 HIGH-1: OUTER-tx ids (the Held→Live publish flip) — these live in `tx` (deps.withTx)
+  // and ROLL BACK if a later outer-tx statement throws. Kept SEPARATE from affectedShowIds so the
+  // handler revalidates them ONLY when the outer tx committed (never bust a rolled-back flip).
+  publishedShowIds: Set<string>,
   // Outcome-ref: the canonical admin identity (requireAdminIdentity()'s email) bound by the
   // handler, threaded so the per-committed-row SHOW_FINALIZED log can attribute the actor. Logged
   // right after each row's withRowTx resolves (post-commit) — never inside the row tx.
@@ -796,8 +800,11 @@ async function runFinalizeCas(
   }
   await deleteShadowRows(tx, wizardSessionId);
   onPhase?.("publishing");
+  // audit idx18 HIGH-1: the publish flip runs in the OUTER tx and can be rolled back by a later
+  // throw (deleteWizardDeferrals / promoteSettings / markFinalCasDone below). Collect into the
+  // SEPARATE publishedShowIds set so the handler only busts these on a committed outer tx.
   for (const showId of await publishAppliedWizardShows(tx, wizardSessionId)) {
-    affectedShowIds.add(showId);
+    publishedShowIds.add(showId);
   }
   await deleteWizardDeferrals(tx, wizardSessionId);
   const watchedFolderId = await promoteSettings(tx, wizardSessionId);
@@ -835,18 +842,15 @@ export async function handleOnboardingFinalizeCas(
   // revalidated AFTER deps.withTx resolves (post-commit). A pre-commit revalidate would re-cache
   // the OLD fan-out (spec §4.2).
   const affectedShowIds = new Set<string>();
+  const publishedShowIds = new Set<string>();
+  let committed = false;
   try {
     const result = await deps.withTx((tx) =>
-      runFinalizeCas(tx, deps, affectedShowIds, admin.email),
+      runFinalizeCas(tx, deps, affectedShowIds, publishedShowIds, admin.email),
     );
-    // POST-COMMIT: per-row shadow applies commit via their OWN `withRowTx` (independent of the
-    // outer result), so a MIXED batch can durably apply early rows and THEN return a 409 for a
-    // later blocked sibling. Revalidate every committed show BEFORE the Response check — whole-diff
-    // R1 CRITICAL: otherwise a successfully-mutated show's data cache stays stale until the 300s TTL
-    // backstop. Safe to over-bust: affectedShowIds only gains an id once its applyShadow committed.
-    for (const showId of affectedShowIds) {
-      revalidateShow(showId);
-    }
+    // deps.withTx resolved without throwing → the OUTER tx committed. A returned 409 Response is
+    // STILL a commit (the fn returned normally); only a THROW below rolls the outer tx back.
+    committed = true;
     if (result instanceof Response) return result;
     await deps.subscribeToWatchedFolder(result.watched_folder_id);
     return NextResponse.json(result);
@@ -859,6 +863,24 @@ export async function handleOnboardingFinalizeCas(
       error,
     });
     return errorResponse(500, "ONBOARDING_FINALIZE_INTERNAL_ERROR");
+  } finally {
+    // POST-COMMIT revalidate in `finally` so it runs on ALL exits — success, the 409-Response path,
+    // AND the throw/500 path (audit idx18/#102: a bare in-try loop was skipped by the throw, leaving
+    // a durably-mutated show's data cache stale until the 300s TTL backstop).
+    //
+    // TWO durability classes (audit idx18 HIGH-1):
+    //  - affectedShowIds: applyShadow ids committed in their OWN per-row withRowTx → durable even on
+    //    an outer-tx throw → bust ALWAYS.
+    //  - publishedShowIds: the Held→Live publish flip lives in the OUTER tx → a later outer-tx throw
+    //    ROLLS IT BACK → bust ONLY when the outer tx committed, else we'd bust an un-flipped show.
+    for (const showId of affectedShowIds) {
+      revalidateShow(showId);
+    }
+    if (committed) {
+      for (const showId of publishedShowIds) {
+        revalidateShow(showId);
+      }
+    }
   }
 }
 
@@ -896,20 +918,16 @@ export async function handleOnboardingFinalizeCasStream(
         }
       };
       const affectedShowIds = new Set<string>();
+      const publishedShowIds = new Set<string>();
+      let committed = false;
       try {
         const result = await deps.withTx((tx) =>
-          runFinalizeCas(tx, deps, affectedShowIds, admin.email, (p) =>
+          runFinalizeCas(tx, deps, affectedShowIds, publishedShowIds, admin.email, (p) =>
             emit({ type: "phase", phase: p }),
           ),
         );
-        // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): a mixed batch may have
-        // committed early shadow applies via their own withRowTx, so bust their caches before the
-        // terminal event regardless of the outcome. Deferred through after() because this loop runs
-        // inside the ReadableStream start() body — Next already flushed pending tag revalidations
-        // when the handler returned new Response(stream), so a bare revalidateShow here is orphaned.
-        deps.deferRevalidate(() => {
-          for (const showId of affectedShowIds) revalidateShow(showId);
-        });
+        // Outer tx committed (a returned 409 Response is still a commit; only a THROW rolls back).
+        committed = true;
         if (result instanceof Response) {
           emit({ type: "result", body: (await result.json()) as FinalizeCasResultBody });
         } else {
@@ -928,6 +946,20 @@ export async function handleOnboardingFinalizeCasStream(
         });
         emit({ type: "result", body: { ok: false, code: "ONBOARDING_FINALIZE_INTERNAL_ERROR" } });
       } finally {
+        // POST-COMMIT revalidate (mirrors handleOnboardingFinalizeCas): registered in `finally` so a
+        // throw still REGISTERS the bust (audit idx18/#102: a bare in-try deferRevalidate was skipped
+        // by the throw, stranding a durably-applied show on the stale crew cache until the 300s TTL).
+        // Deferred through after() because this runs inside the ReadableStream start() body — Next
+        // already flushed pending tag revalidations when the handler returned new Response(stream),
+        // so a bare revalidateShow here is orphaned. TWO durability classes (audit idx18 HIGH-1):
+        // affectedShowIds (applyShadow, own per-row withRowTx) bust ALWAYS; publishedShowIds (the
+        // OUTER-tx publish flip) bust ONLY on a committed outer tx, else a rolled-back flip is busted.
+        deps.deferRevalidate(() => {
+          for (const showId of affectedShowIds) revalidateShow(showId);
+          if (committed) {
+            for (const showId of publishedShowIds) revalidateShow(showId);
+          }
+        });
         try {
           controller.close();
         } catch {

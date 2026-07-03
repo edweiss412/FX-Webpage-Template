@@ -137,6 +137,12 @@ export type EnrichContext = {
    * count at one per sync pass.
    */
   sheets?: SpreadsheetSheet[];
+  /**
+   * audit idx57/#166 — the enclosing step's AbortSignal (from `withStepTimeout`'s enrich budget).
+   * Forwarded to `enrichAgenda` so an overrun of the enrich budget aborts the in-flight agenda-PDF
+   * downloads. Optional + backward-compatible: callers/mocks that omit it enrich exactly as before.
+   */
+  signal?: AbortSignal;
 };
 
 function warning(code: string, message: string): ParseWarning {
@@ -324,7 +330,12 @@ export async function enrichWithDrivePins(
   // Agenda-PDF surfacing (spec §4.5.4): best-effort, runs inside the shared enrich
   // step so all four sync paths inherit it. Mutates result.show.agenda_links +
   // result.warnings; never throws out of the scan.
-  await enrichAgenda(result, driveClient, ctx.driveFileId);
+  await enrichAgenda(
+    result,
+    driveClient,
+    ctx.driveFileId,
+    ctx.signal !== undefined ? { signal: ctx.signal } : undefined,
+  );
 
   // Geocoding-at-ingest (best-effort): resolve result.show.venue.city via the Google
   // Geocoding API (cached), so the city works for venues anywhere — not just the

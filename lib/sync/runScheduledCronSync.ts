@@ -99,6 +99,31 @@ export const SYNC_STEP_TIMEOUT = "SYNC_STEP_TIMEOUT" as const;
 export const DRIVE_METADATA_MISSING = "DRIVE_METADATA_MISSING" as const;
 export const SHEET_UNAVAILABLE = "SHEET_UNAVAILABLE" as const;
 const DRIVE_SYNC_STEP_TIMEOUT_MS = 30_000;
+/**
+ * audit idx57/#166 — enrichment gets its OWN step budget, decoupled from the 30s single-Drive-call
+ * timeout above.
+ *
+ * `enrichWithDrivePins` fans into `enrichAgenda`, which does up to `AGENDA_MAX_PDFS_PER_SHEET` (6)
+ * SEQUENTIAL agenda-PDF downloads, each bounded by `AGENDA_PDF_DEADLINE_MS` (120s). Under the old
+ * 30s budget any legitimate multi-PDF agenda pass >30s threw `SyncStepTimeoutError` and hard-failed
+ * the WHOLE show — repeatedly. So enrich needs a budget sized to real agenda work, not a single
+ * Drive round-trip.
+ *
+ * Ceiling: the cron entry point `app/api/cron/sync/route.ts` does not override `maxDuration`, so it
+ * runs under the project's serverless ceiling of 300s — the value every sibling sync route pins
+ * explicitly (`app/api/admin/onboarding/{extract-agenda,finalize,finalize-cas,scan}` all
+ * `export const maxDuration = 300`). Per-file processing also spends up to ~120s across the four
+ * OTHER 30s `withStepTimeout` Drive-call steps (captureBinding, fetch-markdown, capture-result,
+ * reverify-binding) plus ~30s of unwrapped tx/apply work. 300 − 120 − 30 ≈ 150s is the headroom a
+ * single file can safely give enrichment without risking a platform kill mid-write.
+ *
+ * The absolute worst case (6 × 120s = 720s) CANNOT fit 300s, so this budget deliberately does not
+ * try to cover it: the per-download `AGENDA_PDF_DEADLINE_MS` (120s) deadline plus the AbortSignal
+ * threaded from `withStepTimeout` (which aborts in-flight downloads on overrun) bound the
+ * pathological case. The guard is preserved — an overrun still throws `SyncStepTimeoutError`; it is
+ * just given a correct, larger budget and made to actually abort its work.
+ */
+export const ENRICH_STEP_TIMEOUT_MS = 150_000;
 type SyncFailureCode =
   | typeof SYNC_FILE_FAILED
   | typeof SYNC_INFRA_ERROR
@@ -296,7 +321,12 @@ export type ProcessOneFileDeps = {
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; sheets?: SpreadsheetSheet[] },
+    ctx: {
+      driveFileId: string;
+      fileMeta: DriveFileMeta;
+      sheets?: SpreadsheetSheet[];
+      signal?: AbortSignal;
+    },
   ) => Promise<ParseResult>;
   /**
    * Finding C7: read the currently-stored `shows.agenda_links` so the fresh parse can be
@@ -1485,11 +1515,11 @@ class DriveMetadataMissingError extends Error {
   }
 }
 
-class SyncStepTimeoutError extends Error {
+export class SyncStepTimeoutError extends Error {
   readonly code = SYNC_STEP_TIMEOUT;
 
-  constructor(label: string) {
-    super(`${label} timed out after ${DRIVE_SYNC_STEP_TIMEOUT_MS}ms`);
+  constructor(label: string, timeoutMs: number) {
+    super(`${label} timed out after ${timeoutMs}ms`);
     this.name = "SyncStepTimeoutError";
   }
 }
@@ -1621,16 +1651,32 @@ async function readPostgresStoredAgendaLinks(
   }
 }
 
-async function withStepTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+/**
+ * Race a per-step operation against a timeout. The operation is a FACTORY receiving an
+ * `AbortSignal` so an overrun can actually cancel in-flight work (audit idx57/#166): when the timer
+ * fires we `abort()` the controller BEFORE rejecting, so a wrapped op that forwards the signal
+ * (e.g. enrichment → agenda-PDF downloads) stops immediately instead of running to completion after
+ * the race was already lost. `timeoutMs` defaults to the 30s single-Drive-call budget; callers that
+ * legitimately need longer (enrichment) pass an explicit larger budget.
+ */
+export async function withStepTimeout<T>(
+  label: string,
+  op: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number = DRIVE_SYNC_STEP_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timer = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
-      reject(new SyncStepTimeoutError(label));
-    }, DRIVE_SYNC_STEP_TIMEOUT_MS);
+      // Abort in-flight work first so the losing branch stops doing (now-wasted) downloads, THEN
+      // reject the race with the timeout that actually elapsed (message stays accurate per-budget).
+      controller.abort();
+      reject(new SyncStepTimeoutError(label, timeoutMs));
+    }, timeoutMs);
   });
 
   try {
-    return await Promise.race([promise, timer]);
+    return await Promise.race([op(controller.signal), timer]);
   } finally {
     if (timeout) clearTimeout(timeout);
   }
@@ -2406,7 +2452,7 @@ export async function prepareProcessOneFile(
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
   let binding: Phase1Binding;
   try {
-    binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
+    binding = await withStepTimeout("captureBinding", () => captureBinding(driveFileId, fileMeta));
   } catch (error) {
     return {
       kind: "fetch_failure",
@@ -2446,9 +2492,8 @@ export async function prepareProcessOneFile(
   try {
     if (deps.fetchMarkdownAtRevision) {
       // Test/injected path: markdown and bytes come from separate injected fns.
-      markdown = await withStepTimeout(
-        "fetchMarkdownAtRevision",
-        deps.fetchMarkdownAtRevision(driveFileId, binding.bindingToken),
+      markdown = await withStepTimeout("fetchMarkdownAtRevision", () =>
+        deps.fetchMarkdownAtRevision!(driveFileId, binding.bindingToken),
       );
       try {
         xlsxBytes = deps.fetchXlsxBytes
@@ -2459,8 +2504,7 @@ export async function prepareProcessOneFile(
       }
     } else {
       // Real path: single Drive export, both markdown and bytes from one HTTP call.
-      const result = await withStepTimeout(
-        "fetchMarkdownAtRevision",
+      const result = await withStepTimeout("fetchMarkdownAtRevision", () =>
         fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken),
       );
       markdown = result.markdown;
@@ -2530,11 +2574,19 @@ export async function prepareProcessOneFile(
   try {
     enriched = await withStepTimeout(
       "enrichWithDrivePins",
-      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
-        driveFileId,
-        fileMeta: toDriveFileMeta(fileMeta),
-        ...(sheets !== undefined ? { sheets } : {}),
-      }),
+      // Thread the step's AbortSignal into enrich → enrichAgenda so an overrun of the enrich budget
+      // aborts the in-flight agenda-PDF downloads instead of leaving the 6-download loop running
+      // (audit idx57/#166).
+      (signal) =>
+        (deps.enrichWithDrivePins ?? enrichWithDrivePins)(parsed, driveClient, {
+          driveFileId,
+          fileMeta: toDriveFileMeta(fileMeta),
+          ...(sheets !== undefined ? { sheets } : {}),
+          signal,
+        }),
+      // Enrichment gets its own (larger) budget, NOT the 30s single-Drive-call default — see
+      // ENRICH_STEP_TIMEOUT_MS. Every OTHER withStepTimeout call above keeps the 30s default.
+      ENRICH_STEP_TIMEOUT_MS,
     );
   } catch (error) {
     if (isBinaryAssetRevisionRace(error)) {
@@ -2582,8 +2634,7 @@ export async function prepareProcessOneFile(
 
   let currentBinding: Phase1Binding;
   try {
-    currentBinding = await withStepTimeout(
-      "reverifyBinding",
+    currentBinding = await withStepTimeout("reverifyBinding", () =>
       captureBinding(driveFileId, fileMeta),
     );
   } catch (error) {
