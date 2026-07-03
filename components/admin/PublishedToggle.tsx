@@ -73,7 +73,10 @@ export function PublishedToggle({
     >
       <div className="min-w-0">
         <h3 className="text-base font-semibold text-text-strong">Published</h3>
-        <p data-testid="published-toggle-subline" className="mt-1 max-w-prose text-sm text-text-subtle">
+        <p
+          data-testid="published-toggle-subline"
+          className="mt-1 max-w-prose text-sm text-text-subtle"
+        >
           {subline}
         </p>
         {errorCode ? (
