@@ -46,7 +46,7 @@ const infraRegistry = [
   {
     helper: "refreshWatchSubscriptions",
     path: "lib/drive/watch.ts",
-    contract: "watch renewal transaction-port faults become DriveWatchInfraError",
+    contract: "watch renewal transaction-port faults become a typed `failures` entry (never rejects)",
   },
   {
     helper: "gcWatchChannels",

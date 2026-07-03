@@ -488,7 +488,9 @@ export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise
       failures.push({ folderId: row.watchedFolderId, operation: "subscribe" });
       await log.error("refresh-watch renewal failed", {
         source: "drive.watch",
-        errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err)),
+        errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err), {
+          webhookSecret: row.webhookSecret,
+        }),
         watchedFolderId: row.watchedFolderId,
       });
     }

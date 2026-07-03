@@ -435,11 +435,12 @@ describe("Drive watch lifecycle", () => {
 
   test("refreshWatchSubscriptions records a typed failure and leaves DB state unchanged when Drive renewal throws after candidate commit", async () => {
     const tx = new FakeWatchTx();
+    const capturedSecret = "old-secret";
     tx.rows.push({
       id: "due-channel",
       status: "active",
       watchedFolderId: "folder-1",
-      webhookSecret: "old-secret",
+      webhookSecret: capturedSecret,
       resourceId: "resource-1",
       expiresAt: "2026-05-10T00:00:00.000Z",
     });
@@ -457,7 +458,7 @@ describe("Drive watch lifecycle", () => {
       now: () => tx.now,
       subscribeToWatchedFolder: vi.fn(async () => {
         events.push("drive:subscribe");
-        throw new Error("Drive refresh failed");
+        throw new Error(`renewal failed: token=${capturedSecret} Bearer ya29.zzz`);
       }),
     } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
 
@@ -469,6 +470,12 @@ describe("Drive watch lifecycle", () => {
     expect(tx.rows).toEqual(before);
     expect(tx.operations).toEqual(["listExpiringActive"]);
     expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
+
+    const [, fields] = (log.error as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([msg]) => msg === "refresh-watch renewal failed",
+    )!;
+    expect(String(fields.errorMessage)).not.toContain(capturedSecret);
+    expect(String(fields.errorMessage)).not.toContain("ya29.zzz");
   });
 
   test("gcWatchChannels stops superseded and orphaned channels and leaves orphan alerts for operator dismissal", async () => {
