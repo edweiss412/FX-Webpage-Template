@@ -211,10 +211,21 @@ add response latency (Next 16 `after()` is available in this repo's render paths
 PR #228 C8). Cost: one UPDATE against the `resolved_at IS NULL` partial index per healthy render —
 the raise path already pays an equivalent per-render write when unhealthy.
 
+**Invariant-8 routing:** `_CrewShell.tsx` is under `app/` (non-API), so this edit is a UI-surface
+change by definition — even though it alters no rendered output. The work is Opus-owned and the
+milestone close-out MUST run `/impeccable critique` AND `/impeccable audit` on the affected diff,
+with HIGH/CRITICAL findings fixed or deferred via `DEFERRED.md`, before cross-model review (AC11).
+The resolve stays beside the raise (same file, same fail-quiet posture) rather than moving into
+`lib/data/getShowForViewer.ts`, because the raise's producer contract is deliberately
+crew-shell-scoped ("Producer contract 1", `_CrewShell.tsx:151-153` comment) and `getShowForViewer`
+also serves non-crew render paths where "empty `tileErrors`" is not the same observation.
+
 ## 5. What does NOT change
 
-- No UI files. The banner (`components/admin/AlertBanner.tsx`) and both manual resolve routes are
-  untouched; manual resolve still stamps `resolved_by = canonicalize(email)`.
+- No rendered-output changes anywhere. One UI-surface **file** is edited — `_CrewShell.tsx` (S6),
+  which triggers the invariant-8 impeccable dual-gate (see S6 routing note + AC11) — but its JSX
+  output is untouched. The banner (`components/admin/AlertBanner.tsx`) and both manual resolve
+  routes are untouched; manual resolve still stamps `resolved_by = canonicalize(email)`.
 - No new §12.4 codes, no catalog rows, no copy edits → x1/x2/spec-codes/help-families gates do not
   move.
 - No new tables/columns. The only DDL-adjacent change is the `_publish_show_core` redefinition +
@@ -270,6 +281,9 @@ the raise path already pays an equivalent per-render write when unhealthy.
   paths never do.
 - **AC10** `pnpm test` full suite + typecheck + format green; validation-schema-parity green after
   the surgical apply.
+- **AC11** Invariant-8 UI gate: `/impeccable critique` AND `/impeccable audit` run on the affected
+  diff (S6 touches `app/show/[slug]/[shareToken]/_CrewShell.tsx`), with every HIGH/CRITICAL finding
+  fixed or explicitly deferred via a `DEFERRED.md` entry, BEFORE the whole-diff cross-model review.
 
 Anti-tautology notes for the test plan (binding on the plan): S2/S3/S4 assertions read
 `admin_alerts` rows directly (not UI or log output); AC3's "raises one, resolves three" derives the
