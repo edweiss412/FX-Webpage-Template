@@ -65,6 +65,15 @@ export const SCROLL_SPY_OFFSET_PX = 90;
 export const DRAG_DISMISS_THRESHOLD_PX = 110;
 /** Max pointer travel still treated as a tap (click) rather than a drag (§10). */
 export const DRAG_SLOP_PX = 6;
+/** transitionend fallback timer for the dismiss transition (§10, §11 T5) —
+ *  mirrors `--duration-normal: 220ms` (app/globals.css). Kept as an explicit
+ *  constant (not read from CSS at runtime) so a token change is CAUGHT by the
+ *  structural test in Step3ReviewModal.test.tsx rather than drifting silently. */
+export const DURATION_NORMAL_FALLBACK_MS = 220;
+/** transitionend fallback timer for the spring-back settle (§10, §11 T4) —
+ *  mirrors `--duration-fast: 120ms` (app/globals.css). Same drift-guard
+ *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
+export const DURATION_FAST_FALLBACK_MS = 120;
 
 /**
  * Pure scroll-spy rule (spec §6.3a): the active section is the LAST one whose
@@ -353,7 +362,7 @@ export function Step3ReviewModal({
         if (ev.target === panel && ev.propertyName === "transform") finish();
       };
       panel.addEventListener("transitionend", onTransitionEnd);
-      dismissTimerRef.current = setTimeout(finish, 220 /* --duration-normal */);
+      dismissTimerRef.current = setTimeout(finish, DURATION_NORMAL_FALLBACK_MS);
     } else if (wasDrag) {
       // T4: spring back at the fast token, then clear the inline styles so
       // the stylesheet governs again (same fallback-timer pattern, matched to
@@ -376,7 +385,7 @@ export function Step3ReviewModal({
         if (ev.target === panel && ev.propertyName === "transform") settle();
       };
       panel.addEventListener("transitionend", onTransitionEnd);
-      settleTimerRef.current = setTimeout(settle, 120 /* --duration-fast */);
+      settleTimerRef.current = setTimeout(settle, DURATION_FAST_FALLBACK_MS);
     } else {
       // Tap (dy ≤ slop): restore stylesheet control immediately; the
       // synthesized click that follows closes the modal (§10).

@@ -32,6 +32,8 @@
  * `offsetParent`, which jsdom leaves null — the trap test stubs it and
  * restores in afterEach. The REAL-browser wrap re-check is Task 11's Tab audit.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
@@ -44,6 +46,8 @@ import {
   activeSectionFor,
   DRAG_DISMISS_THRESHOLD_PX,
   DRAG_SLOP_PX,
+  DURATION_FAST_FALLBACK_MS,
+  DURATION_NORMAL_FALLBACK_MS,
   SCROLL_SPY_OFFSET_PX,
   Step3ReviewModal,
 } from "@/components/admin/wizard/Step3ReviewModal";
@@ -1084,11 +1088,6 @@ describe("Step3ReviewModal — scroll-spy wiring (Task 6, spec §6.3a)", () => {
 // ── Sheet drag-to-dismiss (Task 7, spec §10; §11 T3–T5, C1, C2, C5, C6) ──────
 
 describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () => {
-  /** Token-matched transitionend fallback: `--duration-normal` = 220ms
-   *  (app/globals.css). The spec's dismiss timeout mirrors the token; if the
-   *  token changes, this literal AND the component's fallback change together. */
-  const DURATION_NORMAL_MS = 220;
-
   // Derived pointer travels (anti-tautology: computed from the module
   // constants, never restated literals).
   const DISMISS_DY = DRAG_DISMISS_THRESHOLD_PX + 30; // past the dismiss line
@@ -1202,7 +1201,7 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
     fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
 
-    vi.advanceTimersByTime(DURATION_NORMAL_MS - 1);
+    vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS - 1);
     expect(onClose).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -1268,6 +1267,40 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     }
   });
 
+  test("max-dy regression: an overshoot past slop that RETURNS near origin before release is still a drag (§10 — a `maxDy` regression to `Math.abs(finalDy)` would pass this as a tap)", () => {
+    vi.useFakeTimers();
+    const { q, onClose } = renderModal();
+    const { grab, panel } = grabWithCaptureStubs(q);
+
+    // Overshoot well past the slop boundary (but short of the dismiss
+    // threshold, so a correct implementation springs back rather than
+    // dismisses) — this is what sets `drag.maxDy`.
+    const RETURN_DY = Math.floor(DRAG_SLOP_PX / 2); // final position: back inside slop
+
+    fireEvent.pointerDown(grab, { pointerId: 1, clientY: START_Y });
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + SPRING_DY });
+    expect(panel.style.transform).toBe(`translateY(${SPRING_DY}px)`);
+
+    // Return near the origin — a naive `Math.abs(finalDy)` check would see
+    // this as within the slop and treat the release as a tap.
+    fireEvent.pointerMove(grab, { pointerId: 1, clientY: START_Y + RETURN_DY });
+    expect(panel.style.transform).toBe(`translateY(${RETURN_DY}px)`);
+    fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + RETURN_DY });
+
+    // Correct: still a DRAG — springs back to translateY(0) at the fast
+    // token, and the synthesized click that follows must NOT close the modal.
+    expect(panel.style.transform).toBe("translateY(0px)");
+    expect(panel.style.transition).toMatch(/var\(--duration-fast\)/);
+    fireEvent.click(grab);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // The spring-back settles normally afterward (stylesheet regains control).
+    fireEvent.transitionEnd(panel, { propertyName: "transform" });
+    expect(panel.style.transform).toBe("");
+    expect(panel.style.transition).toBe("");
+    expect(panel.style.animation).toBe("");
+  });
+
   test("mode-boundary cleanup (C6): entering ≥sm mid-drag releases capture, clears inline styles, resets the drag ref", () => {
     const mm = stubMatchMedia();
     const { q, onClose } = renderModal();
@@ -1323,7 +1356,21 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     fireEvent.pointerUp(grab, { pointerId: 1, clientY: START_Y + DISMISS_DY });
     q.unmount();
 
-    vi.advanceTimersByTime(DURATION_NORMAL_MS + 50);
+    vi.advanceTimersByTime(DURATION_NORMAL_FALLBACK_MS + 50);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("token-drift guard: the exported fallback-timer constants match --duration-normal/--duration-fast in app/globals.css", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    const normalMatch = css.match(/--duration-normal:\s*(\d+)ms/);
+    const fastMatch = css.match(/--duration-fast:\s*(\d+)ms/);
+    if (!normalMatch || !fastMatch) {
+      throw new Error("app/globals.css must declare --duration-normal and --duration-fast tokens");
+    }
+    // A token change here (without updating the component's exported
+    // constants) fails this test instead of drifting silently — see
+    // Step3ReviewModal.tsx's DURATION_NORMAL_FALLBACK_MS/DURATION_FAST_FALLBACK_MS.
+    expect(DURATION_NORMAL_FALLBACK_MS).toBe(Number(normalMatch[1]));
+    expect(DURATION_FAST_FALLBACK_MS).toBe(Number(fastMatch[1]));
   });
 });
