@@ -42,7 +42,6 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     code: "SNAPSHOT_ROLLBACK_REPAIRED",
   },
   // Completion (2026-07-02): publish/archive/unpublish lifecycle telemetry.
-  { file: "app/admin/show/[slug]/_actions/publish.ts", code: "SHOW_PUBLISHED" },
   { file: "app/admin/show/[slug]/_actions/archive.ts", code: "SHOW_ARCHIVED" },
   { file: "app/admin/show/[slug]/_actions/unarchive.ts", code: "SHOW_UNARCHIVED_BY_ADMIN" },
   // Published toggle (2026-07-02): the setPublished dispatcher replaced the in-app

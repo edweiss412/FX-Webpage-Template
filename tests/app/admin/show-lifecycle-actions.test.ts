@@ -3,7 +3,6 @@
  *
  * The three admin-gated per-show lifecycle server actions:
  *   - archiveShowAction(slug)   → archive_show caller
- *   - publishShowAction(slug)   → publish_show caller
  *   - unarchiveShowAction(showId) → unarchive_show caller (catch-up sync)
  *
  * Each action MUST:
@@ -68,7 +67,6 @@ vi.mock("@/lib/supabase/server", () => ({
 
 import {
   archiveShowAction,
-  publishShowAction,
   unarchiveShowAction,
 } from "@/app/admin/show/[slug]/_actions";
 import { showCacheTag } from "@/lib/data/showCacheTag";
@@ -103,62 +101,10 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
   });
 
-  it("publishShowAction resolves slug→id, invokes publishShow, returns its typed refusal", async () => {
-    publishShow.mockResolvedValue({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" } as never);
-    maybeSingleResult.value = { data: { id: "show-2", drive_file_id: "drive-2" }, error: null };
 
-    const res = await publishShowAction("slug-2");
 
-    expect(publishShow).toHaveBeenCalledWith("show-2");
-    expect(res).toEqual({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" });
-    // A refusal is not a rendered-data change → no revalidate.
-    expect(revalidateTag).not.toHaveBeenCalled();
-  });
 
-  it("publishShowAction on success revalidates the show data-cache tag", async () => {
-    publishShow.mockResolvedValue({ ok: true } as never);
-    maybeSingleResult.value = { data: { id: "show-9", drive_file_id: "drive-9" }, error: null };
 
-    const res = await publishShowAction("slug-9");
-
-    expect(res).toEqual({ ok: true });
-    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-9"), { expire: 0 });
-  });
-
-  // Task 7: a committed publish emits durable SHOW_PUBLISHED admin-outcome telemetry
-  // exactly once, attributed to the resolved admin identity + resolved show id.
-  it("publishShowAction on committed success emits SHOW_PUBLISHED telemetry once", async () => {
-    publishShow.mockResolvedValue({ ok: true } as never);
-    maybeSingleResult.value = { data: { id: "show-7", drive_file_id: "drive-7" }, error: null };
-
-    await publishShowAction("slug-7");
-
-    expect(logAdminOutcome).toHaveBeenCalledTimes(1);
-    expect(logAdminOutcome).toHaveBeenCalledWith({
-      code: "SHOW_PUBLISHED",
-      source: "admin.show.publish",
-      actorEmail: ADMIN_EMAIL,
-      showId: "show-7",
-    });
-  });
-
-  it("publishShowAction on a refusal does NOT emit SHOW_PUBLISHED telemetry", async () => {
-    publishShow.mockResolvedValue({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" } as never);
-    maybeSingleResult.value = { data: { id: "show-8", drive_file_id: "drive-8" }, error: null };
-
-    await publishShowAction("slug-8");
-
-    expect(logAdminOutcome).not.toHaveBeenCalled();
-  });
-
-  it("publishShowAction on a resolve infra_error does NOT emit SHOW_PUBLISHED telemetry", async () => {
-    maybeSingleResult.value = { data: null, error: { message: "outage" } };
-
-    await publishShowAction("slug");
-
-    expect(publishShow).not.toHaveBeenCalled();
-    expect(logAdminOutcome).not.toHaveBeenCalled();
-  });
 
   it("unarchiveShowAction resolves id→drive_file_id, invokes unarchiveShow(showId, driveFileId), returns void", async () => {
     maybeSingleResult.value = { data: { id: "show-3", drive_file_id: "drive-3" }, error: null };
@@ -196,12 +142,6 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(res).toEqual({ ok: false, code: "infra_error" });
   });
 
-  it("publishShowAction: a THROWN Supabase fault during resolve → infra_error, NOT show_not_found", async () => {
-    maybeSingle.mockRejectedValueOnce(new Error("query threw mid-await"));
-    const res = await publishShowAction("slug");
-    expect(publishShow).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: false, code: "infra_error" });
-  });
 
   it("unarchiveShowAction (void): a resolve infra_error → no-op, does NOT invoke unarchiveShow", async () => {
     maybeSingleResult.value = { data: null, error: { message: "outage" } };

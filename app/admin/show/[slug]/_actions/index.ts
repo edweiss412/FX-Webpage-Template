@@ -7,7 +7,6 @@
  * import site.
  */
 export { archiveShowAction } from "./archive";
-export { publishShowAction } from "./publish";
 export { unarchiveShowAction } from "./unarchive";
 // Published toggle (2026-07 spec) — publish_show/unpublish_show dispatcher.
 export { setShowPublishedAction } from "./setPublished";

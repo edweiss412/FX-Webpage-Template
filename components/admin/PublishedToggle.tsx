@@ -19,7 +19,7 @@
  * React-19 dispatch safety (the B1 revoke-hang lesson, AutoPublishToggle.tsx:21-27):
  * the switch is the form SUBMITTER; it disables ONLY on useFormStatus().pending or
  * finalizeOwned — never synchronously in its own onClick. Typed refusals render
- * locally WITHOUT router.refresh() (PublishShowButton.tsx:53-65 pattern — refreshing
+ * locally WITHOUT router.refresh() (the established lifecycle-button pattern — refreshing
  * would remount the island and wipe the copy, plan R10); success refreshes so the
  * server-rendered `published` flows back down.
  */
@@ -109,9 +109,8 @@ export function PublishedToggle({
             router.refresh();
             return;
           }
-          // Refusals render locally WITHOUT router.refresh() — the established
-          // PublishShowButton pattern (components/admin/PublishShowButton.tsx:53-65).
-          // Refreshing here can wipe the inline copy the user needs (plan R10).
+          // Refusals render locally WITHOUT router.refresh() — refreshing here
+          // remounts the island and can wipe the inline copy the user needs (plan R10).
           if (KNOWN_REFUSAL_CODES.has(result.code)) setErrorCode(result.code);
           else setGenericError(true);
         }}
