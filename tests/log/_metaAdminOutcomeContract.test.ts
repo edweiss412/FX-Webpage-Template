@@ -229,6 +229,12 @@ const NEW_FORENSIC_CODES = new Set([
   "APP_EVENTS_READ_THREW",
   "CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR",
   "CRON_HEALTH_APP_EVENTS_READ_THREW",
+  // P1 dark-path telemetry (2026-07-03) — forensic infra/denial codes on previously
+  // unlogged fault + credential-denial paths (inside log.* spans; NOT cataloged).
+  "PENDING_INGESTION_RETRY_FAILED",
+  "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
+  "REALTIME_TOKEN_DENIED",
+  "REALTIME_TOKEN_INFRA_ERROR",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
