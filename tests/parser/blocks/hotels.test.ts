@@ -376,9 +376,10 @@ describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
     ["2-digit token", "Suite 12-2069854", "Suite 12"],
     ["5-digit token", "Suite 12345-2069854", "Suite 12345"],
     ["#-separated after 5-digit", "Suite 12345-#2069854", "Suite 12345"],
+    ["en-dash after 5-digit (ASCII-hyphen-only ZIP+4)", "Suite 12345–2069", "Suite 12345"],
   ])("strips a conf# after a %s cleanly — no dangling dash", (_label, namesCell, expectedName) => {
     const h = parseHotels(namesTable(namesCell), "v4")[0];
     expect(h!.names).toContain(expectedName);
-    expect(h!.names.some((n) => n.includes("-") || /\d{6,}/.test(n))).toBe(false);
+    expect(h!.names.some((n) => /[-–—]/.test(n) || /\d{6,}/.test(n))).toBe(false);
   });
 });

@@ -176,7 +176,7 @@ function stripConfTokens(name: string): string {
           str: string,
         ) => {
           const isZip4 =
-            dashes.length === 1 &&
+            dashes === "-" && // ASCII hyphen only; an en/em-dash is a conf# delimiter (Codex R3)
             sep.length === 0 &&
             digits.length === 4 &&
             /\b\d{5}$/.test(str.slice(0, offset + ws.length));
