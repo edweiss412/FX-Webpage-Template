@@ -1893,6 +1893,32 @@ async function logSync(
   await deps.logSync?.(entry);
 }
 
+/**
+ * Summarize an error's `.cause` chain for forensic persistence. Wrapped infra
+ * errors (Phase1InfraError / Phase2InfraError / SyncInfraError) carry the REAL
+ * underlying failure on `.cause`; without capturing it, sync_log.parse_warnings
+ * records only the generic wrapper (e.g. "transaction-port failure during
+ * snapshotAssetsForApply") and the root Supabase-Storage / Drive / SQL error is
+ * lost. Bounded depth guards against pathological cyclic causes; stack is
+ * truncated so a single row never bloats the log.
+ */
+function summarizeErrorCause(cause: unknown, depth: number): Record<string, unknown> | undefined {
+  if (cause == null || depth > 4) return undefined;
+  if (cause instanceof Error) {
+    const out: Record<string, unknown> = { name: cause.name, message: cause.message };
+    if (typeof cause.stack === "string") out.stack = cause.stack.slice(0, 2000);
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === "string" || typeof code === "number") out.code = code;
+    if ("operation" in cause && typeof (cause as { operation?: unknown }).operation === "string") {
+      out.operation = (cause as { operation: string }).operation;
+    }
+    const nested = summarizeErrorCause((cause as { cause?: unknown }).cause, depth + 1);
+    if (nested !== undefined) out.cause = nested;
+    return out;
+  }
+  return { message: String(cause) };
+}
+
 export function errorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     const payload: Record<string, unknown> = {
@@ -1908,6 +1934,8 @@ export function errorPayload(error: unknown): Record<string, unknown> {
     if ("code" in error && typeof error.code === "string") {
       payload.errorCode = error.code;
     }
+    const cause = summarizeErrorCause((error as { cause?: unknown }).cause, 0);
+    if (cause !== undefined) payload.cause = cause;
     return payload;
   }
   return { message: String(error) };
