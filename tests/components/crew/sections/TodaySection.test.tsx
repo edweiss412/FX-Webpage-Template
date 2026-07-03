@@ -22,6 +22,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { TodaySection } from "@/components/crew/sections/TodaySection";
 import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import type { StageRestriction } from "@/lib/parser/types";
 
 const TODAY = new Date("2026-05-14T15:00:00Z");
 const SHOW_ID = "show-abc";
@@ -374,4 +375,48 @@ test("unknown_asterisk viewer → resolveKeyTimes {} → NO set/show/strike rows
   section.querySelector('[data-testid="right-now-hero"]')?.remove();
   expect(section.textContent).not.toContain("8:45am"); // room Show date must NOT leak
   expect(section.textContent).not.toContain("4:30pm"); // room Strike date must NOT leak
+});
+
+// Stage-filtered schedule (#248): TodaySection is a direct resolveKeyTimes caller (:249)
+// AND a buildRightNowContext caller (:237). A Load Out/Strike viewer must not see the
+// Set time in the today key-times strip. RED before TodaySection threads
+// ctx.stageRestriction (default none → set shown). The strike anchor stays (Load
+// Out/Strike works back-end) so the strip renders in both states — proving non-tautology.
+test("Load Out/Strike stage viewer → today KeyTimesStrip has NO set anchor, Strike present (#248)", () => {
+  const built = makeShowForViewer({
+    show: {
+      dates: {
+        travelIn: "2026-05-12",
+        set: "2026-05-13",
+        showDays: ["2026-05-14", "2026-05-15"],
+        travelOut: "2026-05-16",
+      },
+    },
+    rooms: [{ id: "gs", kind: "gs", name: "GS", set_time: "9:00 AM", strike_time: "5:00 PM" }],
+  });
+  const data = {
+    ...built,
+    crewMembers: [
+      {
+        ...built.crewMembers[0]!,
+        id: "c1",
+        dateRestriction: { kind: "explicit" as const, days: ["2026-05-15", "2026-05-16"] },
+        stageRestriction: {
+          kind: "explicit",
+          stages: ["Load Out", "Strike"],
+        } as StageRestriction,
+      },
+    ],
+  };
+  const { container } = render(
+    <TodaySection
+      data={data}
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
+      today={TODAY}
+      showId={SHOW_ID}
+    />,
+  );
+  expect(container.querySelector('[data-testid="key-times-strip"]')).toBeTruthy();
+  expect(container.querySelector('[data-anchor="strike"]')).toBeTruthy();
+  expect(container.querySelector('[data-anchor="set"]')).toBeNull();
 });

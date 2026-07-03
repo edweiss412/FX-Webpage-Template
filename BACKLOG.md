@@ -156,3 +156,9 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/2026-0
 **Status:** OPEN · **Severity:** low · **Class:** ALERTING GAP
 
 `lib/auth/picker/selectIdentity.ts` logs a `PICKER_IDENTITY_CLAIMED_TAMPER` forensic warn on a hand-crafted claimed-row bypass, but does not raise an `admin_alerts` upsert. The forensic batch is code-stamping only; whether this security/tamper breadcrumb should also surface as an operator-visible admin alert is a separate alerting decision. **Fix (when prioritized):** design the alert severity/dedupe + add the `admin_alerts.upsert` under the per-show lock.
+
+### BL-AGENDA-PERDAY-VIEWER-FILTER — Schedule agenda area is whole-show / not day-filtered for restricted crew
+
+**Status:** OPEN · **Severity:** low · **Class:** VISIBILITY SCOPE
+
+The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:117-152`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:157-168`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5) — a stage-restricted crew (e.g. Calvin, on-site to strike) legitimately benefits from the agenda, so it was scoped out. **Fix (when prioritized):** thread the effective visible-day set into `AgendaScheduleBlock` and filter its per-day rows to the viewer's worked days (affects all date-restricted crew, so decide the product posture first — whole-show vs per-viewer agenda).

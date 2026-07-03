@@ -105,14 +105,20 @@ describe("parseCrew — stage restriction Load Out / Strike ONLY (AC-1.4)", () =
   });
 });
 
-describe("parseCrew — unknown_asterisk date restriction (AC-1.4)", () => {
+describe("parseCrew — stage-*** is a stage restriction, not a day restriction (#248)", () => {
   const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
   const crew = parseCrew(md, "v4");
 
-  it("Calvin Saller *** form → date_restriction kind='unknown_asterisk'", () => {
+  it("Calvin Saller full-stage ONLY*** form → date_restriction kind='none' (not unknown_asterisk)", () => {
     const calvin = crew.find((c) => c.name === "Calvin Saller")!;
     expect(calvin).toBeDefined();
-    expect(calvin.date_restriction).toEqual({ kind: "unknown_asterisk", days: null });
+    expect(calvin.date_restriction).toEqual({ kind: "none" });
+  });
+
+  it("Calvin stage-*** emits NO UNKNOWN_DAY_RESTRICTION warning (bug #248)", () => {
+    const agg = newAggregator();
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.filter((w) => w.code === "UNKNOWN_DAY_RESTRICTION")).toHaveLength(0);
   });
 });
 
@@ -262,10 +268,10 @@ describe("parseCrew — 2026-04 waldorf v4 fixture", () => {
     expect(names).toContain("Calvin Saller");
   });
 
-  it("Calvin Saller *** form → unknown_asterisk in waldorf fixture", () => {
+  it("Calvin Saller stage-*** form → date_restriction kind='none' in waldorf fixture (#248)", () => {
     const calvin = crew.find((c) => c.name === "Calvin Saller")!;
     expect(calvin).toBeDefined();
-    expect(calvin.date_restriction).toEqual({ kind: "unknown_asterisk", days: null });
+    expect(calvin.date_restriction).toEqual({ kind: "none" });
   });
 });
 
@@ -378,27 +384,27 @@ describe("parseCrew — Fix 1 regression: pure stage-only ONLY rows (no trailing
     });
   });
 
-  it("Calvin Saller ONLY*** in 2026-03-rpas: role_flags=['ONLY'] + unknown_asterisk", () => {
+  it("Calvin Saller ONLY*** in 2026-03-rpas: role_flags=['ONLY'] + date_restriction none + stage restriction (#248)", () => {
     // Line 38: "\\- Load In / Set / Strike / Load Out ONLY\\*\\*\\*" — ONLY*** variant.
     const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
     const crew = parseCrew(md, "v4");
     const calvin = crew.find((c) => c.name === "Calvin Saller")!;
     expect(calvin).toBeDefined();
     expect(calvin.role_flags).toEqual(["ONLY"]);
-    expect(calvin.date_restriction).toEqual({ kind: "unknown_asterisk", days: null });
+    expect(calvin.date_restriction).toEqual({ kind: "none" });
     expect(calvin.stage_restriction).toEqual({
       kind: "explicit",
       stages: ["Load In", "Set", "Strike", "Load Out"],
     });
   });
 
-  it("Calvin Saller ONLY*** in 2026-05-fintech: role_flags=['ONLY'] + unknown_asterisk", () => {
+  it("Calvin Saller ONLY*** in 2026-05-fintech: role_flags=['ONLY'] + date_restriction none (#248)", () => {
     const md = readFileSync("fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md", "utf8");
     const crew = parseCrew(md, "v4");
     const calvin = crew.find((c) => c.name === "Calvin Saller")!;
     expect(calvin).toBeDefined();
     expect(calvin.role_flags).toEqual(["ONLY"]);
-    expect(calvin.date_restriction).toEqual({ kind: "unknown_asterisk", days: null });
+    expect(calvin.date_restriction).toEqual({ kind: "none" });
   });
 
   it("no UNKNOWN_ROLE_TOKEN warnings emitted for pure-ONLY role cells (extractRoleFlags direct)", () => {

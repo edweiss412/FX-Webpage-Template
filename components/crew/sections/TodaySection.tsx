@@ -240,6 +240,7 @@ export function TodaySection({
             hotelReservations: data.hotelReservations,
             rooms: data.rooms,
             runOfShow: data.runOfShow ?? null, // NEW — carry per-day ShowAnchors
+            stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
           });
 
           // Today shows ONLY today's Show anchor — the full per-day breakdown
@@ -251,6 +252,7 @@ export function TodaySection({
             data.rooms,
             data.runOfShow ?? null,
             ctx.dateRestriction,
+            ctx.stageRestriction, // #248 — off-stage Set/Strike gating
           );
           const anchors: KeyTimeAnchors = {
             ...(resolved.set != null ? { set: resolved.set } : {}),

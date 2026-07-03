@@ -13,7 +13,13 @@
  * Server-safe (pure function; no environment reads, no side effects,
  * no React imports).
  */
-import type { DateRestriction, HotelReservationRow, RunOfShow, ShowRow } from "@/lib/parser/types";
+import type {
+  DateRestriction,
+  HotelReservationRow,
+  RunOfShow,
+  ShowRow,
+  StageRestriction,
+} from "@/lib/parser/types";
 import { resolveShowTimezone } from "@/lib/time/showTimezone";
 import {
   resolveKeyTimes,
@@ -75,14 +81,26 @@ export function buildRightNowContext(opts: {
   hotelReservations: HotelReservationRow[];
   rooms: ProjectedRoomRow[] | null;
   runOfShow: RunOfShow | null; // NEW — per-day RunOfShow for ShowAnchor carry
+  // Stage-filtered schedule (#248): forwarded to resolveKeyTimes so off-stage Set/Strike
+  // times don't leak into the Right Now hero. Optional (default "none") for date-restricted-
+  // but-not-stage-restricted crew; the caller-threading is pinned by the source-scan guard
+  // tests/crew/stageRestrictionThreading.test.ts so a dropped thread fails CI, not silently.
+  stageRestriction?: StageRestriction;
 }): RightNowContext {
-  const { show, dateRestriction, hotelReservations, rooms, runOfShow } = opts;
+  const {
+    show,
+    dateRestriction,
+    hotelReservations,
+    rooms,
+    runOfShow,
+    stageRestriction = { kind: "none" },
+  } = opts;
   const firstHotel = hotelReservations[0] ?? null;
 
   // Time anchors are rooms-sourced via the shared resolver (§4.4). The old
   // event_details.{call_time,load_in_time,strike_time,first_show_room} reads
   // are DROPPED ENTIRELY (always empty for real shows, §7.1) — not a fallback.
-  const anchors = resolveKeyTimes(show, rooms, runOfShow, dateRestriction); // 4-arg
+  const anchors = resolveKeyTimes(show, rooms, runOfShow, dateRestriction, stageRestriction);
   const loadInTime = anchors.set ?? null; // Set anchor (dates.loadIn ?? GS set_time)
   const showAnchors = anchors.shows ?? []; // dated per-day Show anchors
   // callTime: single string for back-compat consumers; defaults to the first anchor.

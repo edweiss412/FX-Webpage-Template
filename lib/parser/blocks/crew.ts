@@ -338,7 +338,17 @@ function buildCrewMember(params: {
   }
 
   let dateRestriction = dayResult.restriction;
-  if (hasTripleAsterisk(params.roleRaw) && dateRestriction.kind === "none") {
+  // A `***` absorbed by a recognized stage-restriction ONLY marker (e.g.
+  // "- Load In / Set / Strike / Load Out ONLY***") is emphasis on the STAGE
+  // restriction, NOT an unknown day-date flag — so it must not reclassify to
+  // unknown_asterisk or emit UNKNOWN_DAY_RESTRICTION (#248). A bare `***` on a
+  // non-stage role (e.g. "- LEAD***") still falls through and is treated as an
+  // unknown day restriction (stageRestriction.kind === "none").
+  if (
+    hasTripleAsterisk(params.roleRaw) &&
+    dateRestriction.kind === "none" &&
+    stageRestriction.kind === "none"
+  ) {
     dateRestriction = { kind: "unknown_asterisk", days: null };
     const tripleAsteriskWarning = {
       severity: "warn" as const,
