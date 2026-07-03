@@ -1414,9 +1414,9 @@ export const SPEC_CODES = {
   },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
-    "dougFacing": "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
-    "followUp": "Eric → reconcile / retry",
-    "helpfulContext": "We tried to register a real-time push subscription with Google Drive and didn't get a confirmation back. The cron job will keep this show in sync on its normal schedule; this just means edits won't appear instantly until the developer reconciles the subscription.",
+    "dougFacing": "The instant-updates connection to Google Drive is having trouble. Shows still sync automatically every few minutes.",
+    "followUp": "Auto-retry hourly; admin Retry now; Eric if escalated",
+    "helpfulContext": "The connection that makes sheet edits show up instantly couldn't be set up or renewed. Your shows still sync on the normal schedule, so nothing is lost — at worst, edits take a few minutes to appear. We retry the connection automatically every hour, and you can use Retry now to try immediately. If it keeps failing, we'll flag it for support.",
   },
   "WEBHOOK_HEADERS_MISSING": {
     "crewFacing": null,

@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveClient } from "@/lib/drive/client";
+import {
+  classifyWatchError,
+  redactWatchError,
+  STALE_PENDING_MAX_AGE_MS,
+} from "@/lib/drive/watchErrors";
 import { log } from "@/lib/log";
+import { getActiveWatchedFolder as defaultGetActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
+import { resolveAdminAlert as defaultResolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
+import { maybeEscalateWatchOrphaned as defaultMaybeEscalate } from "@/lib/drive/watchEscalation";
 
 export const WATCH_CHANNEL_ORPHANED = "WATCH_CHANNEL_ORPHANED" as const;
 
@@ -48,11 +56,15 @@ export type WatchTx = {
   listGcCandidates(): Promise<WatchChannelRow[]>;
   markStopped(id: string): Promise<void>;
   deleteOldStopped(): Promise<void>;
+  sweepStalePending(cutoffIso: string): Promise<string[]>;
+  hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
 };
+
+export type SubscribeOrphanReason = "watch_create_failed" | "activate_failed_after_watch_created";
 
 export type SubscribeResult =
   | { outcome: "active"; channelId: string }
-  | { outcome: "orphaned"; channelId: string };
+  | { outcome: "orphaned"; channelId: string; reason: SubscribeOrphanReason };
 
 export type SubscribeDeps = {
   tx?: WatchTx;
@@ -239,6 +251,31 @@ class PostgresWatchTx implements WatchTx {
       `,
     );
   }
+
+  async sweepStalePending(cutoffIso: string): Promise<string[]> {
+    const rows = await this.rows<{ id: string }>(
+      `
+        update public.drive_watch_channels
+           set status = 'orphaned'
+         where status = 'pending' and created_at < $1::timestamptz
+         returning id
+      `,
+      [cutoffIso],
+    );
+    return rows.map((r) => r.id);
+  }
+
+  async hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean> {
+    const rows = await this.rows<{ id: string }>(
+      `
+        select id from public.drive_watch_channels
+         where watched_folder_id = $1 and status = 'active' and expires_at > $2::timestamptz
+         limit 1
+      `,
+      [folderId, nowIso],
+    );
+    return rows.length > 0;
+  }
 }
 
 function fromDbRow(row: {
@@ -381,20 +418,37 @@ export async function subscribeToWatchedFolder(
       channelId,
       webhookSecret,
     });
-  } catch {
+  } catch (err) {
+    const errorClass = classifyWatchError(err);
+    const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
+      webhookSecret,
+    });
     await runTx((tx) =>
       markWatchOrphanedWithTx(tx, channelId, {
         watched_folder_id: folderId,
         channel_id: channelId,
         reason: "watch_create_failed",
+        error_class: errorClass,
+        error_message: errorMessage,
       }),
     );
-    return { outcome: "orphaned", channelId };
+    await log.error("drive watch subscribe failed", {
+      source: "drive.watch",
+      errorMessage,
+      watchedFolderId: folderId,
+      channelId,
+      errorClass,
+    });
+    return { outcome: "orphaned", channelId, reason: "watch_create_failed" };
   }
 
   try {
     return await runTx((tx) => activateWithTx(tx, folderId, watch));
-  } catch {
+  } catch (err) {
+    const errorClass = classifyWatchError(err);
+    const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
+      webhookSecret,
+    });
     await runTx((tx) =>
       markWatchOrphanedWithTx(tx, channelId, {
         watched_folder_id: folderId,
@@ -403,51 +457,97 @@ export async function subscribeToWatchedFolder(
         resource_id: watch.resourceId,
         expiration: watch.expiration,
         reason: "activate_failed_after_watch_created",
+        error_class: errorClass,
+        error_message: errorMessage,
       }),
     );
-    return { outcome: "orphaned", channelId: watch.id };
+    await log.error("drive watch subscribe failed", {
+      source: "drive.watch",
+      errorMessage,
+      watchedFolderId: folderId,
+      channelId: watch.id,
+      errorClass,
+    });
+    return {
+      outcome: "orphaned",
+      channelId: watch.id,
+      reason: "activate_failed_after_watch_created",
+    };
   }
 }
 
-export async function refreshWatchSubscriptions(
-  deps: RefreshDeps = {},
-): Promise<{ refreshed: string[] }> {
+export type RefreshResult = {
+  refreshed: string[];
+  orphaned: string[];
+  failures: Array<{ folderId: string; operation: string }>;
+};
+
+export async function refreshWatchSubscriptions(deps: RefreshDeps = {}): Promise<RefreshResult> {
+  const runTx = watchTxRunner(deps);
+  const now = deps.now ?? (() => new Date());
+  const refreshed: string[] = [];
+  const orphaned: string[] = [];
+  const failures: Array<{ folderId: string; operation: string }> = [];
+
+  let due: WatchChannelRow[];
   try {
-    const runTx = watchTxRunner(deps);
-    const now = deps.now ?? (() => new Date());
     const threshold = new Date(now().getTime() + 24 * 60 * 60 * 1000).toISOString();
-    const due = await runTx((tx) =>
+    due = await runTx((tx) =>
       callWatchTx("drive_watch_channels.list_expiring_active", () =>
         tx.listExpiringActive(threshold),
       ),
     );
-    const subscribe =
-      deps.subscribeToWatchedFolder ?? ((folderId) => subscribeToWatchedFolder(folderId));
-    const refreshed: string[] = [];
-    for (const row of due) {
-      const result = await subscribe(row.watchedFolderId);
-      if (result.outcome === "orphaned") {
-        void log.warn("watch channel renewal failed", {
-          source: "drive.watch",
-          code: "DRIVE_WATCH_RENEWAL_FAILED",
-          channelId: result.channelId,
-          watchedFolderId: row.watchedFolderId,
-        });
-      }
-      refreshed.push(row.watchedFolderId);
-    }
-    return { refreshed };
   } catch (err) {
-    if (err instanceof DriveWatchInfraError) {
-      void log.error("watch infra fault", {
+    // Prefer the wrapped root cause (DriveWatchInfraError's own message only
+    // names the operation) — redacted string, never the raw object (R5-1).
+    const cause = err instanceof DriveWatchInfraError ? err.rootCause : err;
+    await log.error("refresh-watch list_expiring failed", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_INFRA_FAULT",
+      operation: "drive_watch_channels.list_expiring_active",
+      errorMessage: redactWatchError(String((cause as { message?: unknown })?.message ?? cause)),
+    });
+    return {
+      refreshed: [],
+      orphaned: [],
+      failures: [{ folderId: "*", operation: "list_expiring" }],
+    };
+  }
+
+  const subscribe =
+    deps.subscribeToWatchedFolder ?? ((folderId: string) => subscribeToWatchedFolder(folderId));
+  for (const row of due) {
+    try {
+      const result = await subscribe(row.watchedFolderId);
+      if (result.outcome === "active") {
+        refreshed.push(row.watchedFolderId);
+        continue;
+      }
+      // Renewal-specific forensic warn (origin/main 51429aa1) — fires for BOTH
+      // orphan reasons; channel classification below stays ours.
+      void log.warn("watch channel renewal failed", {
+        source: "drive.watch",
+        code: "DRIVE_WATCH_RENEWAL_FAILED",
+        channelId: result.channelId,
+        watchedFolderId: row.watchedFolderId,
+      });
+      if (result.reason === "activate_failed_after_watch_created")
+        failures.push({ folderId: row.watchedFolderId, operation: "activate_pending" });
+      else orphaned.push(row.watchedFolderId);
+    } catch (err) {
+      failures.push({ folderId: row.watchedFolderId, operation: "subscribe" });
+      await log.error("refresh-watch renewal failed", {
         source: "drive.watch",
         code: "DRIVE_WATCH_INFRA_FAULT",
-        error: err.rootCause,
-        operation: err.operation,
+        operation: "subscribe",
+        errorMessage: redactWatchError(String((err as { message?: unknown })?.message ?? err), {
+          webhookSecret: row.webhookSecret,
+        }),
+        watchedFolderId: row.watchedFolderId,
       });
     }
-    throw err;
   }
+  return { refreshed, orphaned, failures };
 }
 
 export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: string[] }> {
@@ -484,4 +584,177 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     }
     throw err;
   }
+}
+
+export type ReconcileOutcome =
+  | "healthy"
+  | "recovered"
+  | "still_orphaned"
+  | "renewal_failing"
+  | "vacuous"
+  | "infra_error";
+export type ReconcileResult = {
+  outcome: ReconcileOutcome;
+  sweptPending: number;
+  escalated: boolean;
+  faults: string[];
+};
+export type ReconcileDeps = {
+  tx?: WatchTx;
+  withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
+  now?: () => Date;
+  getActiveWatchedFolder?: typeof defaultGetActiveWatchedFolder;
+  resolveAdminAlert?: typeof defaultResolveAdminAlert;
+  maybeEscalateWatchOrphaned?: typeof defaultMaybeEscalate;
+  subscribeToWatchedFolder?: (folderId: string) => Promise<SubscribeResult>;
+};
+
+export async function reconcileWatchChannels(
+  refresh: RefreshResult,
+  deps: ReconcileDeps = {},
+): Promise<ReconcileResult> {
+  const runTx = watchTxRunner(deps);
+  const now = deps.now ?? (() => new Date());
+  const faults: string[] = [];
+  let sweptPending = 0;
+
+  // 1. Stale-pending sweep — silent hygiene, ZERO admin_alerts writes (spec §3.2.1).
+  try {
+    const cutoff = new Date(now().getTime() - STALE_PENDING_MAX_AGE_MS).toISOString();
+    const swept = await runTx((tx) =>
+      callWatchTx("drive_watch_channels.sweep_stale_pending", () => tx.sweepStalePending(cutoff)),
+    );
+    sweptPending = swept.length;
+    if (swept.length > 0) {
+      await log.warn("stale pending watch channels swept", {
+        source: "drive.watch.reconcile",
+        sweptIds: swept,
+      });
+    }
+  } catch {
+    faults.push("pending_sweep");
+  }
+
+  const resolve = deps.resolveAdminAlert ?? defaultResolveAdminAlert;
+
+  // 2. Configured folder. The helper returns a typed infra_error, but a THROWN
+  // failure (client construction, unexpected reject) must also map to the fault —
+  // recorded-not-thrown, spec §3.2: an unhandled throw out of the route handler
+  // is a contract violation (plan-R3 finding 1).
+  let folder: Awaited<ReturnType<typeof defaultGetActiveWatchedFolder>>;
+  try {
+    folder = await (deps.getActiveWatchedFolder ?? defaultGetActiveWatchedFolder)();
+  } catch {
+    faults.push("folder_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
+  if ("kind" in folder && folder.kind === "infra_error") {
+    faults.push("folder_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
+  if ("kind" in folder) {
+    // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
+    try {
+      await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+    } catch {
+      faults.push("alert_resolve_write");
+    }
+    return {
+      outcome: faults.length ? "infra_error" : "vacuous",
+      sweptPending,
+      escalated: false,
+      faults,
+    };
+  }
+
+  // 3. Health predicate — (a) live channel AND (b) clean same-cycle renewal (R4-1, R10-1).
+  let live: boolean;
+  try {
+    live = await runTx((tx) =>
+      callWatchTx("drive_watch_channels.has_live_active", () =>
+        tx.hasLiveActiveChannel(folder.folderId, now().toISOString()),
+      ),
+    );
+  } catch {
+    faults.push("channel_read");
+    return { outcome: "infra_error", sweptPending, escalated: false, faults };
+  }
+  const renewalFailed =
+    refresh.orphaned.includes(folder.folderId) ||
+    // "*" = the pre-loop list_expiring read failed: renewal state for EVERY
+    // folder is unknown this cycle, so no folder may count as renewal-clean —
+    // otherwise a list-infra cycle could auto-resolve the alert before the
+    // spec's recovery condition (successful renewal or admin Retry) happened.
+    refresh.failures.some((f) => f.folderId === folder.folderId || f.folderId === "*");
+
+  if (live && !renewalFailed) {
+    try {
+      await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+    } catch {
+      faults.push("alert_resolve_write");
+    }
+    return {
+      outcome: faults.length ? "infra_error" : "healthy",
+      sweptPending,
+      escalated: false,
+      faults,
+    };
+  }
+
+  // 4. Unhealthy — subscribe only when there is NO live channel (renewal-failing
+  //    already had its attempt via refresh; a second call would double the
+  //    occurrence_count cadence — spec §3.2.3).
+  let outcome: ReconcileOutcome = live ? "renewal_failing" : "still_orphaned";
+  if (!live) {
+    try {
+      const result = await (deps.subscribeToWatchedFolder ?? subscribeToWatchedFolder)(
+        folder.folderId,
+      );
+      if (result.outcome === "active") {
+        // The channel IS healthy the moment subscribe returns active — set
+        // recovered BEFORE attempting resolve, so a resolve-write fault can
+        // never route a recovered channel into the escalation branch
+        // (plan-R2 finding 1: false Sentry/email on a healthy watch).
+        outcome = "recovered";
+        try {
+          await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+        } catch {
+          faults.push("alert_resolve_write");
+        }
+      } else if (result.reason === "activate_failed_after_watch_created") {
+        faults.push("activate_write"); // DB fault in an orphaned costume (spec §3.1.2)
+      }
+    } catch {
+      faults.push("subscribe_infra");
+    }
+  }
+
+  // 5. Escalation — on EVERY unhealthy outcome, incl. renewal_failing (R9-2).
+  // Deliberate (plan-R3 finding 2): a thrown subscribe (subscribe_infra) leaves
+  // outcome = still_orphaned and the branch still runs — the escalation check
+  // reads the pre-existing unresolved alert row, and a watch that is BOTH down
+  // and failing to re-subscribe is exactly the support-worthy state. The helper
+  // itself is failure-isolated: every dependency inside it already maps to a
+  // named fault, and a residual throw maps to escalation_helper here
+  // (recorded-not-thrown, plan-R3 finding 1).
+  let escalated = false;
+  if (outcome === "still_orphaned" || outcome === "renewal_failing") {
+    try {
+      const esc = await (deps.maybeEscalateWatchOrphaned ?? defaultMaybeEscalate)({
+        folderId: folder.folderId,
+        folderName: folder.folderName,
+      });
+      escalated = esc.escalated;
+      faults.push(...esc.faults);
+    } catch {
+      faults.push("escalation_helper");
+    }
+  }
+
+  return {
+    outcome: faults.length ? "infra_error" : outcome,
+    sweptPending,
+    escalated,
+    faults,
+  };
 }

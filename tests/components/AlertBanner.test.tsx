@@ -25,10 +25,11 @@
  * promise — admin-side or otherwise, raw codes never reach end-users.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
+import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
 
 // RECON-1 T3: <AlertBanner> now wraps its normal-state render in
 // <AlertBannerRouteBoundary> (a 'use client' island that reads BOTH
@@ -100,6 +101,12 @@ type AlertRow = {
    * count probe.
    */
   resolved_at?: string | null;
+  /**
+   * Task 10: production `admin_alerts.occurrence_count` (NOT NULL default 1).
+   * The AlertBanner watch branch derives `escalated` from
+   * `occurrence_count >= ESCALATION_THRESHOLD`. Defaults to 1 in setRows().
+   */
+  occurrence_count?: number;
 };
 const mockState = vi.hoisted(() => ({
   rows: [] as Array<{
@@ -110,6 +117,7 @@ const mockState = vi.hoisted(() => ({
     context: Record<string, unknown> | null;
     shows: { slug: string } | null;
     resolved_at: string | null;
+    occurrence_count: number;
   }>,
   // RECON-1 T3 §6 swap tests: when true, the DETAIL SELECT (the .limit(1)
   // probe) returns a PostgREST `{ error }`, driving AlertBanner's
@@ -217,7 +225,12 @@ function setRows(rows: AlertRow[]) {
   // production AlertBanner SELECT shape ({ context: Record<string, unknown>
   // | null } is required on the production row).
   mockState.rows = [...rows]
-    .map((r) => ({ ...r, context: r.context ?? null, resolved_at: r.resolved_at ?? null }))
+    .map((r) => ({
+      ...r,
+      context: r.context ?? null,
+      resolved_at: r.resolved_at ?? null,
+      occurrence_count: r.occurrence_count ?? 1,
+    }))
     .sort((a, b) => new Date(b.raised_at).getTime() - new Date(a.raised_at).getTime());
 }
 
@@ -614,7 +627,7 @@ describe("AlertBanner", () => {
     expect(queryByTestId("admin-alert-queue-chip")).toBeNull();
   });
 
-  test("M9 C4 / M5-D3: Resolve button starts in idle state (text 'Resolve')", async () => {
+  test("M9 C4 / M5-D3: Dismiss button starts in idle state (text 'Dismiss')", async () => {
     setRows([
       {
         id: "alert-resolve-idle",
@@ -626,7 +639,7 @@ describe("AlertBanner", () => {
     ]);
     const { getByTestId, queryByTestId } = render(await AlertBanner());
     const btn = getByTestId("admin-alert-resolve-button");
-    expect(btn.textContent?.trim()).toBe("Resolve");
+    expect(btn.textContent?.trim()).toBe("Dismiss");
     // The confirm-row is NOT in the DOM in idle state.
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
   });
@@ -1101,5 +1114,307 @@ describe("AlertBanner", () => {
     );
     expect(details).not.toBeNull(); // normal banner back…
     expect(details!.hasAttribute("open")).toBe(false); // …collapsed, no stale open
+  });
+
+  // ===========================================================================
+  // Task 10 — WATCH_CHANNEL_ORPHANED watch branch (spec §3.4).
+  //
+  // A GLOBAL (show_id null) WATCH_CHANNEL_ORPHANED alert gets a three-way action
+  // slot: per-show → Check-it (show_id wins) / watch → Retry form / other-global
+  // → Dismiss form. The Dismiss for a watch alert moves INTO the expanded panel
+  // (admin-alert-panel-dismiss), alongside a status line (admin-alert-watch-status)
+  // and a muted error-detail <code> line (admin-alert-error-detail).
+  //
+  // Failure modes these pin: wrong action bound to a watch alert; the Dismiss
+  // disappearing entirely; `escalated` reading the wrong fields; and sibling
+  // self-satisfaction (the panel dismiss form independently rendering a Resolve
+  // button — anti-tautology handled by cloning + removing the panel).
+  // ===========================================================================
+
+  const WATCH = "WATCH_CHANNEL_ORPHANED" satisfies MessageCode;
+
+  test("WATCH_CHANNEL_ORPHANED global alert renders the Retry form in the action slot — and NOT the slot Dismiss form", async () => {
+    setRows([
+      {
+        id: "watch-1",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api" },
+        occurrence_count: 1,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const action = container.querySelector("[data-testid=admin-alert-action]")!;
+    // The action slot IS the Retry form.
+    expect(action.querySelector("[data-testid=admin-alert-retry-button]")).not.toBeNull();
+    expect(action.querySelector("form")).not.toBeNull();
+
+    // Anti-tautology: the panel now hosts its OWN dismiss form (which renders a
+    // Resolve button + id input), so a naive whole-container query for a dismiss
+    // control self-satisfies. Clone the tree and REMOVE the panel first; then the
+    // ONLY surviving dismiss/resolve control would have to be in the action slot.
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelector("[data-testid=admin-alert-panel]")?.remove();
+    expect(clone.querySelector("[data-testid=admin-alert-resolve-button]")).toBeNull();
+    expect(clone.querySelector("[data-testid=admin-alert-panel-dismiss]")).toBeNull();
+    // The action-slot form carries the RETRY button and NO hidden id input
+    // (retry ignores form data); it is not a Dismiss form.
+    const slotForm = clone.querySelector("[data-testid=admin-alert-action] form")!;
+    expect(slotForm.querySelector("[data-testid=admin-alert-retry-button]")).not.toBeNull();
+    expect(slotForm.querySelector("[data-testid=admin-alert-id-input]")).toBeNull();
+  });
+
+  test("watch panel dismiss uses the quiet variant (no second accent CTA on the open panel)", async () => {
+    // impeccable critique P2: Retry (accent) + Dismiss must not compete at
+    // full strength on one surface; the panel dismiss renders neutral.
+    setRows([
+      {
+        id: "watch-quiet-1",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api" },
+        occurrence_count: 1,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const panelBtn = container
+      .querySelector("[data-testid=admin-alert-panel-dismiss]")
+      ?.querySelector("[data-testid=admin-alert-resolve-button]");
+    expect(panelBtn).toBeTruthy();
+    expect((panelBtn as HTMLElement).className).not.toContain("bg-accent");
+  });
+
+  test("other global codes keep the Dismiss slot form unchanged (no Retry, no panel dismiss)", async () => {
+    setRows([
+      {
+        id: "g1",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const action = container.querySelector("[data-testid=admin-alert-action]")!;
+    const form = action.querySelector("form")!;
+    expect(form.querySelector("[data-testid=admin-alert-id-input]")).not.toBeNull();
+    expect(action.querySelector("[data-testid=admin-alert-resolve-button]")).not.toBeNull();
+    // Watch affordances are absent for a non-watch code.
+    expect(container.querySelector("[data-testid=admin-alert-retry-button]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-panel-dismiss]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-watch-status]")).toBeNull();
+  });
+
+  test("per-show WATCH_CHANNEL_ORPHANED (hypothetical) keeps the Check-it link — show_id branch wins over watch branch", async () => {
+    setRows([
+      {
+        id: "ps-watch",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
+        context: { error_class: "config" },
+        occurrence_count: ESCALATION_THRESHOLD + 5, // would escalate IF it were global
+      },
+    ]);
+    const { container, getByTestId } = render(await AlertBanner());
+    expect(getByTestId("admin-alert-show-link")).not.toBeNull();
+    // isWatchAlert requires !isPerShowAlert, so NONE of the watch affordances render.
+    expect(container.querySelector("[data-testid=admin-alert-retry-button]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-watch-status]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-panel-dismiss]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-error-detail]")).toBeNull();
+  });
+
+  test("panel dismiss row: <form> with hidden id input + ResolveAlertButton in the SAME form, inside the panel, never inside <summary>/<details>", async () => {
+    setRows([
+      {
+        id: "watch-2",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: {},
+        occurrence_count: 1,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const panel = container.querySelector("[data-testid=admin-alert-panel]")!;
+    const dismiss = panel.querySelector(
+      "[data-testid=admin-alert-panel-dismiss]",
+    ) as HTMLFormElement;
+    expect(dismiss).not.toBeNull();
+    expect(dismiss.tagName.toLowerCase()).toBe("form");
+    const hidden = dismiss.querySelector(
+      "input[name=id][data-testid=admin-alert-id-input]",
+    ) as HTMLInputElement;
+    expect(hidden).not.toBeNull();
+    expect(hidden.value).toBe("watch-2");
+    expect(dismiss.querySelector("[data-testid=admin-alert-resolve-button]")).not.toBeNull();
+    // Slot-integrity: NO form nested inside <summary>/<details> (F18: panel is a
+    // grid SIBLING of <details>, so the dismiss form is legal).
+    const section = container.querySelector("[data-testid=admin-alert-banner]")!;
+    expect(section.querySelector("summary form, details form")).toBeNull();
+  });
+
+  test("status line: occurrence_count < ESCALATION_THRESHOLD & error_class drive_api → 'Retrying automatically every hour.'", async () => {
+    setRows([
+      {
+        id: "w-notesc",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api" },
+        occurrence_count: ESCALATION_THRESHOLD - 1, // derived from the constant, never literal 3
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    expect(getByTestId("admin-alert-watch-status").textContent).toBe(
+      "Retrying automatically every hour.",
+    );
+  });
+
+  test("status line: occurrence_count >= ESCALATION_THRESHOLD → 'We've flagged this for support — no action needed.'", async () => {
+    setRows([
+      {
+        id: "w-esc-count",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api" },
+        occurrence_count: ESCALATION_THRESHOLD, // boundary: >= threshold escalates
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    expect(getByTestId("admin-alert-watch-status").textContent).toBe(
+      "We've flagged this for support — no action needed.",
+    );
+  });
+
+  test("status line: error_class 'config' escalates even below the occurrence threshold", async () => {
+    setRows([
+      {
+        id: "w-esc-config",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "config" },
+        occurrence_count: 1, // below threshold, but config → escalated
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    expect(getByTestId("admin-alert-watch-status").textContent).toBe(
+      "We've flagged this for support — no action needed.",
+    );
+  });
+
+  test("context.error_message renders in the muted <code> line; absent → no code line", async () => {
+    setRows([
+      {
+        id: "w-detail",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api", error_message: "invalid_grant: token expired" },
+        occurrence_count: 1,
+      },
+    ]);
+    let r = render(await AlertBanner());
+    const detail = r.container.querySelector("[data-testid=admin-alert-error-detail]")!;
+    expect(detail).not.toBeNull();
+    expect(detail.querySelector("code")?.textContent).toBe("invalid_grant: token expired");
+    cleanup();
+
+    // No error_message in context → no error-detail line at all.
+    setRows([
+      {
+        id: "w-nodetail",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api" },
+        occurrence_count: 1,
+      },
+    ]);
+    r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-error-detail]")).toBeNull();
+  });
+
+  test("panel Dismiss confirm/Cancel operates independently of the Retry form (separate useFormStatus scopes)", async () => {
+    setRows([
+      {
+        id: "w-scope",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: {},
+        occurrence_count: 1,
+      },
+    ]);
+    const { getByTestId, queryByTestId } = render(await AlertBanner());
+    // The Retry button and the panel Dismiss button live in SEPARATE <form>s, so
+    // useFormStatus in one cannot disable controls in the other.
+    const retryForm = getByTestId("admin-alert-retry-button").closest("form");
+    const dismissForm = getByTestId("admin-alert-resolve-button").closest("form");
+    expect(retryForm).not.toBeNull();
+    expect(dismissForm).not.toBeNull();
+    expect(retryForm).not.toBe(dismissForm);
+    // The Dismiss two-tap still works: idle Resolve → confirm → Cancel back to idle,
+    // with Cancel enabled (pending is false in its own form scope).
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    const cancel = getByTestId("admin-alert-cancel-button") as HTMLButtonElement;
+    expect(cancel.disabled).toBe(false);
+    fireEvent.click(cancel);
+    expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
+    expect(getByTestId("admin-alert-resolve-button")).not.toBeNull();
+  });
+
+  test("compound: seed swap re-renders the current DB state (no client Retry/pending carried across a server re-render)", async () => {
+    // Orphaned → the watch banner with a Retry slot + panel dismiss.
+    setRows([
+      {
+        id: "w-swap",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: {},
+        occurrence_count: 1,
+      },
+    ]);
+    let r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-retry-button]")).not.toBeNull();
+    cleanup();
+
+    // Final state A — Dismiss (or auto-heal) resolved the row → empty → banner null.
+    setRows([]);
+    r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-banner]")).toBeNull();
+    cleanup();
+
+    // Final state B — a different non-watch alert is now top → the Dismiss slot
+    // returns and the Retry slot is gone (the server render owns the state).
+    setRows([
+      {
+        id: "g-after",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-04T11:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    r = render(await AlertBanner());
+    expect(r.container.querySelector("[data-testid=admin-alert-retry-button]")).toBeNull();
+    expect(r.container.querySelector("[data-testid=admin-alert-resolve-button]")).not.toBeNull();
   });
 });
