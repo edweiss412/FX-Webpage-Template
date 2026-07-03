@@ -1,5 +1,7 @@
 import type { drive_v3 } from "googleapis";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
+import { findMediaByFingerprint } from "@/lib/drive/embeddedObjects";
+import { fetchCurrentSheetXlsxBytes } from "@/lib/drive/fetch";
 import { createStallGuard, DRIVE_ASSET_STALL_TIMEOUT_MS } from "@/lib/drive/stallGuard";
 import type { EmbeddedImageStub, LinkedFolderItemStub, ParseResult } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -36,9 +38,25 @@ function bytesFrom(data: unknown): Uint8Array | null {
  */
 export async function snapshotFetchEmbeddedImageBytesTimed(
   entry: EmbeddedImageStub,
-  deps: { fetch?: typeof fetch; getAccessToken?: () => Promise<string>; timeoutMs?: number } = {},
+  deps: {
+    fetch?: typeof fetch;
+    getAccessToken?: () => Promise<string>;
+    timeoutMs?: number;
+    fetchXlsxBytes?: () => Promise<ArrayBuffer>;
+  } = {},
 ): Promise<SnapshotAssetBytes | null> {
-  if (!entry.contentUrl) return null;
+  if (!entry.contentUrl) {
+    // XLSX-media entry (contentUrl null, mediaPartName set): re-produce the bytes
+    // from the current export, DIAGRAMS-tab-scoped by content hash. Fail-soft: any
+    // Drive/zip fault → null → partial_failure (never aborts Apply).
+    if (!entry.mediaPartName || !deps.fetchXlsxBytes) return null;
+    try {
+      const xlsx = await deps.fetchXlsxBytes();
+      return findMediaByFingerprint(xlsx, entry.mediaPartName, entry.embeddedFingerprint);
+    } catch {
+      return null;
+    }
+  }
   const fetchImpl = deps.fetch ?? fetch;
   const token = await (deps.getAccessToken ?? getDriveAccessToken)();
   const guard = createStallGuard(deps.timeoutMs ?? DRIVE_ASSET_STALL_TIMEOUT_MS);
@@ -111,8 +129,14 @@ export function makeSnapshotAssetsForApply(
 }) => Promise<SnapshotAssetsResult> {
   const supabase = createSupabaseServiceRoleClient();
   const drive = getDriveClient();
-  return async (args) =>
-    await snapshotAssets({
+  return async (args) => {
+    // Memoize the current XLSX export once per apply pass per show: N embedded
+    // images cost one export, not N. Scoped to this returned closure, so it never
+    // leaks across shows.
+    let xlsxOnce: Promise<ArrayBuffer> | null = null;
+    const fetchXlsxBytes = () =>
+      (xlsxOnce ??= fetchCurrentSheetXlsxBytes(args.driveFileId, { drive }));
+    return await snapshotAssets({
       showId,
       driveFileId: args.driveFileId,
       diagrams: args.diagrams,
@@ -130,9 +154,11 @@ export function makeSnapshotAssetsForApply(
         },
       },
       drive: {
-        fetchEmbeddedImageBytes: (entry) => snapshotFetchEmbeddedImageBytesTimed(entry),
+        fetchEmbeddedImageBytes: (entry) =>
+          snapshotFetchEmbeddedImageBytesTimed(entry, { fetchXlsxBytes }),
         fetchLinkedRevisionBytes: (entry) =>
           snapshotFetchLinkedRevisionBytesTimed(entry, { drive }),
       },
     });
+  };
 }
