@@ -83,6 +83,7 @@ async function emitResolveShowFailure(input: { slug: string; error: unknown }): 
   } catch {
     log.error("resolve-show alert emission failed", {
       source: "api.auth.pickerBootstrap",
+      code: "PICKER_BOOTSTRAP_RESOLVE_ALERT_FAILED",
       slug: input.slug,
       rpcErrorCode: errorCode(input.error),
     });
@@ -104,6 +105,7 @@ async function emitClaimFailure(input: { canonicalEmail: string; error: unknown 
   } catch (alertErr) {
     log.error("claim alert emission failed", {
       source: "api.auth.pickerBootstrap",
+      code: "PICKER_BOOTSTRAP_CLAIM_ALERT_FAILED",
       emailHash: hashForLog(input.canonicalEmail),
       rpcErrorCode: errorCode(input.error),
       alertError:

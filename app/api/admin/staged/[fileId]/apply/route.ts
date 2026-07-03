@@ -27,7 +27,11 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
   try {
     supabase = await createSupabaseServerClient();
   } catch (error) {
-    log.error("server client construction failed", { source: "api.admin.staged.apply", error });
+    log.error("server client construction failed", {
+      source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+      error,
+    });
     return { kind: "infra_error" };
   }
 
@@ -38,11 +42,19 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
     data = response.data;
     error = response.error;
   } catch (cause) {
-    log.error("getUser threw", { source: "api.admin.staged.apply", error: cause });
+    log.error("getUser threw", {
+      source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+      error: cause,
+    });
     return { kind: "infra_error" };
   }
   if (error) {
-    log.error("getUser failed", { source: "api.admin.staged.apply", errorMessage: error.message });
+    log.error("getUser failed", {
+      source: "api.admin.staged.apply",
+      code: "LIVE_STAGED_APPLY_LOOKUP_FAILED",
+      errorMessage: error.message,
+    });
     return { kind: "infra_error" };
   }
   const email = canonicalize(data.user?.email);

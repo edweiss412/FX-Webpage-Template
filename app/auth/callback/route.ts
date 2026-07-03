@@ -83,6 +83,7 @@ async function stampOauthClaim(
     if (getUserError) {
       void log.error("getUser returned error", {
         source: "auth.callback",
+        code: "OAUTH_GETUSER_FAILED",
         error: getUserError,
       });
       return;
@@ -134,6 +135,7 @@ async function stampOauthClaim(
       } catch (alertErr) {
         void log.error("OAUTH_IDENTITY_CLAIMED alert emission failed", {
           source: "auth.callback",
+          code: "OAUTH_CLAIM_ALERT_FAILED",
           emailHash: hashForLog(canonicalEmail),
           showId: row.show_id,
           crewMemberId: row.crew_member_id,
