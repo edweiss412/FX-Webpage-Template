@@ -32,10 +32,21 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
       if (isAuthSessionMissingError(userError)) {
         return { ok: false, reason: "not_admin" };
       }
-      await log.error("admin session lookup failed", {
-        source: "auth/isAdminSession",
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
+      // Invariant 9 (finding #20): best-effort emit — a logger throw must never
+      // reject over the auth-decision caller. Finding #4: pass `error:` (the
+      // returned getUser error) so serializeError captures name/message/stack,
+      // plus a `stage:` discriminator so distinct faults are distinguishable in
+      // app_events instead of collapsing to one opaque row.
+      try {
+        await log.error("admin session lookup failed", {
+          source: "auth/isAdminSession",
+          code: "ADMIN_SESSION_LOOKUP_FAILED",
+          stage: "get_user_returned_error",
+          error: userError,
+        });
+      } catch {
+        /* best-effort: logging must never throw over the caller */
+      }
       return { ok: false, reason: "infra_error" };
     }
     const email = canonicalize(userResult.user?.email);
@@ -46,10 +57,16 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
 
     const { data, error } = await supabase.rpc("is_admin");
     if (error) {
-      await log.error("admin session lookup failed", {
-        source: "auth/isAdminSession",
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
+      try {
+        await log.error("admin session lookup failed", {
+          source: "auth/isAdminSession",
+          code: "ADMIN_SESSION_LOOKUP_FAILED",
+          stage: "is_admin_returned_error",
+          error,
+        });
+      } catch {
+        /* best-effort: logging must never throw over the caller */
+      }
       return { ok: false, reason: "infra_error" };
     }
     if (data !== true) {
@@ -57,14 +74,23 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
     }
 
     return { ok: true, email };
-  } catch {
-    // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY
-    // are missing or the cookie store is unavailable — infrastructure
-    // configuration failure, not an auth signal.
-    await log.error("admin session lookup failed", {
-      source: "auth/isAdminSession",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+  } catch (err) {
+    // Top-level catch: createSupabaseServerClient() throws when
+    // SUPABASE_URL / ANON_KEY are missing or the cookie store is unavailable,
+    // AND a mid-flight throw from getUser()/rpc() (network, abort, decode)
+    // lands here too — all infrastructure faults, not auth signals. The
+    // `stage` names this catch-all arm; the returned-error arms above are
+    // discriminated separately.
+    try {
+      await log.error("admin session lookup failed", {
+        source: "auth/isAdminSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        stage: "lookup_threw",
+        error: err,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return { ok: false, reason: "infra_error" };
   }
 }
