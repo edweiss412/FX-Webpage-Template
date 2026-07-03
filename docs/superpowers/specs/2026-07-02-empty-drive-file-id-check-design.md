@@ -187,7 +187,7 @@ union all select 'dev.sync_log', drive_file_id from dev.sync_log where drive_fil
 
 `validation-schema-parity` (`tests/db/validation-schema-parity.test.ts`) is **columns-only** today — its two layers parse `add column`/`create table` and do byte-equality on the columns manifest; **neither observes CHECK constraints.** So the CI parity gate would pass **whether or not** the step-3 surgical apply ran — knowingly leaving the exact historical "committed migration never reached the validation DB" drift class unguarded for CHECK-only migrations.
 
-**We do not accept that.** This spec adds **Layer 3: CHECK-constraint parity** to the same test (§8.5), which runs in the same `validation-schema-parity` CI job (with `TEST_DATABASE_URL` set, `x-audits.yml:369-402`) and **fails CI if the surgical validation apply was skipped**. Enforcement is therefore three-legged, and the CI leg is now real:
+**We do not accept that.** This spec adds **Layer 3: CHECK-constraint parity** to the same test (§8.4), which runs in the same `validation-schema-parity` CI job (with `TEST_DATABASE_URL` set, `x-audits.yml:369-402`) and **fails CI if the surgical validation apply was skipped**. Enforcement is therefore three-legged, and the CI leg is now real:
 - (a) the CI Layer-3 check (§8.5) — validation-observable; a skipped apply → red CI;
 - (b) the local behavioral `.db.test` (§8.2) — proves the predicate actually rejects blanks;
 - (c) not skipping the surgical apply (§7 step 3) — now enforced by (a), not just discipline.
