@@ -120,6 +120,26 @@ describe("title banner-preference (M3)", () => {
     expect(parseSheet(md).show.title).toBe(banner);
   });
 
+  // Codex R1 HIGH: a SINGLE-forum title whose leading tag merely RECURS mid-title
+  // ("II" appears in "Phase II") must NOT be mistaken for a mashed multi-forum
+  // banner. The mashed guard requires >= 3 tag occurrences (a flattened banner is
+  // a 3+-forum, >=3-line cell); this title has only 2, so #0 keeps the proper-cased
+  // banner over the uppercased Event Name.
+  it("a single-forum title whose tag recurs mid-title still beats the Event Name", () => {
+    const banner = "II - Phase II - Clinical Innovation Forum 2026";
+    const md = `| ${banner} | ${banner} |\n| Event Name: | II - PHASE II - CLINICAL INNOVATION FORUM 2026 |`;
+    expect(parseSheet(md).show.title).toBe(banner);
+  });
+
+  // A longer institutional prefix (> 24 chars) that repeats 3× is still caught as
+  // mashed (Codex R1 MEDIUM — the tag-extraction cap was raised to 40).
+  it("a flattened multi-forum banner with a long repeated prefix is still skipped", () => {
+    const p = "Institutional Allocators Forum";
+    const banner = `${p} - Alpha ${p} - Beta ${p} - Gamma 2026`;
+    const md = `| ${banner} | ${banner} |\n| Event Name: | Alpha / Beta / Gamma Combined Forum |`;
+    expect(parseSheet(md).show.title).toBe("Alpha / Beta / Gamma Combined Forum");
+  });
+
   // Anti-regression: shows whose title should be UNCHANGED by banner-preference.
   // redefining-fi's banner carries an in-cell &#10; (a two-forum multi-value
   // cell) so #0 skips it and the existing chain keeps "RFI & PC Chicago";
