@@ -71,3 +71,27 @@ export async function seedNUnresolved(count: number) {
 export async function seedGlobalAlert(opts: { count: number }) {
   await seedNUnresolved(opts.count);
 }
+
+// Seed exactly ONE unresolved GLOBAL WATCH_CHANNEL_ORPHANED row (spec §3.4). The
+// banner's watch branch keys on `code === "WATCH_CHANNEL_ORPHANED" && show_id null`
+// so this row renders the Retry action slot + panel dismiss/status/error-detail.
+// `context.error_class` / `context.error_message` drive the escalated status line
+// (config → escalated) and the muted error-detail <code> line; `occurrence_count`
+// drives escalation (>= ESCALATION_THRESHOLD → "flagged for support"). admin_alerts.context
+// is NOT NULL, so an empty `{}` is always inserted even when no knobs are supplied.
+export async function seedWatchAlert(
+  opts: { occurrenceCount?: number; errorClass?: string; errorMessage?: string } = {},
+) {
+  await clearAlerts();
+  const context: Record<string, unknown> = {};
+  if (opts.errorClass !== undefined) context.error_class = opts.errorClass;
+  if (opts.errorMessage !== undefined) context.error_message = opts.errorMessage;
+  const { error } = await admin.from("admin_alerts").insert({
+    show_id: null,
+    code: "WATCH_CHANNEL_ORPHANED",
+    context,
+    occurrence_count: opts.occurrenceCount ?? 1,
+    raised_at: new Date(Date.now() - 5 * 3600_000).toISOString(),
+  });
+  if (error) throw new Error(`seedWatchAlert insert failed: ${error.message}`);
+}

@@ -31,15 +31,17 @@ import { log } from "@/lib/log";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
-import { resolveAdminAlertFormAction } from "@/app/admin/actions";
+import { resolveAdminAlertFormAction, retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { nowDate } from "@/lib/time/now";
 import { formatBoundedCount } from "@/lib/format/count";
 import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
+import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
 
 import { AlertBannerRouteBoundary } from "./AlertBannerRouteBoundary";
 import { ResolveAlertButton } from "./ResolveAlertButton";
+import { RetryWatchButton } from "./RetryWatchButton";
 
 type AlertRow = {
   id: string;
@@ -48,6 +50,11 @@ type AlertRow = {
   show_id: string | null;
   /** admin_alerts.context — jsonb payload supplied by the producer. */
   context: Record<string, unknown> | null;
+  /**
+   * admin_alerts.occurrence_count (NOT NULL default 1). Drives the watch-alert
+   * escalation status line (spec §3.4): occurrence_count >= ESCALATION_THRESHOLD.
+   */
+  occurrence_count: number;
   shows: { slug: string } | Array<{ slug: string }> | null;
 };
 
@@ -107,7 +114,7 @@ export async function AlertBanner() {
     try {
       let query = supabase
         .from("admin_alerts")
-        .select("id, code, raised_at, show_id, context, shows(slug)")
+        .select("id, code, raised_at, show_id, context, occurrence_count, shows(slug)")
         .is("resolved_at", null);
       if (INFO_SEVERITY_CODES.length > 0) {
         query = query.not(
@@ -209,6 +216,22 @@ export async function AlertBanner() {
       alertId: alert.id,
     });
   }
+
+  // Task 10 (spec §3.4): a GLOBAL WATCH_CHANNEL_ORPHANED alert gets a Retry
+  // action slot + a panel status/error-detail/dismiss cluster. The per-show
+  // branch wins over the watch branch (a show-scoped watch row, if one ever
+  // existed, still routes through the show-context flow), so isWatchAlert is
+  // gated on !isPerShowAlert. `error_class` / `error_message` come from the
+  // producer-supplied context (watch.ts); both are guarded for the null/absent
+  // /non-string case. `escalated` mirrors the escalation predicate in
+  // lib/drive/watchEscalation.ts (config OR occurrence_count >= threshold).
+  const isWatchAlert = !isPerShowAlert && alert.code === "WATCH_CHANNEL_ORPHANED";
+  const errorClass =
+    typeof alert.context?.error_class === "string" ? alert.context.error_class : null;
+  const errorDetail =
+    typeof alert.context?.error_message === "string" ? alert.context.error_message : null;
+  const escalated =
+    isWatchAlert && (errorClass === "config" || alert.occurrence_count >= ESCALATION_THRESHOLD);
 
   // RECON-1 T3 (spec §3.3): the collapsed summary line renders the catalog
   // dougFacing STRING inline (NOT <ErrorExplainer>, which is a block + <p>
@@ -376,6 +399,34 @@ export async function AlertBanner() {
               {helpfulContext}
             </p>
           ) : null}
+          {/* Watch-alert-only panel cluster (spec §3.4): status line, muted
+              error-detail <code>, then the Dismiss form. The Dismiss lives here
+              (a grid SIBLING of <details>, F18) instead of the action slot,
+              which the watch branch gives to the Retry form. All state changes
+              are instant server re-renders (spec §3.4 transition inventory) — no
+              animation props. */}
+          {isWatchAlert ? (
+            <p data-testid="admin-alert-watch-status" className="mt-2 text-sm text-text-subtle">
+              {escalated
+                ? "We've flagged this for support — no action needed."
+                : "Retrying automatically every hour."}
+            </p>
+          ) : null}
+          {isWatchAlert && errorDetail ? (
+            <p data-testid="admin-alert-error-detail" className="mt-2 text-xs text-text-subtle">
+              <code>{errorDetail}</code>
+            </p>
+          ) : null}
+          {isWatchAlert ? (
+            <form
+              action={resolveAdminAlertFormAction}
+              data-testid="admin-alert-panel-dismiss"
+              className="mt-3"
+            >
+              <input type="hidden" name="id" value={alert.id} data-testid="admin-alert-id-input" />
+              <ResolveAlertButton />
+            </form>
+          ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle">
             <p data-testid="admin-alert-raised-at" className="tabular-nums">
               Raised{" "}
@@ -410,6 +461,14 @@ export async function AlertBanner() {
                 Check it
               </a>
             ) : null
+          ) : isWatchAlert ? (
+            // Task 10 (spec §3.4.2): a global watch alert's action slot is the
+            // single-tap Retry form (idempotent — no two-tap confirm). The
+            // Server Action ignores form data (no hidden id input), and the
+            // Dismiss for this alert lives in the expanded panel above.
+            <form action={retryWatchSubscriptionFormAction}>
+              <RetryWatchButton />
+            </form>
           ) : (
             // M9 C4 / M5-D3 §5.4: two-tap inline confirm. ResolveAlertButton
             // is a small client island; the parent form owns the hidden id
