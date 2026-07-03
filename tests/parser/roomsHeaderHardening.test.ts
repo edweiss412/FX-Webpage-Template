@@ -91,6 +91,24 @@ describe("splitRoomHeader — regression guards (existing corpus shapes unchange
     });
   });
 
+  it("does NOT extract a named-floor phrase embedded in a legitimate room name (Codex R1)", () => {
+    // "MAIN FLOOR BALLROOM" is the room's NAME, not a floor field — the named-floor
+    // branch is anchored to the trailing position, so a mid-name "Main Floor" is left
+    // in the name and only a genuinely-trailing floor is pulled out.
+    expect(gsOf("GENERAL SESSION MAIN FLOOR BALLROOM 82' x 94' x 14'")).toEqual({
+      name: "MAIN FLOOR BALLROOM",
+      dimensions: "82' x 94' x 14'",
+      floor: null,
+    });
+    // Both together: mid-name "Main Floor" stays in the name; the TRAILING "Ground
+    // Floor" is the extracted floor.
+    expect(gsOf("GENERAL SESSION MAIN FLOOR BALLROOM Ground Floor")).toEqual({
+      name: "MAIN FLOOR BALLROOM",
+      dimensions: null,
+      floor: "Ground Floor",
+    });
+  });
+
   it("does not treat the 'Dimensions Floor' placeholder pair as a floor", () => {
     // consultants LUNCH ROOM stub: both template placeholder words unfilled.
     const rooms = parseRooms(

@@ -914,16 +914,21 @@ function splitRoomHeader(
     .replace(/^[\s:–—-]+/, "")
     .trim();
 
-  // 2. floor — ordinal ("7th Floor" / "15th Floor") OR a named non-ordinal level
-  // ("Ground Floor", "Main Floor", "Lobby Floor", …). The qualifier list is a
-  // closed set of real floor designations so the "Floor" template PLACEHOLDER word
-  // (an unfilled "Dimensions Floor" stub, where "Dimensions"/"Floor" have no
-  // qualifier) is NOT matched here and still falls through to the step-4 strip.
-  // Without the non-ordinal branch a "Ground Floor" leaked into the dims string
-  // (dims present) or glued its qualifier onto the room name (no dims) — audit idx23.
+  // 2. floor. Ordinal floors ("7th Floor" / "15th Floor") match ANYWHERE — the
+  // "Nth" form is vanishingly rare inside a real room name, so the original
+  // unanchored behavior is preserved. Named non-ordinal levels ("Ground Floor",
+  // "Main Floor", "Lobby Floor", …) are only extracted when they are the TRAILING
+  // field (`\s*$`): those qualifier words are common enough to appear INSIDE a
+  // legitimate room name ("Main Floor Ballroom"), so requiring end-position avoids
+  // mis-extracting a name fragment as the floor (Codex R1). Either way the closed
+  // qualifier set excludes the bare "Floor" template PLACEHOLDER (unfilled
+  // "Dimensions Floor" stub), which still falls through to the step-4 strip.
+  // Without a non-ordinal branch a trailing "Ground Floor" leaked into the dims
+  // string (dims present) or glued its qualifier onto the room name (no dims) — audit idx23.
   let floor: string | null = null;
   const floorMatch =
-    /\b(?:\d+\s*(?:st|nd|rd|th)|ground|main|lobby|lower|upper|mezzanine|concourse|penthouse|rooftop|basement|garden|terrace)\s+floor\b/i.exec(
+    /\b\d+\s*(?:st|nd|rd|th)\s+floor\b/i.exec(s) ??
+    /\b(?:ground|main|lobby|lower|upper|mezzanine|concourse|penthouse|rooftop|basement|garden|terrace)\s+floor\b\s*$/i.exec(
       s,
     );
   if (floorMatch) {
@@ -954,11 +959,17 @@ function splitRoomHeader(
     s = s.slice(0, dimStart).trim();
   }
 
-  // 4. leftover template placeholder words
-  let name = s
-    .replace(/\b(?:Dimensions|Floor|Name\(s\))\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // 4. leftover template placeholder words. An unfilled "Dimensions"/"Floor"/"Name(s)"
+  // stub always TRAILS the name ("BALLROOM C Dimensions Floor"), so strip only from the
+  // END (iteratively — the stub can carry two words). A real name word, e.g. a room
+  // literally named "MAIN FLOOR BALLROOM", is mid-string and preserved (Codex R1); the
+  // old unconditional global strip corrupted it to "MAIN BALLROOM".
+  let name = s.replace(/\s+/g, " ").trim();
+  let prevName: string;
+  do {
+    prevName = name;
+    name = name.replace(/\s*\b(?:Dimensions|Floor|Name\(s\))\s*$/i, "").trim();
+  } while (name !== prevName);
   if (!name && kind === "gs") name = "General Session";
 
   return { name, dimensions, floor };
