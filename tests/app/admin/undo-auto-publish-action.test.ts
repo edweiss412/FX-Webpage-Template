@@ -30,6 +30,7 @@ type UnpublishResult =
   | { outcome: "success"; status: 200; showId: string }
   | { outcome: "expired"; status: 400; code: string; showId: string }
   | { outcome: "consumed"; status: 400; code: string; showId: string }
+  | { outcome: "finalize_owned"; status: 409; showId: string }
   | { outcome: "not_found"; status: 404 };
 
 const readUnpublishTokenForSlug = vi.fn<(slug: string) => Promise<string | null>>(
@@ -135,6 +136,12 @@ describe("undoAutoPublishAction (Task 12, spec §6.2)", () => {
     unpublishShow.mockResolvedValue({ outcome: "not_found", status: 404 });
     const res = await undoAutoPublishAction("rpas");
     expect(res).toEqual({ outcome: "consumed" });
+  });
+
+  it("unpublishShow finalize_owned → infra_error retry outcome (interim mapping; this action dies with the Published toggle)", async () => {
+    unpublishShow.mockResolvedValue({ outcome: "finalize_owned", status: 409, showId: "s1" });
+    const res = await undoAutoPublishAction("rpas");
+    expect(res).toEqual({ outcome: "infra_error" });
   });
 
   it("token read THROWS → infra_error (invariant 9), no unpublishShow call", async () => {

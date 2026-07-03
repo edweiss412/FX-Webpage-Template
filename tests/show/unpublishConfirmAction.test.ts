@@ -126,6 +126,12 @@ describe("confirmUnpublishAction", () => {
     expect(JSON.stringify(state)).not.toContain("UNPUBLISH_TOKEN_EXPIRED");
   });
 
+  test("finalize_owned outcome → busy state (retryable; token intact upstream)", async () => {
+    wrapperMock.result = { outcome: "finalize_owned", status: 409, showId: "show-1" };
+    const state = await runAction();
+    expect(state).toEqual({ status: "busy" });
+  });
+
   test("not_found outcome → neutral", async () => {
     wrapperMock.result = { outcome: "not_found", status: 404 };
     expect(await runAction()).toEqual({ status: "neutral" });

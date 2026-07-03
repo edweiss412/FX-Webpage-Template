@@ -6,6 +6,7 @@ import {
   withShowLock,
 } from "@/lib/sync/lockedShowTx";
 import { bindingMatchesActiveAdmin, mintIdFor } from "@/lib/sync/unpublishBinding";
+import { readFinalizeOwnershipGuard_unlocked } from "@/lib/sync/runManualSyncForShow";
 
 export const UNPUBLISH_TOKEN_CONSUMED = "UNPUBLISH_TOKEN_CONSUMED" as const;
 export const UNPUBLISH_TOKEN_EXPIRED = "UNPUBLISH_TOKEN_EXPIRED" as const;
@@ -30,7 +31,7 @@ export type UnpublishShowTx = LockableSyncTx & {
    */
   readActiveAdminEmailsForShare(): Promise<Array<{ email: string }>>;
   clearUnpublishToken(showId: string): Promise<void>;
-  archiveAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean>;
+  unpublishAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean>;
   upsertAdminAlert(input: {
     showId: string | null;
     code: "SHOW_UNPUBLISHED";
@@ -43,6 +44,9 @@ export type UnpublishShowResult =
   | { outcome: "success"; status: 200; showId: string }
   | { outcome: "expired"; status: 400; code: typeof UNPUBLISH_TOKEN_EXPIRED; showId: string }
   | { outcome: "consumed"; status: 400; code: typeof UNPUBLISH_TOKEN_CONSUMED; showId: string }
+  /** Published-toggle spec §3.4: a live show owned by an in-flight finalize refuses the
+   *  consume — token intact, nothing mutated; public surfaces render a retryable busy state. */
+  | { outcome: "finalize_owned"; status: 409; showId: string }
   | { outcome: "not_found"; status: 404 };
 
 export type UnpublishShowArgs = {
@@ -143,50 +147,24 @@ class PostgresUnpublishTx implements UnpublishShowTx {
     );
   }
 
-  async archiveAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean> {
-    // Mirror the FULL archive_show mutation set inline (B2 §2.5) so the token-Unpublish end-state is
-    // identical to the admin archive RPC: archived_at stamp, picker_epoch bump, share_token rotation,
-    // and live non-wizard scratch/suppressor clearing. The `and unpublish_token = $2` consume guard is
-    // preserved; the follow-on statements run only when this call performs the consume.
-    const row = await this.one<{ id: string; drive_file_id: string }>(
+  async unpublishAndConsumeUnpublishToken(showId: string, token: string): Promise<boolean> {
+    // PURE unpublish (published-toggle spec D1/§3.4): published=false + token pair cleared,
+    // NOTHING else — no archive, no share-token rotation, no scratch deletes, no picker_epoch
+    // bump. The `and unpublish_token = $2` consume guard is preserved. Parity with the
+    // unpublish_show RPC core is pinned by tests/sync/unpublishArchiveParity.test.ts.
+    const row = await this.one<{ id: string }>(
       `
         update public.shows
-           set archived = true,
-               published = false,
+           set published = false,
                unpublish_token = null,
-               unpublish_token_expires_at = null,
-               archived_at = now(),
-               picker_epoch = picker_epoch + 1,
-               picker_epoch_bumped_at = clock_timestamp()
+               unpublish_token_expires_at = null
          where id = $1::uuid
            and unpublish_token = $2::uuid
-         returning id, drive_file_id
+         returning id
       `,
       [showId, token],
     );
-    if (!row) return false;
-    await this.rows(
-      `
-        update public.show_share_tokens
-           set share_token = encode(extensions.gen_random_bytes(32), 'hex'),
-               rotated_at = clock_timestamp()
-         where show_id = $1::uuid
-      `,
-      [showId],
-    );
-    await this.rows(
-      "delete from public.pending_syncs      where drive_file_id = $1 and wizard_session_id is null",
-      [row.drive_file_id],
-    );
-    await this.rows(
-      "delete from public.pending_ingestions where drive_file_id = $1 and wizard_session_id is null",
-      [row.drive_file_id],
-    );
-    await this.rows(
-      "delete from public.deferred_ingestions where drive_file_id = $1 and wizard_session_id is null",
-      [row.drive_file_id],
-    );
-    return true;
+    return row !== null;
   }
 
   async upsertAdminAlert(input: {
@@ -239,8 +217,16 @@ async function compareExpireConsume_lockHeld(
     };
   }
 
-  const archived = await tx.archiveAndConsumeUnpublishToken(show.id, args.token);
-  if (!archived) {
+  // Finalize-owned refusal (published-toggle spec §3.4): a live show owned by an in-flight
+  // finalize must not be unpublished mid-apply. Uses the JS lock-held mirror predicate —
+  // NEVER the admin-gated readfinalizeowned_b2 RPC (R8: this raw-postgres path carries no
+  // admin JWT, so the RPC's is_admin() gate would 42501 every valid emailed link).
+  if (await readFinalizeOwnershipGuard_unlocked(tx, show.driveFileId)) {
+    return { outcome: "finalize_owned", status: 409, showId: show.id };
+  }
+
+  const consumed = await tx.unpublishAndConsumeUnpublishToken(show.id, args.token);
+  if (!consumed) {
     return {
       outcome: "consumed",
       status: 400,

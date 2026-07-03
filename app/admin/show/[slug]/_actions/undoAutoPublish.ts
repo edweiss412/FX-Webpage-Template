@@ -91,6 +91,12 @@ export async function undoAutoPublishAction(
       return { outcome: "expired" };
     case "consumed":
       return { outcome: "consumed" };
+    case "finalize_owned":
+      // Interim mapping (published-toggle plan R3/R4): a live show owned by an in-flight
+      // finalize refuses the unpublish. Render the existing retry state — honest (transient,
+      // retryable) for the one-task window before this whole action is deleted with the
+      // Published toggle landing.
+      return { outcome: "infra_error" };
     case "not_found":
       // The show / token disappeared mid-flight (deleted, or the token was
       // cleared by a concurrent consume). In-app, treat as the catalog CONSUMED

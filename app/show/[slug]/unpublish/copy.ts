@@ -12,6 +12,7 @@ export type ConfirmUnpublishActionState =
   | { status: "success"; title: string }
   | { status: "expired"; title: string | null; body: string }
   | { status: "neutral" }
+  | { status: "busy" }
   | { status: "infra" };
 
 /** Spec §5 R5 retry copy — exact wording, shared by GET and POST faults.
@@ -22,6 +23,14 @@ export const RETRY_COPY =
   "We couldn't check this link just now. Nothing has changed — try again in a minute.";
 
 export const RETRY_HEADING = "Try again in a minute";
+
+/** Published-toggle spec §3.4: the finalize-owned (busy) refusal — retryable, token intact.
+ *  Deliberately uncataloged transient copy, same waiver as RETRY_COPY above. */
+// not-subject:M5-D8 — published-toggle spec §3.4 prescribes this exact uncataloged busy copy
+export const BUSY_HEADING = "This show is being updated";
+
+export const BUSY_BODY =
+  "Changes are being finalized right now. Nothing has changed — try again in a few minutes.";
 
 /** Neutral not-found state: no oracle about whether the slug exists, whether
  *  the link was ever real, or whether it was consumed/revoked/stale. */

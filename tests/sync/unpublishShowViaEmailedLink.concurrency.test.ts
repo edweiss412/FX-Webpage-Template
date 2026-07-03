@@ -120,7 +120,7 @@ describe("unpublishShowViaEmailedLink revocation-vs-consume serialization (real 
 
     const state = await showState(seeded.showId);
     expect(state.unpublish_token).toBeNull();
-    expect(state.archived).toBe(true);
+    expect(state.archived).toBe(false); // published-toggle D1: pure unpublish never archives
     expect(state.published).toBe(false);
 
     // Revocation landing AFTER the consume changes nothing further…

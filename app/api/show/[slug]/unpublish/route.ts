@@ -23,6 +23,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { BUSY_BODY } from "@/app/show/[slug]/unpublish/copy";
 
 type RouteContext = {
   params: Promise<{ slug: string }>;
@@ -52,6 +53,11 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   }
   if (result.outcome === "expired") {
     return NextResponse.json({ ok: false, code: result.code }, { status: 400 });
+  }
+  if (result.outcome === "finalize_owned") {
+    // Published-toggle spec §3.4: retryable busy refusal — MUST NOT collapse into the
+    // neutral 404 below (the token survived; the caller should simply retry later).
+    return NextResponse.json({ ok: false, busy: true, message: BUSY_BODY }, { status: 409 });
   }
   return NextResponse.json({ ok: false }, { status: 404 });
 }

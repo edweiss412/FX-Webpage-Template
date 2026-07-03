@@ -69,7 +69,7 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
   { file: "lib/sync/promoteSnapshot.ts", symbol: "export async function repairSnapshotRollback(" },
   { file: "lib/sync/assetRecovery.ts", symbol: "async updateRecoveredDiagrams(" },
   { file: "lib/sync/unpublishShow.ts", symbol: "async clearUnpublishToken(" },
-  { file: "lib/sync/unpublishShow.ts", symbol: "async archiveAndConsumeUnpublishToken(" },
+  { file: "lib/sync/unpublishShow.ts", symbol: "async unpublishAndConsumeUnpublishToken(" },
   // Phase D publish flip — narrowed by T1.5 (provenance-bound UPDATE, plan R47-1/R55-1/R56-1).
   {
     file: "app/api/admin/onboarding/finalize-cas/route.ts",

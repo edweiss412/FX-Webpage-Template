@@ -267,6 +267,32 @@ export async function archivedStateSnapshot(s: SeededShow): Promise<Record<strin
   };
 }
 
+/**
+ * The comparable PURE-UNPUBLISHED end-state used by the published-toggle parity test
+ * (token-consume path ↔ unpublish_show RPC). Everything the D1 negative set forbids is
+ * asserted UNCHANGED: archived stays false, archived_at null, share_token unrotated,
+ * picker_epoch unbumped (both seeds start at 1), all scratch rows intact.
+ */
+export async function unpublishedStateSnapshot(s: SeededShow): Promise<Record<string, unknown>> {
+  const show = await readShow(s.showId);
+  const token = (await readShareToken(s.showId)).share_token;
+  const scratch = await scratchCount(s.driveFileId);
+  const [alert] = await sql`
+    select count(*)::int as n from public.admin_alerts
+     where show_id = ${s.showId}::uuid and code = 'SHOW_UNPUBLISHED'`;
+  return {
+    archived: show.archived,
+    published: show.published,
+    archived_at_null: show.archived_at == null,
+    unpublish_token_null: show.unpublish_token == null,
+    unpublish_token_expires_at_null: show.unpublish_token_expires_at == null,
+    share_token_rotated: token !== s.originalToken,
+    picker_epoch: show.picker_epoch,
+    scratch,
+    unpublished_alerts: alert?.n ?? 0,
+  };
+}
+
 /** Run ONLY the migration's backfill statements (legacy-scoped, idempotent) - used by the backfill test. */
 export async function applyMigrationBackfill(): Promise<void> {
   await sql.begin(async (tx) => {
