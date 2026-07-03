@@ -1601,9 +1601,10 @@ async function prepareWizardRestageInline(
     fetchMarkdownWithBinding: async (driveFileId) => {
       const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
       // Fetch BOTH markdown AND the xlsx bytes at the pinned revision so prepareOne
-      // can extractSourceAnchors. The markdown-only sibling left bytes undefined →
-      // sourceAnchors stayed {} and the restage upsert clobbered the good anchors
-      // captured by the initial scan (audit idx14/#77).
+      // can extractSourceAnchors AND enrich can surface DIAGRAMS-tab embedded images
+      // (prepareOnboardingFiles forwards bytes → ctx.xlsxBytes). The markdown-only
+      // sibling left bytes undefined → sourceAnchors stayed {} and the restage upsert
+      // clobbered the good anchors captured by the initial scan (audit idx14/#77).
       const { markdown, bytes } = await fetchSheetMarkdownAndBytesAtRevision(
         driveFileId,
         bindingToken,

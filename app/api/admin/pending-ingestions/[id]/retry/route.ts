@@ -4,7 +4,7 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { listFolder as listDriveFolder } from "@/lib/drive/list";
 import {
   fetchDriveFileMetadata as defaultFetchDriveFileMetadata,
-  fetchSheetAsMarkdownAtRevision,
+  fetchSheetMarkdownAndBytesAtRevision,
 } from "@/lib/drive/fetch";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -155,8 +155,16 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     modifiedTime: fileMeta.modifiedTime,
   };
   let markdown: string;
+  let xlsxBytes: ArrayBuffer | undefined;
   try {
-    markdown = await fetchSheetAsMarkdownAtRevision(fileMeta.driveFileId, binding.bindingToken);
+    // Fetch markdown AND raw xlsx bytes in one export so a retried ingestion also
+    // surfaces DIAGRAMS-tab embedded images (parity with cron + onboarding).
+    const fetched = await fetchSheetMarkdownAndBytesAtRevision(
+      fileMeta.driveFileId,
+      binding.bindingToken,
+    );
+    markdown = fetched.markdown;
+    xlsxBytes = fetched.bytes;
   } catch (cause) {
     throw new FirstSeenStagePrepareError("DRIVE_FETCH_FAILED", cause);
   }
@@ -170,6 +178,7 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     const parseResult = await enrichWithDrivePins(parsed, defaultDriveClient(), {
       driveFileId: fileMeta.driveFileId,
       fileMeta: toDriveFileMeta(fileMeta),
+      ...(xlsxBytes !== undefined ? { xlsxBytes } : {}),
     });
     return {
       fileMeta,

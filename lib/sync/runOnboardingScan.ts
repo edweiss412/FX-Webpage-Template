@@ -172,7 +172,12 @@ export type RunOnboardingScanDeps = {
   enrichWithDrivePins?: (
     parsed: ParsedSheet,
     driveClient: DriveClient,
-    ctx: { driveFileId: string; fileMeta: DriveFileMeta; binding: Phase1Binding },
+    ctx: {
+      driveFileId: string;
+      fileMeta: DriveFileMeta;
+      binding: Phase1Binding;
+      xlsxBytes?: ArrayBuffer;
+    },
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
@@ -963,6 +968,8 @@ export async function prepareOnboardingFiles(
       driveFileId: file.driveFileId,
       fileMeta: toDriveFileMeta(file),
       binding,
+      // Surface DIAGRAMS-tab embedded images from the already-fetched export bytes.
+      ...(bytes ? { xlsxBytes: bytes } : {}),
     });
     // Compute region source anchors ONCE from the already-fetched bytes (best-effort) and
     // reuse them for BOTH warning attachment AND persistence (spec §5.1). The tab-gid fetch
