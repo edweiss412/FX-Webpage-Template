@@ -58,6 +58,7 @@ export type WatchTx = {
   deleteOldStopped(): Promise<void>;
   sweepStalePending(cutoffIso: string): Promise<string[]>;
   hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
+  resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string): Promise<void>;
 };
 
 export type SubscribeOrphanReason = "watch_create_failed" | "activate_failed_after_watch_created";
@@ -275,6 +276,21 @@ class PostgresWatchTx implements WatchTx {
       [folderId, nowIso],
     );
     return rows.length > 0;
+  }
+
+  async resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string): Promise<void> {
+    await this.rows(
+      `
+        update public.admin_alerts a
+           set resolved_at = now()
+         where a.show_id is null and a.code = 'WEBHOOK_TOKEN_INVALID' and a.resolved_at is null
+           and not exists (
+             select 1 from public.drive_watch_channels c
+              where c.id = a.context->>'channel_id'
+                and c.watched_folder_id = $1 and c.status = 'active' and c.expires_at > $2::timestamptz)
+      `,
+      [folderId, nowIso],
+    );
   }
 }
 
@@ -654,8 +670,12 @@ export async function reconcileWatchChannels(
   }
   if ("kind" in folder) {
     // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
+    // WEBHOOK_TOKEN_INVALID is global (show_id is null) with a single-open-row
+    // dedup, so an unconditional resolve is correct here — there is no folder
+    // to scope a channel-liveness predicate against.
     try {
       await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+      await resolve({ showId: null, code: "WEBHOOK_TOKEN_INVALID" });
     } catch {
       faults.push("alert_resolve_write");
     }
@@ -690,6 +710,11 @@ export async function reconcileWatchChannels(
   if (live && !renewalFailed) {
     try {
       await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+      await runTx((tx) =>
+        callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+          tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+        ),
+      );
     } catch {
       faults.push("alert_resolve_write");
     }
@@ -718,6 +743,11 @@ export async function reconcileWatchChannels(
         outcome = "recovered";
         try {
           await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+          await runTx((tx) =>
+            callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+              tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+            ),
+          );
         } catch {
           faults.push("alert_resolve_write");
         }
