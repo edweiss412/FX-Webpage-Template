@@ -285,11 +285,18 @@ export function ScheduleSection({
                         meta = t != null ? `Setup ${t}` : undefined;
                       } else if (sd?.window != null) {
                         meta = guardMeta(formatScheduleWindow(sd.window));
-                      } else if (sd != null && sd.showStart != null && sd.entries.length === 0) {
-                        meta = guardMeta(sd.showStart); // fragment day: single showStart
+                      } else if (sd != null && sd.showStart != null && dayEntries.length === 0) {
+                        // Fragment day: single showStart, no DISPLAYABLE entries. Gate
+                        // on the per-viewer load-out-filtered `dayEntries` (NOT the raw
+                        // `sd.entries`) so a day whose only synthetic entry is a hidden
+                        // load-out still surfaces its call-time meta rather than silently
+                        // dropping it (audit idx34/#169). Mirrors the SET-meta suppression
+                        // (line ~284) and the RunOfShowList gate (line ~313), both of
+                        // which already key off `dayEntries`.
+                        meta = guardMeta(sd.showStart);
                       }
-                      // titled day (entries.length > 0) → meta stays undefined; the
-                      // RunOfShowList renders below instead.
+                      // titled day (displayable dayEntries.length > 0) → meta stays
+                      // undefined; the RunOfShowList renders below instead.
                       // DayCard's typed props don't forward `data-testid`, so the testid
                       // lives on a wrapper. The pinned-today card uses the dedicated
                       // testid; every other card carries its date. Both forms match the
