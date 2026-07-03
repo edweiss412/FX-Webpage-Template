@@ -1166,6 +1166,28 @@ describe("AlertBanner", () => {
     expect(slotForm.querySelector("[data-testid=admin-alert-id-input]")).toBeNull();
   });
 
+  test("watch panel dismiss uses the quiet variant (no second accent CTA on the open panel)", async () => {
+    // impeccable critique P2: Retry (accent) + Dismiss must not compete at
+    // full strength on one surface; the panel dismiss renders neutral.
+    setRows([
+      {
+        id: "watch-quiet-1",
+        code: WATCH,
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+        context: { error_class: "drive_api" },
+        occurrence_count: 1,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    const panelBtn = container
+      .querySelector("[data-testid=admin-alert-panel-dismiss]")
+      ?.querySelector("[data-testid=admin-alert-resolve-button]");
+    expect(panelBtn).toBeTruthy();
+    expect((panelBtn as HTMLElement).className).not.toContain("bg-accent");
+  });
+
   test("other global codes keep the Dismiss slot form unchanged (no Retry, no panel dismiss)", async () => {
     setRows([
       {

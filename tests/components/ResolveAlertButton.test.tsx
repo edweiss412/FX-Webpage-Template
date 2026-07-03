@@ -188,4 +188,18 @@ describe("ResolveAlertButton state machine", () => {
     expect(cls).toMatch(/\bmin-h-tap-min\b/);
     expect(cls).toMatch(/\bmin-w-tap-min\b/);
   });
+
+  it("quiet variant renders a neutral idle button (no accent fill), same testid/label, confirm flow intact", () => {
+    // Failure mode caught: the in-panel dismiss regressing to a second
+    // full-strength accent CTA on the open watch panel (impeccable critique P2).
+    const { getByTestId } = render(<ResolveAlertButton quiet />);
+    const btn = getByTestId("admin-alert-resolve-button");
+    expect(btn.textContent?.trim()).toBe("Dismiss");
+    expect(btn.className).not.toContain("bg-accent");
+    expect(btn.className).toContain("text-text-subtle");
+    fireEvent.click(btn);
+    expect(getByTestId("admin-alert-confirm-resolve-button").textContent?.trim()).toBe(
+      "Confirm dismiss",
+    );
+  });
 });

@@ -413,7 +413,10 @@ export async function AlertBanner() {
             </p>
           ) : null}
           {isWatchAlert && errorDetail ? (
-            <p data-testid="admin-alert-error-detail" className="mt-2 text-xs text-text-subtle">
+            <p
+              data-testid="admin-alert-error-detail"
+              className="mt-2 break-all text-xs text-text-subtle"
+            >
               <code>{errorDetail}</code>
             </p>
           ) : null}
@@ -424,7 +427,7 @@ export async function AlertBanner() {
               className="mt-3"
             >
               <input type="hidden" name="id" value={alert.id} data-testid="admin-alert-id-input" />
-              <ResolveAlertButton />
+              <ResolveAlertButton quiet />
             </form>
           ) : null}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle">
