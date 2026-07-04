@@ -321,7 +321,17 @@ export function importBindingOk(sf: ts.SourceFile) {
   - a bare `// no-telemetry:` on an admin surface → FAIL; a file-leading `// no-telemetry:` in a `"use server"`/inline-action file → error; a `"use server"` module with a default export → FAIL; `KNOWN_UNINSTRUMENTED` entry naming an admin-gated fn → FAIL.
   Include the fixture/negative tests from spec §10.1/§10.4/§10.5-hygiene using in-memory strings written to a tmp dir (or a `describe` over synthetic `SourceFile`s that bypass the FS walk). **Route-multiplicity assertion:** no `route.ts` in the live tree exports >1 mutating method (prove-it-fails fixture: a two-method route string).
 
-- [ ] **Step 2: The live-surface `test()` ("zero unaccounted") is written but `.skip`ped** with a comment `// UN-SKIP in Task 18 after seeding`. (Rationale: it fails until the 21 surfaces are instrumented; enabling it now would leave the task red.)
+- [ ] **Step 1b: Ledger + exemption hygiene negatives (Codex plan-R2 F2)** — explicit fixture tests, one per spec rule:
+  - a `KNOWN_UNINSTRUMENTED` entry whose `file` no longer exists → FAIL;
+  - an entry whose `{file, fn}` is no longer a discovered surface → FAIL;
+  - an entry whose `fn` now emits (would pass anyway) → FAIL (stale debt must be removed);
+  - a NEW un-ledgered sibling in a ledgered file (a 2nd export added to a picker file) → FAIL;
+  - a `KNOWN_UNINSTRUMENTED` entry naming an admin-gated fn → FAIL;
+  - an `ADMIN_SURFACE_EXEMPTIONS` `delegator` whose file does NOT actually call/import the `delegatesTo` target → FAIL;
+  - a `delegator` whose `delegatesTo` is not in `AUDITABLE_MUTATIONS` → FAIL;
+  - a `read-only` row on a fn containing `.rpc(`/write-builder/`logAdminOutcome` → FAIL.
+- [ ] **Step 1c: Failure-output test (Codex plan-R2 F3 / spec §4.4)** — a `formatFailures(units)` helper: given a synthetic mix of offenders (≥1 non-admin action, ≥1 admin route), assert the message lists **every** `file :: fn` (no truncation), and that admin offenders' remediation text lists registry+behavioral / `ADMIN_SURFACE_EXEMPTIONS` and does **NOT** offer `// no-telemetry:` or `KNOWN_UNINSTRUMENTED`, while non-admin offenders' text does.
+- [ ] **Step 2: The live-surface `test()` ("zero unaccounted") is written but `.skip`ped** with a comment `// UN-SKIP in Task 17 after exemptions/ledger land`. (Rationale: it fails until all 21 surfaces are instrumented AND the exemption/ledger surfaces are accounted; enabling it now would leave the task red.)
 
 - [ ] **Step 3: Run — the fixture/negative tests PASS, live test skipped.** `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` → PASS (skips reported). **Step 4: typecheck + commit** `test(log): static discovery meta-test (fixtures; live assertion skipped pending seeding)`.
 
@@ -374,7 +384,7 @@ describe("behavioral scaffold smoke", () => {
 **Per-surface pattern (repeated with exact constants per group).** Each task, for each surface it covers:
 1. Add a **failing sink-spy case** in `adminOutcomeBehavior.test.ts` that mocks the surface's deps so it reaches the committed-success branch, asserts the expected `code` is observed AND non-success branches observe nothing, then calls `recordAdminOutcomeBehavior({file, fn, code})`.
 2. Run → FAIL (surface silent).
-3. Add `await requireAdminIdentity()` (if identity not already resolved) + `await logAdminOutcome({ code, source, actorEmail?, showId?/…, result })` on the success branch, post-commit.
+3. **Resolve any newly-needed actor identity BEFORE the mutating operation** — if the surface only calls `requireAdmin()` today, add `const { email } = await requireAdminIdentity()` (cached; verified) **above the mutation**, NOT post-commit (Codex plan-R2 F4: a `require*Identity()` infra throw must not escape over an already-committed mutation). Then add **only** `await logAdminOutcome({ code, source, actorEmail?, showId?/…, result })` on the success branch, **post-commit** (`logAdminOutcome` is internally try/catch-wrapped, so it — and it alone — is safe there). Where identity is already resolved earlier (e.g. `admins/actions` `requireAdminIdentity()`, `resetPickerEpoch` `adminCtx`), reuse it; add nothing new post-commit but the emit.
 4. Add the `{file, fn, code}` row to `tests/log/_auditableMutations.ts` (and the code to `SANCTIONED_CODES`/`NEW_FORENSIC_CODES`).
 5. Run → PASS. typecheck. Commit.
 
@@ -429,26 +439,27 @@ Emit in the route file, post-commit, before the JSON response. Commit: `feat(adm
 
 ---
 
-## Task 17: Exemptions, ledger rows, and non-admin comments
+## Task 17: Exemptions + ledger + un-skip the live discovery assertion (TDD)
 
-**Files:** the 4 comment targets + `tests/log/mutationSurface/exemptions.ts`.
+**Files:** the 4 comment targets, `tests/log/mutationSurface/exemptions.ts`, `_metaMutationSurfaceObservability.test.ts`.
 
-- [ ] Add `// no-telemetry: test-only auth scaffolding; not a product mutation surface` (file-leading) to `app/api/test-auth/set-session/route.ts`.
-- [ ] Add per-inline-function `// no-telemetry: thin crew form-action wrapper; delegates to <picker action>` inside `clearIdentityFormAction` (IdentityChip.tsx), `selectIdentityFormAction` (_PickerInterstitial.tsx), `clearIdentityAndSkipFormAction` (_SignInOrSkipGate.tsx).
-- [ ] Populate `ADMIN_SURFACE_EXEMPTIONS` (Task 4 file): the 2 route shims (`delegator` → retry route), the 2 dev form-wrappers (`delegator` → parseAndStage/resetDevSchema), the 2 dev reads (`read-only`).
-- [ ] Populate `KNOWN_UNINSTRUMENTED`: the 6 picker fns (spec §3.1 C).
-- [ ] Run `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` → still PASS (live test still skipped). **Commit** `chore(observability): exemptions + ledger for non-instrumented mutation surfaces`.
+- [ ] **Step 1: Un-skip the live-surface `test()` FIRST — it must be RED** (Codex plan-R2 F1). At this point Tasks 7-16 have instrumented the 21 surfaces, so the remaining unaccounted are exactly the exemption/ledger surfaces (test-auth, 2 route shims, 2 dev wrappers, 2 dev reads, 3 inline crew wrappers, 6 picker fns). Run `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` → **FAIL**, listing those surfaces.
+- [ ] **Step 2: Add the exemptions/ledger/comments to make it green:**
+  - `// no-telemetry: test-only auth scaffolding; not a product mutation surface` (file-leading) in `app/api/test-auth/set-session/route.ts`;
+  - per-inline-function `// no-telemetry: thin crew form-action wrapper; delegates to <picker action>` inside `clearIdentityFormAction` (IdentityChip.tsx), `selectIdentityFormAction` (_PickerInterstitial.tsx), `clearIdentityAndSkipFormAction` (_SignInOrSkipGate.tsx);
+  - `ADMIN_SURFACE_EXEMPTIONS`: the 2 route shims (`delegator` → retry route), the 2 dev form-wrappers (`delegator` → parseAndStage/resetDevSchema), the 2 dev reads (`read-only`);
+  - `KNOWN_UNINSTRUMENTED`: the 6 picker fns (spec §3.1 C).
+- [ ] **Step 3: Run → GREEN.** `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts` → PASS (zero unaccounted). **Commit** `feat(observability): account every mutation surface (exemptions + ledger) — invariant 10 discovery green`.
 
 ---
 
-## Task 18: Enable the live discovery assertion + behavioral coverage assertion
+## Task 18: Enable the admin behavioral-coverage assertion (TDD)
 
-**Files:** `_metaMutationSurfaceObservability.test.ts` (un-skip), `adminOutcomeBehavior.test.ts` (add coverage `test()`).
+**Files:** `adminOutcomeBehavior.test.ts` (add coverage `test()`).
 
-- [ ] **Step 1: Un-skip** the live-surface `test()` — asserts `collectSurfaceUnits([...]).filter(unaccounted).length === 0` against the live tree.
-- [ ] **Step 2: Add the coverage `test()`** at the end of `adminOutcomeBehavior.test.ts` (uses the file-local `recorded` set — all 20 cases above have run and populated it within this one file's module scope): import `collectSurfaceUnits`, `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER`, `AUDITABLE_MUTATIONS`; assert every admin surface `{file,fn}` NOT in the grandfather set has a `recorded` entry `${file}::${fn}::${code}` matching its `AUDITABLE_MUTATIONS` row; assert the grandfather set equals exactly the frozen 30 and each grandfather entry is a live admin surface (fails if it grows or an entry disappears).
-- [ ] **Step 3: Run both** `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts tests/log/adminOutcomeBehavior.test.ts` → **PASS** (seeding complete). If red, the failing surface is unaccounted — fix its seeding, not the assertion.
-- [ ] **Step 4: Run the fragility sweep** `pnpm vitest run tests/admin tests/log tests/auth` → PASS. **typecheck + format:check.** **Commit** `test(log): enable live mutation-surface + admin behavioral coverage assertions`.
+- [ ] **Step 1: Add the coverage `test()`** at the end of `adminOutcomeBehavior.test.ts` (uses the file-local `recorded` set — all 20 cases above have run and populated it within this one file's module scope): import `collectSurfaceUnits`, `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER`, `AUDITABLE_MUTATIONS`; assert every admin surface `{file,fn}` NOT in the grandfather set has a `recorded` entry `${file}::${fn}::${code}` matching its `AUDITABLE_MUTATIONS` row; assert the grandfather set equals exactly the frozen 30 and each grandfather entry is a live admin surface (fails if it grows or an entry disappears). Before adding it: temporarily comment out one seeded surface's `recordAdminOutcomeBehavior(...)` line and confirm the coverage test goes RED (proves non-tautology), then restore.
+- [ ] **Step 2: Run** `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` → **PASS** (all 20 recorded; grandfather exactly 30). If red, the failing surface is unaccounted — fix its seeding, not the assertion.
+- [ ] **Step 3: Run the fragility sweep** `pnpm vitest run tests/admin tests/log tests/auth` → PASS. **typecheck + format:check.** **Commit** `test(log): enable executable admin behavioral-coverage assertion`.
 
 ---
 
