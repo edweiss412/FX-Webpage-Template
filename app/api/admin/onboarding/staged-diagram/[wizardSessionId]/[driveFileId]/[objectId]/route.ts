@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
+import { fetchCurrentSheetXlsxBytes } from "@/lib/drive/fetch";
 import {
+  hasStagedPreviewSource,
   isRenderableDiagramStub,
   isTrustedDiagramContentUrl,
 } from "@/lib/admin/stagedDiagramGuards";
@@ -29,8 +31,24 @@ const RASTER_MIME_ALLOWLIST = new Set(["image/png", "image/jpeg", "image/gif", "
 export type StagedDiagramRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
   queryOne?: <T>(sqlText: string, params: unknown[]) => Promise<T | null>;
-  fetchImageBytes?: (stub: EmbeddedImageStub) => Promise<SnapshotAssetBytes | null>;
+  fetchImageBytes?: (
+    stub: EmbeddedImageStub,
+    ctx: { driveFileId: string },
+  ) => Promise<SnapshotAssetBytes | null>;
 };
+
+// Default fetchImageBytes binding for XLSX-media stubs (contentUrl null, spec
+// §A2/§A3): the helper re-fetches the CURRENT sheet export for the VALIDATED
+// route-param driveFileId (never a JSONB-derived URL — SSRF trust boundary)
+// and extracts+fingerprint-matches the requested media part.
+export function defaultStagedDiagramFetchImageBytes(
+  stub: EmbeddedImageStub,
+  ctx: { driveFileId: string },
+): Promise<SnapshotAssetBytes | null> {
+  return snapshotFetchEmbeddedImageBytesTimed(stub, {
+    fetchXlsxBytes: () => fetchCurrentSheetXlsxBytes(ctx.driveFileId, {}),
+  });
+}
 
 type RouteContext = {
   params: Promise<{ wizardSessionId: string; driveFileId: string; objectId: string }>;
@@ -75,9 +93,7 @@ export async function handleStagedDiagramGet(
 ): Promise<Response> {
   const requireIdentity = routeDeps.requireAdminIdentity ?? defaultRequireAdminIdentity;
   const queryOne = routeDeps.queryOne ?? defaultQueryOne;
-  const fetchImageBytes =
-    routeDeps.fetchImageBytes ??
-    ((stub: EmbeddedImageStub) => snapshotFetchEmbeddedImageBytesTimed(stub));
+  const fetchImageBytes = routeDeps.fetchImageBytes ?? defaultStagedDiagramFetchImageBytes;
 
   // Auth FIRST, mirroring the sibling unapprove route (unapprove/route.ts:127-133).
   try {
@@ -144,18 +160,22 @@ export async function handleStagedDiagramGet(
   // Raster allowlist — no SVG (inline-SVG XSS), checked before any Drive call.
   if (!RASTER_MIME_ALLOWLIST.has(stub.mimeType)) return jsonError(404);
 
-  // XLSX-media entries (contentUrl null) have no per-entry URL → 404, no Drive call.
-  if (stub.contentUrl == null) return jsonError(404);
-  // URL trust boundary (spec §B1): the helper sends the Drive bearer token to
-  // this URL — untrusted string is NOT enough. Untrusted → 404, ZERO network calls.
-  if (!isTrustedDiagramContentUrl(stub.contentUrl)) return jsonError(404);
+  if (stub.contentUrl == null) {
+    // XLSX-media entry: addressable only via mediaPartName + non-null fingerprint
+    // (spec §A2 hasStagedPreviewSource); the helper re-fetches the current export
+    // for the VALIDATED route-param driveFileId — no JSONB-derived URL is fetched
+    // (spec §A3 trust boundary).
+    if (!hasStagedPreviewSource(stub)) return jsonError(404);
+  } else if (!isTrustedDiagramContentUrl(stub.contentUrl)) {
+    return jsonError(404);
+  }
 
   // Byte fetch: the helper returns null for non-ok/no-body/stall-timeout but
   // RETHROWS other errors (defaultSnapshotAssetsForApply.ts:60-77) — the route
   // maps ANY throw to 404 (fail-soft lives at the route boundary).
   let result: SnapshotAssetBytes | null;
   try {
-    result = await fetchImageBytes(stub);
+    result = await fetchImageBytes(stub, { driveFileId });
   } catch {
     result = null;
   }
