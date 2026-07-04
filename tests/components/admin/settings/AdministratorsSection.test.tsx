@@ -71,8 +71,16 @@ describe("AdministratorsSection (Task 6.2)", () => {
         revoked_by: "x@example.com",
       }),
     ];
+    // Part B §3.3: Add/Revoke/Re-add are developer-only, so this management-view
+    // test renders as a developer (the affordances it asserts live only there;
+    // the read-only-default view is covered in AdministratorsSection-developer.test.tsx).
     render(
-      <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
+      <AdministratorsSection
+        result={ok(rows)}
+        actorCanonicalEmail="alice@example.com"
+        now={NOW}
+        viewerIsDeveloper={true}
+      />,
     );
 
     const active = screen.getByTestId("admin-active-list");
@@ -90,8 +98,15 @@ describe("AdministratorsSection (Task 6.2)", () => {
 
   it("self-with-peer → NO Revoke control on own row (can never revoke yourself); peer row keeps Revoke", () => {
     const rows = [row({ email: "alice@example.com" }), row({ email: "bob@example.com" })];
+    // Part B §3.3: peer Revoke is developer-only — render as a developer (as a
+    // non-developer the peer-Revoke assertion would be vacuous).
     render(
-      <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
+      <AdministratorsSection
+        result={ok(rows)}
+        actorCanonicalEmail="alice@example.com"
+        now={NOW}
+        viewerIsDeveloper={true}
+      />,
     );
     const selfRow = screen
       .getAllByTestId("admin-allowlist-row")
@@ -111,8 +126,16 @@ describe("AdministratorsSection (Task 6.2)", () => {
 
   it("sole-self → NO Revoke control (can't remove the only admin / yourself)", () => {
     const rows = [row({ email: "alice@example.com" })];
+    // Part B §3.3: render as a developer so "no Revoke on the sole self row"
+    // proves the self-revoke omission specifically (not just that non-developers
+    // see no Revoke — which would be vacuously true).
     render(
-      <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
+      <AdministratorsSection
+        result={ok(rows)}
+        actorCanonicalEmail="alice@example.com"
+        now={NOW}
+        viewerIsDeveloper={true}
+      />,
     );
     const selfRow = screen.getByTestId("admin-allowlist-row");
     expect(within(selfRow).queryByTestId("mock-revoke-button")).toBeNull();
@@ -135,8 +158,14 @@ describe("AdministratorsSection (Task 6.2)", () => {
 
   it("Section head shows admin count + 'Add admin' (NOT 'Send invite')", () => {
     const rows = [row({ email: "alice@example.com" }), row({ email: "bob@example.com" })];
+    // Part B §3.3: the 'Add admin' affordance is developer-only — render as a developer.
     render(
-      <AdministratorsSection result={ok(rows)} actorCanonicalEmail="alice@example.com" now={NOW} />,
+      <AdministratorsSection
+        result={ok(rows)}
+        actorCanonicalEmail="alice@example.com"
+        now={NOW}
+        viewerIsDeveloper={true}
+      />,
     );
     // 2 active rows seeded → head shows the count "2".
     const heading = screen.getByRole("heading", { name: /Administrators/i });
