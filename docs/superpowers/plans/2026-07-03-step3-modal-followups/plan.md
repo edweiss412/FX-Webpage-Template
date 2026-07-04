@@ -847,6 +847,17 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
     }
   }
 
+  // NOTE (interface change, part of THIS task so the commit typechecks):
+  // BreakdownSection currently types `count: number` (step3ReviewSections.tsx:302-311).
+  // Widen it to `count: number | null` — the chrome path already forwards to
+  // ModalSectionChrome whose prop is ALREADY `number | null` ("null → no count",
+  // step3ReviewSections.tsx:259-260), so only the legacy <h4> path changes:
+  //   {label} {count !== null ? <span className="tabular-nums text-text-subtle">({count})</span> : null}
+  // Add a test in step3ReviewSections.test.tsx: BreakdownSection rendered OUTSIDE
+  // the chrome provider with count={null} shows the label and NO "(" text
+  // (catches: legacy path rendering "(null)"). All existing numeric callers are
+  // unaffected (widening is source-compatible). Run `pnpm typecheck` in Step 4 of
+  // THIS task — do not defer the type error to Task 15.
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-section-report`}
@@ -902,7 +913,7 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
 }
 ```
     (Add `useContext`/`useId` to the react import if absent; `isMessageCode`/`messageFor`/`MessageCode` are already imported in this file for `reviewWarningTitle`. Modal unmount mid-flight is fire-and-forget by construction — the key persists; a retry after reopen is a duplicate → success, spec §D3 guards. Draft persistence: mount-local only, spec-accepted.)
-- [ ] **Step 4:** `pnpm test tests/components/admin/wizard/step3ReportIssueSection.test.tsx tests/components/admin/wizard/Step3ReviewModal.test.tsx` → PASS.
+- [ ] **Step 4:** `pnpm test tests/components/admin/wizard/step3ReportIssueSection.test.tsx tests/components/admin/wizard/Step3ReviewModal.test.tsx && pnpm typecheck` → PASS (typecheck is part of THIS task's gate — the `BreakdownSection.count` widening must land in the same commit).
 - [ ] **Step 5:** commit `feat(admin): report-an-issue section (idempotent submit, copy-only status) + getActiveSection plumbing`
 
 ### Task 8: Footer — Unpublish + demoted gate (spec §C2, §C3, §K3)
