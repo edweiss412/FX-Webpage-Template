@@ -23,6 +23,8 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 
 const AUTO_REVERT_MS = 3_000;
+/** PCR-1 (d): how long a success banner lingers before it auto-dismisses. */
+const SUCCESS_DISMISS_MS = 5_000;
 
 type UiState = "idle" | "confirm" | "resolving";
 type Result = { ok: true; new_epoch: number } | { ok: false; code: string } | null;
@@ -70,6 +72,16 @@ export function ResetPickerEpochButton({
       setUi("idle");
     }
   }, [isPending, result, ui]);
+
+  // PCR-1 (d): auto-dismiss the SUCCESS banner so a stale confirmation doesn't
+  // linger beside the control. The refused banner is NOT auto-dismissed — it must
+  // persist until the admin reads it. Cleanup clears the timer on unmount or when
+  // the result changes (no setState-after-unmount leak).
+  useEffect(() => {
+    if (!result?.ok) return;
+    const t = setTimeout(() => setResult(null), SUCCESS_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [result]);
 
   const onResetClick = () => {
     clearAutoRevert();

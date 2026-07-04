@@ -62,6 +62,44 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     checkAll(); // confirm + cancel
   });
 
+  // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; the
+  // refused banner persists until the admin acts on it.
+  test("(d) success banner auto-dismisses after the window", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      new_epoch: 3,
+    });
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("admin-reset-picker-epoch-ok")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(screen.queryByTestId("admin-reset-picker-epoch-ok")).toBeNull();
+  });
+
+  test("(d) refused banner does NOT auto-dismiss", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: "PICKER_RESET_FORBIDDEN",
+    });
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("admin-reset-picker-epoch-refused")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(screen.getByTestId("admin-reset-picker-epoch-refused")).toBeTruthy();
+  });
+
   // PCR-1 item (b): the compact row label is a heading (sits under the panel's
   // <h3>), not a plain <p>, so the control appears in the SR heading outline.
   test("(b) the compact row label is a heading", () => {

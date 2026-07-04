@@ -25,6 +25,8 @@ import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelec
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 
 const AUTO_REVERT_MS = 3_000;
+/** PCR-1 (d): how long a success banner lingers before it auto-dismisses. */
+const SUCCESS_DISMISS_MS = 5_000;
 
 export type PickerResetCrewRow = { id: string; name: string; role: string | null };
 
@@ -73,6 +75,16 @@ export function PickerResetControl({
       setUi("idle");
     }
   }, [isPending, outcome, ui]);
+
+  // PCR-1 (d): auto-dismiss the SUCCESS banner so a stale "reset" confirmation
+  // doesn't linger beside the control. Errors are NOT auto-dismissed — they must
+  // persist until the admin reads and acts on them. Cleanup clears the timer on
+  // unmount or when the outcome changes (no setState-after-unmount leak).
+  useEffect(() => {
+    if (outcome?.kind !== "ok") return;
+    const t = setTimeout(() => setOutcome(null), SUCCESS_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [outcome]);
 
   const selectedRow = crew.find((c) => c.id === selectedId) ?? null;
   // Fallback guards a removed/stale selectedId so aria-label + warning copy are never blank.

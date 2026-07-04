@@ -152,6 +152,39 @@ describe("PickerResetControl", () => {
     checkAll(); // confirm + cancel
   });
 
+  // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; an ERROR
+  // banner persists until the admin acts on it.
+  const DISMISS_MS = 5_000;
+  test("(d) success banner auto-dismisses after the window", async () => {
+    mockMember.mockResolvedValueOnce({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DISMISS_MS + 1);
+    });
+    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+  });
+
+  test("(d) error banner does NOT auto-dismiss", async () => {
+    mockMember.mockResolvedValueOnce({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DISMISS_MS + 5_000);
+    });
+    expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
+  });
+
   // PCR-1 item (b): the row label is a heading (sits under the panel's <h3>),
   // not a plain <p>, so the control is reachable in the SR heading outline.
   test("(b) the row label is a heading", () => {
