@@ -10,7 +10,7 @@ export type TargetResult =
 
 export function resolveTarget(
   env: string | undefined,
-  ambient: NodeJS.ProcessEnv = process.env,
+  ambient: Record<string, string | undefined> = process.env,
 ): TargetResult {
   const name = env ?? "local";
   const url = ambient.SUPABASE_URL;

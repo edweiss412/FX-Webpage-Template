@@ -88,14 +88,14 @@ Run these when writing or revising any milestone plan in this repo.
 
 **Commands**
 
-| Command   | Reads              | Key flags                                                                              |
-| --------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `events`  | `app_events`       | `--show <uuid>` `--level info,warn,error` `--code C` `--source S` `--request R` `--q text` `--since 1h\|24h\|7d\|all` `--limit N` |
-| `alerts`  | `admin_alerts`     | `--open` `--code C` `--limit N`                                                        |
-| `cron`    | cron health        | (none)                                                                                |
-| `changes` | `show_change_log`  | `--show <uuid>` `--since …` `--limit N`                                                |
-| `codes`   | message catalog    | `[CODE]` — offline, `--env` ignored                                                    |
-| `tail`    | `app_events`       | `--follow` `--interval S` + all `events` filters                                       |
+| Command   | Reads             | Key flags                                                                                                                         |
+| --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `events`  | `app_events`      | `--show <uuid>` `--level info,warn,error` `--code C` `--source S` `--request R` `--q text` `--since 1h\|24h\|7d\|all` `--limit N` |
+| `alerts`  | `admin_alerts`    | `--open` `--code C` `--limit N`                                                                                                   |
+| `cron`    | cron health       | (none)                                                                                                                            |
+| `changes` | `show_change_log` | `--show <uuid>` `--since …` `--limit N`                                                                                           |
+| `codes`   | message catalog   | `[CODE]` — offline, `--env` ignored                                                                                               |
+| `tail`    | `app_events`      | `--follow` `--interval S` + all `events` filters                                                                                  |
 
 All commands also accept `--json` and `--env local\|validation\|prod`. Flags map to filters like the admin UI's `parseAppEventFilters` (non-UUID `--show` and invalid `--level` tokens are dropped; `--since` default is 24h; `--limit` clamps to [1,500]).
 

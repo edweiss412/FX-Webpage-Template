@@ -32,7 +32,6 @@ export function resolveCodeText(code: string | undefined): string {
   const lines = [
     code,
     e.title ? `title: ${e.title}` : "",
-    e.severity ? `severity: ${e.severity}` : "",
     e.dougFacing ? `admin: ${e.dougFacing}` : "",
     e.crewFacing ? `crew: ${e.crewFacing}` : "",
     e.helpfulContext ? `context: ${e.helpfulContext}` : "",
@@ -46,7 +45,7 @@ type ObserveDeps = {
   getCronHealth: typeof realGetCronHealth;
   queryAlerts: typeof realQueryAlerts;
   queryChangeLog: typeof realQueryChangeLog;
-  env: NodeJS.ProcessEnv;
+  env: Record<string, string | undefined>;
   nowMs: number;
 };
 
@@ -168,7 +167,9 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
           e.occurredAt > high.occurredAt ||
           (e.occurredAt === high.occurredAt && e.id > high.id);
         if (first || newer) {
-          process.stdout.write(parsed.json ? formatEventLineNdjson(e) : formatEvents([e], false) + "\n");
+          process.stdout.write(
+            parsed.json ? formatEventLineNdjson(e) : formatEvents([e], false) + "\n",
+          );
           seen.add(e.id);
           if (seen.size > 1000) seen.delete(seen.values().next().value as string);
           high = { occurredAt: e.occurredAt, id: e.id };

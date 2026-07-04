@@ -1,6 +1,6 @@
 // lib/observe/query/cronHealth.ts
 // Fresh NON-LOGGING copy of lib/admin/loadCronHealth.ts — identical read/extraction
-// logic, with the log.error calls (and @/lib/log import) removed.
+// logic, with the log.error calls (and the lib-log import) removed.
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { CRON_RUN_SUMMARY, CRON_JOBS, type CronJobSpec } from "@/lib/cron/runSummary";
 import type {

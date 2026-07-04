@@ -91,7 +91,11 @@ describe("queryEvents", () => {
     expect(r.kind).toBe("ok");
     if (r.kind !== "ok") throw new Error("unreachable");
     expect(state.captured.table).toBe("app_events");
-    expect(r.events[0]).toMatchObject({ id: seedRow().id, level: "error", message: "boom happened" });
+    expect(r.events[0]).toMatchObject({
+      id: seedRow().id,
+      level: "error",
+      message: "boom happened",
+    });
     const keys = state.captured.filters.map((f) => f[0]);
     expect(keys).toContain("in:level");
     expect(keys).toContain("eq:code");

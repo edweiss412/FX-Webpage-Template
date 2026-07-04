@@ -42,7 +42,7 @@ describe("getCronHealth", () => {
     const r = await getCronHealth();
     if (r.kind !== "ok") throw new Error("infra");
     expect(r.jobs.length).toBe(CRON_JOBS.length);
-    expect(r.jobs[0]).toMatchObject({ jobName: CRON_JOBS[0].jobName, outcome: "ok" });
+    expect(r.jobs[0]).toMatchObject({ jobName: CRON_JOBS[0]!.jobName, outcome: "ok" });
   });
   test("returned {error} → infra_error", async () => {
     state.error = { message: "down" };

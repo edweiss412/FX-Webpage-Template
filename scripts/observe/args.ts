@@ -4,15 +4,7 @@ import type { AppEventFilters, AppEventLevel } from "@/lib/admin/observabilityTy
 import { isUuid, type AlertFilters, type ChangeLogFilters } from "@/lib/observe/query";
 
 export type ObserveCommand = "events" | "alerts" | "cron" | "changes" | "codes" | "tail" | "help";
-const COMMANDS: ObserveCommand[] = [
-  "events",
-  "alerts",
-  "cron",
-  "changes",
-  "codes",
-  "tail",
-  "help",
-];
+const COMMANDS: ObserveCommand[] = ["events", "alerts", "cron", "changes", "codes", "tail", "help"];
 const LEVELS: AppEventLevel[] = ["info", "warn", "error"];
 
 export type ParsedArgs =
@@ -88,25 +80,35 @@ export function parseObserveArgs(argv: string[]): ParsedArgs {
   const limitRaw = values.limit ? Number(values.limit) : undefined;
   const limit = limitRaw !== undefined && !Number.isNaN(limitRaw) ? limitRaw : undefined;
   const intervalRaw = values.interval ? Number(values.interval) : NaN;
-  const interval = Number.isNaN(intervalRaw) ? 5 : Math.max(1, Math.min(60, Math.trunc(intervalRaw)));
+  const interval = Number.isNaN(intervalRaw)
+    ? 5
+    : Math.max(1, Math.min(60, Math.trunc(intervalRaw)));
+
+  // Capture each capped value once so TS narrows undefined out inside the truthy
+  // branch (exactOptionalPropertyTypes forbids `key: string | undefined`).
+  const source = cap(values.source);
+  const codeVal = cap(values.code);
+  const request = cap(values.request);
+  const q = cap(values.q);
+  const since = sinceToHours(values.since);
 
   const eventFilters: AppEventFilters = {
     ...(levels && levels.length ? { levels } : {}),
-    ...(cap(values.source) ? { source: cap(values.source) } : {}),
-    ...(cap(values.code) ? { code: cap(values.code) } : {}),
-    ...(cap(values.request) ? { requestId: cap(values.request) } : {}),
-    ...(cap(values.q) ? { q: cap(values.q) } : {}),
+    ...(source ? { source } : {}),
+    ...(codeVal ? { code: codeVal } : {}),
+    ...(request ? { requestId: request } : {}),
+    ...(q ? { q } : {}),
     ...(showId ? { showId } : {}),
-    ...(sinceToHours(values.since) !== undefined ? { sinceHours: sinceToHours(values.since) } : {}),
+    ...(since !== undefined ? { sinceHours: since } : {}),
   };
   const alertFilters: AlertFilters = {
     ...(values.open ? { openOnly: true } : {}),
-    ...(cap(values.code) ? { code: cap(values.code) } : {}),
+    ...(codeVal ? { code: codeVal } : {}),
     ...(limit !== undefined ? { limit } : {}),
   };
   const changeFilters: ChangeLogFilters = {
     ...(showId ? { showId } : {}),
-    ...(sinceToHours(values.since) !== undefined ? { sinceHours: sinceToHours(values.since) } : {}),
+    ...(since !== undefined ? { sinceHours: since } : {}),
     ...(limit !== undefined ? { limit } : {}),
   };
 

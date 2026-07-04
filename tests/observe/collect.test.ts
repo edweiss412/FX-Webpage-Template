@@ -27,7 +27,12 @@ function pages(...defs: QueryEventsResult[]) {
 describe("collectEvents", () => {
   test("accumulates across two pages up to limit (b: !hasMore)", async () => {
     const q = pages(
-      { kind: "ok", events: [ev("a"), ev("b")], hasMore: true, nextCursor: { occurredAt: "t", id: "b" } },
+      {
+        kind: "ok",
+        events: [ev("a"), ev("b")],
+        hasMore: true,
+        nextCursor: { occurredAt: "t", id: "b" },
+      },
       { kind: "ok", events: [ev("c")], hasMore: false, nextCursor: null },
     );
     const r = await collectEvents(q, {}, 100);
@@ -69,7 +74,12 @@ describe("collectEvents", () => {
     expect(r.events.length).toBe(1);
   });
   test("(e) empty page stops", async () => {
-    const q = pages({ kind: "ok", events: [], hasMore: true, nextCursor: { occurredAt: "t", id: "z" } });
+    const q = pages({
+      kind: "ok",
+      events: [],
+      hasMore: true,
+      nextCursor: { occurredAt: "t", id: "z" },
+    });
     const r = await collectEvents(q, {}, 500);
     if (r.kind !== "ok") throw new Error("infra");
     expect(r.events.length).toBe(0);

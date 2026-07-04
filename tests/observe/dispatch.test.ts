@@ -1,7 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { runObserve } from "@/scripts/observe";
 
-const okEvents = async () => ({ kind: "ok" as const, events: [], hasMore: false, nextCursor: null });
+const okEvents = async () => ({
+  kind: "ok" as const,
+  events: [],
+  hasMore: false,
+  nextCursor: null,
+});
 const deps = {
   queryEvents: okEvents,
   getCronHealth: async () => ({ kind: "ok" as const, jobs: [] }),

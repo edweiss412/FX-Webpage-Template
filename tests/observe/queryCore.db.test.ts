@@ -42,13 +42,15 @@ try {
   dbUp = false;
 }
 if (dbUp && admin) {
+  // createClient here is untyped (no Database generic), so insert values infer
+  // `never`; cast the scaffolding payload. This is a .db.test, not read-core.
   await admin.from("app_events").insert({
     level: "error",
     source: MARK,
     message: "db integration probe",
     code: "OBSERVE_DBTEST",
     context: {},
-  });
+  } as never);
 }
 
 afterAll(async () => {
