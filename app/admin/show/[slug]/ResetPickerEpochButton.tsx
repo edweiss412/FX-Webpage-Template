@@ -107,7 +107,9 @@ export function ResetPickerEpochButton({
   const labelHeader =
     compact && rowLabel ? (
       <div className="min-w-0">
-        <p className="text-sm font-medium text-text-strong">{rowLabel}</p>
+        {/* PCR-1 (b): heading (under the panel's <h3>) so the control is reachable
+            in the screen-reader heading outline. Visual style is unchanged. */}
+        <h4 className="text-sm font-medium text-text-strong">{rowLabel}</h4>
         {rowDescription ? (
           <p id={descId} className="text-xs text-text-subtle">
             {rowDescription}

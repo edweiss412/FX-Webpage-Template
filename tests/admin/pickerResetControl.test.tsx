@@ -136,6 +136,13 @@ describe("PickerResetControl", () => {
     expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
   });
 
+  // PCR-1 item (b): the row label is a heading (sits under the panel's <h3>),
+  // not a plain <p>, so the control is reachable in the SR heading outline.
+  test("(b) the row label is a heading", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    expect(screen.getByRole("heading", { name: /Reset name picker/i })).toBeTruthy();
+  });
+
   // PCR-1 item (a): the success announcement must live in a live region that is
   // ALREADY mounted (and empty) before the success occurs, so SRs that skip
   // insert-time announcements on a freshly-mounted region still announce it.

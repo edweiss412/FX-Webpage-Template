@@ -39,6 +39,20 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     expect(idleBtn().textContent).toContain("Reset picker selections");
   });
 
+  // PCR-1 item (b): the compact row label is a heading (sits under the panel's
+  // <h3>), not a plain <p>, so the control appears in the SR heading outline.
+  test("(b) the compact row label is a heading", () => {
+    render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    expect(screen.getByRole("heading", { name: /Reset name picker/i })).toBeTruthy();
+  });
+
   // PCR-1 item (a): the OK banner announces from a live region that is ALREADY
   // mounted (and empty) before the success — SRs that skip insert-time announces
   // on a freshly-mounted region still fire. Present in idle AND confirm so the

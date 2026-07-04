@@ -227,9 +227,11 @@ export function PickerResetControl({
   return (
     <div className="flex flex-col gap-2 py-3" data-testid="picker-reset-control">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-text-strong">
+        {/* PCR-1 (b): heading (under the panel's <h3>) so the control is reachable
+            in the screen-reader heading outline. Visual style is unchanged. */}
+        <h4 className="text-sm font-medium text-text-strong">
           {allConfirm ? "Reset everyone's pick" : "Reset name picker"}
-        </p>
+        </h4>
         <p id={descId} className="text-xs text-text-subtle">
           {hasCrew
             ? "Ask one crew member to pick their name again, or reset everyone."
