@@ -55,9 +55,10 @@ A private helper `legacyBestGuess(markdown, cellLabels): "v1"|"v2"|"v4"` holds t
 `classifyVersion`:
 1. If `!looksLikeSheet(markdown)` → `{ status: "not_a_sheet" }` (preserves today's `null` → MI-1 behavior).
 2. Score each of v4 and v2: `score_V = count of V's markers present`. A marker is "present" iff it **equals the normalized text of a strict physical column-0 cell**. A new helper `extractLabelCells(markdown)`: for each table-row line (`trimmed.startsWith("|")` and not a separator row), take `trimmed.split("|")[1]` — the **first physical cell immediately after the leading pipe**, *without* skipping empties — then `trim → collapse internal whitespace → UPPERCASE`; **if that cell is empty, the row contributes no label.** A marker (stored pre-normalized) scores iff it is a member of the resulting set. Because it is the *first physical cell* (not "first non-empty cell"), a row like `| | CONTACT OFFICE |` — blank column 0, marker in a value/header cell — contributes **nothing** (Codex R4 HIGH). Value data (times, phones, names, header cells) lives in columns 1+, so it cannot inflate confidence (Codex R2/R3 HIGH). This is strictly more rigorous than today's alias detection, which resolves *every* cell.
-3. `top` = higher-scoring of {v4, v2}; `runnerUp` = the other. On a 0–0 tie, `top` is unspecified but its score is 0 (handled by step 4, which flags it ambiguous regardless).
-4. **Confident** iff `score_top >= MIN_ABS` **and** `(score_top - score_runnerUp) >= MIN_MARGIN` → `{ status:"confident", version: top, scores }`.
-5. Otherwise `{ status:"ambiguous", bestGuess: legacyBestGuess(...), scores, reason }` where `reason` names the scores (e.g. `"v4=1 v2=1 below margin"` or `"v4=0 v2=0 no known markers"`).
+   Markers are organized into **named blocks** per version (§5). For each version compute two numbers: `score_V` = total markers present, and `blocks_V` = the count of that version's **distinct blocks** with ≥1 marker present.
+3. `top` = higher-`score` of {v4, v2}; `runnerUp` = the other. On a 0–0 tie, `top` is unspecified but its score is 0 (handled by step 4, which flags it ambiguous regardless).
+4. **Confident** iff `score_top >= MIN_ABS` **and** `(score_top - score_runnerUp) >= MIN_MARGIN` **and** `blocks_top >= MIN_BLOCKS` → `{ status:"confident", version: top, scores }`. The **block-diversity clause** (`blocks_top >= MIN_BLOCKS`, i.e. ≥2 distinct blocks) is what stops two markers from a single generic block (e.g. `GS SET TIME` + `GS SETUP`, both pull-sheet-timing) from reading as confident — flat count + margin alone would pass that, silently applying the wrong version (Codex R6 HIGH).
+5. Otherwise `{ status:"ambiguous", bestGuess: legacyBestGuess(...), scores, reason }` where `reason` names the scores and block counts (e.g. `"v4=1 v2=1 below margin"`, `"v2=2 but only 1 block"`, or `"v4=0 v2=0 no known markers"`).
 
 `detectVersion` becomes:
 ```ts
@@ -111,24 +112,30 @@ New code `VERSION_AMBIGUOUS`, catalog entry modeled on `MI-1_VERSION_DETECTION_F
 
 ## 5. Marker sets (verified against the fixture corpus)
 
-Markers are stored **pre-normalized (UPPERCASE)** and matched by **normalized column-0 label equality** (§4.1) — deliberately *not* via the canonical alias, because the shared canonical `venue.contact_info` resolves for both v2 (`Hotal Contact Info`) and v4 (`VENUE CONTACT INFO`) and is non-discriminating (it is the exact mechanism behind finding #2). Every literal below was verified present as an exact **column-0 label** in the stated fixtures (col-0 equality sweep over `fixtures/shows/raw/*.md`, 2026-07-04). Each set spans **two independent structural blocks** so no single block-rename can collapse detection.
+Markers are stored **pre-normalized (UPPERCASE)** and matched by **normalized column-0 label equality** (§4.1) — deliberately *not* via the canonical alias, because the shared canonical `venue.contact_info` resolves for both v2 (`Hotal Contact Info`) and v4 (`VENUE CONTACT INFO`) and is non-discriminating (it is the exact mechanism behind finding #2). Every literal below was verified present as an exact **column-0 label** in the stated fixtures (col-0 equality sweep over `fixtures/shows/raw/*.md`, 2026-07-04). Each set spans **three independent structural blocks**; the block-diversity clause (§4.1) requires ≥2 of them, so no single block-rename can collapse detection and no single generic block can confer confidence.
 
-**`V4_MARKERS` (8)** — each an exact col-0 label in 4/4 v4, 0/6 v2. Two blocks: the CONTACT block and the rental/warehouse transport block:
-`CONTACT OFFICE`, `CONTACT CELL`, `CONTACT EMAIL`, `RENTAL PICKUP`, `RENTAL RETURN`, `LOAD AT WAREHOUSE`, `UNLOAD AT WAREHOUSE`, `LOAD IN AT VENUE`
+Markers are grouped into **3 named blocks per version**; the block-diversity clause (§4.1) requires hits in ≥2 of them.
 
-**`V2_MARKERS` (7)** — each an exact col-0 label in 6/6 v2, 0/4 v4. Two blocks: the hotel-contact row and the pull-sheet GS/BO timing rows:
-`HOTAL CONTACT INFO`, `GS SET TIME`, `GS SETUP`, `GS STRIKE TIME`, `BO SET TIME`, `BO SETUP`, `BO STRIKE TIME`
+**`V4_MARKERS` (8, 3 blocks)** — each an exact col-0 label in 4/4 v4, 0/6 v2:
+- `contact`: `CONTACT OFFICE`, `CONTACT CELL`, `CONTACT EMAIL`
+- `rental`: `RENTAL PICKUP`, `RENTAL RETURN`
+- `logistics`: `LOAD AT WAREHOUSE`, `UNLOAD AT WAREHOUSE`, `LOAD IN AT VENUE`
+
+**`V2_MARKERS` (7, 3 blocks)** — each an exact col-0 label in 6/6 v2, 0/4 v4:
+- `hotel_contact`: `HOTAL CONTACT INFO`
+- `gs_timing`: `GS SET TIME`, `GS SETUP`, `GS STRIKE TIME`
+- `bo_timing`: `BO SET TIME`, `BO SETUP`, `BO STRIKE TIME`
 
 **Excluded:** `HOTEL CONTACT INFO` (present in 4/4 v4 *and* 5/6 v2); `CONTACT TITLE` (not reliably col-0 across v4 fixtures — it appears in a header row in some); header-row personalization labels like `TSA PRECHECK`/`DIETARY RESTRICT` (they live mid-row in a wide crew-intake header, not col-0, so they are outside the col-0 mechanism); single-word pull-sheet headers `AUDIO`/`VIDEO`/`LIGHTS` (collision-prone).
 
 **Per-fixture confidence table** (verified 2026-07-04 with the col-0 equality mechanism; the test recomputes these from the marker sets — never hardcoded):
 
-| Fixture group | v4 score | v2 score | Verdict |
+| Fixture group | v4 score / blocks | v2 score / blocks | Verdict |
 |---------|----------|----------|---------|
-| 4 × v4 (rpas-central-four-seasons, fixed-income-trading-summit, asset-mgmt-cfo-coo-waldorf, fintech-forum-cto-summit) | 8 | 0 | confident v4 |
-| 6 × v2 (east-coast-family-office, asset-mgmt-cfo-coo, dci-rpas-central, redefining-fixed-income, ria-investment-forum, consultants-roundtable) | 0 | 7 | confident v2 |
+| 4 × v4 (rpas-central-four-seasons, fixed-income-trading-summit, asset-mgmt-cfo-coo-waldorf, fintech-forum-cto-summit) | 8 / 3 | 0 / 0 | confident v4 |
+| 6 × v2 (east-coast-family-office, asset-mgmt-cfo-coo, dci-rpas-central, redefining-fixed-income, ria-investment-forum, consultants-roundtable) | 0 / 0 | 7 / 3 | confident v2 |
 
-`MIN_ABS = 2`, `MIN_MARGIN = 2` — single-sourced constants in `schema.ts`; every downstream reference and test imports them rather than restating `2`. Headroom: the smallest confident score in the corpus is 7, and each version's markers come from two independent blocks, so a sheet must lose an entire block **and** most of a second before it flags.
+`MIN_ABS = 2`, `MIN_MARGIN = 2`, `MIN_BLOCKS = 2` — single-sourced constants in `schema.ts`; every downstream reference and test imports them rather than restating the numbers. Headroom: every corpus fixture hits all 3 of its version's blocks (score 7–8), so a sheet must lose 2 entire blocks before it flags — while any pair of same-block markers (1 block) already reads as ambiguous.
 
 ## 6. Guard conditions (every input shape)
 
@@ -138,8 +145,10 @@ Markers are stored **pre-normalized (UPPERCASE)** and matched by **normalized co
 | Table, ≥2 markers of one version, margin ≥2 | `confident` | parse with that version | apply / normal (unchanged for all 10 fixtures) |
 | Table, best version has <2 markers (e.g. novel template, 0/0) | `ambiguous` (bestGuess `v1`) | minimal stub + `VERSION_AMBIGUOUS` | hard_fail → retain last-good (existing) / wizard ingestion (first-seen) |
 | Table, v4=1 & v2=1 (margin <2) | `ambiguous` | minimal stub + flag | hard_fail |
-| Table, v4=7 & v2=0 (Contact Office renamed on a v4 sheet) | `confident` v4 | parse v4 | **correct** — resilient; no silent v2 downgrade (fixes #2) |
-| Table, entire CONTACT block renamed (v4=5 from the rental block, v2=0) | `confident` v4 | parse v4 | **correct** — two-block redundancy holds |
+| Table, v2=2 but from **1 block** (`GS SET TIME`+`GS SETUP`) | `ambiguous` (blocks <2) | minimal stub + flag | hard_fail — block-diversity clause; same-block markers are weak evidence (Codex R6) |
+| Table, v4=7 & v2=0 (Contact Office renamed on a v4 sheet) | `confident` v4 (blocks 3) | parse v4 | **correct** — resilient; no silent v2 downgrade (fixes #2) |
+| Table, entire CONTACT block gone (v4=5 from rental+logistics = 2 blocks, v2=0) | `confident` v4 | parse v4 | **correct** — 2-block redundancy holds |
+| Table, only the rental block present (v4=2, 1 block) | `ambiguous` (blocks <2) | minimal stub + flag | hard_fail — single surviving block is not enough |
 | Exactly at threshold: score_top=2, margin=2 | `confident` | parse | `>=` is inclusive — 2/2 is confident, not ambiguous |
 
 ## 7. Behavior matrix — {show state} × {verdict}
@@ -167,6 +176,8 @@ This round-trip (ambiguous → operator makes the sheet recognizable → confide
   - All 10 golden fixtures → `confident` with the expected version, scores computed from the marker sets (not hardcoded). *Catches:* a marker-set edit that would start false-staging real shows.
   - Synthetic "v4 minus Contact Office" (drop the one literal, keep the other 6) → still `confident v4`. *Catches:* regression of finding #2 (single-marker fragility).
   - Synthetic "v4 stripped to 1 marker" and "v2 stripped to 1 marker" → `ambiguous`. *Catches:* under-confident sheet silently applied.
+  - **Same-block negatives (both versions):** `GS SET TIME`+`GS SETUP` (both `gs_timing`) → `ambiguous`; `RENTAL PICKUP`+`RENTAL RETURN` (both `rental`) → `ambiguous`. And the positive control: `GS SET TIME`+`BO SET TIME` (two blocks) → `confident v2`. *Catches:* the flat-count-without-diversity hole (Codex R6 HIGH) — 2 markers alone must not confer confidence unless they span ≥2 blocks.
+  - **Block-redundancy positives:** v2 with `gs_timing`+`bo_timing` but no `hotel_contact` → `confident v2`; v4 with `rental`+`logistics` but no `contact` → `confident v4`. *Catches:* the diversity clause being too strict (false-staging a sheet that merely lost one block).
   - Synthetic novel template (a valid pipe table with none of the 15 markers in column 0) → `ambiguous` bestGuess v1. *Catches:* finding #1 (silent-v1).
   - **Spoofing negatives:** (a) **≥2 marker literals in value cells (column 1+)** of a table whose column-0 labels are unrelated → score 0, `ambiguous` (Codex R3). (b) **≥2 marker literals in rows with a blank physical column 0** (`| | CONTACT OFFICE | RENTAL PICKUP |`) → score 0, `ambiguous` (Codex R4 — proves `split("|")[1]` semantics, not "first non-empty"). (c) marker phrases in a free-text note line that is not a table row → score 0. (d) a marker as a substring of a larger col-0 cell (`NOTES: GS SET TIME WAS LATE`) → not an exact label → score 0. *Catches:* the value-cell / blank-col-0 / substring spoofing class — confidence comes only from strict physical column-0 labels, never arbitrary cell text.
   - `""` and non-table text → `not_a_sheet`. *Catches:* MI-1 regression.
@@ -199,4 +210,4 @@ This round-trip (ambiguous → operator makes the sheet recognizable → confide
 - **"Existing v1 shows will re-flag on every sync (noise)."** Only if a pure-v1 published show exists — none do (corpus evidence). Documented risk + backlog override (§10). Not a regression of any real show.
 - **"Why hard_fail and not a pending_syncs stage?"** D1 — reuses the last-good-retention + admin-alert path the audit itself credits (audit §2); Approach B was considered and rejected.
 - **"VERSION_AMBIGUOUS should be an admin alert."** D5 — it is the same class as MI-1..5b (not admin alerts); existing shows already get `PARSE_ERROR_LAST_GOOD`. First-seen alerting is finding #14 / item #4, deliberately out of scope.
-- **"Markers are overfit to the synthetic corpus."** Only *column-0 template labels* matched by exact equality are used (not data values, not value cells, not substrings); the 8 v4 + 7 v2 chosen are each a 100%/0% split across the two groups and drawn from two independent structural blocks per version; the smallest confident corpus score is 7. The golden-corpus test pins no-false-staging.
+- **"Markers are overfit to the synthetic corpus."** Only *column-0 template labels* matched by exact equality are used (not data values, not value cells, not substrings); the 8 v4 + 7 v2 chosen are each a 100%/0% split across the two groups and drawn from three independent structural blocks per version; the block-diversity clause requires ≥2 blocks, so neither a single-block coincidence nor a synthetic-corpus quirk in one block can confer confidence. The golden-corpus test pins no-false-staging.
