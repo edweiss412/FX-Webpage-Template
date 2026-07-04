@@ -16,7 +16,12 @@ const CREW_ID = "22222222-2222-2222-2222-222222222222";
 type MockState = {
   sessionEmail: string | null;
   show: { picker_epoch: number; published: boolean; archived: boolean } | null;
-  crew: { id: string; email: string | null; claimed_via_oauth_at: string | null } | null;
+  crew: {
+    id: string;
+    email: string | null;
+    claimed_via_oauth_at: string | null;
+    selections_reset_at?: string | null;
+  } | null;
   throwService: boolean;
   throwAuth: boolean;
   authError: boolean;
@@ -28,7 +33,7 @@ type MockState = {
 const state: MockState = {
   sessionEmail: null,
   show: { picker_epoch: 1, published: true, archived: false },
-  crew: { id: CREW_ID, email: "alice@example.com", claimed_via_oauth_at: null },
+  crew: { id: CREW_ID, email: "alice@example.com", claimed_via_oauth_at: null, selections_reset_at: null },
   throwService: false,
   throwAuth: false,
   authError: false,
@@ -81,7 +86,7 @@ beforeEach(() => {
   Object.assign(state, {
     sessionEmail: null,
     show: { picker_epoch: 1, published: true, archived: false },
-    crew: { id: CREW_ID, email: "alice@example.com", claimed_via_oauth_at: null },
+    crew: { id: CREW_ID, email: "alice@example.com", claimed_via_oauth_at: null, selections_reset_at: null },
     throwService: false,
     throwAuth: false,
     authError: false,
@@ -238,5 +243,78 @@ describe("resolvePickerSelection", () => {
         code: "PICKER_RESOLVER_LOOKUP_FAILED",
       });
     }
+  });
+
+  describe("selection_reset (per-member admin reset)", () => {
+    const RESET_AT = "2026-07-03T12:00:00.000Z";
+    const RESET_MILLIS = new Date(RESET_AT).getTime();
+
+    test("pick before selections_reset_at → selection_reset", async () => {
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: null,
+        selections_reset_at: RESET_AT,
+      };
+      await expect(
+        resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: RESET_MILLIS - 1000 }) }),
+      ).resolves.toEqual({
+        kind: "selection_reset",
+        expectedEpoch: 1,
+        expectedCrewMemberId: CREW_ID,
+      });
+    });
+
+    test("pick after selections_reset_at → resolved", async () => {
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: null,
+        selections_reset_at: RESET_AT,
+      };
+      await expect(
+        resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: RESET_MILLIS + 1000 }) }),
+      ).resolves.toEqual({ kind: "resolved", crewMemberId: CREW_ID });
+    });
+
+    test("selections_reset_at null → resolved (default, no reset)", async () => {
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: null,
+        selections_reset_at: null,
+      };
+      await expect(
+        resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1 }) }),
+      ).resolves.toEqual({ kind: "resolved", crewMemberId: CREW_ID });
+    });
+
+    test("malformed marker (NaN) fails OPEN → resolved (no spurious reset)", async () => {
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: null,
+        selections_reset_at: "not-a-date",
+      };
+      await expect(
+        resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: 1 }) }),
+      ).resolves.toEqual({ kind: "resolved", crewMemberId: CREW_ID });
+    });
+
+    test("reset precedes claimed_after_pick when both apply", async () => {
+      state.crew = {
+        id: CREW_ID,
+        email: "alice@example.com",
+        claimed_via_oauth_at: "2026-07-03T11:00:00.000Z", // earlier than reset
+        selections_reset_at: RESET_AT,
+      };
+      await expect(
+        resolvePickerSelection({ showId: SHOW_ID, cookie: cookie({ t: RESET_MILLIS - 1 }) }),
+      ).resolves.toEqual({
+        kind: "selection_reset", // reset wins over claimed_after_pick
+        expectedEpoch: 1,
+        expectedCrewMemberId: CREW_ID,
+      });
+    });
   });
 });
