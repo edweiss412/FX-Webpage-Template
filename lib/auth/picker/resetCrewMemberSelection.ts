@@ -1,6 +1,8 @@
 "use server";
 
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // not-subject-to-revalidate (nav-perf tag-caching Task 9): resetting a crew member's picker
@@ -9,6 +11,25 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 // data cache need not bust.
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Forensic source tag for both the durable success outcome and the infra-fault trace.
+const OUTCOME_SOURCE = "admin.picker.resetCrewMemberSelection";
+
+// Durable forensic trace for a reset that failed on infra (RPC returned-error / thrown).
+// AWAITED so the app_events row persists before this Server Action returns — an unawaited
+// log.* can be dropped when the request is frozen/terminated post-return (Codex HIGH). The
+// try/catch guards it so a telemetry fault can never mask the real failure result.
+async function logInfraFault(showId: string): Promise<void> {
+  try {
+    await log.warn("PICKER_SELECTION_RESET_INFRA_FAILED", {
+      code: "PICKER_SELECTION_RESET_INFRA_FAILED",
+      source: OUTCOME_SOURCE,
+      showId,
+    });
+  } catch {
+    /* best-effort: telemetry must never throw over the returned result */
+  }
+}
 
 type ResetCrewMemberSelectionResult =
   | { ok: true; reset_at: string }
@@ -24,7 +45,9 @@ export async function resetCrewMemberSelection(input: {
   showId: string;
   crewMemberId: string;
 }): Promise<ResetCrewMemberSelectionResult> {
-  await requireAdmin();
+  // requireAdminIdentity (not the bare requireAdmin) so the audit trail can attribute the
+  // reset to the acting admin (canonical email, hashed inside logAdminOutcome).
+  const adminCtx = await requireAdminIdentity();
 
   if (!UUID_RE.test(input.showId) || !UUID_RE.test(input.crewMemberId)) {
     return { ok: false, code: "PICKER_INVALID_INPUT" };
@@ -37,10 +60,31 @@ export async function resetCrewMemberSelection(input: {
       p_crew_member_id: input.crewMemberId,
     });
     // Distinguish returned-error (infra) from a NULL not-found signal (per call-boundary discipline).
-    if (error) return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+    if (error) {
+      // Forensic: a DB/infra fault on the reset otherwise vanishes silently. NOT §12.4
+      // (inside a log.warn span → stripped from the producer scan).
+      await logInfraFault(input.showId);
+      return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
+    }
+    // NULL is a benign no-op (member already off the roster) — expected, not a fault; unlogged.
     if (typeof data !== "string") return { ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" };
+
+    // Durable admin-outcome audit trail. Emitted AFTER the RPC committed (the RPC holds its own
+    // per-show advisory lock and commits before returning), so this is post-commit and the
+    // internal wrapper guarantees it never throws over the committed mutation (invariant 9).
+    // Forensic app_events code — NOT §12.4 (logAdminOutcome spans are stripped from producers).
+    await logAdminOutcome({
+      code: "PICKER_SELECTION_RESET_BY_ADMIN",
+      source: OUTCOME_SOURCE,
+      actorEmail: adminCtx.email,
+      showId: input.showId,
+      // crewMemberId is an internal UUID, not PII — low-cardinality forensic detail.
+      extra: { crewMemberId: input.crewMemberId },
+    });
+
     return { ok: true, reset_at: data };
   } catch {
+    await logInfraFault(input.showId);
     return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
   }
 }
