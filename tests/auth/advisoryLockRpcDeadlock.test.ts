@@ -118,6 +118,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/admin/dev/actions.ts",
       "lib/auth/picker/resetPickerEpoch.ts",
       "lib/auth/picker/rotateShareToken.ts",
+      // Per-crew picker reset (2026-07-03) — awaits the self-locking reset_crew_member_selection
+      // RPC bare (no JS-side withShowAdvisoryLock); nesting would deadlock (M5 R20 class).
+      "lib/auth/picker/resetCrewMemberSelection.ts",
       "lib/auth/picker/selectIdentity.ts",
       // Sync changes-feed Phase 3 — the MI-11 gate server actions await the self-locking RPCs
       // bare (no JS-side withShowAdvisoryLock); nesting would deadlock under burst (M5 R20 class).
