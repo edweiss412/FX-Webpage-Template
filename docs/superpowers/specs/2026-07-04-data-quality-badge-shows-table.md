@@ -71,7 +71,13 @@ const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResul
       return { kind: "infra_error", message: `shows_internal data-gaps query failed: ${error.message}` };
     }
     for (const r of (data ?? []) as ReadonlyArray<{ show_id: string; parse_warnings: unknown }>) {
-      const summary = summarizeDataGaps(r.parse_warnings as ParseWarning[] | null);
+      // Defensive: `parse_warnings` is plain `jsonb default '[]'` with NO array/element CHECK
+      // (supabase/migrations/20260501001000_internal_and_admin.sql:1-5). A non-array value would
+      // make summarizeDataGaps's `for…of` throw and — because this loops over ALL rows — one
+      // malformed row would degrade EVERY badge. Normalize per-row exactly like the per-show reader
+      // (app/admin/show/[slug]/page.tsx:329): non-array → treat as no warnings.
+      const pw = Array.isArray(r.parse_warnings) ? (r.parse_warnings as ParseWarning[]) : null;
+      const summary = summarizeDataGaps(pw);
       if (summary.total > 0) byShow.set(r.show_id, summary); // store only non-empty (§2.3)
     }
     return byShow;
@@ -389,6 +395,12 @@ container that also renders the count elsewhere. Expected label strings are **de
   degraded signal (invariant 9).
 - **T3b — degraded notice renders.** A `Dashboard` render with `dataGapsDegraded:true` shows
   `dashboard-data-quality-degraded` (plain copy, no raw code literal); with `false`, it is absent.
+- **T3c — malformed `parse_warnings` does not throw or cross-contaminate.** Seed two `shows_internal`
+  rows: one with a **non-array** `parse_warnings` (e.g. `{}` or a string), one with a valid gappy
+  array. `fetchDashboardData` must NOT throw / degrade, must return the malformed row with **no**
+  `dataGaps`, and must still return the valid row's `dataGaps.total > 0`. Failure mode: a single
+  malformed persisted row throwing in `summarizeDataGaps` and collapsing every badge on the dashboard
+  (the `Array.isArray` guard in §2.1 prevents this).
 - **T4 — badge renders + accessible name (component).** `tests/components/admin/ShowsTable.test.tsx`:
   a row with `dataGaps:{ total:3, classes:{FIELD_UNREADABLE:2, UNKNOWN_SECTION_HEADER:1,
   BLOCK_DISAPPEARED:0} }` renders `shows-data-quality-<slug>` whose accessible name (queried via
@@ -437,7 +449,8 @@ none.
      → `infra_error`; `shows_internal` degrades, so it needs its own assertion).
    - **Mock scope caveat (round-2 correction).** The shared `infraMock` (`:46-107`) supports only the
      **thrown**-fault paths (`throwOnConstruct` / `throwOnFrom` / `throwOnFromTable`) and hardcodes
-     `error: null` (`:57`) — it has **no** returned-`{ error }` injection. So the meta-test covers the
+     `error: null` in its resolved result object (`:100-107`) — it has **no** returned-`{ error }`
+     injection. So the meta-test covers the
      thrown path only; the **returned-`{ error }`** degrade path is covered separately in the focused
      `fetchDashboardData` test (T3, which uses its own mock able to resolve `{ data:null, error:{…} }`).
      Do **not** claim the meta-test mock exercises returned-error, and do **not** extend the shared
@@ -456,9 +469,10 @@ No new §12.4 code → no catalog / `spec-codes` / `codes-coverage` touchpoints.
 
 ## 6. Task shape (for the plan — not the plan itself)
 
-1. **Task D (data layer, TDD):** T1/T2/T3/T3b red + the `_metaInfraContract` extension (§5.1) red →
-   add `readDataGaps` (typed `infra_error` boundary) + wave-2 wiring + `dataGapsDegraded` flag + row
-   population + the §3.5 degraded notice in `Dashboard()` → green. Commit
+1. **Task D (data layer, TDD):** T1/T2/T3/T3b/T3c red + the `_metaInfraContract` extension (§5.1)
+   red → add `readDataGaps` (typed `infra_error` boundary, per-row `Array.isArray` guard) + wave-2
+   wiring + `dataGapsDegraded` flag + row population + the §3.5 degraded notice in `Dashboard()` →
+   green. Commit
    `feat(admin): populate per-show dataGaps + degraded signal in dashboard loader`.
 2. **Task U (UI badge, TDD, Opus + impeccable):** T4/T5/T6/T7 red → add the shared
    `components/admin/DataQualityBadge.tsx` + wire it into **both** `ShowsTable` (Site A) and
