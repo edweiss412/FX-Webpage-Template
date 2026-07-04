@@ -138,8 +138,8 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 |---|------|------------------------------|--------|-----------------|
 | 1 | AMBIGUOUS_EMAIL_BINDING | Show · email · "N crew rows" | →show, `email`(email-fallback), `crew_member_count` | none |
 | 2 | **OAUTH_IDENTITY_CLAIMED** | Crew · email (new rows) · Show | →crew `crew_member_id`, `user_email` (authoritative only; legacy rows omit email), →show | **add `user_email` (canonical)** |
-| 3 | PICKER_BOOTSTRAP_RPC_FAILED | Show (if `show_id` present) | →show | none |
-| 4 | PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED | **global** (show unresolved by definition; only diagnostic in ctx) | — | none |
+| 3 | PICKER_BOOTSTRAP_RPC_FAILED | Show | →show | **add `showId: targetShowId`** at `emitClaimFailure` (route.ts:93/192/197 — `targetShowId` is resolved & non-null by then, route.ts:171/176) |
+| 4 | PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED | **global** (justified) | — | none — see note |
 | 5 | CALLBACK_CLAIM_THREW | **global** (`show_id` null; only `error_name` diagnostic in ctx) | — | none |
 | 6 | PICKER_SELECTION_RACE | Show · Crew (stale) | →show, →crew `ctx:stale_crew_member_id` | none |
 | 7 | PICKER_EPOCH_RESET | Show | →show | none |
@@ -179,7 +179,13 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 | 41 | BRANCH_PROTECTION_MONITOR_AUTH_FAILED | repo `repo` | `ctx:repo` | none |
 | 42 | WIZARD_SESSION_SUPERSEDED_RACE | Sheet · action `attempted_action` | →show (via `ctx:drive_file_id`), `ctx:attempted_action` | none |
 
-**Producer changes required: exactly one** — `OAUTH_IDENTITY_CLAIMED` gains `user_email`. Every other identifier is either ID-resolvable at render time or already in `context`. This is the payoff of Approach A: the sweep costs one identity-map file + one resolver + one producer edit, not scattered raise-site edits.
+**Producer changes required: two** (resolves Codex F13) —
+1. `OAUTH_IDENTITY_CLAIMED` (`app/auth/callback/route.ts`) gains `user_email` (§5).
+2. `PICKER_BOOTSTRAP_RPC_FAILED` (`app/api/auth/picker-bootstrap/route.ts`) — `emitClaimFailure` currently passes `showId: null` even though `targetShowId` is already resolved (route.ts:171) and non-null (guaranteed by the `if (!targetShowId) return` at route.ts:176) at both call sites (192, 197). Thread `targetShowId` through as `showId` so the row is per-show and `→show` resolves. No context field change.
+
+Every other identifier is ID-resolvable at render time or already in `context`. This is still the Approach-A payoff: two small producer edits + one identity-map file + one resolver, not scattered raise-site edits.
+
+**PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED stays `global` (justified, Codex F13).** This alert fires precisely because the share-token URL **could not be resolved to a show** — so no show entity exists to name. The `context.slug` is the raw, unresolved URL fragment, not a resolvable entity identifier; rendering it would present an unresolved token as if it were a show. Intentionally out of scope: a failed resolution has no entity. (`rpc_error_code`/`rpc_error_message` remain diagnostics, excluded by §3.1.)
 
 **Codes classified `global` (identity line suppressed), 12 total:** the three truly system-wide (19 SYNC_STALLED, 21 EMAIL_NOT_CONFIGURED, 33 GITHUB_BOT_LOGIN_MISSING); the three diagnostic-only with no resolvable entity (4 PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED, 5 CALLBACK_CLAIM_THREW, 12 WEBHOOK_TOKEN_INVALID); and the six already-SPECIFIC-in-copy (17, 18, 22, 23, 38, 39) whose entity is already interpolated into the copy so the identity line adds nothing. **12 global entries, 30 with an identity segment, 42 total.** (Numeric-sweep anchor — the §8.3 meta-test enforces every code is present as either `global` or with ≥1 segment.)
 
@@ -187,7 +193,9 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 
 ---
 
-## 5. Raise-site change — `OAUTH_IDENTITY_CLAIMED` (the one producer edit)
+## 5. Raise-site changes — two producer edits
+
+### 5a. `OAUTH_IDENTITY_CLAIMED` — add raw email
 
 `app/auth/callback/route.ts:134` currently writes:
 
@@ -204,6 +212,10 @@ Add `user_email: canonicalEmail`. **Keep `user_email_hash`** (logs/forensics sti
 
 - `canonicalEmail` is `canonicalize(userResult.user?.email)` (`route.ts:92`) — already canonicalized, satisfying **invariant 3** (email canonicalization at every boundary). The raw string never enters `context` un-canonicalized.
 - **Email-canonicalization guard (invariant 3 safety net):** `tests/cross-cutting/email-canonicalization.test.ts:243` scans for raw (non-canonical) email fields in `admin_alerts.context` JSONB and rejects them; the `good-canonicalized-jsonb-context` fixture passes. The new field is populated from the already-canonicalized `canonicalEmail`, so it must satisfy the guard. **Implementation task:** run this meta-test after the edit; if the Layer-6 scanner flags `user_email`, adjust so the field provably derives from `canonicalize()` at the boundary (it already does). This is a guard interaction, not a new mechanism.
+
+### 5b. `PICKER_BOOTSTRAP_RPC_FAILED` — make it per-show (resolves Codex F13)
+
+`emitClaimFailure` (`app/api/auth/picker-bootstrap/route.ts:93`) passes `showId: null`. But it is only ever called (route.ts:192, 197) *after* the `if (!targetShowId) return htmlResponse(...)` guard at route.ts:176, so `targetShowId` (resolved at route.ts:171) is a non-null show id in scope. Add a `showId` parameter to `emitClaimFailure` and thread `targetShowId` through at both call sites; set `showId: input.showId` in the `upsertAdminAlert` call. The alert becomes per-show and its `→show` identity resolves. No `context` field is added (show comes from the `show_id` column, resolved by the identity resolver). This does not change the alert's lifecycle key beyond making it show-scoped (the `(coalesce(show_id,''), code)` unique index already tolerates per-show rows). TDD: a test asserts the emitted row carries `show_id === targetShowId`.
 
 ---
 
@@ -304,6 +316,7 @@ A **code × context** table test. For each of the 42 codes, feed a representativ
 - **Invariant-5 raw-code suppression (Codex F3):** for `PICKER_BOOTSTRAP_RPC_FAILED`/`CALLBACK_CLAIM_THREW`/`WEBHOOK_TOKEN_INVALID` with `context` carrying `rpc_error_code: "42501"`, `error_name`, `reason` → the rendered identity contains **none** of those strings (assert `42501`/`PGRST`/error-class substrings absent).
 - **Nested-field sanitization (Codex F5):** `projectIdentityContext` on `ROLE_FLAGS_NOTICE` context `{ drive_file_id, changes: [{crew_name:"Jane", prior_flags:["X"], new_flags:["Y"]}] }` → output has `role_change_crew_names: ["Jane"]` + `role_change_count: 1` and **no** `changes`, `prior_flags`, or `new_flags` key; a planted `error_message`/`orphan_url` under any code is absent from the projection.
 - **Coalescing disclosure (Codex F4):** an `OAUTH_IDENTITY_CLAIMED` row with `occurrence_count: 2` renders the latest crew/email/show + a "(most recent of 2)" segment; the same code with `occurrence_count: 1` has no disclosure segment; a `global` code with `occurrence_count: 5` shows no identity line at all.
+- **Picker-bootstrap per-show producer (Codex F13):** a test on `emitClaimFailure` asserts the emitted `PICKER_BOOTSTRAP_RPC_FAILED` row carries `show_id === targetShowId` (not null), so its `→show` identity resolves; `PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED` remains `global` (no identity line) by the §4 justification.
 
 ### 9.2 `resolveAlertIdentities` — batching & guards
 
@@ -332,7 +345,7 @@ jsdom render tests (§9.3) verify content/presence; this task verifies the geome
 
 **New:** `lib/adminAlerts/alertIdentityMap.ts`, `lib/adminAlerts/projectIdentityContext.ts` (sanitizer), `lib/adminAlerts/resolveAlertIdentities.ts`, `lib/adminAlerts/describeAlert.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts`, `tests/adminAlerts/projectIdentityContext.test.ts`, `tests/adminAlerts/describeAlert.test.ts`, `tests/adminAlerts/resolveAlertIdentities.test.ts`.
 
-**Edited:** `app/auth/callback/route.ts` (one field), `components/admin/AlertBanner.tsx` (select `shows(slug,title)` + render identity), `components/admin/PerShowAlertSection.tsx` (render identity), `lib/observe/query/alerts.ts` (select context → allowlisted `identityContext` projection + `includePii` + comment), `lib/observe/query/types.ts` (`AlertRow.identityContext`, `AlertFilters.includePii`), `scripts/observe.ts` (`--reveal-email` flag + identity line), `AGENTS.md` (redaction posture + observe command table), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (redaction amendment note), `tests/observe/queryAlerts.test.ts` (allowlist-projection + PII tests), possibly `tests/cross-cutting/email-canonicalization.test.ts` (only if the new field needs a fixture — expected: no change, guard already accepts canonicalized).
+**Edited:** `app/auth/callback/route.ts` (one field), `app/api/auth/picker-bootstrap/route.ts` (thread `targetShowId` as `showId` into `emitClaimFailure`), `components/admin/AlertBanner.tsx` (select `shows(slug,title)` + `occurrence_count` + render identity), `components/admin/PerShowAlertSection.tsx` (inject parent `showId`, select `occurrence_count`, render identity), `lib/observe/query/alerts.ts` (select context → allowlisted `identityContext` projection + `includePii` + comment), `lib/observe/query/types.ts` (`AlertRow.identityContext`, `AlertFilters.includePii`), `scripts/observe.ts` (`--reveal-email` flag + identity line), `AGENTS.md` (redaction posture + observe command table), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (redaction amendment note), `tests/observe/queryAlerts.test.ts` (allowlist-projection + PII tests), possibly `tests/cross-cutting/email-canonicalization.test.ts` (only if the new field needs a fixture — expected: no change, guard already accepts canonicalized).
 
 **No DDL. No migration. No new alert code. No advisory-lock change.**
 
