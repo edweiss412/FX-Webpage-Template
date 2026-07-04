@@ -54,7 +54,7 @@ A private helper `legacyBestGuess(markdown, cellLabels): "v1"|"v2"|"v4"` holds t
 
 `classifyVersion`:
 1. If `!looksLikeSheet(markdown)` → `{ status: "not_a_sheet" }` (preserves today's `null` → MI-1 behavior).
-2. Score each of v4 and v2: `score_V = count of V's markers present` (case-insensitive substring match against the raw markdown; see §5 for why literal-substring, not the shared canonical alias).
+2. Score each of v4 and v2: `score_V = count of V's markers present`. A marker is "present" iff it **equals a normalized table cell label** — reuse the existing `extractCellLabels(markdown)` (`schema.ts:60-77`), normalize each extracted cell and each marker identically (`trim → collapse internal whitespace → UPPERCASE`), and test set membership. This is *equality against structural cell labels*, not a substring scan of the raw markdown — a marker phrase buried in a free-text note or data value that is not its own cell does not score (Codex R2 HIGH #1). It is exactly as rigorous as today's alias-based detection, which also matches on extracted cell labels.
 3. `top` = higher-scoring of {v4, v2}; `runnerUp` = the other. On a 0–0 tie, `top` is unspecified but its score is 0 (handled by step 4, which flags it ambiguous regardless).
 4. **Confident** iff `score_top >= MIN_ABS` **and** `(score_top - score_runnerUp) >= MIN_MARGIN` → `{ status:"confident", version: top, scores }`.
 5. Otherwise `{ status:"ambiguous", bestGuess: legacyBestGuess(...), scores, reason }` where `reason` names the scores (e.g. `"v4=1 v2=1 below margin"` or `"v4=0 v2=0 no known markers"`).
@@ -110,24 +110,24 @@ New code `VERSION_AMBIGUOUS`, catalog entry modeled on `MI-1_VERSION_DETECTION_F
 
 ## 5. Marker sets (verified against the fixture corpus)
 
-Matched as **case-insensitive substrings of the raw markdown** — deliberately *not* via the canonical alias, because the shared canonical `venue.contact_info` resolves for both v2 (`Hotal Contact Info`) and v4 (`VENUE CONTACT INFO`) and is therefore non-discriminating (it is the exact mechanism behind finding #2).
+Markers are stored **pre-normalized (UPPERCASE)** and matched by **normalized cell-label equality** (§4.1) — deliberately *not* via the canonical alias, because the shared canonical `venue.contact_info` resolves for both v2 (`Hotal Contact Info`) and v4 (`VENUE CONTACT INFO`) and is non-discriminating (it is the exact mechanism behind finding #2). Every literal below was verified present as an exact table cell label in the stated fixtures (equality sweep over `fixtures/shows/raw/*.md`, 2026-07-04).
 
-**`V4_MARKERS` (7)** — each present in 4/4 v4 fixtures, 0/6 v2 fixtures:
-`Contact Office`, `Contact Title`, `Contact Cell`, `TSA PRECHECK`, `DIETARY`, `Names on Reservation`, `VENUE CONTACT INFO`
+**`V4_MARKERS` (7)** — each an exact cell label in 4/4 v4 fixtures, 0/6 v2 fixtures. CONTACT-block + personalization-intake labels (distinctive multi-token labels; single common words like `AUDIO`/`VIDEO` are deliberately excluded to avoid future v4 data-cell collisions):
+`CONTACT OFFICE`, `CONTACT TITLE`, `CONTACT CELL`, `CONTACT EMAIL`, `TSA PRECHECK`, `DIETARY RESTRICT`, `NAME (ROLE)`
 
-**`V2_MARKERS` (4)** — each present in 6/6 v2 fixtures, 0/4 v4 fixtures:
-`Hotal Contact Info`, `GS Set Time`, `GS Strike Time`, `BO Setup`
+**`V2_MARKERS` (6)** — each an exact cell label in 6/6 v2 fixtures, 0/4 v4 fixtures. Pull-sheet timing rows + the `Hotal` typo + a distinctive gear label:
+`HOTAL CONTACT INFO`, `GS SET TIME`, `GS STRIKE TIME`, `BO SET TIME`, `BO SETUP`, `CONFIDENCE MONITOR STAND`
 
-**Excluded (non-discriminating):** `Hotel Contact Info` — present in 4/4 v4 *and* 5/6 v2. Including it would reintroduce the finding-#2 cross-contamination.
+**Excluded (non-discriminating):** `HOTEL CONTACT INFO` — present in 4/4 v4 *and* 5/6 v2; and single-word pull-sheet headers (`AUDIO`/`VIDEO`/`LIGHTS`/`CABLE`/`OTHER`) — 0/4 v4 today but too collision-prone for future v4 sheets.
 
-**Per-fixture confidence table** (verifies zero false staging; expected values derived from the marker sets, not hardcoded — the test computes them):
+**Per-fixture confidence table** (verified 2026-07-04 with the equality mechanism; the test recomputes these from the marker sets — never hardcoded):
 
-| Fixture | v4 score | v2 score | Verdict |
+| Fixture group | v4 score | v2 score | Verdict |
 |---------|----------|----------|---------|
-| 4 × v4 fixtures (rpas-central-four-seasons, fixed-income-trading-summit, asset-mgmt-cfo-coo-waldorf, fintech-forum-cto-summit) | 7 | 0 | confident v4 |
-| 6 × v2 fixtures (east-coast-family-office, asset-mgmt-cfo-coo, dci-rpas-central, redefining-fixed-income, ria-investment-forum, consultants-roundtable) | 0 | 4 | confident v2 |
+| 4 × v4 (rpas-central-four-seasons, fixed-income-trading-summit, asset-mgmt-cfo-coo-waldorf, fintech-forum-cto-summit) | 7 | 0 | confident v4 |
+| 6 × v2 (east-coast-family-office, asset-mgmt-cfo-coo, dci-rpas-central, redefining-fixed-income, ria-investment-forum, consultants-roundtable) | 0 | 6 | confident v2 |
 
-`MIN_ABS = 2`, `MIN_MARGIN = 2` — single-sourced constants in `schema.ts`; every downstream reference and test imports them rather than restating `2`.
+`MIN_ABS = 2`, `MIN_MARGIN = 2` — single-sourced constants in `schema.ts`; every downstream reference and test imports them rather than restating `2`. Headroom: the smallest confident score in the corpus is 6, so a sheet must lose ≥4 of its version's markers before it flags.
 
 ## 6. Guard conditions (every input shape)
 
@@ -165,7 +165,8 @@ This round-trip (ambiguous → operator makes the sheet recognizable → confide
   - All 10 golden fixtures → `confident` with the expected version, scores computed from the marker sets (not hardcoded). *Catches:* a marker-set edit that would start false-staging real shows.
   - Synthetic "v4 minus Contact Office" (drop the one literal, keep the other 6) → still `confident v4`. *Catches:* regression of finding #2 (single-marker fragility).
   - Synthetic "v4 stripped to 1 marker" and "v2 stripped to 1 marker" → `ambiguous`. *Catches:* under-confident sheet silently applied.
-  - Synthetic novel template (a valid pipe table with none of the 11 markers) → `ambiguous` bestGuess v1. *Catches:* finding #1 (silent-v1).
+  - Synthetic novel template (a valid pipe table with none of the 13 markers) → `ambiguous` bestGuess v1. *Catches:* finding #1 (silent-v1).
+  - **Spoofing negatives:** (a) marker phrases (`GS SET TIME`, `BO SETUP`) appearing only inside a free-text note line that is *not* a pipe-table cell → score 0, `ambiguous`. (b) marker phrases appearing only as substrings of a larger cell (e.g. a cell `NOTES: GS SET TIME WAS LATE`) → not an exact label → score 0. *Catches:* the raw-substring spoofing class (Codex R2 HIGH #1) — confidence must come from structural labels, not arbitrary text.
   - `""` and non-table text → `not_a_sheet`. *Catches:* MI-1 regression.
   - Threshold boundary: hand-built markdown scoring exactly 2/margin-2 → `confident`; 2/margin-1 → `ambiguous`. *Catches:* off-by-one in the inequality.
 - **`detectVersion` backward-compat** — the existing `schema.test.ts` suite must still pass unchanged (v4/v2/v1-fallback/null). *Catches:* breaking the ~15 block-parser helper call sites.
@@ -196,4 +197,4 @@ This round-trip (ambiguous → operator makes the sheet recognizable → confide
 - **"Existing v1 shows will re-flag on every sync (noise)."** Only if a pure-v1 published show exists — none do (corpus evidence). Documented risk + backlog override (§10). Not a regression of any real show.
 - **"Why hard_fail and not a pending_syncs stage?"** D1 — reuses the last-good-retention + admin-alert path the audit itself credits (audit §2); Approach B was considered and rejected.
 - **"VERSION_AMBIGUOUS should be an admin alert."** D5 — it is the same class as MI-1..5b (not admin alerts); existing shows already get `PARSE_ERROR_LAST_GOOD`. First-seen alerting is finding #14 / item #4, deliberately out of scope.
-- **"Markers are overfit to the synthetic corpus."** Only *template field labels* are used (not data values); the 7+4 chosen are each 100%/0% split across the two groups; thresholds leave 5+ markers of headroom. The golden-corpus test pins no-false-staging.
+- **"Markers are overfit to the synthetic corpus."** Only *template field labels* matched by exact cell-label equality are used (not data values, not substrings); the 7 v4 + 6 v2 chosen are each a 100%/0% split across the two groups; the smallest confident corpus score is 6, so ≥4 markers of headroom before any real sheet could flag. The golden-corpus test pins no-false-staging.
