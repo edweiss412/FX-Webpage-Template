@@ -91,46 +91,105 @@ comment on column public.crew_members.selections_reset_at is
 
 ## Task 2: Migration — `reset_crew_member_selection` RPC + advisory-lock registration
 
-Implements spec §4, §7.2, §7.6, §10. **Files:** Create `supabase/migrations/20260703000001_reset_crew_member_selection.sql`; Modify `tests/auth/advisoryLockRpcDeadlock.test.ts`; Test `tests/auth/resetCrewMemberSelectionRpc.test.ts` (SQL-shape assertions; behavioral DB test if the repo's RPC tests run against a live local DB — follow the sibling `reset_picker_epoch_atomic` test's harness).
+Implements spec §4, §7.2, §7.6, §10. **Files:** Create `supabase/migrations/20260703000001_reset_crew_member_selection.sql`; Modify `tests/auth/advisoryLockRpcDeadlock.test.ts`; Test `tests/db/reset_crew_member_selection.test.ts` (**live-DB behavioral**, mirroring `tests/db/reset_picker_epoch_atomic.test.ts` — `runPsql` via `execFileSync` against `TEST_DATABASE_URL`/local, JWT-claim role switching, transaction+rollback, plus a `pg_get_functiondef` definition assertion).
 
-**Interfaces — Produces:** RPC `public.reset_crew_member_selection(p_show_id uuid, p_crew_member_id uuid) returns timestamptz` (NULL on not-found; raises `42501` for non-admin).
+**Interfaces — Produces:** RPC `public.reset_crew_member_selection(p_show_id uuid, p_crew_member_id uuid) returns timestamptz` (NULL on not-found — missing show OR missing crew member; raises `42501` for non-admin).
 
-- [ ] **Step 1: Write the failing SQL-shape test** — `tests/auth/resetCrewMemberSelectionRpc.test.ts`:
+- [ ] **Step 1: Write the failing live-DB behavioral test** — `tests/db/reset_crew_member_selection.test.ts` (copy the `runPsql`/`sqlString`/`ADMIN_JWT`/`CREW_JWT`/`seedShowSql` helpers verbatim from `tests/db/reset_picker_epoch_atomic.test.ts:1-36`; add a crew seed):
 
 ```ts
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { describe, expect, test } from "vitest";
-
-const sql = readFileSync(
-  join(process.cwd(), "supabase/migrations/20260703000001_reset_crew_member_selection.sql"),
-  "utf8",
-);
+function seedCrewSql(driveFileId: string, name = "Alice") {
+  return `
+    insert into public.crew_members (show_id, name, role)
+    values ((select id from public.shows where drive_file_id = ${sqlString(driveFileId)}), ${sqlString(name)}, 'A2')
+    returning id
+  `;
+}
 
 describe("reset_crew_member_selection RPC", () => {
-  test("admin-gated", () => expect(sql).toMatch(/if not public\.is_admin\(\)/));
-  test("single in-RPC advisory lock on show key", () =>
-    expect(sql).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| v_drive_file_id\)\)/));
-  test("missing-show guard returns NULL before the lock (no raise)", () => {
-    const lockIdx = sql.indexOf("pg_advisory_xact_lock");
-    const guardIdx = sql.search(/if v_drive_file_id is null then\s+return null;/);
-    expect(guardIdx).toBeGreaterThan(-1);
-    expect(guardIdx).toBeLessThan(lockIdx); // guard precedes lock
+  test("admin stamps one member's selections_reset_at and returns it", () => {
+    const driveFileId = `reset-crew-${randomUUID()}`;
+    const out = runPsql(`
+      begin;
+      ${seedShowSql(driveFileId)};
+      with c as (${seedCrewSql(driveFileId)})
+      select 'before=' || coalesce(selections_reset_at::text,'null') from public.crew_members
+        where id = (select id from c);
+      set local role authenticated;
+      set local request.jwt.claims = ${sqlString(ADMIN_JWT)};
+      select 'result=' || coalesce(public.reset_crew_member_selection(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        (select id from public.crew_members where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}))
+      )::text, 'null');
+      reset role;
+      rollback;
+    `);
+    expect(out).toContain("before=null");
+    expect(out).not.toContain("result=null"); // a timestamp was returned
   });
-  test("scopes the UPDATE by (id, show_id)", () =>
-    expect(sql).toMatch(/where id = p_crew_member_id\s+and show_id = p_show_id/));
-  test("stamps clock_timestamp() and returns the marker", () =>
-    expect(sql).toMatch(/set selections_reset_at = clock_timestamp\(\)/));
-  test("does NOT call publish_show_invalidation (crew_members AFTER UPDATE trigger publishes)", () =>
-    expect(sql).not.toMatch(/publish_show_invalidation/));
-  test("revokes broadly then grants execute to authenticated", () => {
-    expect(sql).toMatch(/revoke all on function public\.reset_crew_member_selection\(uuid, uuid\) from public, anon, authenticated, service_role/);
-    expect(sql).toMatch(/grant execute on function public\.reset_crew_member_selection\(uuid, uuid\) to authenticated/);
+
+  test("non-admin caller rejected via is_admin() (42501)", () => {
+    const driveFileId = `reset-crew-${randomUUID()}`;
+    expect(() => runPsql(`
+      begin;
+      ${seedShowSql(driveFileId)};
+      ${seedCrewSql(driveFileId)};
+      set local role authenticated;
+      set local request.jwt.claims = ${sqlString(CREW_JWT)};
+      select public.reset_crew_member_selection(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        (select id from public.crew_members limit 1));
+      rollback;
+    `)).toThrow(/admin role required|42501|permission denied/i);
+  });
+
+  test("missing show → returns NULL (does NOT raise — divergence from epoch RPC)", () => {
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = ${sqlString(ADMIN_JWT)};
+      select 'r=' || coalesce(public.reset_crew_member_selection(
+        '00000000-0000-0000-0000-0000000000ff'::uuid,
+        '00000000-0000-0000-0000-0000000000fe'::uuid)::text, 'null');
+      rollback;
+    `);
+    expect(out).toBe("r=null"); // NULL, no throw
+  });
+
+  test("valid show but wrong/missing crew member → NULL", () => {
+    const driveFileId = `reset-crew-${randomUUID()}`;
+    const out = runPsql(`
+      begin;
+      ${seedShowSql(driveFileId)};
+      set local role authenticated;
+      set local request.jwt.claims = ${sqlString(ADMIN_JWT)};
+      select 'r=' || coalesce(public.reset_crew_member_selection(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        '00000000-0000-0000-0000-0000000000fe'::uuid)::text, 'null');
+      rollback;
+    `);
+    expect(out).toBe("r=null");
+  });
+
+  test("definition pins security definer, advisory lock, clock_timestamp, NO publish helper, grants", () => {
+    const out = runPsql(`
+      select
+        prosecdef || '|' ||
+        (pg_get_functiondef(p.oid) ~ 'pg_advisory_xact_lock\\s*\\(\\s*hashtext') || '|' ||
+        (pg_get_functiondef(p.oid) like '%clock_timestamp()%') || '|' ||
+        (pg_get_functiondef(p.oid) like '%publish_show_invalidation%') || '|' ||
+        has_function_privilege('authenticated', 'public.reset_crew_member_selection(uuid, uuid)', 'EXECUTE') || '|' ||
+        has_function_privilege('service_role', 'public.reset_crew_member_selection(uuid, uuid)', 'EXECUTE')
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'reset_crew_member_selection';
+    `);
+    // secdef=t, lock=t, clock=t, publish_helper=f (must NOT be present), auth exec=t, service_role exec=f
+    expect(out).toBe("true|true|true|false|true|false");
   });
 });
 ```
 
-- [ ] **Step 2: Run — expect FAIL:** `pnpm vitest run tests/auth/resetCrewMemberSelectionRpc.test.ts`
+- [ ] **Step 2: Run — expect FAIL** (function missing): `pnpm vitest run tests/db/reset_crew_member_selection.test.ts`
 - [ ] **Step 3: Create the migration** (mirrors `20260523000003`, with the missing-show guard returning NULL per spec §4.1, and NO publish helper per §4/finding #6):
 
 ```sql
@@ -189,7 +248,7 @@ grant execute on function public.reset_crew_member_selection(uuid, uuid) to auth
   - (c) add the same migration path to `lockTakingMigrations` for the PF11 lock-before-`FOR UPDATE` order check (~:165-178).
   - (d) add `"lib/auth/picker/resetCrewMemberSelection.ts"` to the `sourceFiles` JS-caller list (~:100-122) so the single-holder (no `withShowAdvisoryLock` wrapper) assertion covers the new action. *(The file is created in Task 8; if the deadlock test reads the file eagerly, land the (d) edit in Task 8's commit instead and note it here.)*
 
-- [ ] **Step 5: Apply locally + run tests — expect PASS:** apply the migration to the local DB + `notify pgrst`, then `pnpm vitest run tests/auth/resetCrewMemberSelectionRpc.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts`.
+- [ ] **Step 5: Apply locally + run tests — expect PASS:** apply the migration to the local DB (`psql "$TEST_DATABASE_URL" -f supabase/migrations/20260703000001_*.sql`) + `notify pgrst, 'reload schema';`, then `pnpm vitest run tests/db/reset_crew_member_selection.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts`. (The live-DB test needs `TEST_DATABASE_URL` or the default local `54322`.)
 - [ ] **Step 6: Commit:** `git commit --no-verify -m "feat(auth): reset_crew_member_selection RPC (per-show lock, single holder) + deadlock-topology registration"`
 
 ---
