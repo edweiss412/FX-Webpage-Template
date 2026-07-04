@@ -88,18 +88,17 @@ outcome in the route file — Codex R6. `reap-stale-sessions` emits `result: "re
 §4.2 MUST carry an `await logAdminOutcome` success outcome (Codex R5). **`rotateShareToken`
 must never log the new `share_token`** (a secret) — emit `result: "epoch_" + new_epoch` only.
 
-**B. Exempt per-function/file (`// no-telemetry: <reason>`) — non-mutations / delegators:**
+**B. Exempt — non-mutations / delegators. Non-admin surfaces use a bare `// no-telemetry:`;
+admin-gated surfaces use an `ADMIN_SURFACE_EXEMPTIONS` row (§4.3 item 2), never a bare
+comment:**
 
-| Surface unit | Reason |
+| Surface unit | Mechanism |
 | --- | --- |
-| `app/api/test-auth/set-session/route.ts` (file) | Test-only auth scaffolding; not a product mutation surface. |
-| `…/defer_until_modified/route.ts` (file) | Thin `POST` delegates to the already-instrumented `handleWizardPendingIngestionAction` (`…/retry/route.ts`). |
-| `…/permanent_ignore/route.ts` (file) | Same delegating shim. |
-| `admin/dev/actions.ts` :: `getStagedResult`, `listFixtures` | Read-only accessors (no mutation). |
-| `admin/dev/actions.ts` :: `parseAndStageFormAction`, `resetDevSchemaFormAction` | Form-action wrappers; delegate to the instrumented `parseAndStage` / `resetDevSchema`. |
-| `_PickerInterstitial.tsx` (inline) | Thin form-action wrapper; delegates to `selectIdentity` (instrumented). |
-| `_SignInOrSkipGate.tsx` (inline) | Thin form-action wrapper; delegates to `clearIdentityAndSkip` (grandfathered). |
-| `components/auth/IdentityChip.tsx` (inline) | Thin form-action wrapper; delegates to `clearIdentity` (grandfathered). |
+| `app/api/test-auth/set-session/route.ts` (file) | `// no-telemetry:` — test-only scaffolding; NOT under `app/api/admin`, not `require*`-gated → non-admin. |
+| `_PickerInterstitial.tsx`, `_SignInOrSkipGate.tsx`, `components/auth/IdentityChip.tsx` (inline) | `// no-telemetry:` — non-admin crew form-action wrappers (no `require*` gate); delegate to picker actions (`selectIdentity` instrumented; `clearIdentity*` grandfathered). |
+| `…/defer_until_modified/route.ts`, `…/permanent_ignore/route.ts` (admin routes) | `ADMIN_SURFACE_EXEMPTIONS` `delegator` → `…/retry/route.ts` (registered). |
+| `admin/dev/actions.ts` :: `parseAndStageFormAction`, `resetDevSchemaFormAction` | `ADMIN_SURFACE_EXEMPTIONS` `delegator` → `parseAndStage` / `resetDevSchema` (registered §3.1 A). |
+| `admin/dev/actions.ts` :: `getStagedResult`, `listFixtures` | `ADMIN_SURFACE_EXEMPTIONS` `read-only` — admin-gated (`requireDeveloper` in-body) reads; no write-builder/`logAdminOutcome`. |
 
 **C. Grandfather — crew/system picker actions only (`KNOWN_UNINSTRUMENTED`, 6 per-function
 rows, `BL-CREW-PICKER-OBSERVABILITY`):**
@@ -266,7 +265,7 @@ MUST be in the executable recorder set (a real sink-spy success-branch test, §1
 grandfather list. That is the structural, uniform closure of the wrong-branch hole for both
 surface kinds. Reads are exempt (§4.3).
 
-### 4.3 Escape hatches (two, by intent)
+### 4.3 Escape hatches (three, by intent)
 
 1. **`// no-telemetry: <reason>`** — an inline line comment (matched
    `/^\s*\/\/\s*no-telemetry:/` per-line, mirroring the `canonicalize-exempt` precedent in
@@ -288,8 +287,31 @@ surface kinds. Reads are exempt (§4.3).
    Read-only exported actions in a `"use server"` module (e.g. `getStagedResult`,
    `listFixtures` in `dev/actions.ts`) use a per-function exemption with a `read-only
    accessor (no mutation)` reason — forcing an explicit "this action does not mutate"
-   acknowledgment rather than a silent pass.
-2. **`KNOWN_UNINSTRUMENTED`** — a centralized
+   acknowledgment rather than a silent pass. **A bare `// no-telemetry:` is REJECTED on an
+   admin surface (Codex R11 F1):** an admin route (`app/api/admin/**`) or an admin-gated
+   function (its own body calls a `require*` gate) may not skip via a free-text comment —
+   otherwise a future admin mutation could dodge both registry membership and the executable
+   behavioral proof by claiming, say, `// no-telemetry: read-only` on a real mutation. The
+   ONLY sanctioned skip for an admin surface is an explicit `ADMIN_SURFACE_EXEMPTIONS` row
+   (item 2). (Note `getStagedResult`/`listFixtures` DO call `requireDeveloper()` in-body, so
+   they are admin-gated reads and must be allowlisted, not `// no-telemetry:`'d — verified.)
+2. **`ADMIN_SURFACE_EXEMPTIONS`** — a small, reviewed, frozen
+   `ReadonlyArray<{ file: string; fn?: string; kind: "delegator" | "read-only"; delegatesTo?:
+   string }>` — the ONLY way an admin surface skips registry+behavioral. Two kinds:
+   - **`delegator`** (thin admin surface forwarding to an already-registered admin surface;
+     re-emitting would double-log): `delegatesTo` names the target; the meta-test asserts the
+     target is in `AUDITABLE_MUTATIONS` and the file actually calls into it. Today: the 2
+     wizard route shims (`defer_until_modified`, `permanent_ignore` → `…/retry/route.ts`) and
+     the 2 dev form-action wrappers (`parseAndStageFormAction` → `parseAndStage`,
+     `resetDevSchemaFormAction` → `resetDevSchema`).
+   - **`read-only`** (an admin-gated exported action that performs no mutation): today
+     `dev/actions.ts` :: `getStagedResult`, `listFixtures`. The meta-test asserts the function
+     contains no Supabase write-builder / `logAdminOutcome` (a cheap "looks like a read"
+     guard, so a mutation can't hide here).
+   The list is frozen: a NEW admin-gated function cannot dodge by appending a `read-only` row
+   without a reviewed change, and a `delegator` row is only valid if its target is registered.
+   This replaces the bare `// no-telemetry:` the shims/reads previously carried (§3.1 B).
+3. **`KNOWN_UNINSTRUMENTED`** — a centralized
    `ReadonlyArray<{ file: string; fn: string; backlog: string }>` in the test. A **debt
    ledger** for surfaces we intend to instrument later, each carrying a backlog ref.
    **Entries are always per-function `{ file, fn, backlog }` — there is no file-only /
@@ -489,18 +511,20 @@ surface, route or action, to ship one).
   new discovery test import — so the discovery test's admin-route registry-membership check
   reads the single source of truth, not a duplicated list. Pure move; the existing contract
   test's behavior is unchanged.
-- **CREATES (Codex R9/R10): the executable `ADMIN_OUTCOME_BEHAVIOR` proof** — a shared runtime
-  recorder `recordAdminOutcomeBehavior({ file, code })` (in a shared module) that a sink-spy
-  behavioral test calls **only after** the spy observes the expected code on the committed
-  success branch, plus a frozen `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set of the pre-existing
-  admin surfaces (24 routes + `archive`/`unarchive`/`setPublished`/`feed` actions). The
-  `ADMIN_OUTCOME_BEHAVIOR` meta-test (running after the behavioral suite) asserts: for every
-  admin surface (route OR action) in `AUDITABLE_MUTATIONS`, its `{ file, code }` is EITHER in
-  the recorder set (executable proof) OR in the frozen grandfather set; the grandfather set is
-  exactly the frozen list and never grows; every non-grandfathered admin surface (the seeded
-  set + any future) is in the recorder set. This is executable, not referential — a paper
-  reference can't satisfy it (the test must run and observe). Covers routes AND actions
-  uniformly (Codex R10 F1).
+- **CREATES (Codex R9/R10): the executable `ADMIN_OUTCOME_BEHAVIOR` proof, in ONE
+  self-contained test file** `tests/log/adminOutcomeBehavior.test.ts` (Codex R11 F2 — a
+  cross-file in-memory recorder is unreliable under Vitest's per-file isolation / workers /
+  sharding). That single file: (1) declares a file-local `recorded` set; (2) contains a
+  sink-spy behavioral case for every non-grandfathered admin surface (route OR action) that
+  drives the committed-success path and, **only after** the spy observes the expected code,
+  calls `recordAdminOutcomeBehavior({ file, code })`; (3) ends with a coverage assertion that
+  imports the pure admin-surface enumerator + `AUDITABLE_MUTATIONS` and asserts every
+  non-grandfathered admin surface's `{ file, code }` is in `recorded`. Because population and
+  assertion live in the same module scope and file, order is deterministic and immune to
+  sharding. A frozen `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set (24 routes +
+  `archive`/`unarchive`/`setPublished`/`feed`) is the only exception; the assertion also fails
+  if that set grows. Executable, not referential — a paper reference can't satisfy it (the
+  test must run and observe). Covers routes AND actions uniformly (Codex R10 F1).
 - **Advisory-lock topology:** N/A — no `pg_advisory*` surface is touched (declared explicitly).
 
 ## 10. Test plan (TDD)
@@ -534,20 +558,23 @@ surface, route or action, to ship one).
    be in `AUDITABLE_MUTATIONS` or exempt (assert against the live tree). Negative fixtures: a
    synthetic admin route whose only `await logAdminOutcome(...)` sits in an **unused nested
    helper** and which is NOT registered MUST fail; likewise a synthetic admin action with the
-   emit on a catch branch and no registry row MUST fail. Assert the seeded gaps (settings,
-   validation, admins, developer, dev, onboarding, 3 picker, `manifest/ignore`,
-   `reap-stale-sessions`) are all present in `AUDITABLE_MUTATIONS` after seeding.
-5. **Executable admin behavioral-coverage meta-test (Codex R9/R10)** — the
-   `ADMIN_OUTCOME_BEHAVIOR` meta-test runs after the behavioral suite and asserts every admin
-   surface (route OR action) in `AUDITABLE_MUTATIONS` has its `{ file, code }` either in the
-   runtime recorder set (populated by `recordAdminOutcomeBehavior` — called by a sink-spy test
-   ONLY after it observes the code on the committed-success branch) OR in the frozen
-   `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set. The grandfather set equals exactly the pre-existing
-   surfaces (24 routes + 4 actions) and FAILS if it grows; every non-grandfathered admin
-   surface (the seeded set + any future) MUST be in the recorder set — a paper reference cannot
-   satisfy it. Negative fixture: a recorder entry written WITHOUT an observed emit is rejected
-   (the helper only records post-observation), and a non-grandfathered surface with no recorder
-   entry FAILS.
+   emit on a catch branch and no registry row MUST fail. **Admin-exemption hygiene (Codex R11
+   F1):** an admin surface carrying a bare `// no-telemetry:` (no `ADMIN_SURFACE_EXEMPTIONS`
+   row) MUST fail; an `ADMIN_SURFACE_EXEMPTIONS` `delegator` row whose `delegatesTo` is NOT in
+   `AUDITABLE_MUTATIONS` MUST fail; a `read-only` row on a function that contains a
+   write-builder or `logAdminOutcome` MUST fail. Assert the seeded gaps (settings, validation,
+   admins, developer, dev, onboarding, 3 picker, `manifest/ignore`, `reap-stale-sessions`) are
+   all present in `AUDITABLE_MUTATIONS` after seeding.
+5. **Executable admin behavioral-coverage — single file (Codex R9/R10/R11 F2)** — all of it
+   in `tests/log/adminOutcomeBehavior.test.ts`: the per-surface sink-spy cases populate a
+   file-local `recorded` set (only after observing the code on the committed-success branch),
+   and a final coverage `test()` in the same file asserts every non-grandfathered admin surface
+   in `AUDITABLE_MUTATIONS` is in `recorded`, the grandfather set equals exactly the frozen
+   pre-existing surfaces (24 routes + 4 actions) and FAILS if it grows. No cross-file in-memory
+   state; deterministic under Vitest isolation/sharding. Negative checks: a non-grandfathered
+   surface whose behavioral case is missing (or whose spy never observed the emit) FAILS the
+   coverage `test()`; the whole file is one Vitest unit so `pnpm vitest run
+   tests/log/adminOutcomeBehavior.test.ts` both populates and asserts.
 6. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
    NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
    whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
@@ -555,28 +582,25 @@ surface, route or action, to ship one).
    `fn` body calls a `require{Admin,Developer}[Identity]` gate fails the test — prove it with
    an in-memory admin-gated fixture and by asserting the live ledger's 6 functions are all
    non-admin-gated.
-7. **Per-surface instrumentation tests (actions AND routes) — Codex R7/R10.** For **every**
-   newly-instrumented surface — all 21 success emits (the 20 admin surfaces + the non-admin
-   crew `confirmUnpublishAction`) — a behavioral sink-spy test asserting the
-   **committed-success branch** emits the expected `code` and that non-success branches emit
-   nothing. Each of the **20 admin** surfaces additionally calls
-   `recordAdminOutcomeBehavior({ file, code })` immediately after the success-emit assertion
-   (so §10.5's meta-test observes executable coverage; the non-admin confirm action is on the
-   broad floor and need not record). Explicitly cover:
-   `MANIFEST_SHEET_IGNORED` fires on the committed manifest-transition branch and **not** on a
-   CAS-miss rollback; `STALE_SESSIONS_REAPED` fires on the successful-reap branch (with the
-   count) and not on the infra-fault branch; each admin toggle emits on `{ ok: true }` only;
-   admin-management (`ADMIN_GRANTED`/`ADMIN_REVOKED`/`ADMIN_DEVELOPER_SET`) on the `kind: "ok"`
-   branch only; `rotateShareToken` never includes the `share_token` secret. Derive expectations
-   from the surface's own result shape; do not assert against a container that also renders the
-   value.
+7. **Per-surface instrumentation tests (actions AND routes) — Codex R7/R10.** The **20 admin**
+   surfaces' sink-spy cases live in the single `tests/log/adminOutcomeBehavior.test.ts` (§10.5)
+   — each asserts the committed-success branch emits the expected `code`, that non-success
+   branches emit nothing, then calls `recordAdminOutcomeBehavior({ file, code })`. Explicitly
+   cover: `MANIFEST_SHEET_IGNORED` on the committed manifest-transition branch and **not** on a
+   CAS-miss rollback; `STALE_SESSIONS_REAPED` on the successful-reap branch (with count) not the
+   infra-fault branch; each admin toggle on `{ ok: true }` only; admin-management
+   (`ADMIN_GRANTED`/`ADMIN_REVOKED`/`ADMIN_DEVELOPER_SET`) on the `kind: "ok"` branch only;
+   `rotateShareToken` never logging the `share_token` secret. The non-admin
+   `confirmUnpublishAction` gets its own sink-spy test (co-located with the unpublish tests) but
+   does not record (broad floor). Derive expectations from each surface's own result shape; do
+   not assert against a container that also renders the value.
 8. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
    (file emits the registered code; code stays out of §12.4); the shared-module extraction
    (§9) does not change its behavior.
 
 ## 11. Verification commands
 
-- `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts tests/log/_metaAdminOutcomeContract.test.ts`
+- `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts tests/log/_metaAdminOutcomeContract.test.ts tests/log/adminOutcomeBehavior.test.ts` (the behavioral file runs as one self-contained unit — populate + assert in the same module scope)
 - `pnpm vitest run tests/messages/` (codes-coverage / catalog parity unaffected — proves no §12.4 leak)
 - `pnpm vitest run tests/admin tests/log tests/auth` (meta-test comment/format fragility sweep)
 - `pnpm typecheck`
