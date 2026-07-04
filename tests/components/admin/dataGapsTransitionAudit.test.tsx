@@ -53,6 +53,7 @@ const DATA_GAP_SOURCE_FILES = [
   "components/admin/PerShowAlertSection.tsx",
   "app/admin/show/[slug]/page.tsx",
   "components/admin/Dashboard.tsx",
+  "components/admin/DataQualityBadge.tsx",
 ] as const;
 
 const now = new Date("2026-06-03T12:00:00.000Z");
@@ -141,6 +142,12 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     expect(s).toMatch(/\{result\.dataGapsDegraded \? \(/); // plain ternary-to-null
     // the notice testid is NOT inside an AnimatePresence wrapper
     expect(s).not.toMatch(/AnimatePresence[\s\S]*dashboard-data-quality-degraded/);
+  });
+
+  it("DataQualityBadge is an instant early-return null, not an animated presence", () => {
+    const s = src("components/admin/DataQualityBadge.tsx");
+    expect(s).toMatch(/if \(!dataGaps \|\| dataGaps\.total === 0\) return null;/); // instant unmount
+    expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\./);
   });
 
   // Render-level proof the chip mounts/unmounts INSTANTLY: present iff total>0,

@@ -10,10 +10,20 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
+import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 afterEach(cleanup);
 
 const now = new Date("2026-06-03T12:00:00.000Z");
+
+// Derive the expected badge accessible name from the SINGLE SOURCE OF TRUTH
+// (dataGapClassDetails) — never hardcode the plural/total strings (anti-tautology).
+function expectedBadgeName(s: DataGapsSummary): string {
+  const breakdown = dataGapClassDetails(s)
+    .map((d) => `${d.count} ${d.label}`)
+    .join(", ");
+  return `${s.total} data ${s.total === 1 ? "gap" : "gaps"}: ${breakdown}`;
+}
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
   return {
@@ -686,5 +696,52 @@ describe("ShowsTable", () => {
       expect(cell.className).toContain("whitespace-nowrap");
       expect(cell.className).not.toContain("truncate");
     }
+  });
+
+  // ── parse-data-quality-warnings badge (spec §3) ──────────────────────────
+  it("T4: badge is queryable by role=img with the derived accessible name; no raw code literal", () => {
+    const summary: DataGapsSummary = {
+      total: 3,
+      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
+    };
+    render(
+      <ShowsTable rows={[row({ slug: "gaps", dataGaps: summary })]} now={now} activeCount={1} overflowCount={0} />,
+    );
+    const badge = screen.getByRole("img", { name: expectedBadgeName(summary) }); // fails if role="img" dropped
+    expect(badge).toHaveAttribute("data-testid", "shows-data-quality-gaps");
+    expect(badge).toHaveAccessibleName(expectedBadgeName(summary));
+    expect(badge.getAttribute("aria-label")).not.toMatch(
+      /FIELD_UNREADABLE|UNKNOWN_SECTION_HEADER|BLOCK_DISAPPEARED/,
+    );
+  });
+
+  it("T5: renders NO badge when dataGaps is absent or total 0 (instant unmount)", () => {
+    render(
+      <ShowsTable
+        rows={[
+          row({ slug: "clean" }),
+          row({
+            slug: "zero",
+            dataGaps: { total: 0, classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 } },
+          }),
+        ]}
+        now={now}
+        activeCount={2}
+        overflowCount={0}
+      />,
+    );
+    expect(screen.queryByTestId("shows-data-quality-clean")).toBeNull();
+    expect(screen.queryByTestId("shows-data-quality-zero")).toBeNull();
+  });
+
+  it("T6: singular derived accessible name for total 1", () => {
+    const summary: DataGapsSummary = {
+      total: 1,
+      classes: { FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
+    };
+    render(<ShowsTable rows={[row({ slug: "one", dataGaps: summary })]} now={now} activeCount={1} overflowCount={0} />);
+    expect(screen.getByRole("img", { name: expectedBadgeName(summary) })).toHaveAccessibleName(
+      expectedBadgeName(summary),
+    );
   });
 });

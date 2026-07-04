@@ -99,4 +99,28 @@ describe("data-gaps chip row — layout structure (no fixed-dimension-parent ris
     expect(bar.className).toMatch(/\bflex-wrap\b/);
     expect(bar.className).toMatch(/\bflex\b/);
   });
+
+  // Data-quality badge (spec §4.1 / DQ-1): the badge lives in the CONTENT-height
+  // title container (not a fixed-dimension parent), so real-browser
+  // height-equality is N/A. This jsdom structural test pins: badge is a child of
+  // the title container (items-center), carries shrink-0, and is ordered AFTER
+  // the title, BEFORE the inline status pill.
+  it("badge sits in the ShowsTable title container with items-center + shrink-0, before the inline pill", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "gaps", isLive: true, dataGaps: gaps(2) })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const badge = screen.getByTestId("shows-data-quality-gaps");
+    expect(badge.className).toContain("shrink-0"); // a long title cannot compress it away
+    const titleContainer = badge.parentElement!;
+    expect(titleContainer.className).toContain("items-center"); // Tailwind v4 has no default stretch
+    const kids = Array.from(titleContainer.children);
+    const titleIdx = kids.findIndex((k) => k.textContent?.includes("Title gaps"));
+    expect(titleIdx).toBeGreaterThanOrEqual(0);
+    expect(kids.indexOf(badge)).toBeGreaterThan(titleIdx); // title precedes badge
+  });
 });
