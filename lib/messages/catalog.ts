@@ -580,6 +580,20 @@ export const MESSAGE_CATALOG = {
       "We look for specific row markers in your show template to recognize it as a real show sheet (Contact Office row and MAIN/SECONDARY block for v4; Hotel Contact Info row for v2). None of those markers were found. If your template has changed intentionally, tell the developer.",
     helpHref: "/help/errors#MI-1_VERSION_DETECTION_FAILED",
   },
+  VERSION_AMBIGUOUS: {
+    code: "VERSION_AMBIGUOUS",
+    dougFacing:
+      "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
+    crewFacing: null,
+    followUp:
+      "Doug → check the sheet's version markers; Eric → add/adjust the detector if the template changed",
+    helpfulContext:
+      "We recognize your show template by a set of distinctive row labels grouped into blocks. This sheet matched too few of them, or the matches were too close between two templates, so we couldn't confidently pick one — and we won't apply a guess. Restore the expected rows (the Contact block for v4 sheets, the GS/BO pull-sheet timing rows for v2 sheets), or tell the developer if you changed the template.",
+    title: "Unsure which show template this is",
+    longExplanation:
+      "We recognize your show template by distinctive row labels grouped into blocks, and we require a clear match before applying it. This sheet matched too few markers, or the call between two templates was too close, so we paused rather than risk parsing it with the wrong rules. Restore the expected rows, or tell the developer if you changed the template.",
+    helpHref: "/help/errors#VERSION_AMBIGUOUS",
+  },
   "MI-2_TITLE_MISSING": {
     code: "MI-2_TITLE_MISSING",
     dougFacing: "_<sheet-name>_ doesn't have a recognizable show title. Add or fix the CLIENT row.",

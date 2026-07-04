@@ -1424,6 +1424,12 @@ export const SPEC_CODES = {
     "followUp": "Eric → enable the reset flag",
     "helpfulContext": "The Reset-validation-data action (Settings → Maintenance card) reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the action will proceed normally.",
   },
+  "VERSION_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
+    "followUp": "Doug → check the sheet's version markers; Eric → add/adjust the detector if the template changed",
+    "helpfulContext": "We recognize your show template by a set of distinctive row labels grouped into blocks. This sheet matched too few of them, or the matches were too close between two templates, so we couldn't confidently pick one — and we won't apply a guess. Restore the expected rows (the Contact block for v4 sheets, the GS/BO pull-sheet timing rows for v2 sheets), or tell the developer if you changed the template.",
+  },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
     "dougFacing": "The instant-updates connection to Google Drive is having trouble. Shows still sync automatically every few minutes.",
