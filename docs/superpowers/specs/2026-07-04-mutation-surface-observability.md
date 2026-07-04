@@ -187,7 +187,7 @@ each function/arrow/method block body); the prototype in this session already im
 
 A **surface unit** (a route file, or an individual exported/inline action function) passes
 iff the relevant AST scope contains at least one **code-carrying emit** — a `CallExpression`
-matching **any** of the clauses (a)/(b)/(c) below. The **scope** differs by kind:
+matching **any** of the clauses (a)/(b) below. The **scope** differs by kind:
 
 - **Route file:** the whole file is scanned (the emit may live in a file-level helper the
   handler delegates to — the established pattern). Nested descent is fine here.
@@ -209,22 +209,29 @@ matching **any** of the clauses (a)/(b)/(c) below. The **scope** differs by kind
   durability contract ("`await`ed for durability", `lib/log/logAdminOutcome.ts:24`) and
   breaks no current surface — every existing callsite already awaits (verified: no
   `void logAdminOutcome(`/bare call exists in `app/` or `lib/`). This await requirement
-  applies to `logAdminOutcome` only; `log.<info|warn|error>` (clauses b/c) may be
-  `void`-prefixed, matching the established best-effort convention (`void log.warn(...)` in
+  applies to `logAdminOutcome` only; `log.<info|warn|error>` (clause b) may be `void`-prefixed,
+  matching the established best-effort convention (`void log.warn(...)` in
   `app/api/drive/webhook/route.ts`). **or**
 - **(b)** callee is `log.<info|warn|error>` (property access on identifier `log`) whose
-  **first argument** is a string literal matching `/^[A-Z][A-Z0-9_]+$/` (the
-  message-is-code convention, e.g. `log.info("OAUTH_SIGN_IN_SUCCEEDED", …)`); **or**
-- **(c)** callee is `log.<info|warn|error>` whose **second argument** is an object literal
-  containing a property named `code` whose initializer is a string literal matching
-  `/^[A-Z][A-Z0-9_]+$/` (the human-message + `code:` style, e.g.
-  `log.error("… infra fault", { code: "REALTIME_TOKEN_INFRA_ERROR" })`).
+  **second argument** is an object literal containing a property named `code` whose initializer
+  is a `/^[A-Z][A-Z0-9_]+$/` string literal (e.g.
+  `log.error("… infra fault", { code: "REALTIME_TOKEN_INFRA_ERROR" })`, or
+  `log.info("OAUTH_SIGN_IN_SUCCEEDED", { code: "OAUTH_SIGN_IN_SUCCEEDED", … })`).
 
-AST scoping is load-bearing for (c): a `code:` literal in an unrelated object (a return
-body, a type, a config) does **not** count — it must be the argument to a `log.*` call.
-This is what makes `validationReset.ts` (pre-instrumentation) correctly fail.
+**The persisted code is `fields.code`, NOT the message (Codex R18 HIGH).** A SHOUTY *message*
+alone does not satisfy the floor: the logger sets `record.code = fields.code ?? null`
+(`lib/log/logger.ts:46`) and persists `info` only when `code != null || persist === true`
+(`logger.ts:21-24`), so `log.info("FOO", { source })` is **console-only, non-durable** — and a
+message-only `warn`/`error` persists an *uncoded* (`code: null`) row that cannot be filtered by
+code. Both are rejected. Only a `code:` **field** literal (clause b) is durable+filterable; the
+old "message-is-code" acceptance is dropped because it did not prove durability (verified: zero
+current surfaces relied on message-only — every passing surface carries `logAdminOutcome` or a
+`code:` field, so this tightening breaks nothing). AST scoping is load-bearing: a `code:`
+literal in an unrelated object (a return body, a type, a config) does **not** count — it must
+be the second-arg of a `log.*` call. This is what makes `validationReset.ts`
+(pre-instrumentation) correctly fail.
 
-**Import-binding validation (Codex R16 MED).** Clauses (a)/(b)/(c) count only when the callee
+**Import-binding validation (Codex R16 MED).** Clauses (a)/(b) count only when the callee
 resolves to the REAL logger: the file must import `log` from `@/lib/log` (or `logAdminOutcome`
 from `@/lib/log/logAdminOutcome`) and the call must use that import binding — a locally
 declared/shadowed `log` (`const log = { info(){} }`) or a `log`/`logAdminOutcome` imported from
@@ -622,10 +629,13 @@ invariant. This is enumerated in the verification/close-out steps (§11).
 
 ## 10. Test plan (TDD)
 
-1. **Predicate unit tests** — in-memory source strings exercising each accept-clause (a/b/c),
-   each reject case (no emit; `code:` in a non-`log` object; `"use client"` directive;
-   GET-only route; **`void logAdminOutcome(...)` and bare unawaited `logAdminOutcome(...)`
-   must NOT satisfy clause (a)**, while `await logAdminOutcome(...)` must), both directive
+1. **Predicate unit tests** — in-memory source strings exercising each accept-clause (a =
+   awaited `logAdminOutcome`; b = `log.<lvl>(…, { code: "SHOUTY" })`), each reject case (no
+   emit; `code:` in a non-`log` object; **`log.info("FOO", { source })` — SHOUTY message, no
+   `code:` field — MUST FAIL (non-durable, Codex R18); `log.warn("FOO")` message-only MUST FAIL
+   (uncoded); `log.info("m", { code: "FOO" })` passes**; `"use client"` directive; GET-only
+   route; **`void logAdminOutcome(...)` and bare unawaited `logAdminOutcome(...)` must NOT
+   satisfy clause (a)**, while `await logAdminOutcome(...)` must), both directive
    detections (module-level leading vs function-scoped inline `"use server"` in a `.tsx`
    component, including a mutating inline action that fails without a code-carrying emit),
    **per-function sibling isolation** (two-action module: A emits/passes, B silent/fails),
