@@ -535,6 +535,123 @@ describe("/api/drive/webhook observability logging", () => {
     await deferred[0]?.();
     expect(byCode("DRIVE_WEBHOOK_RECEIVED")).toHaveLength(1);
   });
+
+  test("a token mismatch (401) emits DRIVE_WEBHOOK_TOKEN_INVALID warn ALONGSIDE the admin alert, 401 unchanged", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    const response = await handleDriveWebhook(
+      request(headers({ "X-Goog-Channel-Token": "wrong-secret" })),
+      { tx },
+    );
+
+    // 401 status/body contract is untouched by the added forensic warn.
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ ok: false, code: "WEBHOOK_TOKEN_INVALID" });
+
+    // Per-event forensic warn restores spoof/replay cardinality inside the dedup window.
+    const warns = byCode("DRIVE_WEBHOOK_TOKEN_INVALID");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({
+      level: "warn",
+      source: "drive.webhook",
+      context: { channelId: "channel-1", resourceState: "update" },
+    });
+    // The separate durable admin_alert channel STILL fires (not replaced).
+    expect(tx.upsertAdminAlert).toHaveBeenCalledWith({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "channel-1", reason: "token_mismatch" },
+    });
+  });
+
+  test("a resource-id mismatch (401) emits DRIVE_WEBHOOK_TOKEN_INVALID warn ALONGSIDE the admin alert, 401 unchanged", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    const response = await handleDriveWebhook(
+      request(headers({ "X-Goog-Resource-ID": "different-resource" })),
+      { tx },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ ok: false, code: "WEBHOOK_TOKEN_INVALID" });
+
+    const warns = byCode("DRIVE_WEBHOOK_TOKEN_INVALID");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({
+      level: "warn",
+      source: "drive.webhook",
+      context: { channelId: "channel-1", resourceState: "update" },
+    });
+    expect(tx.upsertAdminAlert).toHaveBeenCalledWith({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "channel-1", reason: "resource_mismatch" },
+    });
+  });
+
+  test("the receipt carries the resolved watchedFolderId for correlation", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+
+    await handleDriveWebhook(request(headers({ "X-Goog-Resource-State": "add" })), {
+      tx,
+      listFolder: vi.fn(async () => [listedFile("file-1")]),
+      runPushSyncForShow: vi.fn(async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+        parseWarnings: [],
+      })),
+      defer: () => undefined,
+    });
+
+    const received = byCode("DRIVE_WEBHOOK_RECEIVED");
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      context: { channelId: "channel-1", resourceState: "add", watchedFolderId: "folder-1" },
+    });
+  });
+
+  test("a non-InfraError throw reaching the top-level catch emits DRIVE_WEBHOOK_INFRA_FAULT and still propagates (500 preserved)", async () => {
+    const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const tx = {
+      readActiveWatchChannel: vi.fn(async () => activeChannel()),
+      upsertAdminAlert: vi.fn(async () => undefined),
+    };
+    const boom = new Error("scheduler exploded");
+
+    // deps.defer runs synchronously inside the handler AFTER header/channel/token
+    // checks — a raw throw there escapes the callWebhookTx wrapping and reaches the
+    // top-level catch as a plain Error (NOT a DriveWebhookInfraError).
+    await expect(
+      handleDriveWebhook(request(headers({ "X-Goog-Resource-State": "add" })), {
+        tx,
+        listFolder: vi.fn(async () => [listedFile("file-1")]),
+        runPushSyncForShow: vi.fn(async () => ({
+          outcome: "applied" as const,
+          showId: "show-1",
+          parseWarnings: [],
+        })),
+        defer: () => {
+          throw boom;
+        },
+      }),
+    ).rejects.toBe(boom);
+
+    const errs = byCode("DRIVE_WEBHOOK_INFRA_FAULT");
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatchObject({ level: "error", source: "drive.webhook" });
+    // Serialized error rides fields.error (logger serializeError).
+    expect(JSON.stringify(errs[0]!.context)).toContain("scheduler exploded");
+  });
 });
 
 describe("runPushSyncForShow", () => {

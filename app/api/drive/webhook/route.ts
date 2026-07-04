@@ -272,6 +272,15 @@ export async function handleDriveWebhook(
     }
 
     if (!tokensMatch(channelToken, channel.webhookSecret)) {
+      // Finding #17: the deduped WEBHOOK_TOKEN_INVALID admin_alert collapses a
+      // 1-hour spoof/replay burst into one row. A per-event forensic warn ALONGSIDE
+      // it restores per-attempt cardinality on this security-relevant ingress.
+      void log.warn("drive webhook token invalid", {
+        source: "drive.webhook",
+        code: "DRIVE_WEBHOOK_TOKEN_INVALID",
+        channelId,
+        resourceState,
+      });
       await callWebhookTx("admin_alerts.upsert_webhook_token_invalid", () =>
         tx.upsertAdminAlert({
           code: WEBHOOK_TOKEN_INVALID,
@@ -282,6 +291,12 @@ export async function handleDriveWebhook(
     }
 
     if (resourceId !== channel.resourceId) {
+      void log.warn("drive webhook token invalid", {
+        source: "drive.webhook",
+        code: "DRIVE_WEBHOOK_TOKEN_INVALID",
+        channelId,
+        resourceState,
+      });
       await callWebhookTx("admin_alerts.upsert_webhook_token_invalid", () =>
         tx.upsertAdminAlert({
           code: WEBHOOK_TOKEN_INVALID,
@@ -303,6 +318,7 @@ export async function handleDriveWebhook(
       code: "DRIVE_WEBHOOK_RECEIVED",
       channelId,
       resourceState,
+      watchedFolderId: channel.watchedFolderId,
     });
 
     deferWebhookDispatch(async () => {
@@ -324,6 +340,14 @@ export async function handleDriveWebhook(
         code: "DRIVE_WEBHOOK_INFRA_FAULT",
         error: err.rootCause,
         operation: err.operation,
+      });
+    } else {
+      // Any OTHER throw reaching this catch would previously become a silent bare
+      // 500 with zero server trace; emit a durable fail-open fault before re-throw.
+      void log.error("drive webhook infra fault", {
+        source: "drive.webhook",
+        code: "DRIVE_WEBHOOK_INFRA_FAULT",
+        error: err,
       });
     }
     throw err;
