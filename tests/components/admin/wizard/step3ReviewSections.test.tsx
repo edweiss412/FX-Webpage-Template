@@ -5,8 +5,10 @@
  * Pins the Step-3 review section REGISTRY (`step3Sections` + STEP3_SECTION_GROUPS),
  * the hardened warning-title derivation (`reviewWarningTitle`), and the restyled
  * section bodies moved out of Step3SheetCard.tsx. Extended by follow-ups Task 5
- * (spec 2026-07-03-step3-modal-followups.md §B2/§D2): the conditional `diagrams`
- * def, the unconditional `report` def (hideDot), and both navs' dot consumption.
+ * (spec 2026-07-03-step3-modal-followups.md §D2): the unconditional `report`
+ * def (hideDot) and both navs' dot consumption. Diagrams are consolidated INTO
+ * the `rooms` section (rendered below the rooms as a subordinate sub-block), so
+ * they are no longer a standalone registry def / nav entry.
  *
  * Concrete failure modes each block catches:
  *  - reviewWarningTitle matrix: a persisted warning whose `message` IS the raw
@@ -242,8 +244,8 @@ describe("reviewWarningTitle (spec §8 hardening matrix)", () => {
 // ── Registry (spec §6.1) ────────────────────────────────────────────────────
 
 describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
-  // `report` is UNCONDITIONAL and always LAST (§D2); `diagrams` is conditional
-  // (like agenda) and sits after `rooms`, before `packlist` (§B2).
+  // `report` is UNCONDITIONAL and always LAST (§D2); `agenda` is conditional.
+  // Diagrams are NOT a section — they fold into the `rooms` section render.
   const EXPECTED_NO_AGENDA = [
     "venue",
     "event",
@@ -273,37 +275,6 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     "warnings",
     "report",
   ];
-  const EXPECTED_WITH_DIAGRAMS = [
-    "venue",
-    "event",
-    "crew",
-    "contacts",
-    "schedule",
-    "hotels",
-    "transport",
-    "rooms",
-    "diagrams",
-    "packlist",
-    "billing",
-    "warnings",
-    "report",
-  ];
-  const EXPECTED_WITH_BOTH = [
-    "venue",
-    "event",
-    "crew",
-    "contacts",
-    "schedule",
-    "agenda",
-    "hotels",
-    "transport",
-    "rooms",
-    "diagrams",
-    "packlist",
-    "billing",
-    "warnings",
-    "report",
-  ];
   const LABELS: Record<string, string> = {
     venue: "Venue",
     event: "Event details",
@@ -314,7 +285,6 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     hotels: "Hotels",
     transport: "Transport",
     rooms: "Rooms & scope",
-    diagrams: "Diagrams",
     packlist: "Pack list",
     billing: "Billing & docs",
     warnings: "Parse warnings",
@@ -330,7 +300,6 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     hotels: "Logistics",
     transport: "Logistics",
     rooms: "Gear",
-    diagrams: "Gear",
     packlist: "Gear",
     billing: "Money",
     warnings: "Checks",
@@ -350,43 +319,54 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     ]);
   });
 
-  test("12 defs base; 13 with agenda; 13 with diagrams; 14 with both (order exact, report always last)", () => {
+  test("12 defs base; 13 with agenda; diagrams is NOT a separate section (order exact, report always last)", () => {
     const without = step3Sections(sectionData());
     expect(without.map((s) => s.id)).toEqual(EXPECTED_NO_AGENDA);
 
     const withAgenda = step3Sections(sectionData({}, { agendaBaseline: [AGENDA_ITEM] }));
     expect(withAgenda.map((s) => s.id)).toEqual(EXPECTED_WITH_AGENDA);
 
+    // Diagrams are consolidated into the rooms section — a diagram signal does
+    // NOT add a registry def (catches a regression re-adding the standalone
+    // section / a stray "diagrams" nav entry).
     const withDiagrams = step3Sections(sectionData({ diagrams: EMBEDDED_DIAGRAMS }));
-    expect(withDiagrams.map((s) => s.id)).toEqual(EXPECTED_WITH_DIAGRAMS);
+    expect(withDiagrams.map((s) => s.id)).toEqual(EXPECTED_NO_AGENDA);
+    expect(withDiagrams.some((s) => s.id === "diagrams")).toBe(false);
 
     const withBoth = step3Sections(
       sectionData({ diagrams: EMBEDDED_DIAGRAMS }, { agendaBaseline: [AGENDA_ITEM] }),
     );
-    expect(withBoth.map((s) => s.id)).toEqual(EXPECTED_WITH_BOTH);
+    expect(withBoth.map((s) => s.id)).toEqual(EXPECTED_WITH_AGENDA);
   });
 
-  test("diagrams presence gate (§B2): absent for all-empty AND missing pr.diagrams; any one signal renders it", () => {
-    // Fixture default: all-empty diagrams object → absent (catches the
-    // conditional insert regressing to unconditional / badge-section drift).
-    expect(step3Sections(sectionData()).some((s) => s.id === "diagrams")).toBe(false);
-    // pr.diagrams deleted entirely (untrusted persisted JSONB) → absent, no throw.
+  test("diagrams sub-block renders BELOW the rooms inside the rooms section, only on a signal (§B2 gate)", () => {
+    const DIAGRAMS_TESTID = `wizard-step3-card-${DFID}-section-diagrams`;
+    const ROOMS_TESTID = `wizard-step3-card-${DFID}-breakdown-rooms`;
+
+    // No diagram signal (fixture default all-empty, and pr.diagrams deleted) →
+    // no Diagrams sub-block.
+    expect(renderBody(sectionData(), "rooms").queryByTestId(DIAGRAMS_TESTID)).toBeNull();
     const gone = sectionData();
     delete (gone.pr as unknown as Record<string, unknown>).diagrams;
-    expect(step3Sections(gone).some((s) => s.id === "diagrams")).toBe(false);
-    // Each single signal of the gate is sufficient on its own.
+    expect(renderBody(gone, "rooms").queryByTestId(DIAGRAMS_TESTID)).toBeNull();
+
+    // Each single signal renders the sub-block, positioned AFTER the rooms
+    // breakdown (DOM order), under its own "Diagrams" heading (not "Rooms &
+    // scope").
     for (const diagrams of [
       FOLDER_ONLY_DIAGRAMS,
       EMBEDDED_DIAGRAMS,
       { linkedFolder: null, embeddedImages: [], linkedFolderItems: [folderItem("file-9")] },
     ]) {
-      const defs = step3Sections(sectionData({ diagrams }));
-      expect(
-        defs.some((s) => s.id === "diagrams"),
-        `presence for ${JSON.stringify(diagrams.linkedFolder)}/${diagrams.embeddedImages.length}/${diagrams.linkedFolderItems.length}`,
-      ).toBe(true);
-      // Order invariant holds for every conditional shape.
-      expect(defs.map((s) => s.id).join(",")).toContain("rooms,diagrams,packlist");
+      const { container } = renderBody(sectionData({ diagrams }), "rooms");
+      const scoped = within(container);
+      const rooms = scoped.getByTestId(ROOMS_TESTID);
+      const diag = scoped.getByTestId(DIAGRAMS_TESTID);
+      expect(diag).not.toBeNull();
+      // Diagrams sits after the rooms breakdown in document order.
+      expect(rooms.compareDocumentPosition(diag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // Its own heading, never the outer section's "Rooms & scope".
+      expect(within(diag).getByText("Diagrams")).toBeTruthy();
     }
   });
 
@@ -394,8 +374,8 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     const defs = step3Sections(
       sectionData({ diagrams: EMBEDDED_DIAGRAMS }, { agendaBaseline: [AGENDA_ITEM] }),
     );
-    // All 14 defs (both conditionals present) iterate the maps.
-    expect(defs.map((s) => s.id)).toEqual(EXPECTED_WITH_BOTH);
+    // All 13 defs (agenda present; diagrams folds into rooms) iterate the maps.
+    expect(defs.map((s) => s.id)).toEqual(EXPECTED_WITH_AGENDA);
     for (const def of defs) {
       expect(def.label).toBe(LABELS[def.id]);
       expect(def.group).toBe(GROUPS[def.id]);
@@ -439,33 +419,11 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     // and no contacts → 0.
     expect(defById(defs, "contacts").railCount!(d)).toBe(0);
   });
-
-  test("diagrams railCount (§B2): embedded+folder-item sum when > 0; folder-link-only → null", () => {
-    const d = sectionData({ diagrams: MIXED_DIAGRAMS });
-    const defs = step3Sections(d);
-    // Counted subset extends with diagrams when the sum is non-zero.
-    for (const def of defs) {
-      if ([...COUNTED, "diagrams"].includes(def.id)) {
-        expect(def.railCount, `railCount for ${def.id}`).not.toBeNull();
-      } else {
-        expect(def.railCount, `railCount for ${def.id}`).toBeNull();
-      }
-    }
-    // BOTH terms are non-zero in the fixture, so a dropped term fails here.
-    expect(d.pr.diagrams.embeddedImages.length).toBeGreaterThan(0);
-    expect(d.pr.diagrams.linkedFolderItems.length).toBeGreaterThan(0);
-    expect(defById(defs, "diagrams").railCount!(d)).toBe(
-      d.pr.diagrams.embeddedImages.length + d.pr.diagrams.linkedFolderItems.length,
-    );
-    // Folder-link-only: the section renders but shows NO rail count.
-    const folderOnly = sectionData({ diagrams: FOLDER_ONLY_DIAGRAMS });
-    expect(defById(step3Sections(folderOnly), "diagrams").railCount).toBeNull();
-  });
 });
 
-// ── Modal navs consume hideDot (§D2) + diagrams dot tone (§B2) ──────────────
+// ── Modal navs consume hideDot (§D2) ────────────────────────────────────────
 
-describe("Step3ReviewModal navs — hideDot + diagrams dot tone (spec §B2/§D2)", () => {
+describe("Step3ReviewModal navs — hideDot (spec §D2)", () => {
   function renderModal(d: SectionData) {
     return render(
       <Step3ReviewModal
@@ -493,10 +451,12 @@ describe("Step3ReviewModal navs — hideDot + diagrams dot tone (spec §B2/§D2)
     expect(chipItem(q, "warnings").querySelector(DOT)).not.toBeNull();
   });
 
-  test("diagrams dot is ALWAYS bg-status-positive — even with a warn whose fabricated kind is 'diagrams'", () => {
-    // Task 1 contract: KIND_TO_SECTION maps nothing to `diagrams`; a fabricated
-    // diagram-kind warn falls to the warnings bucket (row-local red), never to
-    // the diagrams rail dot. Catches: a dotToneClass/KIND_TO_SECTION regression.
+  test("no standalone 'diagrams' nav item; a fabricated diagrams-kind warn routes to warnings, never flags rooms", () => {
+    // Diagrams are consolidated into the rooms section — there is no diagrams
+    // rail/chip item. KIND_TO_SECTION still maps nothing to `diagrams` (nor to
+    // rooms), so a fabricated diagram-kind warn falls to the warnings bucket
+    // (red) and leaves the rooms dot positive. Catches: a stray diagrams nav
+    // item regressing back, or a KIND_TO_SECTION mis-route flagging rooms.
     const d = sectionData({
       diagrams: EMBEDDED_DIAGRAMS,
       warnings: [
@@ -504,12 +464,11 @@ describe("Step3ReviewModal navs — hideDot + diagrams dot tone (spec §B2/§D2)
       ],
     });
     const q = renderModal(d);
-    const railDot = railItem(q, "diagrams").querySelector(DOT)!;
-    expect(railDot.className).toMatch(/\bbg-status-positive\b/);
-    const chipDot = chipItem(q, "diagrams").querySelector(DOT)!;
-    expect(chipDot.className).toMatch(/\bbg-status-positive\b/);
-    // The warn registered somewhere: the warnings row-local dot is red.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-rail-item-diagrams`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip-item-diagrams`)).toBeNull();
+    // The warn lands in warnings (red); rooms stays positive.
     expect(railItem(q, "warnings").querySelector(DOT)!.className).toMatch(/\bbg-status-review\b/);
+    expect(railItem(q, "rooms").querySelector(DOT)!.className).toMatch(/\bbg-status-positive\b/);
   });
 });
 

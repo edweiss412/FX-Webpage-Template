@@ -27,13 +27,14 @@
  *   5. every `…-review-section-<id>`: width === content.clientWidth −
  *      computed paddingLeft − paddingRight (getComputedStyle — NO token
  *      literals in the test).
- * Follow-ups Task 14 (spec 2026-07-03 §I/§K15): the harness fixture now ships
+ * Follow-ups Task 14 (spec 2026-07-03 §I/§K15): the harness fixture ships
  * cap+3 null-contentUrl diagram stubs + a linked folder + 5 crew-kind warn
- * warnings, so the per-section sweep covers `section-diagrams`/`section-report`
- * automatically and a dedicated test pins the diagrams grid (no horizontal
- * scroll in the content pane; on-screen tiles === the spec cap; fixture-derived
- * "+N more" note). Tap-target audit adds the report submit button, a crew
- * callout "View details" button, and the diagrams folder link.
+ * warnings. Diagrams are consolidated INTO the rooms section (below the
+ * rooms), so the per-section sweep covers `section-rooms`/`section-report` and
+ * a dedicated test pins the diagrams grid inside it (no horizontal scroll in
+ * the content pane; on-screen tiles === the spec cap; fixture-derived "+N
+ * more" note). Tap-target audit adds the report submit button, a crew callout
+ * "View details" button, and the diagrams folder link.
  *
  * Plus (§15/§16): tap-target audit (grab strip, every visible chip, every
  * visible rail item, footer buttons ≥44px tall; a crew tel anchor ≥44×44);
@@ -327,12 +328,10 @@ for (const { mode, width, height, maxRatio } of MODES) {
         `${id} width ${w} === content inner width ${inner} @ ${mode}`,
       ).toBeLessThanOrEqual(TOL);
     }
-    // Follow-ups Task 14 non-vacuity: the sweep really covers the two NEW
-    // sections (diagrams renders via the §B2 gate on the harness fixture;
-    // report is unconditional-last) — no assertion exemptions.
-    expect(sweptIds, `sweep covers the diagrams section @ ${mode}`).toContain(
-      tid("section-diagrams"),
-    );
+    // Non-vacuity: the sweep really covers the report section (unconditional,
+    // last). Diagrams are no longer a top-level section — they fold into the
+    // `rooms` section (grid geometry asserted separately in §K15 below).
+    expect(sweptIds, `sweep covers the rooms section @ ${mode}`).toContain(tid("section-rooms"));
     expect(sweptIds, `sweep covers the report section @ ${mode}`).toContain(tid("section-report"));
   });
 
@@ -370,8 +369,11 @@ for (const { mode, width, height, maxRatio } of MODES) {
     // value renders a different count and fails here.
     expect(tileCount, `on-screen tile count === spec cap @ ${mode}`).toBe(DIAGRAM_TILE_CAP);
     const expectedExtra = diagramStubCount - DIAGRAM_TILE_CAP;
+    // Diagrams now render as a sub-block inside the rooms section; target the
+    // DiagramsBreakdown's own section testid (`-section-diagrams`, distinct
+    // from the retired modal `-review-section-diagrams` wrapper).
     const sectionText = await page
-      .locator(`[data-testid="${tid("section-diagrams")}"]`)
+      .locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-section-diagrams"]`)
       .innerText();
     expect(
       sectionText,

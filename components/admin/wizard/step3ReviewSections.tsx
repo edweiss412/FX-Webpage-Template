@@ -268,6 +268,15 @@ export type Step3SectionChrome = {
   /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). */
   flagged: boolean;
   /**
+   * Heading level for the §6.4 heading row. Top-level sections use `3` (the
+   * default → `<h3>`, keeping the modal outline h2→h3). A section rendered as a
+   * SUB-block of another (the Diagrams block folded under Rooms & scope) passes
+   * `4` → a smaller, subordinate `<h4>` so it reads as part of its parent
+   * section, not a co-equal sibling. Optional/ABSENT elsewhere
+   * (exactOptionalPropertyTypes): absent, never `undefined`.
+   */
+  headingLevel?: 3 | 4;
+  /**
    * Follow-ups spec §D3a: stable-identity reader for the modal's shared
    * `active` nav section, consumed by `ReportIssueSection` AT SUBMIT TIME for
    * a stale-free `viewerVisibleSection`. Optional — existing provider mounts
@@ -367,23 +376,33 @@ function ModalSectionChrome({
   count: number | null;
   children: React.ReactNode;
 }) {
-  const { Icon, label, flagged } = chrome;
+  const { Icon, label, flagged, headingLevel = 3 } = chrome;
+  // Level 4 = a SUB-block heading (Diagrams under Rooms & scope): smaller chip +
+  // text so it reads as subordinate to its parent section, not a peer.
+  const sub = headingLevel === 4;
+  const Heading = sub ? "h4" : "h3";
   return (
     <>
-      <div className="mb-3 flex items-center gap-2.5">
+      <div className={`${sub ? "mb-2" : "mb-3"} flex items-center gap-2.5`}>
         <span
           aria-hidden="true"
-          className={`grid size-7 shrink-0 place-items-center rounded-sm ${
+          className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
             flagged ? "bg-warning-bg text-warning-text" : "bg-surface-sunken text-text-subtle"
           }`}
         >
-          <Icon className="size-4" />
+          <Icon className={sub ? "size-3.5" : "size-4"} />
         </span>
-        <h3 className="min-w-0 wrap-break-word text-base font-semibold text-text-strong">
+        <Heading
+          className={`min-w-0 wrap-break-word font-semibold text-text-strong ${
+            sub ? "text-sm" : "text-base"
+          }`}
+        >
           {label}
-        </h3>
+        </Heading>
         {count !== null ? (
-          <span className="shrink-0 text-sm tabular-nums text-text-subtle">({count})</span>
+          <span className={`shrink-0 tabular-nums text-text-subtle ${sub ? "text-xs" : "text-sm"}`}>
+            ({count})
+          </span>
         ) : null}
         <span className="flex-1" />
         {flagged ? (
@@ -2177,9 +2196,22 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
 }
 
 /**
- * The §6.1 registry (+ follow-ups §B2/§D2). 12 defs base; `agenda` (rail entry
- * AND section, only when the baseline is non-empty — the same gate the card
- * uses today) and `diagrams` (§B2 gate below) are each conditional → 13/13/14.
+ * §B2 diagrams-signal gate: the untrusted-JSONB `diagrams` object carries
+ * something renderable — a folder link, embedded images, or pinned folder
+ * items. Mirrors the card's `hasDiagrams` badge gate so badge and the Diagrams
+ * sub-block agree. Diagrams are no longer their own section; this gates the
+ * sub-block rendered BELOW the rooms inside the Rooms & scope section.
+ */
+export function hasDiagramSignal(diagrams: ParseResult["diagrams"] | null | undefined): boolean {
+  const count = arr(diagrams?.embeddedImages).length + arr(diagrams?.linkedFolderItems).length;
+  return diagrams != null && (diagrams.linkedFolder != null || count > 0);
+}
+
+/**
+ * The §6.1 registry (+ follow-ups §D2). 12 defs base; `agenda` (rail entry AND
+ * section, only when the baseline is non-empty — the same gate the card uses
+ * today) is conditional → 12/13. Diagrams are consolidated INTO the `rooms`
+ * section (rendered below the rooms), so they are NOT a separate registry def.
  * Every other section always renders (empty states preserved); `warnings`
  * always renders (§3.10); `report` is unconditional and ALWAYS last (§D2).
  */
@@ -2275,37 +2307,34 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Gear",
       Icon: LayoutGrid,
       railCount: (s) => s.rooms.length,
-      render: (s) => <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />,
+      // Diagrams are consolidated INTO this section, BELOW the rooms — they ARE
+      // the rooms' floor plans (Doug's own sheet links its "Room Diagram" cell
+      // to the DIAGRAMS tab). No separate nav entry. The Diagrams sub-block
+      // renders only when the untrusted-JSONB diagrams object carries a signal
+      // (folder link / embedded images / pinned folder items — the same
+      // `hasDiagramSignal` gate the card's badge uses), wrapped in its OWN
+      // chrome provider so it keeps the "Diagrams" heading (icon + count),
+      // never inheriting the outer "Rooms & scope" chrome.
+      render: (s) => (
+        <div className="flex min-w-0 flex-col gap-4">
+          <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />
+          {hasDiagramSignal(s.pr.diagrams) ? (
+            // headingLevel 4 → subordinate "Diagrams" sub-heading (h4, smaller)
+            // so it reads as part of Rooms & scope, not a co-equal section.
+            <Step3SectionChromeContext.Provider
+              value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+            >
+              <DiagramsBreakdown
+                dfid={s.dfid}
+                wizardSessionId={s.wizardSessionId}
+                diagrams={s.pr.diagrams}
+              />
+            </Step3SectionChromeContext.Provider>
+          ) : null}
+        </div>
+      ),
     },
   );
-  // §B2 gate: conditional like agenda — present iff the untrusted-JSONB
-  // diagrams object exists AND carries any signal (folder link, embedded
-  // images, or pinned folder items). Same shape (plus linkedFolderItems) as
-  // the card's `hasDiagrams` badge gate (Step3SheetCard.tsx), so badge and
-  // section presence agree whenever the badge shows.
-  const dg = d.pr.diagrams;
-  const diagramCount = arr(dg?.embeddedImages).length + arr(dg?.linkedFolderItems).length;
-  if (dg != null && (dg.linkedFolder != null || diagramCount > 0)) {
-    defs.push({
-      id: "diagrams",
-      label: "Diagrams",
-      group: "Gear",
-      Icon: Images, // lucide glyph — design-stage-tunable under impeccable (spec §L)
-      railCount:
-        diagramCount > 0
-          ? (s) =>
-              arr(s.pr.diagrams?.embeddedImages).length +
-              arr(s.pr.diagrams?.linkedFolderItems).length
-          : null, // folder-link-only → no rail count (spec §B2)
-      render: (s) => (
-        <DiagramsBreakdown
-          dfid={s.dfid}
-          wizardSessionId={s.wizardSessionId}
-          diagrams={s.pr.diagrams}
-        />
-      ),
-    });
-  }
   defs.push(
     {
       id: "packlist",
