@@ -391,7 +391,8 @@ describe("Step3SheetCard — summary (§4.2)", () => {
 
   test("non-data-gap warnings (info or non-DQ codes) get NO summary chip at all", () => {
     const w = [
-      { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "one" },
+      // a warn code that is NOT a data-gap class (benign autocorrect) + an info code.
+      { severity: "warn" as const, code: "STAGE_WORD_AUTOCORRECTED", message: "one" },
       { severity: "info" as const, code: "FLIGHT_UNMATCHED", message: "two" },
     ];
     const FIX = parseResult({ warnings: w });
@@ -546,7 +547,8 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
 
   test("a lone non-data-quality warning → no summary chip row at all", () => {
     const FIX = parseResult({
-      warnings: [{ severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" }],
+      // benign warn-severity autocorrect — a warn code that is NOT a data-gap class.
+      warnings: [{ severity: "warn" as const, code: "STAGE_WORD_AUTOCORRECTED", message: "x" }],
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     // No data-gap row and no "+K other" chip — the warning is only in the "More" details.
