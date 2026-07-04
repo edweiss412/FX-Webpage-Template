@@ -35,6 +35,7 @@
 | `tests/parser/schema.test.ts` | unit | Add `classifyVersion` suite. |
 | `tests/parser/parseSheet.test.ts` | unit | Add `VERSION_AMBIGUOUS` integration cases. |
 | `tests/invariants/mi.test.ts` | unit | Add `runInvariants` routing + message-forwarding case. |
+| `tests/sync/phase1.test.ts` | unit | Add existing-show retention (`updateShowParseError` + scored diagnostic, no-apply) case. |
 | `tests/sync/dev-routing.test.ts` | DB e2e | Add ambiguous-first-seen routing + persisted-message case. |
 
 ---
@@ -132,6 +133,15 @@ describe("classifyVersion", () => {
     const v = classifyVersion("| Some Label | value |\n| Another | thing |");
     expect(v.status).toBe("ambiguous");
     if (v.status === "ambiguous") expect(v.bestGuess).toBe("v1");
+  });
+
+  it("resolution round-trip: an ambiguous sheet becomes confident once a second block's markers are restored (spec §7.1/§8)", () => {
+    const ambiguous = "| GS SET TIME | 10:00 |\n| GS SETUP | 9:00 |"; // 1 block
+    expect(classifyVersion(ambiguous).status).toBe("ambiguous");
+    const restored = ambiguous + "\n| BO SET TIME | 8:00 |\n| BO SETUP | 7:00 |"; // +2nd block
+    const v = classifyVersion(restored);
+    expect(v.status).toBe("confident");
+    if (v.status === "confident") expect(v.version).toBe("v2");
   });
 
   it("does NOT score markers that appear in value cells (columns 1+)", () => {
@@ -572,15 +582,47 @@ git commit --no-verify -m "feat(parser): VERSION_AMBIGUOUS hard-flag + §12.4 ca
 
 ---
 
-### Task 3: Sync end-to-end routing + diagnostic persistence (DB-backed)
+### Task 3: Sync routing proofs — first-seen (DB e2e) + existing-show retention (phase1 unit)
+
+Covers spec §7 (behavior matrix) + §8 sync bullets for BOTH show states. Two independent tests; one commit.
 
 **Files:**
-- Test: `tests/sync/dev-routing.test.ts` (DB-backed; requires local Supabase — same harness as the existing MI-1 case at `:69`).
+- Test: `tests/sync/dev-routing.test.ts` (DB-backed first-seen; same harness as the MI-1 AC-3.3 case at `:237`).
+- Test: `tests/sync/phase1.test.ts` (mock-tx existing-show retention; same `FakePhase1Tx`/`runWith`/`parseResult` harness as the MI-5 existing-show case at `:497`).
 
 **Interfaces:**
-- Consumes: `parseAndStage` (existing dev-action, already imported in the file), `dev.pending_ingestions` read helpers used by the existing MI-1 test.
+- Consumes: `parseAndStage` (dev-action, already imported), `admin.schema("dev")` (already imported); `FakePhase1Tx`, `runWith`, `parseResult` (all defined in `phase1.test.ts`).
 
-- [ ] **Step 1: Write the failing e2e test** — add a case mirroring the existing MI-1 first-seen case (around `tests/sync/dev-routing.test.ts:69`). Write an ambiguous synthetic fixture into `fixtures/shows/raw/` the same way the MI-1 case writes `_temp-mi1-no-version.md`, then assert routing + persisted message.
+- [ ] **Step 1a: Existing-show retention (phase1 unit, no DB)** — append to `tests/sync/phase1.test.ts` inside the `describe("runPhase1 routing and writes")` block. Seed a present show the same way the MI-5 existing-show test (`:497-510`) does (`tx.shows.set("file-1", { ...FakeShowRow shape used there... })`), then:
+
+```ts
+it("existing-show ambiguous parse hard-fails, retains last-good, and persists the scored diagnostic", async () => {
+  const tx = new FakePhase1Tx();
+  // Seed a present show at baseArgs.driveFileId ("file-1") — copy the exact
+  // FakeShowRow shape from the MI-5 existing-show test above (id, lastSyncStatus,
+  // lastSyncError, priorParseResult: parseResult(), ...).
+  seedExistingShow(tx, "file-1"); // <- inline the same set() the MI-5 test uses
+  const message =
+    "Could not confidently determine sheet template version (best guess v2; scores v4=0, v2=2). " +
+    "Fix the sheet's version markers so it is recognizable again.";
+  const next = parseResult({
+    hardErrors: [{ code: "VERSION_AMBIGUOUS", message }],
+    crewMembers: [],
+    rooms: [],
+  });
+  const result = await runWith(tx, next);
+  expect(result).toMatchObject({ outcome: "hard_fail", code: "VERSION_AMBIGUOUS" });
+  expect(result.message).toContain("v4=0, v2=2"); // scored diagnostic survives (spec §4.3)
+  expect(tx.operations).toContain("updateShowParseError:file-1"); // retain-last-good branch
+  expect(tx.operations.some((o) => o.startsWith("upsertLivePendingIngestion"))).toBe(false);
+  expect(tx.operations.some((o) => o.startsWith("upsertLivePendingSync"))).toBe(false);
+  expect(tx.shows.get("file-1")!.lastSyncStatus).toBe("parse_error"); // held, not applied
+});
+```
+
+> Implementer note: there is no `seedExistingShow` helper — replace that line with the literal `tx.shows.set("file-1", { ... })` used by the MI-5 existing-show test at `phase1.test.ts:497-510`; copy its exact `FakeShowRow` object so the seed is type-correct.
+
+- [ ] **Step 1b: Write the failing first-seen e2e test** — add a case mirroring the existing MI-1 AC-3.3 case (around `tests/sync/dev-routing.test.ts:237`). Write an ambiguous synthetic fixture into `fixtures/shows/raw/` the same way the MI-1 case does, then assert routing + persisted message.
 
 Add a new `describe`/`test` block mirroring the AC-3.3 MI-1 case (`tests/sync/dev-routing.test.ts:237-282`). Uses the same `parseAndStage(name)` single-arg call and the same `admin.schema("dev").from("pending_ingestions")` readback. `writeFile`/`rm`/`join`/`FIXTURE_DIR`/`admin`/`parseAndStage` are already imported/defined in this file.
 
@@ -623,18 +665,22 @@ describe("AC (version gate): VERSION_AMBIGUOUS routes to dev.pending_ingestions"
 });
 ```
 
-- [ ] **Step 2: Run it; verify it fails or (if implementation from Task 2 already routes) passes for the right reason**
+- [ ] **Step 2: Run both tests**
 
-Run: `pnpm vitest run tests/sync/dev-routing.test.ts -t VERSION_AMBIGUOUS`
-Expected: With Task 2 merged, the routing already works, so this test should PASS on first run — it is a regression pin proving the whole chain (parseSheet → runInvariants → phase1 persistence). If it FAILS, the failure message tells you which link dropped the code or message; fix per §4.3 of the spec (message forwarding).
+Run:
+```bash
+pnpm vitest run tests/sync/phase1.test.ts -t VERSION_AMBIGUOUS
+pnpm vitest run tests/sync/dev-routing.test.ts -t VERSION_AMBIGUOUS
+```
+Expected: The phase1 unit test (Step 1a) is DB-free and must PASS (existing-show retention + no pending_ingestion/pending_sync + scored diagnostic). The dev-routing e2e (Step 1b) proves first-seen routing; with Task 2 merged it should PASS on first run (a regression pin over parseSheet → runInvariants → phase1 persistence). If either FAILS, the message names the dropped link; fix per spec §4.3 (message forwarding).
 
-> This test needs local Supabase running (`pnpm db:seed` prerequisites, same as every `*.db`/dev-routing test). If the DB is unavailable in the execution environment, mark this step BLOCKED and note it — do not delete the test.
+> The dev-routing e2e needs local Supabase (`pnpm db:seed` prerequisites, same as every dev-routing test). The phase1 unit test needs no DB. If the DB is unavailable, mark ONLY Step 1b BLOCKED and note it — do not delete the test; Step 1a must still run and pass.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/sync/dev-routing.test.ts
-git commit --no-verify -m "test(sync): pin VERSION_AMBIGUOUS first-seen routing + scored message"
+git add tests/sync/phase1.test.ts tests/sync/dev-routing.test.ts
+git commit --no-verify -m "test(sync): pin VERSION_AMBIGUOUS first-seen + existing-show retention routing"
 ```
 
 ---
@@ -643,13 +689,13 @@ git commit --no-verify -m "test(sync): pin VERSION_AMBIGUOUS first-seen routing 
 
 **1. Spec coverage** — every spec section maps to a task:
 - §4.1 classifyVersion + block diversity + strict col-0 → Task 1.
-- §4.2 parseSheet minimal stub + message → Task 2 (Steps 4).
+- §4.2 parseSheet minimal stub + message → Task 2 (Step 4).
 - §4.3 runInvariants forwarding → Task 2 (Step 5).
 - §4.4 §12.4 lockstep (spec + gen×2 + catalog + producer) → Task 2 (Steps 6-9).
 - §5 marker sets/blocks → Task 1 code + Task 1 golden-corpus test.
-- §6 guard conditions → Task 1 tests (threshold boundary, not_a_sheet, spoofing).
-- §7 behavior matrix + §7.1 resolution → Task 3 (routing) + Task 1 (resilience/redundancy tests prove the round-trip: markers restored → confident).
-- §8 test list → Tasks 1-3 tests, one-to-one.
+- §6 guard conditions → Task 1 tests (threshold boundary, not_a_sheet, spoofing, blank-col-0, value-cell).
+- §7 behavior matrix — **first-seen** ambiguous → Task 3 Step 1b (DB e2e); **existing-show** retain-last-good + no-apply + scored `last_sync_error` → Task 3 Step 1a (phase1 unit); §7.1 resolution round-trip (ambiguous → markers restored → confident) → Task 1 round-trip test.
+- §8 test list → Tasks 1-3 tests, one-to-one (classifyVersion suite, parseSheet integration, runInvariants routing, first-seen e2e, existing-show retention, resolution round-trip, catalog/x1/x2).
 - §9 structural defense (golden-corpus + x1/x2) → Task 1 golden test + Task 2 gates.
 
 **2. Placeholder scan** — no "TBD/handle edge cases/similar to". The two "implementer note" blocks point at existing code to copy (mi.test.ts builder, dev-routing MI-1 case) rather than inventing signatures; that is deliberate DRY, not a placeholder, because those helpers already exist and inventing parallel ones would drift.
