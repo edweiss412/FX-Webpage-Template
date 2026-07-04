@@ -27,10 +27,14 @@ export function fileHasNoTelemetry(file: string): boolean {
 
 /** Per-function `// no-telemetry:` — the comment must sit INSIDE the body span
  * of the specific action function it exempts (spec §4.3 item 1); it never
- * leaks to a sibling or a later-added action. */
+ * leaks to a sibling or a later-added action. Uses `node.getStart()` (which
+ * skips leading trivia) rather than `getFullStart()` so a comment ABOVE the
+ * function declaration — e.g. a file-leading exemption on the first export in
+ * a "use server" module — can never satisfy a per-function exemption; only a
+ * comment written inside the function's own signature/body counts. */
 export function functionSpanHasNoTelemetry(_file: string, node: ts.Node): boolean {
   const sf = node.getSourceFile();
-  const text = sf.text.slice(node.getFullStart(), node.getEnd());
+  const text = sf.text.slice(node.getStart(sf), node.getEnd());
   return text.split("\n").some((line) => NO_TELEMETRY_RE.test(line));
 }
 
