@@ -285,6 +285,204 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   ],
 };
 
+/**
+ * ADMIN_ALERTS_LIFECYCLE (admin-alert-auto-resolution spec §8, AC8)
+ *
+ * Classifies every ADMIN_ALERTS_CODES entry per spec §3's binding lifecycle table:
+ *   - "auto": condition is a persistent, code-observable STATE; the system resolves it
+ *     itself. Carries a non-empty resolveSites tuple pinning where that resolve happens.
+ *   - "event-manual": one-shot EVENT notice; manual acknowledgment per master spec §4.6.
+ *   - "state-manual-justified": STATE-shaped but structurally cannot auto-resolve safely
+ *     (TILE_SERVER_RENDER_FAILED — per-tile dedup means one tile's success cannot prove
+ *     another tile, which may hold the open row, is healthy; §3 row).
+ *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
+ *
+ * Counts (spec §3): 7 precedent AUTO + 14 NEW = 21 "auto"; 17 "event-manual"
+ * (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the registry splits into
+ * its own "state-manual-justified" class); 1 "state-manual-justified"; 3 "deferred".
+ * 21 + 17 + 1 + 3 = 42, matching ADMIN_ALERTS_CODES.length.
+ */
+type ResolveSite = { file: string; pattern: RegExp };
+type Lifecycle =
+  | { class: "auto"; resolveSites: [ResolveSite, ...ResolveSite[]] }
+  | { class: "event-manual" }
+  | { class: "state-manual-justified" }
+  | { class: "deferred" };
+
+const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecycle> = {
+  // --- 7 precedent AUTO codes (already auto-resolved before this spec) ---
+  DRIVE_FETCH_FAILED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/sync/runScheduledCronSync.ts",
+        pattern: /resolveStaleSyncProblemAlerts_unlocked/,
+      },
+    ],
+  },
+  PARSE_ERROR_LAST_GOOD: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/sync/runScheduledCronSync.ts",
+        pattern: /resolveStaleSyncProblemAlerts_unlocked/,
+      },
+    ],
+  },
+  SHEET_UNAVAILABLE: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/sync/runScheduledCronSync.ts",
+        pattern: /resolveStaleSyncProblemAlerts_unlocked/,
+      },
+    ],
+  },
+  SYNC_STALLED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/notify/detect/stall.ts",
+        pattern: /resolveAdminAlert\(\{[\s\S]*code:\s*"SYNC_STALLED"/,
+      },
+    ],
+  },
+  EMAIL_DELIVERY_FAILED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/notify/detect/emailDeliveryFailed.ts",
+        pattern: /resolve\(\{[\s\S]*code:\s*"EMAIL_DELIVERY_FAILED"/,
+      },
+    ],
+  },
+  EMAIL_NOT_CONFIGURED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/notify/detect/emailDeliveryFailed.ts",
+        pattern: /resolve\(\{[\s\S]*code:\s*"EMAIL_NOT_CONFIGURED"/,
+      },
+    ],
+  },
+  WATCH_CHANNEL_ORPHANED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/drive/watch.ts",
+        pattern: /resolve\(\{[\s\S]*code:\s*"WATCH_CHANNEL_ORPHANED"/,
+      },
+    ],
+  },
+
+  // --- 14 NEW auto codes (this spec adds their resolution) ---
+  SHOW_UNPUBLISHED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "supabase/migrations/20260703210000_admin_alert_auto_resolution.sql",
+        pattern: /resolve_show_unpublished_alert_on_publish/,
+      },
+    ],
+  },
+  REEL_DRIFTED: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/applyStaged.ts", pattern: /LIVE_VERIFY_ALERT_FAMILY/ }],
+  },
+  OPENING_REEL_PERMISSION_DENIED: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/applyStaged.ts", pattern: /LIVE_VERIFY_ALERT_FAMILY/ }],
+  },
+  OPENING_REEL_NOT_VIDEO: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/applyStaged.ts", pattern: /LIVE_VERIFY_ALERT_FAMILY/ }],
+  },
+  EMBEDDED_ASSET_DRIFTED: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/applyStaged.ts", pattern: /LIVE_VERIFY_ALERT_FAMILY/ }],
+  },
+  ASSET_RECOVERY_BYTES_EXCEEDED: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/assetRecovery.ts", pattern: /ASSET_RECOVERY_ALERT_FAMILY/ }],
+  },
+  ASSET_RECOVERY_REVISION_DRIFT: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/assetRecovery.ts", pattern: /ASSET_RECOVERY_ALERT_FAMILY/ }],
+  },
+  ASSET_RECOVERY_DRIFT_COOLDOWN: {
+    class: "auto",
+    resolveSites: [
+      { file: "lib/sync/assetRecovery.ts", pattern: /ASSET_RECOVERY_ALERT_FAMILY/ },
+      { file: "lib/sync/assetRecovery.ts", pattern: /resolveDriftCooldownAlert/ },
+    ],
+  },
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/assetRecovery.ts", pattern: /ASSET_RECOVERY_ALERT_FAMILY/ }],
+  },
+  PENDING_SNAPSHOT_PROMOTE_STUCK: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/diagramGc.ts", pattern: /resolveClearedStuckAlerts/ }],
+  },
+  PENDING_SNAPSHOT_DELETE_STUCK: {
+    class: "auto",
+    resolveSites: [{ file: "lib/sync/diagramGc.ts", pattern: /resolveClearedStuckAlerts/ }],
+  },
+  PENDING_SNAPSHOT_ROLLBACK_STUCK: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/sync/promoteSnapshot.ts",
+        pattern:
+          /admin_alerts set resolved_at = now\(\)[\s\S]{0,80}PENDING_SNAPSHOT_ROLLBACK_STUCK/,
+      },
+    ],
+  },
+  WEBHOOK_TOKEN_INVALID: {
+    class: "auto",
+    resolveSites: [
+      { file: "app/api/drive/webhook/route.ts", pattern: /resolveWebhookTokenInvalidForChannel/ },
+      { file: "lib/drive/watch.ts", pattern: /resolveStaleWebhookTokenInvalid/ },
+    ],
+  },
+  TILE_PROJECTION_FETCH_FAILED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
+        pattern: /resolveAdminAlert\(\{[\s\S]*code:\s*"TILE_PROJECTION_FETCH_FAILED"/,
+      },
+    ],
+  },
+
+  // --- state-manual-justified (1): STATE-shaped, deliberately NOT auto-resolved ---
+  TILE_SERVER_RENDER_FAILED: { class: "state-manual-justified" },
+
+  // --- event-manual (17): one-shot EVENT notices, manual by design ---
+  AMBIGUOUS_EMAIL_BINDING: { class: "event-manual" },
+  LIVE_ROW_CONFLICT: { class: "event-manual" },
+  ROLE_FLAGS_NOTICE: { class: "event-manual" },
+  SHOW_FIRST_PUBLISHED: { class: "event-manual" },
+  OAUTH_IDENTITY_CLAIMED: { class: "event-manual" },
+  PICKER_BOOTSTRAP_RPC_FAILED: { class: "event-manual" },
+  PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: { class: "event-manual" },
+  CALLBACK_CLAIM_THREW: { class: "event-manual" },
+  PICKER_SELECTION_RACE: { class: "event-manual" },
+  PICKER_EPOCH_RESET: { class: "event-manual" },
+  WIZARD_SESSION_SUPERSEDED_RACE: { class: "event-manual" },
+  REPORT_ORPHANED_LOST_LEASE: { class: "event-manual" },
+  REPORT_LOOKUP_INCONCLUSIVE: { class: "event-manual" },
+  REPORT_DUPLICATE_LIVE_MATCHES: { class: "event-manual" },
+  REPORT_OPEN_ORPHAN_LABEL: { class: "event-manual" },
+  REPORT_LEASE_THRASHING: { class: "event-manual" },
+  STALE_ORPHAN_REPORT: { class: "event-manual" },
+
+  // --- deferred (3): STATE-shaped, out of scope this spec (BACKLOG) ---
+  GITHUB_BOT_LOGIN_MISSING: { class: "deferred" },
+  BRANCH_PROTECTION_DRIFT: { class: "deferred" },
+  BRANCH_PROTECTION_MONITOR_AUTH_FAILED: { class: "deferred" },
+};
+
 describe("META admin_alerts catalog contract", () => {
   test.each(ADMIN_ALERTS_CODES)(
     "catalog code %s used by admin_alerts has non-null dougFacing copy",
@@ -446,5 +644,46 @@ describe("META admin_alerts catalog contract", () => {
       missing,
       `these registered admin_alerts codes call upsertAdminAlert() but are not members of the AdminAlertCode union in lib/adminAlerts/upsertAdminAlert.ts — widen the union (or, if a code is produced via raw SQL / a script, add it to NON_UPSERT_ADMIN_ALERTS_PRODUCERS): ${missing.join(", ")}`,
     ).toEqual([]);
+  });
+
+  // --- ADMIN_ALERTS_LIFECYCLE structural contract (auto-resolution spec §8, AC8) ---
+
+  test("every registry code declares a lifecycle", () => {
+    // Set-equality both ways: an unclassified new code fails here (a future
+    // admin_alerts code cannot land without declaring its lifecycle class),
+    // and a lifecycle row for a de-registered code fails here too.
+    const lifecycleKeys = Object.keys(ADMIN_ALERTS_LIFECYCLE).sort();
+    const registryCodes = [...ADMIN_ALERTS_CODES].sort();
+    expect(
+      lifecycleKeys,
+      "ADMIN_ALERTS_LIFECYCLE must classify exactly the codes in ADMIN_ALERTS_CODES — every new admin_alerts code must declare a lifecycle class (auto | event-manual | state-manual-justified | deferred) per the auto-resolution spec §3 table",
+    ).toEqual(registryCodes);
+  });
+
+  test("every auto code's resolve site exists on disk and matches", () => {
+    const autoCodes = (
+      Object.keys(ADMIN_ALERTS_LIFECYCLE) as Array<(typeof ADMIN_ALERTS_CODES)[number]>
+    ).filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
+
+    // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW = 21 auto codes.
+    expect(autoCodes.length, "spec §3 pins 21 auto codes (7 precedent AUTO + 14 NEW)").toBe(21);
+
+    for (const code of autoCodes) {
+      const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];
+      if (lifecycle.class !== "auto") continue; // narrowing for TS
+      // Runtime belt for the type-level non-empty tuple: an auto code with
+      // zero resolve sites cannot pass even if the type is circumvented.
+      expect(
+        lifecycle.resolveSites.length,
+        `${code} is classified auto but declares no resolve site`,
+      ).toBeGreaterThan(0);
+      for (const site of lifecycle.resolveSites) {
+        const source = readFileSync(join(ROOT, site.file), "utf8");
+        expect(
+          source,
+          `${code} is classified auto, but ${site.file} does not match its declared resolve-site pattern ${site.pattern} — an auto code cannot lose its resolve site silently`,
+        ).toMatch(site.pattern);
+      }
+    }
   });
 });
