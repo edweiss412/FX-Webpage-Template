@@ -78,20 +78,33 @@ export type RequireDeveloperOpts = { layer?: "layout" | "page" };
 // redirectToSignIn + maybeForceTestInfraFail: copy verbatim from requireAdmin.ts
 // (:44-116), changing the thrown class to DeveloperInfraError in the force hook.
 
+// EVERY infra path emits a structured log.error BEFORE throwing (source +
+// code), mirroring requireAdmin.ts. This is what tests/auth/_metaInfraContract's
+// assertEmits("requireDeveloper", "auth/requireDeveloper", "DEVELOPER_SESSION_LOOKUP_FAILED")
+// records as coverage (Task 5). A DeveloperInfraError thrown WITHOUT the emission
+// fails the meta-contract. Factor a tiny helper to DRY the six sites:
+async function throwDeveloperInfra(detail: string): Promise<never> {
+  await log.error("developer gate infra failure", {
+    source: "auth/requireDeveloper",
+    code: "DEVELOPER_SESSION_LOOKUP_FAILED",
+  });
+  throw new DeveloperInfraError(detail);
+}
+
 const resolveDeveloperIdentity = cache(async (): Promise<DeveloperIdentity> => {
   let supabase;
   try { supabase = await createSupabaseServerClient(); }
-  catch (e) { throw new DeveloperInfraError(`client construction failed: ${String(e)}`); }
+  catch (e) { return throwDeveloperInfra(`client construction failed: ${String(e)}`); }
 
   // getClaims() can THROW (network/JWKS/decode) in addition to returning {error};
   // BOTH arms -> DeveloperInfraError except the AuthSessionMissing redirect.
   // Mirrors requireAdmin.ts:181-208.
   let claimsData; let claimsError;
   try { const r = await supabase.auth.getClaims(); claimsData = r.data; claimsError = r.error; }
-  catch (e) { throw new DeveloperInfraError(`getClaims threw: ${String(e)}`); }
+  catch (e) { return throwDeveloperInfra(`getClaims threw: ${String(e)}`); }
   if (claimsError) {
     if (isAuthSessionMissingError(claimsError)) return redirectToSignIn();
-    throw new DeveloperInfraError(`getClaims failed: ${String(claimsError.message)}`);
+    return throwDeveloperInfra(`getClaims failed: ${String(claimsError.message)}`);
   }
   const email = canonicalize(
     (claimsData as { claims?: { email?: string } } | null)?.claims?.email,
@@ -107,11 +120,11 @@ const resolveDeveloperIdentity = cache(async (): Promise<DeveloperIdentity> => {
       supabase.rpc("is_session_live"),
       supabase.rpc("is_developer"),
     ]);
-  } catch (e) { throw new DeveloperInfraError(`session/developer RPC threw: ${String(e)}`); }
+  } catch (e) { return throwDeveloperInfra(`session/developer RPC threw: ${String(e)}`); }
   const { data: sessionLive, error: sessionError } = sessionRpc;
   const { data: isDev, error: devError } = devRpc;
-  if (sessionError) throw new DeveloperInfraError(`is_session_live failed: ${String(sessionError.message)}`);
-  if (devError) throw new DeveloperInfraError(`is_developer failed: ${String(devError.message)}`);
+  if (sessionError) return throwDeveloperInfra(`is_session_live failed: ${String(sessionError.message)}`);
+  if (devError) return throwDeveloperInfra(`is_developer failed: ${String(devError.message)}`);
   if (sessionLive !== true) return redirectToSignIn();
   if (isDev !== true) {
     log.warn("developer access denied", { code: "DEVELOPER_ACCESS_DENIED", emailHash: hashForLog(email) });
@@ -211,7 +224,7 @@ Implements spec §10.1. The registry `INFRA_PRODUCERS` (`tests/auth/_metaInfraCo
 **Files:**
 - Modify: `tests/auth/_metaInfraContract.test.ts`
 
-- [ ] **Step 1: Add the producers + behavioral rows** — add `"requireDeveloper"` and `"requireDeveloperIdentity"` to `INFRA_PRODUCERS`, and add a describe block that drives each producer's infra arm and calls `assertEmits("requireDeveloper", <source>, <code>)` / same for identity. Pin: infra fault → throws `DeveloperInfraError` (not `forbidden`); confirmed non-developer → `forbidden()`; unauthed → redirect. Model the block on the existing `requireAdmin`/`requireAdminIdentity` blocks in the same file.
+- [ ] **Step 1: Add the producers + behavioral rows** — add `"requireDeveloper"` and `"requireDeveloperIdentity"` to `INFRA_PRODUCERS`, and add a describe block that drives each producer's infra arm and calls `assertEmits("requireDeveloper", "auth/requireDeveloper", "DEVELOPER_SESSION_LOOKUP_FAILED")` and `assertEmits("requireDeveloperIdentity", "auth/requireDeveloper", "DEVELOPER_SESSION_LOOKUP_FAILED")` (both share the source `"auth/requireDeveloper"` because the structured emission fires inside `resolveDeveloperIdentity`'s `throwDeveloperInfra` helper — Task 3). This is why Task 3 emits `log.error({ source: "auth/requireDeveloper", code: "DEVELOPER_SESSION_LOOKUP_FAILED" })` before EVERY infra throw: without it the `afterAll` set-equality fails (a producer with no matching structured emission is not "covered"). Pin behavior: infra fault → throws `DeveloperInfraError` (not `forbidden`); confirmed non-developer → `forbidden()`; unauthed → redirect. Model the block on the existing `requireAdmin`/`requireAdminIdentity` blocks in the same file. **Verify** the exact `assertEmits` signature and source-string convention against those existing blocks before drafting (the source may be conventionally the module path — match what `requireAdmin` uses, e.g. `"auth/requireAdmin"`).
 
 - [ ] **Step 2: Run** — `pnpm vitest run tests/auth/_metaInfraContract.test.ts` → PASS (set-equality holds; without the behavioral block the `afterAll` fails, proving coverage).
 
