@@ -123,6 +123,14 @@ describe("data-gaps chip row — layout structure (no fixed-dimension-parent ris
     const titleIdx = kids.findIndex((k) => k.textContent?.includes("Title gaps"));
     expect(titleIdx).toBeGreaterThanOrEqual(0);
     expect(kids.indexOf(badge)).toBeGreaterThan(titleIdx); // title precedes badge
+    // …and BEFORE the inline status pill (this row isLive → shows-live-pill). Pin
+    // the ordering so a regression that moves the badge after the pill FAILS
+    // (whole-diff review LOW: the "after title" assertion alone couldn't catch that).
+    const pillWrapperIdx = kids.findIndex((k) =>
+      k.querySelector('[data-testid="shows-live-pill-gaps"]'),
+    );
+    expect(pillWrapperIdx).toBeGreaterThan(0);
+    expect(kids.indexOf(badge)).toBeLessThan(pillWrapperIdx);
   });
 
   it("badge sits in the ArchivedShowRow title container with items-center + shrink-0, before the Archived pill", () => {
