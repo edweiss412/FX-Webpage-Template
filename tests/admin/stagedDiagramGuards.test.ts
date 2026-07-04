@@ -12,6 +12,7 @@ import {
   isRenderableDiagramStub,
   isTrustedDiagramContentUrl,
 } from "@/lib/admin/stagedDiagramGuards";
+import type { EmbeddedImageStub } from "@/lib/parser/types";
 
 describe("isRenderableDiagramStub", () => {
   it("accepts a minimal valid stub", () => {
@@ -180,8 +181,11 @@ describe("isRenderableDiagramStub — media fields", () => {
 });
 
 describe("hasStagedPreviewSource", () => {
-  const base = { objectId: "o", mimeType: "image/png", sheetTab: "T" } as never;
-  test.each([
+  // Concrete literal type so spreads typecheck (TS2698 forbids spreading
+  // never/unknown); the cast to EmbeddedImageStub happens at the call
+  // boundary — the predicate's runtime shape checks are what's under test.
+  const base: Record<string, unknown> = { objectId: "o", mimeType: "image/png", sheetTab: "T" };
+  test.each<[Record<string, unknown>, boolean]>([
     [{ ...base, contentUrl: "https://lh3.googleusercontent.com/x" }, true],
     [{ ...base, contentUrl: "https://google.com.evil.net/x" }, false], // untrusted string URL — must match the route's 404
     [
@@ -193,12 +197,27 @@ describe("hasStagedPreviewSource", () => {
       },
       false,
     ], // corrupt mixed shape — string contentUrl is authoritative
-    [{ ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: "fp" }, true],
     [
-      { ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: null },
+      {
+        ...base,
+        contentUrl: null,
+        mediaPartName: "xl/media/image1.png",
+        embeddedFingerprint: "fp",
+      },
+      true,
+    ],
+    [
+      {
+        ...base,
+        contentUrl: null,
+        mediaPartName: "xl/media/image1.png",
+        embeddedFingerprint: null,
+      },
       false,
     ], // restage-only
     [{ ...base, contentUrl: null, embeddedFingerprint: "fp" }, false], // no part name
     [{ ...base, contentUrl: null }, false],
-  ])("source %#", (stub, ok) => expect(hasStagedPreviewSource(stub)).toBe(ok));
+  ])("source %#", (stub, ok) =>
+    expect(hasStagedPreviewSource(stub as unknown as EmbeddedImageStub)).toBe(ok),
+  );
 });
