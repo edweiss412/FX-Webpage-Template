@@ -18,6 +18,7 @@ function resetTables() {
   state.tables = {
     pending_ingestions: { count: 31, error: null },
     pending_syncs: { count: 47, error: null },
+    admin_alerts: { count: 0, error: null },
   };
 }
 
@@ -34,6 +35,9 @@ vi.mock("@/lib/supabase/server", () => ({
         type Builder = {
           select: () => Builder;
           is: () => Builder;
+          in: () => Builder;
+          not: () => Builder;
+          eq: () => Builder;
           then: (
             f: (r: {
               data: null;
@@ -46,6 +50,9 @@ vi.mock("@/lib/supabase/server", () => ({
         const pass = () => b;
         b.select = pass;
         b.is = pass;
+        b.in = pass;
+        b.not = pass;
+        b.eq = pass;
         b.then = (f) => f({ data: null, count: t.count, error: t.error });
         return b;
       },
@@ -63,6 +70,21 @@ import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
 
 it("ok path SUMS the two head-counts (31 + 47 → 78)", async () => {
   expect(await loadNeedsAttentionCount()).toEqual({ kind: "ok", count: 78 });
+});
+
+it("SUMS the third (inbox-routed) stream: 31 + 47 + 5 → 83", async () => {
+  state.tables.admin_alerts = { count: 5, error: null };
+  expect(await loadNeedsAttentionCount()).toEqual({ kind: "ok", count: 83 });
+});
+
+it("returned .error on the admin_alerts (sync-problem) count → infra_error", async () => {
+  state.tables.admin_alerts = { count: null, error: { message: "rls" } };
+  expect(await loadNeedsAttentionCount()).toEqual({ kind: "infra_error" });
+});
+
+it("count:null with NO error on admin_alerts → infra_error (integrity failure)", async () => {
+  state.tables.admin_alerts = { count: null, error: null };
+  expect(await loadNeedsAttentionCount()).toEqual({ kind: "infra_error" });
 });
 
 it("numeric 0 + 0 → clean { kind:'ok', count:0 } (the ONLY clean no-badge state)", async () => {

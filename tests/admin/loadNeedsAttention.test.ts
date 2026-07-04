@@ -10,6 +10,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { buildNeedsAttention } from "@/lib/admin/needsAttention";
+import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
 
 // ── fake-client factory ──────────────────────────────────────────────────
 // Per-CALL targeting: a head-count query is distinguished from a row query on
@@ -32,6 +33,8 @@ function makeClient(opts: FakeOpts) {
     limit: number | null;
     inCol: string | null;
     inArgs: unknown[] | null;
+    notArgs: unknown[][];
+    eqArgs: unknown[][];
   }> = [];
   const client = {
     from(table: string) {
@@ -40,6 +43,8 @@ function makeClient(opts: FakeOpts) {
         limit: null as number | null,
         inCol: null as string | null,
         inArgs: null as unknown[] | null,
+        notArgs: [] as unknown[][],
+        eqArgs: [] as unknown[][],
       };
       const matches = (t?: Target) => !!t && t.table === table && t.head === ctx.head;
       const resolve = () => {
@@ -49,6 +54,8 @@ function makeClient(opts: FakeOpts) {
           limit: ctx.limit,
           inCol: ctx.inCol,
           inArgs: ctx.inArgs,
+          notArgs: ctx.notArgs,
+          eqArgs: ctx.eqArgs,
         });
         if (matches(opts.rejectOn)) {
           throw new Error(`SIMULATED ${table} ${ctx.head ? "head" : "rows"} rejection`);
@@ -82,6 +89,14 @@ function makeClient(opts: FakeOpts) {
       };
       builder.is = pass;
       builder.order = pass;
+      builder.not = (...a: unknown[]) => {
+        ctx.notArgs.push(a);
+        return builder;
+      };
+      builder.eq = (...a: unknown[]) => {
+        ctx.eqArgs.push(a);
+        return builder;
+      };
       builder.limit = (n: number) => {
         ctx.limit = n;
         return builder;
@@ -413,13 +428,85 @@ describe("loadNeedsAttention", () => {
     expect(src).toMatch(
       /const\s*\{\s*data:\s*existenceData\s*,\s*error:\s*existenceError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("shows"\)/,
     );
+    // 6. admin_alerts sync-problem rows (inbox-routed stream)
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*syncProblemData\s*,\s*error:\s*syncProblemRowsError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_alerts"\)/,
+    );
+    // 7. admin_alerts sync-problem head-count
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*_syncProblemCountData\s*,\s*count:\s*syncProblemHeadCount\s*,\s*error:\s*syncProblemCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_alerts"\)/,
+    );
+    expect(src).toMatch(/void\s+_syncProblemCountData;/);
     // Negative sweep: NO read keeps a whole-response handle under any name —
     // `const <ident> = await supabase` (a non-destructured binding) must not
     // appear anywhere in the helper except the client construction itself.
     const bareHandles = src.match(/const\s+[A-Za-z_$][\w$]*\s*=\s*await\s+supabase\b/g) ?? [];
     expect(bareHandles).toEqual([]);
-    // Exactly five destructured awaits — one per query surface.
+    // Exactly seven destructured awaits — one per query surface (5 pending + 2 sync-problem).
     const destructured = src.match(/=\s*await\s+supabase\s*\.from\(/g) ?? [];
-    expect(destructured).toHaveLength(5);
+    expect(destructured).toHaveLength(7);
+  });
+
+  test("third stream: emits a sync_problem item + total, with the archived/inbox/show_id filters applied", async () => {
+    const alertRow = {
+      id: "alert-1",
+      code: "SHEET_UNAVAILABLE",
+      raised_at: iso(45),
+      show_id: "show-1",
+      context: { sheet_name: "East Coast" },
+      shows: { slug: "east-coast", title: "East Coast" },
+    };
+    const { client, calls } = makeClient({
+      rowsByTable: { admin_alerts: [alertRow] },
+      countByTable: { admin_alerts: 1 },
+    });
+    const loadNeedsAttention = await loader();
+    const result = await loadNeedsAttention({
+      cap: 20,
+      supabase: client as unknown as InjectedClient,
+    });
+    expect("kind" in result).toBe(false);
+    if ("kind" in result) throw new Error("unreachable");
+
+    const sync = result.items.find((i) => i.variant === "sync_problem");
+    expect(sync).toBeDefined();
+    if (sync?.variant !== "sync_problem") throw new Error("unreachable");
+    expect(sync.slug).toBe("east-coast");
+    expect(sync.alertId).toBe("alert-1");
+    expect(sync.copy).toContain("East Coast");
+    expect(result.syncProblemTotal).toBe(1);
+
+    // The admin_alerts ROW query applies the three defining filters.
+    const rowCall = calls.find((c) => c.table === "admin_alerts" && !c.head)!;
+    expect(rowCall.inCol).toBe("code");
+    expect(rowCall.inArgs).toEqual(INBOX_ROUTED_CODES);
+    expect(rowCall.notArgs).toContainEqual(["show_id", "is", null]);
+    expect(rowCall.eqArgs).toContainEqual(["shows.archived", false]);
+    // The head-count query applies the SAME filters (§6 lockstep).
+    const countCall = calls.find((c) => c.table === "admin_alerts" && c.head)!;
+    expect(countCall.inArgs).toEqual(INBOX_ROUTED_CODES);
+    expect(countCall.eqArgs).toContainEqual(["shows.archived", false]);
+  });
+
+  test("third stream: a null-slug embed row is skipped (no dead link)", async () => {
+    const alertRow = {
+      id: "alert-2",
+      code: "PARSE_ERROR_LAST_GOOD",
+      raised_at: iso(45),
+      show_id: "show-2",
+      context: { sheet_name: "RPAS" },
+      shows: null, // integrity gap: no embed
+    };
+    const { client } = makeClient({
+      rowsByTable: { admin_alerts: [alertRow] },
+      countByTable: { admin_alerts: 1 },
+    });
+    const loadNeedsAttention = await loader();
+    const result = await loadNeedsAttention({
+      cap: 20,
+      supabase: client as unknown as InjectedClient,
+    });
+    if ("kind" in result) throw new Error("unreachable");
+    expect(result.items.some((i) => i.variant === "sync_problem")).toBe(false);
   });
 });

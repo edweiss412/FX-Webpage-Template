@@ -66,6 +66,7 @@ function makeClient() {
         return builder;
       };
       builder.is = () => builder;
+      builder.not = () => builder;
       builder.order = () => builder;
       builder.limit = () => builder;
       builder.in = (col: string) => {

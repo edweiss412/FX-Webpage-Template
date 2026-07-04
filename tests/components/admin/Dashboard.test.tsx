@@ -43,6 +43,7 @@ function emptyClient() {
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = pass;
@@ -221,6 +222,7 @@ describe("Dashboard composition", () => {
       overflowCount: 76,
       ingestionTotal: 31,
       syncTotal: 47,
+      syncProblemTotal: 0,
     };
     await renderDashboard();
 

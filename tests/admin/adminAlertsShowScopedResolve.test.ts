@@ -9,10 +9,11 @@ const A1 = "44444444-4444-4444-8444-444444444444";
 
 class FakeShowAlertTx implements AdminAlertShowResolveTx {
   show: { id: string; slug: string } | null = { id: "show-1", slug: "test-show" };
-  alert: { id: string; show_id: string; resolved_at: string | null } | null = {
+  alert: { id: string; show_id: string; resolved_at: string | null; code: string } | null = {
     id: A1,
     show_id: "show-1",
     resolved_at: null,
+    code: "WATCH_CHANNEL_ORPHANED",
   };
   updated = false;
 
@@ -67,9 +68,29 @@ describe("show-scoped admin alert resolve route", () => {
     expect(tx.updated).toBe(true);
   });
 
+  test("rejects an inbox-routed code with 409 ALERT_AUTO_RESOLVE_ONLY and does not resolve", async () => {
+    const tx = new FakeShowAlertTx();
+    tx.alert = { id: A1, show_id: "show-1", resolved_at: null, code: "SHEET_UNAVAILABLE" };
+
+    const response = await handleAdminAlertShowResolve(
+      new Request("https://crew.fxav.test"),
+      { params: Promise.resolve({ slug: "test-show", id: A1 }) },
+      deps(tx),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toMatchObject({ code: "ALERT_AUTO_RESOLVE_ONLY" });
+    expect(tx.updated).toBe(false);
+  });
+
   test("cross-show forgery returns ADMIN_ALERT_NOT_FOUND without leaking existence", async () => {
     const tx = new FakeShowAlertTx();
-    tx.alert = { id: A1, show_id: "other-show", resolved_at: null };
+    tx.alert = {
+      id: A1,
+      show_id: "other-show",
+      resolved_at: null,
+      code: "WATCH_CHANNEL_ORPHANED",
+    };
 
     const response = await handleAdminAlertShowResolve(
       new Request("https://crew.fxav.test"),

@@ -660,6 +660,7 @@ export async function Dashboard(
             totalCount={result.needsAttention.totalCount}
             ingestionTotal={result.needsAttention.ingestionTotal}
             syncTotal={result.needsAttention.syncTotal}
+            syncProblemTotal={result.needsAttention.syncProblemTotal}
             className="min-[720px]:hidden"
           />
           <div

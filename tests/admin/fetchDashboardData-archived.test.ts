@@ -108,6 +108,7 @@ function makeClient() {
         return builder;
       };
       builder.is = () => builder;
+      builder.not = () => builder;
       builder.order = (col: string) => {
         ctx.orderCols.push(col);
         return builder;

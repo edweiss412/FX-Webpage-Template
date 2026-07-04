@@ -54,11 +54,12 @@ describe("buildNeedsAttention", () => {
     expect(result.overflowCount).toBe(2 * RENDER_CAP - RENDER_CAP);
 
     // Global newest-first ordering across BOTH streams (descending sortKey).
-    const sortKeys = result.items.map((it) =>
-      it.variant === "pending_ingestion"
+    const sortKeys = result.items.map((it) => {
+      if (!("driveFileId" in it)) return null; // sync_problem never appears in these fixtures
+      return it.variant === "pending_ingestion"
         ? ingestions.find((g) => g.driveFileId === it.driveFileId)!.lastAttemptAt
-        : syncs.find((s) => s.driveFileId === it.driveFileId)!.stagedModifiedTime,
-    );
+        : syncs.find((s) => s.driveFileId === it.driveFileId)!.stagedModifiedTime;
+    });
     const sorted = [...sortKeys].sort((a, b) => (b ?? "").localeCompare(a ?? ""));
     expect(sortKeys).toEqual(sorted);
   });
@@ -77,8 +78,8 @@ describe("buildNeedsAttention", () => {
       totalCounts: { ingestions: 0, syncs: 2 },
     };
     const result = buildNeedsAttention(input);
-    const known = result.items.find((i) => i.driveFileId === "df-known")!;
-    const fresh = result.items.find((i) => i.driveFileId === "df-new")!;
+    const known = result.items.find((i) => "driveFileId" in i && i.driveFileId === "df-known")!;
+    const fresh = result.items.find((i) => "driveFileId" in i && i.driveFileId === "df-new")!;
     expect(known.variant).toBe("existing_staged");
     expect(known.variant === "existing_staged" && known.slug).toBe("known-show");
     expect(fresh.variant).toBe("first_seen");
@@ -115,7 +116,7 @@ describe("buildNeedsAttention", () => {
       existence,
       totalCounts: { ingestions: 0, syncs: syncs.length },
     });
-    const fresh = result.items.find((i) => i.driveFileId === "df-new");
+    const fresh = result.items.find((i) => "driveFileId" in i && i.driveFileId === "df-new");
     expect(fresh).toBeDefined();
     expect(fresh!.variant).toBe("first_seen");
   });
@@ -142,7 +143,8 @@ describe("buildNeedsAttention", () => {
       existence: {},
       totalCounts: { ingestions: 2, syncs: 0 },
     });
-    expect(result.items[0]!.driveFileId).toBe("df-1"); // higher last_attempt_at first
+    const first = result.items[0]!;
+    expect("driveFileId" in first && first.driveFileId).toBe("df-1"); // higher last_attempt_at first
   });
 });
 

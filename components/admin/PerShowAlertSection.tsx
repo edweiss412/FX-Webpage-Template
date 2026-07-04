@@ -19,6 +19,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
+import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
@@ -308,7 +309,20 @@ export async function PerShowAlertSection({
                   {formatRelative(alert.raised_at, now)}
                 </time>
               </p>
-              <PerShowAlertResolveButton alertId={alert.id} slug={slug} />
+              {isInboxRouted(alert.code) ? (
+                // Inbox-routed sync problems (SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD)
+                // are auto-clear-only: the show page shows them read-only (no "Mark
+                // resolved") — they clear when the sheet is back / re-parses. The
+                // Needs attention inbox is where this to-do surfaces (spec §4.8).
+                <p
+                  data-testid={`per-show-alert-autoclear-${alert.id}`}
+                  className="text-xs text-text-subtle"
+                >
+                  Clears automatically once the sheet is back or re-parses.
+                </p>
+              ) : (
+                <PerShowAlertResolveButton alertId={alert.id} slug={slug} />
+              )}
             </li>
           );
         })}

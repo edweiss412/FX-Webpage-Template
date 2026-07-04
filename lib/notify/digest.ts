@@ -83,16 +83,22 @@ function groupTitleFor(
 ): string | null {
   if (item.variant === "pending_ingestion") return item.driveFileName;
   if (item.variant === "first_seen") return item.candidateTitle;
+  if (item.variant === "sync_problem") return item.title;
   return item.title;
 }
 
 function itemCopy(item: ReturnType<typeof buildNeedsAttention>["items"][number]): string {
   if (item.variant === "pending_ingestion") return item.copy;
   if (item.variant === "first_seen") return "New show ready for review";
+  // Defensive (spec §4.9): the digest passes no syncProblems, so no sync_problem
+  // item reaches here today. Explicit arm so a future digest that DID feed the
+  // stream can't mislabel one as a staged change.
+  if (item.variant === "sync_problem") return item.copy;
   return "Changes staged for review";
 }
 
 function slugFor(item: ReturnType<typeof buildNeedsAttention>["items"][number]): string | null {
+  if (item.variant === "sync_problem") return item.slug;
   return item.variant === "existing_staged" ? item.slug : null;
 }
 

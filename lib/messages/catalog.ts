@@ -1,6 +1,13 @@
 export type MessageCatalogEntry = {
   code: string;
   severity?: "info" | "warning";
+  /**
+   * Admin-surface routing (catalog-internal, like `severity`; NOT §12.4 prose).
+   * Default (absent) = "banner". "inbox" routes the code out of the dismissible
+   * AlertBanner and into the Needs attention inbox as an auto-clearing to-do.
+   * See docs/superpowers/specs/2026-07-03-route-sync-problems-to-needs-attention.md.
+   */
+  adminSurface?: "banner" | "inbox";
   dougFacing: string | null;
   crewFacing: string | null;
   followUp: string | null;
@@ -88,6 +95,7 @@ export const MESSAGE_CATALOG = {
   },
   SHEET_UNAVAILABLE: {
     code: "SHEET_UNAVAILABLE",
+    adminSurface: "inbox",
     dougFacing:
       "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
@@ -101,6 +109,7 @@ export const MESSAGE_CATALOG = {
   },
   PARSE_ERROR_LAST_GOOD: {
     code: "PARSE_ERROR_LAST_GOOD",
+    adminSurface: "inbox",
     dougFacing:
       "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     crewFacing:
