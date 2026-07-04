@@ -166,9 +166,13 @@ export function ResetPickerEpochButton({
       {okMessage ?? ""}
     </div>
   );
+  // aria-hidden: the sr-only region is the single SR source for the success;
+  // this visible banner is purely decorative so the message is not exposed to
+  // the a11y tree twice (Codex R2 LOW).
   const okBanner = okMessage ? (
     <p
       data-testid="admin-reset-picker-epoch-ok"
+      aria-hidden="true"
       className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
     >
       <span aria-hidden="true" className="mr-1 font-semibold text-accent">
