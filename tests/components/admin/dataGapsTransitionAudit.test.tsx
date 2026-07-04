@@ -36,6 +36,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 import type { DataGapsSummary } from "@/lib/parser/dataGaps";
+import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 afterEach(cleanup);
 
@@ -60,14 +61,7 @@ const DATA_GAP_SOURCE_FILES = [
 const now = new Date("2026-06-03T12:00:00.000Z");
 
 function gaps(total: number): DataGapsSummary {
-  return {
-    total,
-    classes: {
-      FIELD_UNREADABLE: total,
-      UNKNOWN_SECTION_HEADER: 0,
-      BLOCK_DISAPPEARED: 0,
-    },
-  };
+  return mkDataGaps({ FIELD_UNREADABLE: total });
 }
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {

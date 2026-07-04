@@ -23,6 +23,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { StagedReviewCard, type StagedRow } from "@/components/admin/StagedReviewCard";
+import { mkDataGaps } from "../helpers/dataGapsFixture";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -408,10 +409,7 @@ describe("StagedReviewCard", () => {
       const row: StagedRow = {
         ...baseRow,
         warningSummary: "Crew phone unreadable; Hotel block vanished",
-        dataGaps: {
-          total: 3,
-          classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 1 },
-        },
+        dataGaps: mkDataGaps({ FIELD_UNREADABLE: 2, BLOCK_DISAPPEARED: 1 }),
       };
       const { getByTestId, queryByTestId } = render(<StagedReviewCard row={row} />);
       const list = getByTestId("staged-data-gaps");
@@ -430,10 +428,7 @@ describe("StagedReviewCard", () => {
     test("total:0 → no breakdown list at all", () => {
       const row: StagedRow = {
         ...baseRow,
-        dataGaps: {
-          total: 0,
-          classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-        },
+        dataGaps: mkDataGaps({}),
       };
       const { queryByTestId } = render(<StagedReviewCard row={row} />);
       expect(queryByTestId("staged-data-gaps")).toBeNull();

@@ -9,6 +9,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 // Derived badge accessible name from the single source of truth (anti-tautology).
 function expectedBadgeName(s: DataGapsSummary): string {
@@ -264,10 +265,7 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
 
   // parse-data-quality-warnings badge (spec §3.2 site B) — archived rows.
   it("T7: archived row shows the data-quality badge (role=img, derived name)", () => {
-    const summary: DataGapsSummary = {
-      total: 2,
-      classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 2 },
-    };
+    const summary = mkDataGaps({ BLOCK_DISAPPEARED: 2 });
     render(
       <ArchivedShowRow
         row={{
