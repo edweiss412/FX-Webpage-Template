@@ -20,7 +20,8 @@ Each task ran red→green TDD with an independent reviewer pass (Spec ✅ / Qual
 - Task suites: `tests/adminAlerts/alertActions.test.ts` + `tests/messages/_metaAlertActionsContract.test.ts` + `perShowAlertActionLink` + `alertBannerActionLink` = 4 files, 54 tests, green (re-verified after prettier).
 - Companion suites green: `tests/messages/` whole directory (M8 namespace scanner + catalog gates, 25 files/360 tests at Task-1 review), 4 existing PerShowAlertSection suites, `_metaAlertBannerContract` + `alertBannerDetailFailVisible` + `AlertBannerRouteBoundary`.
 - `pnpm typecheck` clean; `pnpm format:check` clean.
-- Full `pnpm vitest run` sweep: recorded at close-out (below).
+- Full `pnpm vitest run` sweep (close-out, pre-rebase): 7 failed / 10206 passed / 36 skipped. All 7 failures attributed as pre-existing environment drift, NOT this diff: `tests/admin/test-auth-gate.test.ts` (3), `tests/cross-cutting/email-canonicalization.test.ts` (1), and `tests/cross-cutting/pg-cron-coverage.test.ts` (2) reproduce identically on the main checkout at 8e82a297 with full credentials; `tests/db/validation-schema-parity.test.ts` layer 3 (1) was the stale pre-#286 manifest on the old base and passes after the rebase (re-verified below). None of the four files shares any surface with this diff (zero DB/migration/email/cron changes).
+- Post-rebase (onto 8e82a297) re-verification: `tests/adminAlerts/` + whole `tests/messages/` + whole `tests/components/admin/` + `tests/db/validation-schema-parity.test.ts` = 112 files / 1176 tests, ALL green; `pnpm typecheck` exit 0.
 
 ## Negative-verification (Task 1 step 6)
 
