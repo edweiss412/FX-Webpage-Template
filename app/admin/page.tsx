@@ -217,6 +217,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     );
   }
 
-  // Precedence 3: settled (post-onboarding steady state).
-  return <DashboardWithHeader bucket={dashboardBucket} />;
+  // Precedence 3: settled (post-onboarding steady state). Thread the watched
+  // Drive folder name so the shows table is titled with it (matches the
+  // defensive final_cas_done branch above) — the everyday dashboard render path.
+  return <DashboardWithHeader bucket={dashboardBucket} folderName={settings.watched_folder_name} />;
 }
