@@ -33,7 +33,7 @@ This is audit recommendation #2's sanctioned option ("…or at minimum a pushed 
 | D4 | **Manual re-sync is the "accept" path — it overrides the hold and applies.** | Manual re-sync (`runManualSyncForShow`, `mode: "manual"`) is an explicit admin action; it already "re-applies even a held/suppressed show" (`runManualSyncForShow.ts:430,436` — DEF-3 overrides deferrals). The hold is gated on `args.mode !== "manual"`, so a manual re-sync applies the shrink (accepting the smaller roster) and the resolve-site clears the alert. A combined shrink+`MI-11` manual re-sync flows through the normal `auto_apply_with_holds` path (email still held). |
 | D5 | **`MI-11` co-occurrence needs no special handling.** | Because the hold **applies nothing**, a shrink+email-change parse cannot clobber and cannot apply an ungated email. It simply holds last-good. (This is why retain-last-good is simpler than staging, which had to fail-close the approve path against `MI-11`.) |
 | D6 | **Scope to existing shows only** (`show != null`), cron mode only. | `MI-6`/`MI-7` require a prior snapshot (`invariants.ts:238`) so they never fire first-seen. The `!show` first-seen/auto-publish branch (`phase1.ts:354-370`) is disjoint. |
-| D7 | **No `last_sync_status` enum change.** The alert is the signal; last-good keeps its `ok` status. | Avoids a DB CHECK/enum migration and touching every status consumer (`StaleFooter`/`syncStatus`/`driveConnectionHealth`). The pushed `RESYNC_SHRINK_HELD` alert is the "held" signal (the audit's actual gap was *no pushed signal*). The alert's lifecycle is `auto`, resolved at the apply-success site (D2, §4c). |
+| D7 | **`RESYNC_SHRINK_HELD` is a peer sync-problem code**, exactly like `PARSE_ERROR_LAST_GOOD`: set `last_sync_status = 'shrink_held'` on the hold; add the code to `SYNC_PROBLEM_CODES` and to `syncProblemCodeForStatus`. | This is the ONLY correct way to get auto-resolve + digest for an inbox-routed code (Codex R6). `resolveAdminAlert` **throws** for inbox-routed codes; inbox sync-problem alerts resolve through the SQL sweep `resolveStaleSyncProblemAlerts_unlocked` (`runScheduledCronSync.ts:190`), which the success/recovery path already calls with `currentCode=null` (`runScheduledCronSync.ts:2241,2320,2800`; `runManualSyncForShow.ts:443`) — so a clean apply auto-resolves `RESYNC_SHRINK_HELD` **for free** once it's a `SYNC_PROBLEM_CODE`. Digest push is likewise gated on `SYNC_PROBLEM_CODES` (`lib/notify/detect/candidates.ts`), so membership is required for the pushed signal. **No DB migration** — `shows.last_sync_status` is unconstrained `text` (`20260501000000_initial_public_schema.sql:23`). Status consumers (`syncStatus.ts:22-26`, `driveConnectionHealth.ts`) get a `'shrink_held'` case mirroring `'parse_error'` (a degraded sync-problem tier). |
 
 ## 4. Architecture
 
@@ -63,7 +63,7 @@ if (materialShrinkItems.length > 0 && args.mode !== "manual") {
 }
 ```
 
-`shrink_held` is a new `Phase1Result` variant. phase1 writes **nothing** to `shows` (last-good and its `ok` status stay; no `applyParseResult`). No `last_seen_modified_time` advance — identical to the hard-fail retain posture, so a subsequent unchanged cron re-evaluates and the caller re-raises the (deduped) alert; a fixed sheet (new `modifiedTime`) re-evaluates to `pass`/`auto_apply_with_holds`.
+`shrink_held` is a new `Phase1Result` variant. Like the hard-fail branch (which sets `last_sync_status='parse_error'` via `updateShowParseError`), phase1 sets **`last_sync_status = 'shrink_held'`** and `last_sync_error = message` — but does **not** touch `crew_members`/`rooms`/`hotels`/`contacts` (no `applyParseResult`), so last-good rows are retained and the crew page keeps serving them. No `last_seen_modified_time` advance — identical to the hard-fail retain posture, so a subsequent unchanged cron re-evaluates and the caller re-raises the (deduped) alert; a fixed sheet (new `modifiedTime`) re-evaluates to `pass`/`auto_apply_with_holds`. Implement via an `updateShowShrinkHeld(driveFileId, {message})` tx method mirroring `updateShowParseError` (returns `showId`).
 
 ### 4b. `lib/sync/runScheduledCronSync.ts` — caller branch (raise alert)
 
@@ -81,16 +81,21 @@ if (phase1.outcome === "shrink_held") {
       code: "RESYNC_SHRINK_HELD",
       context: { drive_file_id: driveFileId, sheet_name: show.priorParseResult.show.title, detail: phase1.message },
     });
+    // Resolve OTHER stale sync-problem alerts, KEEP this one (mirrors the hard_fail branch's
+    // resolve call at :2800 with currentCode = the code just raised).
+    await resolveStaleSyncProblemAlerts_unlocked(
+      tx, show.showId, syncProblemCodeForStatus("shrink_held"), // === "RESYNC_SHRINK_HELD"
+    );
   }
   return result;
 }
 ```
 
-`upsertAdminAlert` dedupes on `(coalesce(show_id::text,''), code) where resolved_at is null` (one open row per show+code; context replaced). Same tx-bound helper the hard-fail branch uses — no new Supabase call boundary.
+`upsertAdminAlert` dedupes on `(coalesce(show_id::text,''), code) where resolved_at is null` (one open row per show+code; context replaced). Same tx-bound helper the hard-fail branch uses — no new Supabase call boundary. The `shrink_held` outcome is added to `Phase1Result` **and** `ProcessOneFileResult`; the file-loop handles it like `hard_fail` (log + post-commit `revalidateShowFromResult` via `showId`, since the hold committed `shows.last_sync_status='shrink_held'` and must bust the projected status).
 
-### 4c. Resolve-site (lifecycle `auto`)
+### 4c. Auto-resolve — via the sync-problem sweep, NOT `resolveAdminAlert`
 
-`RESYNC_SHRINK_HELD` is lifecycle **`auto`** (an inbox-routed code MUST be `auto` — `tests/messages/_metaAdminAlertCatalog.test.ts:704-707`). Its resolve-site is the **apply-success branch** (`runScheduledCronSync.ts:2844`, `phase1.outcome === "pass" || "auto_apply_with_holds"`): after a successful apply, call `resolveAdminAlert(tx, showId, "RESYNC_SHRINK_HELD")` (`lib/adminAlerts/resolveAdminAlert.ts:25`) — idempotent (no-op if none open). A successful apply means the held condition is gone (Doug restored the crew → clean re-sync, OR the admin accepted via manual re-sync). The `resolveSites` entry in `ADMIN_ALERTS_LIFECYCLE` points at this site.
+`RESYNC_SHRINK_HELD` is lifecycle **`auto`** (an inbox-routed code MUST be `auto` — `tests/messages/_metaAdminAlertCatalog.test.ts:704-707`). **Do NOT use `resolveAdminAlert`** — it `throw`s for any `isInboxRouted(code)` and a meta-test bans inbox literals from that helper. Instead, resolution is **free** through the existing sync-problem recovery sweep: every clean apply / recovery already calls `resolveStaleSyncProblemAlerts_unlocked(tx, showId, null)` (`runScheduledCronSync.ts:2241,2320,2800`; `runManualSyncForShow.ts:443`), which resolves all open sync-problem alerts for the show except `currentCode`. With `currentCode=null` on a successful apply (status → `ok`), `RESYNC_SHRINK_HELD` is swept closed automatically — whether Doug restored the crew (clean cron) or the admin accepted via manual re-sync. The `resolveSites` in `ADMIN_ALERTS_LIFECYCLE` are exactly `PARSE_ERROR_LAST_GOOD`'s (the same recovery-sweep sites) — mirror that entry.
 
 ## 5. New §12.4 admin-alert code — `RESYNC_SHRINK_HELD`
 
@@ -99,6 +104,10 @@ A pushed admin alert (an `AdminAlertCode`, which is also a §12.4 catalog code).
 | Touchpoint | Change |
 |---|---|
 | `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union, ~:1-35) | add `\| "RESYNC_SHRINK_HELD"` |
+| `lib/notify/constants.ts` `SYNC_PROBLEM_CODES` | add `"RESYNC_SHRINK_HELD"` (→ digest push + realtime tier + recovery sweep membership) |
+| `lib/sync/runScheduledCronSync.ts` `syncProblemCodeForStatus` (:181-188) | add `if (status === "shrink_held") return "RESYNC_SHRINK_HELD";` |
+| `lib/sync/runScheduledCronSync.ts` (tx method) | add `updateShowShrinkHeld(driveFileId, {message})` (sets `last_sync_status='shrink_held'`, `last_sync_error=message`; mirrors `updateShowParseError`) |
+| `lib/admin/syncStatus.ts` (:22-26) + `lib/admin/driveConnectionHealth.ts` | add a `'shrink_held'` case (degraded sync-problem tier, mirror `'parse_error'`) |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` `ADMIN_ALERTS_CODES` (~:58) | add code |
 | …`WRITE_SITES` (~:108) | add the `runScheduledCronSync.ts` shrink-hold raise site |
 | …`ADMIN_ALERTS_LIFECYCLE` (~:313) | `{ class: "auto", resolveSites: [<apply-success site>] }` |
@@ -113,7 +122,7 @@ A pushed admin alert (an `AdminAlertCode`, which is also a §12.4 catalog code).
 
 ## 5b. Alert surfaces & the re-sync action
 
-**Surface — Needs Attention (not Data Quality).** `adminSurface: "inbox"` routes `RESYNC_SHRINK_HELD` into the **Needs Attention** inbox aggregator (`isInboxRouted` from `lib/messages/adminSurface.ts`, computed from the catalog `adminSurface` field), exactly like its peers `PARSE_ERROR_LAST_GOOD` / `SHEET_UNAVAILABLE`. It also renders on the per-show alert card (`components/admin/PerShowAlertSection.tsx`) and pushes via the notify digest. It is deliberately **NOT** the passive `DataQualityBadge` — that quiet band is the exact gap audit finding #3 calls out.
+**Surface — Needs Attention (not Data Quality).** `adminSurface: "inbox"` routes `RESYNC_SHRINK_HELD` into the **Needs Attention** inbox aggregator (`isInboxRouted` from `lib/messages/adminSurface.ts`, computed from the catalog `adminSurface` field), exactly like its peers `PARSE_ERROR_LAST_GOOD` / `SHEET_UNAVAILABLE`. It also renders on the per-show alert card (`components/admin/PerShowAlertSection.tsx`) and — because it is now in `SYNC_PROBLEM_CODES` (D7) — is a **notify-digest** candidate (`lib/notify/detect/candidates.ts` selects `admin_alerts` whose `code = any(SYNC_PROBLEM_CODES)`), pushed like its peers after the staleness threshold. It is deliberately **NOT** the passive `DataQualityBadge` — that quiet band is the exact gap audit finding #3 calls out.
 
 **Re-sync action on the alert.** The alert carries an action link so the admin can accept (apply) the held shrink directly from the alert, without hunting for the control. Register `RESYNC_SHRINK_HELD` in the action-link registry (`lib/adminAlerts/alertActions.ts` — `ALERT_ACTION_CODES` + `ALERT_ACTIONS`), reusing the existing `shareAccess`-style slug builder:
 
@@ -174,10 +183,11 @@ Derive expectations from fixture dimensions (not hardcoded).
 3. **phase1: MI-6/MI-7 (mode `"manual"`) → NOT held.** Same shrink but `mode:"manual"` → `outcome` is `pass`/`auto_apply_with_holds` (applies). Catches: the accept path silently holding.
 4. **phase1: MI-6 + MI-11 (cron) → `shrink_held`.** Prior 5/Alice@old → next 2/Alice@new; assert held (no apply → no clobber, no ungated email). Catches: routing the combined case to auto-apply.
 5. **phase1: benign drift unchanged.** (a) MI-11-only + crew growth → `auto_apply_with_holds`, no hold (matches `cutover.retireLivePendingSyncs.test.ts:57`, stays green). (b) MI-7b rename stable count → applies. (c) `crewDrop==1` → applies. Catches: over-holding benign edits / off-by-one.
-6. **DB-backed: hold retains last-good + raises alert.** Seed published show + 5 crew; run cron pipeline with a 2-crew parse; assert (a) the 5 live `crew_members` rows are **still present** (no clobber), (b) an open `admin_alerts` row `code=RESYNC_SHRINK_HELD` for the show, (c) `shows.last_sync_status` unchanged (`ok`). Catches: the core data-loss bug + missing signal.
-7. **DB-backed: resolution on apply.** After a hold, run a clean re-sync (crew restored) OR a manual re-sync (accept); assert the open `RESYNC_SHRINK_HELD` alert is resolved (`resolved_at` set). Catches: a stuck-open alert (lifecycle `auto` contract).
-8. **Alert action link.** `resolveAlertAction("RESYNC_SHRINK_HELD", ctx, {slug})` → `{label:"Review & re-sync", href:"/admin/show/<slug>"}`; slug missing → `null` (fail-quiet). (`tests/adminAlerts/alertActions.test.ts`.) Catches: an unregistered code (no link) or a link that renders with a broken/empty slug.
-9. **Meta-tests stay green:** `_metaAdminAlertCatalog` (new code registered: union + `ADMIN_ALERTS_CODES` + `WRITE_SITES` + `LIFECYCLE` class `auto` + resolveSite; non-null `dougFacing`); x1 catalog parity; x2 no-raw-codes; `alertActions.test.ts` registry row; `cutover.retireLivePendingSyncs.test.ts` (unchanged — this design never inserts a live `pending_sync`).
+6. **DB-backed: hold retains last-good + raises alert + sets status.** Seed published show + 5 crew; run cron pipeline with a 2-crew parse; assert (a) the 5 live `crew_members` rows are **still present** (no clobber), (b) an open `admin_alerts` row `code=RESYNC_SHRINK_HELD` for the show, (c) `shows.last_sync_status = 'shrink_held'`. Catches: the core data-loss bug + missing signal + missing status.
+7. **DB-backed: auto-resolve via the recovery sweep.** After a hold, run a clean re-sync (crew restored → status `ok`) OR a manual re-sync (accept); assert the open `RESYNC_SHRINK_HELD` alert is resolved (`resolved_at` set) by the existing `resolveStaleSyncProblemAlerts_unlocked(...,null)` path — NOT via `resolveAdminAlert`. Catches: a stuck-open inbox alert / a throwing `resolveAdminAlert` call (Codex R6 finding 1).
+8. **Digest candidacy + status mapping.** Assert `SYNC_PROBLEM_CODES` includes `RESYNC_SHRINK_HELD` and `syncProblemCodeForStatus("shrink_held") === "RESYNC_SHRINK_HELD"`; and that a status consumer (`syncStatus.ts`) classifies `'shrink_held'` as a degraded sync-problem tier (not `ok`). Catches: the alert never reaching the digest (Codex R6 finding 2) / an unclassified status.
+9. **Alert action link.** `resolveAlertAction("RESYNC_SHRINK_HELD", ctx, {slug})` → `{label:"Review & re-sync", href:"/admin/show/<slug>"}`; slug missing → `null` (fail-quiet). (`tests/adminAlerts/alertActions.test.ts`.) Catches: an unregistered code (no link) or a link that renders with a broken/empty slug.
+10. **Meta-tests stay green:** `_metaAdminAlertCatalog` (new code registered: union + `ADMIN_ALERTS_CODES` + `WRITE_SITES` + `LIFECYCLE` class `auto` + `PARSE_ERROR_LAST_GOOD`-mirrored resolveSites; non-null `dougFacing`); x1 catalog parity; x2 no-raw-codes; `alertActions.test.ts` registry row; any `SYNC_PROBLEM_CODES` pin test (`tests/notify/*`); `cutover.retireLivePendingSyncs.test.ts` (unchanged — this design never inserts a live `pending_sync`).
 
 ## 9. Disagreement-loop preempt (for adversarial review)
 
@@ -188,7 +198,7 @@ Derive expectations from fixture dimensions (not hardcoded).
 - **"This re-inserts live `pending_syncs` / reverses the PF34 cutover."** No — this design never writes a `pending_sync`; it retains last-good like the hard-fail path. `cutover.retireLivePendingSyncs.test.ts` stays green unchanged.
 - **"Add a general worse-than-last-good comparator."** Out of scope — `MI-6`/`MI-7` are the comparator (audit lists a general one as optional "consider…").
 - **"Gate MI-7b too."** Excluded (D3) — MI-7b fires on benign renames; holding it would nag on normal edits.
-- **"The held show should change `last_sync_status`."** Deliberately not (D7) — last-good is genuinely fine (`ok`); the pushed alert is the signal (the audit's actual gap). Avoids a status-enum migration + consumer churn.
+- **"Auto-resolve should call `resolveAdminAlert` / a bespoke resolver."** No — `RESYNC_SHRINK_HELD` is a peer sync-problem code (D7): it sets `last_sync_status='shrink_held'` and is in `SYNC_PROBLEM_CODES`, so the existing recovery sweep (`resolveStaleSyncProblemAlerts_unlocked(...,null)`) auto-resolves it on the next clean apply — the same mechanism that resolves `PARSE_ERROR_LAST_GOOD`. `resolveAdminAlert` is deliberately NOT used (it throws for inbox codes). No new resolve site, no new status migration (`text` column).
 
 ## 10. Why staging was declined (context)
 
@@ -196,7 +206,7 @@ Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the p
 
 ## 11. Meta-test inventory
 
-- **Extends:** `tests/messages/_metaAdminAlertCatalog.test.ts` (new `RESYNC_SHRINK_HELD` across union / `ADMIN_ALERTS_CODES` / `WRITE_SITES` / `ADMIN_ALERTS_LIFECYCLE`), `tests/adminAlerts/alertActions.test.ts` (new action-link registry row), and the §12.4 three-way lockstep (x1/x2/codes-coverage).
+- **Extends:** `tests/messages/_metaAdminAlertCatalog.test.ts` (new `RESYNC_SHRINK_HELD` across union / `ADMIN_ALERTS_CODES` / `WRITE_SITES` / `ADMIN_ALERTS_LIFECYCLE`), `tests/adminAlerts/alertActions.test.ts` (new action-link registry row), any `tests/notify/*` pin of `SYNC_PROBLEM_CODES` (new member), and the §12.4 three-way lockstep (x1/x2/codes-coverage).
 - **Must stay green:** `tests/sync/cutover.retireLivePendingSyncs.test.ts` (no live `pending_sync` written), `tests/app/admin/perShowPage.test.tsx` (unchanged — no review UI added), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no new lock holder; the raise runs inside the already-locked cron tx), `tests/auth/_metaInfraContract.test.ts` (reuses the existing tx-bound `upsertAdminAlert` helper — no new call boundary).
 - **Advisory-lock topology:** unchanged; the shrink-hold branch and the alert raise both run inside the existing per-show `withShowLock` cron tx.
 
@@ -204,7 +214,7 @@ Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the p
 
 - `MI-6` threshold `crewDrop > 1`; `MI-7` `nc < pc/2 || pc <= 2` (transportation populated→null) — reused verbatim from `invariants.ts:251,266,284,302,317`.
 - Held invariant tags: exactly 2 (`MI-6`, `MI-7`).
-- New production edit sites: `phase1.ts` (hold branch + `Phase1Result` variant), `runScheduledCronSync.ts` (caller branch + resolve-site), `upsertAdminAlert.ts` (union), `lib/adminAlerts/alertActions.ts` (action-link row). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New DB schema: 0. New `last_sync_status` values: 0. New UI component files: 0 (reuses `PerShowAlertSection` rendering + `ReSyncButton`).
+- New production edit sites: `phase1.ts` (hold branch + `Phase1Result` variant), `runScheduledCronSync.ts` (caller branch, `updateShowShrinkHeld` tx method, `syncProblemCodeForStatus` case), `upsertAdminAlert.ts` (union), `lib/notify/constants.ts` (`SYNC_PROBLEM_CODES`), `lib/admin/syncStatus.ts` + `driveConnectionHealth.ts` (`'shrink_held'` case), `lib/adminAlerts/alertActions.ts` (action-link row). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New `SYNC_PROBLEM_CODES`: 1. New `last_sync_status` values: 1 (`'shrink_held'`) — **no migration** (column is unconstrained `text`). New DB schema: 0. New UI component files: 0 (reuses `PerShowAlertSection` + `ReSyncButton`). Auto-resolve reuses the existing recovery sweep — 0 new resolve sites.
 
 ## 13. Backlog
 
