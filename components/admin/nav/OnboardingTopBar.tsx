@@ -16,7 +16,23 @@
  */
 import Image from "next/image";
 
-export function OnboardingTopBar({ email }: { email: string }) {
+import type { HealthStatus } from "@/lib/admin/healthRollup";
+import { AppHealthIndicator } from "@/components/admin/nav/AppHealthIndicator";
+
+export function OnboardingTopBar({
+  email,
+  healthRollup,
+  isDeveloper = false,
+}: {
+  email: string;
+  /**
+   * alert-audience-split §5.1 (onboarding chrome): the escalating app-health
+   * rollup, rendered so an active health alert during first-run onboarding is
+   * never dark. Absent → the indicator is not rendered.
+   */
+  healthRollup?: HealthStatus;
+  isDeveloper?: boolean;
+}) {
   const hasEmail = email.trim().length > 0;
 
   return (
@@ -36,8 +52,14 @@ export function OnboardingTopBar({ email }: { email: string }) {
           height={28}
           className="size-7 shrink-0"
         />
-        <span className="text-lg font-semibold tracking-tight text-text-strong">FXAV</span>
-        <span className="rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle">
+        {/* alert-audience-split §8 (Codex R1): mirror AdminNav's progressive
+            brand collapse so the health indicator can't push this slim bar into
+            horizontal overflow on the narrowest phones. Icon always anchors;
+            wordmark returns at ≥360px, the "Setup" pill at ≥440px. */}
+        <span className="hidden text-lg font-semibold tracking-tight text-text-strong min-[360px]:inline">
+          FXAV
+        </span>
+        <span className="hidden rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle min-[440px]:inline-block">
           Setup
         </span>
       </div>
@@ -45,6 +67,9 @@ export function OnboardingTopBar({ email }: { email: string }) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
+        {healthRollup ? (
+          <AppHealthIndicator rollup={healthRollup} isDeveloper={isDeveloper} />
+        ) : null}
         {hasEmail && (
           <span className="hidden max-w-48 truncate text-sm text-text-subtle sm:inline-block">
             {email}

@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 export type AdminAlertGlobalResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -22,6 +23,7 @@ type AlertRow = {
   show_id: string | null;
   slug: string | null;
   resolved_at: string | null;
+  code: string;
 };
 
 function databaseUrl(): string {
@@ -100,7 +102,7 @@ export async function handleAdminAlertGlobalResolve(
     response = await deps.withTx(async (tx) => {
       const row = await tx.queryOne<AlertRow>(
         `
-        select a.id, a.show_id, s.slug, a.resolved_at
+        select a.id, a.show_id, s.slug, a.resolved_at, a.code
           from public.admin_alerts a
           left join public.shows s on s.id = a.show_id
          where a.id = $1::uuid
@@ -109,6 +111,12 @@ export async function handleAdminAlertGlobalResolve(
         [id],
       );
       if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      // alert-audience-split §6.7: HEALTH-audience alerts resolve ONLY through the
+      // dev-gated resolveHealthAlertFormAction — this user-facing route rejects them,
+      // leaving resolved_at unchanged. Plain structural API code (not a §12.4 row).
+      if (HEALTH_CODES.includes(row.code)) {
+        return errorResponse(403, "ALERT_HEALTH_RESOLVE_FORBIDDEN");
+      }
       if (row.show_id !== null) {
         return errorResponse(400, "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE", {
           id,

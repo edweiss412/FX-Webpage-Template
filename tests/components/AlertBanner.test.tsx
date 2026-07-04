@@ -282,7 +282,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "old",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-01T00:00:00Z",
         show_id: null,
         shows: null,
@@ -305,15 +305,17 @@ describe("AlertBanner", () => {
 
   // Codes whose dougFacing copy the AlertBanner can display. Parameterized
   // so a future catalog tweak forces a test update for every code that the
-  // banner is allowed to surface.
+  // banner is allowed to surface. alert-audience-split §5: all must be
+  // `audience: "doug"` (health codes are now banner-EXCLUDED, so they can
+  // never reach the banner and would render nothing here).
   const ADMIN_CODES = [
     "AMBIGUOUS_EMAIL_BINDING",
     "WATCH_CHANNEL_ORPHANED",
-    "WEBHOOK_TOKEN_INVALID",
-    "REPORT_ORPHANED_LOST_LEASE",
-    "GITHUB_BOT_LOGIN_MISSING",
-    "REPORT_LEASE_THRASHING",
-    "TILE_SERVER_RENDER_FAILED",
+    "DRIVE_FETCH_FAILED",
+    "SYNC_STALLED",
+    "EMBEDDED_ASSET_DRIFTED",
+    "REEL_DRIFTED",
+    "SHOW_UNPUBLISHED",
   ] as const satisfies readonly MessageCode[];
 
   for (const code of ADMIN_CODES) {
@@ -335,6 +337,81 @@ describe("AlertBanner", () => {
       );
     });
   }
+
+  // alert-audience-split Task 4 (AC1/AC2/AC10): the banner EXCLUDES health
+  // codes (audience:"health") and info-severity codes, but keeps every other
+  // doug code and — crucially — unknown/uncataloged codes (exclusion, NOT an
+  // allowlist). Unknown codes degrade safely (no raw code string in the DOM).
+  describe("audience exclusion (Task 4)", () => {
+    test("a top health code is EXCLUDED; the next doug code surfaces instead", async () => {
+      setRows([
+        {
+          id: "health-top",
+          code: "WEBHOOK_TOKEN_INVALID", // audience:health, degraded — must NOT surface
+          raised_at: "2026-05-04T12:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+        {
+          id: "doug-next",
+          code: "DRIVE_FETCH_FAILED", // audience:doug — surfaces as the topmost eligible
+          raised_at: "2026-05-04T11:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { getByTestId, container } = render(await AlertBanner());
+      expect(getByTestId("error-explainer-message").textContent).toBe(
+        stripMarkers(MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing!),
+      );
+      // The health code's copy never appears.
+      expect(container.textContent).not.toContain(
+        stripMarkers(MESSAGE_CATALOG.WEBHOOK_TOKEN_INVALID.dougFacing!),
+      );
+    });
+
+    test("SHOW_FIRST_PUBLISHED (info, non-health) stays banner-excluded", async () => {
+      setRows([
+        {
+          id: "info-top",
+          code: "SHOW_FIRST_PUBLISHED", // severity:info — banner-excluded (regression guard)
+          raised_at: "2026-05-04T12:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+        {
+          id: "doug-next",
+          code: "DRIVE_FETCH_FAILED",
+          raised_at: "2026-05-04T11:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { getByTestId } = render(await AlertBanner());
+      expect(getByTestId("error-explainer-message").textContent).toBe(
+        stripMarkers(MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing!),
+      );
+    });
+
+    test("an unknown/uncataloged code stays VISIBLE (counted/rendered) WITHOUT leaking the raw code string (AC7/AC10, invariant 5)", async () => {
+      setRows([
+        {
+          id: "unknown-top",
+          code: "TOTALLY_UNKNOWN_CODE", // ∉ catalog — exclusion-not-allowlist keeps it visible
+          raised_at: "2026-05-04T12:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { getByTestId, container } = render(await AlertBanner());
+      // The banner still mounts (the unknown row was NOT excluded) …
+      expect(getByTestId("admin-alert-banner")).toBeTruthy();
+      // … but the raw code string never reaches the DOM (unknown-code guard →
+      // null copy → safe degraded shell). Strip data-testid values first.
+      const stripped = container.innerHTML.replace(/data-testid="[^"]*"/g, "");
+      expect(stripped).not.toContain("TOTALLY_UNKNOWN_CODE");
+    });
+  });
 
   test("INVARIANT 5: no raw error codes in rendered DOM (outside data-testid attributes)", async () => {
     setRows([
@@ -412,7 +489,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-with-resolve",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -449,14 +526,14 @@ describe("AlertBanner", () => {
   // C0 round-6 M1: prove that AlertBanner threads admin_alerts.context
   // through ErrorExplainer's `params` so renderer interpolation
   // substitutes <placeholder> tokens (e.g., <sheet-name> for
-  // TILE_SERVER_RENDER_FAILED). Without this assertion, the R5 plumbing
+  // SHOW_UNPUBLISHED). Without this assertion, the R5 plumbing
   // could regress without any test failing — the catalog interpolation
   // unit test only exercises messageFor directly.
   test("AlertBanner threads admin_alerts.context through ErrorExplainer for placeholder substitution", async () => {
     setRows([
       {
         id: "tile-failed-1",
-        code: "TILE_SERVER_RENDER_FAILED",
+        code: "SHOW_UNPUBLISHED",
         raised_at: "2026-05-04T11:00:00Z",
         show_id: "11111111-1111-4111-8111-111111111111",
         context: { tileId: "lodging-tile", message: "boom", sheet_name: "Spring Conference" },
@@ -475,7 +552,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "tile-failed-no-ctx",
-        code: "TILE_SERVER_RENDER_FAILED",
+        code: "SHOW_UNPUBLISHED",
         raised_at: "2026-05-04T12:00:00Z",
         show_id: "11111111-1111-4111-8111-111111111111",
         context: null,
@@ -491,7 +568,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-with-time",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T11:46:00Z", // 14 minutes before mock now
         show_id: null,
         shows: null,
@@ -522,28 +599,28 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "top",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "queued-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T09:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "queued-2",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T08:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "queued-3",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T07:00:00Z",
         show_id: null,
         shows: null,
@@ -582,7 +659,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "unresolved-top",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -590,14 +667,14 @@ describe("AlertBanner", () => {
       },
       {
         id: "unresolved-queued",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T09:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "RESOLVED-row",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T11:00:00Z", // newest, but RESOLVED — must be hidden
         show_id: null,
         shows: null,
@@ -617,7 +694,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "only-one",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -631,7 +708,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-resolve-idle",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -665,7 +742,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "global-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -706,7 +783,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "global-2",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -723,7 +800,7 @@ describe("AlertBanner", () => {
     // of dougFacing (emphasis stripped) — no mid-word truncation. Anti-tautology:
     // derive the expectation from the catalog via the SAME helpers the component
     // uses (firstSentence ∘ stripEmphasis), never hardcoded.
-    const CODE = "TILE_SERVER_RENDER_FAILED" satisfies MessageCode;
+    const CODE = "SHOW_UNPUBLISHED" satisfies MessageCode;
     setRows([
       {
         id: "emph-1",
@@ -801,7 +878,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "badge-250",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -818,7 +895,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "chip-250",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -835,7 +912,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "single-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -857,7 +934,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -943,7 +1020,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "infra-count",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1029,7 +1106,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "swap-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1059,7 +1136,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "swap-2",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1100,7 +1177,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "swap-recover",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1192,7 +1269,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "g1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1407,7 +1484,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "g-after",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T11:00:00Z",
         show_id: null,
         shows: null,

@@ -4,6 +4,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 export type AdminAlertShowResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -117,6 +118,12 @@ export async function handleAdminAlertShowResolve(
         [id, show.id],
       );
       if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      // alert-audience-split §6.7: HEALTH-audience alerts resolve ONLY through the
+      // dev-gated resolveHealthAlertFormAction — this user-facing route rejects them,
+      // leaving resolved_at unchanged. Plain structural API code (not a §12.4 row).
+      if (HEALTH_CODES.includes(row.code)) {
+        return errorResponse(403, "ALERT_HEALTH_RESOLVE_FORBIDDEN");
+      }
       if (row.resolved_at) {
         return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
       }

@@ -66,6 +66,12 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
     code: "ADMIN_ALERT_RESOLVED",
   },
+  // alert-audience-split Task 9: dev-gated health-alert resolve Server Action
+  // (REUSES ADMIN_ALERT_RESOLVED — already SANCTIONED via the resolve routes).
+  {
+    file: "app/admin/actions.ts",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
   {
     file: "app/api/admin/pending-ingestions/[id]/discard/route.ts",
     code: "PENDING_INGESTION_DISCARDED",

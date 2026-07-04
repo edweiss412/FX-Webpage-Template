@@ -32,7 +32,7 @@ import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { resolveAdminAlertFormAction, retryWatchSubscriptionFormAction } from "@/app/admin/actions";
-import { BANNER_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
+import { DOUG_SURFACE_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { nowDate } from "@/lib/time/now";
 import { formatBoundedCount } from "@/lib/format/count";
@@ -110,11 +110,11 @@ export async function AlertBanner() {
         .from("admin_alerts")
         .select("id, code, raised_at, show_id, context, occurrence_count, shows(slug)")
         .is("resolved_at", null);
-      if (BANNER_EXCLUDED_CODES.length > 0) {
+      if (DOUG_SURFACE_EXCLUDED_CODES.length > 0) {
         query = query.not(
           "code",
           "in",
-          `(${BANNER_EXCLUDED_CODES.map((code) => `"${code}"`).join(",")})`,
+          `(${DOUG_SURFACE_EXCLUDED_CODES.map((code) => `"${code}"`).join(",")})`,
         );
       }
       const result = await query.order("raised_at", { ascending: false }).limit(1);

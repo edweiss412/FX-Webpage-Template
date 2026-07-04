@@ -29,6 +29,7 @@ import { readFinalizeCheckpoint, isInfraError } from "@/app/admin/_finalizeCheck
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
+import { fetchHealthRollup, type HealthStatus } from "@/lib/admin/healthRollup";
 
 export const dynamic = "force-dynamic";
 
@@ -58,12 +59,23 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // filter costs no extra wall-time on the happy path. isCurrentUserDeveloper is
   // fail-to-false (never rejects), so a Promise.all rejection here is always the
   // identity read's AdminInfraError/redirect/forbidden — handled below unchanged.
+  // alert-audience-split §5.1: resolve the app-health rollup in the SAME parallel
+  // batch as the identity/developer reads so the escalating nav indicator costs no
+  // extra wall-time on the happy path. fetchHealthRollup short-circuits to a single
+  // cheap count in the common healthy state and NEVER rejects (returns
+  // { kind:"infra_error" }), so a Promise.all rejection here is still always the
+  // identity read's fault, handled below unchanged. Computed BEFORE the
+  // `inOnboarding` branch so BOTH the full nav and the slim onboarding chrome can
+  // render it — health codes no longer surface on the amber banner/bell/per-show,
+  // so this indicator is the only place they escalate ("nothing goes dark").
   let identity: Awaited<ReturnType<typeof requireAdminIdentity>>;
   let viewerIsDeveloper = false;
+  let healthRollup: HealthStatus = { kind: "infra_error" };
   try {
-    [identity, viewerIsDeveloper] = await Promise.all([
+    [identity, viewerIsDeveloper, healthRollup] = await Promise.all([
       requireAdminIdentity({ layer: "layout" }),
       isCurrentUserDeveloper(),
+      fetchHealthRollup(),
     ]);
   } catch (err) {
     if (err instanceof AdminInfraError) {
@@ -131,7 +143,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         // bar to clear, so the mobile-bottom-bar reservation is dropped.
         className="mx-auto max-w-[1600px] p-page-pad-mobile sm:p-page-pad-desktop"
       >
-        <OnboardingTopBar email={adminEmail} />
+        <OnboardingTopBar
+          email={adminEmail}
+          healthRollup={healthRollup}
+          isDeveloper={viewerIsDeveloper}
+        />
         <PageTransition>{children}</PageTransition>
       </div>
     );
@@ -165,6 +181,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         alertCount={alertCount}
         initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
         viewerIsDeveloper={viewerIsDeveloper}
+        healthRollup={healthRollup}
       />
 
       {/* M12.3 items 1+2: the global AlertBanner is no longer mounted in the

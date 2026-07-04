@@ -16,6 +16,7 @@
  * pinned to that row).
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
@@ -116,12 +117,21 @@ export async function fetchPerShowAlerts(
     };
   }
   try {
-    const { data, error } = await supabase
+    // alert-audience-split §5: exclude `audience: "health"` codes from the
+    // per-show Doug surface (they flow to the app-health indicator instead).
+    // HEALTH ONLY — do NOT exclude info-severity here (unlike the banner/bell),
+    // so SHOW_FIRST_PUBLISHED keeps its existing per-show affordance. Unknown
+    // codes stay visible (exclusion, not allowlist). The `.not(...in...)` value
+    // list must be non-empty, so guard it.
+    let query = supabase
       .from("admin_alerts")
       .select("id, code, context, raised_at")
       .eq("show_id", showId)
-      .is("resolved_at", null)
-      .order("raised_at", { ascending: false });
+      .is("resolved_at", null);
+    if (HEALTH_CODES.length > 0) {
+      query = query.not("code", "in", `(${HEALTH_CODES.map((c) => `"${c}"`).join(",")})`);
+    }
+    const { data, error } = await query.order("raised_at", { ascending: false });
     if (error) {
       return {
         kind: "infra_error",

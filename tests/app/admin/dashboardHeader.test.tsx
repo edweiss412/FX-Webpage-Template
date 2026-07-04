@@ -39,6 +39,9 @@ vi.mock("@/components/admin/Dashboard", () => ({
 vi.mock("@/components/admin/AlertBanner", () => ({
   AlertBanner: () => null,
 }));
+// AppHealthPanel is an async Server Component (own fetchHealthRollup read); stub
+// it like AlertBanner so RTL can render the sync dashboard tree.
+vi.mock("@/components/admin/AppHealthPanel", () => ({ AppHealthPanel: () => null }));
 
 async function renderAdminPage() {
   const mod = await import("@/app/admin/page");

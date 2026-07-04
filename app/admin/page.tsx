@@ -41,6 +41,7 @@ import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
 import { StaleReadyToPublish } from "@/components/admin/StaleReadyToPublish";
 import { Dashboard } from "@/components/admin/Dashboard";
 import { AlertBanner } from "@/components/admin/AlertBanner";
+import { AppHealthPanel } from "@/components/admin/AppHealthPanel";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import {
   readFinalizeCheckpoint,
@@ -112,6 +113,11 @@ function DashboardWithHeader({
       <div id="alerts">
         <AlertBanner />
       </div>
+      {/* alert-audience-split §6.5: the ambient app-health strip. Health-audience
+          alerts no longer surface on the amber banner above, so this panel (own
+          pinned fetchHealthRollup read) is where they escalate on the dashboard —
+          and it shows the healthy "All systems normal" state explicitly. */}
+      <AppHealthPanel />
       <Dashboard {...(bucket ? { bucket } : {})} folderName={folderName ?? null} />
     </>
   );

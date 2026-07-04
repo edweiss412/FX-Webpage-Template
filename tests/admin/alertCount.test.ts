@@ -80,7 +80,7 @@ it("numeric 0 → clean { kind:'ok', count:0 } (the ONLY clean no-badge state)",
   state.count = 0;
   expect(await fetchUnresolvedAlertCount()).toEqual({ kind: "ok", count: 0 });
 });
-it("excludes inbox-routed codes from the unresolved count clause", async () => {
+it("excludes inbox-routed + info + health codes from the unresolved count clause", async () => {
   state.count = 0;
   await fetchUnresolvedAlertCount();
   const clause = state.notArgs.map((a) => String(a[2] ?? "")).join(" ");
@@ -88,6 +88,13 @@ it("excludes inbox-routed codes from the unresolved count clause", async () => {
   expect(clause).toContain("PARSE_ERROR_LAST_GOOD");
   // still excludes info-severity (regression)
   expect(clause).toContain("ROLE_FLAGS_NOTICE");
+  // NEW (alert-audience-split §5): health codes are excluded from Doug's bell
+  // count too — degraded + notice health codes drop out of the amber count.
+  expect(clause).toContain("WEBHOOK_TOKEN_INVALID"); // degraded health
+  expect(clause).toContain("TILE_SERVER_RENDER_FAILED"); // degraded health
+  // Exclusion-not-allowlist: a genuine doug code is NOT in the exclusion clause,
+  // so it still counts (unknown codes likewise stay counted — no allowlist).
+  expect(clause).not.toContain("DRIVE_FETCH_FAILED");
 });
 it("invariant 9: destructures { data, error } from the query (not bare { count, error })", () => {
   const src = readFileSync("lib/admin/alertCount.ts", "utf8");
