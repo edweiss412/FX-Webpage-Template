@@ -1,15 +1,20 @@
 // @vitest-environment jsdom
 //
-// M12.2 Phase B1 Task 8.3 — DevToolsRow (DEV_PANEL_PRESENT === true case).
+// M12.2 Phase B1 Task 8.3 + developer-tier Task 14 — DevToolsRow
+// (DEV_PANEL_PRESENT === true case).
 //
 // Concrete failure mode pinned: keying off runtime
 // `process.env.ADMIN_DEV_PANEL_ENABLED` instead of the build-time
 // `DEV_PANEL_PRESENT` constant. Keying off runtime env would render a link to
 // an absent /admin/dev 404 route in a prod build whose runtime env flips true
 // (the M3 build-vs-runtime class). This file mocks the GENERATED constant to
-// true; the row renders ONLY because the build-time constant is true. The
-// false (default) case lives in DevToolsRow.absent.test.tsx, which deliberately
-// does not mock — proving the committed-false constant renders nothing.
+// true; the row renders ONLY because the build-time constant is true AND the
+// runtime `isDeveloper` gate is true.
+//
+// developer-tier Task 14 (spec §6 row 4): the row is now ALSO gated on the
+// runtime `isDeveloper` prop — a normal admin (isDeveloper=false) never sees the
+// Developer-tools entrypoint even in a dev-flag build. The false (build-time)
+// case lives in DevToolsRow.absent.test.tsx.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -23,13 +28,25 @@ import { DevToolsRow } from "@/components/admin/settings/DevToolsRow";
 afterEach(cleanup);
 
 describe("DevToolsRow — DEV_PANEL_PRESENT true", () => {
-  it("renders 'Developer tools' row + [Open] → /admin/dev", () => {
-    render(<DevToolsRow />);
+  it("isDeveloper={true} → renders 'Developer tools' row + [Open] → /admin/dev", () => {
+    render(<DevToolsRow isDeveloper={true} />);
 
     expect(screen.getByTestId("admin-dev-tools-row")).toBeInTheDocument();
     expect(screen.getByText("Developer tools")).toBeInTheDocument();
     const open = screen.getByTestId("admin-dev-tools-open");
     expect(open).toHaveAttribute("href", "/admin/dev");
     expect(open).toHaveTextContent("Open");
+  });
+
+  it("isDeveloper={false} → renders nothing (normal admin never sees dev tools)", () => {
+    const { container } = render(<DevToolsRow isDeveloper={false} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId("admin-dev-tools-row")).toBeNull();
+  });
+
+  it("isDeveloper absent → treated as false (safe default) → renders nothing", () => {
+    const { container } = render(<DevToolsRow />);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId("admin-dev-tools-row")).toBeNull();
   });
 });
