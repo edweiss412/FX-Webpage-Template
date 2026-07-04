@@ -10,11 +10,14 @@
  *                        only active admin is refused inside the RPC
  *                        (LAST_ADMIN_LOCKOUT_REFUSED catalog code).
  *
- * Defense-in-depth: every action calls requireAdminIdentity() so the
- * caller is always re-authorized at the Server Action boundary. If the
- * helper throws AdminInfraError (Supabase / cookie store fault), Next
- * propagates the throw to the catalog 500 surface — actions DO NOT
- * swallow infra faults into benign action results (AGENTS.md §1.9).
+ * Defense-in-depth: every action calls requireDeveloperIdentity() so the
+ * caller is always re-authorized at the Server Action boundary. Part B
+ * (§3.1): admin-roster management (Add / Revoke / Re-add) is now
+ * developer-only — this supersedes the developer-tier's "any admin can
+ * revoke any admin" §5.5 risk. If the helper throws DeveloperInfraError
+ * (Supabase / cookie store fault), Next propagates the throw to the
+ * catalog 500 surface — actions DO NOT swallow infra faults into benign
+ * action results (AGENTS.md §1.9).
  *
  * R3 fix: actor identity is owned by the two SECURITY DEFINER RPCs
  * (upsert_admin_email_rpc + revoke_admin_email_rpc) — they derive
@@ -35,7 +38,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { addAdminEmail, revokeAdminEmail, AdminEmailsInfraError } from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -57,10 +60,10 @@ export type AdminEmailActionResult =
   // can't-revoke-the-only-admin case (a different message).
   | { kind: "self_revoke_forbidden"; email: string }
   // Task 6.4: the data-layer mutation hit an AdminEmailsInfraError
-  // (transient DB / permissions fault) AFTER the requireAdminIdentity
+  // (transient DB / permissions fault) AFTER the requireDeveloperIdentity
   // gate passed. Surfaced inline + retryable by all three write UI
   // surfaces (ADMIN_EMAIL_WRITE_FAILED) instead of tearing down the
-  // settings section. Gate AdminInfraError still propagates to the
+  // settings section. Gate DeveloperInfraError still propagates to the
   // catalog 500 boundary — it is NOT mapped to this kind.
   | { kind: "infra_error" };
 
@@ -68,12 +71,12 @@ export async function addAdminAction(
   _prev: AdminEmailActionResult | null,
   formData: FormData,
 ): Promise<AdminEmailActionResult> {
-  // Defense-in-depth admin gate at the Server Action boundary. If the
-  // session is missing or Supabase throws an infra fault, the
-  // AdminInfraError propagates to Next's error boundary (cataloged 500
-  // path) — invariant 9: infra faults are never swallowed into a
-  // benign action result.
-  await requireAdminIdentity();
+  // Defense-in-depth developer gate at the Server Action boundary (Part B
+  // §3.1 — admin-roster management is developer-only). If the session is
+  // missing or Supabase throws an infra fault, the DeveloperInfraError
+  // propagates to Next's error boundary (cataloged 500 path) — invariant 9:
+  // infra faults are never swallowed into a benign action result.
+  await requireDeveloperIdentity();
 
   const rawEmail = formData.get("email");
   const note = formData.get("note");
@@ -118,7 +121,7 @@ export async function addAdminAction(
     });
   } catch (err) {
     if (err instanceof AdminEmailsInfraError) return { kind: "infra_error" };
-    throw err; // gate AdminInfraError, Next control-flow digests, unknown → boundary
+    throw err; // gate DeveloperInfraError, Next control-flow digests, unknown → boundary
   }
 
   switch (outcome.kind) {
@@ -151,11 +154,11 @@ export async function revokeAdminAction(
   _prev: AdminEmailActionResult | null,
   formData: FormData,
 ): Promise<AdminEmailActionResult> {
-  // Defense-in-depth admin gate. AdminInfraError propagates per
-  // invariant 9 (see addAdminAction docstring). Capture the identity so the
-  // self-revoke guard below compares against the AUTHENTICATED actor, never a
-  // client-supplied field.
-  const identity = await requireAdminIdentity();
+  // Defense-in-depth developer gate (Part B §3.1). DeveloperInfraError
+  // propagates per invariant 9 (see addAdminAction docstring). Capture the
+  // identity so the self-revoke guard below compares against the AUTHENTICATED
+  // actor, never a client-supplied field.
+  const identity = await requireDeveloperIdentity();
 
   const rawEmail = formData.get("email");
   if (typeof rawEmail !== "string") return { kind: "invalid_email" };
@@ -182,7 +185,7 @@ export async function revokeAdminAction(
     outcome = await revokeAdminEmail({ rawEmail });
   } catch (err) {
     if (err instanceof AdminEmailsInfraError) return { kind: "infra_error" };
-    throw err; // gate AdminInfraError, Next control-flow digests, unknown → boundary
+    throw err; // gate DeveloperInfraError, Next control-flow digests, unknown → boundary
   }
 
   switch (outcome.kind) {

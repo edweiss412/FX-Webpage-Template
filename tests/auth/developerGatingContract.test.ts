@@ -23,9 +23,10 @@
  *          Supabase-client construction) before it (so DeveloperInfraError is
  *          caught and returned as a cataloged typed inline error — §6.1 R4 fix).
  *      Set-equality: discovered exported server actions == registry action rows.
- *   2. Admin-gate assertion (Codex spec R6): admins/actions.ts's addAdminAction +
- *      revokeAdminAction stay requireAdminIdentity-gated (NOT developer, NOT
- *      ungated) — normal-admin management must remain admin-usable.
+ *   2. Developer-gate assertion (Part B §3.1): admins/actions.ts's addAdminAction +
+ *      revokeAdminAction are requireDeveloperIdentity-gated (NOT admin, NOT
+ *      ungated) — admin-roster management is now developer-only (this milestone
+ *      supersedes the developer-tier's "any admin can revoke any admin" §5.5 risk).
  *   3. Route/page coverage: the dev page + 2 harnesses + observability page +
  *      reap route are in PROTECTED_ROUTES with a chain starting requireDeveloper.
  *   4. Mutation-RPC SQL guard (Codex spec R9+R10): set_admin_developer_rpc's
@@ -35,7 +36,7 @@
  *      membership mutation).
  *
  * These assertions are anti-tautological: each fails against a real regression —
- * a removed/moved gate (1), a swapped admin gate (2), a dropped route row (3),
+ * a removed/moved gate (1), a reverted developer gate (2), a dropped route row (3),
  * or an `exists`-check → `public.is_developer()` swap in the RPC (4).
  */
 import { readFileSync } from "node:fs";
@@ -128,9 +129,9 @@ const DEVELOPER_GATED_SURFACES: readonly DeveloperGatedSurface[] = [
   },
 ];
 
-const ADMIN_GATED_ACTION_FILE = "app/admin/settings/admins/actions.ts";
-const ADMIN_GATED_ACTIONS = ["addAdminAction", "revokeAdminAction"] as const;
-const ADMIN_GATE = "requireAdminIdentity";
+const DEVELOPER_GATED_ACTION_FILE = "app/admin/settings/admins/actions.ts";
+const DEVELOPER_GATED_ACTIONS = ["addAdminAction", "revokeAdminAction"] as const;
+const DEVELOPER_GATE = "requireDeveloperIdentity";
 
 const DEVELOPER_TIER_MIGRATION =
   "supabase/migrations/20260703230100_admin_emails_developer_tier.sql";
@@ -294,26 +295,29 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
     );
   });
 
-  describe("enforcement 2: admins/actions.ts stays admin-gated (Codex spec R6)", () => {
-    test("addAdminAction + revokeAdminAction are requireAdminIdentity-gated (not developer, not ungated)", () => {
-      const sf = loadSourceFile(ADMIN_GATED_ACTION_FILE);
+  describe("enforcement 2: admins/actions.ts is developer-gated (Part B §3.1)", () => {
+    test("addAdminAction + revokeAdminAction are requireDeveloperIdentity-gated (not admin, not ungated)", () => {
+      const sf = loadSourceFile(DEVELOPER_GATED_ACTION_FILE);
       expect(hasFileLevelUseServer(sf)).toBe(true);
 
       const discovered = getExportedAsyncActionNames(sf);
       expect(
         discovered,
-        `${ADMIN_GATED_ACTION_FILE}: exported server actions must equal the admin-gated pair`,
-      ).toEqual([...ADMIN_GATED_ACTIONS].sort());
+        `${DEVELOPER_GATED_ACTION_FILE}: exported server actions must equal the developer-gated pair`,
+      ).toEqual([...DEVELOPER_GATED_ACTIONS].sort());
 
-      for (const name of ADMIN_GATED_ACTIONS) {
+      for (const name of DEVELOPER_GATED_ACTIONS) {
         const body = getActionBody(sf, name);
-        expect(body, `${ADMIN_GATED_ACTION_FILE}#${name}: must have a block body`).toBeDefined();
+        expect(
+          body,
+          `${DEVELOPER_GATED_ACTION_FILE}#${name}: must have a block body`,
+        ).toBeDefined();
         const first = body!.getStatements()[0];
         const gate = awaitCalleeNameOf(first);
         expect(
           gate,
-          `${ADMIN_GATED_ACTION_FILE}#${name}: must stay ${ADMIN_GATE}-gated (a swap to requireDeveloper* or an ungated first statement fails here); got ${gate ?? first?.getKindName() ?? "none"}`,
-        ).toBe(ADMIN_GATE);
+          `${DEVELOPER_GATED_ACTION_FILE}#${name}: must stay ${DEVELOPER_GATE}-gated (a revert to requireAdminIdentity or an ungated first statement fails here); got ${gate ?? first?.getKindName() ?? "none"}`,
+        ).toBe(DEVELOPER_GATE);
       }
     });
   });
