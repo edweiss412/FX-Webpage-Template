@@ -37,6 +37,7 @@ function mapResult(result: RescanResult): Record<string, unknown> {
         status: "updated",
         needsReview: result.needsReview,
         changed: result.changed,
+        demoted: result.demoted,
       };
     case "needs_attention":
     case "busy":

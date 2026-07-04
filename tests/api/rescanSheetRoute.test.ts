@@ -47,7 +47,12 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
   test("requires admin BEFORE parsing the body or rescanning (a throw propagates)", async () => {
     const rejected = new Error("forbidden");
     adminMock.requireAdmin.mockRejectedValueOnce(rejected);
-    const rescan = rescanMock({ status: "updated", needsReview: false, changed: true });
+    const rescan = rescanMock({
+      status: "updated",
+      needsReview: false,
+      changed: true,
+      demoted: false,
+    });
 
     await expect(
       handleRescanSheet(req({ driveFileId: DRIVE, wizardSessionId: SESSION }), {
@@ -65,7 +70,12 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
     ["empty-string driveFileId", { driveFileId: "", wizardSessionId: SESSION }],
     ["no body at all", undefined],
   ])("400 malformed-body + no rescan when %s", async (_label, body) => {
-    const rescan = rescanMock({ status: "updated", needsReview: false, changed: true });
+    const rescan = rescanMock({
+      status: "updated",
+      needsReview: false,
+      changed: true,
+      demoted: false,
+    });
     const res = await handleRescanSheet(req(body), { rescanWizardSheet: rescan });
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
@@ -82,7 +92,12 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
   ])("400 + no rescan when wizardSessionId is %s", async (_label, badSession) => {
     // Passes the non-empty-string check but is not a UUID — must 400 BEFORE reaching
     // the core's `::uuid` SQL casts (which would otherwise infra-500). Spec §5.1.
-    const rescan = rescanMock({ status: "updated", needsReview: false, changed: true });
+    const rescan = rescanMock({
+      status: "updated",
+      needsReview: false,
+      changed: true,
+      demoted: false,
+    });
     const res = await handleRescanSheet(req({ driveFileId: DRIVE, wizardSessionId: badSession }), {
       rescanWizardSheet: rescan,
     });
@@ -94,7 +109,12 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
   });
 
   test("forwards driveFileId, wizardSessionId, and rescanDeps to the core", async () => {
-    const rescan = rescanMock({ status: "updated", needsReview: true, changed: false });
+    const rescan = rescanMock({
+      status: "updated",
+      needsReview: true,
+      changed: false,
+      demoted: true,
+    });
     const rescanDeps = { afterDriveRead: () => undefined };
     await handleRescanSheet(req({ driveFileId: DRIVE, wizardSessionId: SESSION }), {
       rescanWizardSheet: rescan,
@@ -106,12 +126,12 @@ describe("POST /api/admin/onboarding/rescan-sheet", () => {
 
   test.each<[RescanResult, Record<string, unknown>]>([
     [
-      { status: "updated", needsReview: false, changed: true },
-      { ok: true, status: "updated", needsReview: false, changed: true },
+      { status: "updated", needsReview: false, changed: true, demoted: false },
+      { ok: true, status: "updated", needsReview: false, changed: true, demoted: false },
     ],
     [
-      { status: "updated", needsReview: true, changed: false },
-      { ok: true, status: "updated", needsReview: true, changed: false },
+      { status: "updated", needsReview: true, changed: false, demoted: true },
+      { ok: true, status: "updated", needsReview: true, changed: false, demoted: true },
     ],
     [
       { status: "needs_attention", code: "DRIVE_FETCH_FAILED" },

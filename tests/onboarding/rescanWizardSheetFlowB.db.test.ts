@@ -512,7 +512,12 @@ describe("rescanWizardSheet — Flow B blocker heal (real DB, end-to-end)", () =
         SESSION,
         rescanDeps(makeParse("Blocked", CREW_STAGED)),
       );
-      expect(result).toEqual({ status: "updated", needsReview: false, changed: true });
+      expect(result).toEqual({
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      });
 
       // Orphan shadow deleted; a fresh approved pending row re-stamped with base == CURRENT live.
       expect(await shadowCount(BLOCKED)).toBe(0);
