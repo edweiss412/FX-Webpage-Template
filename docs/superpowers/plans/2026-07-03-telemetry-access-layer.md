@@ -33,7 +33,7 @@
 ## File structure
 
 **Read-core (`lib/observe/query/`):**
-- `types.ts` — shared filter/result types (`AlertFilters`, `AlertRow`, `QueryAlertsResult`, `ChangeLogFilters`, `ChangeRow`, `QueryChangeLogResult`, `QueryEventsResult`, `QueryCronHealthResult`), a module-private `UUID_RE` + `isUuid`, and `clampLimit`.
+- `types.ts` — shared filter/result types for the NEW reads (`AlertFilters`, `AlertRow`, `QueryAlertsResult`, `ChangeLogFilters`, `ChangeRow`, `QueryChangeLogResult`), plus `UUID_RE` + `isUuid` + `clampLimit`. (`QueryEventsResult` and `QueryCronHealthResult` are defined and exported from `events.ts`/`cronHealth.ts` respectively, and re-exported by the barrel.)
 - `events.ts` — `queryEvents(filters)` (fresh no-log copy of `loadAppEvents`).
 - `cronHealth.ts` — `getCronHealth()` (fresh no-log copy of `loadCronHealth`).
 - `alerts.ts` — `queryAlerts(filters)` (new `admin_alerts` list read).
@@ -663,7 +663,7 @@ describe("read-only query core", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify fail.** `pnpm vitest run tests/observe/_metaReadOnlyQueryCore.test.ts` — FAIL ("has files" fails: only 4 non-index `.ts` yet, index missing → actually may pass ≥5? types+events+cron+alerts+changeLog = 5). If it fails only on missing `index.ts` assertions, proceed; the write/log checks should already pass. Confirm the suite runs.
+- [ ] **Step 2: Run the meta-test.** `pnpm vitest run tests/observe/_metaReadOnlyQueryCore.test.ts`. NOTE: after Tasks 1–4 the core already has 5 files (types/events/cronHealth/alerts/changeLog), so "has files" and the write/log checks likely **PASS** even before `index.ts` exists — that's expected, this meta-test guards a property, not a missing file. The deliverable of this task is `index.ts` (the public surface) plus a green read-only guard. Just confirm the suite runs clean.
 
 - [ ] **Step 3: Create `lib/observe/query/index.ts`:**
 
