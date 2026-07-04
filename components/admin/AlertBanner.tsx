@@ -38,6 +38,7 @@ import { nowDate } from "@/lib/time/now";
 import { formatBoundedCount } from "@/lib/format/count";
 import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
+import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 
 import { AlertBannerRouteBoundary } from "./AlertBannerRouteBoundary";
 import { ResolveAlertButton } from "./ResolveAlertButton";
@@ -226,6 +227,13 @@ export async function AlertBanner() {
   // /non-string case. `escalated` mirrors the escalation predicate in
   // lib/drive/watchEscalation.ts (config OR occurrence_count >= threshold).
   const isWatchAlert = !isPerShowAlert && alert.code === "WATCH_CHANNEL_ORPHANED";
+  // Per-code action link (spec 2026-07-04-alert-action-links §7.2): GLOBAL
+  // non-watch rows only — per-show rows keep "Check it" as their single
+  // navigation (the action link renders on the show page after click-through).
+  const actionLink =
+    !isPerShowAlert && !isWatchAlert
+      ? resolveAlertAction(alert.code, alert.context, { slug: showSlug })
+      : null;
   const errorClass =
     typeof alert.context?.error_class === "string" ? alert.context.error_class : null;
   const errorDetail =
@@ -454,6 +462,17 @@ export async function AlertBanner() {
           data-testid="admin-alert-action"
           className="col-start-2 row-start-1 self-start min-w-0 flex flex-wrap justify-end gap-2"
         >
+          {actionLink ? (
+            <a
+              href={actionLink.href}
+              data-testid="admin-alert-action-link"
+              {...(actionLink.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+            >
+              {actionLink.label}
+              {actionLink.external ? <span aria-hidden="true"> ↗</span> : null}
+            </a>
+          ) : null}
           {isPerShowAlert ? (
             showSlug ? (
               <a
