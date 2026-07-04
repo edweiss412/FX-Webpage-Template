@@ -91,6 +91,7 @@ afterEach(async () => {
      WHERE id = 'default'`;
   vi.mocked(log.warn).mockClear();
   vi.mocked(log.error).mockClear();
+  vi.mocked(log.info).mockClear();
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -451,6 +452,77 @@ describe("extract-agenda — persist from report", () => {
 
     // success → owner-scoped tx#2 release: no live lease remains.
     expect(await liveLeaseCount(dfid)).toBe(0);
+  });
+
+  // Success-outcome telemetry (audit finding #7). The committed tx#2 merge branch
+  // MUST leave a durable AGENDA_EXTRACT_COMPLETED audit row (hashed actor, driveFileId,
+  // wizardSessionId, freshLinkCount); a 409-stale path (no commit) MUST leave NONE.
+  // Failure modes caught: (1) a committed extract with no durable audit row; (2) a
+  // rolled-back stale extract logging a false success.
+  test("committed merge → durable AGENDA_EXTRACT_COMPLETED (hashed actor, driveFileId, session, freshLinkCount)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-telemetry-ok";
+    const original = parseFixture([
+      { label: "A", fileId: "file-a" },
+      { label: "B", fileId: "file-b" },
+    ]);
+    await seedActive(wiz, dfid, FOLDER, original);
+    const enrich = vi.fn(
+      async () =>
+        ({
+          perLink: [
+            { ordinal: 0, verdict: "fresh", extraction: VALID_EXTRACTION },
+            { ordinal: 1, verdict: "unknown" },
+          ],
+        }) as EnrichAgendaReport,
+    );
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy(STAGED_ISO, [FOLDER]), enrichAgenda: enrich }),
+    );
+    expect(res.status).toBe(200);
+
+    const infoCalls = vi
+      .mocked(log.info)
+      .mock.calls.filter(
+        ([, fields]) => (fields as { code?: string })?.code === "AGENDA_EXTRACT_COMPLETED",
+      );
+    expect(infoCalls).toHaveLength(1);
+    const fields = infoCalls[0]![1] as {
+      code: string;
+      source: string;
+      actorHash?: string;
+      driveFileId?: string;
+      wizardSessionId?: string;
+      freshLinkCount?: number;
+    };
+    expect(infoCalls[0]![0]).toBe("AGENDA_EXTRACT_COMPLETED");
+    expect(fields.source).toBe("api.admin.onboarding.extractAgenda");
+    expect(typeof fields.actorHash).toBe("string"); // hashed, never raw
+    expect(fields.actorHash).not.toBe("admin@fxav.com");
+    expect(fields.driveFileId).toBe(dfid);
+    expect(fields.wizardSessionId).toBe(wiz);
+    expect(fields.freshLinkCount).toBe(1); // exactly one "fresh" verdict (derived from the report)
+  });
+
+  test("409-stale extract (no commit) → NO AGENDA_EXTRACT_COMPLETED row", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-telemetry-stale";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "file-a" }]));
+    // before-fence revision mismatch → 409 stale, NO extraction, NO tx#2 commit.
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy("2099-01-01T00:00:00.000Z", [FOLDER]) }),
+    );
+    expect(res.status).toBe(409);
+    const completed = vi
+      .mocked(log.info)
+      .mock.calls.filter(
+        ([, fields]) => (fields as { code?: string })?.code === "AGENDA_EXTRACT_COMPLETED",
+      );
+    expect(completed).toHaveLength(0);
   });
 });
 

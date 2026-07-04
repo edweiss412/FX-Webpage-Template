@@ -209,3 +209,53 @@ describe("buildRightNowContext — unknown_asterisk zero-leak (D6/§5.1)", () =>
     expect(ctx.showAnchors).toEqual([]);
   });
 });
+
+// Stage-filtered schedule (#248): buildRightNowContext is the 3rd resolveKeyTimes
+// caller (feeds the Right Now hero's loadInTime/strikeTime). It must forward the
+// viewer's stage_restriction so off-stage Set/Strike times don't leak. loadInTime =
+// anchors.set; strikeTime = anchors.strike; with no dates.loadIn, anchors.set comes
+// from the GS room set_time.
+describe("buildRightNowContext — stage-gated Set/Strike anchors (#248)", () => {
+  const SHOW = show({
+    dates: { travelIn: null, set: "2026-05-03", showDays: ["2026-05-06"], travelOut: null },
+  });
+  const GS = room({ set_time: "9:00 AM", show_time: "1:00 PM", strike_time: "10/9 @ 4:30pm" });
+
+  it("Load In/Set stage viewer → strikeTime null, loadInTime present (off-stage suppression)", () => {
+    const ctx = buildRightNowContext({
+      show: SHOW,
+      dateRestriction: { kind: "explicit", days: ["2026-05-03"] },
+      hotelReservations: [],
+      rooms: [GS],
+      runOfShow: null,
+      stageRestriction: { kind: "explicit", stages: ["Load In", "Set"] },
+    });
+    expect(ctx.loadInTime).toBe("9:00 AM");
+    expect(ctx.strikeTime).toBeNull();
+  });
+
+  it("Load Out/Strike stage viewer → loadInTime null, strikeTime present", () => {
+    const ctx = buildRightNowContext({
+      show: SHOW,
+      dateRestriction: { kind: "explicit", days: ["2026-05-06"] },
+      hotelReservations: [],
+      rooms: [GS],
+      runOfShow: null,
+      stageRestriction: { kind: "explicit", stages: ["Load Out", "Strike"] },
+    });
+    expect(ctx.loadInTime).toBeNull();
+    expect(ctx.strikeTime).toBe("10/9 @ 4:30pm");
+  });
+
+  it("stageRestriction omitted → both anchors present (backward-compat)", () => {
+    const ctx = buildRightNowContext({
+      show: SHOW,
+      dateRestriction: { kind: "none" },
+      hotelReservations: [],
+      rooms: [GS],
+      runOfShow: null,
+    });
+    expect(ctx.loadInTime).toBe("9:00 AM");
+    expect(ctx.strikeTime).toBe("10/9 @ 4:30pm");
+  });
+});

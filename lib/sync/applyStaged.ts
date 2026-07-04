@@ -1837,6 +1837,22 @@ export async function applyStaged(
 ): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
   if (args.sourceScope === "live") {
     const result = await applyLiveWithDriveReverify(args, deps);
+    // Finding #12: the dashboard Apply hit a CONTENDED per-show advisory lock — the
+    // ConcurrentSyncSkipped sentinel is returned with no durable trail (contrast the cron
+    // path's sync_log row). Emit a fail-open durable forensic record here, at the single
+    // point where the sentinel surfaces to the caller. This is provably OUTSIDE any held
+    // lock: withPipelineLock returns the skip sentinel WITHOUT running its callback (the
+    // lock was never acquired), and applyLiveWithDriveReverify has fully awaited every
+    // withPipelineLock before returning. Invariant 9: this emit does not change the
+    // returned sentinel or any control flow.
+    if ("skipped" in result) {
+      void log.info("staged apply skipped — lock contended", {
+        source: "sync.applyStaged",
+        code: "STAGED_APPLY_CONCURRENT_SKIPPED",
+        driveFileId: args.driveFileId,
+      });
+      return result;
+    }
     if (!("skipped" in result) && result.outcome === "applied" && result.adminAlertCode) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert({
@@ -1902,7 +1918,20 @@ export async function applyStaged(
     // apply to public.shows happens later in finalize-cas Phase D, which revalidates there). So no
     // revalidate here. // not-subject-to-revalidate: wizard apply stages approval/manifest only;
     // rendered-data write + revalidate happen in finalize-cas.
-    return await applyWizardWithDriveReverify(args, deps);
+    const result = await applyWizardWithDriveReverify(args, deps);
+    // Finding #12 (wizard peer of the live branch above): a contended per-show lock returns
+    // the ConcurrentSyncSkipped sentinel with no durable trail. Emit the same fail-open
+    // forensic record, OUTSIDE any held lock (the sentinel means the lock was never acquired
+    // and every withPipelineLock inside applyWizardWithDriveReverify has resolved). Invariant
+    // 9: the returned sentinel and control flow are unchanged.
+    if ("skipped" in result) {
+      void log.info("staged apply skipped — lock contended", {
+        source: "sync.applyStaged",
+        code: "STAGED_APPLY_CONCURRENT_SKIPPED",
+        driveFileId: args.driveFileId,
+      });
+    }
+    return result;
   }
   throw new Error(
     `unsupported Apply source scope: ${(args as { sourceScope: string }).sourceScope}`,

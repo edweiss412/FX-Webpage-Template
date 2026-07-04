@@ -34,8 +34,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import {
   approveMi11Hold,
   rejectMi11Hold,
@@ -53,7 +54,7 @@ export async function mi11ApproveAction(
   _prev: Mi11GateResult | null,
   formData: FormData,
 ): Promise<Mi11GateResult> {
-  await requireAdmin();
+  const admin = await requireAdminIdentity();
   const holdId = String(formData.get("holdId") ?? "");
   const expectedBaseModifiedTime = normalizeExpectedBase(formData);
   const result = await approveMi11Hold(holdId, expectedBaseModifiedTime);
@@ -64,6 +65,21 @@ export async function mi11ApproveAction(
     // id (from the hold row); skip the data-cache bust only if it could not be resolved.
     if (result.showId) revalidateShow(result.showId);
     revalidatePath("/admin/show/[slug]", "page");
+    // Durable forensic telemetry: emitted ONLY on the committed-success branch (the self-locking
+    // gate RPC committed by the time approveMi11Hold resolved) — never on a refusal. Fail-open at
+    // the callsite (a logger throw must not fail a committed mutation). actorEmail is already
+    // canonical (requireAdminIdentity). The code literal rides logAdminOutcome (not a §12.4 producer).
+    try {
+      await logAdminOutcome({
+        code: "MI11_HOLD_APPROVED",
+        source: "admin.show.feed.mi11Approve",
+        actorEmail: admin.email,
+        ...(result.showId ? { showId: result.showId } : {}),
+        extra: { holdId },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
   return result;
 }
@@ -72,7 +88,7 @@ export async function mi11RejectAction(
   _prev: Mi11GateResult | null,
   formData: FormData,
 ): Promise<Mi11GateResult> {
-  await requireAdmin();
+  const admin = await requireAdminIdentity();
   const holdId = String(formData.get("holdId") ?? "");
   const expectedBaseModifiedTime = normalizeExpectedBase(formData);
   const result = await rejectMi11Hold(holdId, expectedBaseModifiedTime);
@@ -82,6 +98,18 @@ export async function mi11RejectAction(
     // getShowForViewer projection is UNCHANGED (no `show-${id}` bust). Only the admin feed flips the
     // entry's status, which revalidatePath covers. (rejectMi11Hold never surfaces a showId.)
     revalidatePath("/admin/show/[slug]", "page");
+    // Durable forensic telemetry: committed-success branch only, fail-open. rejectMi11Hold never
+    // surfaces a showId, so showId is omitted (not a false null audit field).
+    try {
+      await logAdminOutcome({
+        code: "MI11_HOLD_REJECTED",
+        source: "admin.show.feed.mi11Reject",
+        actorEmail: admin.email,
+        extra: { holdId },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
   return result;
 }
@@ -94,7 +122,7 @@ export async function undoChangeAction(
   _prev: UndoChangeResult | null,
   formData: FormData,
 ): Promise<UndoChangeResult> {
-  await requireAdmin();
+  const admin = await requireAdminIdentity();
   const changeLogId = String(formData.get("changeLogId") ?? "");
   const result = await undoChange(changeLogId);
   if (result.ok) {
@@ -103,6 +131,19 @@ export async function undoChangeAction(
     // server-resolved show id.
     if (result.showId) revalidateShow(result.showId);
     revalidatePath("/admin/show/[slug]", "page");
+    // Durable forensic telemetry: committed-success branch only, fail-open. showId is the
+    // server-resolved id from the change-log row (omitted if unresolved).
+    try {
+      await logAdminOutcome({
+        code: "CHANGE_UNDONE",
+        source: "admin.show.feed.undoChange",
+        actorEmail: admin.email,
+        ...(result.showId ? { showId: result.showId } : {}),
+        extra: { changeLogId },
+      });
+    } catch {
+      /* best-effort */
+    }
   }
   return result;
 }

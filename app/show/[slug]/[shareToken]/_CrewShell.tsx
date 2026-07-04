@@ -251,6 +251,7 @@ export async function CrewShell({
         hotelReservations: data.hotelReservations ?? [],
         rooms: data.rooms ?? [],
         runOfShow: data.runOfShow ?? null, // NEW — keeps rightNowState in sync, no stale context
+        stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
       })
     : null;
 

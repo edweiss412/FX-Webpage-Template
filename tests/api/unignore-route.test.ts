@@ -1,7 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
 
-import { handleUnignore } from "@/app/api/admin/ignored-sheets/[driveFileId]/unignore/route";
+import {
+  handleUnignore,
+  type UnignoreRouteDeps,
+} from "@/app/api/admin/ignored-sheets/[driveFileId]/unignore/route";
+import { setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 
 /**
  * Task C2 — un-ignore route: deletes the LIVE permanent_ignore deferral for a drive
@@ -131,5 +136,66 @@ describe("Task C2 — un-ignore route (real DB)", () => {
 
     // The ignore row survives — a rejected caller must not be able to mutate it.
     expect(await liveRowCount()).toBe(1);
+  });
+});
+
+// Success-outcome telemetry (audit finding #15b). DB-free: an injected withRowTx that RESOLVES
+// stands in for the committed locked delete, so the emit path is exercised without local postgres.
+// A committed un-ignore leaves a durable IGNORED_SHEET_UNIGNORED audit row (hashed actor,
+// driveFileId); a 403 (no mutation) and an infra throw (rolled back → 500) leave NONE. Failure
+// modes caught: (1) a committed un-ignore with no durable audit row; (2) a rejected/failed
+// un-ignore logging a false success.
+describe("un-ignore success-outcome telemetry (injected tx, no DB)", () => {
+  afterEach(() => resetLogSink());
+  function capture(): LogRecord[] {
+    const sink: LogRecord[] = [];
+    setLogSink((r) => {
+      sink.push(r);
+    });
+    return sink;
+  }
+  // A locked-tx stub whose deleteLiveDeferral resolves (committed) — the route emits POST-resolve.
+  // The route only touches tx.deleteLiveDeferral, so a partial tx cast to the full shape suffices.
+  const okTx: NonNullable<UnignoreRouteDeps["withRowTx"]> = async (_driveFileId, fn) =>
+    fn({ deleteLiveDeferral: async () => {} } as unknown as Parameters<typeof fn>[0]);
+
+  test("committed un-ignore → durable IGNORED_SHEET_UNIGNORED (hashed actor, driveFileId)", async () => {
+    const sink = capture();
+    const response = await handleUnignore(req(), context, {
+      requireAdminIdentity: async () => ({ email: "Doug@FXAV.com" }),
+      withRowTx: okTx,
+    });
+    expect(response.status).toBe(200);
+    const rec = sink.filter((r) => r.code === "IGNORED_SHEET_UNIGNORED");
+    expect(rec).toHaveLength(1);
+    expect(rec[0]!.level).toBe("info");
+    expect(rec[0]!.source).toBe("api.admin.ignoredSheets.unignore");
+    expect(typeof rec[0]!.actorHash).toBe("string"); // hashed, never raw
+    expect(rec[0]!.actorHash).not.toBe("Doug@FXAV.com");
+    expect(rec[0]!.driveFileId).toBe(DRIVE_FILE_ID);
+  });
+
+  test("non-admin 403 → NO IGNORED_SHEET_UNIGNORED row", async () => {
+    const sink = capture();
+    const response = await handleUnignore(req(), context, {
+      requireAdminIdentity: async () => {
+        throw { code: "ADMIN_FORBIDDEN" };
+      },
+      withRowTx: okTx,
+    });
+    expect(response.status).toBe(403);
+    expect(sink.some((r) => r.code === "IGNORED_SHEET_UNIGNORED")).toBe(false);
+  });
+
+  test("infra throw (rolled back → 500) → NO IGNORED_SHEET_UNIGNORED row", async () => {
+    const sink = capture();
+    const response = await handleUnignore(req(), context, {
+      requireAdminIdentity: async () => ({ email: "Doug@FXAV.com" }),
+      withRowTx: async () => {
+        throw new Error("db down");
+      },
+    });
+    expect(response.status).toBe(500);
+    expect(sink.some((r) => r.code === "IGNORED_SHEET_UNIGNORED")).toBe(false);
   });
 });

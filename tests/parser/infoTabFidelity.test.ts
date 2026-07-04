@@ -103,6 +103,43 @@ describe("title banner-preference (M3)", () => {
     expect(parseSheet(md).show.title).toBe("Real Title 2026");
   });
 
+  // BL-EXPORTER-MULTIFORUM-BANNER-TITLE: a ≥3-line combined-event banner (3+ forums)
+  // is FLATTENED by the exporter (no &#10;), so the #0 multi-value guard is defeated and
+  // the mashed banner would beat the curated Event Name. A flattened banner that REPEATS
+  // its leading "<tag> - " prefix (e.g. "II - …" 3×) is recognized as multi-value → #0
+  // skips it, letting Event Name win. A single-forum banner (tag once) still wins.
+  it("a flattened multi-forum banner does NOT beat the curated Event Name", () => {
+    const banner = "II - Alpha Forum II - Beta Forum II - Gamma Summit 2025";
+    const md = `| ${banner} | ${banner} |\n| Event Name: | Alpha / Beta / Gamma Combined Forum |`;
+    expect(parseSheet(md).show.title).toBe("Alpha / Beta / Gamma Combined Forum");
+  });
+
+  it("a single-forum banner still beats the (uppercased) Event Name", () => {
+    const banner = "II - FinTech Forum CTO Summit 2026";
+    const md = `| ${banner} | ${banner} |\n| Event Name: | II - FINTECH FORUM CTO SUMMIT 2026 |`;
+    expect(parseSheet(md).show.title).toBe(banner);
+  });
+
+  // Codex R1 HIGH: a SINGLE-forum title whose leading tag merely RECURS mid-title
+  // ("II" appears in "Phase II") must NOT be mistaken for a mashed multi-forum
+  // banner. The mashed guard requires >= 3 tag occurrences (a flattened banner is
+  // a 3+-forum, >=3-line cell); this title has only 2, so #0 keeps the proper-cased
+  // banner over the uppercased Event Name.
+  it("a single-forum title whose tag recurs mid-title still beats the Event Name", () => {
+    const banner = "II - Phase II - Clinical Innovation Forum 2026";
+    const md = `| ${banner} | ${banner} |\n| Event Name: | II - PHASE II - CLINICAL INNOVATION FORUM 2026 |`;
+    expect(parseSheet(md).show.title).toBe(banner);
+  });
+
+  // A longer institutional prefix (> 24 chars) that repeats 3× is still caught as
+  // mashed (Codex R1 MEDIUM — the tag-extraction cap was raised to 40).
+  it("a flattened multi-forum banner with a long repeated prefix is still skipped", () => {
+    const p = "Institutional Allocators Forum";
+    const banner = `${p} - Alpha ${p} - Beta ${p} - Gamma 2026`;
+    const md = `| ${banner} | ${banner} |\n| Event Name: | Alpha / Beta / Gamma Combined Forum |`;
+    expect(parseSheet(md).show.title).toBe("Alpha / Beta / Gamma Combined Forum");
+  });
+
   // Anti-regression: shows whose title should be UNCHANGED by banner-preference.
   // redefining-fi's banner carries an in-cell &#10; (a two-forum multi-value
   // cell) so #0 skips it and the existing chain keeps "RFI & PC Chicago";

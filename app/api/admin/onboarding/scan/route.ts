@@ -14,6 +14,7 @@ import {
   type ScanStreamMessage,
 } from "@/lib/onboarding/scanProgress";
 import { deriveRequestId, log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -265,6 +266,24 @@ export async function handleOnboardingScan(
         const result = await runtime.runOnboardingScan(folder.folderId, wizardSessionId, {
           onProgress: emit,
         });
+        // Durable success telemetry (audit finding #6): the scan RESOLVED (no throw) and its
+        // transactional per-file staging committed. Emit ONLY on the genuine completed outcome —
+        // NOT schema_missing / superseded (non-success terminals) — so a degraded scan never leaves
+        // a false "who did what" audit row. POST-COMMIT + await'ed + fail-open (invariant 9); the
+        // failure path already logs ONBOARDING_SCAN_FAILED. actorEmail is canonical (requireAdminIdentity).
+        if (result.outcome === "completed") {
+          try {
+            await logAdminOutcome({
+              code: "ONBOARDING_SCAN_COMPLETED",
+              source: "admin.onboarding.scan",
+              actorEmail: admin.email,
+              wizardSessionId,
+              extra: { folderId: folder.folderId, processedCount: result.processed.length },
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
         emit({
           type: "result",
           body: toScanResponseBody(result, {

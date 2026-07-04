@@ -97,6 +97,26 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/show/staged/[stagedId]/discard/route.ts",
     code: "STAGE_DISCARDED",
   },
+  // Success-path telemetry gap (2026-07-03): audit findings #5/#6/#7/#15 — durable
+  // success outcomes on state-mutating admin ops that previously logged only FAILURE.
+  // #5 changes-feed MI-11 server actions (3 emits):
+  { file: "app/admin/show/[slug]/_actions/feed.ts", code: "MI11_HOLD_APPROVED" },
+  { file: "app/admin/show/[slug]/_actions/feed.ts", code: "MI11_HOLD_REJECTED" },
+  { file: "app/admin/show/[slug]/_actions/feed.ts", code: "CHANGE_UNDONE" },
+  // #6 onboarding folder scan:
+  { file: "app/api/admin/onboarding/scan/route.ts", code: "ONBOARDING_SCAN_COMPLETED" },
+  // #7 per-show agenda extraction (logAdminOutcome on the tx#2 committed-merge branch):
+  {
+    file: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
+    code: "AGENDA_EXTRACT_COMPLETED",
+  },
+  // #15a live-staged discard (REUSED STAGE_DISCARDED — already SANCTIONED):
+  { file: "app/api/admin/staged/[fileId]/discard/route.ts", code: "STAGE_DISCARDED" },
+  // #15b live ignored-sheet un-ignore:
+  {
+    file: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts",
+    code: "IGNORED_SHEET_UNIGNORED",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -126,15 +146,30 @@ const SANCTIONED_CODES = new Set([
   "PENDING_INGESTION_IGNORED",
   "SHEET_RESCANNED",
   "FINALIZE_CLEANUP_DONE",
+  // Success-path telemetry gap (2026-07-03): audit findings #5/#6/#7/#15. STAGE_DISCARDED is
+  // NOT re-listed — it is already sanctioned above and is REUSED by the #15a live-staged discard.
+  "MI11_HOLD_APPROVED",
+  "MI11_HOLD_REJECTED",
+  "CHANGE_UNDONE",
+  "ONBOARDING_SCAN_COMPLETED",
+  "AGENDA_EXTRACT_COMPLETED",
+  "IGNORED_SHEET_UNIGNORED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
 // §12.4 codes that are (correctly) still producers — SYNC_INFRA_ERROR and
-// ADMIN_SESSION_LOOKUP_FAILED (mirrored into logs but cataloged elsewhere) — and
-// the lock-contention skip which durably persists via the cataloged
-// CONCURRENT_SYNC_SKIPPED (no new code needed).
+// ADMIN_SESSION_LOOKUP_FAILED (mirrored into logs but cataloged elsewhere). The
+// cron file-loop skip persists via the cataloged CONCURRENT_SYNC_SKIPPED; the
+// DASHBOARD Apply skip (finding #12) now carries its own forensic
+// STAGED_APPLY_CONCURRENT_SKIPPED (info-with-code, inside a log.* span; NOT cataloged).
 const NEW_FORENSIC_CODES = new Set([
   ...SANCTIONED_CODES,
+  // sync-cron surface (2026-07-03): audit findings #12/#16 — dashboard-apply
+  // lock-contention durable skip + agenda successful-refresh trace persistence
+  // (download/extracted info emits now info-WITH-code so the refresh persists).
+  "STAGED_APPLY_CONCURRENT_SKIPPED",
+  "AGENDA_PDF_DOWNLOADED",
+  "AGENDA_EXTRACTED",
   "AGENDA_EXTRACT_STALE",
   "AGENDA_EXTRACT_SESSION_GONE",
   // Carve-out (2026-07-02) plain-log forensic codes (inside log.* spans; NOT cataloged).
@@ -230,6 +265,17 @@ const NEW_FORENSIC_CODES = new Set([
   "APP_EVENTS_READ_THREW",
   "CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR",
   "CRON_HEALTH_APP_EVENTS_READ_THREW",
+  // P1 dark-path telemetry (2026-07-03) — forensic infra/denial codes on previously
+  // unlogged fault + credential-denial paths (inside log.* spans; NOT cataloged).
+  "PENDING_INGESTION_RETRY_FAILED",
+  "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
+  "REALTIME_TOKEN_DENIED",
+  "REALTIME_TOKEN_INFRA_ERROR",
+  // Asset correlation (2026-07-03) — audit finding #8: the DEBUGGABLE-410
+  // breadcrumb emitted (fail-open, inside a log.info span; NOT cataloged) by the
+  // reel/diagram/agenda asset proxy routes so a crew-reported broken asset leaves
+  // a server trace of which show/asset/why.
+  "ASSET_UNAVAILABLE",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 
 const adminMock = vi.hoisted(() => ({
   requireAdmin: vi.fn(async () => undefined),
@@ -210,5 +212,63 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ ok: false, error: "SYNC_INFRA_ERROR" });
     expect(discardMock.discardStaged).not.toHaveBeenCalled();
+  });
+
+  // Success-outcome telemetry (audit finding #15a). A DISCARDED (committed) result leaves a durable
+  // STAGE_DISCARDED audit row (hashed actor, driveFileId, variant); a 404/409/500 leaves NONE.
+  // Failure modes caught: (1) a committed discard with no durable audit row; (2) a rolled-back /
+  // rejected discard logging a false success.
+  describe("success-outcome telemetry", () => {
+    afterEach(() => resetLogSink());
+    function capture(): LogRecord[] {
+      const sink: LogRecord[] = [];
+      setLogSink((r) => {
+        sink.push(r);
+      });
+      return sink;
+    }
+
+    test("discarded → durable STAGE_DISCARDED (hashed actor, driveFileId, variant)", async () => {
+      discardMock.discardStaged.mockResolvedValueOnce({
+        outcome: "discarded",
+        variant: "defer_until_modified",
+      });
+      const sink = capture();
+      const response = await POST(
+        request({
+          source_scope: "live",
+          staged_id: "11111111-1111-4111-8111-111111111111",
+          variant: "defer_until_modified",
+        }),
+        { params: Promise.resolve({ fileId: "drive-file-1" }) },
+      );
+      expect(response.status).toBe(200);
+      const rec = sink.filter((r) => r.code === "STAGE_DISCARDED");
+      expect(rec).toHaveLength(1);
+      expect(rec[0]!.level).toBe("info");
+      expect(rec[0]!.source).toBe("api.admin.staged.discard");
+      expect(typeof rec[0]!.actorHash).toBe("string"); // hashed, never raw
+      expect(rec[0]!.actorHash).not.toBe("doug@fxav.test");
+      expect(rec[0]!.driveFileId).toBe("drive-file-1");
+      expect(rec[0]!.context.variant).toBe("defer_until_modified");
+    });
+
+    test("rejected discard (STALE_DISCARD_REJECTED → 409) → NO STAGE_DISCARDED row", async () => {
+      discardMock.discardStaged.mockResolvedValueOnce({
+        outcome: "x",
+        code: "STALE_DISCARD_REJECTED",
+      });
+      const sink = capture();
+      const response = await POST(
+        request({
+          source_scope: "live",
+          staged_id: "11111111-1111-4111-8111-111111111111",
+          variant: "try_again",
+        }),
+        { params: Promise.resolve({ fileId: "drive-file-1" }) },
+      );
+      expect(response.status).toBe(409);
+      expect(sink.some((r) => r.code === "STAGE_DISCARDED")).toBe(false);
+    });
   });
 });

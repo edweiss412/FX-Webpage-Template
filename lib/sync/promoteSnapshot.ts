@@ -61,12 +61,26 @@ function storageErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function defaultStorage(): PromoteSnapshotStorage {
-  const supabase = createSupabaseServiceRoleClient();
+/** Strip the `<bucket>/` prefix so a path built with `canonicalPrefix`/`tempPrefix`
+ *  (which embed `diagram-snapshots/`) becomes the object key the bucket-scoped
+ *  client expects. `move` and `removePrefix` already do this; `list` did not,
+ *  so it listed a doubled `diagram-snapshots/diagram-snapshots/…` prefix and
+ *  returned zero objects — making the promote manifest check always fail and
+ *  every diagram-bearing apply roll back (never promote). */
+function toObjectKey(path: string): string {
+  return path.startsWith(`${DIAGRAM_BUCKET}/`) ? path.slice(DIAGRAM_BUCKET.length + 1) : path;
+}
+
+export function defaultStorage(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient> = createSupabaseServiceRoleClient(),
+): PromoteSnapshotStorage {
   const bucket = supabase.storage.from(DIAGRAM_BUCKET);
   return {
     async list(prefix) {
-      const { data, error } = await bucket.list(prefix);
+      // List by the stripped object key, but return the caller-facing path
+      // (with the bucket prefix) so `move` — which re-strips — sees the shape
+      // it expects.
+      const { data, error } = await bucket.list(toObjectKey(prefix));
       if (error) throw error;
       return (data ?? []).filter((entry) => entry.name).map((entry) => `${prefix}${entry.name}`);
     },
@@ -173,7 +187,7 @@ export async function promoteSnapshotUpload(
                set promote_started_at = null,
                    claim_token = null,
                    claimed_at = null,
-                   claim_expires_at = now()
+                   claim_expires_at = null
              where p.id = $3::uuid
                and p.delete_started_at is null
                and p.promoted_at is null

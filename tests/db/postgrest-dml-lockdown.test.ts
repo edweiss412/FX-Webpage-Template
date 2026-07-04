@@ -85,6 +85,18 @@ const databaseUrl = resolveDatabaseUrl();
 const PSQL_CONNECT_TIMEOUT_S = "10";
 const PSQL_PROCESS_TIMEOUT_MS = 30_000;
 
+// Per-test timeout for the live-DB HTTP tests (Layers 2+3). Each `test()` issues
+// a single cross-network POST/PATCH/DELETE/GET to the validation REST gateway,
+// which is capped by AbortSignal.timeout(PSQL_PROCESS_TIMEOUT_MS) inside
+// postgrestRequest(). Vitest's DEFAULT 5000ms per-test timeout is BELOW that
+// abort, so a transient latency spike to the shared validation project (a 5005ms
+// round-trip was observed on 2026-07-03, 169/170 passing) trips vitest before the
+// fetch's own abort can fire — flaking a REQUIRED gate on network jitter rather
+// than a real lockdown regression. Set the per-test budget just above the fetch
+// abort so the 30s AbortSignal is the true backstop and surfaces a meaningful
+// "unreachable/asleep gateway" error, while ordinary jitter no longer fails CI.
+const HTTP_TEST_TIMEOUT_MS = PSQL_PROCESS_TIMEOUT_MS + 5_000;
+
 function runPsql(sql: string): string {
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-qAt"], {
     input: sql,
@@ -688,26 +700,42 @@ describe("PostgREST DML lockdown — RPC-gated tables (Layers 2+3)", () => {
         const layerTag = role === "authenticated" ? "Layer 2" : "Layer 3";
         const expectedStatus = HTTP_STATUS_BY_ROLE[role];
 
-        test(`${layerTag}: POST /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501`, async () => {
-          const res = await postgrestRequest(entry, "POST", role);
-          await expectLockdownFired(res, role, entry.table, "POST");
-        });
+        test(
+          `${layerTag}: POST /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501`,
+          async () => {
+            const res = await postgrestRequest(entry, "POST", role);
+            await expectLockdownFired(res, role, entry.table, "POST");
+          },
+          HTTP_TEST_TIMEOUT_MS,
+        );
 
-        test(`${layerTag}: PATCH /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501`, async () => {
-          const res = await postgrestRequest(entry, "PATCH", role);
-          await expectLockdownFired(res, role, entry.table, "PATCH");
-        });
+        test(
+          `${layerTag}: PATCH /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501`,
+          async () => {
+            const res = await postgrestRequest(entry, "PATCH", role);
+            await expectLockdownFired(res, role, entry.table, "PATCH");
+          },
+          HTTP_TEST_TIMEOUT_MS,
+        );
 
-        test(`${layerTag}: DELETE /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501`, async () => {
-          const res = await postgrestRequest(entry, "DELETE", role);
-          await expectLockdownFired(res, role, entry.table, "DELETE");
-        });
+        test(
+          `${layerTag}: DELETE /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501`,
+          async () => {
+            const res = await postgrestRequest(entry, "DELETE", role);
+            await expectLockdownFired(res, role, entry.table, "DELETE");
+          },
+          HTTP_TEST_TIMEOUT_MS,
+        );
 
         if (!entry[role === "authenticated" ? "selectAuthenticated" : "selectAnon"]) {
-          test(`${layerTag}: GET /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501 when SELECT is revoked`, async () => {
-            const res = await postgrestRequest(entry, "GET", role);
-            await expectLockdownFired(res, role, entry.table, "GET");
-          });
+          test(
+            `${layerTag}: GET /rest/v1/${entry.table} returns ${expectedStatus} with PG 42501 when SELECT is revoked`,
+            async () => {
+              const res = await postgrestRequest(entry, "GET", role);
+              await expectLockdownFired(res, role, entry.table, "GET");
+            },
+            HTTP_TEST_TIMEOUT_MS,
+          );
         }
       },
     );

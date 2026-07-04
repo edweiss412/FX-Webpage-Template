@@ -962,4 +962,75 @@ describe("/api/asset/reel/[show] — infra-500 logging (Task 5)", () => {
     expect(res.status).toBe(410);
     expect(infraErrors()).toEqual([]);
   });
+
+  // Findings #8/#14: the infra 500 must carry showId + assetKey + a serialized error
+  // so a crew-reported broken reel leaves a debuggable server trace.
+  test("finding #8/#14: GET infra fault carries showId + assetKey + serialized error", async () => {
+    routeMock.supabaseError = { code: "PGRST500", message: "infra fault" };
+    const res = await getReel();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.showId).toBe(showId);
+    expect(emitted[0]!.context).toMatchObject({ assetKey: "reel" });
+    // The logger serializes fields.error → record.context.error automatically.
+    expect(emitted[0]!.context).toHaveProperty("error");
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("/api/asset/reel/[show] — ASSET_UNAVAILABLE breadcrumb (finding #8)", () => {
+  const breadcrumbs = () =>
+    assetLogRecords.filter(
+      (r) => r.level === "info" && r.code === "ASSET_UNAVAILABLE" && r.source === "api.asset.reel",
+    );
+
+  test("debuggable 410 (drift) emits one ASSET_UNAVAILABLE with reason + showId, status unchanged", async () => {
+    routeMock.current = { ...routeMock.current, headRevisionId: "newer-rev" };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({ reason: "drift", assetKey: "reel" });
+  });
+
+  test("debuggable 410 (oversize metadata pre-flight) emits reason=oversize", async () => {
+    routeMock.current = { ...routeMock.current, size: String(513 * 1024 * 1024) };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs().map((c) => (c.context as { reason?: string }).reason)).toEqual([
+      "oversize",
+    ]);
+  });
+
+  test("debuggable 410 (md5 mismatch on fallback) emits reason=md5_mismatch", async () => {
+    routeMock.revisionError = { code: 404 };
+    routeMock.fallbackBytes = new TextEncoder().encode("mutated-bytes");
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs().map((c) => (c.context as { reason?: string }).reason)).toEqual([
+      "md5_mismatch",
+    ]);
+  });
+
+  test("BENIGN 410 (no pin) emits NO ASSET_UNAVAILABLE breadcrumb", async () => {
+    routeMock.show = { ...routeMock.show, opening_reel_drive_file_id: null };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unpublished show → PICKER_SHOW_UNAVAILABLE) emits NO breadcrumb", async () => {
+    routeMock.show = { ...routeMock.show, published: false };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("success 200 emits NO breadcrumb", async () => {
+    const res = await getReel();
+    expect(res.status).toBe(200);
+    expect(breadcrumbs()).toEqual([]);
+  });
 });

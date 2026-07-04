@@ -92,7 +92,7 @@ export function ScheduleSection({
   // crew/admin_preview → matched row's dateRestriction; malformed projection
   // throws MalformedProjectionError (INTENTIONALLY outside WrappedSection so the
   // route-level infra arm catches it, not the per-block fallback).
-  const { dateRestriction, isAdmin } = resolveViewerContext(viewer, data);
+  const { dateRestriction, isAdmin, stageRestriction } = resolveViewerContext(viewer, data);
 
   // §9.6 load-out trust boundary: the Pick Up Venue–derived load-out entry is
   // gated EXACTLY like the Travel section's transport tile (admin → always;
@@ -105,7 +105,13 @@ export function ScheduleSection({
     isAdmin,
   });
 
-  const anchors = resolveKeyTimes(data.show, data.rooms, data.runOfShow, dateRestriction);
+  const anchors = resolveKeyTimes(
+    data.show,
+    data.rooms,
+    data.runOfShow,
+    dateRestriction,
+    stageRestriction,
+  );
 
   // §4.13 mechanism #3 — active-section FETCH-error visual fallback. The
   // KeyTimesStrip anchors are derived from data.rooms (scope shown to all →

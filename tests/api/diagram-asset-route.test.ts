@@ -857,4 +857,72 @@ describe("/api/asset/diagram/[show]/[rev]/[key] — infra-500 logging (Task 5)",
     expect(res.status).toBe(410);
     expect(infraErrors()).toEqual([]);
   });
+
+  // Findings #8/#14: the infra 500 must carry showId + assetKey + a serialized error.
+  test("finding #8/#14: GET infra fault carries showId + assetKey + serialized error", async () => {
+    routeMock.storageError = { message: "infra exploded" };
+    const res = await getDiagram();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.showId).toBe(showId);
+    expect(emitted[0]!.context).toMatchObject({ assetKey: `${currentRev}/${assetKey}` });
+    expect(emitted[0]!.context).toHaveProperty("error");
+  });
+});
+
+describe("/api/asset/diagram — ASSET_UNAVAILABLE breadcrumb (finding #8)", () => {
+  const breadcrumbs = () =>
+    assetLogRecords.filter(
+      (r) =>
+        r.level === "info" && r.code === "ASSET_UNAVAILABLE" && r.source === "api.asset.diagram",
+    );
+
+  test("debuggable 410 (upstream object gone → storageBytes null) emits reason=not_found + showId", async () => {
+    routeMock.storageBytes = null;
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({
+      reason: "not_found",
+      assetKey: `${currentRev}/${assetKey}`,
+    });
+  });
+
+  test("debuggable 410 (oversized object → route byte ceiling) emits reason=oversize + showId", async () => {
+    // 60MB blob — over the 50MB MAX_DIAGRAM_BYTES route cap → oversize 410 (the other
+    // debuggable 410 class besides not_found; a crew-reported unrenderable diagram).
+    routeMock.storageBytes = new Uint8Array(60 * 1024 * 1024);
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({
+      reason: "oversize",
+      assetKey: `${currentRev}/${assetKey}`,
+    });
+  });
+
+  test("BENIGN 410 (stale/unknown rev) emits NO breadcrumb", async () => {
+    // A non-current rev is a benign not-yet-available/stale asset, not a fault.
+    const res = await getDiagram("44444444-4444-4444-8444-444444444444");
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unpublished show) emits NO breadcrumb", async () => {
+    routeMock.published = false;
+    const res = await getDiagram();
+    await expectPickerShowUnavailable(res);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("success 200 emits NO breadcrumb", async () => {
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    expect(breadcrumbs()).toEqual([]);
+  });
 });

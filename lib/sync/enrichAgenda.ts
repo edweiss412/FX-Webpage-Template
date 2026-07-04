@@ -202,6 +202,10 @@ export async function enrichAgenda(
           // so it does not trip the cry-wolf WARN stream.
           log.info("agenda link gone", {
             source: "sync.enrichAgenda",
+            // #16 correlation: driveFileId is the RESERVED join column so a gone
+            // breadcrumb self-correlates to the exact PDF (fileId stays as the
+            // human-readable context echo).
+            driveFileId: link.fileId,
             fileId: link.fileId,
             ordinal: i,
             status,
@@ -224,6 +228,9 @@ export async function enrichAgenda(
           // payload for diagnosis; leave-existing ("unknown") — next sync re-checks.
           log.warn("getFile threw", {
             source: "sync.enrichAgenda",
+            // #16 correlation: reserved join column → the fault self-correlates to
+            // the exact PDF an operator is diagnosing.
+            driveFileId: link.fileId,
             fileId: link.fileId,
             ordinal: i,
             status,
@@ -286,6 +293,11 @@ export async function enrichAgenda(
       );
       log.info("download", {
         source: "sync.enrichAgenda",
+        // #16 durability: info-with-code now persists so a successful refresh's download
+        // step is a durable, joinable trace (was console-only). #16 correlation: reserved
+        // driveFileId join column.
+        code: "AGENDA_PDF_DOWNLOADED",
+        driveFileId: link.fileId,
         fileId: link.fileId,
         ordinal: i,
         kind: download.kind,
@@ -338,7 +350,13 @@ export async function enrichAgenda(
       // note-only, and the data-quality warning below ("no readable sessions") informs
       // the operator. Gating the verdict on confidence would break plan Task 6 + the
       // cache contract (round-12) and is intentionally NOT done.
-      const extraction = await extractAgendaSchedule(download.bytes);
+      // Thread the agenda PDF's Drive fileId so extractAgendaSchedule's durable
+      // emits (AGENDA_PDFJS_THREW / AGENDA_TOO_MANY_PAGES / low-/high-confidence)
+      // self-correlate to the exact PDF instead of relying on the `bytes`
+      // byte-length proxy alone (audit finding #11).
+      const extraction = await extractAgendaSchedule(download.bytes, {
+        driveFileId: link.fileId,
+      });
       const payload: AgendaExtraction = {
         ...extraction,
         ...(typeof currentRev === "string" && currentRev.length > 0
@@ -366,6 +384,10 @@ export async function enrichAgenda(
 
       log.info("extracted", {
         source: "sync.enrichAgenda",
+        // #16 durability: info-with-code persists the successful-extraction trace (was
+        // console-only). #16 correlation: reserved driveFileId join column.
+        code: "AGENDA_EXTRACTED",
+        driveFileId: link.fileId,
         fileId: link.fileId,
         ordinal: i,
         bytes: download.bytes.byteLength,

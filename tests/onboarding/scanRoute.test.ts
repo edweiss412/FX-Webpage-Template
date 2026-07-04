@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { OnboardingScanResult } from "@/lib/sync/runOnboardingScan";
 import type {
   FolderVerificationResult,
@@ -6,7 +6,8 @@ import type {
   ScanRouteDeps,
 } from "@/app/api/admin/onboarding/scan/route";
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
-import { log } from "@/lib/log";
+import { log, setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
 import { toScanResponseBody } from "@/lib/onboarding/scanResponse";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 
@@ -587,6 +588,92 @@ describe("POST /api/admin/onboarding/scan", () => {
       "staging",
       "result",
     ]);
+  });
+
+  // Success-outcome telemetry (audit finding #6). A COMPLETED scan leaves a durable
+  // ONBOARDING_SCAN_COMPLETED audit row (hashed actor, wizardSessionId, folderId);
+  // a mid-run THROW (failure) and the non-success schema_missing/superseded terminals
+  // leave NO success row. Failure modes caught: (1) a committed scan with no durable
+  // audit row; (2) a failed/degraded scan logging a false success.
+  describe("success-outcome telemetry", () => {
+    afterEach(() => resetLogSink());
+    function capture(): LogRecord[] {
+      const sink: LogRecord[] = [];
+      setLogSink((r) => {
+        sink.push(r);
+      });
+      return sink;
+    }
+
+    test("completed scan → durable ONBOARDING_SCAN_COMPLETED (hashed actor, session, folder)", async () => {
+      const sink = capture();
+      const db = new FakeScanDb();
+      const routeDeps = deps(db, {
+        runOnboardingScan: vi.fn(async () => ({
+          outcome: "completed" as const,
+          processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
+        })),
+      });
+      const response = await handleOnboardingScan(
+        request("https://drive.google.com/drive/folders/folder-1"),
+        routeDeps,
+      );
+      expect(response.status).toBe(200);
+      await readNdjson(response); // drive the streamed scan to completion (emit runs in start())
+      const rec = sink.filter((r) => r.code === "ONBOARDING_SCAN_COMPLETED");
+      expect(rec).toHaveLength(1);
+      expect(rec[0]!.level).toBe("info");
+      expect(rec[0]!.source).toBe("admin.onboarding.scan");
+      expect(typeof rec[0]!.actorHash).toBe("string"); // hashed, never raw
+      expect(rec[0]!.actorHash).not.toBe("doug@example.com");
+      expect(rec[0]!.context.wizardSessionId).toBe(W1);
+      expect(rec[0]!.context.folderId).toBe("folder-1");
+      expect(rec[0]!.context.processedCount).toBe(1);
+    });
+
+    test("mid-run throw (failure) → NO ONBOARDING_SCAN_COMPLETED row", async () => {
+      const errorSpy = vi.spyOn(log, "error").mockImplementation(async () => {});
+      const sink = capture();
+      const db = new FakeScanDb();
+      const routeDeps = deps(db, {
+        runOnboardingScan: vi.fn(async () => {
+          throw new Error("drive exploded");
+        }),
+      });
+      const response = await handleOnboardingScan(
+        request("https://drive.google.com/drive/folders/folder-1"),
+        routeDeps,
+      );
+      expect(response.status).toBe(200);
+      await readNdjson(response);
+      expect(sink.some((r) => r.code === "ONBOARDING_SCAN_COMPLETED")).toBe(false);
+      errorSpy.mockRestore();
+    });
+
+    test.each([
+      [{ outcome: "superseded", code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN", processed: [] }],
+      [
+        {
+          outcome: "schema_missing",
+          code: "WIZARD_ISOLATION_INDEXES_MISSING",
+          missingIndexes: ["pending_syncs_session_drive_file_idx"],
+        },
+      ],
+    ] satisfies Array<[OnboardingScanResult]>)(
+      "non-success terminal (%o) → NO ONBOARDING_SCAN_COMPLETED row",
+      async (result) => {
+        const sink = capture();
+        const db = new FakeScanDb();
+        const routeDeps = deps(db, { runOnboardingScan: vi.fn(async () => result) });
+        const response = await handleOnboardingScan(
+          request("https://drive.google.com/drive/folders/folder-1"),
+          routeDeps,
+        );
+        expect(response.status).toBe(200);
+        await readNdjson(response);
+        expect(sink.some((r) => r.code === "ONBOARDING_SCAN_COMPLETED")).toBe(false);
+      },
+    );
   });
 
   test("mid-run throw becomes a terminal {ok:false, code:null} on a 200 stream", async () => {

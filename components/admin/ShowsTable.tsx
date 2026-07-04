@@ -41,6 +41,10 @@ type ShowsTableProps = {
   // (client state) shares ONE row with the section title and the bucket toggle.
   // ShowsTable is the ACTIVE-bucket renderer, so the title defaults accordingly.
   title?: string;
+  // Optional heading node that REPLACES the default <h3>{title}</h3> — the
+  // dashboard passes <ShowsTableHeading> so the watched-folder eyebrow treatment
+  // is shared with the archived header. When omitted, the plain title is used.
+  heading?: ReactNode;
   bucketControl?: ReactNode;
   // Task E1 (spec §5) — optional per-row action (the Held-shows Publish
   // control). Rendered as a SIBLING of the row Link inside the <li> (never
@@ -256,6 +260,7 @@ export function ShowsTable({
   activeCount,
   overflowCount,
   title = "Active shows",
+  heading,
   bucketControl,
   rowAction,
 }: ShowsTableProps) {
@@ -322,8 +327,11 @@ export function ShowsTable({
     <div data-testid="shows-table" className="flex flex-col gap-3">
       {/* One header row: section title (left), Find + bucket toggle (right). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-text-strong">{title}</h3>
+        {/* items-end so the count chip + help sit on the heading's NAME line even
+            when <ShowsTableHeading> renders the 2-line watched-folder eyebrow
+            treatment (an eyebrow over the name); single-line headings baseline-align. */}
+        <div className="flex min-w-0 items-end gap-2">
+          {heading ?? <h3 className="text-lg font-semibold text-text-strong">{title}</h3>}
           <span
             data-testid="shows-count-chip"
             className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
