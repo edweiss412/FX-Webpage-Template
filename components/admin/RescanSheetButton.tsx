@@ -25,6 +25,7 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { X } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -33,6 +34,14 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 export type RescanSheetButtonProps = {
   driveFileId: string;
   wizardSessionId: string;
+  /**
+   * Where the result line renders (spec 2026-07-03 §G). "stacked" (default) keeps
+   * today's in-flow block below the button — the two Step3SheetCard call sites pass
+   * no prop and stay byte-identical. "overlay" floats the result absolutely above
+   * the button (out of flow, so a fixed-height footer never grows) and adds a
+   * dismiss button; entrance is the fast pop-in via [data-rescan-overlay-result].
+   */
+  resultPlacement?: "stacked" | "overlay";
 };
 
 // The route's RescanResult → JSON mapping (app/api/admin/onboarding/rescan-sheet/route.ts).
@@ -84,7 +93,12 @@ function resultFor(body: RescanResponse): ResultState {
   return { kind: "info", copy: PLAIN_COPY[body.status] };
 }
 
-export function RescanSheetButton({ driveFileId, wizardSessionId }: RescanSheetButtonProps) {
+export function RescanSheetButton({
+  driveFileId,
+  wizardSessionId,
+  resultPlacement,
+}: RescanSheetButtonProps) {
+  const placement = resultPlacement ?? "stacked";
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<ResultState | null>(null);
@@ -112,8 +126,20 @@ export function RescanSheetButton({ driveFileId, wizardSessionId }: RescanSheetB
     }
   }
 
+  // Stacked tone classes are byte-pinned by the default-placement test (the two
+  // Step3SheetCard call sites pass no prop); overlay appends the out-of-flow
+  // positioning + card shadow + right padding so copy clears the dismiss button.
+  const toneClass =
+    result?.kind === "coded"
+      ? "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
+      : "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+  const overlayClass =
+    "absolute bottom-full right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-(--shadow-tile) pr-10";
+
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className={placement === "overlay" ? "relative flex flex-col gap-2" : "flex flex-col gap-2"}
+    >
       <button
         type="button"
         data-testid={`rescan-sheet-button-${driveFileId}`}
@@ -130,12 +156,22 @@ export function RescanSheetButton({ driveFileId, wizardSessionId }: RescanSheetB
           role="status"
           aria-live="polite"
           data-testid={`rescan-sheet-result-${driveFileId}`}
-          className={
-            result.kind === "coded"
-              ? "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
-              : "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong"
-          }
+          {...(placement === "overlay" ? { "data-rescan-overlay-result": "" } : {})}
+          className={placement === "overlay" ? `${toneClass} ${overlayClass}` : toneClass}
         >
+          {/* Overlay-only dismiss (spec §G): a floating layer must be closable.
+              Exit is instant (§H N4). Stacked stays dismissless — it persists
+              until the next click clears it (handleClick's setResult(null)). */}
+          {placement === "overlay" ? (
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => setResult(null)}
+              className="absolute -right-2 -top-2 inline-flex size-tap-min items-center justify-center rounded-pill text-text-subtle hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              <X aria-hidden="true" className="size-4" />
+            </button>
+          ) : null}
           <p>{renderEmphasis(result.copy)}</p>
           {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
         </div>

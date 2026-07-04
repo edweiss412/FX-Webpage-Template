@@ -471,6 +471,30 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     expect(within(q.getByTestId(tid("footer"))).getByText("Re-scan this sheet")).toBeTruthy();
   });
 
+  test("footer rescan result is an overlay (resultPlacement='overlay'): result carries data-rescan-overlay-result, out of flow (spec §G — catches: footer call site left stacked)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { q } = renderModal();
+    const footer = q.getByTestId(tid("footer"));
+    await act(async () => {
+      fireEvent.click(within(footer).getByTestId(`rescan-sheet-button-${DFID}`));
+    });
+    const result = await within(footer).findByTestId(`rescan-sheet-result-${DFID}`);
+    expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true);
+    // Structural out-of-flow pin (pixel constancy is Task 14's Playwright): the
+    // overlay result is absolutely positioned above the button, not stacked in flow.
+    expect(result.className.split(/\s+/)).toContain("absolute");
+    expect(result.className.split(/\s+/)).toContain("bottom-full");
+  });
+
   test("primary-slot label: 'Publish this show' unchecked, 'Unpublish' checked (spec §C2 — supersedes the 'Selected to publish' pin)", () => {
     const { q } = renderModal({ checked: false });
     expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");

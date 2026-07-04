@@ -17,6 +17,8 @@
  * render paths (normal + null-parse), is suppressed for a dirty re-scan row, and on the
  * final-publish blocker lists renders ONLY for STAGED_PARSE_OUTDATED_AT_PHASE_D rows.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
@@ -214,6 +216,108 @@ describe("RescanSheetButton — Step3 card mount (both render paths)", () => {
     );
     expect(queryByTestId(`rescan-sheet-button-${dfid}`)).toBeNull();
     expect(getByTestId(`wizard-step3-rescan-review-${dfid}`)).not.toBeNull();
+  });
+});
+
+describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
+  // Byte-parity pins: the two card call sites (Step3SheetCard.tsx L328/L536) pass NO
+  // resultPlacement, so the DEFAULT must keep today's markup byte-identically. These
+  // strings mirror RescanSheetButton.tsx's stacked tone classes verbatim — if they
+  // drift, the card call sites drifted too.
+  const STACKED_ROOT = "flex flex-col gap-2";
+  const STACKED_CODED =
+    "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text";
+  const STACKED_INFO =
+    "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+  const OVERLAY_CLASSES = [
+    "absolute",
+    "bottom-full",
+    "right-0",
+    "mb-2",
+    "z-10",
+    "w-max",
+    "max-w-[min(20rem,80vw)]",
+    "shadow-(--shadow-tile)",
+  ];
+  const INFO_BODY = { ok: true, status: "updated", needsReview: false, changed: true };
+  const CODED_BODY = { ok: false, status: "needs_attention", code: "STAGED_PARSE_FAILED" };
+
+  async function driveResult(
+    body: unknown,
+    props: Partial<Parameters<typeof RescanSheetButton>[0]> = {},
+  ) {
+    fetchMock.mockResolvedValueOnce(mockJsonResponse(body));
+    const utils = render(
+      <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} {...props} />,
+    );
+    await act(async () => {
+      fireEvent.click(utils.getByTestId(`rescan-sheet-button-${DFID}`));
+    });
+    await waitFor(() => expect(utils.getByTestId(`rescan-sheet-result-${DFID}`)).not.toBeNull());
+    return utils;
+  }
+
+  test("default (no prop): info result byte-equals today's stacked markup — no dismiss, root wrapper unchanged (card call-site parity)", async () => {
+    const { getByTestId, container } = await driveResult(INFO_BODY);
+    const result = getByTestId(`rescan-sheet-result-${DFID}`);
+    expect(result.className).toBe(STACKED_INFO);
+    expect(result.hasAttribute("data-rescan-overlay-result")).toBe(false);
+    expect(container.querySelector('button[aria-label="Dismiss"]')).toBeNull();
+    expect((container.firstElementChild as HTMLElement).className).toBe(STACKED_ROOT);
+  });
+
+  test("default (no prop): coded result byte-equals today's stacked markup — no dismiss", async () => {
+    const { getByTestId, container } = await driveResult(CODED_BODY);
+    const result = getByTestId(`rescan-sheet-result-${DFID}`);
+    expect(result.className).toBe(STACKED_CODED);
+    expect(container.querySelector('button[aria-label="Dismiss"]')).toBeNull();
+  });
+
+  test("overlay: root wrapper is relative; result keeps role=status aria-live=polite + tone classes AND the absolute out-of-flow classes + animation hook (catches: result back in flow → footer growth)", async () => {
+    const { getByTestId, container } = await driveResult(INFO_BODY, {
+      resultPlacement: "overlay",
+    });
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.className.split(/\s+/)).toContain("relative");
+    const result = getByTestId(`rescan-sheet-result-${DFID}`);
+    expect(result.getAttribute("role")).toBe("status");
+    expect(result.getAttribute("aria-live")).toBe("polite");
+    const classes = result.className.split(/\s+/);
+    for (const cls of STACKED_INFO.split(" ")) expect(classes).toContain(cls);
+    for (const cls of OVERLAY_CLASSES) expect(classes).toContain(cls);
+    expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true);
+  });
+
+  test("overlay: coded result keeps its tone classes + HelpAffordance (dougFacing rendered in both placements)", async () => {
+    const { getByTestId } = await driveResult(CODED_BODY, { resultPlacement: "overlay" });
+    const result = getByTestId(`rescan-sheet-result-${DFID}`);
+    const classes = result.className.split(/\s+/);
+    for (const cls of STACKED_CODED.split(" ")) expect(classes).toContain(cls);
+    for (const cls of OVERLAY_CLASSES) expect(classes).toContain(cls);
+    expect(result.querySelector("details")).not.toBeNull();
+    expect(result.textContent ?? "").toContain(MESSAGE_CATALOG.STAGED_PARSE_FAILED.dougFacing!);
+  });
+
+  test("overlay: dismiss button (aria-label='Dismiss', ≥44px size-tap-min target) removes the result instantly", async () => {
+    const { queryByTestId, container } = await driveResult(INFO_BODY, {
+      resultPlacement: "overlay",
+    });
+    const dismiss = container.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
+    expect(dismiss).not.toBeNull();
+    expect(dismiss.className.split(/\s+/)).toContain("size-tap-min");
+    fireEvent.click(dismiss);
+    expect(queryByTestId(`rescan-sheet-result-${DFID}`)).toBeNull();
+  });
+
+  test("globals.css wires the overlay animation hook: step3-details-pop-in at --duration-fast, reduced-motion → none (spec §G / §H N4)", () => {
+    const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+    expect(css).toMatch(
+      /\[data-rescan-overlay-result\]\s*\{\s*animation:\s*step3-details-pop-in\s+var\(--duration-fast\)\s+var\(--ease-out-quart\);/,
+    );
+    const reduced = css.match(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{\s*\[data-rescan-overlay-result\]\s*\{\s*animation:\s*none;/,
+    );
+    expect(reduced).not.toBeNull();
   });
 });
 

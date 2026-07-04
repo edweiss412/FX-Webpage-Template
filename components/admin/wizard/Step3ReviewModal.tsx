@@ -1050,7 +1050,11 @@ export function Step3ReviewModal({
                   testId={`wizard-step3-card-${dfid}-review-not-publishable`}
                 />
               </div>
-              <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+              <RescanSheetButton
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                resultPlacement="overlay"
+              />
             </>
           ) : (
             <>
@@ -1068,7 +1072,11 @@ export function Step3ReviewModal({
                   Couldn&apos;t update the publish selection. Try again.
                 </span>
               ) : null}
-              <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+              <RescanSheetButton
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                resultPlacement="overlay"
+              />
               {/* §11 N5: instant — deliberate (publish ↔ unpublish slot follows the checked prop; spec §C2/§H N5) */}
               {checked ? (
                 <button
