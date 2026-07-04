@@ -250,7 +250,7 @@ function asDeveloper(actorEmail: string, setupSql: string, actSql: string): stri
       on conflict (email) do update set is_developer=true, revoked_at=null, revoked_by=null;
     ${setupSql}
     set local role authenticated;
-    set local request.jwt.claims = '${claims({ email: actorEmail })}';
+    set local request.jwt.claims = '${claims({ sub: randomUUID(), email: actorEmail })}';
     ${actSql}
     rollback;`;
 }
