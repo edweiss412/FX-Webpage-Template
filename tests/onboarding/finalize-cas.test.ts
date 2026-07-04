@@ -7,6 +7,9 @@ import {
   handleOnboardingFinalizeCasStream,
 } from "@/app/api/admin/onboarding/finalize-cas/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
+import { setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
+import { hashForLog } from "@/lib/email/hashForLog";
 import {
   W1,
   EXISTING_SHOW_TITLE,
@@ -423,6 +426,37 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       code: "ONBOARDING_NOT_RESOLVED",
       unresolved_manifest_count: 1,
     });
+  });
+
+  test("the two non-convergent 409 terminals emit FINALIZE_PRECONDITION_REFUSED with a result discriminator (hashed actor), 409 unchanged", async () => {
+    // Silent-before proof: pre-change both stuck-finisher terminals returned with no server trace.
+    const capture = async (setup: (db: FakeFinalizeCasDb) => void, expectedResult: string) => {
+      const sink: LogRecord[] = [];
+      setLogSink((r) => {
+        sink.push(r);
+      });
+      try {
+        const db = new FakeFinalizeCasDb();
+        setup(db);
+        const response = await handleOnboardingFinalizeCas(request(), deps(db));
+        expect(response.status).toBe(409); // control flow unchanged
+        const rec = sink.find((r) => r.code === "FINALIZE_PRECONDITION_REFUSED");
+        if (!rec) throw new Error(`expected FINALIZE_PRECONDITION_REFUSED for ${expectedResult}`);
+        expect(rec.level).toBe("warn");
+        expect((rec.context as { result?: string })?.result).toBe(expectedResult);
+        expect(rec.actorHash).toBe(hashForLog("doug@example.com"));
+        expect(JSON.stringify(rec)).not.toContain("doug@example.com");
+      } finally {
+        resetLogSink();
+      }
+    };
+
+    await capture((db) => {
+      db.unresolvedManifestCount = 1;
+    }, "ONBOARDING_NOT_RESOLVED");
+    await capture((db) => {
+      db.legacyAmbiguousDriveIds = ["legacy-1"];
+    }, "ONBOARDING_LEGACY_ROW_AMBIGUOUS");
   });
 
   test("legacy pre-provenance Phase B rows REFUSE the final CAS fail-closed — before any apply/flip (WM-R7 finding 1)", async () => {

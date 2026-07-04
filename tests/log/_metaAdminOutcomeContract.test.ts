@@ -291,6 +291,9 @@ const NEW_FORENSIC_CODES = new Set([
   // Per-show admin page (page.tsx) two silent catch blocks → fail-open warns.
   "ADMIN_SHOW_TOKEN_READ_FAILED",
   "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+  // Finalize + finalize-cas non-convergent 409 precondition refusals → ONE code
+  // with a `result` discriminator (ONBOARDING_NOT_RESOLVED / ONBOARDING_LEGACY_ROW_AMBIGUOUS).
+  "FINALIZE_PRECONDITION_REFUSED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
