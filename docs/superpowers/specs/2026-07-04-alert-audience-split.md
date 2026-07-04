@@ -455,11 +455,11 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC9: A developer at `/admin/observability` sees the `HealthAlertsPanel` listing each
   unresolved health alert with its lookup-rendered copy (no raw code), `healthWeight` chip,
   show link (when `show_id` set), `raised_at`, `occurrence_count`, and a working Resolve
-  control. **Resolve actually resolves in BOTH cases:** a global health row resolves via
-  `resolveAdminAlertFormAction`; a show-scoped health row (e.g. `TILE_PROJECTION_FETCH_FAILED`)
-  resolves via `POST /api/admin/show/<slug>/alerts/<id>/resolve`. A test seeds a
-  show-scoped health alert, resolves it from the panel, and asserts the row is resolved AND
-  drops out of the health rollup. The developer indicator link targets
+  control. **Resolve goes through the single dev-gated `resolveHealthAlertFormAction` for
+  BOTH global and show-scoped rows** (§6.6) — NOT `resolveAdminAlertFormAction` and NOT the
+  per-show JSON route (both admin-only + the JSON route navigates away). A test seeds a
+  show-scoped health alert, resolves it from the panel via that action, and asserts the row
+  is resolved AND drops out of the health rollup. The developer indicator link targets
   `/admin/observability#health`.
 - AC10: An **uncataloged** `admin_alerts.code` (neither info nor health) remains visible in
   `AlertBanner`, is counted by `alertCount`, appears in `PerShowAlertSection` (if
@@ -510,10 +510,12 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - **Developer detail is IN scope (R2).** `HealthAlertsPanel` on `/admin/observability`
   (§6.6) is the real deep-link target with per-row lookup copy + Resolve. The deep-link is
   not hollow. Reuses the existing resolve actions/routes — no new RPC/DML lockdown surface.
-- **Resolve splits global vs show-scoped (R3).** `resolveAdminAlertFormAction` is
-  global-only (`.is("show_id", null)`); show-scoped health rows resolve via the existing
-  `POST /api/admin/show/<slug>/alerts/<id>/resolve`. Both reuse existing code; the split is
-  mandatory (a single global action would be a dead control for show-scoped rows). Settled.
+- **Health resolve is ONE dev-gated action, no global/show-scoped split (R3→R5).** An
+  earlier draft split resolution by `show_id` across two existing admin-gated paths; R5
+  superseded that — the single `resolveHealthAlertFormAction` (`requireDeveloper` +
+  `code ∈ HEALTH_CODES`) resolves BOTH by id. The old paths
+  (`resolveAdminAlertFormAction`, `POST /api/admin/show/<slug>/alerts/<id>/resolve`) are
+  NOT valid health-alert resolve paths (admin-only authz + JSON-nav). Do not reintroduce them.
 - **Exclusion union is `INFO_SEVERITY_CODES ∪ HEALTH_CODES` (R4).** `SHOW_FIRST_PUBLISHED`
   is `doug`+`info`; it stays banner-excluded by the pre-existing info rule, NOT the audience
   rule. AC2's "doug appears in banner" is scoped to non-info doug codes. Not a contradiction.
