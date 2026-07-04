@@ -37,7 +37,7 @@ TDD shape: BOTH test files are written first and are genuinely red — every tes
 
 **Interfaces:**
 - Consumes: `buildSheetDeepLink(driveFileId: string | null | undefined, anchor?)` → `string | null` (`lib/sheet-links/buildSheetDeepLink.ts`); `driveFolderUrl(folderId: string | null | undefined)` → `string | null` (`lib/drive/driveFolderUrl.ts`).
-- Produces: `ALERT_ACTION_CODES` const tuple, `AlertActionCode`, `AlertActionLink = { label: string; href: string; external: boolean }`, `AlertActionBuilder`, `ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder>`, `resolveAlertAction(code: string, context: Record<string, unknown> | null, opts: { slug: string | null }): AlertActionLink | null`. Tasks 2–4 rely on these exact names.
+- Produces: `ALERT_ACTION_CODES` const tuple, `AlertActionCode`, `AlertActionLink = { label: string; href: string; external: boolean }`, `AlertActionBuilder`, `ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder>`, `resolveAlertAction(code: string, context: Record<string, unknown> | null, opts: { slug: string | null }): AlertActionLink | null`. Tasks 2–3 rely on these exact names.
 
 - [ ] **Step 1: Write the failing test**
 
