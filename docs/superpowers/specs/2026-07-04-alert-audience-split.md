@@ -324,6 +324,41 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
 Because this reuses the resolve action, no new RPC / DML surface is introduced (no
 PostgREST-lockdown obligation).
 
+### 6.7 Closing the legacy resolve bypass (R7 finding)
+
+Adding `resolveHealthAlertFormAction` gates the PANEL's button, but the pre-existing
+admin-gated resolve surfaces still resolve any row by id with no code check — so a
+non-developer admin with a health alert id could resolve a developer-owned health alert
+through an old endpoint, exactly the failure mode §6.6 says must be prevented. To make
+"health resolution is developer-only" a **true invariant** (not just the panel's affordance),
+every pre-existing user-facing resolve surface must **categorically reject rows whose
+`code ∈ HEALTH_CODES`** — health rows resolve ONLY through `resolveHealthAlertFormAction`.
+
+The three surfaces to guard (each already reads or can cheaply read the target row's code):
+
+1. `resolveAdminAlertFormAction` (`app/admin/actions.ts:43`) — Server Action, `requireAdmin`,
+   global-only. Add: fetch the row's `code`; if `∈ HEALTH_CODES`, deny (no-op — do NOT
+   revalidate a false success; optional forensic log) and leave `resolved_at` null.
+2. `app/api/admin/admin-alerts/[id]/resolve/route.ts` — the unified route that already
+   `SELECT`s `a.id, a.show_id, s.slug, a.resolved_at` (`:103-105`) and branches on
+   `row.show_id`. Add `a.code` to that SELECT and reject when `∈ HEALTH_CODES` (e.g. a
+   403/`{ok:false}` response), `resolved_at` unchanged.
+3. `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` — show-scoped route
+   (`route.ts:109` selects `id, show_id, resolved_at`). Add `code` to the select and reject
+   `HEALTH_CODES`.
+
+This does NOT touch the internal `resolveAdminAlert()` helper
+(`lib/adminAlerts/resolveAdminAlert.ts`) used by the PR #283 **auto-resolution** system —
+auto-resolvers legitimately resolve health codes programmatically and do not go through
+these user-facing endpoints. The guard is only on the three human-triggered surfaces.
+
+**Structural guard:** a meta-test (`tests/admin/healthResolveGuard` or an extension of
+`developerGatingContract`) pins that (a) the three legacy surfaces reject `HEALTH_CODES`,
+and (b) `resolveHealthAlertFormAction` is the sole health-resolve entry point. Direct-POST
+tests: a non-developer admin cannot resolve a global OR show-scoped health alert through
+any legacy surface (`resolved_at` stays null); a `doug` alert still resolves through them
+unchanged.
+
 ## 7. `WATCH_CHANNEL_ORPHANED` demotion
 
 Stays `audience:"doug"` (keeps the Retry button in `AlertBanner`), but its catalog copy is
@@ -384,6 +419,9 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
   the doug/health partition counts are 16/26; the degraded/notice split is 16/10. New codes
   cannot land without declaring audience.
 - **EXTEND** `_metaAdminAlertCatalog.test.ts` if needed so the two registries stay set-equal.
+- **CREATE/EXTEND** a health-resolve-guard structural test (§6.7): pins that the three
+  pre-existing resolve surfaces reject `HEALTH_CODES` and that `resolveHealthAlertFormAction`
+  is the sole health-resolve entry point (may extend `developerGatingContract.test.ts`).
 - **VERIFY at plan time** whether `resolveHealthAlertFormAction` (the new dev-gated resolve
   Server Action) must register in `tests/admin/_metaAdminOutcomeContract.test.ts` — the
   existing resolve actions emit a post-commit `logAdminOutcome` breadcrumb; if the new
@@ -470,6 +508,13 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `resolved_at` stays null. A developer resolving a health alert (global or show-scoped)
   clears it and it drops from the rollup. Attempting to resolve a `doug`-audience code
   through this action is rejected (`code ∉ HEALTH_CODES`).
+- AC11b: The legacy resolve bypass is closed (§6.7): a non-developer admin (or any caller)
+  invoking each of the three pre-existing resolve surfaces (`resolveAdminAlertFormAction`,
+  `/api/admin/admin-alerts/[id]/resolve`, `/api/admin/show/[slug]/alerts/[id]/resolve`) on a
+  health-code row (global AND show-scoped) is rejected and `resolved_at` stays null; a
+  `doug`-code row still resolves through those surfaces unchanged; the auto-resolution
+  helper `resolveAdminAlert()` still resolves health codes programmatically. A structural
+  meta-test pins that health codes resolve only via `resolveHealthAlertFormAction`.
 - AC12: `/admin` renders the `AppHealthPanel` from seeded health rows (its own pinned
   `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
   Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
