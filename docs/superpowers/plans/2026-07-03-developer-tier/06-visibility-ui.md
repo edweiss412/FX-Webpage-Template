@@ -98,7 +98,7 @@ Spec §7 (component). `AdministratorsSection.tsx`: props `{ result, actorCanonic
 
 **Transition Inventory (spec §13) — DeveloperToggleButton states:** `off`, `on`, `pending` (optimistic, action in flight), `locked` (actor's own row). Each `AdminRow` owns its own `useActionState`, so compound transitions (toggle A while B pending) are independent.
 
-- [ ] **Step 1: Failing test** — 
+- [ ] **Step 1: Failing test** —
   - `viewerIsDeveloper={false}` → NO developer control or badge on any row (Doug's view unchanged);
   - `viewerIsDeveloper={true}`, non-actor row → an interactive `DeveloperToggleButton` reflecting `row.is_developer`;
   - `viewerIsDeveloper={true}`, actor's own row (`isActor`) → a **locked** developer indicator (not an actionable toggle; you cannot demote yourself);
