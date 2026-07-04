@@ -55,6 +55,10 @@ function lockTakingRpcNames(): string[] {
     // PF11 had with 20260622000002 (audit idx78). latestResetValidationDataBody()
     // is the canonical source for body-inspection.
     latestResetValidationDataFile(),
+    // Developer tier Task 2c — set_admin_developer_rpc + the re-created
+    // revoke_admin_email_rpc each take hashtextextended('admin_emails', 0)
+    // before their row lock, single-holder (own body; never nested).
+    "supabase/migrations/20260703230100_admin_emails_developer_tier.sql",
   ];
 
   const names = new Set<string>();
@@ -96,6 +100,10 @@ describe("advisory-lock RPC deadlock guard", () => {
     // sorted distinct affected-key set (shows ∪ pending_syncs ∪ pending_ingestions ∪
     // deferred_ingestions) before any delete.
     expect(lockTakingNames).toContain("reset_validation_data");
+    // Developer tier Task 2c — set_admin_developer_rpc acquires
+    // hashtextextended('admin_emails', 0) before its FOR UPDATE row lock,
+    // single-holder (its own body; never nested inside upsert/revoke).
+    expect(lockTakingNames).toContain("set_admin_developer_rpc");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -171,6 +179,10 @@ describe("advisory-lock RPC deadlock guard", () => {
       "supabase/migrations/20260527210001_validation_finalize_all_atomic.sql",
       "supabase/migrations/20260608000002_mi11_gate_rpcs.sql",
       "supabase/migrations/20260608000003_undo_change_rpc.sql",
+      // Developer tier Task 2c — set_admin_developer_rpc takes its advisory
+      // lock BEFORE its FOR UPDATE row lock; the re-created revoke_admin_email_rpc
+      // takes the advisory lock and no FOR UPDATE. Pin advisory-before-row here.
+      "supabase/migrations/20260703230100_admin_emails_developer_tier.sql",
       // NOTE: reset_validation_data is NOT scanned from a hardcoded file here — it is
       // `create or replace`d by hotfix migrations, so a pinned path validates a
       // superseded body (audit idx78). It is checked below from the SHIPPED body via
