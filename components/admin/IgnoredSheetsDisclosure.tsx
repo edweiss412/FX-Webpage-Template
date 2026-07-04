@@ -42,35 +42,48 @@ export function IgnoredSheetsDisclosure({
       className="flex w-full max-w-4xl flex-col gap-3"
     >
       <div className="flex min-w-0 items-center gap-2">
-        <button
-          type="button"
-          data-testid="ignored-sheets-toggle"
-          aria-expanded={open}
-          aria-controls="ignored-sheets-panel"
-          onClick={() => setOpen((v) => !v)}
-          className="group inline-flex min-h-tap-min min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          <ChevronRight
-            aria-hidden="true"
-            className={`size-4 shrink-0 text-text-subtle transition-transform duration-fast group-hover:text-text-strong ${
-              open ? "rotate-90" : ""
-            }`}
-          />
-          <h3 className="min-w-0 wrap-break-word text-lg font-semibold text-text-strong">
-            Ignored sheets
-          </h3>
-          <span
-            data-testid="ignored-sheets-count-chip"
-            className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+        {/* WAI accordion pattern: the heading wraps the interactive button so the
+            heading role survives (a <button> only accepts phrasing content, so an
+            <h3> may not nest inside it — the label is a <span>). The button is the
+            full width of the heading for a large, phone-friendly tap target. */}
+        <h3 className="min-w-0 flex-1">
+          <button
+            type="button"
+            data-testid="ignored-sheets-toggle"
+            aria-expanded={open}
+            // Only reference the panel when it exists (mounted on expand) — a
+            // dangling aria-controls idref confuses strict screen readers.
+            aria-controls={open ? "ignored-sheets-panel" : undefined}
+            onClick={() => setOpen((v) => !v)}
+            className="group flex min-h-tap-min w-full min-w-0 items-center gap-2 rounded-sm text-left transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
-            {count}
-          </span>
-        </button>
+            <ChevronRight
+              aria-hidden="true"
+              className={`size-4 shrink-0 text-text-subtle transition-transform duration-fast group-hover:text-text-strong ${
+                open ? "rotate-90" : ""
+              }`}
+            />
+            <span className="min-w-0 wrap-break-word text-lg font-semibold text-text-strong">
+              Ignored sheets
+            </span>
+            <span
+              data-testid="ignored-sheets-count-chip"
+              className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+            >
+              {count}
+            </span>
+          </button>
+        </h3>
         {help}
       </div>
 
       {open ? (
-        <div id="ignored-sheets-panel" data-testid="ignored-sheets-panel">
+        <div
+          id="ignored-sheets-panel"
+          data-testid="ignored-sheets-panel"
+          role="region"
+          aria-label="Ignored sheets list"
+        >
           {children}
         </div>
       ) : null}

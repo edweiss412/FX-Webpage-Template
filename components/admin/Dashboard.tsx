@@ -686,7 +686,7 @@ export async function Dashboard(
                     >
                       {name}
                     </span>
-                    <span className="text-sm text-text-subtle">
+                    <span className="wrap-break-word text-sm text-text-subtle">
                       Ignored {formatRelative(row.deferredAt, now)}
                       {row.deferredByEmail ? ` by ${row.deferredByEmail}` : null}
                     </span>

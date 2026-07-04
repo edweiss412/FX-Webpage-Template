@@ -47,6 +47,14 @@ describe("IgnoredSheetsDisclosure", () => {
     expect(screen.getByTestId("ignored-sheets-toggle")).not.toContainElement(help);
   });
 
+  it("exposes a real heading wrapping the toggle button (valid content model, WAI accordion)", () => {
+    renderDisclosure();
+    // The heading role must survive (an <h3> may not nest INSIDE a <button>); the
+    // heading wraps the button instead, so heading-navigation still finds it.
+    const heading = screen.getByRole("heading", { name: /Ignored sheets/ });
+    expect(heading).toContainElement(screen.getByTestId("ignored-sheets-toggle"));
+  });
+
   it("expands on click to mount the panel + children, then collapses on a second click", () => {
     renderDisclosure();
     const toggle = screen.getByTestId("ignored-sheets-toggle");
