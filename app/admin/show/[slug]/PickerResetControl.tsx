@@ -25,6 +25,8 @@ import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelec
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 
 const AUTO_REVERT_MS = 3_000;
+/** PCR-1 (d): how long a success banner lingers before it auto-dismisses. */
+const SUCCESS_DISMISS_MS = 5_000;
 
 export type PickerResetCrewRow = { id: string; name: string; role: string | null };
 
@@ -73,6 +75,16 @@ export function PickerResetControl({
       setUi("idle");
     }
   }, [isPending, outcome, ui]);
+
+  // PCR-1 (d): auto-dismiss the SUCCESS banner so a stale "reset" confirmation
+  // doesn't linger beside the control. Errors are NOT auto-dismissed — they must
+  // persist until the admin reads and acts on them. Cleanup clears the timer on
+  // unmount or when the outcome changes (no setState-after-unmount leak).
+  useEffect(() => {
+    if (outcome?.kind !== "ok") return;
+    const t = setTimeout(() => setOutcome(null), SUCCESS_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [outcome]);
 
   const selectedRow = crew.find((c) => c.id === selectedId) ?? null;
   // Fallback guards a removed/stale selectedId so aria-label + warning copy are never blank.
@@ -147,11 +159,26 @@ export function PickerResetControl({
 
   const banners = (
     <>
-      {outcome?.kind === "ok" && (
+      {/* PCR-1 (a): persistent, visually-hidden polite live region. A real
+          element (NOT display:contents — whose live-region semantics can be
+          dropped from the a11y tree in Safari/VoiceOver) that is always in the
+          a11y tree and out of layout flow (sr-only ⇒ position:absolute, so no
+          flex gap), so the success text swaps INTO a pre-existing region and
+          SRs reliably announce it. The visible banner below is decorative. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {outcome?.kind === "ok" ? outcome.message : ""}
+      </div>
+      {/* Visible banners render only at rest (idle), never beside the resolving
+          confirm actions — the sr-only region above still announces immediately
+          regardless of ui, so gating the VISIBLE banner costs no announce delay
+          (Codex R3 — keeps both controls flash-free and consistent). */}
+      {ui === "idle" && outcome?.kind === "ok" && (
+        // aria-hidden: the sr-only region above is the single SR source for the
+        // success; this visible banner is purely decorative so the message is
+        // not exposed to the a11y tree twice (Codex R2 LOW).
         <p
           data-testid="picker-reset-ok"
-          role="status"
-          aria-live="polite"
+          aria-hidden="true"
           className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
         >
           <span aria-hidden="true" className="mr-1 font-semibold text-accent">
@@ -160,7 +187,7 @@ export function PickerResetControl({
           {outcome.message}
         </p>
       )}
-      {outcome?.kind === "error" && (
+      {ui === "idle" && outcome?.kind === "error" && (
         <p
           data-testid="picker-reset-error"
           role="alert"
@@ -202,7 +229,7 @@ export function PickerResetControl({
           aria-busy={isResolving}
           aria-describedby={warningId}
           data-testid="picker-reset-confirm-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isResolving ? "Resetting…" : "Confirm reset"}
         </button>
@@ -211,7 +238,7 @@ export function PickerResetControl({
           onClick={onCancel}
           disabled={isResolving}
           data-testid="picker-reset-cancel-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
         >
           Cancel
         </button>
@@ -222,9 +249,11 @@ export function PickerResetControl({
   return (
     <div className="flex flex-col gap-2 py-3" data-testid="picker-reset-control">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-text-strong">
+        {/* PCR-1 (b): heading (under the panel's <h3>) so the control is reachable
+            in the screen-reader heading outline. Visual style is unchanged. */}
+        <h4 className="text-sm font-medium text-text-strong">
           {allConfirm ? "Reset everyone's pick" : "Reset name picker"}
-        </p>
+        </h4>
         <p id={descId} className="text-xs text-text-subtle">
           {hasCrew
             ? "Ask one crew member to pick their name again, or reset everyone."
@@ -245,7 +274,7 @@ export function PickerResetControl({
               value={selectedId}
               disabled={isResolving}
               onChange={(e) => onSelectChange(e.target.value)}
-              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-2 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
+              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-2 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
             >
               {crew.map((row) => (
                 <option key={row.id} value={row.id}>
@@ -260,7 +289,7 @@ export function PickerResetControl({
               onClick={() => enterConfirm("member")}
               data-testid="picker-reset-member-button"
               aria-label={`Reset ${selectedLabel}`}
-              className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               <RefreshCw aria-hidden="true" size={14} />
               Reset
@@ -279,7 +308,7 @@ export function PickerResetControl({
           data-testid="picker-reset-all-button"
           // Secondary/broader action: neutral + de-emphasized (accent is reserved for the confirm
           // CTA, so it never out-ranks the primary per-member Reset). Tap-min for the venue floor.
-          className="inline-flex min-h-tap-min items-center self-start rounded-sm text-xs text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline"
+          className="inline-flex min-h-tap-min items-center self-start rounded-sm text-xs text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline"
         >
           Reset everyone&rsquo;s pick
         </button>

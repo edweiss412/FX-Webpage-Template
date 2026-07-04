@@ -135,4 +135,116 @@ describe("PickerResetControl", () => {
     // the stale Alice confirm must NOT remain
     expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
   });
+
+  // PCR-1 item (c): DESIGN §focus specifies a ring PLUS a 2px offset. Every
+  // focusable control (idle + confirm) must carry the offset, not just the ring.
+  test("(c) every focusable control carries the DESIGN focus-ring offset", () => {
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    const checkAll = () => {
+      const focusables = container.querySelectorAll("button, select");
+      expect(focusables.length).toBeGreaterThan(0);
+      focusables.forEach((el) =>
+        expect((el as HTMLElement).className).toContain("focus-visible:ring-offset-2"),
+      );
+    };
+    checkAll(); // idle: select, per-member Reset, reset-everyone
+    fireEvent.click(screen.getByTestId("picker-reset-member-button")); // → confirm
+    checkAll(); // confirm + cancel
+  });
+
+  // PCR-1 (a) regression (Codex R3): the visible outcome banner must never
+  // render beside the still-"resolving" confirm actions — it appears only at rest.
+  test("(regression) success banner does not render beside the resolving confirm actions", async () => {
+    let resolve!: (v: unknown) => void;
+    mockMember.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await Promise.resolve();
+    });
+    // resolving: the "Resetting…" confirm button is present; NO banner yet
+    expect(screen.getByTestId("picker-reset-confirm-button")).toBeTruthy();
+    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+    await act(async () => {
+      resolve({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // settled: confirm actions gone, banner shown
+    expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
+    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+  });
+
+  // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; an ERROR
+  // banner persists until the admin acts on it.
+  const DISMISS_MS = 5_000;
+  test("(d) success banner auto-dismisses after the window", async () => {
+    mockMember.mockResolvedValueOnce({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DISMISS_MS + 1);
+    });
+    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+  });
+
+  test("(d) error banner does NOT auto-dismiss", async () => {
+    mockMember.mockResolvedValueOnce({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DISMISS_MS + 5_000);
+    });
+    expect(screen.getByTestId("picker-reset-error")).toBeTruthy();
+  });
+
+  // PCR-1 item (b): the row label is a heading (sits under the panel's <h3>),
+  // not a plain <p>, so the control is reachable in the SR heading outline.
+  test("(b) the row label is a heading", () => {
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    expect(screen.getByRole("heading", { name: /Reset name picker/i })).toBeTruthy();
+  });
+
+  // PCR-1 item (a): the success announcement must live in a live region that is
+  // ALREADY mounted (and empty) before the success occurs, so SRs that skip
+  // insert-time announcements on a freshly-mounted region still announce it.
+  test("(a) a persistent, empty aria-live=polite status region exists at mount", () => {
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    const region = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(region).not.toBeNull();
+    // no success banner yet — the region is present but empty
+    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+  });
+
+  test("(a) the success text populates the SAME status region node captured at mount", async () => {
+    mockMember.mockResolvedValue({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    // Capture the region node BEFORE any action; it must be empty and stable.
+    const region = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent).toBe("");
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // The announcement swaps INTO the pre-existing node (proves it was not a
+    // freshly mounted region), and the visible banner renders separately.
+    expect(region!.textContent).toMatch(/pick again/i);
+    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+  });
 });
