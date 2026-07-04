@@ -43,6 +43,7 @@ function emptyClient() {
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = pass;
