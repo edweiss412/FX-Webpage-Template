@@ -40,16 +40,19 @@ Onboarding parses from XLSX bytes: `lib/sync/runOnboardingScan.ts` passes `xlsxB
 2. New export:
 
 ```ts
-/** A stub the preview route can actually serve: a legacy per-entry URL, or an
- *  XLSX-media entry addressable by fingerprint (fingerprint null = restage-only,
- *  lib/parser/types.ts:258-262 — not servable). */
+/** A stub the preview route can actually serve: a TRUSTED legacy per-entry URL
+ *  (untrusted string contentUrls 404 at the route — the predicate must agree),
+ *  or an XLSX-media entry addressable by fingerprint (fingerprint null =
+ *  restage-only, lib/parser/types.ts:258-262 — not servable). */
 export function hasStagedPreviewSource(stub: EmbeddedImageStub): boolean {
   return (
-    typeof stub.contentUrl === "string" ||
+    (typeof stub.contentUrl === "string" && isTrustedDiagramContentUrl(stub.contentUrl)) ||
     (typeof stub.mediaPartName === "string" && typeof stub.embeddedFingerprint === "string")
   );
 }
 ```
+
+The route's legacy path KEEPS its own explicit `isTrustedDiagramContentUrl` check (defense in depth; behavior identical) — the predicate folding the trust check in is what makes the tile and the route agree on every stub, including untrusted-string `contentUrl` stubs (tile: placeholder without mounting the `<img>`; route: 404, zero fetches).
 
 ### A3 Route changes (`.../staged-diagram/.../route.ts`)
 
@@ -198,14 +201,18 @@ Compound transitions:
 
 Every test names the concrete failure mode it catches. Anti-tautology: tile/section assertions query the specific `data-testid`, never the container that also renders sibling copy.
 
-Each row is classed **[BUG]** (reproduces a shipped defect — MUST fail against the current implementation before the fix) or **[PIN]** (regression pin on a surface this change touches — expected to pass before AND after; it exists so the fix cannot regress the adjacent contract). [BUG] rows: T-A1, T-A3, T-A5, T-B1, T-C1, T-C3 (the S1 row), T-D1, T-D3. [PIN] rows: T-A2, T-A4 (new-predicate truth table plus pins on today's malformed-stub handling), T-B2 (extends the existing publish-reject test at `Step3ReviewModal.test.tsx:600-621` into the optimistic-flip harness rather than duplicating it), T-C2, T-D2.
+Each row is classed:
+
+- **[BUG]** — reproduces a shipped operator-visible defect; MUST fail against the current implementation: T-A1, T-A3, T-A5, T-B1, T-C1, T-C3 (the S1 row), T-D1, T-D3.
+- **[NEW]** — specifies behavior this change introduces; fails pre-fix only because the surface does not exist yet (missing export/field/toggle), which is ordinary TDD red, not a defect reproduction: T-A4 (`hasStagedPreviewSource` does not exist yet), T-C2 (`mapResult` does not forward `demoted` yet), T-D2 (existing report tests mechanically gain an expand-first step once the toggle exists).
+- **[PIN]** — same OBSERVABLE behavior before and after (the fix must not change it), even where the implementing branch differs: T-A2 (media stubs 404 today via the `contentUrl == null` gate and 404 after via the servability gate for null-fingerprint/missing-part/helper-null/helper-throw shapes), T-B2 (extends the existing publish-reject test at `Step3ReviewModal.test.tsx:600-621` into the optimistic-flip harness rather than duplicating it).
 
 | ID | Where | Asserts | Failure mode caught |
 |---|---|---|---|
 | T-A1 | `tests/api/staged-diagram-route.test.ts` | media stub (contentUrl null, mediaPartName + string fingerprint) → 200, body bytes = injected fixture bytes, Content-Type = stub.mimeType | route still 404s XLSX-media stubs (the shipped bug) |
 | T-A2 | same | fingerprint `null` → 404; mediaPartName absent → 404; helper resolves null → 404; helper throws → 404 | fail-soft regression / restage-only stubs served |
 | T-A3 | same | DEFAULT-path wiring, no `fetchImageBytes` injection: `vi.mock("@/lib/drive/fetch")` replaces ONLY `fetchCurrentSheetXlsxBytes` (returning `tests/fixtures/diagrams/embedded-sample.xlsx` bytes — exact mock + fixture pattern precedent at `tests/sync/snapshotAssetsXlsxMedia.test.ts:7-37`); a media stub whose `mediaPartName`/`embeddedFingerprint` come from `extractEmbeddedObjects(fixture)` → route returns 200 with the exact DIAGRAMS media-part bytes, AND `fetchCurrentSheetXlsxBytes` was called with the route-param driveFileId. Separately: legacy contentUrl path byte-unchanged (untrusted URL still 404s, zero fetches) | the shipped bug itself — default path never wires `fetchXlsxBytes` (`route.ts:78-80` + `defaultSnapshotAssetsForApply.ts:52` return null); wrong id passed to the export fetch; trust-boundary regression |
-| T-A4 | `tests/admin/stagedDiagramGuards.test.ts` | `hasStagedPreviewSource` truth table (string contentUrl / media pair / null fingerprint / missing part / malformed types) + `isRenderableDiagramStub` rejects non-string `mediaPartName`, non-(absent\|null\|string) `embeddedFingerprint` | route and tile disagreeing on servability; unguarded JSONB dereference |
+| T-A4 | `tests/admin/stagedDiagramGuards.test.ts` | `hasStagedPreviewSource` truth table (TRUSTED string contentUrl → true; UNTRUSTED string contentUrl, e.g. `https://google.com.evil.net/x` → false; media pair → true; null fingerprint / missing part / malformed types → false) + `isRenderableDiagramStub` rejects non-string `mediaPartName`, non-(absent\|null\|string) `embeddedFingerprint` | route and tile disagreeing on servability (incl. the untrusted-contentUrl case); unguarded JSONB dereference |
 | T-A5 | `tests/components/admin/wizard/step3ReviewSections.test.tsx` | media stub renders `<img>` (tile testid), not placeholder; `embeddedFingerprint: null` stub renders placeholder; both still count in the summary line | tile pre-fails servable stubs (the shipped client bug) |
 | T-B1 | `tests/components/admin/wizard/Step3ReviewModal.test.tsx` — a STATEFUL wrapper reproducing the card contract: its `onRequestSetChecked(next)` synchronously re-renders the modal with `checked = next` (the optimistic flip, `Step3SheetCard.tsx:289-292`) and returns a still-unresolved deferred | click Publish → AFTER the wrapper's optimistic flip to `checked=true`, while the deferred is unresolved, the slot button (testid `…-review-publish`) has label "Selecting…" and the ACCENT class; resolve true → `onClose`. Click Unpublish (start `checked=true`) → after flip to false, pending label "Removing…" with the quiet class; resolve true → slot label "Publish this show". This test MUST FAIL against the current implementation (which renders the flipped branch's label — the existing static-prop pending tests at `Step3ReviewModal.test.tsx:624-635,717-724` cannot catch this and are superseded/extended, not duplicated) | swapped labels/styling mid-flight (the reported bug); a fix that derives the label from `checked` again |
 | T-B2 | same | publish rejects → error note visible, slot back to "Publish this show", not stuck pending | pendingOp leak on failure paths |

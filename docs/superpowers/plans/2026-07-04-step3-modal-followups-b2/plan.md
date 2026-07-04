@@ -44,6 +44,7 @@ describe("hasStagedPreviewSource", () => {
   const base = { objectId: "o", mimeType: "image/png", sheetTab: "T" } as never;
   test.each([
     [{ ...base, contentUrl: "https://lh3.googleusercontent.com/x" }, true],
+    [{ ...base, contentUrl: "https://google.com.evil.net/x" }, false], // untrusted string URL — must match the route's 404
     [{ ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: "fp" }, true],
     [{ ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: null }, false], // restage-only
     [{ ...base, contentUrl: null, embeddedFingerprint: "fp" }, false], // no part name
@@ -68,7 +69,7 @@ Failure modes caught: route/tile disagreeing on servability; unguarded JSONB der
   }
 ```
 
-Then append the `hasStagedPreviewSource` export exactly as spec §A2.
+Then append the `hasStagedPreviewSource` export exactly as spec §A2 (note it calls `isTrustedDiagramContentUrl` for string contentUrls — the trust check is part of servability; the route's own legacy-path check stays as defense in depth).
 
 - [ ] **Step 4:** re-run → PASS. Also `pnpm vitest run tests/api/staged-diagram-route.test.ts tests/components/admin/wizard/step3ReviewSections.test.tsx` (consumers must stay green — their fixtures use string/absent media fields).
 - [ ] **Step 5:** commit `feat(admin): staged-diagram guards accept media-addressable stubs (hasStagedPreviewSource)`
