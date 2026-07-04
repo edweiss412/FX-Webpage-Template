@@ -16,6 +16,7 @@
  * pinned to that row).
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -228,6 +229,7 @@ export async function PerShowAlertSection({
           // sibling detail, NOT interpolated into the catalog dougFacing copy.
           const dataGapsDigest =
             alert.code === "SHOW_FIRST_PUBLISHED" ? readDataGapsDigest(alert.context) : null;
+          const action = resolveAlertAction(alert.code, alert.context, { slug });
           return (
             <li
               key={alert.id}
@@ -249,6 +251,19 @@ export async function PerShowAlertSection({
                 code={alert.code}
                 {...(alert.context ? { params: alert.context as MessageParams } : {})}
               />
+              {/* Per-code action link (spec 2026-07-04-alert-action-links §7.1). Fail-quiet:
+                  resolveAlertAction returns null for unregistered codes or failed guards. */}
+              {action ? (
+                <a
+                  href={action.href}
+                  data-testid={`per-show-alert-action-${alert.id}`}
+                  {...(action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                  className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                >
+                  {action.label}
+                  {action.external ? <span aria-hidden="true"> ↗</span> : null}
+                </a>
+              ) : null}
               {failedKeys && failedKeys.length > 0 ? (
                 <p
                   data-testid={`per-show-alert-failed-sources-${alert.id}`}
