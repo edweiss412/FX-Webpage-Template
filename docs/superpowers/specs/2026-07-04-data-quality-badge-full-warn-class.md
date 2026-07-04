@@ -64,11 +64,11 @@ Net vs #289: **+19** codes. Editorial calls documented: `SCHEDULE_STRIKE_DATE_OF
 - **Warn-severity sync-enrich notices:** `AGENDA_SCHEDULE_TIME_ADJUSTED` (enrichAgenda.ts:433 — best-effort time adjustment, data landed), `AGENDA_SCHEDULE_LOW_CONFIDENCE` (enrichAgenda.ts — parser's own confidence note, data landed). NOTE: `AGENDA_LINK_NOT_CLICKABLE` was reclassified to GAP (§2.1) per Codex R1 — it is NOT benign.
 - **Info-severity:** `TYPO_NORMALIZED` (venue.ts:134), `DAY_RESTRICTION_DOUBLE_LOCATION` (personalization.ts:103 — contradicted my gap guess; it's `info`).
 
-### 2.3 EXCLUDED — asset/diagram (non-sheet, persisted) — `ASSET_WARN_CODES` (10)
+### 2.3 EXCLUDED — asset/diagram (non-sheet, persisted) — `ASSET_WARN_CODES` (11)
 
 Persisted `warn` ParseWarnings, but **Drive-asset enrichment**, not *sheet-parse* data quality — the same scope line that excludes reel warnings. They have their own surfaces; counting them would conflate asset health with sheet data quality.
 
-- **Diagram/embedded-asset (7):** `DIAGRAMS_TAB_MISSING`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED`, `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` (`lib/sync/enrichWithDrivePins.ts`), `LINKED_FOLDER_OVERFLOW_TRUNCATED` (`enrichWithDrivePins.ts:370`), `EMBEDDED_ASSET_DRIFTED` (`snapshotAssets.ts:151`).
+- **Diagram/embedded-asset (8):** `DIAGRAMS_TAB_MISSING`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED`, `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` (`lib/sync/enrichWithDrivePins.ts`), `LINKED_FOLDER_OVERFLOW_TRUNCATED` (`enrichWithDrivePins.ts:370`), `EMBEDDED_ASSET_DRIFTED` (`snapshotAssets.ts:151`), `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` (`applyStaged.ts:968` → `parseResult.warnings:1086`; Codex R3 HIGH).
 - **Reel (3):** `REEL_DRIFTED`, `OPENING_REEL_PERMISSION_DENIED`, `OPENING_REEL_NOT_VIDEO` (`lib/sync/verifyReelOnApply.ts` → `phase2.ts:232`).
 
 ### 2.4 Log-only (never a persisted `ParseWarning` — out of the meta-test's structural scan)
@@ -77,7 +77,7 @@ Persisted `warn` ParseWarnings, but **Drive-asset enrichment**, not *sheet-parse
 
 ### 2.5 Universe accounting (drift-guard invariant)
 
-**41 distinct persisted `ParseWarning` codes** across `lib/parser` + `lib/sync` (verified sweep 2026-07-04) = **22** GAP (§2.1) + **7** benign-warn (§2.2) + **2** benign-info (§2.2) + **10** asset/reel (§2.3). The §3.2 meta-test pins this partition: every persisted code is in exactly one bucket.
+**42 distinct persisted `ParseWarning` codes** across `lib/parser` + `lib/sync` (verified sweep 2026-07-04, incl. Codex R3's `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`) = **22** GAP (§2.1) + **7** benign-warn (§2.2) + **2** benign-info (§2.2) + **11** asset/reel (§2.3). The §3.2 meta-test pins this partition: every persisted code is in exactly one bucket. (This literal count is a per-round drift check, but the AUTHORITATIVE gate is the registry's disjointness + the layer-2 scan's `⊆ registry` assertion — see §3.2; the raw number will move whenever the parser/sync adds a code, which is exactly what the guard should force a human to reconcile.)
 
 ---
 
@@ -112,8 +112,14 @@ export const DATA_GAP_CLASS_LABELS: Record<GapCode, string> = Object.fromEntries
 
 Enforces: **every persisted `ParseWarning` code across `lib/parser` + `lib/sync` is classified** into exactly one of GAP (`DATA_GAP_CODES`), benign (`BENIGN_WARN_CODES` warn + `BENIGN_INFO_CODES` info), or asset/non-sheet (`ASSET_WARN_CODES`). Scope is the **whole `lib/parser` + `lib/sync` tree**, NOT a hand-listed file set — the sweep proved the naïve list drifts (`BLOCK_DISAPPEARED`, `AGENDA_DAY_EMPTIED`, `AGENDA_PDF_UNREADABLE` come from `lib/sync`; the diagram/reel family from `enrichWithDrivePins.ts`/`snapshotAssets.ts`/`verifyReelOnApply.ts` was missed in an earlier draft — Codex R2 HIGH). Two layers:
 
-1. **Registry completeness (DB-free):** the maintained union `ALL_PERSISTED_WARNING_CODES = DATA_GAP_CODES ∪ BENIGN_WARN_CODES ∪ BENIGN_INFO_CODES ∪ ASSET_WARN_CODES` (the 41 of §2.5). Assert the four sets are pairwise disjoint and total exactly 41 with the documented per-bucket counts (22/7/2/10). Each set carries a one-line rationale comment; this is the editorial ledger.
-2. **Structural scan (source-of-truth):** AST-walk **every `.ts` under `lib/parser/**` and `lib/sync/**`** (excluding `*.test.ts`), collect the `code` string-literal of every object literal / factory return that has BOTH a `severity:` and a `code:` property (the `ParseWarning` shape — this is exactly what persists; `log.warn(msg,{code})` calls have no `severity:` sibling and are correctly ignored), resolve named-const codes (e.g. `code: FIELD_UNREADABLE`) against `lib/parser/warnings.ts`, and assert each collected code ∈ `ALL_PERSISTED_WARNING_CODES`. A brand-new persisted code nobody classified fails here. AST-based (`typescript` parser, read the `code:` property) per `feedback_ast_guard_for_log_code_stamps` — NOT a lexical grep a comment could fool (`feedback_structural_metatest_comment_fragility`).
+**Layer 1 — Registry ledger (DB-free, AUTHORITATIVE).** The maintained union `ALL_PERSISTED_WARNING_CODES = DATA_GAP_CODES ∪ BENIGN_WARN_CODES ∪ BENIGN_INFO_CODES ∪ ASSET_WARN_CODES` (the 42 of §2.5). Assert the four sets are pairwise disjoint and total exactly 42 with the documented per-bucket counts (22/7/2/11). Each set carries a one-line rationale comment. This is the editorial ledger — the human decision of record. It never drifts on its own; it moves only when a person edits it.
+
+**Layer 2 — Structural drift detector (source-of-truth scan).** AST-walk **every `.ts` under `lib/parser/**` and `lib/sync/**`** (excluding `*.test.ts`) and collect candidate warning-code string literals from BOTH shapes a `ParseWarning` code takes in this codebase — because **codes are frequently threaded as a `code` parameter through factory helpers, NOT written as an inline literal** (Codex R3 HIGH: e.g. `enrichAgenda.ts` `warn(code, …)`, `verifyReelOnApply`/`phase2.ts` `reelWarning(code)`, `enrichWithDrivePins.ts` diagram `warning(code)`, `applyStaged.ts` recovery factory):
+   - (a) the `code:` value of any object literal / factory return that has both a `severity:` and a `code:` property (direct producers), AND
+   - (b) the first string-literal argument at every **call site** of the enumerated ParseWarning-factory helpers (a pinned list of `{file, fnName}` in the test — `warn`@enrichAgenda, `reelWarning`@verifyReelOnApply, the diagram `warning`@enrichWithDrivePins, the recovery factory@applyStaged, the agenda factory@agendaWarnings; direct `lib/parser` producers use shape (a)).
+   Resolve named-const codes (`code: FIELD_UNREADABLE`) against `lib/parser/warnings.ts`. Assert every collected literal ∈ `ALL_PERSISTED_WARNING_CODES`. A new persisted literal in any of those positions that nobody classified fails here. AST-based (`typescript` parser) per `feedback_ast_guard_for_log_code_stamps` — never a lexical grep (`feedback_structural_metatest_comment_fragility`). `log.warn(msg,{code})` has no `severity:` sibling and is not a factory-helper call, so telemetry codes are excluded by construction (they are NOT in the union — §2.4).
+
+**Documented residual (why layer 1 is authoritative).** Static analysis cannot enumerate a code that is NEVER a literal anywhere — a fully-computed `code` value (string built at runtime, or a helper whose call sites all pass a variable). The sweep confirms **no such code exists today** (every persisted code appears as a literal at ≥1 producer/call site). If one is ever introduced, the count logic **fails safe** — `summarizeDataGaps` gates on `DATA_GAP_CODES` membership, so an unknown code is simply *not counted* (the badge under-reports; it never over-reports, crashes, or leaks a raw code). The layer-2 scan is therefore a best-effort drift detector over a pinned producer surface, and **layer 1 (the disjoint, human-maintained registry) is the gate of record.** The plan MUST also pin the layer-2 factory-helper list itself (a change to that list is a deliberate, reviewed act).
 
 Why asset codes live in the union (not filtered by path): the drift guard's job is "a human decided each code's fate." A new diagram/reel code must still force a classification decision even though `summarizeDataGaps` will (correctly) never count it — the count logic filters on `DATA_GAP_CODES` membership, entirely independent of this completeness ledger.
 
@@ -159,8 +165,9 @@ A single show can now surface up to 22 classes. The badge glyph is unchanged (on
 ```ts
 // Bounded, human breakdown string for a summary. Ordering: count desc, then
 // GAP_CLASSES registry order (stable tiebreak). Caps at `cap` classes; the
-// remainder collapses to "+N more". Used by BOTH the badge aria-label/title
-// AND the per-show alert sub-line so neither is ever unbounded.
+// remainder collapses to "+N more". Used by ALL THREE count-bearing surfaces
+// (badge aria-label/title, per-show alert sub-line, held-row DataGapsChip title)
+// so none is ever unbounded.
 export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): string
 // e.g. → "2 unreadable fields, 1 unknown section"  (≤cap)
 //      → "3 unreadable fields, 2 unknown sections, 1 removed section, 1 empty section, +2 more"  (>cap)
@@ -208,6 +215,6 @@ Contracts a reviewer is likely to relitigate — pre-cited so the review can ver
 2. **Sync-origin codes legitimately count.** `BLOCK_DISAPPEARED` (already counted pre-#289), `AGENDA_DAY_EMPTIED`, `AGENDA_PDF_UNREADABLE` are emitted from `lib/sync` yet are genuine sheet-data gaps that reach `parse_warnings`. The gap class is producer-agnostic; the meta-test scope (§3.2) spans the enumerated sync producers.
 3. **jsdom structural test, not Playwright.** The badge is a content-height `flex items-center` child, not a fixed-dimension parent with stretch-dependent children — the AGENTS.md real-browser mandate is N/A, the exact determination ratified in #289 (`DEFERRED.md` DQ-1, `dataGapsChipRowLayout.test.tsx` header). No new layout surface is introduced. Do not demand a `getBoundingClientRect` assertion.
 4. **Point-in-time snapshots are not retroactively recounted.** `admin_alerts.context.data_gaps` on OLD alerts keeps its 3-key/old-scope shape (§3.3). This is correct — the digest records publish-time truth. `readDataGapsDigest` back-fills missing keys to 0. Do not demand a backfill migration.
-5. **Log-only codes (`HOTELS_PARSE_WARNING`, `AGENDA_LINK_UNRESOLVED`) are excluded from counting but present in the meta-test union.** They can never reach `parse_warnings`; the union entry forces a classification decision, it is not a claim they render.
+5. **Log-only codes (`HOTELS_PARSE_WARNING`, `AGENDA_LINK_UNRESOLVED`, etc.) are NOT ParseWarnings and are NOT in the meta-test union (§2.4).** They are `log.warn`/`log.info` calls with no `severity:` sibling, so the layer-2 AST scan never collects them and they need no classification entry. Do NOT add them to `ALL_PERSISTED_WARNING_CODES` — that would break the disjoint 42-code partition (Codex R3 MEDIUM).
 6. **Editorial borderline calls are deliberate, documented (§2.1/§2.2), and pinned by the meta-test:** `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` and `AGENDA_LINK_NOT_CLICKABLE` count (both operator-actionable data/access gaps); `AGENDA_SCHEDULE_TIME_ADJUSTED`/`_LOW_CONFIDENCE` do not (best-effort adjustment/confidence, data landed). These are judgment calls, not oversights — challenge on merit with a concrete "this misleads the operator" argument, not on "inconsistent with severity."
 7. **No §12.4 / catalog / DB / advisory-lock surface.** The labels are UI copy in `DATA_GAP_CLASS_LABELS` (not §12.4 rows); nothing here touches the message catalog, a migration, or a lock. Invariant-8 impeccable dual-gate DOES apply (UI copy + the badge surface).
