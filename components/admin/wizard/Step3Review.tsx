@@ -39,6 +39,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
+import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
@@ -350,8 +351,11 @@ function RowItem({
   wizardSessionId: string;
   // Lifted publish-intent (clean rows only) — forwarded to the card's checkbox so
   // Select-all updates every box through Step3Review's shared optimistic state.
+  // RESULT-BEARING (spec §9.2): resolves true iff the row SETTLED at the
+  // requested value. The card's checkbox path ignores the promise
+  // (fire-and-forget); the review modal's publish button awaits it.
   checked?: boolean;
-  onToggleChecked?: (next: boolean) => void;
+  onToggleChecked?: (next: boolean) => Promise<boolean>;
   // Quiet, de-emphasized rendering for the set-aside sections (ignored / deferred /
   // skipped): the section heading already names the status, so the per-row status
   // badge is dropped and the card recedes (sunken surface, lighter title). Keeps the
@@ -657,7 +661,7 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
   const hasSetAside = ignoredRows.length + deferredRows.length + skippedRows.length > 0;
 
   // Per-card details now open in a self-managed MODAL overlay (the card's "More"
-  // button → <Step3DetailsDialog>), so there is no accordion state here and the
+  // button → <Step3ReviewModal>), so there is no accordion state here and the
   // grid never reflows: every cell stays a uniform summary tile. (Previously one
   // card's cell spanned full-width while open; the modal removes that coupling.)
 
@@ -709,6 +713,42 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
   // not state: it is never rendered, so it needs no re-render and stays a pure guard.
   const selectAllPendingRef = useRef(false);
 
+  // ── Result-bearing settlement (spec §9.2) ─────────────────────────────────
+  // Per-row waiter queue: a LIST per driveFileId, never a single slot — every
+  // toggleOne call pushes a waiter; nothing overwrites or orphans an earlier
+  // one (§9.2.1). Waiters are resolved ONLY at the row's settlement point
+  // (settleRow, called from flush's finally / the lifecycle effects below) —
+  // never during render.
+  const waitersRef = useRef(
+    new Map<string, Array<{ requestedValue: boolean; resolve: (ok: boolean) => void }>>(),
+  );
+
+  // Resolution rule (§9.2.3): at settlement, resolve EVERY queued waiter for
+  // the row with `settledValue === waiter.requestedValue`, then clear the
+  // row's list. `settledValue` is the row's effective checked state at the
+  // settlement point: the retained overlay entry on success, or the reverted
+  // server truth (flush's `baseline`) after a refusal/failure.
+  function settleRow(driveFileId: string, settledValue: boolean) {
+    const waiters = waitersRef.current.get(driveFileId);
+    if (!waiters) return;
+    waitersRef.current.delete(driveFileId);
+    for (const w of waiters) w.resolve(settledValue === w.requestedValue);
+  }
+
+  // Waiter lifecycle (b) (§9.2.6): Step3Review unmount (route transition,
+  // wizard session replacement) resolves ALL outstanding waiters false and
+  // clears the map — an awaiting modal is gone with us, but the promise must
+  // still terminate (the card's guard/no-op semantics absorb the resolution).
+  useEffect(() => {
+    const waiters = waitersRef.current;
+    return () => {
+      for (const list of waiters.values()) {
+        for (const w of list) w.resolve(false);
+      }
+      waiters.clear();
+    };
+  }, []);
+
   // Reconcile during render (React's "adjust state when a prop changes" pattern —
   // not an effect): when a refresh delivers a NEW `rows` reference, drop overlay
   // entries that now match the server status (the server is the source of truth, so
@@ -742,6 +782,23 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
     });
   }
 
+  // Waiter lifecycle (c) (§9.2.6): row removal. When a refresh delivers `rows`
+  // WITHOUT a waiter's driveFileId (e.g. a re-scan demoted the row), its
+  // waiters resolve false — in a COMMITTED effect keyed on the reconciled rows,
+  // never inside the render-time overlay reconcile above (which stays pure:
+  // resolving promises/mutating the waiter map during render is unsafe under
+  // concurrent rendering — a render may never commit or may run twice).
+  useEffect(() => {
+    const waiters = waitersRef.current;
+    if (waiters.size === 0) return;
+    const present = new Set(reconciledRows.map((r) => r.driveFileId));
+    for (const [driveFileId, list] of Array.from(waiters)) {
+      if (present.has(driveFileId)) continue;
+      waiters.delete(driveFileId);
+      for (const w of list) w.resolve(false);
+    }
+  }, [reconciledRows]);
+
   const isChecked = (row: Step3Row): boolean =>
     row.driveFileId in overlay ? !!overlay[row.driveFileId] : row.status === "applied";
 
@@ -765,26 +822,14 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
     });
   }, [onCountsChange, optimisticPublishCount, optimisticUncheckedCleanCount]);
 
+  // ONE POST implementation for the whole publish-intent surface: the shared
+  // helper (lib/admin/publishIntent.ts) carries the refusal semantics — HTTP
+  // error, network error, or a 200 `{ ok: false }` safe refusal (e.g. a row
+  // that went dirty between render and click → RESCAN_REVIEW_REQUIRED) all
+  // return false, so flush reverts the optimistic box to server truth instead
+  // of leaving it falsely checked/applied.
   async function postApproval(driveFileId: string, next: boolean): Promise<boolean> {
-    const action = next ? "approve" : "unapprove";
-    try {
-      const res = await fetch(
-        `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
-        { method: "POST" },
-      );
-      if (!res.ok) return false;
-      // The server returns HTTP 200 with `{ ok: false }` when it SAFELY refuses an
-      // approve (e.g. a row that went dirty between render and click →
-      // RESCAN_REVIEW_REQUIRED): the publish was NOT applied. Treat that as a failure
-      // so flush reverts the optimistic box to server truth instead of leaving it
-      // falsely checked/applied. A success body has no `ok` field (`{ status: ... }`),
-      // so this only catches an explicit refusal. A 200 with no/invalid body is success.
-      const body = (await res.json().catch(() => null)) as { ok?: unknown } | null;
-      if (body !== null && typeof body === "object" && body.ok === false) return false;
-      return true;
-    } catch {
-      return false;
-    }
+    return postPublishIntent(wizardSessionId, driveFileId, next);
   }
 
   // Latest desired publish-intent for a row: the overlay entry if present, else the
@@ -803,10 +848,17 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
   // select-all race). Different rows still flush concurrently. On a failed POST the
   // row's overlay entry is dropped so the box falls back to the server truth.
   async function flush(driveFileId: string, serverApplied: boolean): Promise<void> {
-    if (sendingRef.current.has(driveFileId)) return; // already converging this row
+    // Already converging this row: the OWNING flush picks up the newer desired
+    // intent after its in-flight POST resolves, and ITS settlement resolves
+    // every queued waiter — an early-returned call must NOT settle anything
+    // (that would resolve its caller's waiter before the row actually settled).
+    if (sendingRef.current.has(driveFileId)) return;
     markSending(driveFileId, true);
+    // `baseline` is the server truth as this flush knows it: the entry value,
+    // advanced by each successful POST. At exit it IS the settled value —
+    // success retains an overlay entry equal to it; failure reverts to it.
+    let baseline = serverApplied;
     try {
-      let baseline = serverApplied;
       for (;;) {
         const target = desiredFor(driveFileId, baseline);
         if (target === baseline) break; // server already matches the desired intent
@@ -820,18 +872,36 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
         baseline = target; // server now equals target; loop to catch a mid-flight change
       }
     } finally {
+      // Settlement point (§9.2.2): the row leaves sendingRef with no newer
+      // desired intent (loop exit), or its overlay entry was dropped without a
+      // POST (target === baseline immediately). Both funnel through here.
       markSending(driveFileId, false);
+      settleRow(driveFileId, baseline);
     }
   }
 
-  async function toggleOne(
-    driveFileId: string,
-    next: boolean,
-    serverApplied: boolean,
-  ): Promise<void> {
+  // Result-bearing toggle (spec §9.2): push a waiter, then the existing
+  // optimistic write + coalescing flush. The returned promise resolves at the
+  // ROW's settlement — `true` iff the settled value equals `next`. The
+  // checkbox click path deliberately ignores it (fire-and-forget, current UX
+  // preserved); only the review modal awaits it (§9.2.5: the modal closes only
+  // on its OWN waiter resolving true).
+  function toggleOne(driveFileId: string, next: boolean, serverApplied: boolean): Promise<boolean> {
+    // The RETURNED promise is the waiter itself — never chained through flush.
+    // Chaining would tie termination to the POST's fate; the waiter instead
+    // terminates through §9.2.6's lifecycle (settlement, unmount cleanup, or
+    // committed row-removal) even if a request hangs past this component.
+    const settled = new Promise<boolean>((resolve) => {
+      const list = waitersRef.current.get(driveFileId);
+      if (list) list.push({ requestedValue: next, resolve });
+      else waitersRef.current.set(driveFileId, [{ requestedValue: next, resolve }]);
+    });
     setDesired({ ...desiredRef.current, [driveFileId]: next }); // optimistic, synchronous
-    await flush(driveFileId, serverApplied);
-    router.refresh();
+    void (async () => {
+      await flush(driveFileId, serverApplied);
+      router.refresh();
+    })();
+    return settled;
   }
 
   async function toggleSelectAll(): Promise<void> {
@@ -996,8 +1066,10 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
                     // "individual selects grey out" complaint). Race-safety comes from
                     // per-row coalescing in flush(), not from disabling. serverApplied
                     // (row.status) is flush's baseline for converging this row.
+                    // RESULT-BEARING (§9.2): the card decides per caller whether to
+                    // await (modal publish) or fire-and-forget (checkbox click).
                     onToggleChecked={(next) =>
-                      void toggleOne(row.driveFileId, next, row.status === "applied")
+                      toggleOne(row.driveFileId, next, row.status === "applied")
                     }
                   />
                 </li>

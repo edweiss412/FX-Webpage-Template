@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
 /**
- * tests/components/step3Checkbox.test.tsx (Task D3 — spec §4.1/§4.5/§4.6/§7.2)
+ * tests/components/step3Checkbox.test.tsx (Task D3 — spec §4.1/§4.5/§4.6/§7.2;
+ * Task 8 of the 2026-07-02 review-modal redesign moved the uncontrolled
+ * optimistic state + POST out of PublishCheckbox UP into Step3SheetCard's
+ * `requestSetChecked` — PublishCheckbox is now PURELY controlled.)
  *
  * The publish checkbox is the durable publish-intent control. Checked state =
- * row.status === 'applied'. On toggle it POSTs to the LIGHTWEIGHT approve /
- * un-approve pair (NOT the heavy apply route), optimistically updates, then
- * router.refresh(). It is disabled while its own request is in flight (§4.6).
+ * row.status === 'applied'. On toggle the CARD POSTs to the LIGHTWEIGHT
+ * approve / un-approve pair (NOT the heavy apply route) via the shared
+ * postPublishIntent helper, optimistically updates, then router.refresh().
+ * The box is NEVER disabled (no pending UI); a re-entrant click while the
+ * card's own write is in flight is ignored (§4.6 guard, moved to the card).
  *
  * Anti-tautology: URLs are derived from the fixture's driveFileId +
  * wizardSessionId, not hardcoded literals; the count is derived from how many
@@ -120,7 +125,7 @@ describe("Step3SheetCard publish checkbox (Task D3)", () => {
     expect(box().checked).toBe(false);
   });
 
-  it("the checkbox is disabled while a request is in flight (prevents double-toggle, §4.6)", async () => {
+  it("a re-entrant click while a request is in flight is IGNORED, and the box is never disabled (§4.6, no pending UI)", async () => {
     let resolveFetch: (r: Response) => void = () => {};
     const pending = new Promise<Response>((res) => {
       resolveFetch = res;
@@ -135,14 +140,18 @@ describe("Step3SheetCard publish checkbox (Task D3)", () => {
 
     fireEvent.click(box);
 
-    // While the (still-pending) request is in flight, the checkbox is disabled.
-    await waitFor(() => expect(box.disabled).toBe(true));
-    // A second click while disabled does not fire another request.
+    // While the (still-pending) request is in flight, the box shows NO pending
+    // UI — it stays enabled (the "greys out for a second or two" complaint)…
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(box.disabled).toBe(false);
+    // …but a second click while the card's own write is in flight fires NO
+    // second request (double-toggle guard moved into the card).
     fireEvent.click(box);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     resolveFetch(new Response(JSON.stringify({ status: "approved" }), { status: 200 }));
-    await waitFor(() => expect(box.disabled).toBe(false));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(box.disabled).toBe(false);
   });
 
   it("a corrupt (parseResult null) row shows NO checkbox (§4.6)", () => {

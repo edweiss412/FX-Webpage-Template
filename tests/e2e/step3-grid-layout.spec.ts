@@ -2,7 +2,14 @@
  * tests/e2e/step3-grid-layout.spec.ts
  *
  * Real-browser layout assertions for the Step-3 review surface after the inline
- * expand was replaced by the "More" details overlay (<Step3DetailsDialog>).
+ * expand was replaced by the "More" details overlay.
+ *
+ * LEGACY NOTE (Task 8, 2026-07-02 redesign): <Step3DetailsDialog> was retired
+ * in favor of <Step3ReviewModal>. Test 1 (the uniform card GRID) still pins
+ * live markup; the overlay transcription below (tests 2-3) is a static
+ * analogue of the RETIRED dialog kept only until the real-component modal
+ * layout spec (tests/e2e/step3-review-modal.layout.spec.ts, plan Task 10)
+ * supersedes it — do not extend the dialog transcription.
  * jsdom computes no layout, so these run in a real browser:
  *
  *   1. GRID: every publish card is a UNIFORM cell — none spans full width and
