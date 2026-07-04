@@ -174,12 +174,13 @@ if (isEntry) {
 async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
   const parsed = parseObserveArgs(argv);
   if (parsed.kind !== "ok") {
-    process.stderr.write(parsed.message + "\n");
+    process.stderr.write(tailErrorLine(parsed.message, argv.includes("--json")) + "\n");
     process.exit(1);
   }
   const target = resolveTarget(parsed.env, deps.env);
   if (target.kind === "error") {
-    process.stderr.write(target.message + "\n");
+    // JSON-aware even on the pre-loop guardrail refusal (Codex whole-diff R3).
+    process.stderr.write(tailErrorLine(target.message, parsed.json) + "\n");
     process.exit(1);
   }
   const seen = new Set<string>();
