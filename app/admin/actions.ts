@@ -33,6 +33,9 @@ import { getActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
 import { subscribeToWatchedFolder } from "@/lib/drive/watch";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { WatchRetryInfraError } from "@/lib/admin/watchRetryError";
+import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE) because
 // §B (this file's milestone) cannot import from §A's lib/auth surface. A single
@@ -154,6 +157,90 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // Re-render the admin layout so the AlertBanner re-runs its SELECT
   // and the freshly-resolved row drops out of the topmost slot.
   revalidatePath("/admin", "layout");
+}
+
+/**
+ * Developer-gated resolve for HEALTH-audience admin_alerts (spec §6.6).
+ *
+ * Reusing `resolveAdminAlertFormAction` (requireAdmin only) OR the per-show
+ * JSON route is wrong on two counts (spec §6.6 R5 findings 1+3): (1) a
+ * non-developer admin could resolve a developer-owned health alert, hiding
+ * degradation from the developer — this gates `requireDeveloperIdentity()` and
+ * additionally verifies the target row's `code ∈ HEALTH_CODES`; (2) the per-show
+ * route returns JSON, so a plain form would navigate the developer to a raw JSON
+ * document — this Server Action revalidates in place and stays on #health.
+ *
+ * Both GLOBAL and SHOW-SCOPED health rows resolve through this one action
+ * (developer-authorized + code-verified → no show_id predicate needed).
+ */
+export async function resolveHealthAlertFormAction(formData: FormData): Promise<void> {
+  // Developer-gated (canonical, attributable email). A confirmed non-developer
+  // is rejected here (forbidden()) before any read/write.
+  const { email: devEmail } = await requireDeveloperIdentity();
+
+  const id = formData.get("id");
+  if (typeof id !== "string" || !UUID_RE.test(id)) return;
+
+  // not-subject-to-meta: server action with no typed-result contract.
+  // The code lookup destructures { data, error }; the UPDATE returns row evidence
+  // so a zero-row no-op is detectable (R13 finding 2). Construction/select/update
+  // returned-errors AND throws propagate to the Next.js error boundary (propagation
+  // IS the contract) — they must NOT revalidate as success and must NOT log an
+  // outcome. There is no caller checking for { kind:"infra_error" }.
+  const supabase = await createSupabaseServerClient();
+  const { data: row, error: fetchError } = await supabase
+    .from("admin_alerts")
+    .select("code, show_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) {
+    throw new Error(
+      `[resolveHealthAlertFormAction] admin_alerts code lookup failed: ${fetchError.message}`,
+    );
+  }
+  if (!row) return; // not found — idempotent no-op (no log, no revalidate)
+  const code = row.code as string;
+  // A developer cannot use this door to resolve a `doug` alert (defense-in-depth):
+  // only HEALTH_CODES rows are resolvable here. No write on rejection.
+  if (!HEALTH_CODES.includes(code)) return;
+  const showId = (row.show_id as string | null) ?? null;
+
+  const { data: updated, error: updateError } = await supabase
+    .from("admin_alerts")
+    .update({
+      resolved_at: new Date().toISOString(), // not-render-side: mutation timestamp (resolved_at write)
+      resolved_by: devEmail,
+    })
+    .eq("id", id)
+    .is("resolved_at", null)
+    .select("id");
+  if (updateError) {
+    // I1 parity: a failed UPDATE never revalidates (a false "resolved" UI over an
+    // unresolved DB row). Throw to the error boundary; no success log.
+    throw new Error(
+      `[resolveHealthAlertFormAction] admin_alerts UPDATE failed: ${updateError.message}`,
+    );
+  }
+  // R13 finding 2: a Supabase UPDATE that affects zero rows returns NO error, so
+  // `data.length === 1` is the ONLY success. Zero rows (already resolved /
+  // concurrent) is an idempotent no-op — no false ADMIN_ALERT_RESOLVED, no revalidate.
+  if (!Array.isArray(updated) || updated.length !== 1) return;
+
+  // POST-COMMIT durable breadcrumb (awaited for durability; logAdminOutcome is
+  // centrally fail-open so it can never throw over the committed resolve). The
+  // alert id goes in extra{}, the show id in showId (AdminOutcome has no `target`).
+  await logAdminOutcome({
+    code: "ADMIN_ALERT_RESOLVED",
+    source: "app.admin.actions.resolveHealthAlert",
+    actorEmail: devEmail,
+    ...(showId ? { showId } : {}),
+    extra: { alertId: id },
+  });
+  // BOTH surfaces the health state feeds (R11 finding 1): the observability panel
+  // AND the /admin layout (the nav health indicator's rollup is read in the layout,
+  // §5.1) — revalidating only the panel would leave the persistent nav dot stale.
+  revalidatePath("/admin", "layout");
+  revalidatePath("/admin/observability");
 }
 
 // Admin self-service retry for the Drive push subscription (spec §3.6).

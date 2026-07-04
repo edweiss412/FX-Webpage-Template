@@ -27,6 +27,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
+import { HealthAlertResolveButton } from "@/components/admin/observability/HealthAlertResolveButton";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -126,6 +127,7 @@ function HealthAlertRowItem({
           </a>
         ) : null}
       </div>
+      <HealthAlertResolveButton alertId={row.id} />
     </li>
   );
 }
