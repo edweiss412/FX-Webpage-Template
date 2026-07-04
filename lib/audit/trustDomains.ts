@@ -102,11 +102,11 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
     chain: ["requireAdmin"],
   },
-  // Onboarding-fixups F4 (Task 4.5) — session-scoped stale-debris reap, slim
-  // sibling of the cleanup route's admin gate.
+  // Onboarding-fixups F4 (Task 4.5) — session-scoped stale-debris reap; gated on
+  // requireDeveloper (developer-tier §6 row 6: swapped from requireAdmin).
   {
     path: "app/api/admin/onboarding/reap-stale-sessions/route.ts",
-    chain: ["requireAdmin"],
+    chain: ["requireDeveloper"],
   },
   { path: "app/api/admin/onboarding/scan/route.ts", chain: ["requireAdmin"] },
   {
