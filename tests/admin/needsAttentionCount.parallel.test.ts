@@ -19,15 +19,27 @@ vi.mock("@/lib/supabase/server", () => ({
     if (state.throwOnCreate) throw new Error("META: client create failed");
     return {
       from(table: string) {
+        // Thenable builder so chains of ANY length resolve (the third stream
+        // adds .in/.not/.eq after .is). The "read initiated" signal moves to
+        // `.then` (await time). The two pending streams are GATED (released by
+        // the test to prove concurrency); the third stream (admin_alerts) auto-
+        // resolves count 0 so the pending-only gates don't need to release it.
         const builder = {
           select: () => builder,
-          // terminal builder method in the impl — building the promise here is
-          // the "read initiated" signal.
-          is: () =>
-            new Promise<Result>((res) => {
-              state.started.push(table);
+          is: () => builder,
+          in: () => builder,
+          not: () => builder,
+          eq: () => builder,
+          order: () => builder,
+          then: (onF: (r: Result) => unknown) => {
+            state.started.push(table);
+            if (table === "admin_alerts") {
+              return Promise.resolve({ data: null, count: 0, error: null }).then(onF);
+            }
+            return new Promise<Result>((res) => {
               state.gates[table] = res;
-            }),
+            }).then(onF);
+          },
         };
         return builder;
       },
