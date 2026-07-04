@@ -49,11 +49,11 @@ Three layers; thin adapters over one core.
 
 ```
 lib/observe/query/                 ← canonical read-core (the asset; single schema-aware surface)
-  events.ts        queryEvents(filters)  — re-exports/wraps loadAppEvents + parseAppEventFilters
+  events.ts        queryEvents(filters)  — fresh no-log read over app_events; reuses PURE parseAppEventFilters
   alerts.ts        queryAlerts(filters)  — NEW list read over admin_alerts
-  cronHealth.ts    getCronHealth()       — re-exports loadCronHealth
+  cronHealth.ts    getCronHealth()       — fresh no-log read over app_events per CRON_JOBS
   changeLog.ts     queryChangeLog(filters) — NEW list read over show_change_log
-  types.ts         shared filter + result types (re-export existing where they exist)
+  types.ts         shared filter + result types (import pure types from observabilityTypes)
   index.ts         public surface — the ONLY sanctioned read entry point
 
 scripts/observe.ts                 ← CLI adapter (pnpm observe …); arg-parse → core → format
@@ -135,7 +135,7 @@ direct `.limit(n)`; only `events`/`tail` paginate.
 a pure helper the CLI uses to satisfy `--limit`. Preconditions: `1 ≤ limit ≤ 500`.
 
 ```
-acc = []; cursor = base.cursor ?? null; prevCursor = null; pages = 0
+acc = []; cursor = base.cursor ?? null; pages = 0
 loop:
   pages += 1
   r = await queryEvents({ ...base, cursor })
@@ -145,16 +145,19 @@ loop:
   if acc.length >= limit: return ok(acc.slice(0, limit))     # (a) reached limit
   if !r.hasMore: return ok(acc)                              # (b) drained
   if r.nextCursor == null: return ok(acc)                    # (c) no cursor → stop
-  if prevCursor && sameCursor(r.nextCursor, prevCursor): return ok(acc)  # (d) non-advancing → stop (no loop)
   if r.events.length === 0: return ok(acc)                   # (e) empty page → stop
+  if cursor != null && sameCursor(r.nextCursor, cursor): return ok(acc)  # (d) cursor did NOT advance past the one we just used → stop before re-requesting
   if pages >= 6: return ok(acc)                              # (f) hard page cap (500/100 + 1 safety)
-  prevCursor = cursor; cursor = r.nextCursor
+  cursor = r.nextCursor                                      # advance
 ```
 
-`sameCursor(a,b)` compares `(occurredAt,id)` tuples. Conditions (c)–(f) guarantee termination
-even if a loader regression or a stub returns `hasMore:true` with a missing/repeated cursor or
-an empty page — the loop can never spin or duplicate past the cap. Result is truncated to
-exactly `limit`.
+`sameCursor(a,b)` compares `(occurredAt,id)` tuples. Condition (d) compares `r.nextCursor`
+against **`cursor` — the cursor used for THIS request** (Codex R3 HIGH — comparing against a
+prior-prior cursor would let one repeated page slip through before detection). So a page that
+returns the same cursor it was requested with stops the loop **before** any re-request, and
+(c)–(f) together guarantee termination even if a loader regression or a stub returns
+`hasMore:true` with a missing/repeated cursor or an empty page — the loop can never spin or
+duplicate past the cap. Result is truncated to exactly `limit`.
 
 ### 3.2 `getCronHealth(): Promise<QueryCronHealthResult>`
 
@@ -223,7 +226,7 @@ guard (`import.meta.url === pathToFileURL(process.argv[1]).href`) so tests impor
 
 ```
 pnpm observe events   [--show <uuid>] [--level info,warn,error] [--code <CODE>]
-                      [--source <s>] [--request <id>] [--since 1h|24h|7d|all]
+                      [--source <s>] [--request <id>] [--q <text>] [--since 1h|24h|7d|all]
                       [--limit <n>] [--json] [--env local|validation|prod]
 pnpm observe alerts   [--open] [--code <CODE>] [--limit <n>] [--json] [--env …]
 pnpm observe cron     [--json] [--env …]
@@ -424,8 +427,11 @@ avoids mocks-only tautological pass):**
 | `--show` | argv | `parseObserveArgs` (UUID-guard) | events/changes filter | `.eq("show_id",…)` |
 | `--since` | argv | `parseObserveArgs` (→hours) | events/changes filter | `.gte("occurred_at",…)` |
 | `--code` | argv | `parseObserveArgs` | events/alerts filter | `.eq("code",…)` |
+| `--source` | argv | `parseObserveArgs` (capped 200) | events filter | `.eq("source",…)` |
+| `--request` | argv | `parseObserveArgs` (capped 200) | events filter | `.eq("request_id",…)` |
+| `--q` | argv | `parseObserveArgs` (capped 200) | events filter | `.ilike("message", %escapeIlike(q)%)` |
 | `--open` | argv | `parseObserveArgs` | alerts filter | `.is("resolved_at",null)` |
-| `--limit` | argv | `parseObserveArgs` (clamp) | all list reads | `.limit(n)` |
+| `--limit` | argv | `parseObserveArgs` (clamp 1..500) | events/tail → `collectEvents` loop; alerts/changes → `.limit(n)` | caps rows returned |
 | `--json` | argv | `parseObserveArgs` | formatter | JSON/NDJSON vs table |
 | `--follow`/`--interval` | argv | `parseObserveArgs` | tail loop | poll cadence / loop |
 | `--env` | argv | `resolveTarget` | env selection | target guardrail |
@@ -449,8 +455,9 @@ Cite these to avoid relitigation:
 4. **Forensic codes legitimately absent from `MESSAGE_CATALOG`** — §4.4. `observe codes` on a
    forensic/admin-log-only code prints a benign "not in catalog" and exits 0; this is correct,
    not a bug (those codes are §12.4-scanner-exempt).
-5. **We do not move `lib/admin/*` loaders** — §2.1. Re-export insulates against the parallel
-   `/observability`→`/telemetry` rename; moving them would collide.
+5. **We do not move `lib/admin/*` loaders** — §2.1. The read-core is a fresh reimpl that only
+   imports the pure types from `observabilityTypes`, so it is independent of the parallel
+   `/observability`→`/telemetry` rename; moving the loaders would collide.
 6. **Non-UI** — §1. Invariant 8 impeccable dual-gate N/A; this is a Codex/Opus non-UI change.
 7. **The skill under `.claude/` is intentionally untracked** — §6. `.claude/` is gitignored;
    the durable deliverable is the AGENTS.md section. Do not flag "skill not committed" — that
