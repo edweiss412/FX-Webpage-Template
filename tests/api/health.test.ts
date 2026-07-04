@@ -18,4 +18,15 @@ describe("/api/health", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).sha).toBeNull();
   });
+
+  test("exposes a logging health snapshot (finding #9 operator probe)", async () => {
+    const body = await (await GET()).json();
+    expect(body.logging).toEqual(
+      expect.objectContaining({ ok: expect.any(Number), failed: expect.any(Number) }),
+    );
+    // lastError/lastFailedAt are present (null until a write fails) so operators can
+    // distinguish "channel healthy" from "channel down" from the probe alone.
+    expect(body.logging).toHaveProperty("lastError");
+    expect(body.logging).toHaveProperty("lastFailedAt");
+  });
 });
