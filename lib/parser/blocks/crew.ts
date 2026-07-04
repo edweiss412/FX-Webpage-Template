@@ -268,7 +268,15 @@ function buildCrewMember(params: {
   // CREW path emits — v1 TECH sheets carry no EMAIL column.
   const phoneUnreadable = presence(phoneRaw) !== null && digitsOnly(phoneRaw).length === 0;
   if (phoneUnreadable) {
-    emitFieldUnreadable(agg, { section: "crew", field: "phone", rawSnippet: phoneRaw, index });
+    emitFieldUnreadable(agg, {
+      section: "crew",
+      field: "phone",
+      rawSnippet: phoneRaw,
+      index,
+      // Same raw NAME cell used for crewBlockRef / crew-role-cell anchoring, so the resolver
+      // can key this warning to its own crew row (idx32/#154).
+      name: params.nameRaw,
+    });
   }
   // INVARIANT 3 (whole-diff R4): canonicalize() is the ONLY function allowed to touch
   // the raw email. Derive the unreadable check from the CANONICAL value — never inspect
@@ -282,6 +290,9 @@ function buildCrewMember(params: {
       field: "email",
       rawSnippet: canonicalEmail!,
       index,
+      // Same raw NAME cell used for crewBlockRef / crew-role-cell anchoring, so the resolver
+      // can key this warning to its own crew row (idx32/#154).
+      name: params.nameRaw,
     });
   }
 
@@ -327,7 +338,17 @@ function buildCrewMember(params: {
   }
 
   let dateRestriction = dayResult.restriction;
-  if (hasTripleAsterisk(params.roleRaw) && dateRestriction.kind === "none") {
+  // A `***` absorbed by a recognized stage-restriction ONLY marker (e.g.
+  // "- Load In / Set / Strike / Load Out ONLY***") is emphasis on the STAGE
+  // restriction, NOT an unknown day-date flag — so it must not reclassify to
+  // unknown_asterisk or emit UNKNOWN_DAY_RESTRICTION (#248). A bare `***` on a
+  // non-stage role (e.g. "- LEAD***") still falls through and is treated as an
+  // unknown day restriction (stageRestriction.kind === "none").
+  if (
+    hasTripleAsterisk(params.roleRaw) &&
+    dateRestriction.kind === "none" &&
+    stageRestriction.kind === "none"
+  ) {
     dateRestriction = { kind: "unknown_asterisk", days: null };
     const tripleAsteriskWarning = {
       severity: "warn" as const,

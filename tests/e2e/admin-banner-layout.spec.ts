@@ -29,7 +29,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
-import { clearAlerts, seedGlobalAlert } from "./helpers/seedAlerts";
+import { clearAlerts, seedGlobalAlert, seedWatchAlert } from "./helpers/seedAlerts";
+import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
 
 const TOL = 0.5;
 const WIDTHS = [390, 600, 719, 720, 860, 1024, 1280];
@@ -289,7 +290,7 @@ test("compound: toggling expand while CONFIRMING neither closes details nor RESE
   // (b) it reverts to idle on the ORIGINAL ~3s schedule (≈0.7s after this toggle).
   //     A reset-on-toggle regression keeps confirm until ~t0+5.3s → this times out.
   await expect(confirmBtn).toBeHidden({ timeout: 1500 }); // gone by ~t0+4.0s
-  await expect(action.getByRole("button", { name: /^resolve$/i })).toBeVisible(); // back to idle
+  await expect(action.getByRole("button", { name: /^dismiss$/i })).toBeVisible(); // back to idle
 });
 
 test("reduced-motion: details toggle is instant (no transition wait needed)", async ({
@@ -306,4 +307,160 @@ test("reduced-motion: details toggle is instant (no transition wait needed)", as
   await page.locator(OUTER_SUMMARY).click();
   await expect(details).toHaveAttribute("open", ""); // immediately open, no animation gating
   await ctx.close();
+});
+
+// ============================================================================
+// Watch-alert variant (WATCH_CHANNEL_ORPHANED) — spec §3.4. Task 10 authors
+// these RED (no Retry button exists yet → the seeded global watch alert renders
+// the old Dismiss slot); Task 10 Step 5b turns them green; Task 14 re-runs the
+// whole file. The action slot for a watch alert is the RETRY form
+// (admin-alert-retry-button), NOT the Dismiss form — the Dismiss moved into the
+// expanded panel (admin-alert-panel-dismiss), a grid SIBLING of <details> (F18),
+// alongside the status line (admin-alert-watch-status) and the error-detail
+// <code> line (admin-alert-error-detail). Real-browser only: jsdom computes no
+// layout, and this project's Tailwind v4 does not default `.flex` to
+// align-items: stretch (spec §3.4 dimensional invariants).
+// ============================================================================
+test.describe("watch-alert variant (WATCH_CHANNEL_ORPHANED)", () => {
+  test.beforeEach(async ({ page }) => {
+    await signOut(page);
+    await clearAlerts();
+    await signInAs(page, ADMIN_FIXTURE);
+    await seedWatchAlert({ occurrenceCount: 1 });
+  });
+  test.afterAll(async () => {
+    await clearAlerts();
+  });
+
+  test("Retry slot geometry: one-line centered idle, col2 ≤ 55%, across WIDTHS", async ({
+    page,
+  }) => {
+    // Mirror the existing global-alert geometry assertions but target the RETRY
+    // button: no horizontal overflow, right column ≤ 55% of the section content
+    // width, one-line summary, and every summary child shares the retry button's
+    // first-row vertical center within 0.5px (spec §3.4 / §7 F-P32).
+    for (const width of WIDTHS) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.goto("/admin");
+      const section = page.getByTestId("admin-alert-banner");
+      await expect(section).toBeVisible();
+      // The watch action slot is the Retry form (NOT the Dismiss form).
+      const retry = page.getByTestId("admin-alert-retry-button");
+      await expect(retry).toBeVisible();
+      await expect(retry).toHaveText(/Retry now/);
+      expect(
+        await page
+          .getByTestId("admin-alert-action")
+          .getByTestId("admin-alert-retry-button")
+          .count(),
+      ).toBe(1); // retry lives in the action cell
+
+      // (b) no horizontal overflow at this width
+      expect(await section.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(
+        1,
+      );
+
+      // (F13) computed column 2 ≤ 55% of the section CONTENT width (fit-content(55%)).
+      const grid = await section.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const contentW =
+          r.width - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        const [, c2raw] = cs.gridTemplateColumns.split(" ");
+        return { contentW, c2: parseFloat(c2raw ?? "") || NaN };
+      });
+      expect(grid.c2, `@${width}px col2 ≤ 55%`).toBeLessThanOrEqual(grid.contentW * 0.55 + 1);
+
+      // (a)/(c) one-line summary; icon/message/caret share the retry button's
+      // first-row vertical center within 0.5px. Badge is absent (single alert).
+      const summaryBox = (await page.locator(OUTER_SUMMARY).boundingBox())!;
+      expect(summaryBox.height, `@${width}px summary one line`).toBeLessThan(56);
+      const cY = (b: { y: number; height: number }) => b.y + b.height / 2;
+      const retryBox = (await retry.boundingBox())!;
+      const actCy = cY(retryBox);
+      for (const id of ["admin-alert-icon", "admin-alert-message", "admin-alert-caret"]) {
+        const loc = page.getByTestId(id);
+        if (await loc.count()) {
+          const b = await loc.boundingBox();
+          if (b)
+            expect(
+              Math.abs(cY(b) - actCy),
+              `@${width}px ${id} centerY vs retry first row`,
+            ).toBeLessThanOrEqual(0.5);
+        }
+      }
+    }
+  });
+
+  test("action slot does not move when the panel expands (compound: expand while idle + while pending)", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await page.goto("/admin");
+    // Wait for the action cell to be painted before capturing the baseline rect —
+    // reading getBoundingClientRect() immediately post-goto can race the initial
+    // paint and return a stale/zeroed box (same class as the F-P21 known flake).
+    await expect(page.getByTestId("admin-alert-action")).toBeVisible();
+    // (idle) expanding the panel must not shift the action cell (self-start, row-1).
+    const actBefore = await rect(page, "admin-alert-action");
+    await page.locator(OUTER_SUMMARY).click();
+    await expect(page.getByTestId("admin-alert-panel")).toBeVisible();
+    const actAfterIdle = await rect(page, "admin-alert-action");
+    expect(Math.abs(actAfterIdle.top - actBefore.top)).toBeLessThanOrEqual(TOL);
+
+    // (pending) hold the Retry Server-Action POST open so the pending paint is
+    // observable, then assert the slot still hasn't moved while "Retrying…" shows.
+    await page.route("**/admin", async (route) => {
+      if (route.request().method() === "POST") await new Promise((r) => setTimeout(r, 2500));
+      await route.continue();
+    });
+    const actBeforePending = await rect(page, "admin-alert-action");
+    await page.getByTestId("admin-alert-retry-button").click();
+    await expect(page.getByTestId("admin-alert-retry-button")).toHaveText(/Retrying…/);
+    const actAfterPending = await rect(page, "admin-alert-action");
+    expect(Math.abs(actAfterPending.top - actBeforePending.top)).toBeLessThanOrEqual(TOL);
+  });
+
+  test("panel dismiss row renders below helpful context and does not alter slot position", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await page.goto("/admin");
+    // See "action slot does not move..." above — wait for paint before baseline.
+    await expect(page.getByTestId("admin-alert-action")).toBeVisible();
+    const actBefore = await rect(page, "admin-alert-action");
+    await page.locator(OUTER_SUMMARY).click(); // expand
+    const panel = page.getByTestId("admin-alert-panel");
+    await expect(panel).toBeVisible();
+
+    // Dismiss form lives INSIDE the panel (a grid sibling of <details>, F18).
+    const dismiss = panel.getByTestId("admin-alert-panel-dismiss");
+    await expect(dismiss).toBeVisible();
+
+    // Non-escalated (occurrenceCount 1, no config error_class) status line.
+    await expect(page.getByTestId("admin-alert-watch-status")).toHaveText(
+      "Retrying automatically every hour.",
+    );
+
+    // Dismiss row sits BELOW the helpful-context paragraph.
+    const helpBox = (await page.getByTestId("admin-alert-helpful-context").boundingBox())!;
+    const dismissBox = (await dismiss.boundingBox())!;
+    expect(dismissBox.y).toBeGreaterThan(helpBox.y);
+
+    // Opening the panel + rendering the dismiss row does not move the action cell.
+    const actAfter = await rect(page, "admin-alert-action");
+    expect(Math.abs(actAfter.top - actBefore.top)).toBeLessThanOrEqual(TOL);
+  });
+
+  test("escalated status line renders for occurrenceCount >= ESCALATION_THRESHOLD", async ({
+    page,
+  }) => {
+    await seedWatchAlert({ occurrenceCount: ESCALATION_THRESHOLD });
+    await page.setViewportSize({ width: 390, height: 1000 });
+    await page.goto("/admin");
+    await page.locator(OUTER_SUMMARY).click(); // expand
+    await expect(page.getByTestId("admin-alert-watch-status")).toHaveText(
+      "We've flagged this for support — no action needed.",
+    );
+  });
 });

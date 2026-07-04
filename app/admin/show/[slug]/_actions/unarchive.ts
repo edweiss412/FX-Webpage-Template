@@ -18,13 +18,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { unarchiveShow } from "@/lib/showLifecycle/unarchiveShow";
 import { resolveShowById } from "./shared";
 
 export async function unarchiveShowAction(showId: string): Promise<void> {
   await requireAdmin();
+  const { email } = await requireAdminIdentity();
   const resolved = await resolveShowById(showId);
   // Void action (UI contract): on not_found OR infra_error, no-op without mutating — the row stays put
   // and the next render / refresh retries. The mutating RPC itself surfaces infra_error via its result.
@@ -38,5 +40,14 @@ export async function unarchiveShowAction(showId: string): Promise<void> {
     revalidateShow(resolved.show.id);
     revalidatePath(`/admin/show`);
     revalidatePath("/admin");
+    // Durable forensic telemetry: emitted ONLY after the self-locking unarchive_show
+    // RPC has committed (result.ok), never on a no-op/refusal. The code literal rides
+    // the logAdminOutcome(...) span (stripped by stripLogEmissionCalls → not a §12.4 producer).
+    await logAdminOutcome({
+      code: "SHOW_UNARCHIVED_BY_ADMIN",
+      source: "admin.show.unarchive",
+      actorEmail: email,
+      showId: resolved.show.id,
+    });
   }
 }

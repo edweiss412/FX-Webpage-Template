@@ -46,7 +46,8 @@ const infraRegistry = [
   {
     helper: "refreshWatchSubscriptions",
     path: "lib/drive/watch.ts",
-    contract: "watch renewal transaction-port faults become DriveWatchInfraError",
+    contract:
+      "watch renewal transaction-port faults become a typed `failures` entry (never rejects)",
   },
   {
     helper: "gcWatchChannels",
@@ -166,12 +167,6 @@ const infraRegistry = [
     helper: "runDiagramGc",
     path: "app/api/cron/diagram-gc/route.ts",
     contract: "diagram GC cron route delegates to the registered backend scheduler surface",
-  },
-  {
-    helper: "unpublishShow",
-    path: "lib/sync/unpublishShow.ts",
-    contract:
-      "unpublish route uses explicit Postgres transaction boundary; helper faults propagate to route caller",
   },
   {
     helper: "unpublishShowViaEmailedLink",
@@ -382,6 +377,24 @@ const infraRegistry = [
     path: "lib/geocoding/cache.ts",
     contract:
       "geocode cache upsert (geocoding-at-ingest): a thrown service-role construction / .from() fault AND a returned {error} both map to { kind:'infra_error' }; success → { kind:'ok' }. Never throws (invariant 9).",
+  },
+  {
+    helper: "persistAppEventStrict",
+    path: "lib/log/persist.ts",
+    contract:
+      "watch escalation guard strict writer (spec §3.2.5): returned Supabase {error} AND thrown faults (construction/insert) both map to { ok:false, error }; success → { ok:true }. Never throws (invariant 9).",
+  },
+  {
+    helper: "readUnresolvedWatchAlert",
+    path: "lib/drive/watchEscalation.ts",
+    contract:
+      'watch escalation trigger read (spec §3.2.5): returned Supabase {error} AND thrown construction/query faults both map to "infra_error"; no unresolved row → null; a row → the typed WatchAlertRow. Never throws (invariant 9).',
+  },
+  {
+    helper: "hasEscalationFired",
+    path: "lib/drive/watchEscalation.ts",
+    contract:
+      'watch escalation fired-once guard read (spec §3.2.5): returned Supabase {error} AND thrown construction/query faults both map to "infra_error"; a prior guard row → true, none → false. Never throws (invariant 9).',
   },
 ] as const;
 
@@ -775,18 +788,22 @@ describe("sync Supabase infra-failure contract", () => {
       ).rejects.toBeInstanceOf(DriveWatchInfraError);
     });
 
-    test("refreshWatchSubscriptions DB-port throw → DriveWatchInfraError", async () => {
-      const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
+    test("refreshWatchSubscriptions DB-port throw → typed failures entry, never rejects", async () => {
+      const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
 
-      await expect(
-        refreshWatchSubscriptions({
-          tx: {
-            listExpiringActive: async () => {
-              throw new Error("META: simulated watch renewal fault");
-            },
-          } as never,
-        }),
-      ).rejects.toBeInstanceOf(DriveWatchInfraError);
+      const result = await refreshWatchSubscriptions({
+        tx: {
+          listExpiringActive: async () => {
+            throw new Error("META: simulated watch renewal fault");
+          },
+        } as never,
+      });
+
+      expect(result).toEqual({
+        refreshed: [],
+        orphaned: [],
+        failures: [{ folderId: "*", operation: "list_expiring" }],
+      });
     });
 
     test("gcWatchChannels DB-port throw → DriveWatchInfraError", async () => {

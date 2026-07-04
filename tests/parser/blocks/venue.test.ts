@@ -267,6 +267,27 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
     expect(agg.warnings.filter((w) => w.code === "UNKNOWN_FIELD")).toHaveLength(0); // no downgrade
   });
 
+  it("warns on a FIRST-row typo'd venue field label (no premature scope-gate suppression)", () => {
+    // idx53: the misspelled label is on ROW 1 — BEFORE any field-assignment branch sets
+    // inVenueFieldScope=true. The field must still recover AND emit FIELD_LABEL_AUTOCORRECTED;
+    // a first-row fuzzy correction must never be a silent re-route (spec §2 rule 4: always warn).
+    const md = [
+      "| Venue Adress | 120 E Delaware Pl Chicago, IL 60611 |",
+      "| VENUE NAME | Four Seasons Hotel |",
+    ].join("\n");
+    const agg = newAggregator();
+    const r = parseVenue(md, "v4", agg);
+    // (a) the misspelled-label field still resolves/assigns correctly
+    expect(r?.name).toBe("Four Seasons Hotel");
+    expect(r?.address).toContain("120 E Delaware Pl");
+    // (b) the first-row fuzzy correction is surfaced (not silently re-routed)
+    const warns = agg.warnings.filter((w) => w.code === "FIELD_LABEL_AUTOCORRECTED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.severity).toBe("warn");
+    expect(warns[0]!.blockRef).toMatchObject({ kind: "venue" });
+    expect(warns[0]!.rawSnippet).toBe("Venue Adress");
+  });
+
   it("a correctly-spelled venue label is NOT flagged", () => {
     const md = [
       "| VENUE NAME | Four Seasons |",

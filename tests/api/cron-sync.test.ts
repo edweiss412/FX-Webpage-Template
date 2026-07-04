@@ -5,7 +5,17 @@ const cronMock = vi.hoisted(() => ({
   runScheduledCronSync: vi.fn(async () => ({
     processed: [{ driveFileId: "file-1", result: { outcome: "applied", showId: "show-1" } }],
   })),
-  refreshWatchSubscriptions: vi.fn(async () => ({ refreshed: ["folder-1"] })),
+  refreshWatchSubscriptions: vi.fn(async () => ({
+    refreshed: ["folder-1"],
+    orphaned: [],
+    failures: [],
+  })),
+  reconcileWatchChannels: vi.fn(async () => ({
+    outcome: "healthy",
+    sweptPending: 0,
+    escalated: false,
+    faults: [],
+  })),
   gcWatchChannels: vi.fn(async () => ({ stopped: ["channel-1"] })),
   runAssetRecoveryCron: vi.fn(async () => ({
     processed: [
@@ -30,6 +40,7 @@ vi.mock("@/lib/sync/syncLog", () => ({
 
 vi.mock("@/lib/drive/watch", () => ({
   refreshWatchSubscriptions: cronMock.refreshWatchSubscriptions,
+  reconcileWatchChannels: cronMock.reconcileWatchChannels,
   gcWatchChannels: cronMock.gcWatchChannels,
 }));
 
@@ -82,6 +93,15 @@ describe("/api/cron/sync", () => {
     });
     expect(cronMock.runScheduledCronSync).toHaveBeenCalledWith({ logSync: cronMock.writeSyncLog });
   });
+
+  // audit idx57 HIGH-2 — the enrich step budget (ENRICH_STEP_TIMEOUT_MS = 150s) is grounded in the
+  // cron route's OWN maxDuration contract, not an implicit project default. Every sibling sync route
+  // (extract-agenda / finalize / finalize-cas / scan) pins `export const maxDuration = 300`; the
+  // cron entry point must too, or the 300s ceiling the enrich budget reasons about is unpinned.
+  test("route pins maxDuration = 300 so the enrich step budget is grounded in the route contract", async () => {
+    const mod = await import("@/app/api/cron/sync/route");
+    expect(mod.maxDuration).toBe(300);
+  });
 });
 
 describe("/api/cron/keepalive", () => {
@@ -125,6 +145,7 @@ describe("/api/cron/refresh-watch", () => {
 
   beforeEach(() => {
     cronMock.refreshWatchSubscriptions.mockClear();
+    cronMock.reconcileWatchChannels.mockClear();
     process.env.CRON_SECRET = "cron-test-secret";
   });
 
@@ -154,7 +175,13 @@ describe("/api/cron/refresh-watch", () => {
       }),
     );
 
-    await expect(response.json()).resolves.toEqual({ ok: true, refreshed: ["folder-1"] });
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      refreshed: ["folder-1"],
+      refreshOrphaned: [],
+      refreshFailures: 0,
+      reconcile: { outcome: "healthy", sweptPending: 0, escalated: false },
+    });
     expect(cronMock.refreshWatchSubscriptions).toHaveBeenCalledOnce();
   });
 });

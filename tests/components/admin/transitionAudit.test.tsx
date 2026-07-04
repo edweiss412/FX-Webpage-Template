@@ -26,7 +26,7 @@ function src(rel: string): string {
 
 // No-motion admin surfaces: no client motion library, no AnimatePresence, no
 // mount/route-enter animation. Most are server-rendered; the M12.13 undo
-// islands (UndoAutoPublishButton, PerShowAlertSection) are client components
+// islands (PublishedToggle, PerShowAlertSection) are client components
 // but are deliberately motion-free — pinned here so future framer drift on
 // them surfaces as a clean test failure (spec §9 / T12 reviewer note).
 const SERVER_RENDERED = [
@@ -36,7 +36,7 @@ const SERVER_RENDERED = [
   "components/admin/StatusIndicator.tsx",
   "components/admin/Dashboard.tsx",
   "app/admin/show/[slug]/page.tsx",
-  "components/admin/UndoAutoPublishButton.tsx",
+  "components/admin/PublishedToggle.tsx",
   "components/admin/PerShowAlertSection.tsx",
 ];
 

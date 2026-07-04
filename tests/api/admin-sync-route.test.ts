@@ -3,10 +3,17 @@ import { NextRequest } from "next/server";
 
 const adminMock = vi.hoisted(() => ({
   requireAdmin: vi.fn(async () => undefined),
+  requireAdminIdentity: vi.fn(async () => ({ email: "admin@fxav.test" })),
 }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: adminMock.requireAdmin,
+  requireAdminIdentity: adminMock.requireAdminIdentity,
+}));
+
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({
+  logAdminOutcome: logAdminOutcomeMock,
 }));
 
 const syncMock = vi.hoisted(() => ({
@@ -16,6 +23,7 @@ const syncMock = vi.hoisted(() => ({
       mode: "manual",
     ) => Promise<
       | { outcome: "applied"; showId: string }
+      | { outcome: "stage"; stagedId: string }
       | { outcome: "parse_error"; code: "SYNC_INFRA_ERROR" | "DRIVE_METADATA_MISSING" }
       | { outcome: "hard_fail"; code: string }
       | { outcome: "stale"; code: string }
@@ -77,6 +85,8 @@ function request() {
 describe("POST /api/admin/sync/[slug]", () => {
   beforeEach(() => {
     adminMock.requireAdmin.mockClear();
+    adminMock.requireAdminIdentity.mockClear();
+    logAdminOutcomeMock.mockClear();
     syncMock.runManualSyncForShow.mockClear();
     supabaseMock.state.row = { drive_file_id: "drive-file-1" };
     supabaseMock.state.error = null;
@@ -108,6 +118,32 @@ describe("POST /api/admin/sync/[slug]", () => {
       { table: "shows", filters: [{ column: "slug", value: "test-show" }] },
     ]);
     expect(syncMock.runManualSyncForShow).toHaveBeenCalledWith("drive-file-1", "manual");
+  });
+
+  test("applied outcome emits SHOW_SYNCED_MANUAL telemetry gated on the applied result", async () => {
+    syncMock.runManualSyncForShow.mockResolvedValueOnce({ outcome: "applied", showId: "show-42" });
+
+    const response = await POST(request(), { params: Promise.resolve({ slug: "test-show" }) });
+
+    expect(response.status).toBe(200);
+    const { email: expectedEmail } = await adminMock.requireAdminIdentity();
+    const expectedDriveFileId = supabaseMock.state.row?.drive_file_id;
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith({
+      code: "SHOW_SYNCED_MANUAL",
+      source: "api.admin.sync",
+      actorEmail: expectedEmail,
+      driveFileId: expectedDriveFileId,
+      showId: "show-42",
+    });
+  });
+
+  test("stage outcome reaches the success return but emits no telemetry", async () => {
+    syncMock.runManualSyncForShow.mockResolvedValueOnce({ outcome: "stage", stagedId: "staged-9" });
+
+    const response = await POST(request(), { params: Promise.resolve({ slug: "test-show" }) });
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 
   test("FINALIZE_OWNED_SHOW maps to 409 without rewriting the code", async () => {

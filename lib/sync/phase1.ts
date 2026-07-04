@@ -64,10 +64,15 @@ export type Phase1Tx = {
   upsertLivePendingSync(
     row: Omit<Phase1PendingSyncRow, "stagedId"> & { stagedId?: string },
   ): Promise<{ stagedId: string }>;
+  // Returns the updated show's id (`returning id`), or null when no existing shows row was
+  // updated (a first-seen hard-fail writes nothing to `shows`). phase1 threads this id onto the
+  // hard_fail result so the sync caller's revalidateShowFromResult busts the crew cache tag —
+  // an existing-show hard_fail commits shows.last_sync_status='parse_error' (idx17/#102). The
+  // `| void` keeps pre-existing void-returning tx mocks/stubs structurally assignable.
   updateShowParseError(
     driveFileId: string,
     error: { code: string; message: string },
-  ): Promise<void>;
+  ): Promise<string | null | void>;
   updateShowPendingReview(driveFileId: string): Promise<void>;
   deleteWizardPendingSyncsExcept(wizardSessionId: string): Promise<void>;
 };
@@ -89,6 +94,10 @@ export type Phase1Result =
       code: string;
       failedCodes: string[];
       message: string;
+      // Present (id) only for an EXISTING-show hard_fail, which committed
+      // shows.last_sync_status='parse_error' and must therefore bust the crew cache tag.
+      // null for a first-seen hard_fail (nothing written to `shows`). (idx17/#102)
+      showId?: string | null;
     }
   | {
       outcome: "stage";
@@ -279,10 +288,15 @@ export async function runPhase1(
   if (invariant.outcome === "hard_fail") {
     const code = invariant.failedCodes[0] ?? "PARSE_HARD_FAIL";
     const message = invariant.messages.join("; ");
+    // Carry the updated show's id so revalidateShowFromResult busts the crew cache tag on an
+    // existing-show hard_fail (which commits shows.last_sync_status='parse_error'). null for a
+    // first-seen hard_fail — nothing is written to `shows`, so there is nothing to bust. (idx17/#102)
+    let showId: string | null = null;
     if (show) {
-      await callTx("updateShowParseError", () =>
+      const updatedShowId = await callTx("updateShowParseError", () =>
         tx.updateShowParseError(args.driveFileId, { code, message }),
       );
+      showId = typeof updatedShowId === "string" ? updatedShowId : null;
     } else {
       await callTx("upsertLivePendingIngestion", () =>
         tx.upsertLivePendingIngestion({
@@ -296,7 +310,7 @@ export async function runPhase1(
         }),
       );
     }
-    return { outcome: "hard_fail", code, failedCodes: invariant.failedCodes, message };
+    return { outcome: "hard_fail", code, failedCodes: invariant.failedCodes, message, showId };
   }
 
   const sentinel = sentinelFor(args, show);

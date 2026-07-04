@@ -47,11 +47,20 @@ export async function validateGoogleIdentity(
         return { kind: "continue" };
       }
       // Infra fault — getUser() failed on the wire. Don't masquerade
-      // as "no user."
-      await log.error("google identity validation failed", {
-        source: "auth/validateGoogleIdentity",
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
+      // as "no user." Finding #4: pass `error:` (serializeError →
+      // name/message/stack) + a `stage:` discriminator. Invariant 9
+      // (finding #20): best-effort emit so a logger throw can't reject
+      // over the terminal_failure caller.
+      try {
+        await log.error("google identity validation failed", {
+          source: "auth/validateGoogleIdentity",
+          code: "ADMIN_SESSION_LOOKUP_FAILED",
+          stage: "get_user_returned_error",
+          error,
+        });
+      } catch {
+        /* best-effort: logging must never throw over the caller */
+      }
       return {
         kind: "terminal_failure",
         status: 500,
@@ -76,14 +85,22 @@ export async function validateGoogleIdentity(
         authUserId: data.user.id,
       },
     };
-  } catch {
-    // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY
-    // are missing or the cookie store is unavailable — infra config
-    // failure, not an auth signal.
-    await log.error("google identity validation failed", {
-      source: "auth/validateGoogleIdentity",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+  } catch (err) {
+    // Top-level catch: createSupabaseServerClient() throws when
+    // SUPABASE_URL / ANON_KEY are missing or the cookie store is unavailable,
+    // and a mid-flight getUser() throw lands here too — infra config faults,
+    // not auth signals. The `stage` names this catch-all arm; the
+    // returned-error arm above is discriminated separately.
+    try {
+      await log.error("google identity validation failed", {
+        source: "auth/validateGoogleIdentity",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        stage: "lookup_threw",
+        error: err,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return {
       kind: "terminal_failure",
       status: 500,

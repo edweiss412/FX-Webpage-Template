@@ -50,6 +50,17 @@ const nextConfig: NextConfig = {
         destination: "/auth/sign-in?next=/admin",
         permanent: false, // 307 — keep reversible while the front-door shape is young
       },
+      {
+        // The standalone /admin/ignored-sheets page was folded into the
+        // dashboard's collapsed "Ignored sheets" disclosure. A config-level
+        // redirect (true first-hop 307, unlike isNavItemActive which only sets
+        // nav highlight) keeps a bookmarked/old link to the recovery surface
+        // landing on the dashboard instead of a 404. permanent:false — the URL
+        // was a real route until now; keep the redirect reversible.
+        source: "/admin/ignored-sheets",
+        destination: "/admin",
+        permanent: false,
+      },
     ];
   },
   // M12.13 secret-hygiene (HIGH finding): the unpublish confirm route is reached

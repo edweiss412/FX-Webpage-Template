@@ -88,10 +88,10 @@ Every clean card has a publish checkbox. Ticking it means "make this show live n
 
 A clean sheet has two outcomes, set by that one checkbox:
 
-| Your choice on a clean card | What happens                                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Tick the publish checkbox   | The show goes live the moment you finish setup. Crew can open it right away.                                             |
-| Leave it unticked           | The show is still created, but stays a draft. You will find it later under **Unpublished**, ready to publish in one tap. |
+| Your choice on a clean card | What happens                                                                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Tick the publish checkbox   | The show goes live the moment you finish setup. Crew can open it right away.                                                         |
+| Leave it unticked           | The show is still created, but stays a draft. It appears in your **Active shows** list marked **Held**, ready to publish in one tap. |
 
 Sheets the app could not read sit in a separate **Needs your attention** group below the clean cards. Each one offers **Retry now** (re-read after you fix the cell in Drive), **Defer until modified** (re-check on the next change), or **Permanently ignore** (no show is created and the sync skips the sheet for good; it moves to the **Ignored sheets** view, where you can bring it back anytime). You have to clear that group before you can finish, so setup is never a dead end.
 
@@ -115,15 +115,16 @@ What you do on this step:
 <Step n={4}>
   **Click "Publish N shows & finish setup."** This creates every show, publishes the ones you
   ticked, and points cron at the folder for ongoing sync. If you left clean sheets unticked, the
-  wizard asks you to confirm first, since those become drafts under **Unpublished**. From that
-  moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work happens there.
+  wizard asks you to confirm first, since those become drafts marked **Held** in your Active shows
+  list. From that moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work
+  happens there.
 </Step>
 
 If a sheet fails to publish during finish (the most common cause is someone editing it in Drive at the wrong moment), the wizard tells you which one and gives you a recovery page to try again. The rest of the batch still goes through; you don't have to start over.
 
-<h2 id="unpublished">Unpublished shows</h2>
+<h2 id="unpublished">Held (unpublished) shows</h2>
 
-Every clean sheet you left unticked during setup becomes a draft show, created and quietly syncing but not yet visible to crew. You will find these on the **Unpublished** page, a top-nav route of its own (so it never skews your Active and Archived counts). Each row has a one-tap **Publish** that makes the show live and issues a crew link, exactly as if you had ticked it during setup. Nothing expires here; a draft waits until you publish it.
+Every clean sheet you left unticked during setup becomes a draft show, created and quietly syncing but not yet visible to crew. These appear right in your **Active shows** list on the dashboard, each tagged with a **Held** status pill so you can tell them apart at a glance. Open a held show to publish it, which makes it live and issues a crew link, exactly as if you had ticked it during setup. Nothing expires here; a draft waits until you publish it.
 
 <h2 id="ignored-sheets">Ignored sheets</h2>
 

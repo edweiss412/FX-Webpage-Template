@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/log";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validatePickerAssetSession } from "@/lib/auth/picker/validatePickerAssetSession";
 import { isAllowedDiagramMime, resolveCurrentDiagrams } from "@/lib/data/diagrams";
@@ -38,7 +39,25 @@ type AssetEntry = {
   mimeType: string;
 };
 
-function gone(): Response {
+// The DEBUGGABLE 410 reasons (audit finding #8). A missing show / stale-or-absent
+// snapshot rev / unknown asset key / disallowed MIME / malformed rev is a BENIGN
+// 410 (expected UX) and passes NO reason → no breadcrumb. A debuggable 410
+// (upstream object 404, oversize) passes its reason so a crew-reported broken
+// diagram leaves a server trace of which show/asset/why.
+type GoneReason = "not_found" | "oversize";
+
+function gone(reason?: GoneReason, ctx?: { showId?: string; assetKey?: string }): Response {
+  if (reason) {
+    // Fail-open durable breadcrumb (invariant 9: never changes the 410
+    // status/body; error-path emit is fire-and-forget).
+    void log.info("asset unavailable", {
+      source: "api.asset.diagram",
+      code: "ASSET_UNAVAILABLE",
+      ...(ctx?.showId ? { showId: ctx.showId } : {}),
+      ...(ctx?.assetKey ? { assetKey: ctx.assetKey } : {}),
+      reason,
+    });
+  }
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
@@ -52,7 +71,21 @@ function showUnavailable(): Response {
 // Codex R23 P2: every error shape carries the same private-revalidate
 // Cache-Control as success/410 — auth and infra failures MUST NOT be
 // cached by a private intermediary (browser HTTP cache, service worker).
-function infraError(code: string): Response {
+function infraError(
+  code: string,
+  ctx?: { showId?: string; assetKey?: string; error?: unknown },
+): Response {
+  // `code` is the helper PARAMETER (a runtime variable), never a literal —
+  // scanner-safe. Covers GET + HEAD + every infraError call site. Findings
+  // #8/#14: carry show/asset/error context so a 500 is debuggable (the caught
+  // error is serialized by the logger automatically).
+  void log.error("asset infra fault", {
+    source: "api.asset.diagram",
+    code,
+    ...(ctx?.showId ? { showId: ctx.showId } : {}),
+    ...(ctx?.assetKey ? { assetKey: ctx.assetKey } : {}),
+    ...(ctx?.error !== undefined ? { error: ctx.error } : {}),
+  });
   return NextResponse.json(
     { error: code },
     { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
@@ -106,13 +139,17 @@ async function authorizeDiagramRequest(
   params: RouteParams,
 ): Promise<DiagramAuthSuccess | { ok: false; response: Response }> {
   const { show, rev, key } = params;
+  const assetKey = `${rev}/${key}`;
   if (rev.includes("=") || !UUID_RE.test(rev)) {
     return { ok: false, response: gone() };
   }
 
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return { ok: false, response: infraError("ADMIN_SESSION_LOOKUP_FAILED") };
+    return {
+      ok: false,
+      response: infraError("ADMIN_SESSION_LOOKUP_FAILED", { showId: show, assetKey }),
+    };
   }
   const isAdmin = admin.ok;
 
@@ -125,11 +162,21 @@ async function authorizeDiagramRequest(
       .select("id,published,diagrams")
       .eq("id", show)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
-  } catch {
-    return { ok: false, response: infraError("DIAGRAM_ASSET_LOOKUP_FAILED") };
+  } catch (err) {
+    return {
+      ok: false,
+      response: infraError("DIAGRAM_ASSET_LOOKUP_FAILED", { showId: show, assetKey, error: err }),
+    };
   }
   if (showResult.error) {
-    return { ok: false, response: infraError("DIAGRAM_ASSET_LOOKUP_FAILED") };
+    return {
+      ok: false,
+      response: infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey,
+        error: showResult.error,
+      }),
+    };
   }
   if (!showResult.data) {
     return { ok: false, response: gone() };
@@ -181,6 +228,7 @@ export async function HEAD(
   context: { params: Promise<RouteParams> },
 ): Promise<Response> {
   const params = await context.params;
+  const assetKey = `${params.rev}/${params.key}`;
   const authz = await authorizeDiagramRequest(request, params);
   if (!authz.ok) return authz.response;
 
@@ -205,21 +253,31 @@ export async function HEAD(
       .from(DIAGRAM_BUCKET)
       .createSignedUrl(authz.storageObjectPath, 60);
     if (signed.error) {
-      if (isStorageNotFound(signed.error)) return gone();
-      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+      if (isStorageNotFound(signed.error))
+        return gone("not_found", { showId: params.show, assetKey });
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+        showId: params.show,
+        assetKey,
+        error: signed.error,
+      });
     }
     if (!signed.data?.signedUrl) return gone();
 
     // Upstream HEAD: probe existence + size without transferring bytes.
     const headRes = await fetch(signed.data.signedUrl, { method: "HEAD" });
     if (!headRes.ok) {
-      if (headRes.status === 404 || headRes.status === 410) return gone();
-      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+      if (headRes.status === 404 || headRes.status === 410)
+        return gone("not_found", { showId: params.show, assetKey });
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+        showId: params.show,
+        assetKey,
+        error: { upstreamHeadStatus: headRes.status },
+      });
     }
     const sizeStr = headRes.headers.get("content-length");
     const declaredSize = sizeStr ? Number(sizeStr) : NaN;
     if (Number.isFinite(declaredSize) && declaredSize > MAX_DIAGRAM_BYTES) {
-      return gone();
+      return gone("oversize", { showId: params.show, assetKey });
     }
 
     // Pre-flight Range satisfiability now that we know the size. Matches
@@ -277,8 +335,8 @@ export async function HEAD(
       headers["Content-Length"] = String(declaredSize);
     }
     return new Response(null, { status: 200, headers });
-  } catch {
-    return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+  } catch (err) {
+    return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", { showId: params.show, assetKey, error: err });
   }
 }
 
@@ -287,6 +345,7 @@ export async function GET(
   context: { params: Promise<RouteParams> },
 ): Promise<Response> {
   const params = await context.params;
+  const assetKey = `${params.rev}/${params.key}`;
   const authz = await authorizeDiagramRequest(request, params);
   if (!authz.ok) return authz.response;
   const { asset, storageObjectPath, supabase } = authz;
@@ -296,8 +355,13 @@ export async function GET(
       .from(DIAGRAM_BUCKET)
       .createSignedUrl(storageObjectPath, 60);
     if (signed.error) {
-      if (isStorageNotFound(signed.error)) return gone();
-      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+      if (isStorageNotFound(signed.error))
+        return gone("not_found", { showId: params.show, assetKey });
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+        showId: params.show,
+        assetKey,
+        error: signed.error,
+      });
     }
     if (!signed.data?.signedUrl) {
       return gone();
@@ -319,8 +383,13 @@ export async function GET(
     if (rangeHeader) {
       const headRes = await fetch(signed.data.signedUrl, { method: "HEAD" });
       if (!headRes.ok) {
-        if (headRes.status === 404 || headRes.status === 410) return gone();
-        return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+        if (headRes.status === 404 || headRes.status === 410)
+          return gone("not_found", { showId: params.show, assetKey });
+        return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+          showId: params.show,
+          assetKey,
+          error: { upstreamHeadStatus: headRes.status },
+        });
       }
       const upstreamSizeHeader = headRes.headers.get("content-length");
       const upstreamSize = upstreamSizeHeader ? Number(upstreamSizeHeader) : NaN;
@@ -333,7 +402,7 @@ export async function GET(
       // Codex R13 P1: cancel the upstream body on early return so the
       // Supabase Storage socket is released instead of left to GC.
       await fetchRes.body?.cancel().catch(() => undefined);
-      if (fetchRes.status === 404) return gone();
+      if (fetchRes.status === 404) return gone("not_found", { showId: params.show, assetKey });
       if (fetchRes.status === 416) {
         // Codex R20 P2: forward upstream Content-Range on 416. Clients
         // use `bytes */N` to recover from stale / overlarge range
@@ -347,7 +416,11 @@ export async function GET(
         if (upstreamRange) headers["Content-Range"] = upstreamRange;
         return new Response(null, { status: 416, headers });
       }
-      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+        showId: params.show,
+        assetKey,
+        error: { upstreamFetchStatus: fetchRes.status },
+      });
     }
     // Codex R4 P2 + R11 P1: route-level byte ceiling. Reject oversized
     // objects from the `Content-Length` pre-flight (still bounds before
@@ -359,7 +432,7 @@ export async function GET(
       // Codex R13 P1: cancel upstream body when oversized pre-flight
       // rejects — no bytes have flowed yet but the response was opened.
       await fetchRes.body.cancel().catch(() => undefined);
-      return gone();
+      return gone("oversize", { showId: params.show, assetKey });
     }
     // Codex R21 P1 + R23 P1: on a 206 response, `content-length` is
     // only the slice size — the FULL object size lives in
@@ -382,7 +455,7 @@ export async function GET(
       const total = match ? Number(match[1]) : NaN;
       if (!Number.isFinite(total) || total > MAX_DIAGRAM_BYTES) {
         await fetchRes.body.cancel().catch(() => undefined);
-        return gone();
+        return gone("oversize", { showId: params.show, assetKey });
       }
     }
     const boundedBody = boundedPassThroughWeb(
@@ -417,7 +490,12 @@ export async function GET(
       headers: responseHeaders,
     });
   } catch (caught) {
-    if (caught instanceof ByteLimitExceededError) return gone();
-    return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+    if (caught instanceof ByteLimitExceededError)
+      return gone("oversize", { showId: params.show, assetKey });
+    return infraError("DIAGRAM_ASSET_LOOKUP_FAILED", {
+      showId: params.show,
+      assetKey,
+      error: caught,
+    });
   }
 }

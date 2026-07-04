@@ -3,9 +3,9 @@
  * (parse-data-quality-warnings §6).
  *
  * The three data-quality ParseWarning codes (FIELD_UNREADABLE,
- * UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) are surfaced at six operator
- * surfaces (staged card, wizard Step 3, /admin/unpublished chip, changes feed,
- * SHOW_FIRST_PUBLISHED digest, per-show panel). Every surface derives its count
+ * UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED) are surfaced at the operator
+ * surfaces (staged card, wizard Step 3, changes feed, SHOW_FIRST_PUBLISHED
+ * digest, per-show panel). Every surface derives its count
  * from THIS helper so the logic is single-sourced — tests assert against the
  * helper's input array (the data source), never the rendered output.
  *
@@ -74,8 +74,8 @@ export function summarizeDataGaps(
 
 /**
  * Human, operator-facing label for each data-quality class — used by the
- * per-class detail rendered on the Step-3 card, the /admin/unpublished chip,
- * and the per-show panel. These are PLAIN-LANGUAGE labels, never the raw code
+ * per-class detail rendered on the Step-3 card and the per-show panel. These
+ * are PLAIN-LANGUAGE labels, never the raw code
  * literal (invariant 5: no raw §12.4 codes in UI). Single-sourced here so every
  * surface reads the same wording.
  */
@@ -147,7 +147,15 @@ export const OPERATOR_ACTIONABLE_ANCHORED: ReadonlySet<string> = new Set([
  * order, and dedup by (code, resolved-anchor-A1). A cascade of same-cell
  * warnings (one per unknown token) collapses to one line; warnings WITHOUT a
  * resolved sourceCell are NEVER deduped (the synthesis-unstable blockRef.index
- * is never a dedup key), so no actionable row is ever hidden.
+ * is generally never a dedup key), so no actionable row is ever hidden.
+ *
+ * EXCEPTION (idx32/#154): FIELD_UNREADABLE warnings for DISTINCT crew rows can
+ * share ONE fallback anchor A1 — for duplicate crew names the per-row name-based
+ * cell can't be uniquely resolved, so both rows degrade to the shared crew-region
+ * anchor. For FIELD_UNREADABLE ONLY, the per-row blockRef.index is folded into the
+ * dedup key so genuinely-distinct rows are not collapsed. The index is stable
+ * within a single render pass, and adding it can only REDUCE collapsing (never
+ * hide a row), so the "no actionable row is ever hidden" guarantee still holds.
  */
 export function operatorActionableWarnings(
   warnings: readonly ParseWarning[] | null | undefined,
@@ -160,7 +168,12 @@ export function operatorActionableWarnings(
     if (!OPERATOR_ACTIONABLE_ANCHORED.has(w.code)) continue;
     const a1 = w.sourceCell?.a1;
     if (a1) {
-      const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}`;
+      // Fold the per-row index into the key for FIELD_UNREADABLE so two distinct crew
+      // rows that share a fallback region anchor (e.g. duplicate crew names) are NOT
+      // collapsed into one line. Other codes keep the a1-only key (idx32/#154).
+      const rowDisc =
+        w.code === FIELD_UNREADABLE && w.blockRef?.index != null ? `\0${w.blockRef.index}` : "";
+      const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}${rowDisc}`;
       if (seen.has(key)) continue;
       seen.add(key);
     }
@@ -196,8 +209,11 @@ export function stripLegacyUnknownFieldAnchors(
 /**
  * The read-boundary seam for persisted parse_warnings feeding the operator-
  * actionable Data-quality panel: neutralize stale legacy UNKNOWN_FIELD anchors,
- * THEN filter+dedup. Both persisted-read call sites use this one function so the
- * legacy behavior is defined (and tested) in exactly one place.
+ * THEN filter+dedup. All three persisted-read surfaces use this one function —
+ * the per-show page (app/admin/show/[slug]/page.tsx), the live first-seen staged
+ * page (app/admin/show/staged/[stagedId]/page.tsx), and the wizard reapply page
+ * (app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx) — so the
+ * legacy behavior is defined (and tested) in exactly one place (audit idx45/#217).
  */
 export function selectActionableForDisplay(
   warnings: readonly ParseWarning[] | null | undefined,

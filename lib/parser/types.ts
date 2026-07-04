@@ -247,10 +247,13 @@ export type PullSheetCase = { caseLabel: string; items: PullSheetItem[] };
 // See Task 7.1 for capture, Task 7.4 for recovery.
 export type EmbeddedImageStub = {
   sheetTab: string; // resolved title via case-insensitive match (corpus has 'DIagrams' typo)
-  objectId: string; // Sheets API object id
+  objectId: string; // Sheets API object id (legacy path); XLSX-media path synthesizes a content-derived id
   mimeType: string;
   alt?: string;
   contentUrl?: string | null;
+  // OOXML media part name (e.g. "xl/media/image3.png"), XLSX-media path only.
+  // Apply/recovery re-fetch hint; embeddedFingerprint is the authoritative join.
+  mediaPartName?: string;
   sheetsRevisionId: string; // spreadsheet headRevisionId at extraction time (immutable approval token)
   embeddedFingerprint: string | null; // base64url(SHA-256(<full image bytes>)). NOT an ETag. null forces restage-only recovery
   // per-entry recovery disposition. 'normal' allows asset_recovery retries;

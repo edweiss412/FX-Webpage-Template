@@ -41,6 +41,21 @@ function shouldPreserveNewlines(value: string): boolean {
   if (value.startsWith("PULL SHEET/")) return true;
   if (/\*GETS RESET/.test(value)) return true;
   const lines = value.split("\n").map(stripEdgeWhitespace);
+  // Fused room/section HEADER cells (GENERAL SESSION / BREAKOUT / ADDITIONAL ROOM /
+  // LUNCH ROOM) must arrive SPACE-JOINED so rooms.ts splitRoomHeader can read
+  // name/dims/floor. A SHORT (2-line) header — a room named but with dims + floor not
+  // yet recorded — would otherwise hit the <3-line default-preserve below and be emitted
+  // with `&#10;`; rooms.ts's v4 GS guard (`!col0.includes("&#10;")`) then SKIPS it,
+  // silently dropping the entire General Session room (exporter-gap audit, HIGH). The
+  // canonical 3-4 line headers already flatten via the `>= 3` rule, so this only rescues
+  // the short-header case. Breakouts have a `&#10;`-tolerant boBlockRe fallback; GS does
+  // not, so GS is the room actually lost — but flatten all fused headers for consistency.
+  // Case-SENSITIVE (uppercase) — matching rooms.ts boBlockRe — so a mixed-case AGENDA
+  // title like "Breakout Session 2␊<title>" is NOT treated as a room header (it must keep
+  // its `&#10;` for the agenda grid).
+  if (/^(?:GENERAL SESSION|BREAKOUT|ADDITIONAL ROOM|LUNCH ROOM)\b/.test(lines[0] ?? "")) {
+    return false;
+  }
   if (lines.some((line) => /^\(\d+\)\s+/.test(line))) return false;
   if (lines.length >= 3) return false;
   if (lines[1] && /^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}/.test(lines[1])) return false;
@@ -141,12 +156,17 @@ function normalizeBlock(block: CellGrid): CellGrid {
   // markdown converter, not the source. The value column is now preserved so
   // parseEventDetails populates event_details + openingReel.
   // See DEFERRED.md AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
-  if (
-    /^GENERAL SESSION/i.test(block[0]?.[0] ?? "") &&
-    /^(?:GS|BO) Setup$/i.test(block[1]?.[0] ?? "")
-  ) {
-    return block.slice(1);
-  }
+  //
+  // A v2 GS block's first row is the fused header
+  // `GENERAL SESSION␊<NAME>␊<DIMS>␊<FLOOR>` (INFO cell), followed by a
+  // `GS Setup` value row. This row was previously DROPPED (`block.slice(1)`) as
+  // a pre-parser workaround — at the time the parser could not read the fused
+  // header, so the header was discarded and the room name recovered from the
+  // GEAR/DIAGRAMS representation, which silently LOST the INFO dims + floor (and,
+  // for ria/redefining, the room NAME → generic "General Session"). Since #1a the
+  // parser's `parseGsRoom` + `splitRoomHeader` read that fused header directly,
+  // so dropping it is now pure data loss (3 corpus shows: consultants GRAND
+  // BALLROOM A/B, redefining LAKEVIEW BALLROOM, ria SALON ABCD). Preserve it.
   return block;
 }
 

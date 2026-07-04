@@ -20,4 +20,9 @@ describe("Sentry no-op gate (spec §0.6/§8)", () => {
     expect(src).toMatch(/export async function register\(/);
     expect(src).toMatch(/export const onRequestError = Sentry\.captureRequestError/);
   });
+  test.each(FILES)("%s registers scrubSentryEvent as beforeSend (finding C12)", (f) => {
+    const src = readFileSync(f, "utf8");
+    expect(src).toMatch(/beforeSend:\s*\(event\)\s*=>\s*scrubSentryEvent\(event\)/);
+    expect(src).toMatch(/from "@\/lib\/observe\/scrubSentryEvent"/);
+  });
 });

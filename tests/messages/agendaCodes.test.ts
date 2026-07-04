@@ -14,6 +14,7 @@ describe("agenda data-quality codes", () => {
     "AGENDA_PDF_UNREADABLE",
     "AGENDA_SCHEDULE_LOW_CONFIDENCE",
     "AGENDA_SCHEDULE_TIME_ADJUSTED",
+    "AGENDA_LINK_NOT_CLICKABLE",
   ])("%s exists in the catalog with Doug-facing (admin-only) copy", (code) => {
     const entry = (
       MESSAGE_CATALOG as Record<string, { dougFacing: string | null; crewFacing: string | null }>

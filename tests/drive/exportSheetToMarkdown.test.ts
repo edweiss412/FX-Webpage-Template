@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import * as XLSX from "xlsx";
 import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import { parseSheet } from "@/lib/parser";
 
 function workbookBuffer(
   sheets: Array<{
@@ -183,7 +184,12 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
   });
 
-  test("drops merged room-title rows before GS/BO equipment tables", () => {
+  test("PRESERVES the fused GS/BO room-title header before equipment tables", () => {
+    // This header row was previously DROPPED (block.slice(1)) as a pre-parser
+    // workaround. Since #1a the parser's parseGsRoom + splitRoomHeader read the fused
+    // `GENERAL SESSION␊NAME␊DIMS␊FLOOR` header directly, so dropping it silently lost
+    // the v2 GS room's dims + floor (and, for ria/redefining, its NAME → generic
+    // "General Session"). Keep it — the multi-line cell space-joins per normalizeNewlines.
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
@@ -198,8 +204,55 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
 
     expect(markdown).toBe(
-      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join("\n"),
+      [
+        "| GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor |  |",
+        "| :---: | :---: |",
+        "| GS Setup | Pods |",
+        "| GS Set Time | 5/12 @ 6:30 AM |",
+      ].join("\n"),
     );
+  });
+
+  test("FLATTENS a short 2-line fused GS header (dims/floor unfilled) — never emits &#10;", () => {
+    // A GS room named but with dims + floor not yet recorded is a 2-LINE header cell.
+    // shouldPreserveNewlines default-preserves a <3-line cell as &#10;; rooms.ts's v4 GS
+    // guard (`!col0.includes("&#10;")`) then SKIPS it, silently dropping the entire
+    // General Session room (exporter-gap audit, HIGH). Fused room/section headers must
+    // flatten regardless of line count so splitRoomHeader can read them.
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["GENERAL SESSION\nGRAND BALLROOM"],
+            ["Setup", "Theater for 200"],
+            ["Audio", "(2) Shure QLXD Handhelds"],
+          ],
+        },
+      ]),
+    );
+
+    expect(markdown).not.toContain("&#10;");
+    expect(markdown).toContain("| GENERAL SESSION GRAND BALLROOM |");
+  });
+
+  test("a 2-line GS header still yields a parsed General Session room (not dropped)", () => {
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["GENERAL SESSION\nGRAND BALLROOM"],
+            ["Setup", "Theater for 200"],
+            ["Audio", "(2) Shure QLXD Handhelds"],
+            ["Video", "Dual 16:9 screens"],
+          ],
+        },
+      ]),
+    );
+    const gs = parseSheet(markdown, "synthetic.md").rooms.find((r) => r.kind === "gs");
+    expect(gs?.name).toBe("GRAND BALLROOM");
+    expect(gs?.setup).toBe("Theater for 200");
   });
 
   test("escapes parser-significant characters and converts embedded newlines", () => {

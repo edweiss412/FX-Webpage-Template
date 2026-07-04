@@ -18,8 +18,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
-import { UndoAutoPublishButton } from "@/components/admin/UndoAutoPublishButton";
-import type { UndoAutoPublishOutcome } from "@/app/admin/show/[slug]/_actions/undoAutoPublish";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
@@ -53,23 +51,7 @@ type PerShowAlertSectionProps = {
   slug: string;
   /** Optional ?alert_id query param value — highlights the matching row. */
   highlightAlertId?: string | null;
-  /**
-   * M12.13 §6.3 — auto-publish undo window state (computed on the page from
-   * `unpublish_token_expires_at`). When true, SHOW_FIRST_PUBLISHED rows render
-   * the shared undo action after the message. Optional/false-default so existing
-   * call sites and tests that don't thread it keep their behavior (no undo
-   * action). The bound (slug-bound, useActionState-shaped) undo action is
-   * required only when the flag can be true.
-   */
-  undoWindowOpen?: boolean;
-  undoAutoPublishAction?: (
-    prevState: UndoAutoPublishOutcome | null,
-    formData: FormData,
-  ) => UndoAutoPublishOutcome | Promise<UndoAutoPublishOutcome>;
 };
-
-/** §6.3 — the only alert code that carries an in-app undo action. */
-const UNDO_ALERT_CODE = "SHOW_FIRST_PUBLISHED";
 
 // parse-data-quality-warnings §6.4 — read the additive `data_gaps` digest off a
 // SHOW_FIRST_PUBLISHED alert's context (jsonb, untyped on the wire). Returns a
@@ -163,8 +145,6 @@ export async function PerShowAlertSection({
   showId,
   slug,
   highlightAlertId,
-  undoWindowOpen = false,
-  undoAutoPublishAction,
 }: PerShowAlertSectionProps) {
   const result = await fetchPerShowAlerts(showId);
 
@@ -247,7 +227,7 @@ export async function PerShowAlertSection({
           // first-published digest (SHOW_FIRST_PUBLISHED only). Rendered as a
           // sibling detail, NOT interpolated into the catalog dougFacing copy.
           const dataGapsDigest =
-            alert.code === UNDO_ALERT_CODE ? readDataGapsDigest(alert.context) : null;
+            alert.code === "SHOW_FIRST_PUBLISHED" ? readDataGapsDigest(alert.context) : null;
           return (
             <li
               key={alert.id}
@@ -291,18 +271,6 @@ export async function PerShowAlertSection({
                     .map((d) => `${d.count} ${d.label}`)
                     .join(", ")}
                 </p>
-              ) : null}
-              {/* M12.13 §6.3 — SHOW_FIRST_PUBLISHED rows carry the shared in-app
-                  undo action while the token window is open. The SAME component +
-                  bound server action as the footer button (copy/behavior cannot
-                  drift). When the window closes (24h lapse or manual publish →
-                  no token), this disappears and the alert remains as history. */}
-              {undoWindowOpen && alert.code === UNDO_ALERT_CODE && undoAutoPublishAction ? (
-                <UndoAutoPublishButton
-                  slug={slug}
-                  undoAction={undoAutoPublishAction}
-                  testId="undo-auto-publish-alert"
-                />
               ) : null}
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}

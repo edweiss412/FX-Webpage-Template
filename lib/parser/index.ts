@@ -11,6 +11,7 @@
 
 import { detectVersion } from "./schema";
 import { isAgendaLinkRow } from "./agendaLinkRow";
+import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
 import { newAggregator, emitUnknownSection } from "./warnings";
 import { isKnownSectionHeader, isKnownSubLabel, countFieldHeaderWords } from "./knownSections";
 import { parseClient } from "./blocks/client";
@@ -29,6 +30,7 @@ import { parseDress, mergeDressCode } from "./blocks/dress";
 import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams, extractLinkedFolder } from "./diagrams";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { extractOpeningReel } from "./opening-reel";
 import { parseAgenda } from "./blocks/agenda";
 import { parseScheduleTimes } from "./blocks/scheduleTimes";
@@ -126,6 +128,45 @@ function isAcceptableTitleCell(cell: string): boolean {
   return true;
 }
 
+// A flattened multi-VALUE title banner (a combined event of 3+ forums) repeats its leading
+// "<tag> - " prefix — "II - Alpha Forum II - Beta Forum II - Gamma Summit". The exporter
+// flattens the &#10; that would otherwise mark the cell multi-value (redefining-fi's 2-forum
+// banner keeps its &#10; because <3 lines stay preserved; a 3+-line banner flattens), so the
+// repeated leading tag is the residual multi-value signal. When present, #0 must NOT adopt
+// the mashed banner as the title — let the curated "Event Name:" / "Title of Event" win
+// (BL-EXPORTER-MULTIFORUM-BANNER-TITLE). A single-forum banner (tag appears once) is a real
+// title and is kept. Note: only catches the repeated-<tag>- shape (the FXAV "II - " house
+// style); a banner combining differently-prefixed forums is out of scope.
+// A flattened multi-forum banner repeats the SAME leading "<tag> - " forum prefix
+// (e.g. "II - Alpha Forum II - Beta Forum II - Gamma Summit 2025"). Detect it by
+// extracting the leading tag (lazy, so the minimal match always stops at the first
+// " - "; ≤40 chars catches longer institutional prefixes) and counting how many
+// times that exact "<tag> - " unit recurs on a whitespace/start boundary.
+//
+// Require >= 3 occurrences, NOT 2: the exporter only flattens cells of >= 3 lines
+// (shouldPreserveNewlines), and a 2-forum banner is 2 lines — its in-cell &#10;
+// survives, so #0's &#10; guard already skips it (redefining-fi's real 2-forum
+// banner). A *flattened* mashed banner is therefore a 3+-forum cell whose tag
+// recurs >= 3×. The >= 3 floor also stops a single-forum title whose leading token
+// merely RECURS mid-title ("II - Phase II - Clinical Innovation Forum 2026", tag
+// "II" appears 2×) from being demoted to the uglier uppercased Event Name (Codex
+// R1 HIGH — a false positive is the same title-QUALITY harm this guard prevents,
+// in reverse).
+//
+// Bounded limitations (all title-QUALITY only, never data loss): a mashed banner
+// whose forums use DIFFERENT tags ("II - … III - … IV - …"), or a hand-authored
+// banner with no separator space before the next tag ("…ForumII - …"), is not
+// caught. The production exporter space-joins flattened lines, so the join always
+// inserts the boundary space the count regex expects; a no-space shape only arises
+// from manual concatenation and stays a valid non-empty banner title regardless.
+function isMashedMultiValueBanner(text: string): boolean {
+  const lead = /^(.{1,40}?)\s[-–—]\s/.exec(text);
+  const tag = lead?.[1]?.trim();
+  if (!tag) return false;
+  const re = new RegExp(`(?:^|\\s)${tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s[-–—]\\s`, "g");
+  return (text.match(re) ?? []).length >= 3;
+}
+
 function extractTitleFromMarkdown(
   md: string,
   eventDetails: Record<string, string>,
@@ -162,7 +203,12 @@ function extractTitleFromMarkdown(
       body.length >= 2 &&
       body.some((c, i) => i > 0 && c === col0) &&
       body.every((c) => c === "" || c === col0);
-    if (isBanner && !/&#(10|9);/.test(col0) && isAcceptableTitleCell(col0)) {
+    if (
+      isBanner &&
+      !/&#(10|9);/.test(col0) &&
+      !isMashedMultiValueBanner(col0) &&
+      isAcceptableTitleCell(col0)
+    ) {
       return col0;
     }
     break; // only the first non-separator table row is a banner candidate
@@ -298,7 +344,7 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
     const driveFileMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (driveFileMatch?.[1]) {
       links.push({ label, fileId: driveFileMatch[1] });
-    } else if (/^https?:\/\//.test(value)) {
+    } else if (HTTP_URL_PREFIX.test(value)) {
       links.push({ label, url: value });
     } else if (value.length > 0) {
       // Plain filename or descriptive text — preserve as `url` (label-only carry)
@@ -402,7 +448,11 @@ export function mergeGearIntoRooms(parsed: RoomRow[], gear: GearRoom[]): RoomRow
     const match = result.find((r) => r.kind === g.kind && gearNameToken(r.name) === token);
     if (match) {
       for (const col of GEAR_COLUMNS) {
-        if (match[col] == null && g[col] != null) match[col] = g[col];
+        // Fill when the INFO column is null OR holds a hide-set sentinel ("-", "—",
+        // "N/A", "TBD", "TBA"): the render layer hides those sentinels, so leaving
+        // one in place instead of the real GEAR value silently drops the gear.
+        if ((match[col] == null || shouldHideGenericOptional(match[col])) && g[col] != null)
+          match[col] = g[col];
       }
     } else {
       result.push({

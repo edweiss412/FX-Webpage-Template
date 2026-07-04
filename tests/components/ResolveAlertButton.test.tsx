@@ -31,19 +31,19 @@ afterEach(() => {
 });
 
 describe("ResolveAlertButton state machine", () => {
-  it("idle: renders 'Resolve' button only (no confirm row)", () => {
+  it("idle: renders 'Dismiss' button only (no confirm row)", () => {
     const { getByTestId, queryByTestId } = render(<ResolveAlertButton />);
     const btn = getByTestId("admin-alert-resolve-button");
-    expect(btn.textContent?.trim()).toBe("Resolve");
+    expect(btn.textContent?.trim()).toBe("Dismiss");
     expect(btn.getAttribute("type")).toBe("button");
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
   });
 
-  it("idle → confirm on Resolve click: shows 'Confirm resolve' + 'Cancel'", () => {
+  it("idle → confirm on Dismiss click: shows 'Confirm dismiss' + 'Cancel'", () => {
     const { getByTestId, queryByTestId } = render(<ResolveAlertButton />);
     fireEvent.click(getByTestId("admin-alert-resolve-button"));
     const confirm = getByTestId("admin-alert-confirm-resolve-button");
-    expect(confirm.textContent?.trim()).toBe("Confirm resolve");
+    expect(confirm.textContent?.trim()).toBe("Confirm dismiss");
     // Brief §5.4: Confirm submits the parent <form>.
     expect(confirm.getAttribute("type")).toBe("submit");
     const cancel = getByTestId("admin-alert-cancel-button");
@@ -54,13 +54,13 @@ describe("ResolveAlertButton state machine", () => {
     expect(queryByTestId("admin-alert-resolve-button")).toBeNull();
   });
 
-  it("confirm → idle on Cancel click: confirm row unmounts, idle Resolve returns", () => {
+  it("confirm → idle on Cancel click: confirm row unmounts, idle Dismiss returns", () => {
     const { getByTestId, queryByTestId } = render(<ResolveAlertButton />);
     fireEvent.click(getByTestId("admin-alert-resolve-button"));
     fireEvent.click(getByTestId("admin-alert-cancel-button"));
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
     // Idle button is back.
-    expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Resolve");
+    expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Dismiss");
   });
 
   it("confirm → idle on 3s auto-revert (timer fires)", () => {
@@ -73,7 +73,7 @@ describe("ResolveAlertButton state machine", () => {
       vi.advanceTimersByTime(3_000);
     });
     expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
-    expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Resolve");
+    expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Dismiss");
   });
 
   it("Cancel clears the auto-revert timer (no late state change)", () => {
@@ -83,12 +83,12 @@ describe("ResolveAlertButton state machine", () => {
     // Idle now. If the timer leaks, advancing past 3s would attempt
     // to set state on an unrelated render and would not flip back to
     // confirm. Verify the idle render is stable across the timer
-    // boundary — the Resolve button stays visible AND nothing extra
+    // boundary — the Dismiss button stays visible AND nothing extra
     // re-mounts.
     act(() => {
       vi.advanceTimersByTime(5_000);
     });
-    expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Resolve");
+    expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Dismiss");
   });
 
   it("confirm → resolving on Confirm click: button shows 'Resolving…' + disabled (useFormStatus)", async () => {
@@ -117,7 +117,7 @@ describe("ResolveAlertButton state machine", () => {
       await Promise.resolve();
     });
     const confirm = getByTestId("admin-alert-confirm-resolve-button");
-    expect(confirm.textContent?.trim()).toBe("Resolving…");
+    expect(confirm.textContent?.trim()).toBe("Dismissing…");
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
     expect(confirm.getAttribute("aria-busy")).toBe("true");
     const cancel = getByTestId("admin-alert-cancel-button");
@@ -165,11 +165,11 @@ describe("ResolveAlertButton state machine", () => {
       await actionPromise.catch(() => {});
     });
     // Post-failure: pending=false, Confirm + Cancel re-enabled, label
-    // reverts to "Confirm resolve". Pre-fix, the local `ui="resolving"`
+    // reverts to "Confirm dismiss". Pre-fix, the local `ui="resolving"`
     // flag never cleared and the controls stayed disabled forever.
     const confirmAfter = getByTestId("admin-alert-confirm-resolve-button") as HTMLButtonElement;
     expect(confirmAfter.disabled).toBe(false);
-    expect(confirmAfter.textContent?.trim()).toBe("Confirm resolve");
+    expect(confirmAfter.textContent?.trim()).toBe("Confirm dismiss");
     const cancelAfter = getByTestId("admin-alert-cancel-button") as HTMLButtonElement;
     expect(cancelAfter.disabled).toBe(false);
     vi.useFakeTimers();
@@ -187,5 +187,19 @@ describe("ResolveAlertButton state machine", () => {
     const cls = cancel.className;
     expect(cls).toMatch(/\bmin-h-tap-min\b/);
     expect(cls).toMatch(/\bmin-w-tap-min\b/);
+  });
+
+  it("quiet variant renders a neutral idle button (no accent fill), same testid/label, confirm flow intact", () => {
+    // Failure mode caught: the in-panel dismiss regressing to a second
+    // full-strength accent CTA on the open watch panel (impeccable critique P2).
+    const { getByTestId } = render(<ResolveAlertButton quiet />);
+    const btn = getByTestId("admin-alert-resolve-button");
+    expect(btn.textContent?.trim()).toBe("Dismiss");
+    expect(btn.className).not.toContain("bg-accent");
+    expect(btn.className).toContain("text-text-subtle");
+    fireEvent.click(btn);
+    expect(getByTestId("admin-alert-confirm-resolve-button").textContent?.trim()).toBe(
+      "Confirm dismiss",
+    );
   });
 });

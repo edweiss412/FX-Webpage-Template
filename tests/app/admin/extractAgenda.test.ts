@@ -91,6 +91,7 @@ afterEach(async () => {
      WHERE id = 'default'`;
   vi.mocked(log.warn).mockClear();
   vi.mocked(log.error).mockClear();
+  vi.mocked(log.info).mockClear();
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -229,6 +230,32 @@ describe("extract-agenda — auth", () => {
     expect(await res.json()).toEqual({ code: "ADMIN_SESSION_LOOKUP_FAILED" });
     expect(fetchMeta).not.toHaveBeenCalled();
     expect(await liveLeaseCount(dfid)).toBe(0);
+  });
+});
+
+// ─── (guard) whitespace-only driveFileId → 400 before any lease claim ──────────
+// A Next.js dynamic segment cannot be literally empty, but CAN be whitespace-only via
+// URL encoding (%20 → " "). That value flows straight into claimExtractLease (a raw
+// agenda_extract_leases INSERT) AND seeds the advisory-lock key, so the route must
+// fail fast with HTTP 400 at entry, before any DB/lease work. The DB CHECK is the
+// backstop; this is the fail-fast client-error rejection.
+describe("extract-agenda — whitespace driveFileId guard", () => {
+  test("whitespace-only driveFileId → 400 { error: invalid driveFileId }, no lease claim", async () => {
+    const wiz = randomUUID();
+    const beginSpy = vi.fn();
+    // sql.begin is the SOLE entry point to claimExtractLease (route tx#1a). If the
+    // guard fires it is never reached → beginSpy uncalled ≡ claimExtractLease uncalled.
+    const sqlSpy = { begin: beginSpy } as unknown as NonNullable<ExtractAgendaDeps["sql"]>;
+    const fetchMeta = metaSpy(STAGED_ISO, [FOLDER]);
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, " "), // %20-decoded whitespace segment
+      baseDeps({ sql: sqlSpy, fetchMeta }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid driveFileId" });
+    expect(beginSpy).not.toHaveBeenCalled(); // claimExtractLease never reached
+    expect(fetchMeta).not.toHaveBeenCalled();
   });
 });
 
@@ -426,6 +453,77 @@ describe("extract-agenda — persist from report", () => {
     // success → owner-scoped tx#2 release: no live lease remains.
     expect(await liveLeaseCount(dfid)).toBe(0);
   });
+
+  // Success-outcome telemetry (audit finding #7). The committed tx#2 merge branch
+  // MUST leave a durable AGENDA_EXTRACT_COMPLETED audit row (hashed actor, driveFileId,
+  // wizardSessionId, freshLinkCount); a 409-stale path (no commit) MUST leave NONE.
+  // Failure modes caught: (1) a committed extract with no durable audit row; (2) a
+  // rolled-back stale extract logging a false success.
+  test("committed merge → durable AGENDA_EXTRACT_COMPLETED (hashed actor, driveFileId, session, freshLinkCount)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-telemetry-ok";
+    const original = parseFixture([
+      { label: "A", fileId: "file-a" },
+      { label: "B", fileId: "file-b" },
+    ]);
+    await seedActive(wiz, dfid, FOLDER, original);
+    const enrich = vi.fn(
+      async () =>
+        ({
+          perLink: [
+            { ordinal: 0, verdict: "fresh", extraction: VALID_EXTRACTION },
+            { ordinal: 1, verdict: "unknown" },
+          ],
+        }) as EnrichAgendaReport,
+    );
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy(STAGED_ISO, [FOLDER]), enrichAgenda: enrich }),
+    );
+    expect(res.status).toBe(200);
+
+    const infoCalls = vi
+      .mocked(log.info)
+      .mock.calls.filter(
+        ([, fields]) => (fields as { code?: string })?.code === "AGENDA_EXTRACT_COMPLETED",
+      );
+    expect(infoCalls).toHaveLength(1);
+    const fields = infoCalls[0]![1] as {
+      code: string;
+      source: string;
+      actorHash?: string;
+      driveFileId?: string;
+      wizardSessionId?: string;
+      freshLinkCount?: number;
+    };
+    expect(infoCalls[0]![0]).toBe("AGENDA_EXTRACT_COMPLETED");
+    expect(fields.source).toBe("api.admin.onboarding.extractAgenda");
+    expect(typeof fields.actorHash).toBe("string"); // hashed, never raw
+    expect(fields.actorHash).not.toBe("admin@fxav.com");
+    expect(fields.driveFileId).toBe(dfid);
+    expect(fields.wizardSessionId).toBe(wiz);
+    expect(fields.freshLinkCount).toBe(1); // exactly one "fresh" verdict (derived from the report)
+  });
+
+  test("409-stale extract (no commit) → NO AGENDA_EXTRACT_COMPLETED row", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-telemetry-stale";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "file-a" }]));
+    // before-fence revision mismatch → 409 stale, NO extraction, NO tx#2 commit.
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ fetchMeta: metaSpy("2099-01-01T00:00:00.000Z", [FOLDER]) }),
+    );
+    expect(res.status).toBe(409);
+    const completed = vi
+      .mocked(log.info)
+      .mock.calls.filter(
+        ([, fields]) => (fields as { code?: string })?.code === "AGENDA_EXTRACT_COMPLETED",
+      );
+    expect(completed).toHaveLength(0);
+  });
 });
 
 // ─── (c) cache short-circuit (real enrichAgenda) ───────────────────────────────
@@ -531,6 +629,17 @@ describe("extract-agenda — deadline race", () => {
     );
     expect(res.status).toBe(504);
     expect(await res.json()).toEqual({ status: "timeout" });
+    // S6 durable telemetry: the 504 branch now emits AGENDA_EXTRACT_TIMEOUT (previously silent
+    // while every sibling terminal logged).
+    expect(log.warn).toHaveBeenCalledWith(
+      "agenda extract timed out",
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_TIMEOUT",
+        driveFileId: dfid,
+        wizardSessionId: wiz,
+        deadlineMs: 30,
+      }),
+    );
     // tx#2 skipped → parse_result unchanged.
     expect((await readParseResult(wiz, dfid))?.show.agenda_links[0]?.extracted).toBeUndefined();
     // lease released by the finally (standalone) → a retry can claim.
@@ -902,5 +1011,57 @@ describe("extract-agenda — terminal-branch telemetry", () => {
     expect(warnMock()).not.toHaveBeenCalled();
     expect(errorMock()).not.toHaveBeenCalled();
     await pool`DELETE FROM public.agenda_extract_leases WHERE drive_file_id LIKE 'xa-log-queued-filler-%'`;
+  });
+
+  test("inner extract/merge throw → 500 emits AGENDA_EXTRACT_REGION_FAILED (error, bound error)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-region";
+    await seedActive(wiz, dfid, FOLDER, parseFixture([{ label: "A", fileId: "f" }]));
+    const enrich = vi.fn(async () => {
+      throw new Error("boom in extract/merge region");
+    });
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({
+        fetchMeta: metaSpy(STAGED_ISO, [FOLDER]),
+        enrichAgenda: enrich as unknown as NonNullable<ExtractAgendaDeps["enrichAgenda"]>,
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+    expect(errorMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_REGION_FAILED",
+        source: "api.admin.onboarding.extractAgenda",
+        error: expect.any(Error),
+      }),
+    );
+  });
+
+  test("pre-extraction throw (tx#1a) → 500 emits AGENDA_EXTRACT_PREEXTRACT_FAILED (error, bound error)", async () => {
+    const wiz = randomUUID();
+    const dfid = "xa-log-preextract";
+    const sqlThrows = {
+      begin: vi.fn(async () => {
+        throw new Error("connection lost"); // tx#1a sql.begin fault, before the inner try
+      }),
+    } as unknown as NonNullable<ExtractAgendaDeps["sql"]>;
+    const res = await handleExtractAgenda(
+      new Request("http://x"),
+      ctx(wiz, dfid),
+      baseDeps({ sql: sqlThrows }),
+    );
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ status: "error" });
+    expect(errorMock()).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "AGENDA_EXTRACT_PREEXTRACT_FAILED",
+        source: "api.admin.onboarding.extractAgenda",
+        error: expect.any(Error),
+      }),
+    );
   });
 });

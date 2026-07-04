@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import {
   rescanWizardSheet as realRescanWizardSheet,
   type RescanDeps,
@@ -87,7 +89,41 @@ export async function handleRescanSheet(
   const run = deps?.rescanWizardSheet ?? realRescanWizardSheet;
   // not-subject-to-meta: server-locked tx path — every DB mutation runs INSIDE rescanWizardSheet's
   // finalize→app_settings→show locked transaction (no PostgREST client surface in this route).
-  const result = await run(driveFileId, wizardSessionId, deps?.rescanDeps);
+  let result: RescanResult;
+  try {
+    result = await run(driveFileId, wizardSessionId, deps?.rescanDeps);
+  } catch (error) {
+    // Fail-open (explicit callsite wrap): log the infra fault, then rethrow so the route's
+    // existing throw→500 behavior is byte-preserved. Forensic-only (inside a log span).
+    try {
+      await log.error("rescan wizard sheet threw", {
+        source: "api.admin.onboarding.rescan-sheet",
+        code: "RESCAN_INFRA_ERROR",
+        driveFileId,
+        wizardSessionId,
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
+    throw error;
+  }
+  // POST-COMMIT durable outcome (#218): rescanWizardSheet owns its finalize/app_settings/show
+  // locked tx and has committed when it resolves. Gate on the mutated outcome (status==="updated")
+  // — the busy/needs_attention/superseded/not_found guards commit nothing. No admin identity is
+  // resolved on this route (requireAdmin() is void), so no actorEmail. Fail-open at the callsite.
+  if (result.status === "updated") {
+    try {
+      await logAdminOutcome({
+        code: "SHEET_RESCANNED",
+        source: "api.admin.onboarding.rescan-sheet",
+        driveFileId,
+        wizardSessionId,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
   return NextResponse.json(mapResult(result));
 }
 

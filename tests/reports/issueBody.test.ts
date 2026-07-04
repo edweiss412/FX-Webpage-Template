@@ -21,6 +21,67 @@ const baseBody: RequestBody = {
 };
 
 describe("report issue body templates", () => {
+  test("admin body leads with a self-identifying Summary headline (data-quality report)", () => {
+    // Failure mode: a dev triaging the GitHub issue can't tell at a glance what/where the
+    // problem is without reading the whole body. The Summary line must self-identify.
+    const body = buildAdminIssueBody(
+      { kind: "admin", email: "doug@example.com" },
+      {
+        ...baseBody,
+        surface: "data-quality",
+        fieldRef: {
+          surface: "data-quality",
+          code: "UNKNOWN_FIELD",
+          sourceCell: { title: "INFO", gid: 0, a1: "A55" },
+          blockRef: null,
+        },
+        parseWarnings: [
+          {
+            code: "UNKNOWN_FIELD",
+            message: "Unrecognized event_details row label: 'Floor Plan'",
+            sourceCell: { title: "INFO", gid: 0, a1: "A55" },
+          },
+        ],
+        rawSnippet: "Floor Plan | LINK",
+      },
+      null,
+      {
+        title: "RPAS Central",
+        slug: "rpas",
+        drive_file_id: "d1",
+        last_synced_at: "2026-06-03T10:00:00Z",
+      },
+    );
+    const firstLine = body.split("\n")[0]!;
+    expect(firstLine).toContain("**Summary:**");
+    expect(firstLine).toContain("Unrecognized event_details row label: 'Floor Plan'");
+    expect(firstLine).toContain("(UNKNOWN_FIELD)");
+    expect(firstLine).toContain("RPAS Central");
+    expect(firstLine).toContain("A55");
+  });
+
+  test("Summary headline degrades cleanly for a non-data-quality report (no warning/code)", () => {
+    // Failure mode: a crew/admin report without an autocaptured warning renders "undefined"
+    // or crashes. It must fall back to surface + show.
+    const body = buildAdminIssueBody(
+      { kind: "admin", email: "doug@example.com" },
+      {
+        ...baseBody,
+        surface: "admin_parse_panel",
+        fieldRef: { path: "venue.notes" },
+        parseWarnings: null,
+        rawSnippet: null,
+      },
+      null,
+      { title: "Test Show", slug: "test-show", drive_file_id: "d1", last_synced_at: null },
+    );
+    const firstLine = body.split("\n")[0]!;
+    expect(firstLine).toContain("**Summary:**");
+    expect(firstLine).toContain("Test Show");
+    expect(firstLine).not.toContain("undefined");
+    expect(firstLine).not.toContain("null");
+  });
+
   test("admin body contains canonicalized admin email, raw snippet, and marker", () => {
     // Failure modes: admin attribution regresses to literal "admin"; the
     // template regresses to the old minimal builder; the retry marker drops.

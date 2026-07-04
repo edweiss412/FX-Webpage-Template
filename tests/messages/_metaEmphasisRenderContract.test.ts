@@ -48,6 +48,10 @@ const MARKER_RE = /\*\*[^*]+\*\*|\*[^*]+\*|(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.
 const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> = [
   { file: "app/admin/error.tsx", reason: "ADMIN_ROUTE_LOAD_FAILED only; marker-free." },
   {
+    file: "app/show/[slug]/[shareToken]/ShowUnavailable.tsx",
+    reason: "CREW_SHOW_PAUSED crewFacing only; marker-free plain sentence.",
+  },
+  {
     file: "components/admin/MaintenanceResetButtons.tsx",
     reason: "VALIDATION_RESET_*/RESEED_* dougFacing status copy; marker-free.",
   },
@@ -68,6 +72,11 @@ const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> =
   {
     file: "app/help/errors/page.tsx",
     reason: "Renders title/longExplanation only — those fields are pinned marker-free below.",
+  },
+  {
+    file: "app/admin/show/[slug]/page.tsx",
+    reason:
+      "bulkGroupLabel reads only messageFor(code).title (pinned marker-free below) as the DQIGNORE-2 bulk-ignore group label; passed as a plain button label, never rendered as marked prose.",
   },
   {
     file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx",

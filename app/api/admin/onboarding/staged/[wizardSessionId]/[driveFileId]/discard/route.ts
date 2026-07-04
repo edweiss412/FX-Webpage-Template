@@ -169,6 +169,7 @@ export async function handleWizardStagedDiscard(
       } catch (alertError) {
         log.error("WIZARD_SESSION_SUPERSEDED_RACE alert write failed", {
           source: "api.admin.onboarding.staged.discard",
+          code: "WIZARD_STAGED_DISCARD_SUPERSEDED_ALERT_WRITE_FAILED",
           error: alertError,
         });
       }
@@ -180,6 +181,7 @@ export async function handleWizardStagedDiscard(
     // post-resolve logAdminOutcome call below.
     log.error("wizard staged discard: unexpected failure", {
       source: "api.admin.onboarding.staged.discard",
+      code: "WIZARD_STAGED_DISCARD_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");

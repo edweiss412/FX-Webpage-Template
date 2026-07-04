@@ -66,8 +66,8 @@ export function AutoPublishToggle({ initial, setAutoPublish, icon }: AutoPublish
         <div className="min-w-0">
           <h3 className="text-base font-semibold text-text-strong">Auto-publish clean new shows</h3>
           <p className="mt-1 max-w-prose text-sm text-text-subtle">
-            Publish brand-new sheets automatically when they parse with no warnings. You can still
-            undo within 24 hours.
+            Publish brand-new sheets automatically when they parse with no warnings. You can turn
+            any show off later with its Published toggle.
           </p>
           {!on && !degraded ? (
             <p
@@ -122,7 +122,7 @@ function SwitchButton({ on, disabled }: { on: boolean; disabled: boolean }) {
       data-testid="auto-publish-toggle"
       disabled={isDisabled}
       className={[
-        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+        "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60",
         on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken",
       ].join(" ")}
     >

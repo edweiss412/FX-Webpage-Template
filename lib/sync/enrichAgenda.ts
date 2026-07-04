@@ -34,6 +34,7 @@
  * is never collapsed into "no agenda".
  */
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import { HTTP_URL_PREFIX } from "@/lib/parser/httpUrlPrefix";
 import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
 import type { AgendaExtraction } from "@/lib/agenda/types";
 import { extractAgendaSchedule } from "@/lib/agenda/extractAgendaSchedule";
@@ -94,6 +95,12 @@ export async function enrichAgenda(
 
   // Track fileIds recovered via chip correlation (for the recoveredFileId verdict field).
   const recoveredFileIds = new Map<number, string>();
+  // When the INFO-tab chip read infra-fails, a still-fileId-less link is NOT conclusively
+  // a broken (non-clickable) link — recovery simply couldn't run this pass. So suppress the
+  // user-facing AGENDA_LINK_NOT_CLICKABLE warning on such a pass (same "absence of recovery,
+  // not a fault" principle as the getAgendaChips infra_error branch below / invariant 9).
+  // The forensic AGENDA_LINK_UNRESOLVED still fires regardless.
+  let chipReadInfraFailed = false;
 
   try {
     // ── 1. fileId recovery via capped ordinal + label chip correlation ─────────
@@ -106,6 +113,7 @@ export async function enrichAgenda(
         signal !== undefined ? { signal } : undefined,
       );
       if (chips.kind === "infra_error") {
+        chipReadInfraFailed = true;
         // Couldn't read the INFO tab → recover NO fileIds this pass. Do NOT abort
         // the whole enrichment (Codex whole-diff R3): the chip read only serves the
         // fileId-LESS links (smart-chip recovery). On failure those links simply stay
@@ -134,7 +142,38 @@ export async function enrichAgenda(
       if (signal?.aborted) break;
 
       const link = links[i]!;
-      if (!link.fileId) continue;
+      if (!link.fileId) {
+        // S8 forensic (option A): a malformed agenda_link (a `url` that is a bare filename with no
+        // resolvable fileId) was skipped silently. Groupable durable record; the skip behavior is
+        // unchanged. Fail-open at the callsite — a logger throw must never break the scan.
+        try {
+          await log.warn("agenda link has no resolvable fileId", {
+            source: "sync.enrichAgenda",
+            code: "AGENDA_LINK_UNRESOLVED",
+            spreadsheetId,
+            ordinal: i,
+            label: link.label,
+          });
+        } catch {
+          /* best-effort */
+        }
+        // User-facing data-quality warning ONLY when the link has no clickable target
+        // (a bare filename / descriptive text / undefined url). An external http(s) URL
+        // (any case — HTTP_URL_PREFIX is case-insensitive) stays silent: it's a working
+        // link, plausibly intentional. The forensic AGENDA_LINK_UNRESOLVED above fires
+        // for BOTH shapes. Synchronous push — no try/catch needed (whole scan is already
+        // wrapped in the outer AGENDA_ENRICH_THREW try/catch).
+        const hasClickableTarget = typeof link.url === "string" && HTTP_URL_PREFIX.test(link.url);
+        if (!hasClickableTarget && !chipReadInfraFailed) {
+          warnings.push(
+            warn(
+              "AGENDA_LINK_NOT_CLICKABLE",
+              `The agenda link "${link.label}" isn't a link crew can open, so they can't reach the agenda.`,
+            ),
+          );
+        }
+        continue;
+      }
 
       const recoveredFileId = recoveredFileIds.get(i);
 
@@ -157,15 +196,22 @@ export async function enrichAgenda(
         fileMeta = await driveClient.getFile(link.fileId);
       } catch (error) {
         const status = driveErrorStatus(error);
-        log.warn("getFile threw", {
-          source: "sync.enrichAgenda",
-          fileId: link.fileId,
-          ordinal: i,
-          status,
-          verdict: status === 404 || status === 400 ? "known_stale" : "unknown",
-          error,
-        });
         if (status === 404 || status === 400) {
+          // Definitive-gone is an EXPECTED steady-state (a deleted/invalid agenda
+          // PDF), not a fault: log at INFO with a forensic code and NO error payload
+          // so it does not trip the cry-wolf WARN stream.
+          log.info("agenda link gone", {
+            source: "sync.enrichAgenda",
+            // #16 correlation: driveFileId is the RESERVED join column so a gone
+            // breadcrumb self-correlates to the exact PDF (fileId stays as the
+            // human-readable context echo).
+            driveFileId: link.fileId,
+            fileId: link.fileId,
+            ordinal: i,
+            status,
+            verdict: "known_stale",
+            code: "AGENDA_GETFILE_GONE",
+          });
           warnings.push(
             warn(
               "AGENDA_PDF_UNREADABLE",
@@ -178,6 +224,20 @@ export async function enrichAgenda(
             verdict: "known_stale",
           });
         } else {
+          // Ambiguous/transient fault (403/429/5xx/timeout): WARN with the error
+          // payload for diagnosis; leave-existing ("unknown") — next sync re-checks.
+          log.warn("getFile threw", {
+            source: "sync.enrichAgenda",
+            // #16 correlation: reserved join column → the fault self-correlates to
+            // the exact PDF an operator is diagnosing.
+            driveFileId: link.fileId,
+            fileId: link.fileId,
+            ordinal: i,
+            status,
+            verdict: "unknown",
+            error,
+            code: "AGENDA_GETFILE_FAULT",
+          });
           perLink.push({
             ordinal: i,
             ...(recoveredFileId !== undefined ? { recoveredFileId } : {}),
@@ -233,6 +293,11 @@ export async function enrichAgenda(
       );
       log.info("download", {
         source: "sync.enrichAgenda",
+        // #16 durability: info-with-code now persists so a successful refresh's download
+        // step is a durable, joinable trace (was console-only). #16 correlation: reserved
+        // driveFileId join column.
+        code: "AGENDA_PDF_DOWNLOADED",
+        driveFileId: link.fileId,
         fileId: link.fileId,
         ordinal: i,
         kind: download.kind,
@@ -285,7 +350,13 @@ export async function enrichAgenda(
       // note-only, and the data-quality warning below ("no readable sessions") informs
       // the operator. Gating the verdict on confidence would break plan Task 6 + the
       // cache contract (round-12) and is intentionally NOT done.
-      const extraction = await extractAgendaSchedule(download.bytes);
+      // Thread the agenda PDF's Drive fileId so extractAgendaSchedule's durable
+      // emits (AGENDA_PDFJS_THREW / AGENDA_TOO_MANY_PAGES / low-/high-confidence)
+      // self-correlate to the exact PDF instead of relying on the `bytes`
+      // byte-length proxy alone (audit finding #11).
+      const extraction = await extractAgendaSchedule(download.bytes, {
+        driveFileId: link.fileId,
+      });
       const payload: AgendaExtraction = {
         ...extraction,
         ...(typeof currentRev === "string" && currentRev.length > 0
@@ -313,6 +384,10 @@ export async function enrichAgenda(
 
       log.info("extracted", {
         source: "sync.enrichAgenda",
+        // #16 durability: info-with-code persists the successful-extraction trace (was
+        // console-only). #16 correlation: reserved driveFileId join column.
+        code: "AGENDA_EXTRACTED",
+        driveFileId: link.fileId,
         fileId: link.fileId,
         ordinal: i,
         bytes: download.bytes.byteLength,
@@ -376,6 +451,7 @@ export async function enrichAgenda(
     // Logged (previously swallowed) so an unexpected throw is diagnosable.
     log.error("threw (link left as-is)", {
       source: "sync.enrichAgenda",
+      code: "AGENDA_ENRICH_THREW",
       spreadsheetId,
       error: err,
     });

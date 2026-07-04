@@ -52,6 +52,80 @@ const RECONCILE_FIELDS = [
   "notes",
 ] as const;
 
+// idx20 (BL-ROOMS-BREAKOUT-REUSE-DROP): when a breakout room is reused across days — two
+// "BREAKOUT N <venue>" blocks with the SAME venue name but different sessions — MERGE them
+// into ONE room instead of dropping the second (owner decision 2026-07-03: one card,
+// per-day values preserved). Physical specs are the same physical room (kept once); TIME
+// fields carry their own dates (concatenated); other CONTENT fields are day-labeled (from
+// the session's show/set date) only when they differ across sessions.
+const BO_PHYSICAL_FIELDS = ["dimensions", "floor"] as const satisfies readonly (keyof RoomRow)[];
+const BO_TIME_FIELDS = [
+  "set_time",
+  "show_time",
+  "strike_time",
+] as const satisfies readonly (keyof RoomRow)[];
+const BO_CONTENT_FIELDS = [
+  "setup",
+  "audio",
+  "video",
+  "lighting",
+  "scenic",
+  "power",
+  "digital_signage",
+  "other",
+  "notes",
+] as const satisfies readonly (keyof RoomRow)[];
+
+/** Leading M/D date of a session (from show_time, else set_time) — used for per-day labels. */
+function sessionDayLabel(room: RoomRow): string | null {
+  const t = room.show_time ?? room.set_time ?? "";
+  const m = /^\s*(\d{1,2}\/\d{1,2})/.exec(t);
+  return m ? m[1]! : null;
+}
+
+/** Distinct non-null values of `field` across sessions (first occurrence), each with the day
+ * label of the session that carried it. */
+function distinctSessionValues(
+  sessions: RoomRowInternal[],
+  field: keyof RoomRow,
+): Array<{ day: string | null; value: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ day: string | null; value: string }> = [];
+  for (const s of sessions) {
+    const v = s[field];
+    if (typeof v !== "string" || v.length === 0 || seen.has(v)) continue;
+    seen.add(v);
+    out.push({ day: sessionDayLabel(s), value: v });
+  }
+  return out;
+}
+
+/** Merge same-venue breakout SESSIONS into one room (idx20), preserving every value. */
+function mergeBreakoutSessions(sessions: RoomRowInternal[]): RoomRowInternal {
+  const base = sessions[0]!;
+  if (sessions.length === 1) return base;
+  // Physical specs (same physical room): first non-null wins (values should agree).
+  for (const s of sessions.slice(1)) {
+    for (const f of BO_PHYSICAL_FIELDS) if (base[f] == null && s[f] != null) base[f] = s[f];
+  }
+  // Time fields already contain their dates → concatenate the distinct values in order.
+  for (const f of BO_TIME_FIELDS) {
+    const d = distinctSessionValues(sessions, f);
+    base[f] = d.length ? d.map((x) => x.value).join(" / ") : null;
+  }
+  // Content fields: a single shared value stays plain; differing values are day-labeled.
+  for (const f of BO_CONTENT_FIELDS) {
+    const d = distinctSessionValues(sessions, f);
+    base[f] =
+      d.length === 0
+        ? null
+        : d.length === 1
+          ? d[0]!.value
+          : d.map((x) => (x.day ? `${x.day}: ${x.value}` : x.value)).join(" / ");
+  }
+  return base;
+}
+
 export function parseRooms(
   markdown: string,
   _version: "v1" | "v2" | "v4",
@@ -678,6 +752,10 @@ function parseBoRooms(markdown: string): RoomRow[] {
   const boBlockRe = /^\|\s*(BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
   let m: RegExpExecArray | null;
 
+  // Group breakout blocks by venue key so a room reused across days is MERGED into one
+  // (idx20), not dropped. Identical repeats (double-parse) collapse to single field values.
+  const boGroups = new Map<string, RoomRowInternal[]>();
+  const boOrder: string[] = [];
   while ((m = boBlockRe.exec(markdown)) !== null) {
     const rawHeader = m[1]!.replace(/&#10;/g, "\n").replace(/\r/g, "");
     const firstLine = rawHeader.split("\n")[0]!.trim();
@@ -690,8 +768,6 @@ function parseBoRooms(markdown: string): RoomRow[] {
     const split = splitRoomHeader(rawHeader, "breakout");
     const name = split.name || (numbered ? firstLine : "Breakout");
     const headerKey = name.toUpperCase();
-
-    if (seen.has(headerKey)) continue;
 
     const room = buildEmptyRoom("breakout", name);
     room.dimensions = split.dimensions;
@@ -710,8 +786,15 @@ function parseBoRooms(markdown: string): RoomRow[] {
     if (!numbered && !roomHasContent(room)) continue;
     if (numbered && !roomHasContent(room) && isPlaceholderRoomName(name)) continue;
 
-    seen.add(headerKey);
-    rooms.push(room);
+    if (!boGroups.has(headerKey)) {
+      boGroups.set(headerKey, []);
+      boOrder.push(headerKey);
+    }
+    boGroups.get(headerKey)!.push(room);
+  }
+  for (const key of boOrder) {
+    rooms.push(mergeBreakoutSessions(boGroups.get(key)!));
+    seen.add(key); // claim the venue so the LUNCH / MABEL loops below skip it
   }
 
   // LUNCH ROOM blocks (consultants roundtable)
@@ -914,9 +997,23 @@ function splitRoomHeader(
     .replace(/^[\s:–—-]+/, "")
     .trim();
 
-  // 2. floor ("7th Floor" / "15th Floor")
+  // 2. floor. Ordinal floors ("7th Floor" / "15th Floor") match ANYWHERE — the
+  // "Nth" form is vanishingly rare inside a real room name, so the original
+  // unanchored behavior is preserved. Named non-ordinal levels ("Ground Floor",
+  // "Main Floor", "Lobby Floor", …) are only extracted when they are the TRAILING
+  // field (`\s*$`): those qualifier words are common enough to appear INSIDE a
+  // legitimate room name ("Main Floor Ballroom"), so requiring end-position avoids
+  // mis-extracting a name fragment as the floor (Codex R1). Either way the closed
+  // qualifier set excludes the bare "Floor" template PLACEHOLDER (unfilled
+  // "Dimensions Floor" stub), which still falls through to the step-4 strip.
+  // Without a non-ordinal branch a trailing "Ground Floor" leaked into the dims
+  // string (dims present) or glued its qualifier onto the room name (no dims) — audit idx23.
   let floor: string | null = null;
-  const floorMatch = /\b\d+\s*(?:st|nd|rd|th)\s+floor\b/i.exec(s);
+  const floorMatch =
+    /\b\d+\s*(?:st|nd|rd|th)\s+floor\b/i.exec(s) ??
+    /\b(?:ground|main|lobby|lower|upper|mezzanine|concourse|penthouse|rooftop|basement|garden|terrace)\s+floor\b\s*$/i.exec(
+      s,
+    );
   if (floorMatch) {
     floor = floorMatch[0].replace(/\s+/g, " ").trim();
     s = (
@@ -928,23 +1025,39 @@ function splitRoomHeader(
 
   // 3. dimensions — first dimension token (with an optional semantic prefix) to end
   let dimensions: string | null = null;
-  const dimStart = s.search(/(?:\b(?:TOTAL|A\/B|APPROXIMATELY)\s*:?\s*)?\d+\s*'\s*x/i);
+  // Optional dims-label prefix. TOTAL / APPROXIMATELY are ONLY ever dims labels, so their
+  // colon is optional; "A/B", however, is also a real room-NAME suffix ("GRAND BALLROOM
+  // A/B" = the room spanning sections A and B), so it counts as a dims label ONLY with a
+  // colon ("A/B:"). Making A/B colon-optional (PR #114) wrongly pulled an unlabeled
+  // trailing "A/B" out of the name into the dims (audit idx25).
+  const dimStart = s.search(/(?:\b(?:TOTAL|APPROXIMATELY)\s*:?\s*|\bA\/B\s*:\s*)?\d+\s*'\s*x/i);
   if (dimStart !== -1) {
     dimensions = presence(
       s
         .slice(dimStart)
         .replace(/^APPROXIMATELY\s+/i, "")
         .replace(/\s+/g, " ")
+        // Drop a dangling trailing "x" left by an unfilled height cell — the venue
+        // filled "75' x 37'" but left the 3rd dimension blank, so the flattened
+        // header reads "75' x 37' x" and the stray "x" would reach the crew card
+        // verbatim (confirmed on the LIVE fintech ADLER BALLROOM cell) — audit idx22.
+        .replace(/\s*x\s*$/i, "")
         .trim(),
     );
     s = s.slice(0, dimStart).trim();
   }
 
-  // 4. leftover template placeholder words
-  let name = s
-    .replace(/\b(?:Dimensions|Floor|Name\(s\))\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // 4. leftover template placeholder words. An unfilled "Dimensions"/"Floor"/"Name(s)"
+  // stub always TRAILS the name ("BALLROOM C Dimensions Floor"), so strip only from the
+  // END (iteratively — the stub can carry two words). A real name word, e.g. a room
+  // literally named "MAIN FLOOR BALLROOM", is mid-string and preserved (Codex R1); the
+  // old unconditional global strip corrupted it to "MAIN BALLROOM".
+  let name = s.replace(/\s+/g, " ").trim();
+  let prevName: string;
+  do {
+    prevName = name;
+    name = name.replace(/\s*\b(?:Dimensions|Floor|Name\(s\))\s*$/i, "").trim();
+  } while (name !== prevName);
   if (!name && kind === "gs") name = "General Session";
 
   return { name, dimensions, floor };

@@ -86,8 +86,9 @@
 | Test Pattern | 16 x 9 Test Pattern |
 | Fonts | Aptos Font Folder |
 
-| GS Setup | 16 Clusters of 6 ppl |
+| GENERAL SESSION SALON ABCD 41' x 73' x 13' | GENERAL SESSION SALON ABCD 41' x 73' x 13' |
 | :---: | :---: |
+| GS Setup | 16 Clusters of 6 ppl |
 | GS Set Time | 6/24 @ 1:00 PM |
 | GS Show Time | 6/25 @ 7:30 AM |
 | GS Strike Time | 6/26 @ 12:15pm |

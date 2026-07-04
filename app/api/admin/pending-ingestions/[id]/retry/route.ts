@@ -4,7 +4,7 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { listFolder as listDriveFolder } from "@/lib/drive/list";
 import {
   fetchDriveFileMetadata as defaultFetchDriveFileMetadata,
-  fetchSheetAsMarkdownAtRevision,
+  fetchSheetMarkdownAndBytesAtRevision,
 } from "@/lib/drive/fetch";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -27,6 +27,8 @@ import {
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { revalidateShow } from "@/lib/data/showCacheTag";
+import { log } from "@/lib/log";
+import { logAdminOutcome, type AdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type LivePendingIngestionRouteTx = LockedShowTx<{
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
@@ -154,8 +156,16 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     modifiedTime: fileMeta.modifiedTime,
   };
   let markdown: string;
+  let xlsxBytes: ArrayBuffer | undefined;
   try {
-    markdown = await fetchSheetAsMarkdownAtRevision(fileMeta.driveFileId, binding.bindingToken);
+    // Fetch markdown AND raw xlsx bytes in one export so a retried ingestion also
+    // surfaces DIAGRAMS-tab embedded images (parity with cron + onboarding).
+    const fetched = await fetchSheetMarkdownAndBytesAtRevision(
+      fileMeta.driveFileId,
+      binding.bindingToken,
+    );
+    markdown = fetched.markdown;
+    xlsxBytes = fetched.bytes;
   } catch (cause) {
     throw new FirstSeenStagePrepareError("DRIVE_FETCH_FAILED", cause);
   }
@@ -169,6 +179,7 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     const parseResult = await enrichWithDrivePins(parsed, defaultDriveClient(), {
       driveFileId: fileMeta.driveFileId,
       fileMeta: toDriveFileMeta(fileMeta),
+      ...(xlsxBytes !== undefined ? { xlsxBytes } : {}),
     });
     return {
       fileMeta,
@@ -317,8 +328,9 @@ export async function handleLivePendingIngestionRetry(
   routeDeps: LivePendingIngestionRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let adminEmail!: string;
   try {
-    await deps.requireAdminIdentity();
+    adminEmail = (await deps.requireAdminIdentity()).email; // canonical
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -327,28 +339,77 @@ export async function handleLivePendingIngestionRetry(
   }
 
   const { id } = await context.params;
-  const driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
-  if (!driveFileId) return transitioned();
+  // P1 dark-path guard: the entire risky region below (id-read → withRowTryLock +
+  // post-commit) previously had NO try/catch — any DB/postgres.js throw surfaced as an
+  // unlogged framework 500. Wrap it in a fail-open forensic guard: on throw, best-effort
+  // emit PENDING_INGESTION_RETRY_FAILED (its own inner try/catch so a logger throw can't
+  // change the outcome — invariant 9), then rethrow to preserve the existing 500.
+  // driveFileId is declared here (null until the id-read resolves) so it is in scope for
+  // the catch even when the throw is in readDriveFileIdForPendingIngestion itself.
+  let driveFileId: string | null = null;
+  try {
+    driveFileId = await deps.readDriveFileIdForPendingIngestion(id);
+    if (!driveFileId) return transitioned();
 
-  // nav-perf tag-caching (Task 5 / whole-diff R2): capture the show id of any
-  // showId-carrying outcome (applied + parse_error/source_gone recovery) INSIDE the
-  // tx, but call revalidateShow AFTER withRowTryLock resolves (post-commit) — never
-  // inside the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
-  let appliedShowId: string | null = null;
-  const result = await deps.withRowTryLock(driveFileId, async (tx) => {
-    const row = await readLockedPendingIngestion(tx, id);
-    if (!row) return transitioned();
-    if (row.wizard_session_id !== null) return errorResponse(409, "LIVE_ROW_REQUIRED");
-    if (row.drive_file_id !== driveFileId) {
-      return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
-    }
-    if (await liveShowExists(tx, row.drive_file_id)) {
-      // DEF-5: refuse retry against an archived show (re-read under the held row lock) — no Drive fetch.
-      if (await readShowArchived_unlocked(tx, row.drive_file_id)) {
-        return errorResponse(409, "SHOW_ARCHIVED_IMMUTABLE");
+    // nav-perf tag-caching (Task 5 / whole-diff R2): capture the show id of any
+    // showId-carrying outcome (applied + parse_error/source_gone recovery) INSIDE the
+    // tx, but call revalidateShow AFTER withRowTryLock resolves (post-commit) — never
+    // inside the tx callback (withPostgresSyncPipelineLock → sql.begin = pre-commit).
+    let appliedShowId: string | null = null;
+    // Observability (R4): capture the post-commit admin-outcome telemetry for a
+    // committed live-show apply ONLY — gated on outcome === "applied", NOT on
+    // appliedShowId (source_gone/parse_error recovery also carries showId but is
+    // still_failed, so it must NOT emit PENDING_INGESTION_RETRIED). The `code`
+    // literal rides ONLY the logAdminOutcome emit below, never this ref object.
+    let outcome: Omit<AdminOutcome, "code"> | null = null;
+    const result = await deps.withRowTryLock(driveFileId, async (tx) => {
+      const row = await readLockedPendingIngestion(tx, id);
+      if (!row) return transitioned();
+      if (row.wizard_session_id !== null) return errorResponse(409, "LIVE_ROW_REQUIRED");
+      if (row.drive_file_id !== driveFileId) {
+        return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
       }
-      if (await deps.readFinalizeOwnershipGuardUnlocked(tx, row.drive_file_id)) {
-        return errorResponse(409, "FINALIZE_OWNED_SHOW");
+      if (await liveShowExists(tx, row.drive_file_id)) {
+        // DEF-5: refuse retry against an archived show (re-read under the held row lock) — no Drive fetch.
+        if (await readShowArchived_unlocked(tx, row.drive_file_id)) {
+          return errorResponse(409, "SHOW_ARCHIVED_IMMUTABLE");
+        }
+        if (await deps.readFinalizeOwnershipGuardUnlocked(tx, row.drive_file_id)) {
+          return errorResponse(409, "FINALIZE_OWNED_SHOW");
+        }
+        let metadata: DriveListedFile;
+        try {
+          metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
+        } catch {
+          return errorResponse(502, "DRIVE_FETCH_FAILED");
+        }
+        const watchedFolderId = await readWatchedFolderId(tx);
+        if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
+          return errorResponse(409, "SHEET_UNAVAILABLE");
+        }
+        const syncResult = await deps.runManualSyncForShowUnlocked(
+          tx,
+          row.drive_file_id,
+          "manual",
+          metadata,
+          {},
+        );
+        // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
+        // applied AND the parse_error/source_gone recovery outcomes (which now carry
+        // showId + commit last_sync_status). Post-commit revalidate happens after
+        // withRowTryLock resolves below. Non-showId outcomes leave appliedShowId null.
+        if ("showId" in syncResult && typeof syncResult.showId === "string" && syncResult.showId) {
+          appliedShowId = syncResult.showId;
+        }
+        if (!("skipped" in syncResult) && syncResult.outcome === "applied") {
+          outcome = {
+            source: "api.admin.pending-ingestions.retry",
+            actorEmail: adminEmail,
+            driveFileId: row.drive_file_id,
+            showId: syncResult.showId,
+          };
+        }
+        return await manualSyncResponse(tx, row.drive_file_id, syncResult);
       }
       let metadata: DriveListedFile;
       try {
@@ -360,50 +421,57 @@ export async function handleLivePendingIngestionRetry(
       if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
         return errorResponse(409, "SHEET_UNAVAILABLE");
       }
-      const syncResult = await deps.runManualSyncForShowUnlocked(
-        tx,
-        row.drive_file_id,
-        "manual",
-        metadata,
-        {},
-      );
-      // nav-perf tag-caching (whole-diff R2): capture ANY showId-carrying outcome —
-      // applied AND the parse_error/source_gone recovery outcomes (which now carry
-      // showId + commit last_sync_status). Post-commit revalidate happens after
-      // withRowTryLock resolves below. Non-showId outcomes leave appliedShowId null.
-      if ("showId" in syncResult && typeof syncResult.showId === "string" && syncResult.showId) {
-        appliedShowId = syncResult.showId;
+      let stageDeps: Awaited<ReturnType<typeof deps.prepareFirstSeenStage>>;
+      try {
+        stageDeps = await deps.prepareFirstSeenStage(metadata);
+      } catch (error) {
+        const code =
+          error instanceof FirstSeenStagePrepareError ? error.code : "DRIVE_FETCH_FAILED";
+        return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
       }
-      return await manualSyncResponse(tx, row.drive_file_id, syncResult);
+      const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
+      if (stageResult.outcome === "applied") {
+        appliedShowId = stageResult.showId;
+        outcome = {
+          source: "api.admin.pending-ingestions.retry",
+          actorEmail: adminEmail,
+          driveFileId: row.drive_file_id,
+          showId: stageResult.showId,
+        };
+      }
+      return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
+    });
+    if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
+    // nav-perf tag-caching (Task 5): post-commit revalidate — withRowTryLock (the
+    // outer sql.begin tx) has resolved here, so the apply has committed. Bust the
+    // show's cache tag before returning the Response. Non-applied retries leave
+    // appliedShowId null → no revalidate.
+    if (appliedShowId) revalidateShow(appliedShowId);
+    // Observability (R4): post-commit durable telemetry — withRowTryLock has resolved
+    // (apply committed) before we emit. Non-applied retries leave outcome null → no emit.
+    if (outcome) {
+      // TS closure-narrowing: a `let` assigned inside the withRowTryLock callback narrows
+      // to `never` at a spread position; bind to a ref-typed const first (see PR #218).
+      const outcomeRef: Omit<AdminOutcome, "code"> = outcome;
+      await logAdminOutcome({ code: "PENDING_INGESTION_RETRIED", ...outcomeRef });
     }
-    let metadata: DriveListedFile;
+    return result;
+  } catch (error) {
+    // Fail-open (explicit callsite wrap): log the infra fault, then rethrow so the route's
+    // existing throw→500 behavior is byte-preserved. Forensic-only (inside a log span).
+    // driveFileId may be null if the throw was in the id-read leg.
     try {
-      metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
+      await log.error("pending-ingestion retry threw", {
+        source: "api.admin.pending-ingestions.retry",
+        code: "PENDING_INGESTION_RETRY_FAILED",
+        driveFileId,
+        error,
+      });
     } catch {
-      return errorResponse(502, "DRIVE_FETCH_FAILED");
+      /* best-effort */
     }
-    const watchedFolderId = await readWatchedFolderId(tx);
-    if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
-      return errorResponse(409, "SHEET_UNAVAILABLE");
-    }
-    let stageDeps: Awaited<ReturnType<typeof deps.prepareFirstSeenStage>>;
-    try {
-      stageDeps = await deps.prepareFirstSeenStage(metadata);
-    } catch (error) {
-      const code = error instanceof FirstSeenStagePrepareError ? error.code : "DRIVE_FETCH_FAILED";
-      return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
-    }
-    const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
-    if (stageResult.outcome === "applied") appliedShowId = stageResult.showId;
-    return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
-  });
-  if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
-  // nav-perf tag-caching (Task 5): post-commit revalidate — withRowTryLock (the
-  // outer sql.begin tx) has resolved here, so the apply has committed. Bust the
-  // show's cache tag before returning the Response. Non-applied retries leave
-  // appliedShowId null → no revalidate.
-  if (appliedShowId) revalidateShow(appliedShowId);
-  return result;
+    throw error;
+  }
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

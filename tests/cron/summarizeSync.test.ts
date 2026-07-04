@@ -3,6 +3,10 @@ import { describe, expect, test } from "vitest";
 import { summarizeSync } from "@/lib/cron/summarizeSync";
 
 const p = (outcome: string) => ({ driveFileId: "df", result: { outcome } as never });
+const p2 = (driveFileId: string, outcome: string) => ({
+  driveFileId,
+  result: { outcome } as never,
+});
 
 describe("summarizeSync", () => {
   test("clean run with applied files → ok", () => {
@@ -63,5 +67,79 @@ describe("summarizeSync", () => {
     } as never);
     expect(s.outcome).toBe("ok");
     expect(s.counts).toMatchObject({ skipped: 1, failed: 0 });
+  });
+  test("partial → detail.failuresFingerprint is sorted/order-independent", () => {
+    const a = summarizeSync({ processed: [p2("z", "hard_fail"), p2("a", "hard_fail")] } as never);
+    const b = summarizeSync({ processed: [p2("a", "hard_fail"), p2("z", "hard_fail")] } as never);
+    expect((a.detail as Record<string, unknown>).failuresFingerprint).toBe(
+      (b.detail as Record<string, unknown>).failuresFingerprint,
+    );
+    expect((a.detail as Record<string, unknown>).failuresFingerprint).toContain("a|hard_fail");
+  });
+  test("beyond-cap composition change → fingerprint differs (uncapped)", () => {
+    const base = Array.from({ length: 30 }, (_, i) => p2(`f${i}`, "hard_fail"));
+    const changed = base.map((x, i) => (i === 27 ? p2("f27", "parse_error") : x));
+    const fA = (summarizeSync({ processed: base } as never).detail as Record<string, unknown>)
+      .failuresFingerprint;
+    const fB = (summarizeSync({ processed: changed } as never).detail as Record<string, unknown>)
+      .failuresFingerprint;
+    expect(fA).not.toBe(fB);
+  });
+  test("heartbeat-only partial → failuresFingerprint 'heartbeat'", () => {
+    const s = summarizeSync({
+      processed: [p2("ok1", "applied")],
+      maintenanceFaults: { syncCronHeartbeat: "infra_error" },
+    } as never);
+    expect(s.outcome).toBe("partial");
+    expect((s.detail as Record<string, unknown>).failuresFingerprint).toBe("heartbeat");
+  });
+});
+
+const proc = (driveFileId: string, result: unknown) => ({ driveFileId, result });
+
+describe("summarizeSync — failure breadcrumb", () => {
+  test("hard_fail item appears in detail.failures with driveFileId+outcome+code", () => {
+    const s = summarizeSync({
+      processed: [
+        proc("f-ok", { outcome: "applied", showId: "s1" }),
+        proc("f-bad", { outcome: "hard_fail", code: "MI-3_NO_VALID_DATES" }),
+      ],
+    } as never);
+    expect(s.outcome).toBe("partial");
+    expect(s.counts?.failed).toBe(1);
+    expect(s.detail?.failures).toEqual([
+      { driveFileId: "f-bad", outcome: "hard_fail", code: "MI-3_NO_VALID_DATES" },
+    ]);
+  });
+
+  test("ok run omits detail.failures entirely (exactOptionalPropertyTypes)", () => {
+    const s = summarizeSync({
+      processed: [proc("f", { outcome: "applied", showId: "s" })],
+    } as never);
+    expect(s.outcome).toBe("ok");
+    expect(s.detail).toBeUndefined();
+  });
+
+  test("ConcurrentSyncSkipped + skipped are excluded from failures", () => {
+    const s = summarizeSync({
+      processed: [
+        proc("f-lock", { skipped: "CONCURRENT_SYNC_SKIPPED" }),
+        proc("f-skip", { outcome: "skipped" }),
+        proc("f-bad", { outcome: "parse_error", code: "SYNC_INFRA_ERROR" }),
+      ],
+    } as never);
+    expect(s.detail?.failures).toEqual([
+      { driveFileId: "f-bad", outcome: "parse_error", code: "SYNC_INFRA_ERROR" },
+    ]);
+  });
+
+  test("truncates at 25 with failuresTruncated:true; counts.failed keeps true total", () => {
+    const processed = Array.from({ length: 30 }, (_, i) =>
+      proc(`f${i}`, { outcome: "hard_fail", code: "MI-3_NO_VALID_DATES" }),
+    );
+    const s = summarizeSync({ processed } as never);
+    expect(s.counts?.failed).toBe(30);
+    expect((s.detail?.failures as unknown[]).length).toBe(25);
+    expect(s.detail?.failuresTruncated).toBe(true);
   });
 });

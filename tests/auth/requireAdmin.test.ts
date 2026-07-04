@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { hashForLog } from "@/lib/email/hashForLog";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 const nav = vi.hoisted(() => ({
   forbidden: vi.fn(() => {
@@ -30,6 +32,14 @@ const server = vi.hoisted(() => ({
   },
   createSupabaseServerClient: vi.fn(),
 }));
+
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 
 vi.mock("next/navigation", () => nav);
 
@@ -207,5 +217,58 @@ describe("requireAdmin", () => {
     await expect(requireAdmin()).rejects.not.toBeInstanceOf(AdminInfraError);
     expect(nav.forbidden).toHaveBeenCalled();
     expect(nav.redirect).not.toHaveBeenCalled();
+  });
+
+  test("ADMIN_ACCESS_DENIED: authed-but-not-admin denial emits log.warn with actorHash", async () => {
+    // is_session_live true, is_admin false → confirmed non-admin (403). The
+    // gate must leave a forensic breadcrumb of WHO was denied (hashed email),
+    // not just the security-boundary 403 (which is verdict-only).
+    server.client.rpc.mockImplementation((fn: string) =>
+      Promise.resolve({ data: fn === "is_session_live" ? true : false, error: null }),
+    );
+    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    expect(logMock.warn).toHaveBeenCalledWith(
+      "admin access denied",
+      expect.objectContaining({
+        source: "auth/requireAdmin",
+        code: "ADMIN_ACCESS_DENIED",
+        // Derived from the seeded canonical email (beforeEach getClaims) — never
+        // hardcoded. hashForLog hashes the ALREADY-canonical email (invariant 3).
+        actorHash: hashForLog(canonicalize("Admin@FXAV.Test ")!),
+      }),
+    );
+  });
+
+  test("ADMIN_ACCESS_DENIED: unauthed redirect path does NOT emit the denial warn", async () => {
+    server.client.auth.getClaims.mockResolvedValue({
+      data: null,
+      error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
+    });
+    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
+    expect(logMock.warn).not.toHaveBeenCalledWith(
+      "admin access denied",
+      expect.objectContaining({ code: "ADMIN_ACCESS_DENIED" }),
+    );
+  });
+
+  test("ADMIN_ACCESS_DENIED: infra fault path does NOT emit the denial warn", async () => {
+    // is_admin RPC errors → AdminInfraError (500-class), not an authorization
+    // denial. The denial breadcrumb must NOT fire on infra faults.
+    server.client.rpc.mockImplementation((fn: string) =>
+      Promise.resolve(
+        fn === "is_admin" ? { data: null, error: new Error("boom") } : { data: true, error: null },
+      ),
+    );
+    const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    expect(logMock.warn).not.toHaveBeenCalledWith(
+      "admin access denied",
+      expect.objectContaining({ code: "ADMIN_ACCESS_DENIED" }),
+    );
   });
 });

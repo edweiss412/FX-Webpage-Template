@@ -7,10 +7,9 @@
  * import site.
  */
 export { archiveShowAction } from "./archive";
-export { publishShowAction } from "./publish";
 export { unarchiveShowAction } from "./unarchive";
+// Published toggle (2026-07 spec) — publish_show/unpublish_show dispatcher.
+export { setShowPublishedAction } from "./setPublished";
 // Phase 6 — changes-feed undo / MI-11 gate actions (delegate to the lock-taking
 // Phase 3/4 helpers; never wrap the RPC in a JS show lock — PF15).
 export { mi11ApproveAction, mi11RejectAction, undoChangeAction } from "./feed";
-// M12.13 — in-app auto-publish undo (footer + alert-row; shared client island).
-export { undoAutoPublishAction, type UndoAutoPublishOutcome } from "./undoAutoPublish";

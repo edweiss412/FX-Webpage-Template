@@ -1,7 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { detectVersion } from "@/lib/parser/schema";
+
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
 
 // ── Fixture paths ─────────────────────────────────────────────────────────────
 const ALL_FIXTURES = [
@@ -219,6 +227,29 @@ describe("parseHotels — cardinality cap (synthetic)", () => {
   });
 });
 
+// ── Forensic code on the cardinality warn (HOTELS_PARSE_WARNING) ──────────────
+describe("parseHotels — HOTELS_PARSE_WARNING forensic code", () => {
+  it("cardinality-exceeded warn carries source + code", () => {
+    logMock.warn.mockClear();
+    // 5 inline reservation groups (each with a delimited guest) → buildInlineReservations
+    // returns 5 rows → cap() exceeds MAX_HOTELS (4) → the local warn(msg) fires once.
+    const md =
+      "| Hotel Reservations | Grand Hotel Doug Larson - 1001 Check In: 3/1 Check Out: 3/2 " +
+      "Eric Weiss - 1002 Check In: 3/1 Check Out: 3/2 " +
+      "John Carleo - 1003 Check In: 3/1 Check Out: 3/2 " +
+      "Jane Doe - 1004 Check In: 3/1 Check Out: 3/2 " +
+      "Bob Smith - 1005 Check In: 3/1 Check Out: 3/2 |";
+    const hotels = parseHotels(md, "v2");
+    // truncated to the cardinality cap
+    expect(hotels).toHaveLength(4);
+    // failure mode: a code-less warn is un-triageable in the durable log stream
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.stringContaining("HOTEL_CARDINALITY_EXCEEDED"),
+      expect.objectContaining({ source: "parser.hotels", code: "HOTELS_PARSE_WARNING" }),
+    );
+  });
+});
+
 // ── Slash-separated guests (BL-HOTEL-VIEWER-NAME-MATCH) ───────────────────────
 describe("parseHotels — split slash-separated guests in a Names cell", () => {
   const md = (namesCell: string) =>
@@ -248,6 +279,30 @@ describe("parseHotels — split slash-separated guests in a Names cell", () => {
   });
 });
 
+// ── Stray 20xx cell token must not override show-context year (audit idx0/#40) ─
+describe("parseHotels — show-context year beats a stray 20xx street number", () => {
+  // failure mode: a bare 4-digit 20xx token in the cell (here the "2015" street
+  // number in "2015 K St NW") is captured as the reservation YEAR, mis-dating a
+  // yearless "Check In: 3/1" to 2015-03-01 instead of the show's context year.
+  // The DATES row's "3/1/26" makes inferShowYear(markdown) resolve contextYear=2026.
+  const md = [
+    "| DATES |  |",
+    "| :---: | :---: |",
+    "| Show Days | 3/1/26 |",
+    "| Hotel Reservations | Marriott Hotel 2015 K St NW Check In: 3/1 Check Out: 3/2 |",
+  ].join("\n");
+  const hotels = parseHotels(md, "v2");
+
+  it("resolves check_in/check_out to the 2026 context year, not the 2015 street number", () => {
+    expect(hotels).toHaveLength(1);
+    // context year 2026 (from DATES "3/1/26"), NOT the 2015 street number
+    expect(hotels[0]!.check_in).toBe("2026-03-01");
+    expect(hotels[0]!.check_out).toBe("2026-03-02");
+    expect(hotels[0]!.check_in).not.toBe("2015-03-01");
+    expect(hotels[0]!.check_out).not.toBe("2015-03-02");
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseHotels — corpus coverage (every fixture returns array)", () => {
   for (const path of ALL_FIXTURES) {
@@ -263,4 +318,161 @@ describe("parseHotels — corpus coverage (every fixture returns array)", () => 
       }
     });
   }
+});
+
+// idx4 (#42): stripConfTokens' dash rule (\s*[-–—]{1,3}\s*#?\s*\d{4,}) clipped a ZIP+4
+// hyphen ("60611-1234" -> "60611"), losing the +4 from crew-visible hotel_address. A
+// real conf# always has a space / '#' / name before its dash — never a bare digit — so a
+// dash IMMEDIATELY preceded by a digit is a ZIP+4 (or intra-number) hyphen, not a conf#.
+describe("parseHotels — idx4 ZIP+4 address not clipped as a conf#", () => {
+  const hotelTable = (addr: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address |",
+      `|  | ${addr} | ${addr} |`,
+      "|  | Names on Reservation | Names on Reservation |",
+      "|  | Douglas Larson - \\#2069854 | Douglas Larson - \\#2069854 |",
+      "|  | Check In Date | Check Out Date |",
+      "|  | 3/22/26 | 3/26/26 |",
+    ].join("\n");
+
+  it("keeps the +4 of a ZIP+4 in hotel_address", () => {
+    const h = parseHotels(
+      hotelTable("Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611-1234"),
+      "v4",
+    )[0];
+    expect(h!.hotel_name).toBe("Four Seasons Hotel Chicago");
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
+  });
+
+  it("requires the trailing word boundary — '60611-1234A' is not a true ZIP+4 (Codex R4)", () => {
+    // The predicate is EXACTLY \b\d{5}-\d{4}\b. A letter immediately after the +4 means it
+    // is NOT a ZIP+4, so the "-1234" is treated as a conf# run and stripped (no residue).
+    const h = parseHotels(
+      hotelTable("Kimpton Gray 122 W Monroe St Chicago, IL 60611-1234A"),
+      "v4",
+    )[0];
+    expect(h!.hotel_address).not.toMatch(/-1234/);
+  });
+
+  it("still strips a real dash-prefixed conf# from the guest name (regression guard)", () => {
+    // The conf# on the Names row must still be stripped (parsed-not-persisted); the guest
+    // name resolves cleanly and the plain-ZIP control address is unchanged.
+    const h = parseHotels(
+      hotelTable("Four Seasons Hotel Chicago 120 E Delaware Pl Chicago, IL 60611"),
+      "v4",
+    )[0];
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611");
+    expect(h!.names).toContain("Douglas Larson");
+  });
+
+  const namesTable = (namesCell: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 | RESERVATION \\#1 |",
+      "| :---: | :---: | :---: |",
+      "|  | Hotel Name / Address | Hotel Name / Address |",
+      "|  | Kimpton Gray 122 W Monroe St Chicago, IL 60603 | Kimpton Gray 122 W Monroe St Chicago, IL 60603 |",
+      "|  | Names on Reservation | Names on Reservation |",
+      `|  | ${namesCell} | ${namesCell} |`,
+      "|  | Check In Date | Check Out Date |",
+      "|  | 3/22/26 | 3/26/26 |",
+    ].join("\n");
+
+  // Only a full ZIP+4 (\b\d{5}-\d{4}\b) is protected; a conf# after ANY numeric token —
+  // 2-digit ("Suite 12-2069854") OR a standalone 5-digit ("Suite 12345-2069854") — must
+  // still strip cleanly, never leaving a dangling "-" or surviving conf# digits. (Codex R1/R2)
+  it.each([
+    ["2-digit token", "Suite 12-2069854", "Suite 12"],
+    ["5-digit token", "Suite 12345-2069854", "Suite 12345"],
+    ["#-separated after 5-digit", "Suite 12345-#2069854", "Suite 12345"],
+    ["en-dash after 5-digit (ASCII-hyphen-only ZIP+4)", "Suite 12345–2069", "Suite 12345"],
+  ])("strips a conf# after a %s cleanly — no dangling dash", (_label, namesCell, expectedName) => {
+    const h = parseHotels(namesTable(namesCell), "v4")[0];
+    expect(h!.names).toContain(expectedName);
+    expect(h!.names.some((n) => /[-–—]/.test(n) || /\d{6,}/.test(n))).toBe(false);
+  });
+});
+
+// idx88 (BL-HOTEL-DASH-STREET-NUMBER-CLIPPED): stripConfTokens' dash rule deleted a
+// dash-prefixed 4-5-digit STREET number as if it were a conf# ("Hyatt Regency - 1515
+// Madison Ave …" → the "- 1515" is dropped, so splitHotelNameAddress has no street
+// number to split on → the whole cell collapses into hotel_name with a null address).
+// Fix: a dash-number that BEGINS a street phrase (looksLikeStreetStart — the same
+// street-vs-conf discriminator the Hotel-Stays path uses) is preserved (dash dropped,
+// number kept), so the name/address boundary survives. A dash-number that is NOT a
+// street (a real conf#) is still stripped.
+describe("parseHotels — idx88 dash-prefixed street number is not deleted as a conf#", () => {
+  const hotelTable = (res1: string, res2: string) =>
+    [
+      "| HOTEL | RESERVATION \\#1 |  | RESERVATION \\#2 |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address |  | Hotel Name / Address |",
+      `|  | ${res1} |  | ${res2} |`,
+      "|  | Names on Reservation |  | Names on Reservation |",
+      "|  | Alice |  | Bob |",
+      "|  | Check In Date | Check Out Date | Check In Date |",
+      "|  | 1/1/26 | 1/5/26 | 1/2/26 |",
+    ].join("\n");
+
+  it("a SUFFIXED dash-street splits into name + address (number preserved)", () => {
+    const [h] = parseHotels(
+      hotelTable("Hyatt Regency - 1515 Madison Ave New York, NY 10036", "X 1 Main St"),
+      "v4",
+    );
+    // Pre-fix bug: name === "Hyatt Regency Madison Ave New York, NY 10036", address === null.
+    expect(h!.hotel_name).toBe("Hyatt Regency");
+    expect(h!.hotel_address).toBe("1515 Madison Ave New York, NY 10036");
+  });
+
+  it("a SUFFIXLESS dash-street stays glued but the number is NOT deleted (no data loss)", () => {
+    const [h] = parseHotels(
+      hotelTable("Hyatt Regency - 1515 Broadway New York, NY 10036", "X 1 Main St"),
+      "v4",
+    );
+    // Broadway has no street suffix so splitHotelNameAddress leaves it glued (the #3
+    // safe fallback); the separator dash is dropped and the street number survives —
+    // NOT the pre-fix "Hyatt Regency Broadway New York, NY 10036" with 1515 deleted.
+    expect(h!.hotel_name).toBe("Hyatt Regency 1515 Broadway New York, NY 10036");
+    expect(h!.hotel_name).toContain("1515");
+  });
+
+  it("a real dash-prefixed conf# (not a street) is STILL stripped (regression guard)", () => {
+    const [, h2] = parseHotels(hotelTable("A 1 Main St", "Marriott Downtown - 2069854"), "v4");
+    expect(h2!.hotel_name).toBe("Marriott Downtown");
+    expect(h2!.hotel_name).not.toMatch(/2069854/);
+    expect(h2!.hotel_address).toBeNull();
+  });
+
+  it("a 4-digit dash conf# (not a street) is STILL stripped — no false street preservation", () => {
+    const [, h2] = parseHotels(
+      hotelTable("A 1 Main St", "Marriott Downtown - 2069 Reservation"),
+      "v4",
+    );
+    // "Reservation" is not a street suffix and there is no ZIP tail, so "- 2069" is a
+    // conf# and is stripped; only a genuine street phrase after the number is kept.
+    expect(h2!.hotel_name).not.toMatch(/2069/);
+  });
+
+  it("a ZIP+4 dash is still preserved (idx4 not regressed by the idx88 branch)", () => {
+    const [h] = parseHotels(
+      hotelTable("Four Seasons 120 E Delaware Pl Chicago, IL 60611-1234", "X 1 Main St"),
+      "v4",
+    );
+    expect(h!.hotel_address).toBe("120 E Delaware Pl Chicago, IL 60611-1234");
+  });
+
+  // Intentional design boundary (Codex R1 MEDIUM): a 4-5-digit number followed by a
+  // FULL street phrase (number + name + suffix) is read as an ADDRESS, not a conf#.
+  // This is correct-by-design and inherent to the street-shape discriminator the
+  // backlog prescribed (and the Hotel-Stays path already uses): a real conf# is never
+  // written followed by a street suffix ("Hotel - <conf#> Main St" is not a data
+  // shape), so the realistic reading of "hotel - number street" is a hotel + address.
+  // The discriminator keys on the street SHAPE, not the number's magnitude, so a
+  // suffix-less trailing word ("- 2069 Reservation", above) is still stripped.
+  it("a 4-digit number followed by a full street phrase is read as an address (intended)", () => {
+    const [h] = parseHotels(hotelTable("Marriott Downtown - 2069 Main St", "X 1 Main St"), "v4");
+    expect(h!.hotel_name).toBe("Marriott Downtown");
+    expect(h!.hotel_address).toBe("2069 Main St");
+  });
 });

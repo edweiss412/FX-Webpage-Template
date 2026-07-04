@@ -62,4 +62,48 @@ describe("PerShowActionableWarnings — row label (Part A)", () => {
     render(<PerShowActionableWarnings items={items} driveFileId="d1" />);
     expect(screen.getByTestId("per-show-actionable-row-label").textContent).toBe("GS Podium Type");
   });
+
+  // audit idx46/#217: the `<label> | <value>` rawSnippet contract holds ONLY for
+  // UNKNOWN_FIELD (lib/parser/warnings.ts emitUnknownField). Other
+  // OPERATOR_ACTIONABLE_ANCHORED codes — PULL_SHEET_AMBIGUOUS_FORMAT /
+  // PULL_SHEET_PARSE_PARTIAL — carry a RAW pipe-delimited markdown ROW as
+  // rawSnippet, so labelFromRawSnippet would render a garbled first-`|`-cell as a
+  // fake field label. The muted row-label must be gated to UNKNOWN_FIELD.
+  it("does NOT derive a row label from a PULL_SHEET pipe-delimited rawSnippet; the UNKNOWN_FIELD control still labels", () => {
+    const items: ParseWarning[] = [
+      {
+        code: "PULL_SHEET_AMBIGUOUS_FORMAT",
+        severity: "warn",
+        message: "Pull sheet case has rows with unexpected column count",
+        // A raw pipe-delimited markdown ROW, NOT a `<label> | <value>` pair.
+        rawSnippet: "12 | Audio | Mics | Shure SM58 | TRUE",
+      },
+      {
+        code: "UNKNOWN_FIELD",
+        severity: "warn",
+        message: "x",
+        rawSnippet: "GS Podium Type | (2) Acrylic",
+      },
+    ];
+    render(<PerShowActionableWarnings items={items} driveFileId="d1" />);
+    const labels = screen.queryAllByTestId("per-show-actionable-row-label");
+    // Only the UNKNOWN_FIELD row yields a muted label; the PULL_SHEET row yields none.
+    expect(labels).toHaveLength(1);
+    expect(labels[0]?.textContent).toBe("GS Podium Type");
+    // The garbled first-cell fragment ("12") must NEVER appear as a row label.
+    expect(labels.some((l) => l.textContent === "12")).toBe(false);
+  });
+
+  it("does NOT derive a row label from a PULL_SHEET_PARSE_PARTIAL pipe row", () => {
+    const items: ParseWarning[] = [
+      {
+        code: "PULL_SHEET_PARSE_PARTIAL",
+        severity: "warn",
+        message: "row preserved with qty:null and rawSnippet",
+        rawSnippet: "abc | Lighting | Fixtures | Source Four | FALSE",
+      },
+    ];
+    render(<PerShowActionableWarnings items={items} driveFileId="d1" />);
+    expect(screen.queryByTestId("per-show-actionable-row-label")).toBeNull();
+  });
 });

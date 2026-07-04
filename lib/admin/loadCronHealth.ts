@@ -50,14 +50,22 @@ export async function loadCronHealth(): Promise<LoadCronHealthResult> {
     // infra_error("…returned error"); a genuine THROW funnels to the catch → "…threw".
     for (const { error } of results) {
       if (error) {
-        void log.error("app_events read returned error", { source: "admin.loadCronHealth", error });
+        void log.error("app_events read returned error", {
+          source: "admin.loadCronHealth",
+          code: "CRON_HEALTH_APP_EVENTS_READ_RETURNED_ERROR",
+          error,
+        });
         return { kind: "infra_error", message: "app_events read returned error" };
       }
     }
     const jobs = CRON_JOBS.map((job, i) => toCronHealthRow(job, results[i]!));
     return { kind: "ok", jobs };
   } catch (err) {
-    void log.error("app_events read threw", { source: "admin.loadCronHealth", error: err });
+    void log.error("app_events read threw", {
+      source: "admin.loadCronHealth",
+      code: "CRON_HEALTH_APP_EVENTS_READ_THREW",
+      error: err,
+    });
     return { kind: "infra_error", message: "app_events read threw" };
   }
 }

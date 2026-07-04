@@ -4,6 +4,8 @@ import path from "node:path";
 import ts from "typescript";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import { EXTRACTOR_VERSION } from "@/lib/agenda/constants";
+import type { AgendaExtraction } from "@/lib/agenda/types";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { Phase1Binding, Phase1Tx } from "@/lib/sync/phase1";
 import type { Phase2Tx } from "@/lib/sync/phase2";
@@ -11,6 +13,7 @@ import {
   prepareProcessOneFile,
   processOneFile,
   processOneFile_unlocked as processOneFile_unlockedRaw,
+  seedPriorAgendaExtracted,
   type ProcessOneFileDeps,
   revisionRaceCooldownSeconds,
   runScheduledCronSync,
@@ -656,6 +659,49 @@ describe("processOneFile", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  test("cron prepare seeds prior stored agenda `extracted` onto the fresh parse before enrich (finding C7)", async () => {
+    const priorExtraction = {
+      confidence: "high",
+      days: [],
+      corrections: 0,
+      sourceRevision: "rev-stored",
+      extractorVersion: EXTRACTOR_VERSION,
+    } as unknown as AgendaExtraction;
+
+    // Fresh parse: link has a fileId but NO `extracted` (parseAgendaLinks never emits one).
+    const freshParsed = parsedSheet();
+    freshParsed.show.agenda_links = [{ label: "AGENDA LINK - RFI", fileId: "PDF-1" }];
+
+    let linksSeenByEnrich: ParsedSheet["show"]["agenda_links"] | undefined;
+    const enrichWithDrivePins = vi.fn(async (parsed: ParsedSheet) => {
+      linksSeenByEnrich = structuredClone(parsed.show.agenda_links);
+      return { ...parseResult(), show: parsed.show } as ParseResult;
+    });
+    const readStoredAgendaLinks = vi.fn(async () => [
+      { label: "AGENDA LINK - RFI", fileId: "PDF-1", extracted: priorExtraction },
+    ]);
+
+    const syncDeps = deps({
+      parseSheet: vi.fn(() => freshParsed),
+      enrichWithDrivePins,
+      readStoredAgendaLinks,
+    });
+
+    const prepared = await prepareProcessOneFile(
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+      async () => null, // readCooldown: keep the cron cooldown check DB-free
+    );
+
+    expect(prepared.kind).toBe("ready");
+    expect(readStoredAgendaLinks).toHaveBeenCalledWith("file-1");
+    // Prior schedule must reach the parse BEFORE enrich, else a transient fault
+    // (unknown/leave-existing) preserves nothing and applyShowSnapshot wholesale-overwrites.
+    expect(linksSeenByEnrich?.[0]?.extracted).toEqual(priorExtraction);
   });
 
   test("Drive-fetch pipeline steps are structurally prepared before locked recovery", () => {
@@ -2290,5 +2336,39 @@ describe("runScheduledCronSync", () => {
     expect(fakeTx.operations).not.toContain("markShowSheetUnavailable:wizard-file");
     expect(fakeTx.syncLog).toEqual([]);
     expect(fakeTx.alerts).toEqual([]);
+  });
+});
+
+describe("seedPriorAgendaExtracted (finding C7 pure helper)", () => {
+  const extA = { sourceRevision: "rev-A" } as unknown as AgendaExtraction;
+  const extB = { sourceRevision: "rev-B" } as unknown as AgendaExtraction;
+
+  test("(a) copies prior extracted onto a fresh link matched by fileId (even if the label was renamed)", () => {
+    const fresh: ParseResult["show"]["agenda_links"] = [
+      { label: "Renamed label", fileId: "PDF-1" },
+    ];
+    seedPriorAgendaExtracted(fresh, [{ label: "Old label", fileId: "PDF-1", extracted: extA }]);
+    expect(fresh[0]!.extracted).toBe(extA);
+  });
+
+  test("(b) falls back to a trimmed/case-insensitive label match when the fresh link has no fileId", () => {
+    const fresh: ParseResult["show"]["agenda_links"] = [{ label: "  Agenda Link - RFI  " }];
+    seedPriorAgendaExtracted(fresh, [{ label: "agenda link - rfi", extracted: extB }]);
+    expect(fresh[0]!.extracted).toBe(extB);
+  });
+
+  test("(c) never overrides an extraction the fresh parse already carries", () => {
+    const fresh: ParseResult["show"]["agenda_links"] = [
+      { label: "L", fileId: "PDF-1", extracted: extA },
+    ];
+    seedPriorAgendaExtracted(fresh, [{ label: "L", fileId: "PDF-1", extracted: extB }]);
+    expect(fresh[0]!.extracted).toBe(extA); // unchanged — fresh wins
+  });
+
+  test("(d) null / empty prior links is a no-op", () => {
+    const fresh: ParseResult["show"]["agenda_links"] = [{ label: "L", fileId: "PDF-1" }];
+    seedPriorAgendaExtracted(fresh, null);
+    seedPriorAgendaExtracted(fresh, []);
+    expect(fresh[0]!.extracted).toBeUndefined();
   });
 });

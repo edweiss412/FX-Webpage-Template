@@ -42,6 +42,11 @@ vi.mock("@/lib/sync/promoteSnapshot", () => ({
   promoteSnapshotUpload: async () => ({ outcome: "promoted", snapshotRevisionId: "snapshot-1" }),
 }));
 
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async (_o: unknown) => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({
+  logAdminOutcome: logAdminOutcomeMock,
+}));
+
 const supabaseMock = vi.hoisted(() => ({
   userEmail: "Doug@FXAV.test",
   getUserError: null as null | { message: string },
@@ -76,6 +81,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
   beforeEach(() => {
     adminMock.requireAdmin.mockClear();
     applyMock.applyStaged.mockClear();
+    logAdminOutcomeMock.mockClear();
     supabaseMock.userEmail = "Doug@FXAV.test";
     supabaseMock.getUserError = null;
     supabaseMock.getUserThrows = null;
@@ -298,5 +304,104 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({ ok: false, error: "SYNC_INFRA_ERROR" });
     expect(applyMock.applyStaged).not.toHaveBeenCalled();
+  });
+
+  test("live applied logs SHOW_APPLIED with canonical actor, driveFileId, showId (202 promote path)", async () => {
+    // default applyStaged mock: outcome "applied", showId "show-1", with snapshotRevisionId → 202
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(202);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith({
+      code: "SHOW_APPLIED",
+      source: "api.admin.staged.apply",
+      actorEmail: "doug@fxav.test",
+      driveFileId: "drive-file-1",
+      showId: "show-1",
+    });
+  });
+
+  test("live applied without a snapshot (200 path) logs SHOW_APPLIED", async () => {
+    applyMock.applyStaged.mockResolvedValueOnce({
+      outcome: "applied",
+      showId: "show-1",
+      syncAuditId: "audit-1",
+      derivedSideEffects: { revokeFloorForNames: [] },
+    });
+
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith({
+      code: "SHOW_APPLIED",
+      source: "api.admin.staged.apply",
+      actorEmail: "doug@fxav.test",
+      driveFileId: "drive-file-1",
+      showId: "show-1",
+    });
+  });
+
+  test("wizard_applied logs SHOW_APPLIED with wizardSessionId and no showId", async () => {
+    applyMock.applyStaged.mockResolvedValueOnce({
+      outcome: "wizard_applied",
+      wizardSessionId: "33333333-3333-4333-8333-333333333333",
+      stagedId: "22222222-2222-4222-8222-222222222222",
+    } as never);
+
+    const response = await POST(
+      request({
+        source_scope: "wizard",
+        wizard_session_id: "33333333-3333-4333-8333-333333333333",
+        staged_id: "22222222-2222-4222-8222-222222222222",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith({
+      code: "SHOW_APPLIED",
+      source: "api.admin.staged.apply",
+      actorEmail: "doug@fxav.test",
+      driveFileId: "drive-file-1",
+      wizardSessionId: "33333333-3333-4333-8333-333333333333",
+    });
+    const call = logAdminOutcomeMock.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(call).not.toHaveProperty("showId");
+  });
+
+  test("discarded outcome does NOT log SHOW_APPLIED", async () => {
+    applyMock.applyStaged.mockResolvedValueOnce({
+      outcome: "discarded",
+      variant: "try_again",
+    } as never);
+
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });

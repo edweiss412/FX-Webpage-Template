@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { PersistedDiagrams } from "@/lib/parser/types";
+import type { LogRecord } from "@/lib/log/types";
 
 const showId = "11111111-1111-4111-8111-111111111111";
 const currentRev = "22222222-2222-4222-8222-222222222222";
@@ -373,6 +374,19 @@ beforeEach(() => {
   routeMock.fromCalls = [];
   routeMock.lastHeadFetch = false;
   routeMock.omitHeadContentLength = false;
+});
+
+// Task 5: capture emitted log records on the SAME post-reset @/lib/log
+// instance the route imports (dynamic import AFTER the resetModules
+// beforeEach above). A synchronous sink also spares every 500 test the
+// default-sink persist path.
+let assetLogRecords: LogRecord[] = [];
+beforeEach(async () => {
+  assetLogRecords = [];
+  const { setLogSink } = await import("@/lib/log");
+  setLogSink((record) => {
+    assetLogRecords.push(record);
+  });
 });
 
 describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
@@ -808,5 +822,107 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(routeMock.lastHeadFetch).toBe(true);
     expect(routeMock.lastFetchRange).toBeNull();
     await expect(get.text()).resolves.toBe("diagram-bytes");
+  });
+});
+
+describe("/api/asset/diagram/[show]/[rev]/[key] — infra-500 logging (Task 5)", () => {
+  const infraErrors = () =>
+    assetLogRecords.filter((r) => r.level === "error" && r.source === "api.asset.diagram");
+
+  test("GET infra fault emits log.error carrying the route's infra code", async () => {
+    routeMock.storageError = { message: "infra exploded" };
+    const res = await getDiagram();
+    expect(res.status).toBe(500);
+    // Derive the expected code from the 500 body (the infraError param) —
+    // never hardcode; the log code MUST equal the body's error code.
+    const body = (await res.json()) as { error: string };
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.code).toBe(body.error);
+    expect(emitted[0]!.code).toBe("DIAGRAM_ASSET_LOOKUP_FAILED");
+  });
+
+  test("HEAD infra fault emits the same log.error", async () => {
+    routeMock.storageError = { message: "infra exploded" };
+    const res = await headDiagram();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.code).toBe("DIAGRAM_ASSET_LOOKUP_FAILED");
+  });
+
+  test("benign storage-404 (deleted object) → 410 and does NOT emit an infra log.error", async () => {
+    routeMock.storageBytes = null;
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    expect(infraErrors()).toEqual([]);
+  });
+
+  // Findings #8/#14: the infra 500 must carry showId + assetKey + a serialized error.
+  test("finding #8/#14: GET infra fault carries showId + assetKey + serialized error", async () => {
+    routeMock.storageError = { message: "infra exploded" };
+    const res = await getDiagram();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.showId).toBe(showId);
+    expect(emitted[0]!.context).toMatchObject({ assetKey: `${currentRev}/${assetKey}` });
+    expect(emitted[0]!.context).toHaveProperty("error");
+  });
+});
+
+describe("/api/asset/diagram — ASSET_UNAVAILABLE breadcrumb (finding #8)", () => {
+  const breadcrumbs = () =>
+    assetLogRecords.filter(
+      (r) =>
+        r.level === "info" && r.code === "ASSET_UNAVAILABLE" && r.source === "api.asset.diagram",
+    );
+
+  test("debuggable 410 (upstream object gone → storageBytes null) emits reason=not_found + showId", async () => {
+    routeMock.storageBytes = null;
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({
+      reason: "not_found",
+      assetKey: `${currentRev}/${assetKey}`,
+    });
+  });
+
+  test("debuggable 410 (oversized object → route byte ceiling) emits reason=oversize + showId", async () => {
+    // 60MB blob — over the 50MB MAX_DIAGRAM_BYTES route cap → oversize 410 (the other
+    // debuggable 410 class besides not_found; a crew-reported unrenderable diagram).
+    routeMock.storageBytes = new Uint8Array(60 * 1024 * 1024);
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({
+      reason: "oversize",
+      assetKey: `${currentRev}/${assetKey}`,
+    });
+  });
+
+  test("BENIGN 410 (stale/unknown rev) emits NO breadcrumb", async () => {
+    // A non-current rev is a benign not-yet-available/stale asset, not a fault.
+    const res = await getDiagram("44444444-4444-4444-8444-444444444444");
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unpublished show) emits NO breadcrumb", async () => {
+    routeMock.published = false;
+    const res = await getDiagram();
+    await expectPickerShowUnavailable(res);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("success 200 emits NO breadcrumb", async () => {
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    expect(breadcrumbs()).toEqual([]);
   });
 });

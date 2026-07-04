@@ -74,7 +74,7 @@ describe("renderAutoPublishUndo (spec §4.3)", () => {
     const out = renderAutoPublishUndo(input());
     for (const part of [out.text, out.html]) {
       expect(part).toMatch(/takes the show offline/i);
-      expect(part).toMatch(/crew links switch off until/i);
+      expect(part).toMatch(/crew links pause until published is turned back on/i);
       expect(part).toMatch(/ignore this email and the show stays live/i);
     }
   });

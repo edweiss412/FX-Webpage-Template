@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { repairSnapshotRollback } from "@/lib/sync/promoteSnapshot";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -30,6 +32,7 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
   }
 
   try {
+    const { email } = await requireAdminIdentity(); // cache-backed; auth already passed
     const supabase = createSupabaseServiceRoleClient();
     const { data, error } = (await supabase
       .from("pending_snapshot_uploads")
@@ -37,7 +40,23 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
       .eq("id", id)
       .maybeSingle()) as { data: LedgerRow | null; error: unknown };
 
-    if (error) return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
+    if (error) {
+      // P1 dark-path: the ledger-read returned-error 500 was previously fully silent.
+      // Best-effort forensic emit (fail-open, invariant 9) with a discriminator, then the
+      // same 500 as before — no status/body change.
+      try {
+        await log.error("snapshot-rollback repair ledger read returned error", {
+          source: "api.admin.snapshotRollback.repair",
+          code: "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
+          result: "ledger_read",
+          rollbackId: id,
+          error,
+        });
+      } catch {
+        /* best-effort */
+      }
+      return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
+    }
     if (!data) {
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
@@ -52,8 +71,28 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
     if (result.outcome === "promote_in_flight") {
       return NextResponse.json({ error: "PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT" }, { status: 409 });
     }
+    await logAdminOutcome({
+      code: "SNAPSHOT_ROLLBACK_REPAIRED",
+      source: "api.admin.snapshot-rollback.repair",
+      actorEmail: email,
+      driveFileId: data.drive_file_id,
+      extra: { snapshotRevisionId: result.snapshotRevisionId },
+    });
     return NextResponse.json({ ok: true, result });
-  } catch {
+  } catch (error) {
+    // P1 dark-path: this outer catch previously swallowed every infra 500 with a bare
+    // `catch {}` (zero record). Best-effort forensic emit (fail-open, invariant 9), then the
+    // same 500 as before — no status/body change.
+    try {
+      await log.error("snapshot-rollback repair threw", {
+        source: "api.admin.snapshotRollback.repair",
+        code: "SNAPSHOT_ROLLBACK_REPAIR_FAILED",
+        rollbackId: id,
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
   }
 }

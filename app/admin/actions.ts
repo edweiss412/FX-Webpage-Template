@@ -28,6 +28,10 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { log } from "@/lib/log";
+import { getActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
+import { subscribeToWatchedFolder } from "@/lib/drive/watch";
+import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
+import { WatchRetryInfraError } from "@/lib/admin/watchRetryError";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE) because
 // §B (this file's milestone) cannot import from §A's lib/auth surface. A single
@@ -82,6 +86,7 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     // attributing the resolve to "unknown."
     void log.error("requireAdmin returned but canonicalized email is null", {
       source: "admin.actions",
+      code: "ADMIN_RESOLVE_CANONICAL_EMAIL_NULL",
     });
     return;
   }
@@ -121,4 +126,29 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // Re-render the admin layout so the AlertBanner re-runs its SELECT
   // and the freshly-resolved row drops out of the topmost slot.
   revalidatePath("/admin", "layout");
+}
+
+// Admin self-service retry for the Drive push subscription (spec §3.6).
+// Shared by the AlertBanner action slot and the Settings Drive panel.
+// Infra faults THROW typed (invariant 9 / R2-3) — the Next error boundary
+// surfaces them; no_folder_configured is a deliberate, logged no-op (nothing
+// to retry; the hourly reconcile treats no-folder as vacuous-healthy).
+export async function retryWatchSubscriptionFormAction(_formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const folder = await getActiveWatchedFolder();
+  if ("kind" in folder && folder.kind === "infra_error") {
+    throw new WatchRetryInfraError("folder_read");
+  }
+  if ("kind" in folder) {
+    await log.info("watch retry skipped: no folder configured", { source: "admin.watchRetry" });
+    return;
+  }
+
+  const result = await subscribeToWatchedFolder(folder.folderId);
+  if (result.outcome === "active") {
+    await resolveAdminAlert({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+  }
+  revalidatePath("/admin", "layout");
+  revalidatePath("/admin/settings");
 }

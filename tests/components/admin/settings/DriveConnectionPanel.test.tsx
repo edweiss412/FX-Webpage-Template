@@ -16,14 +16,29 @@
 // for the infra case, from getRequiredDougFacing) — never copied from the
 // component's own output.
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { DriveConnectionPanel } from "@/components/admin/settings/DriveConnectionPanel";
 import type { DriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
 import { formatRelative } from "@/lib/time/relative";
 
-afterEach(cleanup);
+// The panel binds the Retry-connection form to retryWatchSubscriptionFormAction
+// (a Server Action whose real module pulls next/headers cookies + the Supabase
+// server client + drive/watch — none of which load under jsdom). Mock it to a
+// spy so (a) the import chain stays inert and (b) the action-identity test can
+// assert the exact bound function runs on submit.
+const { retryWatchSpy } = vi.hoisted(() => ({
+  retryWatchSpy: vi.fn(async () => {}),
+}));
+vi.mock("@/app/admin/actions", () => ({
+  retryWatchSubscriptionFormAction: retryWatchSpy,
+}));
+
+afterEach(() => {
+  cleanup();
+  retryWatchSpy.mockClear();
+});
 
 // Fixed deterministic clock; lastReadAt 2h before so formatRelative → "2 hr".
 const NOW = new Date("2026-06-01T12:00:00.000Z");
@@ -32,6 +47,27 @@ const REL_2HR = formatRelative(TWO_HR_AGO, NOW); // derive, never hardcode
 
 function statusLine() {
   return screen.getByTestId("drive-connection-status-line").textContent ?? "";
+}
+
+type WarnHealth = Extract<DriveConnectionHealth, { health: "warn" }>;
+
+// A warn-arm fixture with a live 2-hr-ago last read. folderId defaults to a
+// configured folder; pass null for the never-configured state.
+function warnHealth(
+  reason: WarnHealth["reason"],
+  code: WarnHealth["code"],
+  folderId: string | null = "abc123",
+): DriveConnectionHealth {
+  return {
+    health: "warn",
+    reason,
+    code,
+    folderName: "Show Sheets 2026",
+    folderId,
+    syncingCount: 501,
+    attentionCount: 2,
+    lastReadAt: TWO_HR_AGO,
+  };
 }
 
 describe("DriveConnectionPanel", () => {
@@ -73,7 +109,9 @@ describe("DriveConnectionPanel", () => {
     expect(badge).toHaveAttribute("data-health", "warn");
     expect(badge.textContent).toMatch(/needs attention/i);
     const helpBody = screen.getByTestId("drive-connection-health-help-body");
-    expect(helpBody.textContent ?? "").toMatch(/re-run setup/i);
+    // M12-watch-retry: the lapsed-connection explainer now routes to Retry
+    // connection (self-service reconnect), not Re-run setup.
+    expect(helpBody.textContent ?? "").toMatch(/retry connection/i);
     // M12.5 a11y regression (impeccable audit + adversarial review): the badge
     // hover trigger MUST be programmatically associated with the explainer body
     // so screen readers announce the reason-specific recovery copy — not just the
@@ -88,12 +126,12 @@ describe("DriveConnectionPanel", () => {
     expect(describedId).toBeTruthy();
     const described = document.getElementById(describedId!)!;
     expect(helpBody.contains(described)).toBe(true);
-    expect(described.textContent ?? "").toMatch(/re-run setup/i);
+    expect(described.textContent ?? "").toMatch(/retry connection/i);
     // The interactive link is excluded from the description wrapper.
     expect(within(described).queryByRole("link", { hidden: true })).toBeNull();
   });
 
-  it("warn/not_configured → 'Connection not set up', no 'Connected' prefix, no last-read clause", () => {
+  it("warn/not_configured with folderId null → 'Connection not set up' + setup copy unchanged, no Retry", () => {
     const health: DriveConnectionHealth = {
       health: "warn",
       reason: "not_configured",
@@ -107,6 +145,89 @@ describe("DriveConnectionPanel", () => {
     render(<DriveConnectionPanel health={health} now={NOW} />);
     expect(statusLine()).toBe("Connection not set up");
     expect(statusLine().startsWith("Connected")).toBe(false);
+    // Never-configured: the explainer keeps the "run setup" onboarding copy…
+    const helpBody = screen.getByTestId("drive-connection-health-help-body");
+    expect(helpBody.textContent ?? "").toMatch(/haven't pointed FXAV/i);
+    // …and there is NOTHING to retry (no watch subscription was ever created).
+    expect(screen.queryByTestId("drive-connection-retry-form")).toBeNull();
+  });
+
+  // R8-1 regression: folder configured but ZERO watch rows (post-GC recovery
+  // state). deriveDriveConnectionHealth reports reason "not_configured" WITH a
+  // non-null folderId — the copy AND the affordance must both flip to the
+  // Retry-to-reconnect posture (agreeing on the SAME folderId key), never the
+  // never-configured "run setup" onboarding copy.
+  it("warn/not_configured WITH folderId → 'Connection needs attention' + Retry-first explainer + Retry present", () => {
+    const health = warnHealth("not_configured", "WATCH_CHANNEL_ORPHANED", "abc123");
+    render(<DriveConnectionPanel health={health} now={NOW} />);
+    expect(statusLine()).toBe(`Connection needs attention · last read ${REL_2HR}`);
+    expect(statusLine().startsWith("Connected")).toBe(false);
+    // Retry-first explainer, NOT the never-configured onboarding copy.
+    const helpBody = screen.getByTestId("drive-connection-health-help-body");
+    expect(helpBody.textContent ?? "").toMatch(/use retry connection to reconnect/i);
+    expect(helpBody.textContent ?? "").not.toMatch(/haven't pointed FXAV/i);
+    // The affordance agrees with the copy on the same folderId key.
+    const form = screen.getByTestId("drive-connection-retry-form");
+    expect(within(form).getByTestId("drive-connection-retry-button").textContent?.trim()).toBe(
+      "Retry connection",
+    );
+  });
+
+  it("Retry connection form present for watch_inactive and watch_expired", () => {
+    for (const reason of ["watch_inactive", "watch_expired"] as const) {
+      render(
+        <DriveConnectionPanel health={warnHealth(reason, "WATCH_CHANNEL_ORPHANED")} now={NOW} />,
+      );
+      const form = screen.getByTestId("drive-connection-retry-form");
+      expect(within(form).getByTestId("drive-connection-retry-button").textContent?.trim()).toBe(
+        "Retry connection",
+      );
+      cleanup();
+    }
+  });
+
+  it("Retry absent for positive, sync_* reasons, stale_*, and infra_error", () => {
+    const cases: DriveConnectionHealth[] = [
+      {
+        health: "positive",
+        folderName: "Show Sheets 2026",
+        folderId: "abc123",
+        syncingCount: 4,
+        lastReadAt: TWO_HR_AGO,
+      },
+      warnHealth("sync_drive_error", "DRIVE_FETCH_FAILED"),
+      warnHealth("sync_sheet_unavailable", "SHEET_UNAVAILABLE"),
+      warnHealth("sync_parse_error", "PARSE_ERROR_LAST_GOOD"),
+      warnHealth("sync_unknown", "SYNC_STATUS_UNKNOWN"),
+      warnHealth("stale_severe", "SYNC_DELAYED_SEVERE"),
+      warnHealth("stale_moderate", "SYNC_DELAYED_MODERATE"),
+      { kind: "infra_error" },
+    ];
+    for (const health of cases) {
+      render(<DriveConnectionPanel health={health} now={NOW} />);
+      expect(screen.queryByTestId("drive-connection-retry-form")).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("Retry form submits retryWatchSubscriptionFormAction (action identity), label 'Retry connection'", async () => {
+    render(
+      <DriveConnectionPanel
+        health={warnHealth("watch_inactive", "WATCH_CHANNEL_ORPHANED")}
+        now={NOW}
+      />,
+    );
+    const form = screen.getByTestId("drive-connection-retry-form");
+    const button = within(form).getByTestId("drive-connection-retry-button");
+    expect(button.textContent?.trim()).toBe("Retry connection");
+    // React 19 binds a function form-action internally (no DOM `action`
+    // attribute), so identity is proven by exercising it: clicking the submit
+    // button must invoke THIS bound action, not the rerun-setup one.
+    await act(async () => {
+      fireEvent.click(button);
+      await Promise.resolve();
+    });
+    expect(retryWatchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("warn/sync_* + stale_* → 'Syncing, but {attentionCount} show(s) need attention'; 1 stale among 501 → '1 show needs attention' (NOT 501)", () => {

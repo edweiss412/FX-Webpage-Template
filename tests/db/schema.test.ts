@@ -257,6 +257,88 @@ describe("M10 pending_syncs last finalize failure schema migration", () => {
   });
 });
 
+describe("drive_file_id nonblank CHECK migration", () => {
+  // Static parse of the migration SQL (no DB). Models the transportation-loadout
+  // block above: read + collapse whitespace, then assert DROP-IF-EXISTS + ADD-CHECK
+  // per table. The predicate is the faithful SQL translation of the JS `/\S/` guard:
+  // `drive_file_id ~ '[^[:space:]]'` (nullable tables use the `is null or` form).
+  const nonblankMigrationPath = join(
+    process.cwd(),
+    "supabase/migrations/20260702120200_drive_file_id_nonblank.sql",
+  );
+  const sql = existsSync(nonblankMigrationPath)
+    ? readFileSync(nonblankMigrationPath, "utf8").replace(/\s+/g, " ")
+    : "";
+
+  // Single-sourced predicate (escaped for RegExp): `drive_file_id ~ '[^[:space:]]'`.
+  const PREDICATE = String.raw`drive_file_id\s*~\s*'\[\^\[:space:\]\]'`;
+  const NULLABLE_PREDICATE = String.raw`drive_file_id\s+is\s+null\s+or\s+${PREDICATE}`;
+
+  // 12 NOT NULL + 2 NULLABLE = 14 public columns named exactly `drive_file_id`.
+  const publicNotNull = [
+    "shows",
+    "pending_syncs",
+    "pending_ingestions",
+    "sync_audit",
+    "deferred_ingestions",
+    "onboarding_scan_manifest",
+    "pending_snapshot_uploads",
+    "revision_race_cooldowns",
+    "shows_pending_changes",
+    "show_change_log",
+    "sync_holds",
+    "agenda_extract_leases",
+  ];
+  const publicNullable = ["sync_log", "app_events"];
+  // dev.* mirror subset (5): 4 NOT NULL + 1 NULLABLE.
+  const devNotNull = ["shows", "pending_syncs", "pending_ingestions", "sync_audit"];
+  const devNullable = ["sync_log"];
+
+  function assertConstraint(schema: "public" | "dev", table: string, nullable: boolean): void {
+    const name = `${table}_drive_file_id_nonblank`;
+    // The dev block MUST use `alter table if exists dev.<t>` (mandatory `if exists`) so
+    // it is a no-op on any target lacking the dev clone — a bare `alter table dev.<t>`
+    // would error there. A DB-free test that accepted the bare form would let that ship.
+    const prefix =
+      schema === "dev"
+        ? String.raw`alter\s+table\s+if\s+exists\s+dev\.${table}`
+        : String.raw`alter\s+table\s+public\.${table}`;
+    const dropRe = new RegExp(`${prefix}\\s+drop\\s+constraint\\s+if\\s+exists\\s+${name}`, "i");
+    const body = nullable ? NULLABLE_PREDICATE : PREDICATE;
+    const addRe = new RegExp(
+      `${prefix}\\s+add\\s+constraint\\s+${name}\\s+check\\s*\\(\\s*${body}\\s*\\)`,
+      "i",
+    );
+    expect(sql, `missing DROP CONSTRAINT IF EXISTS for ${schema}.${table}`).toMatch(dropRe);
+    expect(sql, `missing ADD CONSTRAINT ... CHECK for ${schema}.${table}`).toMatch(addRe);
+  }
+
+  test("migration file exists", () => {
+    expect(existsSync(nonblankMigrationPath), `expected ${nonblankMigrationPath}`).toBe(true);
+  });
+
+  for (const t of publicNotNull) {
+    test(`public.${t} gets a non-null drive_file_id nonblank CHECK`, () => {
+      assertConstraint("public", t, false);
+    });
+  }
+  for (const t of publicNullable) {
+    test(`public.${t} gets a nullable drive_file_id nonblank CHECK`, () => {
+      assertConstraint("public", t, true);
+    });
+  }
+  for (const t of devNotNull) {
+    test(`dev.${t} (if exists) gets a non-null drive_file_id nonblank CHECK`, () => {
+      assertConstraint("dev", t, false);
+    });
+  }
+  for (const t of devNullable) {
+    test(`dev.${t} (if exists) gets a nullable drive_file_id nonblank CHECK`, () => {
+      assertConstraint("dev", t, true);
+    });
+  }
+});
+
 describe("transportation loadout_* migration", () => {
   // Static parse of the migration SQL (no DB). Scoped per-table so a public-only
   // migration fails the dev case — dev-schema parity is genuinely test-first.

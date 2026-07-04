@@ -222,29 +222,16 @@ const infraRegistry = [
       "pending_ingestions/pending_syncs/shows await throws + construction throw → infra_error",
   },
   {
-    helper: "loadHeldShows",
-    path: "lib/admin/loadHeldShows.ts",
-    contract:
-      "Held-shows view (Task E1): shows read (archived=false, published=false) + finalize-owned RPC fan-out; client construction + .from() throw → { kind:'infra_error' } (table-specific 'threw' message); the per-call finalize-owned RPC fails toward Held (.catch → null), never aborting the loader",
-  },
-  {
-    // parse-data-quality-warnings Task 9 (§6.6, R10 F1) — the NEW
-    // shows_internal.parse_warnings read in loadHeldShows is its OWN registry
-    // row, distinct from the `shows` read above. Unlike the finalize-owned RPC
-    // (fails toward-Held), this read FAILS VISIBLE: a returned error OR a thrown
-    // error → discriminable infra_error, NEVER a silent {total:0} (that would
-    // recreate the silent-drop the feature kills). Behavioral coverage of the
-    // throw path is in the loadHeldShows describe block below.
-    helper: "shows_internal",
-    path: "lib/admin/loadHeldShows.ts",
-    contract:
-      "Held-shows data-gaps read: shows_internal.parse_warnings (.in show_id); { data, error } destructure; returned-error → infra_error (message includes 'shows_internal'); thrown → infra_error ('shows_internal...threw'); absent/empty parse_warnings → {total:0} (no chip), kept distinct from a read failure",
-  },
-  {
     helper: "loadIgnoredSheets",
     path: "lib/admin/loadIgnoredSheets.ts",
     contract:
       "Ignored-sheets view (Task E2): deferred_ingestions read (wizard_session_id IS NULL, deferred_kind='permanent_ignore'); client construction + .from() throw → { kind:'infra_error' } (table-specific 'threw' message)",
+  },
+  {
+    helper: "loadIgnoredWarnings",
+    path: "lib/admin/loadIgnoredWarnings.ts",
+    contract:
+      "ignored_warnings read (show partition; .eq('show_id')); client construction throw + .from() query throw + returned {error} → { kind: 'infra_error' } (table-specific 'failed'/'threw' message); the page.tsx caller treats infra_error as an EMPTY ignore set (warnings stay visible)",
   },
   {
     helper: "loadNeedsAttentionCount",
@@ -466,10 +453,20 @@ describe("META §B Supabase call-boundary contract", () => {
         `${entry.surface} should contain at least one supabase-derived await`,
       ).toBeGreaterThan(0);
 
+      // Forward scan window for the closing `} catch`. Loosened from 30 → 45:
+      // the grep-shape heuristic must tolerate a try body that legitimately grows
+      // (e.g. a multi-line structured-log call `log.error("...", { source, code, error })`
+      // inside the try pushes the catch further down). The CONTRACT is unchanged —
+      // the builder/await must still be wrapped in a try/catch; a genuinely unwrapped
+      // call has NO catch anywhere near and still fails. This only reduces false
+      // negatives for correctly-wrapped-but-long try bodies.
+      const CATCH_FORWARD_SCAN = 45;
       // 3. Assert every supabase-derived await is inside a try/catch.
       for (const lineIdx of awaitLineNumbers) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
-        const forward = lines.slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30)).join("\n");
+        const forward = lines
+          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + CATCH_FORWARD_SCAN))
+          .join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
         const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
@@ -487,7 +484,9 @@ describe("META §B Supabase call-boundary contract", () => {
       //    despite the await staying inside its try.
       for (const lineIdx of builderAssignLines) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
-        const forward = lines.slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30)).join("\n");
+        const forward = lines
+          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + CATCH_FORWARD_SCAN))
+          .join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
         const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
@@ -666,44 +665,6 @@ describe("META §B Supabase call-boundary contract", () => {
         expect(result).toEqual({ kind: "infra_error" });
       },
     );
-  });
-
-  // Held-shows view loader (Task E1, spec §5). Construction throw + the shows
-  // read throw both surface the typed infra_error. The finalize-owned RPC
-  // fan-out fails toward Held on a per-call fault and never aborts the loader.
-  describe("loadHeldShows", () => {
-    test("server-client construction throw → typed infra_error", async () => {
-      infraMock.throwOnConstruct = true;
-      const { loadHeldShows } = await import("@/lib/admin/loadHeldShows");
-      const result = await loadHeldShows();
-      expect(result).toMatchObject({ kind: "infra_error" });
-    });
-
-    test("from('shows') throw → typed infra_error with table-specific message", async () => {
-      infraMock.throwOnFromTable = "shows";
-      const { loadHeldShows } = await import("@/lib/admin/loadHeldShows");
-      const result = await loadHeldShows();
-      expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(/shows.*threw/);
-    });
-
-    // parse-data-quality-warnings Task 9 (§6.6, R10 F1) — the NEW
-    // shows_internal.parse_warnings read FAILS VISIBLE. The read fires only when
-    // the shows query returned candidates, so seed one shows row, then throw on
-    // the shows_internal .from(). A regression that swallowed the throw to a
-    // silent {total:0} would fail this (no infra_error / wrong message).
-    test("from('shows_internal') throw (with seeded shows row) → typed infra_error", async () => {
-      infraMock.dataByTable = {
-        shows: [{ id: "s1", slug: "alpha", drive_file_id: "df-1" }],
-      };
-      infraMock.throwOnFromTable = "shows_internal";
-      const { loadHeldShows } = await import("@/lib/admin/loadHeldShows");
-      const result = await loadHeldShows();
-      expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(
-        /shows_internal.*threw/,
-      );
-    });
   });
 
   describe("loadIgnoredSheets", () => {

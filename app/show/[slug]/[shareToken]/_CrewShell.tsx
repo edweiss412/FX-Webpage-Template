@@ -167,6 +167,7 @@ export async function CrewShell({
     } catch (e) {
       void log.warn("projection-alert upsert failed (fail-quiet):", {
         source: "crew.shell",
+        code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
         error: e,
       });
     }
@@ -224,6 +225,7 @@ export async function CrewShell({
         hotelReservations: data.hotelReservations ?? [],
         rooms: data.rooms ?? [],
         runOfShow: data.runOfShow ?? null, // NEW — keeps rightNowState in sync, no stale context
+        stageRestriction: ctx.stageRestriction, // #248 — off-stage Set/Strike gating
       })
     : null;
 

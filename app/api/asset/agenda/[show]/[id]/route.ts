@@ -30,6 +30,7 @@
 import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { log } from "@/lib/log";
 import { getDriveClient } from "@/lib/drive/client";
 import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -100,7 +101,26 @@ function pdfStreamFromInput(data: unknown): ReadableStream<Uint8Array> {
   return webStreamFromBytes(bytes);
 }
 
-function gone(): Response {
+// The DEBUGGABLE 410 reasons (audit finding #8). A missing show / unmatched
+// agenda link / non-PDF / trashed / bad file-id is a BENIGN 410 (expected UX —
+// crew falls back to "Open in Drive") and passes NO reason → no breadcrumb. A
+// debuggable 410 (drift-equivalent gone, permission_denied, oversize) passes its
+// reason so a crew-reported broken agenda leaves a server trace of
+// which show/asset/why.
+type GoneReason = "permission_denied" | "not_found" | "oversize";
+
+function gone(reason?: GoneReason, ctx?: { showId?: string; assetKey?: string }): Response {
+  if (reason) {
+    // Fail-open durable breadcrumb (invariant 9: never changes the 410
+    // status/body; error-path emit is fire-and-forget).
+    void log.info("asset unavailable", {
+      source: "api.asset.agenda",
+      code: "ASSET_UNAVAILABLE",
+      ...(ctx?.showId ? { showId: ctx.showId } : {}),
+      ...(ctx?.assetKey ? { assetKey: ctx.assetKey } : {}),
+      reason,
+    });
+  }
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
@@ -115,7 +135,21 @@ function showUnavailable(): Response {
 // failures are not cached by a private intermediary (browser HTTP cache,
 // service worker). Per RFC 9111 §5.2 — `private, max-age=0,
 // must-revalidate` matches the rest of the asset proxy surface.
-function infraError(code: string): Response {
+function infraError(
+  code: string,
+  ctx?: { showId?: string; assetKey?: string; error?: unknown },
+): Response {
+  // `code` is the helper PARAMETER (a runtime variable), never a literal —
+  // scanner-safe. Covers GET + HEAD + every infraError call site. Findings
+  // #8/#14: carry show/asset/error context so a 500 is debuggable (the caught
+  // error is serialized by the logger automatically).
+  void log.error("asset infra fault", {
+    source: "api.asset.agenda",
+    code,
+    ...(ctx?.showId ? { showId: ctx.showId } : {}),
+    ...(ctx?.assetKey ? { assetKey: ctx.assetKey } : {}),
+    ...(ctx?.error !== undefined ? { error: ctx.error } : {}),
+  });
   return NextResponse.json(
     { error: code },
     { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
@@ -211,7 +245,10 @@ async function authorizeAgendaRequest(
 
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return { ok: false, response: infraError("ADMIN_SESSION_LOOKUP_FAILED") };
+    return {
+      ok: false,
+      response: infraError("ADMIN_SESSION_LOOKUP_FAILED", { showId: show, assetKey: id }),
+    };
   }
   const isAdmin = admin.ok;
 
@@ -224,11 +261,25 @@ async function authorizeAgendaRequest(
       .select("id,published,agenda_links")
       .eq("id", show)
       .maybeSingle()) as { data: AgendaShowRow | null; error: unknown };
-  } catch {
-    return { ok: false, response: infraError("AGENDA_ASSET_LOOKUP_FAILED") };
+  } catch (err) {
+    return {
+      ok: false,
+      response: infraError("AGENDA_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: id,
+        error: err,
+      }),
+    };
   }
   if (lookup.error) {
-    return { ok: false, response: infraError("AGENDA_ASSET_LOOKUP_FAILED") };
+    return {
+      ok: false,
+      response: infraError("AGENDA_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: id,
+        error: lookup.error,
+      }),
+    };
   }
   const data = lookup.data;
   if (!data) return { ok: false, response: gone() };
@@ -273,17 +324,25 @@ async function authorizeAgendaRequest(
     })) as { data: DriveMetadata };
     meta = metaResult.data;
   } catch (err) {
-    if (isNotFoundOrGone(err) || isPermissionDenied(err)) {
-      return { ok: false, response: gone() };
-    }
-    return { ok: false, response: infraError("AGENDA_ASSET_LOOKUP_FAILED") };
+    if (isNotFoundOrGone(err))
+      return { ok: false, response: gone("not_found", { showId: show, assetKey: id }) };
+    if (isPermissionDenied(err))
+      return { ok: false, response: gone("permission_denied", { showId: show, assetKey: id }) };
+    return {
+      ok: false,
+      response: infraError("AGENDA_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: id,
+        error: err,
+      }),
+    };
   }
   if (meta.trashed || meta.mimeType !== PDF_MIME) {
     return { ok: false, response: gone() };
   }
   const reportedSize = meta.size != null ? Number(meta.size) : NaN;
   if (Number.isFinite(reportedSize) && reportedSize > MAX_AGENDA_BYTES) {
-    return { ok: false, response: gone() };
+    return { ok: false, response: gone("oversize", { showId: show, assetKey: id }) };
   }
 
   return {
@@ -352,7 +411,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   // Codex R4 P1: admin check FIRST (no side effects).
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return infraError("ADMIN_SESSION_LOOKUP_FAILED");
+    return infraError("ADMIN_SESSION_LOOKUP_FAILED", { showId: show, assetKey: id });
   }
   const isAdmin = admin.ok;
 
@@ -365,11 +424,15 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       .select("id,published,agenda_links")
       .eq("id", show)
       .maybeSingle()) as { data: AgendaShowRow | null; error: unknown };
-  } catch {
-    return infraError("AGENDA_ASSET_LOOKUP_FAILED");
+  } catch (err) {
+    return infraError("AGENDA_ASSET_LOOKUP_FAILED", { showId: show, assetKey: id, error: err });
   }
   if (lookup.error) {
-    return infraError("AGENDA_ASSET_LOOKUP_FAILED");
+    return infraError("AGENDA_ASSET_LOOKUP_FAILED", {
+      showId: show,
+      assetKey: id,
+      error: lookup.error,
+    });
   }
   const data = lookup.data;
   if (!data) {
@@ -429,7 +492,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // any byte fetch so an oversized PDF never starts flowing.
     const reportedSize = meta.size != null ? Number(meta.size) : NaN;
     if (Number.isFinite(reportedSize) && reportedSize > MAX_AGENDA_BYTES) {
-      return gone();
+      return gone("oversize", { showId: show, assetKey: id });
     }
 
     // Codex R16 P1: parse + forward Range. PDF.js issues Range
@@ -526,7 +589,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           } else if (data instanceof ReadableStream) {
             await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
           }
-          return gone();
+          return gone("oversize", { showId: show, assetKey: id });
         }
         // rangeMatch is non-null here (the guard above failed closed on
         // any unparseable Content-Range), so contentRange is a string.
@@ -545,19 +608,22 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       }
       return new Response(stream, { status: driveStatus, headers });
     } catch (err) {
-      if (err instanceof ByteLimitExceededError) return gone();
+      if (err instanceof ByteLimitExceededError)
+        return gone("oversize", { showId: show, assetKey: id });
       // Codex R18 P1: Drive 416 means the requested Range is
       // unsatisfiable. Return 416 to the client (with size context if
       // we have it from the metadata pre-flight) — NOT a 500.
       if (isRangeNotSatisfiable(err)) {
         return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
       }
-      if (isNotFoundOrGone(err) || isPermissionDenied(err)) return gone();
+      if (isNotFoundOrGone(err)) return gone("not_found", { showId: show, assetKey: id });
+      if (isPermissionDenied(err)) return gone("permission_denied", { showId: show, assetKey: id });
       throw err;
     }
   } catch (err) {
-    if (err instanceof ByteLimitExceededError) return gone();
-    if (isPermissionDenied(err)) return gone();
+    if (err instanceof ByteLimitExceededError)
+      return gone("oversize", { showId: show, assetKey: id });
+    if (isPermissionDenied(err)) return gone("permission_denied", { showId: show, assetKey: id });
     if (isRangeNotSatisfiable(err)) {
       return rangeNotSatisfiable(null);
     }
@@ -566,7 +632,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // — fail closed as 410, not 500. The inner media-fetch catch
     // already handles 404; this picks up the metadata-call path AND
     // any other 404/410 surface that bubbles past the inner catches.
-    if (isNotFoundOrGone(err)) return gone();
-    return infraError("AGENDA_ASSET_LOOKUP_FAILED");
+    if (isNotFoundOrGone(err)) return gone("not_found", { showId: show, assetKey: id });
+    return infraError("AGENDA_ASSET_LOOKUP_FAILED", { showId: show, assetKey: id, error: err });
   }
 }

@@ -273,10 +273,21 @@ async function wrapInfra<T>(label: string, op: () => Promise<T>): Promise<T> {
   try {
     return await op();
   } catch (err) {
-    await log.error("admin emails infra failure", {
-      source: "data/adminEmails",
-      code: "ADMIN_EMAILS_INFRA",
-    });
+    // Finding #4: pass `error:` (serializeError → name/message/stack) so the
+    // distinct fault (construction throw vs RPC throw vs RPC returned-error) is
+    // preserved instead of collapsing to one opaque ADMIN_EMAILS_INFRA row;
+    // `label` names the write path. Invariant 9 (finding #20): best-effort emit
+    // so a logger throw can't reject over the caller ahead of the re-throw.
+    try {
+      await log.error("admin emails infra failure", {
+        source: "data/adminEmails",
+        code: "ADMIN_EMAILS_INFRA",
+        label,
+        error: err,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     if (err instanceof AdminEmailsInfraError) throw err;
     throw new AdminEmailsInfraError(
       `${label}: ${err instanceof Error ? err.message : String(err)}`,

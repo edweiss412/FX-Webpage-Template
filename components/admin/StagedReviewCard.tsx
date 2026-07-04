@@ -136,8 +136,7 @@ function describeItem(item: TriggeredReviewItem): string {
     case "FIRST_SEEN_REVIEW":
       // §4.3 approval-gate context: auto-publish for clean new shows is off, so
       // this brand-new sheet parsed cleanly and is waiting for your approval.
-      // Apply to publish it (with the same 24h undo as the auto-publish path).
-      return "New show, parsed clean. Apply to publish it (you can still undo within 24 hours).";
+      return "New show, parsed clean. Apply to publish it — you can turn it off anytime with the show's Published toggle.";
     case "ONBOARDING_SCAN_REVIEW":
       return "Onboarding scan staged this sheet for review.";
     case "MI-6":

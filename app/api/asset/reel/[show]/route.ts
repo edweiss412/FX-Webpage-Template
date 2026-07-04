@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
+import { log } from "@/lib/log";
 import { getDriveClient } from "@/lib/drive/client";
 import { pickStringHeader, type GaxiosResponseHeaders } from "@/lib/drive/responseHeaders";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -143,7 +144,28 @@ function sliceChunks(chunks: Uint8Array[], start: number, end: number): Uint8Arr
   return result;
 }
 
-function gone(): Response {
+// The asset key for this route is fixed — a show has exactly one opening reel.
+const REEL_ASSET_KEY = "reel";
+
+// The DEBUGGABLE 410 reasons (audit finding #8). A show that is unpublished /
+// has no pin / is not-yet-available is a BENIGN 410 (expected UX) and passes NO
+// reason → no breadcrumb. A debuggable 410 (drift, permission, gone, oversize,
+// md5) passes its reason so a crew-reported broken reel leaves a server trace of
+// which show/asset/why.
+type GoneReason = "drift" | "permission_denied" | "not_found" | "md5_mismatch" | "oversize";
+
+function gone(reason?: GoneReason, ctx?: { showId?: string }): Response {
+  if (reason) {
+    // Fail-open durable breadcrumb (invariant 9: never changes the 410
+    // status/body; error-path emit is fire-and-forget).
+    void log.info("asset unavailable", {
+      source: "api.asset.reel",
+      code: "ASSET_UNAVAILABLE",
+      ...(ctx?.showId ? { showId: ctx.showId } : {}),
+      assetKey: REEL_ASSET_KEY,
+      reason,
+    });
+  }
   return new Response(null, {
     status: 410,
     headers: { "Cache-Control": CACHE_CONTROL },
@@ -159,7 +181,21 @@ function showUnavailable(): Response {
 
 // Codex R23 P2: every error shape carries Cache-Control so auth/infra
 // failures are not cached by a private intermediary. Per RFC 9111 §5.2.
-function infraError(code: string): Response {
+function infraError(
+  code: string,
+  ctx?: { showId?: string; assetKey?: string; error?: unknown },
+): Response {
+  // `code` is the helper PARAMETER (a runtime variable), never a literal —
+  // scanner-safe. Covers GET + HEAD + every infraError call site. Findings
+  // #8/#14: carry show/asset/error context so a 500 is debuggable (the caught
+  // error is serialized by the logger automatically).
+  void log.error("asset infra fault", {
+    source: "api.asset.reel",
+    code,
+    ...(ctx?.showId ? { showId: ctx.showId } : {}),
+    ...(ctx?.assetKey ? { assetKey: ctx.assetKey } : {}),
+    ...(ctx?.error !== undefined ? { error: ctx.error } : {}),
+  });
   return NextResponse.json(
     { error: code },
     { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
@@ -305,7 +341,13 @@ async function authorizeReelRequest(
 
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return { ok: false, response: infraError("ADMIN_SESSION_LOOKUP_FAILED") };
+    return {
+      ok: false,
+      response: infraError("ADMIN_SESSION_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: REEL_ASSET_KEY,
+      }),
+    };
   }
   const isAdmin = admin.ok;
 
@@ -320,11 +362,25 @@ async function authorizeReelRequest(
       )
       .eq("id", show)
       .maybeSingle()) as { data: ReelRow | null; error: unknown };
-  } catch {
-    return { ok: false, response: infraError("REEL_ASSET_LOOKUP_FAILED") };
+  } catch (err) {
+    return {
+      ok: false,
+      response: infraError("REEL_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: REEL_ASSET_KEY,
+        error: err,
+      }),
+    };
   }
   if (lookup.error) {
-    return { ok: false, response: infraError("REEL_ASSET_LOOKUP_FAILED") };
+    return {
+      ok: false,
+      response: infraError("REEL_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: REEL_ASSET_KEY,
+        error: lookup.error,
+      }),
+    };
   }
   const row = lookup.data;
   if (!row) return { ok: false, response: gone() };
@@ -345,14 +401,22 @@ async function authorizeReelRequest(
     })) as { data: DriveMetadata };
     current = meta.data;
   } catch (err) {
-    if (isPermissionDenied(err)) return { ok: false, response: gone() };
-    if (isNotFoundOrGone(err)) return { ok: false, response: gone() };
-    return { ok: false, response: infraError("REEL_ASSET_LOOKUP_FAILED") };
+    if (isPermissionDenied(err))
+      return { ok: false, response: gone("permission_denied", { showId: show }) };
+    if (isNotFoundOrGone(err)) return { ok: false, response: gone("not_found", { showId: show }) };
+    return {
+      ok: false,
+      response: infraError("REEL_ASSET_LOOKUP_FAILED", {
+        showId: show,
+        assetKey: REEL_ASSET_KEY,
+        error: err,
+      }),
+    };
   }
-  if (drifted(row, current)) return { ok: false, response: gone() };
+  if (drifted(row, current)) return { ok: false, response: gone("drift", { showId: show }) };
   const reportedSize = current.size != null ? Number(current.size) : NaN;
   if (Number.isFinite(reportedSize) && reportedSize > MAX_REEL_FALLBACK_BYTES) {
-    return { ok: false, response: gone() };
+    return { ok: false, response: gone("oversize", { showId: show }) };
   }
 
   return { ok: true, row, current, reportedSize, drive };
@@ -408,7 +472,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   // Codex R4 P1: admin check FIRST (no side effects).
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return infraError("ADMIN_SESSION_LOOKUP_FAILED");
+    return infraError("ADMIN_SESSION_LOOKUP_FAILED", { showId: show, assetKey: REEL_ASSET_KEY });
   }
   const isAdmin = admin.ok;
 
@@ -423,13 +487,21 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       )
       .eq("id", show)
       .maybeSingle()) as { data: ReelRow | null; error: unknown };
-  } catch {
-    return infraError("REEL_ASSET_LOOKUP_FAILED");
+  } catch (err) {
+    return infraError("REEL_ASSET_LOOKUP_FAILED", {
+      showId: show,
+      assetKey: REEL_ASSET_KEY,
+      error: err,
+    });
   }
   // Codex R2 P1: Supabase returned-error must NOT be collapsed into the
   // benign-absence 410 path — surface as 500 per AGENTS.md §1.9.
   if (lookup.error) {
-    return infraError("REEL_ASSET_LOOKUP_FAILED");
+    return infraError("REEL_ASSET_LOOKUP_FAILED", {
+      showId: show,
+      assetKey: REEL_ASSET_KEY,
+      error: lookup.error,
+    });
   }
   const row = lookup.data;
   if (!row) {
@@ -458,14 +530,14 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       supportsAllDrives: true,
     })) as { data: DriveMetadata };
     if (drifted(row, current)) {
-      return gone();
+      return gone("drift", { showId: show });
     }
     // Codex R2 P1: pre-flight size gate. Drive reports `size` as a string
     // on binary files; reject before initiating any stream so a 1GB reel
     // can never start flowing through the worker.
     const reportedSize = current.size != null ? Number(current.size) : NaN;
     if (Number.isFinite(reportedSize) && reportedSize > MAX_REEL_FALLBACK_BYTES) {
-      return gone();
+      return gone("oversize", { showId: show });
     }
 
     // Codex R14 P1: parse + forward Range request. `<video preload=
@@ -542,7 +614,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           } else if (data instanceof ReadableStream) {
             await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
           }
-          return gone();
+          return gone("oversize", { showId: show });
         }
         verified206SliceLen = sliceLen;
       }
@@ -603,7 +675,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       // residency stays at 1x the body size.
       const result = await chunkedHashFrom(data);
       if (!current.md5Checksum || result.md5Hex !== current.md5Checksum) {
-        return gone();
+        return gone("md5_mismatch", { showId: show });
       }
       // Codex R15 P1: the fallback path now serves Range too. Native
       // <video preload="metadata"> issues Range on every load; without
@@ -667,8 +739,8 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       });
     }
   } catch (caught) {
-    if (caught instanceof ByteLimitExceededError) return gone();
-    if (isPermissionDenied(caught)) return gone();
+    if (caught instanceof ByteLimitExceededError) return gone("oversize", { showId: show });
+    if (isPermissionDenied(caught)) return gone("permission_denied", { showId: show });
     // Codex R18 P1 (defense-in-depth): a 416 surfacing here means
     // pre-flight + per-branch catches didn't intercept; still return
     // 416 with size context dropped (we don't have it at this layer).
@@ -678,8 +750,12 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // AC-7.24's single-410 contract — NOT an infra failure. Returning
     // 500 here would surface as a user-visible server error for a
     // reel that's simply been deleted / unshared.
-    if (isNotFoundOrGone(caught)) return gone();
-    return infraError("REEL_ASSET_LOOKUP_FAILED");
+    if (isNotFoundOrGone(caught)) return gone("not_found", { showId: show });
+    return infraError("REEL_ASSET_LOOKUP_FAILED", {
+      showId: show,
+      assetKey: REEL_ASSET_KEY,
+      error: caught,
+    });
   }
 }
 

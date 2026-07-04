@@ -15,6 +15,8 @@ const CAPS = {
   digest: 200,
   url: 2000,
   tileId: 200,
+  code: 80,
+  detail: 500,
 } as const;
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 20;
@@ -101,6 +103,7 @@ export async function handleClientError(req: Request): Promise<Response> {
         safeLog(() =>
           log.warn("client-error mirror rate cap hit", {
             source: "observe.client-error",
+            code: "CLIENT_ERROR_MIRROR_RATE_CAPPED",
             capped: source,
           }),
         ),
@@ -115,6 +118,10 @@ export async function handleClientError(req: Request): Promise<Response> {
   const dg = cap(body.digest, CAPS.digest);
   const u = cap(body.url, CAPS.url);
   const ti = cap(body.tileId, CAPS.tileId);
+  // `code` stays a variable (cap(body.code)) — never a literal — so the code-scanner's
+  // dotted-log-call strip doesn't reach it (log[level] is a computed member).
+  const code = cap(body.code, CAPS.code);
+  const detail = cap(body.detail, CAPS.detail);
   // AWAIT the write (log.* returns the emit promise) inside safeLog so a rejected sink/persist
   // is caught here and can never escape as an unhandled rejection (fail-open: never 5xx).
   await runWithRequestContext({ requestId: deriveRequestId(req.headers) }, () =>
@@ -126,6 +133,8 @@ export async function handleClientError(req: Request): Promise<Response> {
         ...(dg ? { digest: dg } : {}),
         ...(u ? { url: u } : {}),
         ...(ti ? { tileId: ti } : {}),
+        ...(code ? { code } : {}),
+        ...(detail ? { detail } : {}),
       }),
     ),
   );

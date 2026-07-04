@@ -4,6 +4,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { discardStaged, type DiscardVariant } from "@/lib/sync/discardStaged";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -35,7 +36,11 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
   try {
     supabase = await createSupabaseServerClient();
   } catch (error) {
-    log.error("server client construction failed", { source: "api.admin.staged.discard", error });
+    log.error("server client construction failed", {
+      source: "api.admin.staged.discard",
+      code: "LIVE_STAGED_DISCARD_CLIENT_CONSTRUCTION_FAILED",
+      error,
+    });
     return { kind: "infra_error" };
   }
 
@@ -46,12 +51,17 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
     data = response.data;
     error = response.error;
   } catch (cause) {
-    log.error("getUser threw", { source: "api.admin.staged.discard", error: cause });
+    log.error("getUser threw", {
+      source: "api.admin.staged.discard",
+      code: "LIVE_STAGED_DISCARD_GETUSER_THREW",
+      error: cause,
+    });
     return { kind: "infra_error" };
   }
   if (error) {
     log.error("getUser failed", {
       source: "api.admin.staged.discard",
+      code: "LIVE_STAGED_DISCARD_GETUSER_FAILED",
       errorMessage: error.message,
     });
     return { kind: "infra_error" };
@@ -118,6 +128,22 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
   }
   if (result.outcome === "discarded") {
+    // Durable success telemetry (audit finding #15a): discardStaged owns its per-show lock/tx and
+    // has committed by the time it resolves, so this is POST-COMMIT. REUSED code (STAGE_DISCARDED,
+    // already SANCTIONED). Fail-open at the callsite (invariant 9). admin.email is canonical
+    // (readAdminEmail canonicalize()s it). Emitted ONLY on the discarded branch — never on a
+    // skipped-409 / not-found-404 / conflict path (no false audit row).
+    try {
+      await logAdminOutcome({
+        code: "STAGE_DISCARDED",
+        source: "api.admin.staged.discard",
+        actorEmail: admin.email,
+        driveFileId: fileId,
+        extra: { variant },
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ ok: true, result });
   }
   return NextResponse.json(

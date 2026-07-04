@@ -3,16 +3,16 @@
 /**
  * components/admin/ResolveAlertButton.tsx (M9 C4 / M5-D3, hardened M9-D-C4-1)
  *
- * Two-tap inline confirmation for resolving an admin_alerts row, per
+ * Two-tap inline confirmation for dismissing an admin_alerts row, per
  * shape brief 2026-05-14-alert-banner.md §5.4. Two local states +
  * one form-pending state:
  *
- *   idle     → [ Resolve ] button (primary accent).
+ *   idle     → [ Dismiss ] button (primary accent).
  *              Click → confirm.
- *   confirm  → [ Confirm resolve ] (orange) + [ Cancel ] sibling.
+ *   confirm  → [ Confirm dismiss ] (orange) + [ Cancel ] sibling.
  *              Click confirm → submits the form (useFormStatus.pending
  *              flips to true; controls disable; label becomes
- *              "Resolving…").
+ *              "Dismissing…").
  *              Click Cancel → back to idle.
  *              3s of inaction → auto-revert to idle.
  *   pending  → derived from useFormStatus() inside the parent <form>.
@@ -20,13 +20,13 @@
  *              re-mounts. On failure (Supabase / RLS / network error
  *              where resolveAdminAlertFormAction returns without
  *              revalidatePath) pending flips back to false and Doug
- *              sees Confirm + Cancel re-enabled — no stuck Revoking…
+ *              sees Confirm + Cancel re-enabled — no stuck Dismissing…
  *              control, no required page reload.
  *
  * M9-D-C4-1 hardening: pre-fix, this component carried a local
  * `ui === "resolving"` flag set unconditionally on Confirm click. If
  * the Server Action returned without revalidating, the banner stayed
- * mounted with Confirm + Cancel permanently disabled and "Resolving…"
+ * mounted with Confirm + Cancel permanently disabled and "Dismissing…"
  * showing forever — Doug's only escape was reload. useFormStatus
  * derives pending from the parent form's submission lifecycle so the
  * disabled state clears automatically when the action returns,
@@ -59,7 +59,7 @@ const AUTO_REVERT_MS = 3_000;
 
 type UiState = "idle" | "confirm";
 
-export function ResolveAlertButton() {
+export function ResolveAlertButton({ quiet = false }: { quiet?: boolean } = {}) {
   const [ui, setUi] = useState<UiState>("idle");
   const autoRevertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -97,6 +97,23 @@ export function ResolveAlertButton() {
   };
 
   if (ui === "idle") {
+    if (quiet) {
+      // Quiet idle variant for in-panel placement (watch-alert dismiss row):
+      // the expanded panel already sits beneath an accent-filled Retry CTA in
+      // the action slot; a second full-strength accent button on the same open
+      // surface would dilute the one-accent doctrine (DESIGN.md §1). Mirrors
+      // the ConfirmRow Cancel treatment. Two-tap confirm keeps full prominence.
+      return (
+        <button
+          type="button"
+          data-testid="admin-alert-resolve-button"
+          onClick={onResolveClick}
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text"
+        >
+          Dismiss
+        </button>
+      );
+    }
     return (
       <AccentButton
         data-testid="admin-alert-resolve-button"
@@ -105,7 +122,7 @@ export function ResolveAlertButton() {
         minWidthTap
         ringOffset="warning-bg"
       >
-        Resolve
+        Dismiss
       </AccentButton>
     );
   }
@@ -142,7 +159,7 @@ function ConfirmRow({
         // submitting, keep the accent fill rather than the hover shade.
         className="disabled:hover:bg-accent"
       >
-        {pending ? "Resolving…" : "Confirm resolve"}
+        {pending ? "Dismissing…" : "Confirm dismiss"}
       </AccentButton>
       <button
         type="button"

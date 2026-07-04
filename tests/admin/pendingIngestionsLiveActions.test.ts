@@ -7,6 +7,9 @@ import type { ParseResult } from "@/lib/parser/types";
 import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-ingestions/[id]/discard/route";
 
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+
 const ID1 = "33333333-3333-4333-8333-333333333333";
 
 class FakeLivePendingTx {
@@ -301,5 +304,77 @@ describe("live pending-ingestions actions", () => {
     expect(await json(response)).toEqual({ status: "discarded", kind: "defer_until_modified" });
     expect(tx.deferrals).toEqual([{ driveFileId: "file-1", kind: "defer_until_modified" }]);
     expect(tx.deleted).toBe(true);
+  });
+});
+
+describe("live pending-ingestions retry — PENDING_INGESTION_RETRIED telemetry", () => {
+  const EXPECTED_OUTCOME = {
+    code: "PENDING_INGESTION_RETRIED",
+    source: "api.admin.pending-ingestions.retry",
+    actorEmail: "doug@example.com",
+    driveFileId: "file-1",
+    showId: "show-1",
+  };
+
+  test("existing-show applied → logAdminOutcome PENDING_INGESTION_RETRIED once", async () => {
+    logAdminOutcomeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx); // default runManualSyncForShowUnlocked → applied showId show-1
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({ status: "applied", slug: "show-slug" });
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(EXPECTED_OUTCOME);
+  });
+
+  test("existing-show source_gone (still_failed but carries showId) → NOT logged (over-log guard)", async () => {
+    logAdminOutcomeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      runManualSyncForShowUnlocked: vi.fn(async () => ({
+        outcome: "source_gone" as const,
+        code: "SHEET_UNAVAILABLE",
+        showId: "show-1",
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(await json(response)).toEqual({
+      status: "still_failed",
+      errorCode: "SHEET_UNAVAILABLE",
+    });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  test("first-seen applied → logAdminOutcome PENDING_INGESTION_RETRIED once", async () => {
+    logAdminOutcomeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    const routeDeps = deps(tx, {
+      runManualStageForFirstSeen: vi.fn(async () => ({
+        outcome: "applied",
+        showId: "show-1",
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]>,
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(EXPECTED_OUTCOME);
+  });
+
+  test("first-seen parsed_pending_review → NOT logged", async () => {
+    logAdminOutcomeMock.mockClear();
+    const tx = new FakeLivePendingTx();
+    const routeDeps = deps(tx); // default runManualStageForFirstSeen → parsed_pending_review
+
+    await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 });

@@ -10,9 +10,14 @@
  * (parsed) section from a genuinely-unrecognized one.
  *
  * The companion registry meta-test (`tests/parser/_metaKnownSectionsRegistry.test.ts`)
- * asserts every block-parser header token is present here, so adding a future
- * block parser without registering its header fails CI rather than producing a
- * false-positive UNKNOWN_SECTION_HEADER on its rows.
+ * pins a HAND-MAINTAINED subset (its `REQUIRED_HEADERS` const) ⊆ this registry, so an
+ * accidental DELETION of a still-recognized header from KNOWN_SECTION_HEADERS fails CI.
+ * It does NOT walk lib/parser/blocks/*.ts (the parsers match headers via heterogeneous
+ * inline literals + regexes with no shared introspectable constant), so it CANNOT catch
+ * a genuinely-new parser header that is registered in NEITHER list — adding a new block
+ * parser still requires hand-adding its header to BOTH this set AND `REQUIRED_HEADERS`,
+ * or its rows would false-positive UNKNOWN_SECTION_HEADER. Real auto-drift enforcement
+ * (a source walker) is filed as BL-KNOWN-SECTIONS-WALKER in BACKLOG.md.
  */
 
 /** Normalize a header cell for comparison: upper-cased, single-spaced, trimmed. */

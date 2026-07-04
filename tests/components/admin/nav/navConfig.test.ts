@@ -1,16 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "@/components/admin/nav/navConfig";
 
-it("launch destinations: dashboard + attention + unpublished + ignored-sheets + settings + observability", () => {
-  expect(NAV.map((n) => n.id)).toEqual([
-    "dashboard",
-    "attention",
-    "unpublished",
-    "ignored-sheets",
-    "settings",
-    "observability",
-  ]);
-  expect(NAV.length).toBe(6);
+it("launch destinations: dashboard + attention + settings + observability", () => {
+  expect(NAV.map((n) => n.id)).toEqual(["dashboard", "attention", "settings", "observability"]);
+  expect(NAV.length).toBe(4);
 });
 
 it("observability (Activity) is a desktopOnly destination with href /admin/observability", () => {
@@ -21,11 +14,8 @@ it("observability (Activity) is a desktopOnly destination with href /admin/obser
   expect(obs?.href).toBe("/admin/observability");
 });
 
-it("ignored-sheets item is a desktop destination with href /admin/ignored-sheets (Task E2)", () => {
-  const ignored = NAV.find((n) => n.id === "ignored-sheets");
-  expect(ignored).toBeDefined();
-  expect(ignored?.mobileOnly).toBeUndefined();
-  expect(ignored?.href).toBe("/admin/ignored-sheets");
+it("ignored-sheets is NOT a nav destination (moved to a dashboard disclosure)", () => {
+  expect(NAV.some((n) => (n.id as string) === "ignored-sheets")).toBe(false);
 });
 
 it("attention item is mobileOnly with href /admin/needs-attention", () => {
@@ -35,39 +25,29 @@ it("attention item is mobileOnly with href /admin/needs-attention", () => {
   expect(attention?.href).toBe("/admin/needs-attention");
 });
 
-it("unpublished item is a desktop destination with href /admin/unpublished (Task E1)", () => {
-  const unpublished = NAV.find((n) => n.id === "unpublished");
-  expect(unpublished).toBeDefined();
-  expect(unpublished?.mobileOnly).toBeUndefined();
-  expect(unpublished?.href).toBe("/admin/unpublished");
+it("unpublished is NOT a nav destination (Held shows live in the dashboard list)", () => {
+  expect(NAV.some((n) => (n.id as string) === "unpublished")).toBe(false);
 });
 
-it("dashboard + unpublished + settings are NOT mobileOnly (desktop destinations)", () => {
+it("dashboard + settings are NOT mobileOnly (desktop destinations)", () => {
   expect(NAV.find((n) => n.id === "dashboard")?.mobileOnly).toBeUndefined();
-  expect(NAV.find((n) => n.id === "unpublished")?.mobileOnly).toBeUndefined();
   expect(NAV.find((n) => n.id === "settings")?.mobileOnly).toBeUndefined();
 });
 
 describe("active-state matrix: exactly one active id per path", () => {
   const matrix: Array<
-    [
-      path: string,
-      activeId:
-        | "dashboard"
-        | "attention"
-        | "unpublished"
-        | "ignored-sheets"
-        | "settings"
-        | "observability",
-    ]
+    [path: string, activeId: "dashboard" | "attention" | "settings" | "observability"]
   > = [
     ["/admin", "dashboard"],
     ["/admin/needs-attention", "attention"],
     ["/admin/needs-attention/x", "attention"],
-    ["/admin/unpublished", "unpublished"],
-    ["/admin/unpublished/x", "unpublished"],
-    ["/admin/ignored-sheets", "ignored-sheets"],
-    ["/admin/ignored-sheets/x", "ignored-sheets"],
+    // The former ignored-sheets route was removed (folded into a dashboard
+    // disclosure). /admin/ignored-sheets now 307-redirects to /admin via
+    // next.config redirects() (pinned by tests/config/rootRedirect.test.ts); if
+    // any stray sub-path still resolves, isNavItemActive classifies it as
+    // Dashboard (it is not settings/attention/observability).
+    ["/admin/ignored-sheets", "dashboard"],
+    ["/admin/ignored-sheets/x", "dashboard"],
     ["/admin/settings", "settings"],
     ["/admin/settings/admins", "settings"],
     ["/admin/observability", "observability"],
@@ -90,14 +70,10 @@ describe("active-state matrix: exactly one active id per path", () => {
     expect(isNavItemActive("attention", "/admin/settings")).toBe(false);
   });
 
-  it("unpublished is active ONLY on /admin/unpublished*; dashboard NOT active there (Task E1)", () => {
-    expect(isNavItemActive("unpublished", "/admin/unpublished")).toBe(true);
-    expect(isNavItemActive("unpublished", "/admin/unpublished/x")).toBe(true);
-    expect(isNavItemActive("dashboard", "/admin/unpublished")).toBe(false);
-    expect(isNavItemActive("dashboard", "/admin/unpublished/x")).toBe(false);
-    expect(isNavItemActive("unpublished", "/admin")).toBe(false);
-    expect(isNavItemActive("unpublished", "/admin/show/abc")).toBe(false);
-    expect(isNavItemActive("unpublished", "/admin/settings")).toBe(false);
+  it("a former /admin/unpublished path now activates Dashboard (route removed)", () => {
+    // The Unpublished route was removed; Held shows appear in the dashboard's
+    // Active-shows list. Any stray /admin/unpublished URL falls to Dashboard.
+    expect(isNavItemActive("dashboard", "/admin/unpublished")).toBe(true);
   });
 });
 
@@ -115,9 +91,10 @@ it("settings + nested settings routes activate Settings", () => {
 it("overflow 'More' tab hidden at ≤5 destinations, shown only at >5", () => {
   expect(shouldRenderOverflow(2)).toBe(false);
   // The mobile bottom bar shows only non-desktopOnly items (Activity is desktopOnly),
-  // so the mobile-visible count stays at 5 → no overflow "More" tab.
+  // so the mobile-visible count is 3 (Dashboard / Attention / Settings)
+  // → no overflow "More" tab.
   const mobileCount = NAV.filter((n) => !n.desktopOnly).length;
-  expect(mobileCount).toBe(5);
+  expect(mobileCount).toBe(3);
   expect(shouldRenderOverflow(mobileCount)).toBe(false);
   expect(shouldRenderOverflow(5)).toBe(false);
   expect(shouldRenderOverflow(6)).toBe(true);

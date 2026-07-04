@@ -14,6 +14,7 @@ import {
   type ScanStreamMessage,
 } from "@/lib/onboarding/scanProgress";
 import { deriveRequestId, log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -164,8 +165,17 @@ async function reserveWizardSession(input: {
     `,
   );
   const settings = rows[0];
-  const wizardSessionId = settings?.pending_wizard_session_id ?? input.randomUUID();
-  const isMint = settings?.pending_wizard_session_id == null;
+  const existingSessionId = settings?.pending_wizard_session_id ?? null;
+  // Mint a fresh session when there is no in-flight one OR when this scan targets a
+  // DIFFERENT folder than the stored one — a folder-change re-scan must supersede the
+  // abandoned session with a new id, else the old scan's rows interleave into the new
+  // folder's manifest (the per-file upsert guard keys only on the session id). The
+  // null-check lives in the ternary condition so TS narrows existingSessionId to string
+  // on the reuse branch (audit idx55/#115).
+  const folderMatches = settings?.pending_folder_id === input.folderId;
+  const wizardSessionId =
+    existingSessionId != null && folderMatches ? existingSessionId : input.randomUUID();
+  const isMint = existingSessionId == null || !folderMatches;
 
   await input.tx.query<AppSettingsForScan>(
     `
@@ -256,6 +266,24 @@ export async function handleOnboardingScan(
         const result = await runtime.runOnboardingScan(folder.folderId, wizardSessionId, {
           onProgress: emit,
         });
+        // Durable success telemetry (audit finding #6): the scan RESOLVED (no throw) and its
+        // transactional per-file staging committed. Emit ONLY on the genuine completed outcome —
+        // NOT schema_missing / superseded (non-success terminals) — so a degraded scan never leaves
+        // a false "who did what" audit row. POST-COMMIT + await'ed + fail-open (invariant 9); the
+        // failure path already logs ONBOARDING_SCAN_FAILED. actorEmail is canonical (requireAdminIdentity).
+        if (result.outcome === "completed") {
+          try {
+            await logAdminOutcome({
+              code: "ONBOARDING_SCAN_COMPLETED",
+              source: "admin.onboarding.scan",
+              actorEmail: admin.email,
+              wizardSessionId,
+              extra: { folderId: folder.folderId, processedCount: result.processed.length },
+            });
+          } catch {
+            /* best-effort */
+          }
+        }
         emit({
           type: "result",
           body: toScanResponseBody(result, {
@@ -264,10 +292,12 @@ export async function handleOnboardingScan(
             folderName: folder.folderName,
           }),
         });
-      } catch {
+      } catch (error) {
         void log.error("onboarding scan failed", {
           source: "admin/onboarding/scan",
+          code: "ONBOARDING_SCAN_FAILED",
           requestId: scanRequestId,
+          error,
         });
         emit({ type: "result", body: { ok: false, code: null } });
       } finally {

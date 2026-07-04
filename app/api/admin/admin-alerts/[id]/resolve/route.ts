@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type AdminAlertGlobalResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -90,30 +92,35 @@ export async function handleAdminAlertGlobalResolve(
   }
 
   const { id } = await context.params;
-  return await deps.withTx(async (tx) => {
-    const row = await tx.queryOne<AlertRow>(
-      `
+  // OUTCOME-REF (#218): flip only on the real, committed mutation return so the POST-COMMIT
+  // logAdminOutcome fires exactly once per actual resolve — never on 404/400/idempotent paths.
+  let committed = false;
+  let response: Response;
+  try {
+    response = await deps.withTx(async (tx) => {
+      const row = await tx.queryOne<AlertRow>(
+        `
         select a.id, a.show_id, s.slug, a.resolved_at
           from public.admin_alerts a
           left join public.shows s on s.id = a.show_id
          where a.id = $1::uuid
          for update
       `,
-      [id],
-    );
-    if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
-    if (row.show_id !== null) {
-      return errorResponse(400, "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE", {
-        id,
-        show_id: row.show_id,
-        ...(row.slug ? { redirect_to: `/api/admin/show/${row.slug}/alerts/${id}/resolve` } : {}),
-      });
-    }
-    if (row.resolved_at) {
-      return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
-    }
-    const updated = await tx.queryOne<AlertRow>(
-      `
+        [id],
+      );
+      if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      if (row.show_id !== null) {
+        return errorResponse(400, "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE", {
+          id,
+          show_id: row.show_id,
+          ...(row.slug ? { redirect_to: `/api/admin/show/${row.slug}/alerts/${id}/resolve` } : {}),
+        });
+      }
+      if (row.resolved_at) {
+        return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
+      }
+      const updated = await tx.queryOne<AlertRow>(
+        `
         update public.admin_alerts
            set resolved_at = now(),
                resolved_by = $2
@@ -121,11 +128,43 @@ export async function handleAdminAlertGlobalResolve(
            and show_id is null
         returning id, show_id, null::text as slug, resolved_at
       `,
-      [id, canonicalize(admin.email)],
-    );
-    if (!updated) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
-    return NextResponse.json({ status: "resolved", id, resolved_at: updated.resolved_at });
-  });
+        [id, canonicalize(admin.email)],
+      );
+      if (!updated) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      committed = true;
+      return NextResponse.json({ status: "resolved", id, resolved_at: updated.resolved_at });
+    });
+  } catch (error) {
+    // Fail-open (explicit callsite wrap): log the infra fault, then rethrow so the route's
+    // existing throw→500 behavior is byte-preserved. Forensic-only (inside a log span).
+    try {
+      await log.error("admin alert resolve threw", {
+        source: "api.admin.admin-alerts.resolve",
+        code: "ADMIN_ALERT_RESOLVE_FAILED",
+        error,
+      });
+    } catch {
+      /* best-effort */
+    }
+    throw error;
+  }
+  // POST-COMMIT durable outcome (#218) — withTx resolved (the resolve committed). Fail-open so a
+  // logger throw can never turn a committed resolve into a 500. Global scope carries no showId.
+  if (committed) {
+    const actorEmail = canonicalize(admin.email);
+    try {
+      await logAdminOutcome({
+        code: "ADMIN_ALERT_RESOLVED",
+        source: "api.admin.admin-alerts.resolve",
+        // exactOptionalPropertyTypes: canonicalize may return null → conditional spread, never
+        // assign undefined/null to the optional actorEmail (mirrors the data-quality routes).
+        ...(actorEmail ? { actorEmail } : {}),
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+  return response;
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {

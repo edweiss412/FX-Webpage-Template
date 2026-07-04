@@ -3,7 +3,6 @@
  *
  * The three admin-gated per-show lifecycle server actions:
  *   - archiveShowAction(slug)   → archive_show caller
- *   - publishShowAction(slug)   → publish_show caller
  *   - unarchiveShowAction(showId) → unarchive_show caller (catch-up sync)
  *
  * Each action MUST:
@@ -22,10 +21,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mocks for the action dependencies. ---
+const ADMIN_EMAIL = "admin@fxav.test";
 const requireAdmin = vi.fn(async () => undefined);
+const requireAdminIdentity = vi.fn(async () => ({ email: ADMIN_EMAIL }));
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: () => requireAdmin(),
+  requireAdminIdentity: () => requireAdminIdentity(),
 }));
+
+// Durable admin-outcome telemetry sink (Task 9). Hoisted so the vi.mock factory
+// can reference it before the module graph is imported.
+const logAdminOutcome = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome }));
 
 const archiveShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
 const publishShow = vi.fn(async (_id: string) => ({ ok: true }) as const);
@@ -58,11 +65,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ from }),
 }));
 
-import {
-  archiveShowAction,
-  publishShowAction,
-  unarchiveShowAction,
-} from "@/app/admin/show/[slug]/_actions";
+import { archiveShowAction, unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 
 beforeEach(() => {
@@ -93,28 +96,6 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(revalidatePath).toHaveBeenCalled();
     // nav-perf tag-caching (Task 8): success revalidates the show's data-cache tag.
     expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-1"), { expire: 0 });
-  });
-
-  it("publishShowAction resolves slug→id, invokes publishShow, returns its typed refusal", async () => {
-    publishShow.mockResolvedValue({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" } as never);
-    maybeSingleResult.value = { data: { id: "show-2", drive_file_id: "drive-2" }, error: null };
-
-    const res = await publishShowAction("slug-2");
-
-    expect(publishShow).toHaveBeenCalledWith("show-2");
-    expect(res).toEqual({ ok: false, code: "PUBLISH_BLOCKED_PENDING_REVIEW" });
-    // A refusal is not a rendered-data change → no revalidate.
-    expect(revalidateTag).not.toHaveBeenCalled();
-  });
-
-  it("publishShowAction on success revalidates the show data-cache tag", async () => {
-    publishShow.mockResolvedValue({ ok: true } as never);
-    maybeSingleResult.value = { data: { id: "show-9", drive_file_id: "drive-9" }, error: null };
-
-    const res = await publishShowAction("slug-9");
-
-    expect(res).toEqual({ ok: true });
-    expect(revalidateTag).toHaveBeenCalledWith(showCacheTag("show-9"), { expire: 0 });
   });
 
   it("unarchiveShowAction resolves id→drive_file_id, invokes unarchiveShow(showId, driveFileId), returns void", async () => {
@@ -153,17 +134,79 @@ describe("per-show lifecycle server actions (Task 7.1)", () => {
     expect(res).toEqual({ ok: false, code: "infra_error" });
   });
 
-  it("publishShowAction: a THROWN Supabase fault during resolve → infra_error, NOT show_not_found", async () => {
-    maybeSingle.mockRejectedValueOnce(new Error("query threw mid-await"));
-    const res = await publishShowAction("slug");
-    expect(publishShow).not.toHaveBeenCalled();
-    expect(res).toEqual({ ok: false, code: "infra_error" });
-  });
-
   it("unarchiveShowAction (void): a resolve infra_error → no-op, does NOT invoke unarchiveShow", async () => {
     maybeSingleResult.value = { data: null, error: { message: "outage" } };
     const res = await unarchiveShowAction("show-x");
     expect(unarchiveShow).not.toHaveBeenCalled();
     expect(res).toBeUndefined();
+  });
+
+  // Task 9: durable forensic telemetry on the committed-success branch only.
+  it("unarchiveShowAction on committed success emits SHOW_UNARCHIVED_BY_ADMIN telemetry exactly once", async () => {
+    maybeSingleResult.value = { data: { id: "show-7", drive_file_id: "drive-7" }, error: null };
+    unarchiveShow.mockResolvedValueOnce({ ok: true } as never);
+
+    await unarchiveShowAction("show-7");
+
+    expect(logAdminOutcome).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcome).toHaveBeenCalledWith({
+      code: "SHOW_UNARCHIVED_BY_ADMIN",
+      source: "admin.show.unarchive",
+      actorEmail: ADMIN_EMAIL,
+      showId: "show-7",
+    });
+  });
+
+  it("unarchiveShowAction does NOT emit telemetry when the RPC refuses (result.ok === false)", async () => {
+    maybeSingleResult.value = { data: { id: "show-8", drive_file_id: "drive-8" }, error: null };
+    unarchiveShow.mockResolvedValueOnce({ ok: false } as never);
+
+    await unarchiveShowAction("show-8");
+
+    expect(logAdminOutcome).not.toHaveBeenCalled();
+  });
+
+  it("unarchiveShowAction does NOT emit telemetry on a resolve no-op (missing show)", async () => {
+    maybeSingleResult.value = { data: null, error: null };
+    await unarchiveShowAction("ghost");
+    expect(logAdminOutcome).not.toHaveBeenCalled();
+  });
+
+  // Task 8: durable forensic telemetry on archive's committed-success branch only.
+  it("archiveShowAction on committed success emits SHOW_ARCHIVED telemetry exactly once", async () => {
+    maybeSingleResult.value = {
+      data: { id: "show-arch-1", drive_file_id: "drive-arch-1" },
+      error: null,
+    };
+    archiveShow.mockResolvedValueOnce({ ok: true } as const);
+
+    await archiveShowAction("slug-arch-1");
+
+    expect(logAdminOutcome).toHaveBeenCalledTimes(1);
+    expect(logAdminOutcome).toHaveBeenCalledWith({
+      code: "SHOW_ARCHIVED",
+      source: "admin.show.archive",
+      actorEmail: ADMIN_EMAIL,
+      showId: "show-arch-1",
+    });
+  });
+
+  it("archiveShowAction does NOT emit telemetry when archiveShow refuses (result.ok === false)", async () => {
+    maybeSingleResult.value = {
+      data: { id: "show-arch-2", drive_file_id: "drive-arch-2" },
+      error: null,
+    };
+    archiveShow.mockResolvedValueOnce({ ok: false, code: "ARCHIVE_BLOCKED" } as never);
+
+    const res = await archiveShowAction("slug-arch-2");
+
+    expect(res).toEqual({ ok: false, code: "ARCHIVE_BLOCKED" });
+    expect(logAdminOutcome).not.toHaveBeenCalled();
+  });
+
+  it("archiveShowAction does NOT emit telemetry on a resolve no-op (missing show)", async () => {
+    maybeSingleResult.value = { data: null, error: null };
+    await archiveShowAction("ghost-arch");
+    expect(logAdminOutcome).not.toHaveBeenCalled();
   });
 });

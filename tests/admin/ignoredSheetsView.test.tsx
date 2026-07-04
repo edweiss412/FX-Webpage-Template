@@ -2,19 +2,19 @@
 /**
  * tests/admin/ignoredSheetsView.test.tsx (Task E2 — spec §6.3)
  *
- * The /admin/ignored-sheets view. Two concerns:
- *   1. loadIgnoredSheets loader: queries the LIVE permanent_ignore partition
- *      (deferred_ingestions WHERE wizard_session_id IS NULL AND
- *      deferred_kind='permanent_ignore') — NOT defer_until_modified, NOT
- *      wizard-scoped rows. A construction / from() throw surfaces as a typed
- *      infra_error (boundary, invariant 9).
- *   2. The page renders the sheet NAME (drive_file_name, fallback to the raw
- *      drive id), a per-row Un-ignore, the empty state, and a fixed degraded
- *      copy on infra_error (no raw code, invariant 5).
+ * The loadIgnoredSheets loader: queries the LIVE permanent_ignore partition
+ * (deferred_ingestions WHERE wizard_session_id IS NULL AND
+ * deferred_kind='permanent_ignore') — NOT defer_until_modified, NOT
+ * wizard-scoped rows. A construction / from() throw surfaces as a typed
+ * infra_error (boundary, invariant 9).
+ *
+ * The RENDER of these rows moved from the former standalone
+ * /admin/ignored-sheets page to the dashboard's collapsed disclosure — covered
+ * by tests/components/admin/ignoredSheetsDisclosure.test.tsx.
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({
   ignoredList: [] as Record<string, unknown>[],
@@ -64,7 +64,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-23T12:00:00.000Z") }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/admin/ignored-sheets",
+  usePathname: () => "/admin",
 }));
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdminIdentity: async () => ({ email: "doug@example.com" }),
@@ -121,40 +121,5 @@ describe("loadIgnoredSheets (Task E2 loader)", () => {
     const result = await loadIgnoredSheets();
     expect(result).toMatchObject({ kind: "infra_error" });
     expect((result as { message: string }).message).toMatch(/deferred_ingestions.*threw/);
-  });
-});
-
-describe("IgnoredSheetsPage render", () => {
-  it("empty state copy when no ignored sheets exist", async () => {
-    state.ignoredList = [];
-    const { default: IgnoredSheetsPage } = await import("@/app/admin/ignored-sheets/page");
-    render(await IgnoredSheetsPage());
-    expect(screen.getByTestId("admin-ignored-sheets-empty")).toHaveTextContent(
-      "No ignored sheets.",
-    );
-  });
-
-  it("renders the sheet NAME (drive_file_name) and a per-row Un-ignore, not the raw drive id", async () => {
-    state.ignoredList = [ignoredRow("drive-xyz", "Acme Roundtable.gsheet")];
-    const { default: IgnoredSheetsPage } = await import("@/app/admin/ignored-sheets/page");
-    render(await IgnoredSheetsPage());
-    expect(screen.getByTestId("ignored-sheet-name-drive-xyz")).toHaveTextContent(
-      "Acme Roundtable.gsheet",
-    );
-    expect(screen.getByTestId("unignore-button-drive-xyz")).toBeInTheDocument();
-  });
-
-  it("falls back to the drive id when drive_file_name is null (A2 column nullable)", async () => {
-    state.ignoredList = [ignoredRow("drive-noname", null)];
-    const { default: IgnoredSheetsPage } = await import("@/app/admin/ignored-sheets/page");
-    render(await IgnoredSheetsPage());
-    expect(screen.getByTestId("ignored-sheet-name-drive-noname")).toHaveTextContent("drive-noname");
-  });
-
-  it("infra_error → fixed degraded copy, never the raw message (invariant 5)", async () => {
-    state.throwOnConstruct = true;
-    const { default: IgnoredSheetsPage } = await import("@/app/admin/ignored-sheets/page");
-    render(await IgnoredSheetsPage());
-    expect(screen.getByTestId("admin-ignored-sheets-degraded")).toBeInTheDocument();
   });
 });

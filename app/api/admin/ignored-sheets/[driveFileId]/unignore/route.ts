@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { ConcurrentSyncSkipped } from "@/lib/sync/lockedShowTx";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
@@ -58,8 +59,9 @@ export async function handleUnignore(
   routeDeps: UnignoreRouteDeps = {},
 ): Promise<Response> {
   const deps = depsWithDefaults(routeDeps);
+  let admin: { email: string };
   try {
-    await deps.requireAdminIdentity();
+    admin = await deps.requireAdminIdentity();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
@@ -79,10 +81,29 @@ export async function handleUnignore(
       }
       await tx.deleteLiveDeferral(driveFileId);
     });
+    // Durable success telemetry (audit finding #15b): the locked tx committed by the time
+    // withRowTx resolved, so this is POST-COMMIT. Fail-open at the callsite (invariant 9); the
+    // failure path already logs IGNORED_SHEET_UNIGNORE_FAILED. actorEmail is canonical
+    // (requireAdminIdentity). Emitted UNCONDITIONALLY — deleteLiveDeferral returns Promise<void>
+    // with no deleted-row count, so an idempotent re-unignore (no live deferral present) also
+    // records a row; adding a RETURNING count would require changing the SyncPipelineTx interface +
+    // its concrete impl + all callers (invasive), so a benign duplicate audit row on a no-op is the
+    // accepted trade (brief §E).
+    try {
+      await logAdminOutcome({
+        code: "IGNORED_SHEET_UNIGNORED",
+        source: "api.admin.ignoredSheets.unignore",
+        actorEmail: admin.email,
+        driveFileId,
+      });
+    } catch {
+      /* best-effort */
+    }
     return NextResponse.json({ status: "unignored" });
   } catch (error) {
     log.error("un-ignore: unexpected failure", {
       source: "api.admin.ignoredSheets.unignore",
+      code: "IGNORED_SHEET_UNIGNORE_FAILED",
       error,
     });
     return errorResponse(500, "SYNC_INFRA_ERROR");

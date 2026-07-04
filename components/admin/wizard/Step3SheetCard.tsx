@@ -200,6 +200,29 @@ function RescanReviewBanner({ dfid, wizardSessionId }: { dfid: string; wizardSes
   );
 }
 
+/**
+ * audit idx39/#180: the minimal "needs attention — not publishable" indicator for a
+ * row demoted by a NON-RESCAN finalize failure code (DRIVE_FETCH_FAILED,
+ * STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …). The publish checkbox
+ * is suppressed for these (matching Step3Review.selectableRows + the server /approve
+ * refusal), so this note replaces it and tells the operator the row can't be published
+ * as-is. Plain-English only (invariant 5 — never the raw §12.4 code). Shares the warm
+ * warning treatment (warning-bg + strong border + icon) with RescanReviewBanner; no
+ * reapply link, since recovery for these codes flows through the next scan, not a
+ * per-item reapply choice.
+ */
+function NotPublishableNote({ dfid }: { dfid: string }) {
+  return (
+    <div
+      data-testid={`wizard-step3-card-${dfid}-not-publishable`}
+      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+    >
+      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <p className="text-sm font-medium">This sheet needs attention before it can be published.</p>
+    </div>
+  );
+}
+
 export function Step3SheetCard({
   row,
   wizardSessionId,
@@ -224,6 +247,13 @@ export function Step3SheetCard({
   // "review before publishing" state (banner + reapply link), and its publish checkbox
   // is suppressed (the checkbox cannot safely clear this code).
   const isDirtyRescan = row.lastFinalizeFailureCode === RESCAN_REVIEW_REQUIRED;
+  // audit idx39/#180: a row demoted by ANY finalize failure code (DRIVE_FETCH_FAILED,
+  // STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …) is NOT publish-ready —
+  // Step3Review.selectableRows already excludes every row with a `lastFinalizeFailureCode`
+  // from Select-all and the "N of M" count, and the server /approve refuses it. So the
+  // publish checkbox is suppressed for EVERY demoted code (not just RESCAN); otherwise the
+  // card would show an enabled checkbox the count/Select-all never touch (an inconsistency).
+  const isFinalizeDemoted = row.lastFinalizeFailureCode != null;
   // The review modal is self-managed per card: "More" opens it, the modal
   // closes itself (Escape / scrim / drag / close button / successful publish).
   // It is a MODAL, so only one is ever open at a time (the scrim covers the
@@ -355,6 +385,11 @@ export function Step3SheetCard({
       {/* Task 5b: a dirty re-scan demotes the row — the review-before-publishing
           banner leads the card and the publish checkbox below is suppressed. */}
       {isDirtyRescan ? <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} /> : null}
+      {/* audit idx39/#180: a non-RESCAN finalize-demoted row also has its checkbox
+          suppressed — surface a minimal "needs attention — not publishable" note so the
+          card doesn't read as a normal, checkable publish card. Mutually exclusive with
+          the RESCAN banner above. */}
+      {!isDirtyRescan && isFinalizeDemoted ? <NotPublishableNote dfid={dfid} /> : null}
       {/* Header row: a reserved leading slot (D3 checkbox lands here) + the
           summary text block. The slot is shrink-0; the block is min-w-0 flex-1
           so a long title truncates instead of overflowing the fixed-width
@@ -362,10 +397,11 @@ export function Step3SheetCard({
       <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
         {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
             long title (min-w-0 flex-1 below) truncates instead of squeezing it.
-            Task 5b: suppressed for a dirty re-scan row (the checkbox /approve cannot
-            safely clear RESCAN_REVIEW_REQUIRED — recovery flows through the reapply
-            page via the banner above). */}
-        {isDirtyRescan ? null : (
+            Suppressed for ANY finalize-demoted row (audit idx39/#180): a dirty re-scan
+            routes through the reapply page (banner above); any other demoted code is
+            simply not publishable (note above). Either way the server /approve refuses
+            it and selectableRows excludes it, so the box must not render. */}
+        {isFinalizeDemoted ? null : (
           <PublishCheckbox
             // Purely controlled by the card in BOTH modes (spec §9.2): the
             // checked state is the shared optimistic overlay (controlled) or

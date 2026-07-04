@@ -82,8 +82,9 @@
 | Test Pattern | 16 x 9 Test Pattern |
 | Fonts | Aptos Font Folder |
 
-| GS Setup | Currently sitting at 17 pods of 7 for both programs. 5 chairs on the stage plus a podium. |
+| GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor | GENERAL SESSION LAKEVIEW BALLROOM 61' x 55' x 11' 7th Floor |
 | :---: | :---: |
+| GS Setup | Currently sitting at 17 pods of 7 for both programs. 5 chairs on the stage plus a podium. |
 | GS Set Time | 5/12 @ 6:30 AM |
 | GS Show Time | 5/13 @ 8:00 AM |
 | GS Strike Time | 5/14 @ 5:00 PM |
@@ -98,7 +99,7 @@
 | Digital Signage | N/A |
 | :---: | :---: |
 
-| BREAKOUT&#10;LASALLE A | BREAKOUT&#10;LASALLE A |
+| BREAKOUT LASALLE A | BREAKOUT LASALLE A |
 | :---: | :---: |
 | BO Setup | Theater set up, no audio needed but TBD on projector and screen. We will know closer to the date.&#10;&#10;*GETS RESET ON  5/13 AFTERWARDS TO COMBINED ROOM |
 | BO Set Time | 5/13 @ 6:30 AM |

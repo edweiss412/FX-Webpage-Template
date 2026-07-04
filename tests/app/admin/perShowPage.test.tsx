@@ -6,6 +6,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
+import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 
 const state = vi.hoisted(() => ({
   show: {} as Record<string, unknown>,
@@ -35,6 +36,8 @@ const state = vi.hoisted(() => ({
   showsInternal: null as Record<string, unknown> | null,
   throwOnFromTable: null as string | null,
   errorOnFromTable: null as string | null,
+  // ignored_warnings.fingerprint rows returned by loadIgnoredWarnings (data-quality ignore).
+  ignoredFingerprints: [] as string[],
 }));
 
 // Async Server Component children can't be client-rendered by RTL — stub them.
@@ -125,7 +128,13 @@ vi.mock("@/lib/supabase/server", () => ({
       });
       (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
         const data =
-          table === "crew_members" ? state.crew : table === "pending_syncs" ? state.pending : [];
+          table === "crew_members"
+            ? state.crew
+            : table === "pending_syncs"
+              ? state.pending
+              : table === "ignored_warnings"
+                ? state.ignoredFingerprints.map((f) => ({ fingerprint: f }))
+                : [];
         return onf({ data: tableError ? null : data, error: tableError });
       };
       return builder;
@@ -190,6 +199,7 @@ beforeEach(() => {
   state.showsInternal = null;
   state.throwOnFromTable = null;
   state.errorOnFromTable = null;
+  state.ignoredFingerprints = [];
 });
 afterEach(() => {
   cleanup();
@@ -698,6 +708,52 @@ describe("per-show Data quality panel (Task 12, §6.5)", () => {
   });
 });
 
+describe("per-show Data quality: Report + Ignore (Task 13)", () => {
+  const actionableW = {
+    severity: "warn" as const,
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized venue row label: 'Storage'",
+    rawSnippet: "Storage | back dock",
+    sourceCell: { title: "STAGE", gid: 5, a1: "B12" },
+  };
+
+  it("actionable warning renders active by default; no Ignored subsection", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    await renderPage();
+    expect(screen.getByTestId("per-show-data-quality")).toBeInTheDocument();
+    expect(screen.getByTestId("per-show-actionable-warnings")).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-ignored-warnings")).toBeNull();
+  });
+
+  it("AC-3/AC-9: an ignored-fingerprint warning moves into the Ignored (N) subsection; panel still renders", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    // fingerprint derived from the fixture (anti-tautology — not hardcoded)
+    state.ignoredFingerprints = [
+      warningFingerprint({ code: actionableW.code, rawSnippet: actionableW.rawSnippet })!,
+    ];
+    await renderPage();
+    // panel present even though the only warning is ignored (AC-9)
+    const panel = screen.getByTestId("per-show-data-quality");
+    expect(panel).toBeInTheDocument();
+    const details = screen.getByTestId("per-show-ignored-warnings");
+    expect(screen.getByTestId("per-show-ignored-summary").textContent).toMatch(/Ignored \(1\)/);
+    // the warning renders INSIDE the ignored subsection (scoped — anti-tautology)
+    expect(within(details).getByTestId("per-show-actionable-item")).toBeInTheDocument();
+    // ...and there is NO separate active list outside the details
+    const lists = screen.getAllByTestId("per-show-actionable-warnings");
+    expect(lists).toHaveLength(1);
+    expect(details).toContainElement(lists[0]!);
+  });
+
+  it("AC-7: loadIgnoredWarnings infra_error → warning stays VISIBLE as active (fail toward visible)", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    state.errorOnFromTable = "ignored_warnings"; // the ignore read returns an error
+    await renderPage();
+    expect(screen.getByTestId("per-show-actionable-warnings")).toBeInTheDocument();
+    expect(screen.queryByTestId("per-show-ignored-warnings")).toBeNull();
+  });
+});
+
 describe("AdminShowPage — Data quality: legacy UNKNOWN_FIELD anchors (Part D)", () => {
   it("legacy A55-range UNKNOWN_FIELD pair renders 2 items with NO Open-in-Sheet link", async () => {
     state.showsInternal = {
@@ -724,5 +780,100 @@ describe("AdminShowPage — Data quality: legacy UNKNOWN_FIELD anchors (Part D)"
     // PerShowActionableWarnings renders the stale A55 link → this fails.
     expect(within(panel).getAllByTestId("per-show-actionable-item")).toHaveLength(2);
     expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
+  });
+});
+
+// DQIGNORE-1 — the plain-text data-gap digest (UNKNOWN_SECTION_HEADER,
+// BLOCK_DISAPPEARED) now renders through the SAME per-warning card +
+// DataQualityWarningControls slot as the operator-actionable warnings, so an
+// operator can Report every data-quality warning and Ignore the ones that carry
+// a content fingerprint. UNKNOWN_SECTION_HEADER carries a rawSnippet (the header
+// text) → ignorable; BLOCK_DISAPPEARED carries no rawSnippet → Report-only.
+describe("per-show Data quality: digest-group Report/Ignore (DQIGNORE-1)", () => {
+  const unknownSection = {
+    severity: "warn" as const,
+    code: "UNKNOWN_SECTION_HEADER",
+    message: 'Unrecognized section "Craft Services" — its rows were not parsed.',
+    rawSnippet: "Craft Services",
+    blockRef: { kind: "unknown_section" },
+  };
+  const blockDisappeared = {
+    severity: "warn" as const,
+    code: "BLOCK_DISAPPEARED",
+    message: "The Hotel section was present last time but is now empty — 3 entries dropped.",
+    blockRef: { kind: "hotel" },
+  };
+
+  it("UNKNOWN_SECTION_HEADER renders as a card with BOTH Report and Ignore controls (ignorable)", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [unknownSection] };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-data-quality");
+    // Rendered as a per-warning card (not the old plain-text digest <li>).
+    const card = within(panel).getByTestId("per-show-actionable-item");
+    expect(card.textContent).toContain("Craft Services");
+    // Report control present…
+    expect(within(card).getByTestId("report-button-trigger")).toBeInTheDocument();
+    // …and an Ignore control, because it carries a content rawSnippet.
+    expect(within(card).getByRole("button", { name: "Ignore" })).toBeInTheDocument();
+    // The old plain-text digest item is gone.
+    expect(within(panel).queryByTestId("per-show-data-quality-item")).toBeNull();
+  });
+
+  it("BLOCK_DISAPPEARED renders as a card with Report but NO Ignore (no content fingerprint)", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [blockDisappeared] };
+    await renderPage();
+    const panel = screen.getByTestId("per-show-data-quality");
+    const card = within(panel).getByTestId("per-show-actionable-item");
+    expect(card.textContent).toContain("Hotel section was present last time");
+    expect(within(card).getByTestId("report-button-trigger")).toBeInTheDocument();
+    // Not fingerprintable → no Ignore affordance (Report-only).
+    expect(within(card).queryByRole("button", { name: "Ignore" })).toBeNull();
+  });
+
+  it("an ignored UNKNOWN_SECTION_HEADER digest warning moves into the Ignored (N) subsection", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [unknownSection] };
+    // fingerprint derived from the fixture (anti-tautology — not hardcoded).
+    state.ignoredFingerprints = [
+      warningFingerprint({ code: unknownSection.code, rawSnippet: unknownSection.rawSnippet })!,
+    ];
+    await renderPage();
+    const details = screen.getByTestId("per-show-ignored-warnings");
+    expect(screen.getByTestId("per-show-ignored-summary").textContent).toMatch(/Ignored \(1\)/);
+    // The digest warning renders INSIDE the ignored subsection (scoped — anti-tautology).
+    expect(within(details).getByTestId("per-show-actionable-item").textContent).toContain(
+      "Craft Services",
+    );
+  });
+});
+
+// DQIGNORE-2 — bulk "Ignore all N of this type": a per-code control appears above the
+// active cards when a code has >=2 distinct-content ignorable active warnings.
+describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => {
+  // No sourceCell → operatorActionableWarnings never dedups these, so two distinct
+  // rawSnippets stay two active cards (the bulk threshold).
+  const uf = (raw: string) => ({
+    severity: "warn" as const,
+    code: "UNKNOWN_FIELD",
+    message: `Unrecognized event_details row label: '${raw}'`,
+    rawSnippet: raw,
+  });
+
+  it("shows an 'Ignore all N' control when a code has >=2 distinct-content active warnings", async () => {
+    state.showsInternal = {
+      show_id: "s1",
+      parse_warnings: [uf("Storage | dock"), uf("Floor Plan | link")],
+    };
+    await renderPage();
+    const btn = screen.getByTestId("dq-bulk-ignore-UNKNOWN_FIELD");
+    expect(btn.textContent).toMatch(/Ignore all 2/);
+    // Plain-language type label (catalog title), never the raw §12.4 code (invariant 5).
+    expect(btn.textContent).toContain("Unrecognized row in sheet");
+    expect(btn.textContent).not.toContain("UNKNOWN_FIELD");
+  });
+
+  it("does NOT show a bulk control for a lone warning of a type", async () => {
+    state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
+    await renderPage();
+    expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull();
   });
 });

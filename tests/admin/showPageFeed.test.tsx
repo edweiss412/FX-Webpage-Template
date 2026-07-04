@@ -9,8 +9,10 @@
 //      re-reads the hold's base time) instead of forwarding the feed-rendered token.
 import { afterEach, expect, it, vi } from "vitest";
 
-const requireAdmin = vi.fn(async () => undefined);
-vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: () => requireAdmin() }));
+const requireAdminIdentity = vi.fn(async () => ({ email: "admin@example.com" }));
+vi.mock("@/lib/auth/requireAdmin", () => ({
+  requireAdminIdentity: () => requireAdminIdentity(),
+}));
 const revalidateTag = vi.fn();
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
@@ -95,11 +97,11 @@ it("undoChangeAction forwards changeLogId to the undo helper", async () => {
   expect(spy).toHaveBeenCalledWith("cl-9");
 });
 
-it("requireAdmin gates every action (called before delegation)", async () => {
-  requireAdmin.mockClear();
+it("requireAdminIdentity gates every action (called before delegation)", async () => {
+  requireAdminIdentity.mockClear();
   vi.spyOn(gate, "approveMi11Hold").mockResolvedValue({ ok: true });
   const fd = new FormData();
   fd.set("holdId", "h1");
   await mi11ApproveAction(null, fd);
-  expect(requireAdmin).toHaveBeenCalled();
+  expect(requireAdminIdentity).toHaveBeenCalled();
 });

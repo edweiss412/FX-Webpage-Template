@@ -22,6 +22,7 @@ import { type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
+import { ShowsTableHeading } from "@/components/admin/ShowsTableHeading";
 import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import { DashboardBucketSegmentedControl } from "@/components/admin/DashboardBucketSegmentedControl";
 import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
@@ -33,6 +34,10 @@ import { resolveShowTimezone } from "@/lib/time/showTimezone";
 import { isShowLiveOnDate } from "@/lib/time/showSpan";
 import { RENDER_CAP, type NeedsAttention } from "@/lib/admin/needsAttention";
 import { loadNeedsAttention } from "@/lib/admin/loadNeedsAttention";
+import { loadIgnoredSheets, type IgnoredSheetRow } from "@/lib/admin/loadIgnoredSheets";
+import { IgnoredSheetsDisclosure } from "@/components/admin/IgnoredSheetsDisclosure";
+import { UnignoreButton } from "@/components/admin/UnignoreButton";
+import { formatRelative } from "@/lib/admin/showDisplay";
 
 // V7 — pinned literals, chosen ≫ FXAV scale and < PostgREST's ~1000 row cap.
 export const ACTIVE_SHOWS_CAP = 500;
@@ -64,6 +69,13 @@ export type DashboardData = {
   statsScope: "global" | "shown";
   overflowCount: number;
   needsAttention: NeedsAttention;
+  // Durably-ignored sheets (permanent_ignore partition), rendered in a
+  // collapsed-by-default disclosure below the main shows table. Loaded via the
+  // shared loadIgnoredSheets helper (its own registered infra boundary). A
+  // NON-FATAL surface: an infra fault here degrades only the disclosure
+  // (ignoredDegraded=true, empty rows), never the whole dashboard.
+  ignoredSheets: IgnoredSheetRow[];
+  ignoredDegraded: boolean;
 };
 
 type DatesJson = {
@@ -338,18 +350,28 @@ export async function fetchDashboardData(
   // loader (lib/admin/loadNeedsAttention.ts) reuses the injected client. Each
   // wave member keeps its own boundary discrimination; a typed infra_error from
   // any one short-circuits the dashboard below.
-  const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds] = await Promise.all([
-    readCrewTotal(),
-    readCrewCounts(),
-    loadNeedsAttention({ cap: RENDER_CAP, supabase }),
-    readFinalizeOwned(),
-  ]);
+  const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds, ignoredResult] =
+    await Promise.all([
+      readCrewTotal(),
+      readCrewCounts(),
+      loadNeedsAttention({ cap: RENDER_CAP, supabase }),
+      readFinalizeOwned(),
+      // Non-fatal secondary surface (§ ignored disclosure): reuse the shared
+      // loadIgnoredSheets boundary with the injected client so it fans out in
+      // this same wave. Its infra_error is handled locally (degrade) — NOT the
+      // dashboard-wide short-circuit the crew/needs-attention faults trigger.
+      loadIgnoredSheets({ supabase }),
+    ]);
 
   if (isInfra(crewTotalResult)) return crewTotalResult;
   if (isInfra(crewCountsResult)) return crewCountsResult;
   if ("kind" in na) return na;
   const crewTotal = crewTotalResult;
   const crewCountByShow = crewCountsResult;
+  // Ignored sheets degrade in place: on infra_error the disclosure shows fixed
+  // catalog-safe copy (invariant 5) rather than failing the whole dashboard.
+  const ignoredSheets = ignoredResult.kind === "ok" ? ignoredResult.rows : [];
+  const ignoredDegraded = ignoredResult.kind === "infra_error";
 
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
@@ -392,11 +414,21 @@ export async function fetchDashboardData(
     statsScope,
     overflowCount,
     needsAttention: na,
+    ignoredSheets,
+    ignoredDegraded,
   };
 }
 
-export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
+export async function Dashboard(
+  options: { bucket?: DashboardBucket; folderName?: string | null } = {},
+) {
   const bucket: DashboardBucket = options.bucket === "archived" ? "archived" : "active";
+  // The main shows table is titled with the watched Drive folder name (e.g.
+  // "fxav-test-shows") rather than a generic "Active shows"/"Archived shows"
+  // label — the segmented control + count chip carry the bucket state. Falls
+  // back to the bucket label when the folder name is unset (pre-onboarding or a
+  // degraded settings read).
+  const folderName = options.folderName?.trim() ? options.folderName.trim() : null;
   // nav-perf phase 1: resolve `now` ONCE for the whole render path and thread it
   // into the data layer (was awaited again inside fetchDashboardData) so the
   // dashboard never round-trips nowDate() twice per request.
@@ -475,8 +507,8 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           {result.bucket === "archived" ? (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold text-text-strong">Archived shows</h3>
+                <div className="flex min-w-0 items-end gap-2">
+                  <ShowsTableHeading folderName={folderName} fallbackLabel="Archived shows" />
                   <span
                     data-testid="shows-count-chip"
                     className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
@@ -538,7 +570,7 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
               now={now}
               activeCount={result.activeCount}
               overflowCount={result.overflowCount}
-              title="Active shows"
+              heading={<ShowsTableHeading folderName={folderName} fallbackLabel="Active shows" />}
               bucketControl={
                 <DashboardBucketSegmentedControl
                   bucket={result.bucket}
@@ -594,6 +626,80 @@ export async function Dashboard(options: { bucket?: DashboardBucket } = {}) {
           </div>
         </section>
       </div>
+
+      {/* Ignored sheets — a collapsed-by-default disclosure table below the main
+          shows table (replaces the former standalone /admin/ignored-sheets page
+          + nav item). ALWAYS rendered (collapsed), so the header + its help
+          affordance stay a stable, discoverable surface on /admin; the list +
+          per-row Un-ignore are server-rendered and mounted only once expanded.
+          Collapsed it is a single calm row: "▸ Ignored sheets (N)". */}
+      <IgnoredSheetsDisclosure
+        count={result.ignoredSheets.length}
+        degraded={result.ignoredDegraded}
+        help={
+          <HoverHelp
+            label="Help: Ignored sheets"
+            testId="ignored-sheets-help"
+            rootTestId="help-affordance--ignored-sheets-page--tooltip"
+            learnMore={{ href: "/help/admin/onboarding-wizard#ignored-sheets" }}
+          >
+            <p>
+              Sheets you ignored during setup or review. The sync skips them entirely. Un-ignore one
+              to let it back in on the next scan.
+            </p>
+          </HoverHelp>
+        }
+      >
+        {result.ignoredDegraded ? (
+          <p
+            data-testid="admin-ignored-sheets-degraded"
+            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+          >
+            We could not load this list right now. This is usually temporary. Refresh in a moment.
+            If it keeps happening, contact the developer.
+          </p>
+        ) : result.ignoredSheets.length === 0 ? (
+          <div
+            data-testid="admin-ignored-sheets-empty"
+            className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+          >
+            <p className="font-semibold text-text-strong">No ignored sheets.</p>
+            <p>Sheets you ignore during setup or review will appear here.</p>
+          </div>
+        ) : (
+          <ul
+            data-testid="ignored-sheets-list"
+            className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface"
+          >
+            {result.ignoredSheets.map((row) => {
+              const name = row.driveFileName ?? row.driveFileId;
+              return (
+                <li
+                  key={row.driveFileId}
+                  data-testid={`ignored-sheet-row-${row.driveFileId}`}
+                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span
+                      data-testid={`ignored-sheet-name-${row.driveFileId}`}
+                      className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong"
+                    >
+                      {name}
+                    </span>
+                    <span className="wrap-break-word text-sm text-text-subtle">
+                      Ignored {formatRelative(row.deferredAt, now)}
+                      {row.deferredByEmail ? ` by ${row.deferredByEmail}` : null}
+                    </span>
+                  </div>
+                  <div className="shrink-0">
+                    <UnignoreButton driveFileId={row.driveFileId} />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </IgnoredSheetsDisclosure>
 
       <DashboardFooter />
     </main>

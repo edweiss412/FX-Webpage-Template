@@ -226,6 +226,28 @@ describe("mergeGearIntoRooms — name-token match, NOT breakout index (R1-HIGH)"
     expect(merged[0]!.audio).toBe("INFO-AUDIO"); // not clobbered
     expect(merged[0]!.video).toBe("GEAR-VIDEO"); // filled (was null)
   });
+  it("hide-set sentinel INFO column is fillable: 'N/A' is replaced by the real GEAR value (audit idx37/#173)", () => {
+    // failure mode: a hide-set sentinel ("N/A") stored verbatim in a room's INFO
+    // gear column is treated as non-null → blocks the GEAR-tab fill; the render
+    // layer then HIDES the sentinel, so the real GEAR-parsed gear is silently
+    // dropped and the crew page shows no audio at all.
+    const info = [{ ...emptyRoom("gs", "GRAND BALLROOM"), audio: "N/A" }];
+    const gear = [
+      {
+        kind: "gs" as const,
+        name: "GRAND BALLROOM",
+        audio: "GEAR-REAL-AUDIO",
+        video: null,
+        lighting: null,
+        scenic: null,
+        other: null,
+      },
+    ];
+    const merged = mergeGearIntoRooms(info, gear);
+    // sentinel replaced by the real GEAR value (derived from the gear fixture above)
+    expect(merged[0]!.audio).toBe("GEAR-REAL-AUDIO");
+    expect(merged[0]!.audio).not.toBe("N/A");
+  });
   it("appended FOYER room (no INFO peer) has gear but null times → no schedule bookend", () => {
     const merged = mergeGearIntoRooms(
       [],

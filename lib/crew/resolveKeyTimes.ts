@@ -1,6 +1,13 @@
-import type { DateRestriction, RunOfShow, ShowAnchor, ShowRow } from "@/lib/parser/types";
+import type {
+  DateRestriction,
+  RunOfShow,
+  ShowAnchor,
+  ShowRow,
+  StageRestriction,
+} from "@/lib/parser/types";
 import type { RoomRow } from "@/lib/parser/types";
 import { visibleShowDays } from "@/lib/crew/agendaDisplay";
+import { TERMINAL_RE } from "@/lib/parser/blocks/scheduleTimes";
 
 /** ShowForViewer.rooms element type: a parsed RoomRow plus its DB PK. */
 export type ProjectedRoomRow = RoomRow & { id: string };
@@ -91,28 +98,44 @@ export function resolveKeyTimes(
   rooms: ProjectedRoomRow[] | null,
   runOfShow: RunOfShow | null,
   dateRestriction: DateRestriction,
+  // Stage-filtered schedule (#248): Set/Strike anchors are day-list-independent, so
+  // they are gated by the viewer's stage_restriction. Optional + default "none" keeps
+  // every existing 4-arg caller and date-restricted-but-not-stage-restricted crew
+  // unchanged (both booleans true). See spec §3.4.
+  stageRestriction: StageRestriction = { kind: "none" },
 ): KeyTimeAnchors {
   // unknown_asterisk → whole strip suppressed (zero date leak). Short-circuit BEFORE table.
   if (dateRestriction.kind === "unknown_asterisk") return {};
 
   const anchors: KeyTimeAnchors = {};
 
+  const worksFrontEnd =
+    stageRestriction.kind === "none" ||
+    stageRestriction.stages.some((s) => s === "Load In" || s === "Set");
+  const worksBackEnd =
+    stageRestriction.kind === "none" ||
+    stageRestriction.stages.some((s) => s === "Strike" || s === "Load Out");
+
   // Deterministic room pick: gs preferred via kind rank; else first in total order.
   const sorted = (rooms ?? []).slice().sort(compareRooms);
   const selected = sorted[0] ?? null;
 
   // Set (D3): compose dates.set (M/D) + loadIn when clock non-sentinel; else bare loadIn;
-  // else GS room set_time; else omit. Rooms-INDEPENDENT (wp-23).
-  const loadIn = show.dates.loadIn;
-  if (!isAbsentTime(loadIn)) {
-    const clock = (loadIn as string).trim();
-    anchors.set = show.dates.set ? `${formatMD(show.dates.set)} @ ${clock}` : clock;
-  } else if (selected && !isAbsentTime(selected.set_time)) {
-    anchors.set = (selected.set_time as string).trim();
+  // else GS room set_time; else omit. Rooms-INDEPENDENT (wp-23). Gated on a front-end
+  // phase (Load In / Set) — a Load Out/Strike-only crew must not see the Set time.
+  if (worksFrontEnd) {
+    const loadIn = show.dates.loadIn;
+    if (!isAbsentTime(loadIn)) {
+      const clock = (loadIn as string).trim();
+      anchors.set = show.dates.set ? `${formatMD(show.dates.set)} @ ${clock}` : clock;
+    } else if (selected && !isAbsentTime(selected.set_time)) {
+      anchors.set = (selected.set_time as string).trim();
+    }
   }
 
-  // Strike: unchanged — selected-room strike_time, sentinel-guarded.
-  if (selected && !isAbsentTime(selected.strike_time)) {
+  // Strike: selected-room strike_time, sentinel-guarded. Gated on a back-end phase
+  // (Strike / Load Out) — a Load In/Set-only crew must not see the Strike time.
+  if (worksBackEnd && selected && !isAbsentTime(selected.strike_time)) {
     anchors.strike = (selected.strike_time as string).trim();
   }
 
@@ -131,14 +154,18 @@ export function resolveKeyTimes(
 
     if (day) {
       // Rows 1-3: sentinel-guarded candidate loop (showStart > window.start >
-      // first NON-synthetic entry's start). Synthetic bookend entries
-      // (kind:"strike"/"loadout", D12) are skipped so a load-out/strike clock
-      // is never mistaken for a show-start anchor.
+      // first NON-synthetic, NON-terminal entry's start). Synthetic bookend
+      // entries (kind:"strike"/"loadout", D12) AND terminal-titled entries
+      // (wrap/conclusion/adjourn — TERMINAL_RE, matching the parser's showStart
+      // guard) are skipped so an END clock is never mistaken for a show-start
+      // anchor (design 4.1 step 6: terminal-only day -> room show_time / omit).
       // Each candidate is checked via isAbsentTime before becoming ShowAnchor.time.
       for (const cand of [
         day.showStart,
         day.window?.start,
-        day.entries.find((e) => e.kind !== "strike" && e.kind !== "loadout")?.start,
+        day.entries.find(
+          (e) => e.kind !== "strike" && e.kind !== "loadout" && !TERMINAL_RE.test(e.title),
+        )?.start,
       ]) {
         if (!isAbsentTime(cand)) {
           time = (cand as string).trim();

@@ -65,11 +65,21 @@ export async function validateGoogleSession(
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
-  } catch {
-    await log.error("google session validation failed", {
-      source: "auth/validateGoogleSession",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+  } catch (err) {
+    // Finding #4: pass `error:` (serializeError → name/message/stack) + a
+    // `stage:` discriminator so distinct infra faults are distinguishable in
+    // app_events. Invariant 9 (finding #20): best-effort emit so a logger
+    // throw can't reject over the terminal_failure caller.
+    try {
+      await log.error("google session validation failed", {
+        source: "auth/validateGoogleSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        stage: "client_construction_threw",
+        error: err,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return {
       kind: "terminal_failure",
       status: 500,
@@ -88,11 +98,17 @@ export async function validateGoogleSession(
     const r = await supabase.auth.getUser();
     userResult = r.data;
     userError = r.error;
-  } catch {
-    await log.error("google session validation failed", {
-      source: "auth/validateGoogleSession",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+  } catch (err) {
+    try {
+      await log.error("google session validation failed", {
+        source: "auth/validateGoogleSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        stage: "get_user_threw",
+        error: err,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return {
       kind: "terminal_failure",
       status: 500,
@@ -109,10 +125,16 @@ export async function validateGoogleSession(
     // auth chain that fell to denied/no_credentials → 401,
     // recreating the exact infra-as-auth masking class R15 was meant
     // to eliminate. Surface as terminal_failure 500.
-    await log.error("google session validation failed", {
-      source: "auth/validateGoogleSession",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+    try {
+      await log.error("google session validation failed", {
+        source: "auth/validateGoogleSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        stage: "get_user_returned_error",
+        error: userError,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return {
       kind: "terminal_failure",
       status: 500,
@@ -141,10 +163,16 @@ export async function validateGoogleSession(
       .eq("show_id", context.showId)
       .eq("email", email)) as { data: CrewMemberEmailRow[] | null; error: unknown };
     if (result.error) {
-      await log.error("google session validation failed", {
-        source: "auth/validateGoogleSession",
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
+      try {
+        await log.error("google session validation failed", {
+          source: "auth/validateGoogleSession",
+          code: "ADMIN_SESSION_LOOKUP_FAILED",
+          stage: "crew_lookup_returned_error",
+          error: result.error,
+        });
+      } catch {
+        /* best-effort: logging must never throw over the caller */
+      }
       return {
         kind: "terminal_failure",
         status: 500,
@@ -152,11 +180,17 @@ export async function validateGoogleSession(
       };
     }
     crewRows = result.data;
-  } catch {
-    await log.error("google session validation failed", {
-      source: "auth/validateGoogleSession",
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+  } catch (err) {
+    try {
+      await log.error("google session validation failed", {
+        source: "auth/validateGoogleSession",
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+        stage: "crew_lookup_threw",
+        error: err,
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return {
       kind: "terminal_failure",
       status: 500,
@@ -179,11 +213,17 @@ export async function validateGoogleSession(
         email,
         crewMemberIds: rows.map((row) => row.id),
       });
-    } catch {
-      await log.error("google session validation failed", {
-        source: "auth/validateGoogleSession",
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
+    } catch (err) {
+      try {
+        await log.error("google session validation failed", {
+          source: "auth/validateGoogleSession",
+          code: "ADMIN_SESSION_LOOKUP_FAILED",
+          stage: "ambiguous_alert_threw",
+          error: err,
+        });
+      } catch {
+        /* best-effort: logging must never throw over the caller */
+      }
       return {
         kind: "terminal_failure",
         status: 500,

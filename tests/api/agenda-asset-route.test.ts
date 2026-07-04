@@ -10,6 +10,7 @@
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { LogRecord } from "@/lib/log/types";
 
 const showId = "55555555-5555-4555-8555-555555555555";
 const agendaFileId = "1AgendaFileId_abc-123";
@@ -308,6 +309,19 @@ async function headAgenda(
     : new NextRequest(url);
   return HEAD(req, { params: Promise.resolve({ show: showId, id: fileId }) });
 }
+
+// Task 5: capture emitted log records. Set the sink on the SAME post-reset
+// @/lib/log instance the route imports (dynamic import AFTER the resetModules
+// beforeEach above). A synchronous sink also spares every 500 test the
+// default-sink persist path.
+let assetLogRecords: LogRecord[] = [];
+beforeEach(async () => {
+  assetLogRecords = [];
+  const { setLogSink } = await import("@/lib/log");
+  setLogSink((record) => {
+    assetLogRecords.push(record);
+  });
+});
 
 describe("/api/asset/agenda/[show]/[id]", () => {
   test("rejects unauthenticated requests before any Drive call", async () => {
@@ -839,5 +853,122 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(postGetOptions?.headers).toBeUndefined();
     const body = new TextDecoder().decode(new Uint8Array(await get.arrayBuffer()));
     expect(body).toBe("%PDF-1.7 fixture bytes");
+  });
+});
+
+describe("/api/asset/agenda/[show]/[id] — infra-500 logging (Task 5)", () => {
+  const infraErrors = () =>
+    assetLogRecords.filter((r) => r.level === "error" && r.source === "api.asset.agenda");
+
+  test("GET infra fault emits log.error carrying the route's infra code", async () => {
+    routeMock.driveError = Object.assign(new Error("kaboom"), { code: 500 });
+    const res = await getAgenda();
+    expect(res.status).toBe(500);
+    // Derive the expected code from the 500 body (the infraError param) —
+    // never hardcode; the log code MUST equal the body's error code.
+    const body = (await res.json()) as { error: string };
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.code).toBe(body.error);
+    expect(emitted[0]!.code).toBe("AGENDA_ASSET_LOOKUP_FAILED");
+  });
+
+  test("HEAD infra fault emits the same log.error", async () => {
+    routeMock.driveError = Object.assign(new Error("kaboom"), { code: 500 });
+    const res = await headAgenda();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.code).toBe("AGENDA_ASSET_LOOKUP_FAILED");
+  });
+
+  test("benign Drive-404 (deleted file) → 410 and does NOT emit an infra log.error", async () => {
+    routeMock.driveError = Object.assign(new Error("not found"), { code: 404 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(infraErrors()).toEqual([]);
+  });
+
+  // Findings #8/#14: the infra 500 must carry showId + assetKey + a serialized error.
+  test("finding #8/#14: GET infra fault carries showId + assetKey + serialized error", async () => {
+    routeMock.driveError = Object.assign(new Error("kaboom"), { code: 500 });
+    const res = await getAgenda();
+    expect(res.status).toBe(500);
+    const emitted = infraErrors();
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.showId).toBe(showId);
+    expect(emitted[0]!.context).toMatchObject({ assetKey: agendaFileId });
+    expect(emitted[0]!.context).toHaveProperty("error");
+  });
+});
+
+describe("/api/asset/agenda — ASSET_UNAVAILABLE breadcrumb (finding #8)", () => {
+  const breadcrumbs = () =>
+    assetLogRecords.filter(
+      (r) =>
+        r.level === "info" && r.code === "ASSET_UNAVAILABLE" && r.source === "api.asset.agenda",
+    );
+
+  test("debuggable 410 (Drive metadata 404 → gone) emits reason=not_found + showId + assetKey", async () => {
+    routeMock.driveError = Object.assign(new Error("not found"), { code: 404 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    const crumbs = breadcrumbs();
+    expect(crumbs).toHaveLength(1);
+    expect(crumbs[0]!.showId).toBe(showId);
+    expect(crumbs[0]!.context).toMatchObject({ reason: "not_found", assetKey: agendaFileId });
+  });
+
+  test("debuggable 410 (permission denied) emits reason=permission_denied", async () => {
+    routeMock.driveError = Object.assign(new Error("forbidden"), { code: 403 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs().map((c) => (c.context as { reason?: string }).reason)).toEqual([
+      "permission_denied",
+    ]);
+  });
+
+  test("debuggable 410 (oversize metadata pre-flight) emits reason=oversize", async () => {
+    routeMock.driveMeta = {
+      mimeType: "application/pdf",
+      trashed: false,
+      size: String(51 * 1024 * 1024),
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs().map((c) => (c.context as { reason?: string }).reason)).toEqual([
+      "oversize",
+    ]);
+  });
+
+  test("BENIGN 410 (non-PDF mime → Open-in-Drive fallback) emits NO breadcrumb", async () => {
+    routeMock.driveMeta = { mimeType: "text/plain", trashed: false, size: "10" };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unmatched agenda link) emits NO breadcrumb", async () => {
+    routeMock.showRow = { id: showId, published: true, agenda_links: [] };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("BENIGN 410 (unpublished show) emits NO breadcrumb", async () => {
+    routeMock.showRow = {
+      id: showId,
+      published: false,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const res = await getAgenda();
+    await expectPickerShowUnavailable(res);
+    expect(breadcrumbs()).toEqual([]);
+  });
+
+  test("success 200 emits NO breadcrumb", async () => {
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
+    expect(breadcrumbs()).toEqual([]);
   });
 });

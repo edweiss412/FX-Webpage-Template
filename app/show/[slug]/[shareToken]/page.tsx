@@ -37,6 +37,7 @@ import { notFound, redirect } from "next/navigation";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { buildShowPageChainRequest } from "@/lib/auth/picker/showPageChainRequest";
 import { resolveShowPageAccess } from "@/lib/auth/picker/resolveShowPageAccess";
+import { ShowUnavailable } from "./ShowUnavailable";
 import { getShowForViewer, type Viewer } from "@/lib/data/getShowForViewer";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
@@ -92,8 +93,10 @@ export default async function ShowPage({
     // falls through (notFound() throws)
 
     case "unpublished":
-      notFound();
-    // falls through
+      // Published-toggle D5/§3.5: a valid share-token URL whose show is toggled
+      // off renders the zero-data paused page under HTTP 200 (the same link
+      // works again on republish). Archived/unresolved arms keep notFound().
+      return <ShowUnavailable />;
 
     case "show_unavailable":
       // Show was archived/unpublished after the cookie was minted, OR

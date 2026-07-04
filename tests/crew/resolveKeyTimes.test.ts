@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveKeyTimes, type ProjectedRoomRow } from "@/lib/crew/resolveKeyTimes";
-import type { RunOfShow, ShowRow } from "@/lib/parser/types";
+import type { RunOfShow, ShowRow, StageRestriction } from "@/lib/parser/types";
 
 const NONE = { kind: "none" } as const;
 
@@ -303,5 +303,102 @@ describe("resolveKeyTimes — synthetic strike/loadout entries are not show anch
     const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
     // skips the strike at index 0, picks the real session entry's start.
     expect(a.shows?.[0]?.time).toBe("9:00 AM");
+  });
+});
+
+describe("resolveKeyTimes — terminal-titled entries are not show anchors (design 4.1 step 6)", () => {
+  it("a wrap/conclusion-only day does not promote its END clock to the Show anchor", () => {
+    // Parser output for cell '4:15pm - Meeting Concludes' (Fixed Income SHOW DAY 2):
+    // entry KEPT, showStart null via the terminal guard.
+    const runOfShow: RunOfShow = {
+      "2025-05-14": {
+        entries: [{ start: "4:15PM", title: "Meeting Concludes" }],
+        showStart: null,
+        window: null,
+      },
+    };
+    // No room show_time / showStart / window -> anchor must OMIT, NOT re-promote 4:15PM.
+    const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
+    expect(a.shows?.some((s) => s.time === "4:15PM")).toBeFalsy();
+    expect(a.shows).toBeUndefined();
+  });
+
+  it("still derives the anchor from a real session that follows a terminal entry", () => {
+    const runOfShow: RunOfShow = {
+      "2025-05-14": {
+        entries: [
+          { start: "4:15PM", title: "Meeting Concludes" },
+          { start: "9:00 AM", title: "General Session" },
+        ],
+        showStart: null,
+        window: null,
+      },
+    };
+    const a = resolveKeyTimes(dates({ showDays: ["2025-05-14"] }), [], runOfShow, NONE);
+    expect(a.shows?.[0]?.time).toBe("9:00 AM"); // skips terminal, picks the real session
+  });
+});
+
+// Stage-filtered schedule (#248): Set/Strike anchors are day-list-independent, so
+// they are gated by the viewer's stage_restriction — a Load In/Set crew must not see
+// the Strike time, a Load Out/Strike crew must not see the Set time. Show anchors are
+// unchanged (they ride visibleShowDays(dateRestriction)).
+describe("resolveKeyTimes — Set/Strike stage-gating (#248)", () => {
+  const STAGE_LOADIN_SET: StageRestriction = { kind: "explicit", stages: ["Load In", "Set"] };
+  const STAGE_LOADOUT_STRIKE: StageRestriction = {
+    kind: "explicit",
+    stages: ["Load Out", "Strike"],
+  };
+  const STAGE_ALL_BUT_SHOW: StageRestriction = {
+    kind: "explicit",
+    stages: ["Load In", "Set", "Strike", "Load Out"],
+  };
+  const ANCHOR_DATES = () =>
+    dates({ set: "2026-10-07", loadIn: "9:00PM", showDays: ["2026-10-08"] });
+
+  it("Load In/Set stage → Strike anchor SUPPRESSED, Set anchor present", () => {
+    const gs = room({ strike_time: "10/9 @ 4:30pm" });
+    const a = resolveKeyTimes(
+      ANCHOR_DATES(),
+      [gs],
+      null,
+      { kind: "explicit", days: ["2026-10-07"] },
+      STAGE_LOADIN_SET,
+    );
+    expect(a.set).toBeDefined();
+    expect(a.strike).toBeUndefined();
+  });
+
+  it("Load Out/Strike stage → Set anchor SUPPRESSED, Strike anchor present", () => {
+    const gs = room({ strike_time: "10/9 @ 4:30pm" });
+    const a = resolveKeyTimes(
+      ANCHOR_DATES(),
+      [gs],
+      null,
+      { kind: "explicit", days: ["2026-10-08"] },
+      STAGE_LOADOUT_STRIKE,
+    );
+    expect(a.set).toBeUndefined();
+    expect(a.strike).toBeDefined();
+  });
+
+  it("Calvin (all-but-Show) stage → BOTH Set and Strike anchors present (spec §10 primary persona)", () => {
+    const gs = room({ strike_time: "10/9 @ 4:30pm" });
+    const a = resolveKeyTimes(
+      ANCHOR_DATES(),
+      [gs],
+      null,
+      { kind: "explicit", days: ["2026-10-08"] },
+      STAGE_ALL_BUT_SHOW,
+    );
+    expect(a.set).toBeDefined();
+    expect(a.strike).toBeDefined();
+  });
+
+  it("stage omitted (4-arg back-compat) → both anchors present (unchanged)", () => {
+    const gs = room({ strike_time: "10/9 @ 4:30pm" });
+    const a = resolveKeyTimes(ANCHOR_DATES(), [gs], null, NONE); // no 5th arg — optional default
+    expect(a.set).toBeDefined();
+    expect(a.strike).toBeDefined();
   });
 });

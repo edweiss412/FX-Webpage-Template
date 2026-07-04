@@ -356,6 +356,56 @@ describe("getShowForViewer.runOfShow aggregate-day widening (D12)", () => {
   });
 });
 
+// Stage-filtered schedule (#248): the projection folds an explicit stage_restriction into an effective
+// day-explicit dateRestriction (spec §3.2). Full dates are provided so schedule_phases derives (event_details
+// is {} → deriveSchedulePhases) with a compound Show+Strike final day.
+describe("getShowForViewer — stage_restriction narrows projected dateRestriction (#248)", () => {
+  const FULL_DATES = {
+    travelIn: "2026-05-02",
+    set: "2026-05-03",
+    showDays: ["2026-05-04", "2026-05-05", "2026-05-06"],
+    travelOut: "2026-05-07",
+  };
+  const CALVIN_STAGE = {
+    kind: "explicit",
+    stages: ["Load In", "Set", "Strike", "Load Out"],
+  } as const;
+  const EXPECTED = {
+    kind: "explicit",
+    days: ["2026-05-02", "2026-05-03", "2026-05-06", "2026-05-07"],
+  };
+  function crewRowStage(dateRestriction: unknown, stage: unknown) {
+    return { ...crewRow(dateRestriction), name: "Calvin Saller", stage_restriction: stage };
+  }
+  function setupFullDates(dateRestriction: unknown) {
+    setup({
+      showDays: FULL_DATES.showDays,
+      showsInternal: { data: { run_of_show: {} }, error: null },
+      crew: { data: [crewRowStage(dateRestriction, CALVIN_STAGE)], error: null },
+    });
+    mockState.responses.shows = {
+      data: { ...showRow(FULL_DATES.showDays), dates: FULL_DATES },
+      error: null,
+    };
+  }
+
+  it("stage-restricted crew (stored none) → dateRestriction narrowed to worked days", async () => {
+    setupFullDates({ kind: "none" });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    expect(out.crewMembers.find((c) => c.name === "Calvin Saller")!.dateRestriction).toEqual(
+      EXPECTED,
+    );
+  });
+
+  it("LEGACY stored unknown_asterisk + explicit stage → same narrowed worked days (no backfill)", async () => {
+    setupFullDates({ kind: "unknown_asterisk" });
+    const out = await getShowForViewer(SHOW_ID, CREW);
+    expect(out.crewMembers.find((c) => c.name === "Calvin Saller")!.dateRestriction).toEqual(
+      EXPECTED,
+    );
+  });
+});
+
 // R20 LIVE-READ source-scan guard: the mock above keys off the TABLE NAME, but a structural assert pins that the
 // live read actually targets shows_internal.run_of_show (not only the mock). Uses readFileSync (imported at top) —
 // getShowForViewer is a function, not a class method, so classMethodSource doesn't apply.

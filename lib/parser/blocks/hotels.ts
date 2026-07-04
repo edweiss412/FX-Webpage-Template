@@ -32,7 +32,7 @@ function warn(msg: string): void {
   // warnings are surfaced as console.warn in dev; the full ParseResult warnings
   // array is assembled at the top-level parser (Task 1.11).
 
-  log.warn(msg, { source: "parser.hotels" });
+  log.warn(msg, { source: "parser.hotels", code: "HOTELS_PARSE_WARNING" });
 }
 
 export function parseHotels(
@@ -155,12 +155,61 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
  * gated at 6+ digits so a US ZIP (5) or street number survives.
  */
 function stripConfTokens(name: string): string {
-  return name
-    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/g, " ") // dash-prefixed (#optional)
-    .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
-    .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    name
+      // dash-prefixed conf# (#optional). Preserve ONLY a true ZIP+4 hyphen: a
+      // word-boundary 5-digit ZIP immediately before, a SINGLE "-" with NO separator, and
+      // EXACTLY 4 trailing digits ("…IL 60611-1234"), so the crew-visible "+4" is not
+      // clipped (audit idx4). Every other dash-number is a conf# and is stripped — including
+      // a conf# after a 5-digit token ("Suite 12345-2069854"), a #/spaced/multi-dash conf#,
+      // and any run of 5+ trailing digits (Codex R1/R2). A left-only lookbehind can't gate
+      // the right side, so use a replacer that inspects both.
+      .replace(
+        /(\s*)([-–—]{1,3})(\s*#?\s*)(\d{4,})/g,
+        (
+          whole,
+          ws: string,
+          dashes: string,
+          sep: string,
+          digits: string,
+          offset: number,
+          str: string,
+        ) => {
+          // The predicate is EXACTLY `\b\d{5}-\d{4}\b`: a boundary 5-digit ZIP before, an
+          // ASCII hyphen (en/em-dash is a conf# delimiter — Codex R3), no separator, exactly
+          // 4 digits, and a trailing word boundary (Codex R4 — "60611-1234A" is not a ZIP+4).
+          const afterMatch = str.charAt(offset + whole.length);
+          const isZip4 =
+            dashes === "-" &&
+            sep.length === 0 &&
+            digits.length === 4 &&
+            /\b\d{5}$/.test(str.slice(0, offset + ws.length)) &&
+            (afterMatch === "" || !/\w/.test(afterMatch));
+          if (isZip4) return whole;
+          // idx88: a dash-prefixed number that BEGINS A STREET PHRASE is a street
+          // address, not a conf#. Deleting it strands splitHotelNameAddress with no
+          // street number to split on, collapsing the whole cell into hotel_name with
+          // a null address ("Hyatt Regency - 1515 Madison Ave …" → the "- 1515" is
+          // dropped). looksLikeStreetStart is the SAME street-vs-conf discriminator the
+          // Hotel-Stays path uses (suffixed street OR "…, ST ZIP" tail). A "#"-marked
+          // run ("- #1515") is always a conf#, so only a plain dash qualifies. Keep the
+          // NUMBER but DROP the separator dash, yielding the flattened "name number
+          // street" form splitHotelNameAddress expects (matching the inline no-guest
+          // path). A dash-number that is NOT a street phrase stays stripped.
+          if (
+            !sep.includes("#") &&
+            looksLikeStreetStart(" " + digits + str.slice(offset + whole.length))
+          ) {
+            return " " + digits;
+          }
+          return " ";
+        },
+      )
+      .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
+      .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /**
@@ -755,11 +804,13 @@ function buildInlineHotel(
     // Year present only when there are TWO slashes (M/D/YY). The old `/\/\d{2,4}$/`
     // test matched the trailing "/11" of a yearless "5/11" and skipped back-fill.
     if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw2)) return normalizeDate(raw2);
-    // Yearless M/D: back-fill the year from a 4-digit year in the cell, else from
-    // the show context (its DATES). Return null when no year can be inferred —
-    // never hard-code an era, which would silently mis-date non-current shows.
-    const cellYear = /\b(20\d\d)\b/.exec(text);
-    const year = cellYear ? cellYear[1] : contextYear;
+    // Yearless M/D: back-fill the year from the show context (its DATES), which is
+    // the reliable source. A bare 20xx token in the cell is an UNRELIABLE last
+    // resort — it may be a street number ("2015 K St") or a 4-digit conf#, not a
+    // year — so only fall back to it when the show-context year is unavailable.
+    // Return null when no year can be inferred — never hard-code an era, which
+    // would silently mis-date non-current shows.
+    const year = contextYear ?? /\b(20\d\d)\b/.exec(text)?.[1] ?? null;
     if (!year) return null;
     return normalizeDate(`${raw2}/${year}`);
   }

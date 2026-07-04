@@ -228,18 +228,11 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
-    sourceSurface: "Unpublished (Held shows) page header (/admin/unpublished)",
-    sourceRoute: "/admin/unpublished",
-    affordance: "? tooltip",
-    testid: "help-affordance--unpublished-page--tooltip",
-    target: "/help/admin/onboarding-wizard#unpublished",
-    visibleAt: "both",
-    owningMilestone: "Onboarding step-3 redesign",
-  },
-  {
-    kind: "concrete",
-    sourceSurface: "Ignored sheets page header (/admin/ignored-sheets)",
-    sourceRoute: "/admin/ignored-sheets",
+    // Moved from the retired standalone /admin/ignored-sheets page to the
+    // dashboard's collapsed "Ignored sheets" disclosure header (always rendered
+    // on /admin, so the affordance stays walkable). Testid retained for parity.
+    sourceSurface: "Dashboard — Ignored sheets disclosure header (/admin)",
+    sourceRoute: "/admin",
     affordance: "? tooltip",
     testid: "help-affordance--ignored-sheets-page--tooltip",
     target: "/help/admin/onboarding-wizard#ignored-sheets",
