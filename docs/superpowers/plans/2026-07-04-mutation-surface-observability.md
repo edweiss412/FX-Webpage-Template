@@ -66,12 +66,34 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([/* …existing�
 
 - [ ] **Step 3: Rewrite `_metaAdminOutcomeContract.test.ts` to import** `AUDITABLE_MUTATIONS`, `SANCTIONED_CODES`, `NEW_FORENSIC_CODES` from `./_auditableMutations` and delete the inline copies. Its existing assertions key on `{file, code}` — leave them unchanged (they ignore the extra `fn`).
 
-- [ ] **Step 4: Run the contract test — must stay green.**
+- [ ] **Step 4: Registry-shape test (Codex plan-R3 F1)** — add `tests/log/_auditableMutations.shape.test.ts` asserting: every row where `file` ends `/route.ts` has `fn === "POST"`; every action row's `{file, fn}` names a function that actually exists as an exported async function in that live file (parse the file, confirm the export). This makes a wrong `fn` key fail immediately, since `_metaAdminOutcomeContract` still ignores `fn`.
 
-Run: `pnpm vitest run tests/log/_metaAdminOutcomeContract.test.ts`
-Expected: PASS (pure refactor; behavior unchanged).
+```ts
+import { describe, expect, test } from "vitest";
+import ts from "typescript";
+import { readFileSync } from "node:fs";
+import { AUDITABLE_MUTATIONS } from "./_auditableMutations";
+const exportedFns = (file: string) => {
+  const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const names = new Set<string>();
+  for (const st of sf.statements) {
+    const exp = ts.canHaveModifiers(st) && ts.getModifiers(st)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (exp && ts.isFunctionDeclaration(st) && st.name) names.add(st.name.text);
+    if (exp && ts.isVariableStatement(st)) for (const d of st.declarationList.declarations) if (ts.isIdentifier(d.name)) names.add(d.name.text);
+  }
+  return names;
+};
+describe("AUDITABLE_MUTATIONS {file,fn,code} shape", () => {
+  test("route rows use fn:POST; action rows name a real exported fn", () => {
+    for (const r of AUDITABLE_MUTATIONS) {
+      if (r.file.endsWith("/route.ts")) expect(r.fn, r.file).toBe("POST");
+      else expect(exportedFns(r.file).has(r.fn), `${r.file}::${r.fn}`).toBe(true);
+    }
+  });
+});
+```
 
-- [ ] **Step 5: `pnpm typecheck`** → PASS. **Commit:** `test(log): extract AUDITABLE_MUTATIONS to shared {file,fn,code} module`
+- [ ] **Step 5: Run both** `pnpm vitest run tests/log/_metaAdminOutcomeContract.test.ts tests/log/_auditableMutations.shape.test.ts` → PASS (pure refactor; shapes valid). **`pnpm typecheck`** → PASS. **Commit:** `test(log): extract AUDITABLE_MUTATIONS to shared {file,fn,code} module + shape test`
 
 ---
 
@@ -162,6 +184,18 @@ describe("call-site binding (Codex plan-R1 F2): local shadow does NOT satisfy th
     const src = IMP + 'async function m(){ const logAdminOutcome = async () => {}; await logAdminOutcome({ code:"X" }); }';
     expect(scanBody(firstFn(src), { descend: false }).adminOutcome).toBe(false);
   });
+  test("destructured shadow const { log } = fake → codedLog false (Codex plan-R3)", () => {
+    const src = IMP + 'async function m(){ const { log } = fake; log.warn("x", { code:"FOO" }); }';
+    expect(scanBody(firstFn(src), { descend: false }).codedLog).toBe(false);
+  });
+  test("catch (log) shadow → codedLog false", () => {
+    const src = IMP + 'async function m(){ try { doIt(); } catch (log) { log.error("x", { code:"FOO" }); } }';
+    expect(scanBody(firstFn(src), { descend: false }).codedLog).toBe(false);
+  });
+  test("param shadow (log) → codedLog false", () => {
+    const src = IMP + 'async function m(log){ log.info("x", { code:"FOO" }); }';
+    expect(scanBody(firstFn(src), { descend: false }).codedLog).toBe(false);
+  });
 });
 ```
 
@@ -202,20 +236,33 @@ export function moduleHasUseServer(sf: ts.SourceFile) { return leadingDirective(
 export function functionBodyHasUseServer(node: ts.FunctionLikeDeclaration) {
   return !!node.body && ts.isBlock(node.body) && leadingDirective(node.body.statements, "use server");
 }
+/** True if `name` is bound anywhere in a `BindingName` (identifier, object/array
+ * destructuring, incl. rename `{ log: x }` binds `x` not `log`, and `{ log }` binds `log`). */
+function bindingBindsName(bn: ts.BindingName, name: string): boolean {
+  if (ts.isIdentifier(bn)) return bn.text === name;
+  for (const el of bn.elements) {
+    if (ts.isOmittedExpression(el)) continue;
+    if (bindingBindsName(el.name, name)) return true;
+  }
+  return false;
+}
 export function isLocallyRebound(callNode: ts.Node, name: string): boolean {
   let n: ts.Node | undefined = callNode.parent;
   while (n && !ts.isSourceFile(n)) {
-    if (ts.isBlock(n) || isFnLike(n)) {
-      let found = false;
+    let found = false;
+    // block-scoped decls (incl. destructuring) + local function decls
+    if (ts.isBlock(n) || isFnLike(n))
       ts.forEachChild(n, (ch) => {
         if (ts.isVariableStatement(ch)) for (const d of ch.declarationList.declarations)
-          if (ts.isIdentifier(d.name) && d.name.text === name) found = true;
+          if (bindingBindsName(d.name, name)) found = true;
         if (ts.isFunctionDeclaration(ch) && ch.name?.text === name) found = true;
       });
-      if (isFnLike(n)) for (const p of (n as ts.FunctionLikeDeclaration).parameters ?? [])
-        if (ts.isIdentifier(p.name) && p.name.text === name) found = true;
-      if (found) return true;
-    }
+    // function/method/arrow parameters (incl. destructured params)
+    if (isFnLike(n)) for (const p of (n as ts.FunctionLikeDeclaration).parameters ?? [])
+      if (bindingBindsName(p.name, name)) found = true;
+    // catch clause variable: catch (log) { ... }
+    if (ts.isCatchClause(n) && n.variableDeclaration && bindingBindsName(n.variableDeclaration.name, name)) found = true;
+    if (found) return true;
     n = n.parent;
   }
   return false;
@@ -297,9 +344,9 @@ export function importBindingOk(sf: ts.SourceFile) {
   - `export const KNOWN_UNINSTRUMENTED: readonly { file: string; fn: string; backlog: string }[]`
   - `export const ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER: readonly { file: string; fn: string }[]` (the 30 units)
 
-- [ ] **Step 1: Failing tests** — `NO_TELEMETRY_RE` rejects `// no-telemetry:` with no reason and accepts `// no-telemetry: x`; `KNOWN_UNINSTRUMENTED` contains exactly the 6 picker fns (spec §3.1 C); `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` contains exactly 30 entries (24 route POSTs from `AUDITABLE_MUTATIONS` where fn==="POST" and file under `app/api/admin` + the 6 pre-existing action fns).
+- [ ] **Step 1: Failing tests** — `NO_TELEMETRY_RE` rejects `// no-telemetry:` with no reason and accepts `// no-telemetry: x`; `KNOWN_UNINSTRUMENTED` contains exactly the 6 picker fns (spec §3.1 C); `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` is a **hardcoded literal** (Codex plan-R3 F4 — NOT computed from the tree) of exactly 30 `{file, fn}` entries: the 24 admin route files each `{fn:"POST"}` + the 6 action fns (`archive.ts`::`archiveShowAction`, `unarchive.ts`::`unarchiveShowAction`, `setPublished.ts`::`setShowPublishedAction`, `feed.ts`::`mi11ApproveAction`/`mi11RejectAction`/`undoChangeAction`). Regression assertion: `manifest/…/ignore` and `reap-stale-sessions` (with `fn:"POST"`) are NOT in the grandfather set (they are seeded now, not grandfathered).
 
-- [ ] **Step 2: Run — FAIL. Step 3: Implement** the constants (values copied from spec §3.1 B/C and §4.2 grandfather list) + the regex/comment scanners. **Step 4: PASS. Step 5: commit** `test(log): exemption/ledger/grandfather registries + no-telemetry regex`.
+- [ ] **Step 2: Run — FAIL. Step 3: Implement** the constants as hardcoded literals (values copied verbatim from spec §3.1 B/C and §4.2 grandfather list) + the regex/comment scanners. **Step 4: PASS. Step 5: commit** `test(log): exemption/ledger/grandfather registries + no-telemetry regex`.
 
 ---
 
@@ -354,28 +401,33 @@ function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string 
   recorded.add(`${x.file}::${x.fn}::${x.code}`);
 }
 
-/** Drive a success path with a sink spy; return the codes observed. */
+/** Drive a success path with a sink spy; return the codes observed. Captures codes even when
+ * `run()` throws — required for `Promise<never>` redirect actions (Next's `redirect()` throws
+ * a NEXT_REDIRECT error). The spy runs synchronously in the logger before the throw escapes. */
 async function observeCodes(run: () => Promise<unknown>): Promise<string[]> {
   const codes: string[] = [];
   setLogSink((r: LogRecord) => { if (r.code) codes.push(r.code); });
-  try { await run(); } finally { resetLogSink(); }
+  try { await run(); } catch { /* redirect / expected throw — codes already captured */ } finally { resetLogSink(); }
   return codes;
 }
 afterEach(() => resetLogSink());
 
 describe("behavioral scaffold smoke", () => {
-  test("sink spy captures a logAdminOutcome code and the recorder records it", async () => {
+  test("spy captures a code; recorder records; and codes survive a thrown (redirect-style) run", async () => {
     const codes = await observeCodes(() => logAdminOutcome({ code: "TEST_SMOKE", source: "t" }));
     expect(codes).toContain("TEST_SMOKE");
     recordAdminOutcomeBehavior({ file: "x", fn: "y", code: "TEST_SMOKE" });
     expect(recorded.has("x::y::TEST_SMOKE")).toBe(true);
+    // redirect-style: emit then throw — the code must still be observed
+    const thrown = await observeCodes(async () => { await logAdminOutcome({ code: "TEST_THROW", source: "t" }); throw new Error("NEXT_REDIRECT"); });
+    expect(thrown).toContain("TEST_THROW");
   });
 });
 ```
 
-- [ ] **Step 2: Run — verify it fails first** (e.g. wrong `logAdminOutcome` import path). Run: `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` → FAIL, then fix the import (confirm whether `logAdminOutcome` is re-exported from `@/lib/log` or must come from `@/lib/log/logAdminOutcome`).
+- [ ] **Step 2: Run — verify it fails meaningfully first.** Write the smoke test above BEFORE the inline `recorded`/`recordAdminOutcomeBehavior`/`observeCodes` definitions exist (or with `observeCodes` lacking the `catch`, so the `TEST_THROW` assertion fails because the throw escapes). Run: `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` → FAIL on the redirect-capture assertion (proving the `catch` is load-bearing), OR on the undefined recorder. Then add the definitions above.
 
-- [ ] **Step 3: Run — PASS.** **Step 4: typecheck + commit** `test(log): single-file behavioral sink-spy scaffold + inline recorder`.
+- [ ] **Step 3: Run — PASS.** **Step 4: typecheck + commit** `test(log): single-file behavioral sink-spy scaffold (redirect-safe) + inline recorder`.
 
 ---
 
@@ -385,8 +437,8 @@ describe("behavioral scaffold smoke", () => {
 1. Add a **failing sink-spy case** in `adminOutcomeBehavior.test.ts` that mocks the surface's deps so it reaches the committed-success branch, asserts the expected `code` is observed AND non-success branches observe nothing, then calls `recordAdminOutcomeBehavior({file, fn, code})`.
 2. Run → FAIL (surface silent).
 3. **Resolve any newly-needed actor identity BEFORE the mutating operation** — if the surface only calls `requireAdmin()` today, add `const { email } = await requireAdminIdentity()` (cached; verified) **above the mutation**, NOT post-commit (Codex plan-R2 F4: a `require*Identity()` infra throw must not escape over an already-committed mutation). Then add **only** `await logAdminOutcome({ code, source, actorEmail?, showId?/…, result })` on the success branch, **post-commit** (`logAdminOutcome` is internally try/catch-wrapped, so it — and it alone — is safe there). Where identity is already resolved earlier (e.g. `admins/actions` `requireAdminIdentity()`, `resetPickerEpoch` `adminCtx`), reuse it; add nothing new post-commit but the emit.
-4. Add the `{file, fn, code}` row to `tests/log/_auditableMutations.ts` (and the code to `SANCTIONED_CODES`/`NEW_FORENSIC_CODES`).
-5. Run → PASS. typecheck. Commit.
+4. Add the `{file, fn, code}` row to `tests/log/_auditableMutations.ts` (and the code to `SANCTIONED_CODES`/`NEW_FORENSIC_CODES`). The `fn` MUST match the exact exported function name (the `_auditableMutations.shape.test.ts` from Task 1 re-runs and fails immediately on a wrong `fn`).
+5. Run → PASS (incl. `_auditableMutations.shape.test.ts` for the new rows). typecheck. Commit.
 
 **Mocking pattern** (follow existing `tests/app/admin/set-published-action.test.ts` / `tests/admin/*`): `vi.mock("@/lib/auth/requireAdmin", …)` to make `requireAdmin`/`requireAdminIdentity` resolve `{ email: "admin@x" }`; `vi.mock("@/lib/supabase/server", …)` to return a client whose `.from().update().eq().select()` / `.rpc()` resolves success. Assert the FAILURE branch (e.g. `error` returned) records nothing.
 
@@ -412,7 +464,7 @@ Commit: `feat(admin): observe admin grant/revoke + developer toggle`.
 Commit: `feat(admin): observe dev parse-stage + schema reset`.
 
 ### Task 11: onboarding serverActions (2)
-- `startOverServerAction` → `ONBOARDING_STARTED_OVER`; `rerunSetupServerAction` → `ONBOARDING_SETUP_RERUN`. `Promise<never>` — emit **before** the `redirect()` throw, after `purgeAndRotateOnboardingSession()` resolves. Actor via the existing `requireAdminIdentity()`.
+- `startOverServerAction` → `ONBOARDING_STARTED_OVER`; `rerunSetupServerAction` → `ONBOARDING_SETUP_RERUN`. `Promise<never>` — emit `await logAdminOutcome(...)` **before** the `redirect()` throw, after `purgeAndRotateOnboardingSession()` resolves; identity via the existing `requireAdminIdentity()` (already resolved pre-mutation). **The sink-spy cases MUST use the redirect-safe `observeCodes` (Task 6)** — `redirect()` throws `NEXT_REDIRECT`, so the helper's `catch` is what lets the emitted code be observed. Assert the code IS observed despite the throw.
 Commit: `feat(onboarding): observe start-over / rerun-setup`.
 
 ### Task 12: app/admin/actions (2)
