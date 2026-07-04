@@ -194,28 +194,32 @@ construct client in try/catch → returns `{kind:"infra_error"}` on throw; destr
 at module load (like `INFO_SEVERITY_CODES`): `HEALTH_CODES`, `DEGRADED_HEALTH_CODES`,
 `NOTICE_HEALTH_CODES`.
 
-**Bounded/aggregate design (R12 finding 1 — this read runs on EVERY admin layout render, so
-it must never be an unbounded row fetch that PostgREST can silently truncate and thereby
-miss a degraded row beyond the page → wrong dot color).** The load-bearing signals (dot
-color + total) come from EXACT head counts, never a truncatable row read:
+**Bounded + EXACT design (R12 finding 1 + R14 finding 1 — this read runs on EVERY admin
+layout render, so it must never be an unbounded row fetch that PostgREST can silently
+truncate; AND the user-visible summaries must be computed from EXACT aggregation, never a
+capped row sample that could omit a degraded code beyond the sample).** Every signal is an
+exact `count:"exact", head:true` probe (no row scan anywhere):
 
-1. `count` = **exact head count** (`count:"exact", head:true`) of unresolved rows with
-   `code ∈ HEALTH_CODES` — not truncatable.
+1. `count` = **exact head count** of unresolved rows with `code ∈ HEALTH_CODES`.
+   **Short-circuit: if `count === 0` → return `{kind:"ok"}` immediately** — the common
+   healthy state costs ONE count query and issues no per-code probes.
 2. `degradedCount` = **exact head count** of unresolved rows with
    `code ∈ DEGRADED_HEALTH_CODES`. Worst weight → `kind`: `degraded` if `degradedCount > 0`,
-   else `notice` if `count > 0`, else `ok`. (Color can NEVER miss a red beyond a page — it
-   is an exact count, not a row scan.)
-3. `summaries` = a **bounded** `.select("code").in("code", HEALTH_CODES).is("resolved_at",
-   null).limit(HEALTH_ROLLUP_ROW_CAP)` read (CAP e.g. 500), mapping each `code` → its catalog
-   `dougSummary`, deduped by text (per-text `count`), sorted **degraded-weighted first** then
-   count desc, capped at `POPOVER_SUMMARY_CAP` (4). `overflowCount` = distinct-summary count
-   beyond the cap. The summary list is a **best-effort display detail** (the popover shows ≤4
-   lines regardless); the authoritative signals (color, total) are the exact counts above, so
-   a truncated summary read can never produce a wrong dot color or total.
+   else `notice` (reached only when `count > 0`). Color can NEVER miss a red — it is an
+   exact count, not a row scan.
+3. `summaries` (only computed when `count > 0`) = **exact per-code head counts** over the
+   ≤26 `HEALTH_CODES` (run in parallel — `Promise.all`; each is a bounded count-head probe,
+   NOT a row read). Map each code with `perCodeCount > 0` → its catalog `dougSummary`, dedupe
+   by text (summing `perCodeCount` into a per-text `count`), sort **degraded-weighted first**
+   then count desc, take the first `POPOVER_SUMMARY_CAP` (4) as `summaries`; `overflowCount`
+   = distinct-summary count beyond the cap. Because every count is exact, a degraded code's
+   summary can NEVER be omitted by truncation and `overflowCount` is exact (R14 finding 1).
+   The per-code aggregate runs ONLY in the (rare) non-healthy state, so steady-state render
+   cost stays at 1–2 count probes.
 
 `lib/admin/healthRollup.ts` is added to the **`tests/admin/_metaBoundedReads.test.ts`**
-coverage so a bare `.from("admin_alerts").select(...)` without `.limit`/`.range`/count-head
-cannot land.
+coverage so a bare `.from("admin_alerts").select(...)` without count-head/`.limit`/`.range`
+cannot land (every probe here is count-head).
 
 The payload feeds `AppHealthIndicator` (uses `kind`/`count`), the popover (uses
 `summaries`/`overflowCount`), and the dashboard `AppHealthPanel`. **Data path (R5 finding
@@ -500,9 +504,10 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
   the doug/health partition counts are 16/26; the degraded/notice split is 16/10. New codes
   cannot land without declaring audience.
 - **EXTEND** `_metaAdminAlertCatalog.test.ts` if needed so the two registries stay set-equal.
-- **EXTEND** `tests/admin/_metaBoundedReads.test.ts` (R12 finding 1): register
-  `lib/admin/healthRollup.ts` so its `admin_alerts` reads must be bounded (`.limit`/`.range`
-  or count-head) — a bare unbounded `.select` cannot land.
+- **EXTEND** `tests/admin/_metaBoundedReads.test.ts` (R12 finding 1 + R14 finding 2):
+  register **BOTH** new `admin_alerts` readers — `lib/admin/healthRollup.ts` (count-head
+  probes) AND the `HealthAlertsPanel` loader module (`.range()` pagination) — so a bare
+  unbounded `.select` cannot land in either surface.
 - **CREATE/EXTEND** a health-resolve-guard structural test (§6.7): pins that the three
   pre-existing resolve surfaces reject `HEALTH_CODES` and that `resolveHealthAlertFormAction`
   is the sole health-resolve entry point (may extend `developerGatingContract.test.ts`).
@@ -575,11 +580,14 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   (catalog `dougSummary` lines, capped at 4 + overflow note, no raw codes, no action
   controls). A developer clicking it lands on `/admin/observability`.
 - AC4b: Seeding **multiple distinct** health codes with distinct `dougSummary` text
-  renders each deduped line with its per-text count, in worst-weight-first order, and a
-  "+N more background items" note when distinct summaries exceed `POPOVER_SUMMARY_CAP` (4)
-  — asserted against `HealthStatus.summaries`/`overflowCount` (the data source), NOT by
-  scraping a container that also renders sibling copy (anti-tautology). Seeding two rows of
-  the SAME code collapses to one line with `count: 2`.
+  renders each deduped line with its **exact** per-text count (from the per-code head-count
+  aggregate, §6.1 — NOT a capped row sample), in worst-weight-first order, and a "+N more
+  background items" note when distinct summaries exceed `POPOVER_SUMMARY_CAP` (4) — asserted
+  against `HealthStatus.summaries`/`overflowCount` (the data source), NOT by scraping a
+  container that also renders sibling copy (anti-tautology). Seeding two rows of the SAME
+  code collapses to one line with `count: 2`. **Truncation test: seeding a large volume of a
+  `notice` code plus one `degraded` code still surfaces the degraded summary line and an
+  exact `overflowCount`** (a degraded summary is never omitted, per R14 finding 1).
 - AC4c: The popover closing line reads "No action needed from you — the developer can see
   this in system health." and never contains the word "notified" (no false outbound-alert
   claim).
@@ -654,13 +662,13 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `TILE_PROJECTION_FETCH_FAILED`) rolls into the global rollup (which reads all unresolved
   health rows regardless of `show_id`); it is not lost, just not shown in Doug's per-show
   section. Accepted scope decision.
-- **Rollup query cost per admin render (R12).** `fetchHealthRollup()` joins the existing
+- **Rollup query cost per admin render (R12/R14).** `fetchHealthRollup()` joins the existing
   `Promise.all` in `app/admin/layout.tsx:145` (alongside `fetchUnresolvedAlertCount` +
-  `needsAttentionCount`). It is **bounded** (§6.1): two exact head counts (total + degraded)
-  drive color/total, plus one `.limit(HEALTH_ROLLUP_ROW_CAP)` row read for the best-effort
-  summaries — never an unbounded row scan. Pinned by `_metaBoundedReads`. The three
-  sub-queries run within the one helper; the color/total signals are exact and
-  truncation-proof.
+  `needsAttentionCount`). It is **bounded AND exact** (§6.1): all probes are `count-head`,
+  never a row scan. **Healthy steady state costs ONE count** (total === 0 short-circuits).
+  When health alerts exist (rare), it adds the degraded count + ≤26 parallel per-code counts
+  to compute exact summaries — no truncatable sample. Pinned by `_metaBoundedReads`. Color,
+  total, and summary counts are all exact and truncation-proof.
 - **`isCurrentUserDeveloper` drives presentation only.** The rows are already admin-gated
   in RLS (developer ⟹ admin); the developer check picks popover-vs-deep-link, never
   access. Not a security boundary — do not treat it as one (`requireDeveloper.ts:258`
