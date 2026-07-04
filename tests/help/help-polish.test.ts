@@ -79,6 +79,6 @@ describe("Chunk 5: minor-polish sweep", () => {
     expect(src).not.toMatch(/^- \*\*(Call time|Hotel and room|A rotated share-token)\*\*/m);
     // ...but the real shipped controls remain referenced
     expect(src).toMatch(/Rotate share-token/);
-    expect(src).toMatch(/Reset picker selections/);
+    expect(src).toMatch(/Reset name picker/);
   });
 });

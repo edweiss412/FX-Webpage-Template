@@ -33,7 +33,7 @@ import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
 import { resolveOrigin } from "./resolveOrigin";
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
-import { ResetPickerEpochButton } from "./ResetPickerEpochButton";
+import { PickerResetControl } from "./PickerResetControl";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
@@ -801,12 +801,7 @@ export default async function AdminShowPage({
                     rowLabel="Rotate share link"
                     rowDescription="Mint a new link; the old one stops working immediately."
                   />
-                  <ResetPickerEpochButton
-                    showId={show.id}
-                    compact
-                    rowLabel="Reset name picker"
-                    rowDescription="Everyone re-picks who they are on their next visit."
-                  />
+                  <PickerResetControl showId={show.id} crew={crew} />
                 </div>
               }
             />

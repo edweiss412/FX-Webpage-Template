@@ -224,6 +224,7 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "app/auth/sign-in/page.tsx",
   "app/auth/sign-out/route.ts",
   "lib/auth/picker/resolvePickerSelection.ts",
+  "lib/auth/picker/resetCrewMemberSelection.ts",
   "lib/auth/picker/resetPickerEpoch.ts",
   "lib/auth/picker/resolveShowPageAccess.ts",
   "lib/auth/picker/rotateShareToken.ts",

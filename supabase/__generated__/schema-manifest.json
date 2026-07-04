@@ -82,6 +82,7 @@
     "phone",
     "role",
     "role_flags",
+    "selections_reset_at",
     "show_id",
     "stage_restriction"
   ],

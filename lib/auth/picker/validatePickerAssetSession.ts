@@ -52,6 +52,7 @@ export async function validatePickerAssetSession(
     case "no_selection":
     case "epoch_stale":
     case "removed_from_roster":
+    case "selection_reset":
       return { ok: false, response: unauthorized() };
   }
 }
