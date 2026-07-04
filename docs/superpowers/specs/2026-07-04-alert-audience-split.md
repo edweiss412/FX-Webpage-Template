@@ -41,9 +41,22 @@ amber alarm.
      for the health popover, distinct from the developer-facing `dougFacing`/`followUp`.
    All three are **optional on the type** (the type is shared by ~200 non-alert codes),
    but a new structural meta-test makes them **mandatory for the 42 admin-alert codes**.
-2. **`audience` is the single filter field.** `AlertBanner`, `alertCount`, and
-   `PerShowAlertSection` filter to `audience === "doug"` (keeping the existing
-   `severity: "info"` exclusion where present). The health rollup reads
+2. **`audience` drives filtering via EXCLUSION of the known health set — never a
+   `doug`-allowlist.** This is critical: `admin_alerts.code` is an unconstrained runtime
+   string (`AlertBanner.tsx:249` guards unknown/retired codes), so a strict
+   `audience === "doug"` allowlist would drop any legacy / deploy-skewed / uncataloged row
+   from BOTH the Doug surfaces AND the health rollup → invisible (R2 finding 2). Instead,
+   exactly mirroring the existing `INFO_SEVERITY_CODES` mechanism:
+   - **Doug surfaces** (`AlertBanner`, `alertCount`, `PerShowAlertSection`) exclude the
+     computed **`HEALTH_CODES`** set (union with the existing info-severity exclusion where
+     present). An **unknown/uncataloged code is neither info nor health → it stays
+     fail-visible to Doug** (the safe default; matches how info exclusion leaves unknowns
+     visible today).
+   - **The health rollup** reads only the `HEALTH_CODES` set (`.in("code", HEALTH_CODES)`).
+     Unknown codes are NOT in the set → excluded from the rollup (they are already
+     fail-visible on the Doug surfaces, so they are not lost).
+   `HEALTH_CODES` is computed from `MESSAGE_CATALOG` at module load (like
+   `INFO_SEVERITY_CODES`, `AlertBanner.tsx:71-73`): the codes whose entry has
    `audience === "health"`.
 3. **The digest (`lib/notify/runNotify.ts:105-109`) needs no change** — it already reads
    an explicit 3-code Doug allowlist (`DRIVE_FETCH_FAILED`, `PARSE_ERROR_LAST_GOOD`,
@@ -113,7 +126,7 @@ Counts cross-check: 16 doug + (16 degraded + 10 notice) health = 16 + 26 = **42*
 
 | Field | Storage | Write path | Read path | Effect on output |
 |---|---|---|---|---|
-| `audience` | `MESSAGE_CATALOG[code].audience` (`lib/messages/catalog.ts`) | hand-authored per code + meta-test enforced | `AlertBanner`, `alertCount`, `PerShowAlertSection` (exclude non-doug); `healthRollup` (select health) | routes a code to the amber banner vs the health indicator |
+| `audience` | `MESSAGE_CATALOG[code].audience` (`lib/messages/catalog.ts`) | hand-authored per code + meta-test enforced | Doug surfaces **exclude** `HEALTH_CODES` (unknowns stay visible); `healthRollup` selects `HEALTH_CODES` | routes a code to the amber banner vs the health indicator; unknown codes stay Doug-visible |
 | `healthWeight` | `MESSAGE_CATALOG[code].healthWeight` | hand-authored for `health` codes only | `healthRollup` worst-active reducer | indicator color red (`degraded`) vs amber (`notice`) |
 | `dougSummary` | `MESSAGE_CATALOG[code].dougSummary` | hand-authored for `health` codes only | health popover (`AppHealthPopover`) via a typed accessor | the plain-language line Doug reads |
 
@@ -125,15 +138,16 @@ the meta-test asserts presence + that non-`health` codes do **not** carry `healt
 
 | Surface | File | Change |
 |---|---|---|
-| Global banner | `components/admin/AlertBanner.tsx:116-127` | add `audience:"doug"` exclusion to the existing `.not("code","in",…)` info filter |
-| Bell count | `lib/admin/alertCount.ts:19-27` | same exclusion so the bell counts only `doug` alerts |
-| Per-show section | `components/admin/PerShowAlertSection.tsx:119-122` | filter fetched rows to `doug` (client-side filter on the small per-show result set, or `.not(...in...)` on the query) |
+| Global banner | `components/admin/AlertBanner.tsx:116-127` | **exclude** `HEALTH_CODES` (∪ existing info exclusion) via the existing `.not("code","in",…)`; unknown codes stay visible |
+| Bell count | `lib/admin/alertCount.ts:19-27` | same `HEALTH_CODES` exclusion so the bell counts only doug + unknown rows |
+| Per-show section | `components/admin/PerShowAlertSection.tsx:119-122` | exclude `HEALTH_CODES` (`.not(...in...)` on the query; unknown per-show codes stay visible) |
 | Digest email | `lib/notify/runNotify.ts:105-109` | **no change** (already 3-code Doug allowlist) |
 | Escalation logic | `lib/drive/watchEscalation.ts` | **no change** (`WATCH_CHANNEL_ORPHANED` stays doug) |
 | Dev CLI / observe | `lib/observe/query/alerts.ts` | **no change** (dev tool, shows all) |
-| **NEW** health rollup | `lib/admin/healthRollup.ts` | reads unresolved `health` rows → worst-active `HealthStatus` |
+| **NEW** health rollup | `lib/admin/healthRollup.ts` | `.in("code", HEALTH_CODES)` on unresolved rows → worst-active `HealthStatus` |
 | **NEW** nav indicator | `components/admin/nav/AppHealthIndicator.tsx` | escalating dot beside `NotifBell` (`AdminNav.tsx:114`) |
 | **NEW** dashboard breakdown + popover | `components/admin/AppHealthPanel.tsx` | fuller breakdown on `/admin`; Doug popover vs dev deep-link |
+| **NEW** developer detail | `app/admin/observability/page.tsx` + `components/admin/observability/HealthAlertsPanel.tsx` | dev-gated unresolved-health-alert detail list (§6.6) — the real target of the developer deep-link |
 
 ### 5.1 Threading the rollup
 
@@ -191,9 +205,12 @@ no second server fetch; the one rollup carries everything.
   (idle hue) + tooltip "Couldn't check system health right now." Never green (would hide a
   broken read) and never red (would false-alarm).
 - `count === 0` path only reachable as `kind:"ok"`.
-- Unknown / uncataloged `code` in a health row → excluded from the health set (cannot
-  happen for the 42, but the reducer is defensive: a code with `audience:"health"` but
-  missing `healthWeight` is treated as `notice` AND flagged by the meta-test at build/CI).
+- Unknown / uncataloged `code` on ANY admin_alerts row → NOT in `HEALTH_CODES`, so it is
+  **excluded from the rollup** AND (being neither info nor health) **stays fail-visible on
+  the Doug surfaces** (banner/count/per-show). This is the safe default (§2 decision 2) —
+  an unknown code never disappears from every surface at once.
+- A code with `audience:"health"` but missing `healthWeight` → treated as `notice` by the
+  reducer AND flagged by the meta-test at build/CI (cannot land).
 - `dougSummary` missing for a health row → the popover omits that line (never renders
   `undefined`/raw code); meta-test forbids this for the 42.
 - Popover with `count > 0` but every `dougSummary` deduped to empty → fallback single line
@@ -210,7 +227,8 @@ no second server fetch; the one rollup carries everything.
   a distinct lower-emphasis treatment, green = `bg-status-positive`, unknown = `bg-status-idle`.
 - `min-h-tap-min min-w-tap-min` (44px tap target), matching `NotifBell`.
 - **Doug** (`isDeveloper === false`): the indicator is a `<button>` that opens the popover
-  (§6.4). **Developer** (`isDeveloper === true`): it is a `<Link href="/admin/observability">`.
+  (§6.4). **Developer** (`isDeveloper === true`): it is a
+  `<Link href="/admin/observability#health">` targeting the `HealthAlertsPanel` (§6.6).
 
 ### 6.4 Doug popover — `AppHealthPopover`
 
@@ -238,6 +256,35 @@ no second server fetch; the one rollup carries everything.
 - Green/clean state: renders a quiet "All systems normal" `StatusIndicator` (positive hue)
   — this surface is allowed to show the healthy state explicitly (unlike the banner, which
   is invisible when clean), because it is the ambient health read.
+
+### 6.6 Developer detail — `HealthAlertsPanel` on `/admin/observability` (R2 finding 1)
+
+The developer deep-link MUST land on a surface that actually shows the underlying health
+alerts — otherwise "nothing goes dark" is violated for the person who can act. This brings
+a scoped health-alert detail list **into scope** on the already-`requireDeveloper`-gated
+`/admin/observability` page (`page.tsx:20` `requireDeveloperIdentity()`).
+
+- `HealthAlertsPanel` renders ABOVE the existing cron-health/event-timeline content
+  (a new section; the page keeps `CronHealthHeader` + `EventTimeline`).
+- Loads unresolved `admin_alerts` rows whose `code ∈ HEALTH_CODES`, ordered `raised_at`
+  desc, capped (e.g. 50 rows, honest "+N more" note beyond the cap). Typed read: destructure
+  `{ data, error }`; a returned/thrown error → a cataloged degraded panel (invariant 9),
+  never a silent empty.
+- Per row: the alert **title/copy via `lib/messages/lookup.ts`** (dev-facing `dougFacing`
+  + `followUp`; NO raw code string in the DOM — invariant 5; unknown-code guard like
+  `AlertBanner`), the `healthWeight` chip (degraded/notice), a **show link** when
+  `show_id` is set (`/admin/show/<slug>`), `raised_at` (relative + absolute title), and
+  `occurrence_count`.
+- Each row carries a **Resolve** affordance reusing the existing
+  `resolveAdminAlertFormAction` (`app/admin/actions.ts`) — developers can clear a resolved
+  health condition. (This is the resolve path health alerts otherwise lost by leaving the
+  banner.) The form is dev-gated by the page.
+- Deep-link anchor: `/admin/observability#health` (or a query token) so the indicator link
+  scrolls to the panel; the panel wrapper has `id="health"` + a stable `data-testid`.
+- Empty state: "No open system-health alerts." (quiet, not an error).
+
+Because this reuses the resolve action, no new RPC / DML surface is introduced (no
+PostgREST-lockdown obligation).
 
 ## 7. `WATCH_CHANNEL_ORPHANED` demotion
 
@@ -317,9 +364,8 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - No DB migration; no RLS change.
 - Realtime/live push of the indicator (it updates on normal admin navigation /
   server re-render, like the bell).
-- Reworking `/admin/observability` beyond it already being the dev deep-link target
-  (it lists app_events + cron health today; surfacing per-code alert rows there is a
-  possible future enhancement, filed to BACKLOG if the reviewer wants it).
+- Reworking `/admin/observability`'s existing app_events + cron-health content. This
+  feature ADDS a `HealthAlertsPanel` (§6.6) above that content but does not touch it.
 
 ## 13. Acceptance criteria
 
@@ -347,6 +393,15 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC7: No raw error code string reaches the DOM on any surface (invariant 5).
 - AC8: All new Supabase reads destructure `{ data, error }` and surface infra faults as
   typed results (invariant 9).
+- AC9: A developer at `/admin/observability` sees the `HealthAlertsPanel` listing each
+  unresolved health alert with its lookup-rendered copy (no raw code), `healthWeight` chip,
+  show link (when `show_id` set), `raised_at`, `occurrence_count`, and a working Resolve
+  control (reusing `resolveAdminAlertFormAction`). The developer indicator link targets
+  `/admin/observability#health`. Seeding a health alert makes it identifiable in this UI.
+- AC10: An **uncataloged** `admin_alerts.code` (neither info nor health) remains visible in
+  `AlertBanner`, is counted by `alertCount`, appears in `PerShowAlertSection` (if
+  show-scoped), and is **absent** from the health rollup — proving the exclusion-not-allowlist
+  contract (§2 decision 2). Tests seed such a row for all four surfaces.
 
 ## 14. Watchpoints (disagreement-loop preempts — do not relitigate)
 
@@ -377,3 +432,9 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   is explicitly `not-subject-to-meta: visibility-only`).
 - **No DB / CHECK / enum / advisory-lock surface.** Tier×domain and CHECK-migration
   matrices are **N/A** — this is catalog-metadata + presentation only.
+- **Exclusion, not allowlist (R2).** Doug surfaces `.not("code","in", INFO ∪ HEALTH)`;
+  unknown codes stay Doug-visible. The rollup `.in("code", HEALTH)`. This is the settled
+  fail-visible posture — do not "simplify" to a doug-allowlist (it would hide unknowns).
+- **Developer detail is IN scope (R2).** `HealthAlertsPanel` on `/admin/observability`
+  (§6.6) is the real deep-link target with per-row lookup copy + Resolve. The deep-link is
+  not hollow. Reuses the existing resolve action — no new RPC/DML lockdown surface.
