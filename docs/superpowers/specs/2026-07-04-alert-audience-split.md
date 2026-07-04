@@ -310,11 +310,18 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
     JSON-nav trap entirely.
   - **Both global and show-scoped** health rows resolve through this one action: because it
     is developer-authorized and code-verified, it resolves `WHERE id = $1 AND resolved_at
-    IS NULL` (no `show_id` predicate needed), so there is no dead-control split. It follows
-    the existing resolve actions' **post-commit `logAdminOutcome`** breadcrumb pattern
-    (`app/admin/actions.ts`) and destructures `{ error }` (invariant 9); a failed UPDATE
-    does NOT revalidate (mirrors `actions.ts` I1) — it throws so the row stays visibly
-    unresolved.
+    IS NULL` (no `show_id` predicate needed), so there is no dead-control split.
+  - **Call-boundary contract (R8 finding 2), mirroring `resolveAdminAlertFormAction`
+    (`app/admin/actions.ts:63`, which carries `// not-subject-to-meta: server action with
+    no typed-result contract` + the "propagation IS the contract" rule):** the new action
+    carries the SAME inline `not-subject-to-meta` waiver. The **code lookup** destructures
+    `{ data, error }`; the **UPDATE** destructures `{ error }` and checks affected rows.
+    Construction/select/update **returned-errors AND throws must NOT `revalidatePath` as
+    success and must NOT log a success outcome** — they throw to the error boundary
+    (mirrors `actions.ts:127` I1: a failed UPDATE never revalidates). On genuine success it
+    fires the post-commit `logAdminOutcome` breadcrumb (same pattern as the existing
+    resolve action) and `revalidatePath("/admin/observability")`. A no-row/already-resolved
+    UPDATE is an idempotent no-op (no false success outcome).
 - Deep-link anchor: `/admin/observability#health` so the indicator link scrolls to the
   panel; the panel wrapper has `id="health"` + a stable `data-testid`. Clicking Resolve
   stays on `#health` (Server Action revalidate), removes the resolved row, and never
@@ -422,12 +429,19 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
 - **CREATE/EXTEND** a health-resolve-guard structural test (§6.7): pins that the three
   pre-existing resolve surfaces reject `HEALTH_CODES` and that `resolveHealthAlertFormAction`
   is the sole health-resolve entry point (may extend `developerGatingContract.test.ts`).
-- **VERIFY at plan time** whether `resolveHealthAlertFormAction` (the new dev-gated resolve
-  Server Action) must register in `tests/admin/_metaAdminOutcomeContract.test.ts` — the
-  existing resolve actions emit a post-commit `logAdminOutcome` breadcrumb; if the new
-  action reuses/introduces an outcome `code`, follow the same registry discipline (forensic
-  codes are §12.4-free, registry-only). Its `requireDeveloper` producer path is already
-  covered by the `_metaInfraContract` requireDeveloper registration.
+- **`resolveHealthAlertFormAction` call-boundary (R8 finding 2):** it is a Server Action
+  with the SAME posture as `resolveAdminAlertFormAction` (`app/admin/actions.ts:63`) — so it
+  carries an inline `// not-subject-to-meta: server action with no typed-result contract`
+  waiver, and the throw-to-boundary "propagation IS the contract" behavior (§6.6) is
+  asserted by AC11/AC11b behavioral tests (code lookup + update; error/throw ⇒ no
+  revalidate-as-success, no success outcome; success ⇒ resolve + revalidate). No read
+  registry row (it is a mutation, not a typed-result read), matching the existing sibling.
+- **VERIFY at plan time** whether `resolveHealthAlertFormAction` must register in
+  `tests/admin/_metaAdminOutcomeContract.test.ts` — the existing resolve actions emit a
+  post-commit `logAdminOutcome` breadcrumb; if the new action reuses/introduces an outcome
+  `code`, follow the same registry discipline (forensic codes are §12.4-free, registry-only).
+  Its `requireDeveloper` producer path is already covered by the `_metaInfraContract`
+  requireDeveloper registration.
 - If any `dougFacing` prose changes (only `WATCH_CHANNEL_ORPHANED`, §7): the §12.4
   three-way lockstep — master spec §12.4 prose + `pnpm gen:spec-codes`
   (`lib/messages/__generated__/spec-codes.ts`) + `lib/messages/catalog.ts` — all in the
@@ -450,8 +464,11 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 
 ## 12. Out of scope
 
-- No change to how alerts are **raised** or **resolved** (producers, auto-resolution
-  lifecycle from PR #283 untouched).
+- No change to how alerts are **raised** or **auto-resolved** — producers and the PR #283
+  auto-resolution lifecycle (internal `resolveAdminAlert()` helper) are untouched. **But
+  user-facing resolution IS in scope:** health alerts resolve only via the new dev-gated
+  `resolveHealthAlertFormAction` (§6.6), and the three pre-existing user-facing resolve
+  surfaces are guarded to reject `HEALTH_CODES` (§6.7). `doug`-alert resolution is unchanged.
 - No new alert codes.
 - No DB migration; no RLS change.
 - Realtime/live push of the indicator (it updates on normal admin navigation /
@@ -554,7 +571,10 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   fail-visible posture — do not "simplify" to a doug-allowlist (it would hide unknowns).
 - **Developer detail is IN scope (R2).** `HealthAlertsPanel` on `/admin/observability`
   (§6.6) is the real deep-link target with per-row lookup copy + Resolve. The deep-link is
-  not hollow. Reuses the existing resolve actions/routes — no new RPC/DML lockdown surface.
+  not hollow. Resolution uses the NEW dev-gated `resolveHealthAlertFormAction` (§6.6), and
+  the legacy resolve surfaces are guarded to reject health codes (§6.7) — NOT a reuse of
+  the existing admin-gated paths. No new RPC or table (no PostgREST-DML-lockdown surface):
+  the action UPDATEs `admin_alerts` via the RLS-gated client, same as today's resolve action.
 - **Health resolve is ONE dev-gated action, no global/show-scoped split (R3→R5).** An
   earlier draft split resolution by `show_id` across two existing admin-gated paths; R5
   superseded that — the single `resolveHealthAlertFormAction` (`requireDeveloper` +
