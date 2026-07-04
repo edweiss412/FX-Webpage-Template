@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// tests/components/observability/eventRow.test.tsx
+// tests/components/telemetry/eventRow.test.tsx
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
@@ -70,7 +70,7 @@ describe("EventRow", () => {
   test("request chip links to ?requestId=<id>&since=all", () => {
     render(<EventRow event={base} now={now} />);
     const chip = screen.getByTestId("event-row-request-e1");
-    expect(chip.getAttribute("href")).toBe("/admin/observability?requestId=req-9&since=all");
+    expect(chip.getAttribute("href")).toBe("/admin/dev/telemetry?requestId=req-9&since=all");
   });
   test("CRON_RUN_SUMMARY row: card is the collapsed body AND it expands to ContextDetail (AC4)", () => {
     const ev = {

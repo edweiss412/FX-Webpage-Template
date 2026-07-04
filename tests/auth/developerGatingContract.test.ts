@@ -27,7 +27,7 @@
  *      revokeAdminAction are requireDeveloperIdentity-gated (NOT admin, NOT
  *      ungated) — admin-roster management is now developer-only (this milestone
  *      supersedes the developer-tier's "any admin can revoke any admin" §5.5 risk).
- *   3. Route/page coverage: the dev page + 2 harnesses + observability page +
+ *   3. Route/page coverage: the dev page + 2 harnesses + telemetry page +
  *      reap route are in PROTECTED_ROUTES with a chain starting requireDeveloper.
  *   4. Mutation-RPC SQL guard (Codex spec R9+R10): set_admin_developer_rpc's
  *      actor authorization is a table-backed `exists(... from public.admin_emails
@@ -107,15 +107,15 @@ const DEVELOPER_GATED_SURFACES: readonly DeveloperGatedSurface[] = [
     declaredPosture: "boundary-500",
   },
   {
-    id: "observability-dim",
-    file: "app/admin/dev/observability-dim/page.tsx",
+    id: "telemetry-dim",
+    file: "app/admin/dev/telemetry-dim/page.tsx",
     consumerKind: "route",
     gate: "requireDeveloper",
     declaredPosture: "boundary-500",
   },
   {
-    id: "observability-page",
-    file: "app/admin/observability/page.tsx",
+    id: "telemetry-page",
+    file: "app/admin/dev/telemetry/page.tsx",
     consumerKind: "route",
     gate: "requireDeveloperIdentity",
     declaredPosture: "boundary-500",

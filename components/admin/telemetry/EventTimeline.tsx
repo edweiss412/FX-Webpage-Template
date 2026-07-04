@@ -29,7 +29,7 @@ export function EventTimeline({
     const sp = new URLSearchParams(currentQuery);
     sp.set("cursorAt", result.nextCursor.occurredAt);
     sp.set("cursorId", result.nextCursor.id);
-    return `/admin/observability?${sp.toString()}`;
+    return `/admin/dev/telemetry?${sp.toString()}`;
   })();
   return (
     <div className="flex flex-col gap-3" style={{ overflowAnchor: "auto" }}>

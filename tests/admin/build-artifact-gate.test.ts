@@ -101,34 +101,53 @@ describe.skipIf(!RUN)("Round 2 Finding 1 — pnpm build canonical-path artifact 
   test("pnpm build with ADMIN_DEV_PANEL_ENABLED unset → artifact does NOT contain /admin/dev route", () => {
     const distDir = runCanonicalBuild(false);
 
-    // Three independent introspection signals — all must indicate absence.
+    // Three independent introspection signals. /admin/dev/telemetry is the
+    // deliberate PROD-available exception (developer-gated at RUNTIME, not
+    // build-gated); the dev panel + its two dim harnesses stay build-gated OUT of
+    // prod. So each signal asserts telemetry PRESENT + the dev-only trio ABSENT.
 
-    // 1. The compiled page module directory should not exist.
-    const compiledRouteDir = join(distDir, "server", "app", "admin", "dev");
+    // 1. The compiled telemetry page dir must exist; the dev-only trio must not.
+    const adminDevDir = join(distDir, "server", "app", "admin", "dev");
+    const telemetryDir = join(adminDevDir, "telemetry");
     expect(
-      existsSync(compiledRouteDir),
-      `expected ${compiledRouteDir} to NOT exist; the canonical pnpm build leaked /admin/dev into the artifact`,
-    ).toBe(false);
+      existsSync(telemetryDir),
+      `expected ${telemetryDir} to EXIST; the prod-available /admin/dev/telemetry route was not compiled into the canonical build`,
+    ).toBe(true);
+    for (const devOnly of ["page.js", "source-link-dim", "telemetry-dim"]) {
+      const leaked = join(adminDevDir, devOnly);
+      expect(
+        existsSync(leaked),
+        `expected ${leaked} to NOT exist; a dev-only /admin/dev surface leaked into the prod artifact`,
+      ).toBe(false);
+    }
 
-    // 2. The app-paths-manifest should not list /admin/dev.
+    // 2. The app-paths-manifest may list /admin/dev/telemetry but NO other
+    //    /admin/dev route (panel or harness).
     const appPathsManifest = join(distDir, "server", "app-paths-manifest.json");
     if (existsSync(appPathsManifest)) {
       const manifest = JSON.parse(readFileSync(appPathsManifest, "utf8")) as Record<
         string,
         unknown
       >;
-      const adminDevKeys = Object.keys(manifest).filter((k) => k.startsWith("/admin/dev"));
+      const adminDevKeys = Object.keys(manifest).filter(
+        (k) => k.startsWith("/admin/dev") && !k.startsWith("/admin/dev/telemetry"),
+      );
       expect(
         adminDevKeys,
-        `app-paths-manifest.json contains /admin/dev entries: ${JSON.stringify(adminDevKeys)}`,
+        `app-paths-manifest.json contains non-telemetry /admin/dev entries: ${JSON.stringify(adminDevKeys)}`,
       ).toEqual([]);
     }
 
-    // 3. routes-manifest.json (Pages Router) should not list it either.
+    // 3. routes-manifest.json: strip the prod-available telemetry route, then
+    //    assert NO other /admin/dev route (dev panel/harness) remains.
     const routesManifest = join(distDir, "routes-manifest.json");
     if (existsSync(routesManifest)) {
       const text = readFileSync(routesManifest, "utf8");
-      expect(text.includes("/admin/dev"), "routes-manifest.json mentions /admin/dev").toBe(false);
+      const withoutTelemetry = text.split("/admin/dev/telemetry").join("");
+      expect(
+        withoutTelemetry.includes("/admin/dev"),
+        "routes-manifest.json mentions a non-telemetry /admin/dev route (dev panel/harness leaked)",
+      ).toBe(false);
     }
 
     rmSync(distDir, { recursive: true, force: true });

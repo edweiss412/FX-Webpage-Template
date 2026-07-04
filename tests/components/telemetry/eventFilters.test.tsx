@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// tests/components/observability/eventFilters.test.tsx
+// tests/components/telemetry/eventFilters.test.tsx
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";

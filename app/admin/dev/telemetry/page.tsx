@@ -12,7 +12,7 @@ import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshCont
 
 export const dynamic = "force-dynamic";
 
-export default async function ObservabilityPage({
+export default async function TelemetryPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;

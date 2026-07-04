@@ -1,4 +1,4 @@
-// tests/components/observability/cronHealthStatus.test.ts
+// tests/components/telemetry/cronHealthStatus.test.ts
 import { describe, expect, test } from "vitest";
 import { effectiveCronStatus } from "@/components/admin/telemetry/cronHealthStatus";
 import type { CronHealthRow } from "@/lib/admin/telemetryTypes";

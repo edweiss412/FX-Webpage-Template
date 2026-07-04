@@ -86,7 +86,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
         {event.requestId && (
           <Link
             data-testid={`event-row-request-${event.id}`}
-            href={`/admin/observability?requestId=${encodeURIComponent(event.requestId)}&since=all`}
+            href={`/admin/dev/telemetry?requestId=${encodeURIComponent(event.requestId)}&since=all`}
             className="inline-flex min-h-tap-min shrink-0 items-center rounded-pill bg-surface-sunken px-2 text-xs text-accent-on-bg"
           >
             {event.requestId.slice(0, 8)}

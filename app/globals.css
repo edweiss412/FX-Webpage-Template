@@ -18,6 +18,10 @@
 @source not "../lib";
 /* admin dev surface — disabled in production builds (ADMIN_DEV_PANEL_ENABLED). */
 @source not "../app/admin/dev";
+/* …except /admin/dev/telemetry, which is PROD-available (developer-gated at
+   runtime), so its Tailwind classes must be scanned back in even though the
+   parent tree is excluded above. */
+@source "../app/admin/dev/telemetry";
 
 /*
  * Token surface for FXAV Crew Pages — pairs with DESIGN.md.

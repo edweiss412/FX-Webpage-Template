@@ -42,7 +42,7 @@ describe("transition inventory (spec §7)", () => {
     expect(src).toMatch(/height:\s*["']?auto/); // height disclosure (220ms)
     expect(src).toContain("useReducedMotion"); // instant under reduced-motion
   });
-  test("every OTHER observability component is instant — no AnimatePresence / motion / exit", () => {
+  test("every OTHER telemetry component is instant — no AnimatePresence / motion / exit", () => {
     for (const f of INSTANT) {
       const src = read(f);
       expect(src, `${f} should be instant`).not.toContain("AnimatePresence");

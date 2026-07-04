@@ -18,6 +18,11 @@
  *                        link — artifact-time flag wins over runtime env
  *                        (the M3 build-vs-runtime class).
  *
+ * CARVE-OUT: these blanket "/admin/dev 404 in prod" claims cover the dev PANEL
+ * + source-link-dim + telemetry-dim harnesses only. /admin/dev/telemetry is the
+ * deliberate PROD-available exception (developer-gated at runtime, not build-
+ * gated) and is NOT exercised by this spec.
+ *
  * Auth seeding: signInAs(page, ADMIN_FIXTURE) POSTs to
  * /api/test-auth/set-session (ENABLE_TEST_AUTH=true + TEST_AUTH_SECRET set on
  * all three webServers in playwright.config.ts). Each test deletes the

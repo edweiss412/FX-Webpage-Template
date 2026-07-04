@@ -1,7 +1,7 @@
 /**
- * tests/admin/observability-requires-developer.test.ts (developer-tier §6 row 5)
+ * tests/admin/dev/telemetry-requires-developer.test.ts (developer-tier §6 row 5)
  *
- * Proves the Activity / observability page is gated on requireDeveloperIdentity
+ * Proves the Telemetry page is gated on requireDeveloperIdentity
  * (NOT requireAdminIdentity). The data loaders use service-role clients and do
  * NOT self-gate, so the page gate is the sole access control — if it throws,
  * neither loader may run (auth-before-read).
@@ -37,9 +37,9 @@ vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:
 
 afterEach(() => vi.clearAllMocks());
 
-describe("ObservabilityPage is developer-gated", () => {
+describe("TelemetryPage is developer-gated", () => {
   test("requireDeveloperIdentity gates the page; requireAdminIdentity unused; loaders never run", async () => {
-    const { default: Page } = await import("@/app/admin/observability/page");
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
     await expect(Page({ searchParams: Promise.resolve({}) })).rejects.toBe(SENTINEL);
     expect(requireDeveloperIdentity).toHaveBeenCalledTimes(1);
     expect(requireAdminIdentity).not.toHaveBeenCalled();

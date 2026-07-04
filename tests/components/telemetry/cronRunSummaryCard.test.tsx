@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// tests/components/observability/cronRunSummaryCard.test.tsx
+// tests/components/telemetry/cronRunSummaryCard.test.tsx
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";

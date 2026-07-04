@@ -66,9 +66,13 @@ test.describe("admin onboarding wizard — Step 1 (mobile-safari)", () => {
     expect(body).not.toContain("WIZARD_FINALIZE_BATCHES_PENDING");
 
     // Build-gated-routes-never-fallback-target: nothing in the wizard
-    // page points at /admin/dev (which is removed from the production
-    // build via scripts/with-admin-dev-flag.mjs).
-    const adminDevLinks = await page.locator("a[href*='/admin/dev']").count();
+    // page points at the dev PANEL /admin/dev (removed from the production
+    // build via scripts/with-admin-dev-flag.mjs). /admin/dev/telemetry is the
+    // prod-available exception (developer-gated), so it is excluded from the
+    // forbidden set.
+    const adminDevLinks = await page
+      .locator("a[href*='/admin/dev']:not([href*='/admin/dev/telemetry'])")
+      .count();
     expect(adminDevLinks).toBe(0);
   });
 

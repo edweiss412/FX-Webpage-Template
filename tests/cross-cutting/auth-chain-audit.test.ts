@@ -31,8 +31,8 @@ describe("X.3 trust-domain auth-chain audit", () => {
     const DEVELOPER_ROUTES = [
       "app/admin/dev/page.tsx",
       "app/admin/dev/source-link-dim/page.tsx",
-      "app/admin/dev/observability-dim/page.tsx",
-      "app/admin/observability/page.tsx",
+      "app/admin/dev/telemetry-dim/page.tsx",
+      "app/admin/dev/telemetry/page.tsx",
       "app/api/admin/onboarding/reap-stale-sessions/route.ts",
     ] as const;
 

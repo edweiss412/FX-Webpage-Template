@@ -1,6 +1,6 @@
 /**
- * tests/e2e/observability-layout.spec.ts — real-browser dimensional-invariant +
- * tap-target gate for the observability timeline (spec §8 + G7).
+ * tests/e2e/telemetry-layout.spec.ts — real-browser dimensional-invariant +
+ * tap-target gate for the telemetry timeline (spec §8 + G7).
  *
  * WHY A REAL BROWSER (jsdom is insufficient): this project's Tailwind v4 does NOT
  * default `.flex` to `align-items: stretch` (AGENTS.md / DESIGN §7). The
@@ -8,8 +8,8 @@
  * geometry only surface in a real layout engine; this suite reads
  * getBoundingClientRect() against the live render.
  *
- * HARNESS: `/admin/dev/observability-dim` (app/admin/dev/observability-dim/page.tsx)
- * mounts the real observability components with deterministic props — 9 cron-health
+ * HARNESS: `/admin/dev/telemetry-dim` (app/admin/dev/telemetry-dim/page.tsx)
+ * mounts the real telemetry components with deterministic props — 9 cron-health
  * cards, a CRON_RUN_SUMMARY row, a row carrying a requestId + showSlug, and
  * hasMore=true — so every measured control (incl. the request chip + Load-older)
  * is present without any DB seed. It is build-gated like source-link-dim.
@@ -27,9 +27,9 @@ import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs } from "./helpers/signInAs";
 
-const HARNESS_PATH = "/admin/dev/observability-dim";
+const HARNESS_PATH = "/admin/dev/telemetry-dim";
 
-test.describe("observability layout + tap targets (§8/G7)", () => {
+test.describe("telemetry layout + tap targets (§8/G7)", () => {
   // Cold first-hit render compiles a small module graph; budget for it.
   test.setTimeout(120_000);
 

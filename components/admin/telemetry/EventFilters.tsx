@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppEventFilters } from "@/lib/admin/telemetryTypes";
 
-const BASE = "/admin/observability";
+const BASE = "/admin/dev/telemetry";
 
 // Controlled text filter: local state mirrors the committed filter value but is NOT reset by an
 // auto-refresh re-render (the `committed` value is unchanged), so focus + in-progress keystrokes

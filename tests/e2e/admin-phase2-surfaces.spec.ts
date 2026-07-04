@@ -32,8 +32,15 @@ async function assertNoRawCodes(page: Page) {
 }
 
 async function assertNoAdminDevLinks(page: Page) {
-  const count = await page.locator("a[href*='/admin/dev']").count();
-  expect(count, "found /admin/dev link in Phase 2 surface").toBe(0);
+  // /admin/dev/telemetry is the deliberate prod-available exception (developer-
+  // gated); the dev PANEL + source-link-dim + telemetry-dim stay 404 in prod, so
+  // no Phase-2 surface may link to them. Exclude the telemetry sub-route from the
+  // forbidden set (which also excludes /admin/dev/telemetry-dim by prefix — it
+  // never appears in a prod nav anyway).
+  const count = await page
+    .locator("a[href*='/admin/dev']:not([href*='/admin/dev/telemetry'])")
+    .count();
+  expect(count, "found a non-telemetry /admin/dev link in Phase 2 surface").toBe(0);
 }
 
 test.describe("admin Phase 2 surfaces (mobile-safari)", () => {

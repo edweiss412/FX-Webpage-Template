@@ -1,10 +1,10 @@
 /**
- * app/admin/dev/observability-dim/page.tsx — dimensional-invariant render harness
- * for the observability timeline (spec §8 + G7).
+ * app/admin/dev/telemetry-dim/page.tsx — dimensional-invariant render harness
+ * for the telemetry timeline (spec §8 + G7).
  *
  * A DEV-ONLY render harness whose sole purpose is to feed the real-browser
- * Playwright spec `tests/e2e/observability-layout.spec.ts`. It mounts the real
- * observability components with DETERMINISTIC props (no DB read) so EVERY measured
+ * Playwright spec `tests/e2e/telemetry-layout.spec.ts`. It mounts the real
+ * telemetry components with DETERMINISTIC props (no DB read) so EVERY measured
  * control exists deterministically:
  *   - 9 cron-health cards (CRON_JOBS) so the equal-height `auto-rows-fr` grid
  *     invariant is measurable across a wrap row.
@@ -98,12 +98,12 @@ const RESULT: LoadAppEventsResult = {
   nextCursor: { occurredAt: events[1]!.occurredAt, id: "b" },
 };
 
-export default async function ObservabilityDimHarness() {
+export default async function TelemetryDimHarness() {
   // Same chokepoint as /admin/dev so the trust-domain auth-chain audit classifies
   // this harness route identically (chain: requireDeveloper).
   await requireDeveloper();
   return (
-    <div className="flex flex-col gap-section-gap p-4" data-testid="observability-dim-harness">
+    <div className="flex flex-col gap-section-gap p-4" data-testid="telemetry-dim-harness">
       <AutoRefreshControl />
       <CronHealthHeader jobs={jobs} now={NOW} />
       {/* EventFilters uses useSearchParams → Suspense boundary (Next 16). */}

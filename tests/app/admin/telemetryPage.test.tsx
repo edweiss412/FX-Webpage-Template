@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-// tests/app/admin/observabilityPage.test.tsx
+// tests/app/admin/dev/telemetryPage.test.tsx
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
-// developer-tier §6 row 5: Activity/observability swapped its gate
+// developer-tier §6 row 5: Telemetry swapped its gate
 // requireAdminIdentity → requireDeveloperIdentity.
 vi.mock("@/lib/auth/requireDeveloper", () => ({
   requireDeveloperIdentity: async () => ({ email: "a@b.c" }),
@@ -19,7 +19,7 @@ vi.mock("next/navigation", () => ({
 
 afterEach(cleanup);
 
-describe("ObservabilityPage", () => {
+describe("TelemetryPage", () => {
   beforeEach(() => vi.resetModules());
 
   test("renders header + timeline; cron-health infra degrades only that section", async () => {
@@ -29,7 +29,7 @@ describe("ObservabilityPage", () => {
     vi.doMock("@/lib/admin/loadAppEvents", () => ({
       loadAppEvents: async () => ({ kind: "ok", events: [], hasMore: false, nextCursor: null }),
     }));
-    const { default: Page } = await import("@/app/admin/observability/page");
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
     render(await Page({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("Activity")).toBeInTheDocument();
     expect(screen.getByTestId("cron-health-degraded")).toBeInTheDocument();
@@ -47,7 +47,7 @@ describe("ObservabilityPage", () => {
       loadCronHealth: async () => ({ kind: "ok", jobs: [] }),
     }));
     vi.doMock("@/lib/admin/loadAppEvents", () => ({ loadAppEvents }));
-    const { default: Page } = await import("@/app/admin/observability/page");
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
     render(await Page({ searchParams: Promise.resolve({ requestId: "req-9", since: "all" }) }));
     expect(loadAppEvents).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: "req-9", sinceHours: null }),
@@ -71,7 +71,7 @@ describe("ObservabilityPage", () => {
     }));
     vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));
     vi.doMock("@/lib/admin/loadAppEvents", () => ({ loadAppEvents }));
-    const { default: Page } = await import("@/app/admin/observability/page");
+    const { default: Page } = await import("@/app/admin/dev/telemetry/page");
     await expect(Page({ searchParams: Promise.resolve({}) })).rejects.toThrow();
     expect(loadCronHealth).not.toHaveBeenCalled();
     expect(loadAppEvents).not.toHaveBeenCalled();
