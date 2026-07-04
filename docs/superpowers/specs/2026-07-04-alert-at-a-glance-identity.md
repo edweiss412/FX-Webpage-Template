@@ -16,7 +16,7 @@ This is not unique to that one code. A full sweep of the admin-alert catalog fou
 ### Goal
 
 1. **Immediate:** `OAUTH_IDENTITY_CLAIMED` shows crew member name + OAuth email (raw canonical) + show title, at a glance.
-2. **Full sweep:** every generic code that identifies a concrete entity surfaces that entity (crew / show / sheet / count / reason), rendered on all three admin alert surfaces. Codes that are genuinely global carry an explicit "no per-entity identity" declaration — no fabricated entities, no silent gaps.
+2. **Full sweep:** every generic code that identifies a concrete entity surfaces that entity (crew / show / sheet / count), rendered on all three admin alert surfaces. Identity is entity names/counts only — never diagnostic strings like `reason`/error messages/codes (§3.1, invariant 5). Codes that are genuinely global carry an explicit "no per-entity identity" declaration — no fabricated entities, no silent gaps.
 
 ### Non-goals
 
@@ -34,7 +34,7 @@ This is not unique to that one code. A full sweep of the admin-alert catalog fou
 | D1 | OAuth email posture | **Show raw canonical email** in the alert (deliberate PII carve-out; admin-only surfaces). |
 | D2 | Sweep scope | **Full sweep — all 36 generic codes.** |
 | D3 | Surfaces | **Two web surfaces + the CLI.** There is **no multi-row web alerts feed** — `/admin#alerts` is a scroll anchor to `AlertBanner`, `NotifBell` is a count only. The web surfaces are `AlertBanner` (dashboard + needs-attention) and `PerShowAlertSection` (per-show); both already read `context` → full identity incl. raw email. The "third surface" is the `pnpm observe alerts` **developer CLI** (`queryAlerts` read-core). |
-| D3a | CLI email posture | **Redact raw email by default; reveal via an intentional flag** (`--reveal-email` → `includePii`). The CLI still shows enriched non-PII identity (crew/show/sheet/reason) by default; only the email segment is withheld until the flag is passed. Keeps raw PII out of terminal / `--json` / pipes unless explicitly requested. |
+| D3a | CLI email posture | **Redact raw email by default; reveal via an intentional flag** (`--reveal-email` → `includePii`). The CLI still shows enriched non-PII identity (crew/show/sheet) by default; only the email segment is withheld until the flag is passed. Keeps raw PII out of terminal / `--json` / pipes unless explicitly requested. |
 | D4 | Architecture | **Approach A — centralized render-time resolver** (`describeAlert` + a per-code identity map + batched ID→name resolution). Producers change only where a value is not ID-resolvable. |
 
 ---
@@ -50,7 +50,7 @@ A `const ALERT_IDENTITY_MAP` keyed by alert code. Each entry declares **how to i
 - `{ kind: "showName" }` — resolve the row's `show_id` (or `context.drive_file_id`) to `shows.title`.
 - `{ kind: "sheetName" }` — same resolution as `showName` but labelled "Sheet" (the Google Sheet title IS the show title; `shows.drive_file_id` is unique).
 - `{ kind: "crewName", key }` — resolve `context[key]` (a `crew_member_id`) to `crew_members.name`.
-- `{ kind: "contextField", key, label, format? }` — read a literal value already in `context` (`email`, `reason`, `channel_id`, `file_name`, `error_name`, `attempted_action`, `repo`, a count, etc.).
+- `{ kind: "contextField", key, label, format? }` — read a safe literal value already in the projected context (`file_name`, `sheet_name`, `attempted_action`, `repo`). Restricted to the allowlisted scalar fields below; diagnostic keys (`reason`, `error_name`, `rpc_error_code`, error messages) are NOT permitted (§3.1 "Entity-identity only").
 - `{ kind: "count", key, label }` — length of a `context[key]` array, or the numeric value.
 
 An entry may also be `{ kind: "global" }` — an **explicit** declaration that the code has no per-entity identity (system-wide). This is a first-class value, not an omission, so the completeness meta-test (§8.3) can require every code to appear.
@@ -82,8 +82,10 @@ IdentityContext = {
 `resolveAlertIdentities(rows, supabase): Promise<Map<alertId, AlertIdentity>>`. Each input row carries `{ id, code, show_id, occurrence_count, identityContext }` where `identityContext` is the **already-projected** sanitized shape (§3.1) — resolution never sees raw context.
 
 1. Walk `rows`, consult `ALERT_IDENTITY_MAP[code]`, and collect the set of `crew_member_id`s, `drive_file_id`s, and `show_id`s that need name resolution.
-2. Issue **at most three batched, bounded `.select().in(...).limit(...)` reads**: `crew_members(id,name,email)`, `shows(id,title,slug)`, `shows(drive_file_id,title,slug)`. Skip any query whose id-set is empty. (`crew_members.email` is fetched for the OAuth email legacy fallback — see below.)
+2. Issue **at most three batched, bounded `.select().in(...).limit(...)` reads**: `crew_members(id,show_id,name,email)`, `shows(id,title,slug)`, `shows(drive_file_id,title,slug)`. Skip any query whose id-set is empty. (`crew_members.email` is fetched for the OAuth email legacy fallback; `crew_members.show_id` for the show-scoping check below.)
 3. For each row, run its segment producers against the resolved lookups + the row's projected `identityContext`, producing an `AlertIdentity`. If the code is not `global`, ≥1 entity segment was produced, and `row.occurrence_count > 1`, append a final disclosure segment `{ label: null, value: "(most recent of N)" }` (§6.4a).
+
+**Show-scoped crew resolution (resolves Codex F7).** A crew segment (name) and the OAuth email legacy fallback (`crew_members.email`) are emitted **only when the resolved crew row's `show_id` equals the alert's effective show** — `row.show_id`, or the show resolved from `identityContext.drive_file_id` when `row.show_id` is null. A `crew_member_id`/`stale_crew_member_id` that points at a different show (stale, malformed, or producer-bugged context) yields **no** crew/email segment — preventing a wrong-show crew name or, worse, a wrong-show `crew_members.email` being presented as the claimed Google account. This is the concrete mechanism behind the §8.1 "cross-show id → segment dropped" guard.
 
 **OAuth email — legacy-row fallback (resolves F1).** The email segment's value is `context.user_email ?? resolvedCrewMember.email`. `claim_oauth_identity(p_email)` stamps a crew row precisely because its canonical email **equals** the signed-in user's canonical email, so the claimed row's `crew_members.email` **is** the OAuth email at claim time. New rows carry `user_email` authoritatively (robust against later crew-email edits); pre-change rows (which have only `crew_member_id` + `user_email_hash`) fall back to the resolved `crew_members.email` — so the alert in the motivating screenshot shows crew + email + show after ship **without** a re-raise or a data backfill. If both are absent/empty (crew row deleted), the email segment is dropped (guard §8.1). This fallback is scoped to `OAUTH_IDENTITY_CLAIMED` and `AMBIGUOUS_EMAIL_BINDING` (the only email-bearing identities).
 
@@ -220,7 +222,7 @@ There is **no web alerts feed** — `/admin#alerts` scrolls to `AlertBanner`; `N
 
 ### 6.3 `PerShowAlertSection` (`components/admin/PerShowAlertSection.tsx`)
 
-- `context` already selected (`PerShowAlertSection.tsx:121`); the query must also select `occurrence_count`. Apply `projectIdentityContext(context, { includePii: true })` then `resolveAlertIdentities` (crew names still need resolution; show is already in scope but pass through the resolver uniformly).
+- `context` already selected (`PerShowAlertSection.tsx:121`); the fetch (`id, code, context, raised_at`) must also select `occurrence_count`. **Every alert on this page belongs to the section's show, so inject the parent `showId` prop as each resolver row's `show_id`** (resolves Codex F6) — the per-show query is scoped by `showId` but does not itself return the column, and §3.2 requires `show_id` for `→show` segments and for the crew show-scoping check. Without injection, show-only codes (`EMAIL_DELIVERY_FAILED`, `PENDING_SNAPSHOT_PROMOTE_STUCK`, report alerts) with no `drive_file_id` would drop their show segment and render no identity here. Then apply `projectIdentityContext(context, { includePii: true })` and `resolveAlertIdentities`.
 - Render the identity line under each alert's copy (near the existing `failedKeys` / `data_gaps` sub-lines), `data-testid="per-show-alert-identity"`.
 
 ### 6.4a Coalescing / recurrence semantics for entity-bearing alerts (resolves Codex F4)
@@ -298,11 +300,12 @@ A **code × context** table test. For each of the 42 codes, feed a representativ
 ### 9.2 `resolveAlertIdentities` — batching & guards
 
 - Asserts ≤3 DB reads for a mixed batch; empty id-sets skip their query; infra error on one read degrades gracefully (other segments still resolve); each read is bounded (`.limit`).
+- **Show-scoped crew resolution (Codex F7):** a row with `show_id: A` and `identityContext.crew_member_id` pointing at a crew row whose `show_id: B` → crew AND email segments suppressed (assert the other-show name and `crew_members.email` do NOT appear); the matching-show case renders them.
 
 ### 9.3 Render tests
 
 - **AlertBanner** (`tests/components/AlertBanner.test.tsx`, extend): with an `OAUTH_IDENTITY_CLAIMED` row + resolver stub, the collapsed banner renders `data-testid="admin-alert-identity"` containing crew name, email, show title; a `global` code renders no identity element; unknown code renders no identity element and does not throw.
-- **PerShowAlertSection:** identity line renders per alert; clone-and-remove sibling nodes before scanning for a name to avoid self-satisfying assertions (anti-tautology rule).
+- **PerShowAlertSection:** identity line renders per alert; clone-and-remove sibling nodes before scanning for a name to avoid self-satisfying assertions (anti-tautology rule). **Show-only code with no `drive_file_id` (Codex F6):** an `EMAIL_DELIVERY_FAILED`/`PENDING_SNAPSHOT_PROMOTE_STUCK` alert on a show page renders the show-name identity segment (proving the parent `showId` was injected — it would be blank if not).
 - **CLI / read-core allowlist (Codex F2):** `queryAlerts` on a row whose `admin_alerts.context` carries an arbitrary non-identity field (e.g. `error_message: "secret"`, `orphan_url`) returns an `identityContext` containing ONLY `IDENTITY_CONTEXT_KEYS` — the arbitrary field is absent. Email withheld by default, present with `includePii: true`. `scripts/observe.ts` shows `describeAlert(…, { includePii:false })` per row (no email); `--reveal-email` shows it. A `--json` snapshot asserts no `user_email` and no non-allowlisted key by default.
 
 ### 9.4 No layout-dimensions / transition-audit tasks
