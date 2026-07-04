@@ -231,7 +231,7 @@ pnpm observe events   [--show <uuid>] [--level info,warn,error] [--code <CODE>]
 pnpm observe alerts   [--open] [--code <CODE>] [--limit <n>] [--json] [--env …]
 pnpm observe cron     [--json] [--env …]
 pnpm observe changes  [--show <uuid>] [--since 1h|24h|7d|all] [--limit <n>] [--json] [--env …]
-pnpm observe codes    [<CODE>]                      # OFFLINE — no DB, no --env
+pnpm observe codes    [<CODE>]                      # OFFLINE — never connects; --env is a no-op here
 pnpm observe tail     [--follow] [--interval <s>] [<events filters…>] [--json] [--env …]
 pnpm observe help | --help | (no args)              # usage
 ```
@@ -245,11 +245,17 @@ pnpm observe help | --help | (no args)              # usage
 - `--show` → validated against the read-core's UUID guard; invalid → treated as absent (consistent with core
   guard). `--code`/`--source`/`--request`/`--q` → trimmed, dropped if empty or >200 chars
   (mirrors `capped()`).
-- `--limit` → parsed int; clamp 1..500; default 100. For `events`/`tail` it caps the total
-  rows the CLI accumulates across its keyset-pagination loop (§3.1); for `alerts`/`changes` it
-  maps directly to the read-core `.limit(n)`. Invalid/NaN → default 100.
+- `--limit` → parsed int; clamp 1..500; **command-specific default: `events`/`alerts`/
+  `changes` = 100, `tail` = 20** (the first-poll baseline, §4.5). For `events`/`tail` it caps
+  the total rows the CLI accumulates across its keyset-pagination loop (§3.1); for
+  `alerts`/`changes` it maps directly to the read-core `.limit(n)`. Invalid/NaN → the command's
+  default.
 - `--open` (alerts) → `openOnly:true`; absent → all alerts.
-- Unknown flags → usage error to stderr, exit 1.
+- Unknown flags (not in the global set) → usage error to stderr, exit 1. `--env` is a
+  **recognized global flag on every command**, so it is never "unknown"; on `codes` (which
+  never connects) it is simply a no-op — accepted and ignored, not rejected. This resolves the
+  reject-vs-ignore question: known-but-inapplicable flags are ignored; only genuinely unknown
+  flags exit 1.
 
 ### 4.3 Output
 
@@ -314,7 +320,8 @@ is a **guardrail assertion** over the ambient `SUPABASE_URL`, resolved by a pure
 
 This prevents an ambient prod `SUPABASE_URL` (e.g. left in a shell) from silently pointing the
 CLI at prod: local is the default and actively refuses a non-local ambient URL unless the
-operator names the environment. `observe codes` never touches the DB, so it ignores `--env`.
+operator names the environment. `observe codes` never touches the DB, so `--env` is accepted
+but a no-op there (ignored, not rejected — §4.2).
 
 **Redaction note (per-source, Codex R1 HIGH):**
 - `app_events.context` — written post-`sanitizeContext` (email-redacted, JSON-safe,
@@ -431,7 +438,7 @@ avoids mocks-only tautological pass):**
 | `--request` | argv | `parseObserveArgs` (capped 200) | events filter | `.eq("request_id",…)` |
 | `--q` | argv | `parseObserveArgs` (capped 200) | events filter | `.ilike("message", %escapeIlike(q)%)` |
 | `--open` | argv | `parseObserveArgs` | alerts filter | `.is("resolved_at",null)` |
-| `--limit` | argv | `parseObserveArgs` (clamp 1..500) | events/tail → `collectEvents` loop; alerts/changes → `.limit(n)` | caps rows returned |
+| `--limit` | argv | `parseObserveArgs` (clamp 1..500; default 100, `tail` 20) | events/tail → `collectEvents` loop; alerts/changes → `.limit(n)` | caps rows returned |
 | `--json` | argv | `parseObserveArgs` | formatter | JSON/NDJSON vs table |
 | `--follow`/`--interval` | argv | `parseObserveArgs` | tail loop | poll cadence / loop |
 | `--env` | argv | `resolveTarget` | env selection | target guardrail |
