@@ -281,7 +281,9 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
 - `HealthAlertsPanel` renders ABOVE the existing cron-health/event-timeline content
   (a new section; the page keeps `CronHealthHeader` + `EventTimeline`).
 - Loads unresolved `admin_alerts` rows whose `code ∈ HEALTH_CODES`, ordered `raised_at`
-  desc, capped (e.g. 50 rows, honest "+N more" note beyond the cap). Typed read: destructure
+  desc, capped (e.g. 50 rows, honest "+N more" note beyond the cap). **Selects
+  `id, code, show_id, context, occurrence_count, raised_at, shows(slug)`** — `context` and
+  `slug` are REQUIRED to rebuild the per-code action links (below). Typed read: destructure
   `{ data, error }`; a returned/thrown error → a cataloged degraded panel (invariant 9),
   never a silent empty.
 - Per row: the alert **title/copy via `lib/messages/lookup.ts`** (dev-facing `dougFacing`
@@ -289,6 +291,17 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
   `AlertBanner`), the `healthWeight` chip (degraded/notice), a **show link** when
   `show_id` is set (`/admin/show/<slug>`), `raised_at` (relative + absolute title), and
   `occurrence_count`.
+- **Per-code action link (R10 finding — "nothing goes dark" for deep links).** Several
+  health-classified codes have an existing "go to X" action link in
+  `lib/adminAlerts/alertActions.ts` (`resolveAlertAction`, PR #287). Excluding them from
+  `AlertBanner`/`PerShowAlertSection` would drop those affordances, so each panel row
+  renders `resolveAlertAction(row.code, row.context, { slug })` when it returns non-null
+  (same builder + link rendering `AlertBanner.tsx:233,465-475` uses). The **6 health codes
+  currently in `ALERT_ACTION_CODES`** are: `PICKER_SELECTION_RACE`, `ROLE_FLAGS_NOTICE`,
+  `WIZARD_SESSION_SUPERSEDED_RACE`, `REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`,
+  `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` (the other 3 registry codes —
+  `SHOW_FIRST_PUBLISHED`, `PICKER_EPOCH_RESET`, `LIVE_ROW_CONFLICT` — are `doug`-audience and
+  keep their banner links). A test asserts each of the 6 renders its action link in the panel.
 - Each row carries a **Resolve** affordance backed by ONE NEW **dev-gated Server Action**
   `resolveHealthAlertFormAction` (`app/admin/actions.ts`). Reusing the existing resolve
   paths is wrong on two counts (R5 findings 1 + 3):
@@ -531,8 +544,10 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   typed results (invariant 9).
 - AC9: A developer at `/admin/observability` sees the `HealthAlertsPanel` listing each
   unresolved health alert with its lookup-rendered copy (no raw code), `healthWeight` chip,
-  show link (when `show_id` set), `raised_at`, `occurrence_count`, and a working Resolve
-  control. **Resolve goes through the single dev-gated `resolveHealthAlertFormAction` for
+  show link (when `show_id` set), `raised_at`, `occurrence_count`, a working Resolve
+  control, and — for the 6 health codes in `ALERT_ACTION_CODES` — its per-code
+  `resolveAlertAction` deep link (so no action affordance goes dark when the code leaves the
+  banner; the panel selects `context` + `slug` to build them). **Resolve goes through the single dev-gated `resolveHealthAlertFormAction` for
   BOTH global and show-scoped rows** (§6.6) — NOT `resolveAdminAlertFormAction` and NOT the
   per-show JSON route (both admin-only + the JSON route navigates away). A test seeds a
   show-scoped health alert, resolves it from the panel via that action, and asserts the row
