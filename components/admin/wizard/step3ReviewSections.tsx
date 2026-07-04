@@ -37,7 +37,9 @@ import {
   BedDouble,
   CalendarDays,
   ChevronRight,
+  ExternalLink,
   FileText,
+  ImageOff,
   Images,
   Info,
   LayoutGrid,
@@ -74,6 +76,7 @@ import type {
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import { isRenderableDiagramStub } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -1620,28 +1623,144 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
   "Checks",
 ];
 
+/** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
+export const DIAGRAM_TILE_CAP = 12;
+
+/** Folder-row href revalidation (spec §B3): parse + exact-host drive.google.com
+ *  + https/http only, http upgraded to https. Anything else → no link. */
+function trustedDriveFolderHref(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== "drive.google.com") return null;
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (url.protocol === "http:") url.protocol = "https:";
+  return url.toString();
+}
+
+/** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
+ *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
+ *  documented revert — next/image drops cookies). */
+function DiagramTile({
+  src,
+  alt,
+  testId,
+  hasContentUrl,
+}: {
+  src: string;
+  alt: string;
+  testId: string;
+  hasContentUrl: boolean;
+}) {
+  const [failed, setFailed] = useState(!hasContentUrl);
+  if (failed) {
+    return (
+      <span
+        data-testid={testId}
+        className="grid aspect-4/3 w-full place-items-center gap-1 rounded-md border border-border bg-surface-sunken text-center"
+      >
+        <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+        <span className="text-xs text-text-subtle">Preview unavailable</span>
+      </span>
+    );
+  }
+  return (
+    <a href={src} target="_blank" rel="noreferrer" data-testid={testId} className="block">
+      {/* eslint-disable-next-line @next/next/no-img-element -- staged-diagram
+          preview route is admin-cookie-authed; next/image drops cookies (same
+          documented revert as components/diagrams/Gallery.tsx). */}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="aspect-4/3 w-full rounded-md border border-border bg-surface-sunken object-cover"
+      />
+    </a>
+  );
+}
+
 /**
- * Diagrams section body (follow-ups spec §B3).
- * Task 6 (this plan) completes this body — thumbnail grid, folder row, and the
- * §B3 untrusted-JSONB element guards. This Task-5 shell renders the chrome +
- * header count only (final testid already in place) so the registry entry
- * lands green; `wizardSessionId` is accepted now because Task 6's preview-URL
- * grid consumes it.
+ * Diagrams section body (follow-ups spec §B3): count summary (zero parts
+ * omitted), capped thumbnail grid, and the revalidated folder row.
+ * Element-level guard mirrors the preview route (§B1): the SAME shared
+ * predicate filters the untrusted persisted JSONB BEFORE any dereference —
+ * invalid elements are excluded from tiles, counts, and cap math.
  */
-export function DiagramsBreakdown(props: {
+export function DiagramsBreakdown({
+  dfid,
+  wizardSessionId,
+  diagrams,
+}: {
   dfid: string;
   wizardSessionId: string;
   diagrams: ParseResult["diagrams"] | null | undefined;
 }) {
-  const count =
-    arr(props.diagrams?.embeddedImages).length + arr(props.diagrams?.linkedFolderItems).length;
+  const stubs = arr(diagrams?.embeddedImages).filter(isRenderableDiagramStub);
+  const folderItems = arr(diagrams?.linkedFolderItems);
+  const folderHref = diagrams?.linkedFolder
+    ? trustedDriveFolderHref((diagrams.linkedFolder as { driveFolderUrl?: unknown }).driveFolderUrl)
+    : null;
+  const hasFolder = diagrams?.linkedFolder != null;
+  const shown = stubs.slice(0, DIAGRAM_TILE_CAP);
+  const extra = stubs.length - shown.length;
+  const summaryParts: string[] = [];
+  if (stubs.length > 0) {
+    summaryParts.push(`${stubs.length} embedded image${stubs.length === 1 ? "" : "s"}`);
+  }
+  if (folderItems.length > 0) {
+    summaryParts.push(`${folderItems.length} folder file${folderItems.length === 1 ? "" : "s"}`);
+  }
   return (
     <BreakdownSection
-      testId={`wizard-step3-card-${props.dfid}-section-diagrams`}
+      testId={`wizard-step3-card-${dfid}-section-diagrams`}
       label="Diagrams"
-      count={count}
+      count={stubs.length + folderItems.length}
     >
-      {null}
+      {summaryParts.length > 0 ? (
+        <p className="text-xs text-text-subtle">{summaryParts.join(" · ")}</p>
+      ) : null}
+      {shown.length > 0 ? (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {shown.map((stub, i) => (
+            <DiagramTile
+              key={`${stub.objectId}-${i}`}
+              testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
+              src={`/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`}
+              alt={stub.alt ?? `Diagram from ${stub.sheetTab}`}
+              hasContentUrl={stub.contentUrl != null}
+            />
+          ))}
+        </div>
+      ) : null}
+      {extra > 0 ? (
+        <p className="text-xs text-text-subtle">
+          +{extra} more — all images are snapshotted when the show publishes.
+        </p>
+      ) : null}
+      {hasFolder ? (
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-text">
+          {folderHref !== null ? (
+            <a
+              data-testid={`wizard-step3-card-${dfid}-diagram-folder-link`}
+              href={folderHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />
+            </a>
+          ) : null}
+          {folderItems.length > 0 ? (
+            <span className="text-text-subtle">{folderItems.length} files</span>
+          ) : null}
+        </p>
+      ) : null}
     </BreakdownSection>
   );
 }

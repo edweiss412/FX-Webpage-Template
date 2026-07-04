@@ -44,6 +44,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 // (vi.mock is hoisted above imports, so plain import order is safe here.)
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import {
+  DIAGRAM_TILE_CAP,
+  DiagramsBreakdown,
   reviewWarningTitle,
   step3Sections,
   STEP3_SECTION_GROUPS,
@@ -669,5 +671,166 @@ describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", 
     const q = renderBody(d, "warnings");
     const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     expect(panel.textContent).toContain("No parse warnings for this sheet.");
+  });
+});
+
+describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
+  // All queries are scoped `within(...)` the section's own testid container so
+  // a sibling can never satisfy an assertion by accident (anti-tautology).
+  const SECTION_TESTID = `wizard-step3-card-${DFID}-section-diagrams`;
+  const TILE_PREFIX = `wizard-step3-card-${DFID}-diagram-tile-`;
+
+  /** A fully valid EmbeddedImageStub. `alt` is ABSENT by default so the
+   *  alt-fallback test derives from `sheetTab`, never a hardcoded literal. */
+  function diagramStub(overrides: Partial<EmbeddedImageStub> = {}): EmbeddedImageStub {
+    return {
+      sheetTab: "DIAGRAMS",
+      objectId: "obj-1",
+      mimeType: "image/png",
+      contentUrl: "https://lh3.googleusercontent.com/img-1",
+      sheetsRevisionId: "rev-1",
+      embeddedFingerprint: "fp-1",
+      recovery_disposition: "normal",
+      snapshotPath: null,
+      ...overrides,
+    };
+  }
+
+  function folderItem(n: number): LinkedFolderItemStub {
+    return {
+      driveFileId: `folder-file-${n}`,
+      mimeType: "image/png",
+      drive_modified_time: "2026-01-01T00:00:00Z",
+      headRevisionId: `head-${n}`,
+      md5Checksum: `md5-${n}`,
+      snapshotPath: null,
+    };
+  }
+
+  function diagramsOf(overrides: Partial<ParseResult["diagrams"]> = {}): ParseResult["diagrams"] {
+    return { linkedFolder: null, embeddedImages: [], linkedFolderItems: [], ...overrides };
+  }
+
+  function renderDiagrams(diagrams: ParseResult["diagrams"]) {
+    const utils = render(
+      <DiagramsBreakdown dfid={DFID} wizardSessionId={WSID} diagrams={diagrams} />,
+    );
+    const container = utils.getByTestId(SECTION_TESTID);
+    return { container, scoped: within(container) };
+  }
+
+  test("caps the grid at DIAGRAM_TILE_CAP tiles with a derived '+N more' note (catches: unbounded grid blowing up the pane)", () => {
+    // Build in a loop; every expectation derives from stubs.length, never a literal.
+    const stubs = Array.from({ length: DIAGRAM_TILE_CAP + 3 }, (_, i) =>
+      diagramStub({
+        objectId: `obj-${i}`,
+        contentUrl: `https://lh3.googleusercontent.com/img-${i}`,
+      }),
+    );
+    const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: stubs }));
+    const tiles = container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`);
+    expect(tiles.length).toBe(DIAGRAM_TILE_CAP);
+    expect(
+      scoped.getByText(
+        `+${stubs.length - DIAGRAM_TILE_CAP} more — all images are snapshotted when the show publishes.`,
+      ),
+    ).toBeTruthy();
+    // Count summary reflects ALL valid stubs (not the capped subset).
+    expect(scoped.getByText(`${stubs.length} embedded images`)).toBeTruthy();
+  });
+
+  test("null-contentUrl stub renders the placeholder upfront with NO <img> (catches: an <img src> fetch attempt for an unfetchable stub)", () => {
+    const { container, scoped } = renderDiagrams(
+      diagramsOf({ embeddedImages: [diagramStub({ contentUrl: null })] }),
+    );
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(tile.querySelector("img")).toBeNull();
+    expect(container.querySelectorAll("img").length).toBe(0);
+  });
+
+  test("folder-only: folder-link anchor (target/rel), file count derived from fixture, NO grid", () => {
+    const items = [folderItem(1), folderItem(2)];
+    const { container, scoped } = renderDiagrams(
+      diagramsOf({
+        linkedFolder: {
+          driveFolderId: "f1",
+          driveFolderUrl: "https://drive.google.com/drive/folders/f1",
+        },
+        linkedFolderItems: items,
+      }),
+    );
+    const link = scoped.getByTestId(`wizard-step3-card-${DFID}-diagram-folder-link`);
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`).length).toBe(0);
+    expect(scoped.getByText(`${items.length} files`)).toBeTruthy();
+  });
+
+  test("hostile folder URL → counts text renders, NO <a> anywhere in the body (catches: unvalidated href)", () => {
+    const items = [folderItem(1), folderItem(2)];
+    const { container, scoped } = renderDiagrams(
+      diagramsOf({
+        linkedFolder: {
+          driveFolderId: "x",
+          driveFolderUrl: "https://evil.example/drive/folders/x",
+        },
+        linkedFolderItems: items,
+      }),
+    );
+    expect(container.querySelectorAll("a").length).toBe(0);
+    expect(scoped.getByText(`${items.length} files`)).toBeTruthy();
+  });
+
+  test("http://drive.google.com folder URL is upgraded to https before rendering the anchor", () => {
+    const { scoped } = renderDiagrams(
+      diagramsOf({
+        linkedFolder: {
+          driveFolderId: "f1",
+          driveFolderUrl: "http://drive.google.com/drive/folders/f1",
+        },
+      }),
+    );
+    const link = scoped.getByTestId(`wizard-step3-card-${DFID}-diagram-folder-link`);
+    const href = link.getAttribute("href");
+    expect(href?.startsWith("https://drive.google.com/")).toBe(true);
+  });
+
+  test("§K8 malformed-element fixture: exactly ONE tile, header count (1), no crash, no corrupt substrings (catches: client-side dereference of corrupt staged JSON incl. the alt-fallback sheetTab read)", () => {
+    const validStub = diagramStub({ objectId: "valid-1", alt: "Stage plot" });
+    // Spec §K8 verbatim shape — only `validStub` survives the shared predicate.
+    const embeddedImages = [
+      null,
+      { objectId: 123 },
+      { objectId: "x", mimeType: "image/png", contentUrl: null }, // missing sheetTab
+      { ...validStub, alt: 7 },
+      validStub,
+    ] as unknown as EmbeddedImageStub[];
+    const { container } = renderDiagrams(diagramsOf({ embeddedImages }));
+    const tiles = container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`);
+    expect(tiles.length).toBe(1);
+    expect(container.textContent).toContain("(1)");
+    expect(container.textContent).not.toContain("(5)");
+    expect(container.innerHTML).not.toContain("[object Object]");
+    expect(container.innerHTML).not.toContain("undefined");
+  });
+
+  test("alt fallback derives from the stub's sheetTab when alt is absent", () => {
+    const stub = diagramStub(); // no alt
+    const { container } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("alt")).toBe(`Diagram from ${stub.sheetTab}`);
+  });
+
+  test("tile img src (and wrapping anchor href) is the Task-3 staged-diagram route URL derived from the fixture", () => {
+    const stub = diagramStub({ objectId: "obj-abc_123" });
+    const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    const img = tile.querySelector("img");
+    const expected = `/api/admin/onboarding/staged-diagram/${WSID}/${DFID}/${encodeURIComponent(stub.objectId)}`;
+    expect(img?.getAttribute("src")).toBe(expected);
+    expect(tile.tagName).toBe("A");
+    expect(tile.getAttribute("href")).toBe(expected);
   });
 });
