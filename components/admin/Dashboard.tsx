@@ -22,6 +22,7 @@ import { type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
+import { ShowsTableHeading } from "@/components/admin/ShowsTableHeading";
 import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import { DashboardBucketSegmentedControl } from "@/components/admin/DashboardBucketSegmentedControl";
 import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions";
@@ -506,10 +507,8 @@ export async function Dashboard(
           {result.bucket === "archived" ? (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h3 className="min-w-0 wrap-break-word text-lg font-semibold text-text-strong">
-                    {folderName ?? "Archived shows"}
-                  </h3>
+                <div className="flex min-w-0 items-end gap-2">
+                  <ShowsTableHeading folderName={folderName} fallbackLabel="Archived shows" />
                   <span
                     data-testid="shows-count-chip"
                     className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
@@ -571,7 +570,7 @@ export async function Dashboard(
               now={now}
               activeCount={result.activeCount}
               overflowCount={result.overflowCount}
-              title={folderName ?? "Active shows"}
+              heading={<ShowsTableHeading folderName={folderName} fallbackLabel="Active shows" />}
               bucketControl={
                 <DashboardBucketSegmentedControl
                   bucket={result.bucket}
