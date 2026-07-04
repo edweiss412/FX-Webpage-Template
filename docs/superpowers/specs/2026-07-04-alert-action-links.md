@@ -9,7 +9,7 @@ Admin alert rows explain what happened (catalog `dougFacing` copy) and where to 
 
 ## 2. Resolved decisions
 
-1. **One registry module, `lib/adminAlerts/alertActions.ts`.** A `Partial<Record<AdminAlertCode, AlertActionBuilder>>` keyed by the `AdminAlertCode` union exported at `lib/adminAlerts/upsertAdminAlert.ts:3`. TypeScript enforces key membership at compile time; no runtime key-parity test needed.
+1. **One registry module, `lib/adminAlerts/alertActions.ts`.** The registry is keyed by its own exact literal union, NOT by `AdminAlertCode`: three of the nine action codes (`REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`) are raw-SQL/script producers deliberately outside the `AdminAlertCode` union (`lib/adminAlerts/upsertAdminAlert.ts:3-36` ends at `WIZARD_SESSION_SUPERSEDED_RACE`; the exemption list `NON_UPSERT_ADMIN_ALERTS_PRODUCERS` at `tests/messages/_metaAdminAlertCatalog.test.ts:626-636` documents why). So: `ALERT_ACTION_CODES` const tuple of the 9 codes → `AlertActionCode` union → `Record<AlertActionCode, AlertActionBuilder>` (full `Record`, not `Partial` — a code added to the tuple without a builder fails typecheck). Runtime membership in the 42-code universe is pinned by the meta-test (§6.3).
 2. **Exactly 9 codes get an action** (§4). Every other code is N/A with a stated reason (§5). No raise-site changes anywhere: `REPORT_ORPHANED_LOST_LEASE` already carries `orphan_url` + `orphan_issue_number` in context (`lib/reports/submit.ts:994-1003`), so the earlier idea of enriching that raise site is dead — the registry consumes what exists.
 3. **Rendering split.** `PerShowAlertSection` renders the action link for its per-show rows. `AlertBanner` renders it **only for global rows** (`show_id === null`): per-show banner rows keep "Check it" as their single navigation (the action link appears after click-through, on the show page); adding both would duplicate navigation affordances in one slot.
 4. **Plain `<a>` uniformly** (the banner's "Check it" precedent, `components/admin/AlertBanner.tsx:459-465`). External links add `target="_blank" rel="noopener noreferrer"` and a trailing `<span aria-hidden="true">↗</span>` (the `PerShowActionableWarnings` precedent, `components/admin/PerShowActionableWarnings.tsx:94-102`). Internal links get no icon and no `target`.
@@ -21,7 +21,19 @@ Admin alert rows explain what happened (catalog `dougFacing` copy) and where to 
 
 ```ts
 // lib/adminAlerts/alertActions.ts
-import type { AdminAlertCode } from "@/lib/adminAlerts/upsertAdminAlert";
+
+export const ALERT_ACTION_CODES = [
+  "SHOW_FIRST_PUBLISHED",
+  "PICKER_EPOCH_RESET",
+  "PICKER_SELECTION_RACE",
+  "ROLE_FLAGS_NOTICE",
+  "LIVE_ROW_CONFLICT",
+  "WIZARD_SESSION_SUPERSEDED_RACE",
+  "REPORT_ORPHANED_LOST_LEASE",
+  "BRANCH_PROTECTION_DRIFT",
+  "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+] as const;
+export type AlertActionCode = (typeof ALERT_ACTION_CODES)[number];
 
 export type AlertActionLink = { label: string; href: string; external: boolean };
 
@@ -30,7 +42,7 @@ export type AlertActionBuilder = (
   opts: { slug: string | null },
 ) => AlertActionLink | null;
 
-export const ALERT_ACTIONS: Partial<Record<AdminAlertCode, AlertActionBuilder>>;
+export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder>;
 
 export function resolveAlertAction(
   code: string,
@@ -39,7 +51,7 @@ export function resolveAlertAction(
 ): AlertActionLink | null;
 ```
 
-- `resolveAlertAction` is the only symbol components call: unknown code → `null`; registered code → the builder's result. `code: string` (not the union) because both components carry `code` as `string` in their row types (`components/admin/PerShowAlertSection.tsx:42-47`, `components/admin/AlertBanner.tsx:46-59`).
+- `resolveAlertAction` is the only symbol components call: unknown code → `null`; registered code → the builder's result. `code: string` (not the union) because both components carry `code` as `string` in their row types (`components/admin/PerShowAlertSection.tsx:42-47`, `components/admin/AlertBanner.tsx:46-59`); internally it narrows via `ALERT_ACTION_CODES.includes(code)` (or an equivalent `Set`) before indexing the `Record`.
 - A module-private helper `str(context, key): string | null` returns `context[key]` only when `typeof === "string"` and non-empty after `.trim()`, else `null`. Every context read goes through it — `context` is untyped JSON (`Record<string, unknown> | null` in both row types), and passing a non-string into a URL template must be impossible.
 - The module is plain shared code (no `"use client"`, no server-only imports) — `buildSheetDeepLink` already imports cleanly into both client and server components (`lib/sheet-links/buildSheetDeepLink.ts`, no directive; client importers include `components/admin/PerShowActionableWarnings.tsx:3`).
 
@@ -64,14 +76,14 @@ Context-field citations (verified at HEAD 9fe749a7):
 - #3 `lib/auth/picker/cleanupStaleEntry.ts:110-115` — same, no context field consumed.
 - #4 `lib/sync/phase2.ts:426-430`: `context: { drive_file_id: args.driveFileId, changes: roleFlagChanges }`.
 - #5 `lib/sync/runOnboardingScan.ts:834-842`: `context: { drive_file_id, file_name, folder_id, wizard_session_id, sqlstate, kind }`, raised with `showId: null` (global). `driveFolderUrl` at `lib/drive/driveFolderUrl.ts` already null-guards and `encodeURIComponent`s.
-- #6 raise sites: `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:543-552` and `…/discard/route.ts:158-167` (plus apply/ignore siblings), all `showId: null`. Catalog copy tells the operator to "continue in the active wizard tab" (`lib/messages/catalog.ts:170-171`); the wizard lives at `/admin/onboarding`.
+- #6 raise sites: `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts:543-552`, `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts:158-167`, `…/staged/[wizardSessionId]/[driveFileId]/apply/route.ts:217-231`, and `app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts:253-264`, all `showId: null`. Catalog copy tells the operator to "continue in the active wizard tab" (`lib/messages/catalog.ts:170-171`); the wizard lives at `/admin/onboarding`.
 - #7 `lib/reports/submit.ts:984-1005`: context jsonb includes `orphan_url: newIssue.htmlUrl` and `orphan_issue_number: newIssue.issueNumber`. Global (`show_id` may be null).
 - #8/#9 `scripts/verify-branch-protection.ts:300-330`: both contexts include `repo` (`owner/name` string), raised with `p_show_id: null`.
 
 ## 5. Coverage: every other code is N/A
 
 - **All `class: "auto"` codes** (21, per the `ADMIN_ALERTS_LIFECYCLE` registry at `tests/messages/_metaAdminAlertCatalog.test.ts:312-484` — that registry is the single source of truth for the list; this spec deliberately does not re-enumerate it): N/A. Auto-resolution (PR #283) removes the row when the condition clears; an action link on a self-healing alert adds nothing.
-- **`AMBIGUOUS_EMAIL_BINDING`**: remedy is re-sharing the sheet with a corrected address; context carries only hashed emails + `crew_member_ids` (`lib/auth/validateGoogleSession.ts:42`) — nothing linkable.
+- **`AMBIGUOUS_EMAIL_BINDING`**: remedy is fixing the duplicate binding in the source sheet's crew grid (Google-side edit); context carries the canonicalized `email` plus `crew_member_ids` (`lib/auth/validateGoogleSession.ts:40-46`) — no `drive_file_id`, so no sheet to link, and a `mailto:` on the ambiguous address is not a remediation affordance.
 - **`OAUTH_IDENTITY_CLAIMED`**: awareness notice; no destination.
 - **`CALLBACK_CLAIM_THREW`**: forensic notice; context is internal state; remedy is log investigation.
 - **`PICKER_BOOTSTRAP_RPC_FAILED`**: infra failure; no destination.
@@ -88,9 +100,14 @@ Count check: 9 entries + 12 manual/deferred N/A = the 21 non-auto codes; 21 auto
 
 `tests/messages/_metaAlertActionsContract.test.ts`, mirroring the parallel-registry pattern of `_metaAdminAlertCatalog.test.ts` (`test.each` + on-disk pattern assertions):
 
-1. **Raise-site context fidelity.** A test-local table maps each registry code that consumes context fields to `{ file, fields }`: #4 → `lib/sync/phase2.ts` + `["drive_file_id"]`; #5 → `lib/sync/runOnboardingScan.ts` + `["drive_file_id", "folder_id"]`; #7 → `lib/reports/submit.ts` + `["orphan_url"]`; #8/#9 → `scripts/verify-branch-protection.ts` + `["repo"]`. The test reads each file and asserts every field name appears as an object key (`/\b<field>\s*:/`). Concrete failure mode caught: a raise-site refactor renames `drive_file_id` → `driveFileId` and the action link silently stops rendering forever.
+1. **Raise-site context fidelity.** A test-local table maps each registry code that consumes context fields to `{ file, pattern }`, where `pattern` is a **single bounded regex that anchors the code literal and the consumed field name(s) in one match** — the same `{ file, pattern }` row shape as `ADMIN_ALERTS_LIFECYCLE.resolveSites`. A bare "field name appears somewhere in the file" check is tautology-prone: `runOnboardingScan.ts` has a sibling `logSync` payload carrying `drive_file_id` a few lines above the alert raise (`lib/sync/runOnboardingScan.ts:824-829`), so a whole-file match would keep passing after the field is dropped from the alert context. Rows (exact regexes are plan-level detail; each MUST tie the field to that code's own raise expression, e.g. `/code:\s*"?LIVE_ROW_CONFLICT"?[\s\S]{0,300}?context:\s*\{[\s\S]{0,200}?drive_file_id:[\s\S]{0,200}?folder_id:/`):
+   - #4 → `lib/sync/phase2.ts`, code literal then `context: { drive_file_id:` (raise at `:426-430`).
+   - #5 → `lib/sync/runOnboardingScan.ts`, code literal then context block containing `drive_file_id:` and `folder_id:` (raise at `:834-842`).
+   - #7 → `lib/reports/submit.ts`, `'REPORT_ORPHANED_LOST_LEASE'` SQL literal then `orphan_url:` within the bounded span (raise at `:984-1005`).
+   - #8/#9 → `scripts/verify-branch-protection.ts` — here the `context` consts precede the `p_code:` literals (`:300-306` before `:309`; `:323` before `:326`), so these two patterns anchor context-then-code (`repo` field followed within a bounded span by the `p_code` literal).
+   Concrete failure mode caught: a raise-site refactor renames or drops `drive_file_id` from the alert context (even while a sibling log payload keeps the name) and the action link silently stops rendering forever.
 2. **Target fidelity.** Asserts `id="share-access"` exists in `app/admin/show/[slug]/page.tsx` (codes #1–#3's anchor) and `app/admin/onboarding/page.tsx` exists on disk (code #6's route). Concrete failure mode: anchor rename or route move turns three action links into scroll-to-nowhere.
-3. **Registry↔spec parity.** Asserts `Object.keys(ALERT_ACTIONS).sort()` equals exactly the 9 codes in §4. Concrete failure mode: a later PR adds an entry without spec/meta-test review, or drops one silently.
+3. **Registry↔spec parity + universe membership.** Asserts `Object.keys(ALERT_ACTIONS).sort()` equals exactly the 9 codes in §4, AND that every key is a member of the 42-code `ADMIN_ALERTS_CODES` universe — parsed from the `tests/messages/_metaAdminAlertCatalog.test.ts` source the way that file's own tests parse `upsertAdminAlert.ts` (do NOT `import` the sibling test module; importing a file whose top level calls `test()` would re-register its tests). Concrete failure modes: a later PR adds an entry without spec/meta-test review, drops one silently, or registers a typo'd code that no raise site ever produces.
 
 Guard behavior (null context, `{}`, wrong-typed fields, malformed `orphan_url`/`repo`) is unit-tested in `tests/adminAlerts/alertActions.test.ts` (§8), not in the meta-test.
 
