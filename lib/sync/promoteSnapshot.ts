@@ -198,6 +198,15 @@ export async function promoteSnapshotUpload(
         `,
           [row.show_id, row.snapshot_revision_id, row.id, row.claim_token],
         );
+        // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4):
+        // clearRolledBack completing is the automatic-retry rollback-completion code point —
+        // resolve PENDING_SNAPSHOT_ROLLBACK_STUCK via the same promoteTx, after the ledger
+        // reset above has succeeded.
+        await promoteTx.queryOne(
+          `update public.admin_alerts set resolved_at = now()
+            where show_id = $1::uuid and code = 'PENDING_SNAPSHOT_ROLLBACK_STUCK' and resolved_at is null`,
+          [row.show_id],
+        );
       };
       const row = await promoteTx.queryOne<
         (PendingPromotionRow & { promoted_at: string | null }) | null
@@ -446,6 +455,15 @@ export async function repairSnapshotRollback(
             select true as ok
           `,
             [row.show_id, ledgerId, row.snapshot_revision_id],
+          );
+          // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4): the
+          // catalog-prescribed manual-repair rollback-completion code point — the same
+          // ledger-reset shape as clearRolledBack, so it resolves ROLLBACK_STUCK the same way,
+          // via the closure's promoteTx (not the inner show-lock `tx`).
+          await promoteTx.queryOne(
+            `update public.admin_alerts set resolved_at = now()
+              where show_id = $1::uuid and code = 'PENDING_SNAPSHOT_ROLLBACK_STUCK' and resolved_at is null`,
+            [row.show_id],
           );
           return {
             outcome: "repaired",

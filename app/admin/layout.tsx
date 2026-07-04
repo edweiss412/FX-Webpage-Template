@@ -20,6 +20,7 @@
  */
 import type { ReactNode } from "react";
 import { AdminInfraError, requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { isCurrentUserDeveloper } from "@/lib/auth/requireDeveloper";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
 import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
 import { PageTransition } from "@/components/layout/PageTransition";
@@ -52,9 +53,18 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   // while a page gate throws. Pages call the helpers with the default
   // `layer: "page"`. `identity.email` + the alert count are stored as
   // locals here; Phase 3 (Task 3.4) threads them into <AdminNav>.
+  // developer-tier Task 15 (spec §6 row 8): resolve the developer visibility
+  // flag in PARALLEL with the identity read so the AdminNav developer-only nav
+  // filter costs no extra wall-time on the happy path. isCurrentUserDeveloper is
+  // fail-to-false (never rejects), so a Promise.all rejection here is always the
+  // identity read's AdminInfraError/redirect/forbidden — handled below unchanged.
   let identity: Awaited<ReturnType<typeof requireAdminIdentity>>;
+  let viewerIsDeveloper = false;
   try {
-    identity = await requireAdminIdentity({ layer: "layout" });
+    [identity, viewerIsDeveloper] = await Promise.all([
+      requireAdminIdentity({ layer: "layout" }),
+      isCurrentUserDeveloper(),
+    ]);
   } catch (err) {
     if (err instanceof AdminInfraError) {
       // Fixed generic ADMIN_ROUTE_LOAD_FAILED copy (Task 0.7). Replaces
@@ -154,6 +164,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         email={adminEmail}
         alertCount={alertCount}
         initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
+        viewerIsDeveloper={viewerIsDeveloper}
       />
 
       {/* M12.3 items 1+2: the global AlertBanner is no longer mounted in the

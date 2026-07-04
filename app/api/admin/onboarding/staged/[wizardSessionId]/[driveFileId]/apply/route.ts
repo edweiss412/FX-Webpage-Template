@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import {
   applyStaged as defaultApplyStaged,
@@ -217,6 +218,9 @@ export async function handleWizardStagedApply(
           showId: null,
           code: "WIZARD_SESSION_SUPERSEDED_RACE",
           context: {
+            // S2: actor attribution as a HASH (never raw email — PII-safe; a hash is
+            // not an email, so canonicalization / no-inline-email guards do not apply).
+            actor_email_hash: hashForLog(admin.email),
             attempted_action: error.context.attemptedAction,
             superseded_session_id: error.context.supersededSessionId,
             current_session_id: await (

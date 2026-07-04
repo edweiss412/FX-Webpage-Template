@@ -42,10 +42,11 @@
  *   listFixtures()                         — enumerate fixtures/shows/raw/*.md
  *     for the picker. Filters out underscore-prefixed names (test temp files).
  *
- * EVERY exported action calls requireAdmin() as its first line per
- * AGENTS.md §1.6 and spec §7.3. The build-time flag gate inside requireAdmin()
- * ALSO blocks the actions from executing in a prod-build, even via a
- * fictitious caller.
+ * EVERY exported action calls requireDeveloper() as its first line per
+ * AGENTS.md §1.6 and spec §7.3 (developer-tier §6: this surface swapped its
+ * gate requireAdmin → requireDeveloper). The build-time file gate
+ * (scripts/with-admin-dev-flag.mjs) ALSO renames these routes aside in a
+ * prod-build, so they cannot execute there even via a fictitious caller.
  *
  * Pipeline contract (per plan 03-04-tiles.md:23):
  *   parseSheet → enrichWithDrivePins(parsed, mockDriveClient)
@@ -68,7 +69,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { redirect } from "next/navigation";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { parseSheet } from "@/lib/parser";
 import { runInvariants } from "@/lib/parser/invariants";
@@ -119,7 +120,7 @@ export async function parseAndStage(
    */
   prior: ParseResult | null = null,
 ): Promise<ParseAndStageResult> {
-  await requireAdmin();
+  await requireDeveloper();
 
   // Filename allowlist gate — never read outside fixtures/shows/raw and never
   // accept path traversal.
@@ -253,7 +254,7 @@ export async function parseAndStage(
  * action. Callers do not see a return value.
  */
 export async function parseAndStageFormAction(formData: FormData): Promise<void> {
-  await requireAdmin();
+  await requireDeveloper();
   const filename = String(formData.get("fixture") ?? "").trim();
   if (!filename) {
     // Empty selection — bounce back to the picker without parsing.
@@ -278,7 +279,7 @@ export async function parseAndStageFormAction(formData: FormData): Promise<void>
  * Returns null when no row is found (e.g. the dev schema was just reset).
  */
 export async function getStagedResult(filename: string): Promise<ParseAndStageResult | null> {
-  await requireAdmin();
+  await requireDeveloper();
   if (!FIXTURE_NAME_RE.test(filename)) {
     // Don't leak which filenames are/aren't allowed; treat invalid names as
     // "no result" so the page renders the empty-result branch.
@@ -390,7 +391,7 @@ export async function getStagedResult(filename: string): Promise<ParseAndStageRe
  *     wires into <form action={...}>; it returns void after redirecting.
  */
 export async function resetDevSchema(): Promise<{ ok: true }> {
-  await requireAdmin();
+  await requireDeveloper();
   const supabase = createSupabaseServiceRoleClient();
   const { error } = await supabase.rpc("dev_truncate_all");
   if (error) {
@@ -400,7 +401,7 @@ export async function resetDevSchema(): Promise<{ ok: true }> {
 }
 
 export async function resetDevSchemaFormAction(): Promise<void> {
-  await requireAdmin();
+  await requireDeveloper();
   await resetDevSchema();
   // Redirect to a clean /admin/dev so the now-stale ?fixture= query param
   // (if any) doesn't try to re-render a result that was just truncated.
@@ -409,7 +410,7 @@ export async function resetDevSchemaFormAction(): Promise<void> {
 
 /** Helper used by the page to enumerate fixture choices. */
 export async function listFixtures(): Promise<string[]> {
-  await requireAdmin();
+  await requireDeveloper();
   const entries = await readdir(FIXTURE_DIR);
   // '_'-prefix is the test-fixture convention; see
   // tests/sync/dev-routing.test.ts beforeAll for the AC-3.3 temp-fixture write

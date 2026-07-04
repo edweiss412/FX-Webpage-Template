@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { PROTECTED_ROUTES } from "@/lib/audit/trustDomains";
 
 describe("observability route is auth-chain registered", () => {
-  test("PROTECTED_ROUTES has the page with requireAdmin chain", () => {
+  test("PROTECTED_ROUTES has the page with requireDeveloper chain", () => {
+    // developer-tier §6 row 5: Activity/observability swapped requireAdmin → requireDeveloper.
     const row = PROTECTED_ROUTES.find((r) => r.path === "app/admin/observability/page.tsx");
     expect(row).toBeTruthy();
-    expect(row!.chain).toContain("requireAdmin");
+    expect(row!.chain).toContain("requireDeveloper");
   });
   test("settings page links to /admin/observability (the ONLY mobile route into desktopOnly Activity)", () => {
     // Activity is desktopOnly (absent from mobile bottom tabs), so the Settings link is the
@@ -18,7 +19,8 @@ describe("observability route is auth-chain registered", () => {
   });
   test("dev layout harness is BOTH build-gated (with-admin-dev-flag FILES) AND auth-chain registered", () => {
     // The harness must be renamed-aside at build time when ADMIN_DEV_PANEL_ENABLED!=='true' (so it
-    // never ships to prod) AND carry the requireAdmin chain — regressing either is a leak.
+    // never ships to prod) AND carry the requireDeveloper chain (developer-tier §6: /admin/dev
+    // surfaces swapped requireAdmin → requireDeveloper) — regressing either is a leak.
     const harness = "app/admin/dev/observability-dim/page.tsx";
     const gate = readFileSync(
       join(__dirname, "..", "..", "scripts/with-admin-dev-flag.mjs"),
@@ -27,6 +29,6 @@ describe("observability route is auth-chain registered", () => {
     expect(gate).toContain(harness);
     const row = PROTECTED_ROUTES.find((r) => r.path === harness);
     expect(row).toBeTruthy();
-    expect(row!.chain).toContain("requireAdmin");
+    expect(row!.chain).toContain("requireDeveloper");
   });
 });

@@ -127,6 +127,7 @@ describe("assetRecovery — driveFileId threading", () => {
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,
           upsertAdminAlert: async () => undefined,
+          resolveAdminAlerts: async () => undefined,
         }),
       storage: storagePort,
       drive: {

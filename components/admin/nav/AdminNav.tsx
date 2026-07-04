@@ -33,16 +33,25 @@ export function AdminNav({
   email,
   alertCount,
   initialBadgeCount = null,
+  viewerIsDeveloper = false,
 }: {
   email: string;
   alertCount: AlertCountResult;
   initialBadgeCount?: number | null;
+  /**
+   * developer-tier Task 15 (spec §6 row 8): gates `developerOnly` NavItems
+   * (currently Activity/observability). Absent → `false` (safe default), so a
+   * normal admin never sees developer destinations in either nav.
+   */
+  viewerIsDeveloper?: boolean;
 }) {
   const pathname = usePathname();
   const badgeCount = useNeedsAttentionBadge(initialBadgeCount);
+  // developerOnly items are hidden from non-developers in BOTH navs.
+  const visibleNav = NAV.filter((item) => !item.developerOnly || viewerIsDeveloper);
   // The mobile bottom tab bar shows only non-desktopOnly items (Activity is a
   // desktop-nav destination). Overflow is derived from the mobile-visible count.
-  const mobileItems = NAV.filter((item) => !item.desktopOnly);
+  const mobileItems = visibleNav.filter((item) => !item.desktopOnly);
   const overflow = shouldRenderOverflow(mobileItems.length);
 
   return (
@@ -77,24 +86,26 @@ export function AdminNav({
             (the Needs-attention tab) are excluded — spec D-2: desktop nav
             unchanged. */}
         <div className="hidden items-center gap-1 min-[720px]:flex">
-          {NAV.filter((item) => !item.mobileOnly).map((item) => {
-            const active = isNavItemActive(item.id, pathname);
-            return (
-              <Link
-                key={item.id}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`inline-flex min-h-tap-min items-center gap-2 rounded-sm px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
-                  active
-                    ? "bg-surface-raised text-text-strong"
-                    : "text-text-subtle hover:bg-surface-raised hover:text-text"
-                }`}
-              >
-                <item.Icon className="size-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+          {visibleNav
+            .filter((item) => !item.mobileOnly)
+            .map((item) => {
+              const active = isNavItemActive(item.id, pathname);
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`inline-flex min-h-tap-min items-center gap-2 rounded-sm px-3 text-sm font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${
+                    active
+                      ? "bg-surface-raised text-text-strong"
+                      : "text-text-subtle hover:bg-surface-raised hover:text-text"
+                  }`}
+                >
+                  <item.Icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
         </div>
 
         <div className="flex-1" />

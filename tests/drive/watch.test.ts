@@ -34,7 +34,7 @@ type WatchRow = {
 
 class FakeWatchTx {
   rows: WatchRow[] = [];
-  alerts: Array<{ code: string; context: Record<string, unknown> }> = [];
+  alerts: Array<{ code: string; context: Record<string, unknown>; resolved?: boolean }> = [];
   operations: string[] = [];
   now = new Date("2026-05-09T12:00:00.000Z");
 
@@ -131,6 +131,39 @@ class FakeWatchTx {
         Date.parse(row.expiresAt) > now,
     );
   }
+
+  async resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string) {
+    this.operations.push("resolveStaleWebhookTokenInvalid");
+    const now = Date.parse(nowIso);
+    const liveChannelIds = new Set(
+      this.rows
+        .filter(
+          (row) =>
+            row.watchedFolderId === folderId &&
+            row.status === "active" &&
+            row.expiresAt !== null &&
+            Date.parse(row.expiresAt) > now,
+        )
+        .map((row) => row.id),
+    );
+    for (const alert of this.alerts) {
+      if (
+        alert.code === "WEBHOOK_TOKEN_INVALID" &&
+        !alert.resolved &&
+        !liveChannelIds.has(String(alert.context.channel_id))
+      ) {
+        alert.resolved = true;
+      }
+    }
+  }
+}
+
+function seedOpenWebhookTokenInvalidAlert(tx: FakeWatchTx, channelId: string) {
+  tx.alerts.push({
+    code: "WEBHOOK_TOKEN_INVALID",
+    context: { channel_id: channelId },
+    resolved: false,
+  });
 }
 
 function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
@@ -647,7 +680,43 @@ describe("reconcileWatchChannels", () => {
     expect(deps.maybeEscalateWatchOrphaned).not.toHaveBeenCalled();
   });
 
-  test("vacuous: no folder → resolve stale alert, no subscribe", async () => {
+  test("healthy: open WEBHOOK_TOKEN_INVALID alert naming a channel that is NOT the folder's live active channel → resolved", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1", "live-channel");
+    seedOpenWebhookTokenInvalidAlert(tx, "stale-channel");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("healthy");
+    expect(tx.operations).toContain("resolveStaleWebhookTokenInvalid");
+    expect(tx.alerts[0]).toMatchObject({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "stale-channel" },
+      resolved: true,
+    });
+  });
+
+  test("healthy: open WEBHOOK_TOKEN_INVALID alert naming the CURRENT live channel → untouched", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1", "live-channel");
+    seedOpenWebhookTokenInvalidAlert(tx, "live-channel");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("healthy");
+    expect(tx.operations).toContain("resolveStaleWebhookTokenInvalid");
+    expect(tx.alerts[0]).toMatchObject({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "live-channel" },
+      resolved: false,
+    });
+  });
+
+  test("vacuous: no folder → resolve stale WATCH_CHANNEL_ORPHANED alongside the global WEBHOOK_TOKEN_INVALID alert, no subscribe", async () => {
     const tx = new FakeWatchTx();
     const { reconcileWatchChannels } = await import("@/lib/drive/watch");
     const deps = reconcileDeps(tx, {
@@ -661,11 +730,16 @@ describe("reconcileWatchChannels", () => {
       showId: null,
       code: "WATCH_CHANNEL_ORPHANED",
     });
+    expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "WEBHOOK_TOKEN_INVALID",
+    });
     expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
   });
 
-  test("no live channel → exactly one subscribe; active → recovered + resolve", async () => {
+  test("no live channel → exactly one subscribe; active → recovered + resolve (WATCH_CHANNEL_ORPHANED and stale WEBHOOK_TOKEN_INVALID)", async () => {
     const tx = new FakeWatchTx();
+    seedOpenWebhookTokenInvalidAlert(tx, "old-channel");
     const { reconcileWatchChannels } = await import("@/lib/drive/watch");
     const deps = reconcileDeps(tx);
 
@@ -677,6 +751,12 @@ describe("reconcileWatchChannels", () => {
     expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
       showId: null,
       code: "WATCH_CHANNEL_ORPHANED",
+    });
+    expect(tx.operations).toContain("resolveStaleWebhookTokenInvalid");
+    expect(tx.alerts[0]).toMatchObject({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "old-channel" },
+      resolved: true,
     });
   });
 

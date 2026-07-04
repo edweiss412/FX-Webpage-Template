@@ -59,11 +59,26 @@ const TEST_FIXTURE_PASSWORD = "fxav-test-fixture-password-2026";
  * The admin email here matches the public.is_admin() Postgres helper's
  * hard-coded allowlist at supabase/migrations/20260501002000_rls_policies.sql:30-37
  * so end-to-end auth flows work without custom JWT claims.
+ *
+ * `isDeveloper` is a strict sub-role of admin — every entry that sets
+ * `isDeveloper: true` MUST also set `isAdmin: true` (developer ⟹ admin,
+ * spec §2). The app_metadata builder below only emits `developer: true`
+ * alongside `role: "admin"`, so a developer fixture can never mint a
+ * developer session without also being admin.
  */
-const FIXTURE_ALLOWLIST: Readonly<Record<string, { isAdmin: boolean }>> = Object.freeze({
-  "edweiss412@gmail.com": { isAdmin: true },
-  "crew-non-admin@fxav.test": { isAdmin: false },
-});
+const FIXTURE_ALLOWLIST: Readonly<Record<string, { isAdmin: boolean; isDeveloper?: boolean }>> =
+  Object.freeze({
+    "edweiss412@gmail.com": { isAdmin: true },
+    "crew-non-admin@fxav.test": { isAdmin: false },
+    // Normal-admin (admin but NOT developer) e2e fixture (developer-tier §10.7).
+    // Mints app_metadata { role: "admin" } (no developer bit) and is
+    // intentionally NOT bootstrapped into admin_emails, so is_developer() is
+    // false in BOTH arms — the developer-tier e2e's normal-admin arm. Distinct
+    // from edweiss412@gmail.com, which the developer-tier migration bootstraps to
+    // is_developer=true (a developer, NOT a normal admin).
+    "fxav-admin@example.com": { isAdmin: true },
+    "fxav-developer@example.com": { isAdmin: true, isDeveloper: true },
+  });
 
 /**
  * Host allowlist — only localhost / 127.0.0.1 origins may hit this endpoint.
@@ -174,7 +189,14 @@ export async function POST(request: Request): Promise<Response> {
     email,
     password: TEST_FIXTURE_PASSWORD,
     email_confirm: true,
-    app_metadata: isAdmin ? { role: "admin" } : {},
+    // developer ⟹ admin (spec §2): the `developer` bit is only ever emitted
+    // alongside `role: "admin"`, so a developer fixture always also mints an
+    // admin session. Derived from the allowlist entry — never client-controlled.
+    app_metadata: allowEntry.isDeveloper
+      ? { role: "admin", developer: true }
+      : isAdmin
+        ? { role: "admin" }
+        : {},
   });
 
   if (createErr) {

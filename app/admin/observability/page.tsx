@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { nowDate } from "@/lib/time/now";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { parseAppEventFilters } from "@/lib/admin/observabilityTypes";
@@ -17,7 +17,7 @@ export default async function ObservabilityPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireAdminIdentity();
+  await requireDeveloperIdentity();
   const sp = await searchParams;
   const filters = parseAppEventFilters(sp);
   const now = await nowDate();

@@ -34,6 +34,7 @@ const SAMPLE_ROWS: AdminEmailRow[] = [
     revoked_by: null,
     revoked_at: null,
     note: null,
+    is_developer: false,
   },
 ];
 

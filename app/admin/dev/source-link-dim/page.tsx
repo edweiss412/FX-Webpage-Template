@@ -24,11 +24,11 @@
  * BEFORE `next build`, so the production artifact literally does NOT contain the
  * route (the /admin/dev build-artifact gate, M3 Round-1 Finding 1). This file is
  * registered in that script's FILES array alongside app/admin/dev/page.tsx +
- * actions.ts. Unlike /admin/dev, this harness does NOT call requireAdmin(): it
- * renders only static fixture markup — no DB read, no auth-scoped data, no
- * secrets — so the build-artifact gate alone is the protection. The page is
- * unreachable in production (renamed away pre-build); in the dev build it renders
- * for any visitor, which is correct for a pure layout-measurement fixture.
+ * actions.ts. Like /admin/dev, this harness calls requireDeveloper() at the same
+ * chokepoint (developer-tier §6: swapped requireAdmin → requireDeveloper) so the
+ * trust-domain auth-chain audit classifies it identically (chain: requireDeveloper).
+ * The page is also unreachable in production (renamed away pre-build); in the dev
+ * build it renders for a signed-in developer, matching /admin/dev's posture.
  *
  * UI is intentionally minimal/unstyled chrome (a fixed-width column) — the
  * measured primitives carry their own production styling; the harness wraps them
@@ -41,7 +41,7 @@ import { PersonRow } from "@/components/crew/primitives/PersonRow";
 import { FactRows } from "@/components/crew/primitives/FactRows";
 import { KeyValueRows } from "@/components/crew/primitives/KeyValueRows";
 import { KeyTimesStrip } from "@/components/crew/primitives/KeyTimesStrip";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import type { ReactNode } from "react";
 
 // Never cache — the fixture is static, but force-dynamic keeps the harness
@@ -82,8 +82,8 @@ function MeasuredBody(): ReactNode {
 
 export default async function SourceLinkDimPage() {
   // Same chokepoint as /admin/dev (app/admin/dev/page.tsx) so the trust-domain
-  // auth-chain audit classifies this harness route identically (chain: requireAdmin).
-  await requireAdmin();
+  // auth-chain audit classifies this harness route identically (chain: requireDeveloper).
+  await requireDeveloper();
   return (
     <main
       className="mx-auto flex max-w-md flex-col gap-6 p-6"

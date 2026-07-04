@@ -72,6 +72,8 @@ const INFRA_PRODUCERS = [
   "validateGoogleSession",
   "requireAdmin",
   "requireAdminIdentity",
+  "requireDeveloper",
+  "requireDeveloperIdentity",
   "adminEmails",
 ] as const;
 
@@ -222,6 +224,7 @@ const SUPABASE_CONSTRUCTOR_CONTRACT_FILES = [
   "app/auth/sign-in/page.tsx",
   "app/auth/sign-out/route.ts",
   "lib/auth/picker/resolvePickerSelection.ts",
+  "lib/auth/picker/resetCrewMemberSelection.ts",
   "lib/auth/picker/resetPickerEpoch.ts",
   "lib/auth/picker/resolveShowPageAccess.ts",
   "lib/auth/picker/rotateShareToken.ts",
@@ -338,6 +341,12 @@ describe("META infra-failure contract", () => {
         "lib/auth/validateGoogleIdentity.ts",
         "lib/auth/validateGoogleSession.ts",
         "lib/auth/requireAdmin.ts",
+        // developer-tier: the resolveDeveloperIdentity gate is behaviorally
+        // exercised by the requireDeveloper/requireDeveloperIdentity describes
+        // below (error-first → DeveloperInfraError). The isCurrentUserDeveloper
+        // visibility call site is fail-to-false and carries its own
+        // not-subject-to-meta waiver.
+        "lib/auth/requireDeveloper.ts",
       ]);
 
       const walk = (dir: string, out: string[] = []): string[] => {
@@ -555,6 +564,133 @@ describe("META infra-failure contract", () => {
       };
       const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+  });
+
+  // developer-tier (spec §5 / §10.1): requireDeveloper clones requireAdmin's
+  // gate with is_admin() → is_developer(). Same infra-fault discipline: every
+  // boundary (construction, getClaims thrown/returned-error, EITHER RPC
+  // thrown/returned-error) must surface as DeveloperInfraError, never a benign
+  // forbidden()/redirect(). The ERROR-FIRST row pins that a revoked session
+  // (is_session_live=false) does NOT mask a developer DB outage. The structured
+  // log.error emission (source "auth/requireDeveloper", code
+  // DEVELOPER_SESSION_LOOKUP_FAILED) is what the afterAll set-equality records
+  // as coverage for these producers — a DeveloperInfraError thrown WITHOUT the
+  // emission would break it. The confirmed-non-developer → forbidden() and
+  // unauthed → redirect rows pin that those auth-level verdicts are NOT infra.
+  describe("requireDeveloper", () => {
+    test("server-client construction throw → DeveloperInfraError (not forbidden)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+      assertEmits("requireDeveloper", "auth/requireDeveloper", "DEVELOPER_SESSION_LOOKUP_FAILED");
+    });
+
+    test("getClaims throw → DeveloperInfraError", async () => {
+      infraMock.throwOnGetClaims = true;
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("getClaims non-session returned-error → DeveloperInfraError", async () => {
+      infraMock.getClaimsResult = {
+        data: null,
+        error: { name: "AuthApiError", message: "META: jwks fetch failed" },
+      };
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("either RPC throw → DeveloperInfraError", async () => {
+      infraMock.throwOnRpc = true;
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("is_session_live returned-error → DeveloperInfraError", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: null, error: new Error("META: session RPC fault") },
+        is_developer: { data: true, error: null },
+      };
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("is_developer returned-error → DeveloperInfraError", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: true, error: null },
+        is_developer: { data: null, error: new Error("META: developer RPC fault") },
+      };
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("ERROR-FIRST: is_session_live=false + is_developer returned-error → DeveloperInfraError (NOT redirect)", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: false, error: null }, // revoked session
+        is_developer: { data: null, error: new Error("META: developer db outage") }, // infra MUST win
+      };
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("confirmed non-developer (session live) → forbidden(), NOT DeveloperInfraError", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: true, error: null },
+        is_developer: { data: false, error: null },
+      };
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.not.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("unauthed (AuthSessionMissingError) → redirect, NOT DeveloperInfraError", async () => {
+      infraMock.getClaimsResult = {
+        data: null,
+        error: { name: "AuthSessionMissingError", message: "Auth session missing!" },
+      };
+      const { requireDeveloper, DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloper()).rejects.not.toBeInstanceOf(DeveloperInfraError);
+    });
+  });
+
+  // requireDeveloperIdentity is the entry point developer-only Server Actions
+  // use; same infra-fault discipline as requireDeveloper (shares the underlying
+  // resolveDeveloperIdentity gate). Mirrors the requireAdminIdentity block.
+  describe("requireDeveloperIdentity", () => {
+    test("server-client construction throw → DeveloperInfraError", async () => {
+      infraMock.throwOnConstruct = true;
+      const { requireDeveloperIdentity, DeveloperInfraError } =
+        await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
+      assertEmits(
+        "requireDeveloperIdentity",
+        "auth/requireDeveloper",
+        "DEVELOPER_SESSION_LOOKUP_FAILED",
+      );
+    });
+
+    test("getClaims throw → DeveloperInfraError", async () => {
+      infraMock.throwOnGetClaims = true;
+      const { requireDeveloperIdentity, DeveloperInfraError } =
+        await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("either RPC throw → DeveloperInfraError", async () => {
+      infraMock.throwOnRpc = true;
+      const { requireDeveloperIdentity, DeveloperInfraError } =
+        await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
+    });
+
+    test("ERROR-FIRST: is_session_live=false + is_developer returned-error → DeveloperInfraError (NOT redirect)", async () => {
+      infraMock.rpcResultByFn = {
+        is_session_live: { data: false, error: null },
+        is_developer: { data: null, error: new Error("META: developer db outage") },
+      };
+      const { requireDeveloperIdentity, DeveloperInfraError } =
+        await import("@/lib/auth/requireDeveloper");
+      await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     });
   });
 

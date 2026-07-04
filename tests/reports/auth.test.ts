@@ -114,6 +114,21 @@ describe("POST /api/report auth skeleton", () => {
     expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
   });
 
+  test("selection_reset crew cookie (non-admin) denies with 401 — falls through to admin path, not 410/500", async () => {
+    // report distinguishes 410 (identity_invalidated/show_unavailable) and 500 (infra_error) from
+    // the fall-through admin path. A non-admin selection_reset must land on the admin fall-through
+    // → 401 (requireAdminIdentity rejects), exactly like epoch_stale — NOT be mis-mapped to 410/500.
+    authMock.picker = {
+      kind: "selection_reset",
+      expectedEpoch: 4,
+      expectedCrewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+    };
+    const response = await POST(request(validBody, "__Host-fxav_picker=signed"));
+    expect(response.status).toBe(401);
+    expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce(); // proves fall-through, not a 410 short-circuit
+    expect(authMock.submitReport).not.toHaveBeenCalled();
+  });
+
   test("valid picker cookie submits as crew report", async () => {
     authMock.picker = {
       kind: "resolved",

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { drive_v3 } from "googleapis";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { resolveAdminAlerts as defaultResolveAdminAlerts } from "@/lib/adminAlerts/resolveAdminAlert";
+import type { AdminAlertCode } from "@/lib/adminAlerts/upsertAdminAlert";
+import { ASSET_RECOVERY_ALERT_FAMILY } from "@/lib/sync/assetRecovery";
+import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getDriveClient } from "@/lib/drive/client";
 import {
   DRIVE_FILES_GET_TIMEOUT_MS,
@@ -91,6 +96,15 @@ export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RE
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 export const STAGED_PARSE_RESTAGED_INLINE = "STAGED_PARSE_RESTAGED_INLINE" as const;
 export const STAGED_REVIEW_ITEMS_CORRUPT = "STAGED_REVIEW_ITEMS_CORRUPT" as const;
+// S2 (admin-alert-auto-resolution spec) — the reel/embedded-drift verify family reconciled on
+// every clean live apply. A clean verify (no code in this family raised this apply) resolves any
+// stale open alert in the family for the show; a raised code is excluded from the resolve set.
+export const LIVE_VERIFY_ALERT_FAMILY = [
+  "REEL_DRIFTED",
+  "OPENING_REEL_PERMISSION_DENIED",
+  "OPENING_REEL_NOT_VIDEO",
+  "EMBEDDED_ASSET_DRIFTED",
+] as const;
 export const STAGED_PARSE_RESULT_CORRUPT = "STAGED_PARSE_RESULT_CORRUPT" as const;
 
 export type PendingSyncForApply = {
@@ -366,6 +380,11 @@ export type ApplyStagedDeps = {
       | "EMBEDDED_ASSET_DRIFTED";
     context: Record<string, unknown>;
   }) => Promise<unknown>;
+  resolveAdminAlerts?: typeof defaultResolveAdminAlerts;
+  // S3 (admin-alert-auto-resolution spec): re-reads the committed live snapshot_status so the
+  // post-commit reconcile can append the asset-recovery family iff the apply landed 'complete'.
+  // Phase2Result/ApplyStagedCoreResult do NOT surface snapshot_status, so it is re-read here.
+  readLandedSnapshotStatus?: (showId: string) => Promise<string | null>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
   prepareOnboardingFiles?: typeof prepareOnboardingFiles;
   scanOnboardingPreparedFiles?: typeof scanOnboardingPreparedFiles;
@@ -1795,6 +1814,23 @@ async function applyWizardWithDriveReverify(
   );
 }
 
+/**
+ * S3 default reader for the committed live `snapshot_status`. "Landed" means the LIVE snapshot:
+ * reuse `resolveCurrentDiagrams` (lib/data/diagrams.ts:54), which accepts the `{current}` wrapper
+ * OR a bare `PersistedDiagrams` root and IGNORES `pending` — a pending payload is pre-promotion
+ * (promoteSnapshot may still fail/roll back), so a pending 'complete' must NEVER resolve S3 alerts.
+ * Precedence: current → root. Client is injectable for unit tests.
+ */
+export async function defaultReadLandedSnapshotStatus(
+  showId: string,
+  client: ReturnType<typeof createSupabaseServiceRoleClient> = createSupabaseServiceRoleClient(),
+): Promise<string | null> {
+  const { data, error } = await client.from("shows").select("diagrams").eq("id", showId).single();
+  if (error) throw new Error(`landed snapshot status read failed: ${error.message}`);
+  const current = resolveCurrentDiagrams(data?.diagrams ?? null);
+  return current?.snapshot_status ?? null;
+}
+
 export async function applyStaged(
   args: ApplyStagedArgs,
   deps: ApplyStagedDeps = {},
@@ -1835,6 +1871,29 @@ export async function applyStaged(
           context: { drive_file_id: args.driveFileId },
         });
       }
+    }
+    // S2 (admin-alert-auto-resolution spec): reconcile the reel/embedded-drift verify family —
+    // resolve every family code NOT raised by this apply. A clean verify (no family code raised)
+    // therefore clears all four; a raised code (e.g. REEL_DRIFTED) is excluded from the resolve
+    // set (its alert stays open until a later clean verify). Error posture matches the adjacent
+    // upserts: awaited, un-caught.
+    if (!("skipped" in result) && result.outcome === "applied") {
+      const raised = new Set(
+        [result.adminAlertCode, ...(result.adminAlertCodes ?? [])].filter(Boolean),
+      );
+      const toResolve: AdminAlertCode[] = LIVE_VERIFY_ALERT_FAMILY.filter(
+        (code) => !raised.has(code),
+      );
+      // S3 (admin-alert-auto-resolution spec): if this live apply committed a snapshot that landed
+      // 'complete', the asset-recovery family is moot too — append it to the reconcile set. Re-read
+      // the committed status (Phase2Result does not surface it). A pending 'complete' is ignored by
+      // the reader, so only a promoted/live 'complete' clears the family.
+      const readLanded = deps.readLandedSnapshotStatus ?? defaultReadLandedSnapshotStatus;
+      if ((await readLanded(result.showId)) === "complete") {
+        toResolve.push(...ASSET_RECOVERY_ALERT_FAMILY);
+      }
+      const resolveAlerts = deps.resolveAdminAlerts ?? defaultResolveAdminAlerts;
+      await resolveAlerts({ showId: result.showId, codes: toResolve });
     }
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;

@@ -203,7 +203,7 @@ async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: Concrete
 
   const nested = root
     .locator("a")
-    .filter({ hasText: /Learn more|Take the tour/i })
+    .filter({ hasText: /Learn more|New here\?/i })
     .first();
   await expect(nested, `${row.testid} nested link`).toBeVisible();
   const nestedHref = await nested.getAttribute("href");

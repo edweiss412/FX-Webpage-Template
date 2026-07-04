@@ -15,6 +15,7 @@
 import { fetchEmbeddedAdminEmails } from "@/lib/admin/embeddedAdminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { isCurrentUserDeveloper } from "@/lib/auth/requireDeveloper";
 import { nowDate } from "@/lib/time/now";
 import { AdministratorsSection } from "@/components/admin/settings/AdministratorsSection";
 
@@ -26,6 +27,10 @@ export const metadata = {
 export default async function AdminsPage() {
   const result = await fetchEmbeddedAdminEmails();
   const identity = await requireAdminIdentity();
+  // developer-tier Task 17 (spec §6, Codex R6): thread the developer bit so the
+  // per-row Developer toggle is visible on this deep link too — not only on the
+  // embedded /admin/settings body. Fail-to-false (never throws).
+  const viewerIsDeveloper = await isCurrentUserDeveloper();
 
   return (
     <main className="mx-auto max-w-2xl px-tile-pad pb-section-gap">
@@ -33,6 +38,7 @@ export default async function AdminsPage() {
         result={result}
         actorCanonicalEmail={canonicalize(identity.email) ?? ""}
         now={await nowDate()}
+        viewerIsDeveloper={viewerIsDeveloper}
       />
     </main>
   );

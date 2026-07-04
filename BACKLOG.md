@@ -117,6 +117,32 @@ The claimed-row recovery control is `<form action={signInRecoveryUrl} method="GE
 
 ---
 
+## BL-ALERT-GITHUB-BOT-LOGIN-AUTORESOLVE — auto-resolve GITHUB_BOT_LOGIN_MISSING on successful bot auth
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: GITHUB_BOT_LOGIN_MISSING / DEFER)
+
+The `GITHUB_BOT_LOGIN_MISSING` alert tracks that the bot login env is unset (`lib/reports/submit.ts:778`). This is config state observable inside the M8 report pipeline, but the review discipline for report features requires live GitHub integration probes. Auto-resolution deferred pending M8 shipping and validation-environment gates. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 line 94.
+
+## BL-ALERT-BRANCH-PROTECTION-AUTORESOLVE — auto-resolve branch-protection alerts on policy sync
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: BRANCH_PROTECTION_DRIFT / BRANCH_PROTECTION_MONITOR_AUTH_FAILED / DEFER)
+
+`BRANCH_PROTECTION_DRIFT` and `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` track state of the GitHub branch-protection CI monitor (`scripts/verify-branch-protection.ts`). Both are raised outside app runtime (CI-side ops script), making auto-resolution a separate ops-pipeline concern orthogonal to the app's admin-alert infrastructure. Deferred to a future branch-protection monitoring redesign. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 lines 95–96.
+
+## BL-ALERT-REPORT-FAMILY-AUTORESOLVE — evaluate manual-by-design posture for report-family incidents
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: REPORT\_\* codes / EVENT)
+
+The six report-family codes (`REPORT_ORPHANED_LOST_LEASE`, `REPORT_LOOKUP_INCONCLUSIVE`, `REPORT_DUPLICATE_LIVE_MATCHES`, `REPORT_OPEN_ORPHAN_LABEL`, `REPORT_LEASE_THRASHING`, `STALE_ORPHAN_REPORT`) are all incident notices and observational audit records (external GitHub state changes, impossible-state alarms). They're event-shaped by design and cannot auto-resolve on condition recovery because there is no recoverable condition — a manual acknowledgment is the correct workflow. Revisit post-M8 if new incident classes emerge that blur the event/state boundary. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 lines 88–93.
+
+## BL-ALERT-TILE-RENDER-PER-TILE-KEYING — per-tile keyed auto-resolution for TILE_SERVER_RENDER_FAILED
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: TILE_SERVER_RENDER_FAILED / EVENT\*)
+
+`TILE_SERVER_RENDER_FAILED` is state-shaped (a tile's render threw) but has no aggregation point: tiles stream independently per-request, and the alert row is deduped per (show, code) with `context.tileId` replaced on re-raise. Tile A's successful render cannot prove tile B is healthy; auto-resolving on any tile success masks ongoing failures. A per-tile-keyed redesign (persist `tileId` in the alert row, auto-resolve on that tile's next success) closes this structurally but requires schema change. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 line 76.
+
+---
+
 ## BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry
 
 **Status:** OPEN · **Severity:** low (defense-in-depth; today's guard is a hand-maintained pin) · **Class:** TEST-ENFORCEMENT GAP
@@ -168,3 +194,15 @@ Deferred out of the forensic code-stamping batch (`docs/superpowers/specs/2026-0
 **Status:** OPEN · **Severity:** low · **Class:** VISIBILITY SCOPE
 
 The Schedule section's Agenda area (`components/crew/sections/ScheduleSection.tsx:117-152`) renders `AgendaEmbed` + per-link `AgendaScheduleBlock` from `link.extracted` as a **whole-show** artifact: `AgendaScheduleBlock` receives no date/stage restriction and shows the full-show agenda to **every** viewer (the only branch that suppresses it is the `unknown_asterisk` early-return, `:157-168`). So date-restricted AND (post-#248) stage-restricted crew see the full-show agenda above their filtered day cards. This is pre-existing behavior, not introduced by #248 (spec §3.5) — a stage-restricted crew (e.g. Calvin, on-site to strike) legitimately benefits from the agenda, so it was scoped out. **Fix (when prioritized):** thread the effective visible-day set into `AgendaScheduleBlock` and filter its per-day rows to the viewer's worked days (affects all date-restricted crew, so decide the product posture first — whole-show vs per-viewer agenda).
+
+### BL-ADMIN-QUIET-LINK-AFFORDANCE-A11Y — quiet-link affordance family: small tap target + no SR new-tab announcement
+
+**Status:** OPEN · **Severity:** low · **Class:** A11Y / RESPONSIVE
+
+The shared quiet-link affordance (`components/admin/PerShowActionableWarnings.tsx:98` precedent, copied by the per-show alert action link in `components/admin/PerShowAlertSection.tsx`) is a `text-xs` underline anchor without `min-h-tap-min`, below the comfortable venue-floor thumb-target bar, and its external variant marks the `↗` as `aria-hidden` with no visually-hidden "(opens in new tab)" so screen readers do not hear the new-tab behavior. Surfaced by the 2026-07-04 alert-action-links impeccable dual-gate (handoff §12). **Fix (when prioritized):** family-wide — add a min-height tap padding treatment and a `sr-only` new-tab suffix to the shared affordance on BOTH surfaces in one pass, not per-call-site divergence.
+
+### BL-ALERT-ACTION-LINKS-E2E — real-browser e2e pass over all 9 alert action links
+
+**Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
+
+PR #287 shipped the per-code action-link registry (`lib/adminAlerts/alertActions.ts`, 9 codes) with unit + jsdom-render + structural-meta coverage, but no real-browser e2e: nobody has clicked the links in a live app. Coverage gap: fragment-scroll behavior of the `#share-access` internal links on the deployed show page, real seeded alert rows carrying each code's context shape (incl. absent-field variants rendering NO link), the banner global-vs-per-show split on a live `/admin`, and external hrefs (`docs.google.com` / `drive.google.com` / `github.com`) asserted verbatim without navigating off-app. **Fix (when prioritized):** a Playwright spec (harness precedent: `tests/e2e/`) that seeds one alert row per registered code (`SHOW_FIRST_PUBLISHED`, `PICKER_EPOCH_RESET`, `PICKER_SELECTION_RACE`, `ROLE_FLAGS_NOTICE`, `LIVE_ROW_CONFLICT`, `WIZARD_SESSION_SUPERSEDED_RACE`, `REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`) plus per-code negative rows (context field absent → no anchor), renders `/admin` and `/admin/show/[slug]`, clicks each internal link asserting the landed section, and asserts external anchors' exact href/target/rel without following them. Pair with a one-time validation-deployment smoke click-through.

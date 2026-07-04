@@ -19,6 +19,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { type ActiveShowRow } from "@/lib/admin/showDisplay";
+import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import type { ParseWarning } from "@/lib/parser/types";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
 import { ShowsTable } from "@/components/admin/ShowsTable";
@@ -76,6 +78,9 @@ export type DashboardData = {
   // (ignoredDegraded=true, empty rows), never the whole dashboard.
   ignoredSheets: IgnoredSheetRow[];
   ignoredDegraded: boolean;
+  // Data-quality read (shows_internal.parse_warnings) faulted → badges suppressed
+  // and a visible calm notice shown. Degrade-VISIBLE, never silent (invariant 9).
+  dataGapsDegraded: boolean;
 };
 
 type DatesJson = {
@@ -299,6 +304,46 @@ export async function fetchDashboardData(
     }
   };
 
+  // parse-data-quality-warnings badge (spec §2.1) — per-show data-gaps summary
+  // from shows_internal.parse_warnings. Boundary returns a typed infra_error
+  // (invariant 9, registered in _metaInfraContract); the CALLER degrades VISIBLE.
+  // shows_internal.show_id is a PK → .in(show_id) is a 1:1 lookup within the
+  // already-capped id set (non-UNBOUNDED table → no .limit() needed).
+  const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResult> => {
+    const byShow = new Map<string, DataGapsSummary>();
+    if (activeShowIds.length === 0) return byShow;
+    try {
+      const { data, error } = await supabase
+        .from("shows_internal")
+        .select("show_id, parse_warnings")
+        .in("show_id", activeShowIds);
+      if (error) {
+        return {
+          kind: "infra_error",
+          message: `shows_internal data-gaps query failed: ${error.message}`,
+        };
+      }
+      for (const r of (data ?? []) as ReadonlyArray<{ show_id: string; parse_warnings: unknown }>) {
+        // Non-array persisted value skipped; a bad element throws inside
+        // summarizeDataGaps and is caught PER-ROW so one corrupt row cannot
+        // degrade every badge (spec §2.1). parse_warnings is plain jsonb.
+        if (!Array.isArray(r.parse_warnings)) continue;
+        try {
+          const summary = summarizeDataGaps(r.parse_warnings as ParseWarning[]);
+          if (summary.total > 0) byShow.set(r.show_id, summary);
+        } catch {
+          // malformed element → skip this row only
+        }
+      }
+      return byShow;
+    } catch (err) {
+      return {
+        kind: "infra_error",
+        message: `shows_internal data-gaps query threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  };
+
   // §3.2 — finalize-owned ("Publishing…") vs Held discriminator. The ONLY
   // authoritative source is whether an ACTIVE wizard finalize checkpoint owns
   // the show, computed by the SECURITY DEFINER predicate
@@ -350,7 +395,7 @@ export async function fetchDashboardData(
   // loader (lib/admin/loadNeedsAttention.ts) reuses the injected client. Each
   // wave member keeps its own boundary discrimination; a typed infra_error from
   // any one short-circuits the dashboard below.
-  const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds, ignoredResult] =
+  const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds, ignoredResult, dataGapsResult] =
     await Promise.all([
       readCrewTotal(),
       readCrewCounts(),
@@ -361,6 +406,9 @@ export async function fetchDashboardData(
       // this same wave. Its infra_error is handled locally (degrade) — NOT the
       // dashboard-wide short-circuit the crew/needs-attention faults trigger.
       loadIgnoredSheets({ supabase }),
+      // Non-fatal secondary surface (data-quality badge): its infra_error
+      // degrades VISIBLE in place (dataGapsDegraded → notice), not dashboard-wide.
+      readDataGaps(),
     ]);
 
   if (isInfra(crewTotalResult)) return crewTotalResult;
@@ -372,6 +420,11 @@ export async function fetchDashboardData(
   // catalog-safe copy (invariant 5) rather than failing the whole dashboard.
   const ignoredSheets = ignoredResult.kind === "ok" ? ignoredResult.rows : [];
   const ignoredDegraded = ignoredResult.kind === "infra_error";
+  // Data-quality read degrades VISIBLE, NOT a dashboard-wide short-circuit (spec §2.2).
+  const dataGapsDegraded = isInfra(dataGapsResult);
+  const dataGapsByShow: Map<string, DataGapsSummary> = dataGapsDegraded
+    ? new Map()
+    : dataGapsResult;
 
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
@@ -383,6 +436,7 @@ export async function fetchDashboardData(
     // §3.2 — finalize-owned iff an active wizard finalize checkpoint owns the
     // show (from the RPC set above). Archived rows are never finalize-owned.
     const finalizeOwned = !isArchived && !published && finalizeOwnedIds.has(s.id as string);
+    const gaps = dataGapsByShow.get(s.id as string);
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -396,6 +450,8 @@ export async function fetchDashboardData(
       isLive,
       finalizeOwned,
       archivedAt: (s.archived_at as string | null) ?? null,
+      // exactOptional: conditional spread so a clean row OMITS the key (§2.3).
+      ...(gaps ? { dataGaps: gaps } : {}),
     };
   });
 
@@ -416,6 +472,7 @@ export async function fetchDashboardData(
     needsAttention: na,
     ignoredSheets,
     ignoredDegraded,
+    dataGapsDegraded,
   };
 }
 
@@ -500,6 +557,19 @@ export async function Dashboard(
           aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
           className="flex min-w-0 flex-col gap-3 min-[1240px]:flex-1"
         >
+          {/* parse-data-quality-warnings badge (spec §3.5) — visible degraded-read
+              notice, rendered once for BOTH buckets when the shows_internal
+              data-gaps read faulted (badges may be missing). Plain language, no
+              raw §12.4 code (invariant 5). Instant ternary — no animation. */}
+          {result.dataGapsDegraded ? (
+            <p
+              data-testid="dashboard-data-quality-degraded"
+              className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
+            >
+              Data-quality checks are temporarily unavailable. Some shows may not show a
+              data-quality warning.
+            </p>
+          ) : null}
           {/* M12.4 item D4: for the ACTIVE bucket the "Active shows" title, the
               Find input, AND the segmented control share ONE header row, owned by
               <ShowsTable> (the Find client-state lives there). The ARCHIVED bucket

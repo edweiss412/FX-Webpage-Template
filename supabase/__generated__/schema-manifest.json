@@ -18,6 +18,7 @@
     "added_at",
     "added_by",
     "email",
+    "is_developer",
     "note",
     "revoked_at",
     "revoked_by"
@@ -81,6 +82,7 @@
     "phone",
     "role",
     "role_flags",
+    "selections_reset_at",
     "show_id",
     "stage_restriction"
   ],
