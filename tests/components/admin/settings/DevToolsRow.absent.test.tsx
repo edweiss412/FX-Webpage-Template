@@ -27,4 +27,12 @@ describe("DevToolsRow — DEV_PANEL_PRESENT false (committed default)", () => {
     expect(container).toBeEmptyDOMElement();
     expect(screen.queryByTestId("admin-dev-tools-row")).toBeNull();
   });
+
+  it("renders nothing even when isDeveloper={true} — the build-time gate wins", () => {
+    // developer-tier Task 14: the runtime isDeveloper gate is ANDed with the
+    // build-time constant, so a developer still sees nothing in a non-dev build.
+    const { container } = render(<DevToolsRow isDeveloper={true} />);
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId("admin-dev-tools-row")).toBeNull();
+  });
 });

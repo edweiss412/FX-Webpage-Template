@@ -25,15 +25,16 @@
  * build time the wrapper renames this file aside (`.disabled-by-build-gate`)
  * BEFORE `next build`, so the production artifact literally does NOT contain the
  * route. This file is registered in that script's FILES array alongside
- * app/admin/dev/page.tsx + source-link-dim. Like /admin/dev (and unlike
- * source-link-dim), it calls requireAdmin() at the same chokepoint so the
- * trust-domain auth-chain audit classifies it identically (chain: requireAdmin).
+ * app/admin/dev/page.tsx + source-link-dim. Like /admin/dev, it calls
+ * requireDeveloper() at the same chokepoint (developer-tier §6: swapped
+ * requireAdmin → requireDeveloper) so the trust-domain auth-chain audit
+ * classifies it identically (chain: requireDeveloper).
  *
  * Server Component; force-dynamic keeps the render deterministic (matches
  * /admin/dev's posture).
  */
 import { Suspense } from "react";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import { CRON_JOBS, CRON_RUN_SUMMARY } from "@/lib/cron/runSummary";
 import type {
   AppEventRow,
@@ -103,8 +104,8 @@ const RESULT: LoadAppEventsResult = {
 
 export default async function ObservabilityDimHarness() {
   // Same chokepoint as /admin/dev so the trust-domain auth-chain audit classifies
-  // this harness route identically (chain: requireAdmin).
-  await requireAdmin();
+  // this harness route identically (chain: requireDeveloper).
+  await requireDeveloper();
   return (
     <div className="flex flex-col gap-section-gap p-4" data-testid="observability-dim-harness">
       <AutoRefreshControl />

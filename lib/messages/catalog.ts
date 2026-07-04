@@ -2531,6 +2531,19 @@ export const MESSAGE_CATALOG = {
       "The report route caught a typed infrastructure failure from the report submission or reaper path and returned a cataloged 500 instead of crashing. Try again in a few minutes.",
     helpHref: "/help/errors#REPORT_PIPELINE_FAILED",
   },
+  SELF_DEVELOPER_DEMOTE_FORBIDDEN: {
+    code: "SELF_DEVELOPER_DEMOTE_FORBIDDEN",
+    dougFacing:
+      "To keep at least one developer in control, you can't turn off your own developer access. Ask another developer to do it if you need to step down.",
+    crewFacing: null,
+    followUp: "Developer → ask another developer to turn off your access",
+    helpfulContext:
+      "set_admin_developer_rpc refuses a self-demote unconditionally inside its SECURITY DEFINER body — it returns self_developer_demote_forbidden when the demotion target (is_developer=false) canonicalizes to the same email as public.auth_email_canonical() — so a developer can never turn off their own developer access, even via a hand-forged PostgREST rpc() call that bypasses the developer-gated Server Action. Because a self-demote is always refused, at least one developer always remains in control. Turning off another developer's access (developer-to-developer demote) stays allowed by design.",
+    title: "You can't remove your own developer access",
+    longExplanation:
+      "A developer can never turn off their own developer access — the database refuses it directly, behind the Server Action guard. To keep at least one developer in control, ask another developer to remove your developer access if you need to step down.",
+    helpHref: "/help/errors#SELF_DEVELOPER_DEMOTE_FORBIDDEN",
+  },
   SELF_REVOKE_FORBIDDEN: {
     code: "SELF_REVOKE_FORBIDDEN",
     dougFacing:

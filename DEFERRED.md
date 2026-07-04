@@ -260,3 +260,21 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/step3-review-modal-r
 - **Trigger:** the `BL-ACCENT-ON-BG-AA-CONTRAST` token pass. No modal-local action; the modal inherits the corrected tokens automatically.
 
 P3s carried to the whole-diff adversarial review (not deferred here — they ride the branch's close-out review): scroller-rect hoist, data-literal memo bust, per-row agenda live regions, nested sections, hotels `shrink-0` overflow, grab-pill affordance contrast, copy duplication.
+
+## Developer tier — impeccable gate (2026-07-04)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/developer-tier`. **Critique 32/40 (GOOD)** — Assessment A (LLM design review) + the deterministic detector (clean `[]`), AI-slop PASS, no P0/P1. **Audit 19/20 (EXCEPTIONAL)** — accessibility 3 / performance 4 / theming 4 / responsive 4 / anti-patterns 4, no P0/P1, anti-pattern scan clean. Critique P3-a (an em dash in a rendered `aria-label`, an impeccable absolute ban) was fixed inline in the commit this entry lands in (`DeveloperToggleButton.tsx:120` → "Developer access (your own, locked)"). The two entries below are the sole explicit DEFERs; the remaining P3s are non-blocking, shared-with-siblings toggle idioms (noted at the end).
+
+### DEVTIER-1 — [P2] No help/description text on the per-row Developer toggle (critique)
+
+- **What:** `DeveloperToggleButton` renders only a bare "Developer" label; it grants Activity nav + Maintenance + Diagnostics + Dev-tools row + the power to set another admin's developer status, with no inline explanation of that blast radius. Sibling privilege surfaces carry help (`AdministratorsSection` HoverHelp, `NotifyToggle` description).
+- **Why deferred (proportionality + technical audience):** the control is server-side ABSENT for normal admins — safe-default `viewerIsDeveloper=false` gating is verified across nav (`AdminNav:36`), settings sections, `DevToolsRow:30`, and the per-row toggle, so the only users who ever see it are already developers, who understand the grant. Missing help is an enhancement, not a correctness/safety gap: self-demotion is structurally locked + server-refused, and every error result renders cataloged copy (invariant 5). Adding a HoverHelp is a net-new UI element that would itself re-enter the impeccable gate.
+- **Trigger:** if the developer tier is exposed to a non-developer management surface, or a HoverHelp cluster is added to the Administrators row, wire a one-line "Grants full developer access, incl. promoting others" description at that point.
+
+### DEVTIER-2 — [P2] ON-track accent fill contrast ≈2.2:1 (audit; system-wide → `BL-ACCENT-ON-BG-AA-CONTRAST`)
+
+- **What:** the toggle's ON state uses `border-accent bg-accent` (`DeveloperToggleButton.tsx:93`); the accent fill on the page background computes ≈2.2:1, under WCAG 1.4.11 (3:1 for a UI-component fill vs its adjacent color).
+- **Why deferred (pre-existing + system-wide, not diff-introduced):** identical construction ships in `NotifyToggle.tsx:134` and `PublishedToggle.tsx:146` — this is the shared project toggle recipe, not introduced by this diff. It is the same token deficiency already filed as `BL-ACCENT-ON-BG-AA-CONTRAST` in `docs/superpowers/plans/BACKLOG.md` and deferred by the Step-3-modal gate as STEP3MODAL-1. Mitigated: the toggle state is NEVER color-only (thumb `translate-x` + `aria-checked` + the visible "Developer" label), so the color-blind floor holds. Fixing it only inside this toggle would fork the brand accent on one surface.
+- **Trigger:** the `BL-ACCENT-ON-BG-AA-CONTRAST` token pass (adds a ≥3:1 outer ring or a darkened ON border system-wide); this toggle inherits the fix automatically.
+
+Non-blocking P3s (not deferred; noted for the whole-diff review, shared verbatim with the sibling toggles): focus-loss on `disabled={isPending}` during the server revalidate (the deliberate React-19 form-action dispatch-safety pattern in `NotifyToggle`/`PublishedToggle`); the visible "Developer" label is not programmatically tied to the switch via `<label>`/`aria-labelledby` (no violation — a distinct per-row `aria-label` supplies the accessible name; matches the sibling idiom).

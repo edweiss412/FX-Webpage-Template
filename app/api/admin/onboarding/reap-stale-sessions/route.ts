@@ -2,12 +2,15 @@
  * app/api/admin/onboarding/reap-stale-sessions/route.ts (onboarding-fixups F4
  * Task 4.5)
  *
- * Admin-gated trigger for the strictly session-scoped stale-debris reap
+ * Developer-gated trigger for the strictly session-scoped stale-debris reap
  * (lib/onboarding/sessionLifecycle.ts reapStaleOnboardingSessions). Structurally
- * a slim sibling of the cleanup-abandoned-finalize route's admin gate.
+ * a slim sibling of the cleanup-abandoned-finalize route's gate (developer-tier
+ * §6 row 6: swapped requireAdminIdentity → requireDeveloperIdentity).
  * Invariant 5: every error path emits a cataloged JSON code (ADMIN_FORBIDDEN /
  * ADMIN_SESSION_LOOKUP_FAILED / REAP_STALE_SESSIONS_FAILED), never raw 500
- * stack text — the admin UI does a catalog lookup on `code`.
+ * stack text — the admin UI does a catalog lookup on `code`. The developer
+ * gate's raw DEVELOPER_SESSION_LOOKUP_FAILED is mapped to the cataloged
+ * ADMIN_SESSION_LOOKUP_FAILED 500 (only ADMIN_* codes are cataloged here).
  */
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
@@ -18,13 +21,15 @@ import {
 } from "@/lib/onboarding/sessionLifecycle";
 
 export type ReapStaleSessionsRouteDeps = {
+  // `requireAdminIdentity` is the legacy injection-seam key (kept stable for
+  // tests); it is now backed by the developer gate (developer-tier §6 row 6).
   requireAdminIdentity?: () => Promise<{ email: string }>;
   reapStaleOnboardingSessions?: (deps?: SessionLifecycleDeps) => Promise<ReapStaleSessionsResult>;
 };
 
-async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
-  const { requireAdminIdentity } = await import("@/lib/auth/requireAdmin");
-  return await requireAdminIdentity();
+async function defaultRequireDeveloperIdentity(): Promise<{ email: string }> {
+  const { requireDeveloperIdentity } = await import("@/lib/auth/requireDeveloper");
+  return await requireDeveloperIdentity();
 }
 
 function errorResponse(status: number, code: string): Response {
@@ -35,15 +40,18 @@ export async function handleReapStaleSessions(
   _request: Request,
   routeDeps: ReapStaleSessionsRouteDeps = {},
 ): Promise<Response> {
-  const requireAdmin = routeDeps.requireAdminIdentity ?? defaultRequireAdminIdentity;
+  const requireDeveloperIdentity =
+    routeDeps.requireAdminIdentity ?? defaultRequireDeveloperIdentity;
   const reap = routeDeps.reapStaleOnboardingSessions ?? defaultReap;
   let admin: { email: string };
   try {
-    admin = await requireAdmin();
+    admin = await requireDeveloperIdentity();
   } catch (error) {
     const code =
       typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
-    if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
+    // Both the admin and developer infra faults map to the SAME cataloged 500
+    // body — only ADMIN_* codes are cataloged for this surface (invariant 5).
+    if (code === "ADMIN_SESSION_LOOKUP_FAILED" || code === "DEVELOPER_SESSION_LOOKUP_FAILED") {
       return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }
     return errorResponse(403, "ADMIN_FORBIDDEN");

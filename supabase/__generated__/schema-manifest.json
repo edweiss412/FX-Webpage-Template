@@ -18,6 +18,7 @@
     "added_at",
     "added_by",
     "email",
+    "is_developer",
     "note",
     "revoked_at",
     "revoked_by"

@@ -992,6 +992,12 @@ export const SPEC_CODES = {
     "followUp": null,
     "helpfulContext": null,
   },
+  "SELF_DEVELOPER_DEMOTE_FORBIDDEN": {
+    "crewFacing": null,
+    "dougFacing": "To keep at least one developer in control, you can't turn off your own developer access. Ask another developer to do it if you need to step down.",
+    "followUp": "Developer → ask another developer to turn off your access",
+    "helpfulContext": "set_admin_developer_rpc refuses a self-demote unconditionally inside its SECURITY DEFINER body — it returns self_developer_demote_forbidden when the demotion target (is_developer=false) canonicalizes to the same email as public.auth_email_canonical() — so a developer can never turn off their own developer access, even via a hand-forged PostgREST rpc() call that bypasses the developer-gated Server Action. Because a self-demote is always refused, at least one developer always remains in control. Turning off another developer's access (developer-to-developer demote) stays allowed by design.",
+  },
   "SELF_REVOKE_FORBIDDEN": {
     "crewFacing": null,
     "dougFacing": "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",

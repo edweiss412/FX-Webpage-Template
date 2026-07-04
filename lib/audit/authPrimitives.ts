@@ -68,6 +68,7 @@ const AUTH_LIB_ALLOWLIST = [
   "lib/auth/validateGoogleSession.ts",
   "lib/auth/validateGoogleIdentity.ts",
   "lib/auth/requireAdmin.ts",
+  "lib/auth/requireDeveloper.ts",
   "lib/auth/isAdminSession.ts",
   "lib/auth/cookies.ts",
   "lib/auth/constants.ts",
@@ -133,6 +134,7 @@ function callName(call: CallExpression): string | null {
 
 function normalizeValidator(name: string | null): ChainStep | null {
   if (name === "requireAdmin" || name === "requireAdminIdentity") return "requireAdmin";
+  if (name === "requireDeveloper" || name === "requireDeveloperIdentity") return "requireDeveloper";
   if (name === "validateGoogleSession" || name === "validateGoogleIdentity") {
     return name;
   }
@@ -585,7 +587,7 @@ function kindChecked(
   required: "success" | "continue",
   before: number,
 ): boolean {
-  if (event.name === "requireAdmin") return true;
+  if (event.name === "requireAdmin" || event.name === "requireDeveloper") return true;
   if (!event.binding) return false;
   const window = sourceSlice(root, event.pos, before);
   const binding = event.binding.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -636,7 +638,7 @@ function chainAccepted(
     const next = concrete[index + 1];
     const before = index === concrete.length - 1 || !next ? sink.pos : next.pos;
     if (!kindChecked(root, event, required, before)) {
-      if (!event.binding && event.name !== "requireAdmin") {
+      if (!event.binding && event.name !== "requireAdmin" && event.name !== "requireDeveloper") {
         return `validator ${event.name} result discarded before ${sink.name}`;
       }
       return `validator ${event.name} missing ${required} kind discriminator before ${sink.name}`;

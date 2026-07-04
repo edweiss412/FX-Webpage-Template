@@ -28,15 +28,23 @@ import { HoverHelp } from "@/components/admin/HoverHelp";
 import { ReAddRowButton } from "@/app/admin/settings/admins/ReAddRowButton";
 import { RevokeRowButton } from "@/app/admin/settings/admins/RevokeRowButton";
 import { AddAdminDisclosure } from "@/components/admin/settings/AddAdminDisclosure";
+import { DeveloperToggleButton } from "@/components/admin/settings/DeveloperToggleButton";
 
 export function AdministratorsSection({
   result,
   actorCanonicalEmail,
   now,
+  viewerIsDeveloper = false,
 }: {
   result: EmbeddedAdminEmailsResult;
   actorCanonicalEmail: string;
   now: Date;
+  /**
+   * developer-tier Task 18 (spec §7): when true, each active row gains a
+   * Developer toggle (locked on the actor's own row). Default false (safe
+   * default; spec §12) so a normal admin sees no developer controls.
+   */
+  viewerIsDeveloper?: boolean;
 }) {
   // M12.3 item 12b: the "Administrators (N)" title sits OUTSIDE/above the card,
   // in the heading row alongside the "Add admin" trigger; the card holds only
@@ -107,6 +115,7 @@ export function AdministratorsSection({
                 row={row}
                 isActor={row.email === actorCanonicalEmail}
                 now={now}
+                viewerIsDeveloper={viewerIsDeveloper}
               />
             ))}
           </ul>
@@ -142,7 +151,17 @@ export function AdministratorsSection({
   );
 }
 
-function AdminRow({ row, isActor, now }: { row: AdminEmailRow; isActor: boolean; now: Date }) {
+function AdminRow({
+  row,
+  isActor,
+  now,
+  viewerIsDeveloper,
+}: {
+  row: AdminEmailRow;
+  isActor: boolean;
+  now: Date;
+  viewerIsDeveloper: boolean;
+}) {
   const isSeed = row.added_by === null;
   // Self-revoke policy: an admin can NEVER revoke their OWN access. The Revoke
   // control is OMITTED entirely on the actor's own row (M12.5 — was a disabled
@@ -173,6 +192,16 @@ function AdminRow({ row, isActor, now }: { row: AdminEmailRow; isActor: boolean;
         )}
       </div>
       {isActor ? null : <RevokeRowButton email={row.email} disabled={false} />}
+      {/* developer-tier Task 18 (spec §7): the Developer toggle, developer-only.
+          Locked on the actor's own row (you cannot demote yourself); interactive
+          on every other active row. Absent entirely for non-developer viewers. */}
+      {viewerIsDeveloper ? (
+        isActor ? (
+          <DeveloperToggleButton locked checked={row.is_developer} />
+        ) : (
+          <DeveloperToggleButton email={row.email} checked={row.is_developer} />
+        )
+      ) : null}
     </li>
   );
 }

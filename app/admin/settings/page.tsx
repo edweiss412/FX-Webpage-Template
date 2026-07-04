@@ -27,6 +27,7 @@
  * canonical email for the embedded self-revoke policy.
  */
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { isCurrentUserDeveloper } from "@/lib/auth/requireDeveloper";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { nowDate } from "@/lib/time/now";
 import { fetchDriveConnectionHealth } from "@/lib/admin/driveConnectionHealth";
@@ -89,10 +90,14 @@ export default async function AdminSettingsPage() {
   // is a single round-trip (getSettingsPageFlags) instead of four sequential
   // getter awaits. All reads are fail-closed: an infra_error degrades the
   // affected control to OFF — never a silent wrong/falsely-ON state (§4/§7.2).
-  const [flags, driveHealth, adminEmails] = await Promise.all([
+  // developer-tier Task 16 (spec §6): the runtime developer bit gates the
+  // Maintenance + Diagnostics sections and the developer-aware children below.
+  // Resolved in the same PARALLEL batch (fail-to-false, never throws).
+  const [flags, driveHealth, adminEmails, isDeveloper] = await Promise.all([
     getSettingsPageFlags(),
     fetchDriveConnectionHealth(),
     fetchEmbeddedAdminEmails(),
+    isCurrentUserDeveloper(),
   ]);
 
   let autoPublishInitial: AutoPublishInitial;
@@ -142,6 +147,7 @@ export default async function AdminSettingsPage() {
           result={adminEmails}
           actorCanonicalEmail={canonicalize(identity.email) ?? ""}
           now={now}
+          viewerIsDeveloper={isDeveloper}
         />
 
         {/* M12.3 items 6/7/12b: "Preferences" heading OUTSIDE the card; the three
@@ -212,103 +218,104 @@ export default async function AdminSettingsPage() {
               icon={<Sparkles aria-hidden />}
             />
 
-            <DevToolsRow icon={<ShieldCheck aria-hidden />} />
+            <DevToolsRow icon={<ShieldCheck aria-hidden />} isDeveloper={isDeveloper} />
           </div>
         </section>
 
-        {/* Onboarding-fixups F4 (Task 4.6): maintenance affordance for the
-          session-scoped stale-debris reap. Lives here (not on the wizard
-          re-entry surfaces) because stale-session leftovers exist regardless
-          of the CURRENT wizard state — the reap only ever touches sessions
-          that are not the active one. */}
-        <section
-          data-testid="admin-settings-maintenance-section"
-          aria-labelledby="admin-settings-maintenance-heading"
-          className="flex flex-col gap-3"
-        >
-          <div className="flex items-center gap-2">
-            <h2
-              id="admin-settings-maintenance-heading"
-              className="text-lg font-semibold text-text-strong"
-            >
-              Maintenance
-            </h2>
-            <HoverHelp
-              label="Help: Maintenance"
-              testId="maintenance-help"
-              rootTestId="help-affordance--settings-maintenance--tooltip"
-              learnMore={{ href: "/help/admin/settings#maintenance" }}
-            >
-              <p>
-                Housekeeping actions. Cleaning up old setup leftovers removes staging data from
-                setup sessions abandoned more than a day ago. It never touches your current setup or
-                live shows.
-              </p>
-            </HoverHelp>
-          </div>
-
-          <div
-            data-testid="admin-settings-maintenance-card"
-            className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+        {/* developer-tier Task 16 (spec §6): Maintenance is developer-only. */}
+        {isDeveloper && (
+          <section
+            data-testid="admin-settings-maintenance-section"
+            aria-labelledby="admin-settings-maintenance-heading"
+            className="flex flex-col gap-3"
           >
-            <div className="flex items-start gap-3">
-              {/* Icon box matches the sibling Preferences rows
-                (NotifyToggle.tsx:74): 20px lucide glyph, not 16px. */}
-              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
-                <Trash2 aria-hidden />
-              </span>
-              <div className="flex flex-col gap-1">
-                <p className="text-sm font-medium text-text-strong">Old setup leftovers</p>
-                <p className="text-sm text-text-subtle">
-                  If a setup run was abandoned partway, its staging data can linger. This sweeps
-                  anything older than a day from sessions that are no longer active.
+            <div className="flex items-center gap-2">
+              <h2
+                id="admin-settings-maintenance-heading"
+                className="text-lg font-semibold text-text-strong"
+              >
+                Maintenance
+              </h2>
+              <HoverHelp
+                label="Help: Maintenance"
+                testId="maintenance-help"
+                rootTestId="help-affordance--settings-maintenance--tooltip"
+                learnMore={{ href: "/help/admin/settings#maintenance" }}
+              >
+                <p>
+                  Housekeeping actions. Cleaning up old setup leftovers removes staging data from
+                  setup sessions abandoned more than a day ago. It never touches your current setup
+                  or live shows.
                 </p>
-              </div>
+              </HoverHelp>
             </div>
-            <ReapStaleSessionsButton />
-            {canReset && <MaintenanceResetButtons />}
-          </div>
-        </section>
 
+            <div
+              data-testid="admin-settings-maintenance-card"
+              className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+            >
+              <div className="flex items-start gap-3">
+                {/* Icon box matches the sibling Preferences rows
+                (NotifyToggle.tsx:74): 20px lucide glyph, not 16px. */}
+                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+                  <Trash2 aria-hidden />
+                </span>
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-medium text-text-strong">Old setup leftovers</p>
+                  <p className="text-sm text-text-subtle">
+                    If a setup run was abandoned partway, its staging data can linger. This sweeps
+                    anything older than a day from sessions that are no longer active.
+                  </p>
+                </div>
+              </div>
+              <ReapStaleSessionsButton />
+              {canReset && <MaintenanceResetButtons />}
+            </div>
+          </section>
+        )}
+
+        {/* developer-tier Task 16 (spec §6): Diagnostics is developer-only. */}
         {/* Diagnostics — the mobile reachability path into the desktop-only
             "Activity" nav destination (/admin/observability). Activity is a
             desktopOnly nav item (absent from the mobile bottom tab bar), so this
             link is how Doug reaches the app-event log + cron-health on mobile. */}
-        <section
-          data-testid="admin-settings-diagnostics-section"
-          aria-labelledby="admin-settings-diagnostics-heading"
-          className="flex flex-col gap-3"
-        >
-          <h2
-            id="admin-settings-diagnostics-heading"
-            className="text-lg font-semibold text-text-strong"
+        {isDeveloper && (
+          <section
+            data-testid="admin-settings-diagnostics-section"
+            aria-labelledby="admin-settings-diagnostics-heading"
+            className="flex flex-col gap-3"
           >
-            Diagnostics
-          </h2>
-
-          <div
-            data-testid="admin-settings-diagnostics-card"
-            className="rounded-md border border-border bg-surface p-tile-pad"
-          >
-            <Link
-              href="/admin/observability"
-              data-testid="admin-settings-observability-link"
-              className="flex min-h-tap-min items-start gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            <h2
+              id="admin-settings-diagnostics-heading"
+              className="text-lg font-semibold text-text-strong"
             >
-              <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
-                <Activity aria-hidden />
-              </span>
-              <span className="flex flex-col gap-1">
-                <span className="text-sm font-medium text-text-strong underline">
-                  Activity: app event log &amp; cron health
+              Diagnostics
+            </h2>
+
+            <div
+              data-testid="admin-settings-diagnostics-card"
+              className="rounded-md border border-border bg-surface p-tile-pad"
+            >
+              <Link
+                href="/admin/observability"
+                data-testid="admin-settings-observability-link"
+                className="flex min-h-tap-min items-start gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
+                  <Activity aria-hidden />
                 </span>
-                <span className="text-sm text-text-subtle">
-                  Browse recent app events and per-job cron run health for troubleshooting.
+                <span className="flex flex-col gap-1">
+                  <span className="text-sm font-medium text-text-strong underline">
+                    Activity: app event log &amp; cron health
+                  </span>
+                  <span className="text-sm text-text-subtle">
+                    Browse recent app events and per-job cron run health for troubleshooting.
+                  </span>
                 </span>
-              </span>
-            </Link>
-          </div>
-        </section>
+              </Link>
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );

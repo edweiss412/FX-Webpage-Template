@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
-vi.mock("@/lib/auth/requireAdmin", () => ({
-  requireAdminIdentity: async () => ({ email: "a@b.c" }),
+// developer-tier §6 row 5: Activity/observability swapped its gate
+// requireAdminIdentity → requireDeveloperIdentity.
+vi.mock("@/lib/auth/requireDeveloper", () => ({
+  requireDeveloperIdentity: async () => ({ email: "a@b.c" }),
 }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:00:00.000Z") }));
 // The page renders client children (EventFilters, AutoRefreshControl) that call App Router
@@ -52,9 +54,9 @@ describe("ObservabilityPage", () => {
     );
   });
 
-  // Order-sensitive safety (spec §6.1/§11): the admin gate runs BEFORE any service-role read.
-  // LAST in the describe — it overrides the requireAdmin mock to REJECT; placing it last avoids leak.
-  test("requireAdminIdentity rejection → NEITHER service-role loader is called (auth-before-read)", async () => {
+  // Order-sensitive safety (spec §6.1/§11): the developer gate runs BEFORE any service-role read.
+  // LAST in the describe — it overrides the gate mock to REJECT; placing it last avoids leak.
+  test("requireDeveloperIdentity rejection → NEITHER service-role loader is called (auth-before-read)", async () => {
     const loadAppEvents = vi.fn(async () => ({
       kind: "ok",
       events: [],
@@ -62,9 +64,9 @@ describe("ObservabilityPage", () => {
       nextCursor: null,
     }));
     const loadCronHealth = vi.fn(async () => ({ kind: "ok", jobs: [] }));
-    vi.doMock("@/lib/auth/requireAdmin", () => ({
-      requireAdminIdentity: async () => {
-        throw new Error("not admin");
+    vi.doMock("@/lib/auth/requireDeveloper", () => ({
+      requireDeveloperIdentity: async () => {
+        throw new Error("not developer");
       },
     }));
     vi.doMock("@/lib/admin/loadCronHealth", () => ({ loadCronHealth }));

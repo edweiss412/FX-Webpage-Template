@@ -40,11 +40,15 @@ vi.mock("@/lib/admin/validationDeployment", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock: requireAdmin — pass-through (never throws in these tests)
+// Mock: requireDeveloper — pass-through gate (never throws in these tests).
+// developer-tier §6: validationReset swapped Gate 1 requireAdmin → requireDeveloper.
+// importOriginal preserves the real DeveloperInfraError for the impl's
+// `instanceof DeveloperInfraError` catch branch.
 // ---------------------------------------------------------------------------
-vi.mock("@/lib/auth/requireAdmin", () => ({
-  requireAdmin: vi.fn(async () => {}),
-}));
+vi.mock("@/lib/auth/requireDeveloper", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/requireDeveloper")>();
+  return { ...actual, requireDeveloper: vi.fn(async () => {}) };
+});
 
 // ---------------------------------------------------------------------------
 // Mock: revalidatePath
@@ -229,20 +233,20 @@ describe("resetValidationDataAction", () => {
     expect(mockRevalidatePath).toHaveBeenCalledTimes(2);
   });
 
-  test("requireAdmin is called before any Supabase client access", async () => {
-    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+  test("requireDeveloper is called before any Supabase client access", async () => {
+    const { requireDeveloper } = await import("@/lib/auth/requireDeveloper");
     const { createSupabaseServerClient } = await getServerMocks();
 
     const { resetValidationDataAction } =
       await import("@/app/admin/settings/_actions/validationReset");
     await resetValidationDataAction();
 
-    const requireAdminMock = vi.mocked(requireAdmin);
-    expect(requireAdminMock).toHaveBeenCalled();
-    // requireAdmin call order must precede createSupabaseServerClient
-    const requireAdminCallOrder = requireAdminMock.mock.invocationCallOrder[0]!;
+    const requireDeveloperMock = vi.mocked(requireDeveloper);
+    expect(requireDeveloperMock).toHaveBeenCalled();
+    // requireDeveloper call order must precede createSupabaseServerClient
+    const requireDeveloperCallOrder = requireDeveloperMock.mock.invocationCallOrder[0]!;
     const serverClientCallOrder = createSupabaseServerClient.mock.invocationCallOrder[0]!;
-    expect(requireAdminCallOrder).toBeLessThan(serverClientCallOrder);
+    expect(requireDeveloperCallOrder).toBeLessThan(serverClientCallOrder);
   });
 
   test("createSupabaseServerClient() THROWS → VALIDATION_RESET_FAILED, no RPC, service-role NOT constructed", async () => {
@@ -406,8 +410,8 @@ describe("reseedValidationFixturesAction", () => {
     expect(result).toEqual({ ok: false, code: "VALIDATION_RESEED_FAILED" });
   });
 
-  test("requireAdmin is called before any Supabase client access", async () => {
-    const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+  test("requireDeveloper is called before any Supabase client access", async () => {
+    const { requireDeveloper } = await import("@/lib/auth/requireDeveloper");
     const { createSupabaseServerClient } = await getServerMocks();
 
     mockState.assertRpcData = null;
@@ -416,11 +420,11 @@ describe("reseedValidationFixturesAction", () => {
       await import("@/app/admin/settings/_actions/validationReset");
     await reseedValidationFixturesAction();
 
-    const requireAdminMock = vi.mocked(requireAdmin);
-    expect(requireAdminMock).toHaveBeenCalled();
-    const requireAdminCallOrder = requireAdminMock.mock.invocationCallOrder[0]!;
+    const requireDeveloperMock = vi.mocked(requireDeveloper);
+    expect(requireDeveloperMock).toHaveBeenCalled();
+    const requireDeveloperCallOrder = requireDeveloperMock.mock.invocationCallOrder[0]!;
     const serverClientCallOrder = createSupabaseServerClient.mock.invocationCallOrder[0]!;
-    expect(requireAdminCallOrder).toBeLessThan(serverClientCallOrder);
+    expect(requireDeveloperCallOrder).toBeLessThan(serverClientCallOrder);
   });
 
   test("createSupabaseServerClient() THROWS → VALIDATION_RESEED_FAILED, no RPC, service-role NOT constructed", async () => {

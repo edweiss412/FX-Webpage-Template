@@ -15,11 +15,19 @@ import { DEV_PANEL_PRESENT } from "@/lib/admin/__generated__/devPanelPresent";
 
 export function DevToolsRow({
   icon,
+  isDeveloper,
 }: {
   /** Leading icon element for the grouped-card row (M12.3 item 7). */
   icon?: ReactNode;
+  /**
+   * developer-tier Task 14 (spec §6 row 4): runtime visibility gate. The row is
+   * shown ONLY to developers, ANDed with the build-time DEV_PANEL_PRESENT
+   * constant. Absent → treated as `false` (safe default; guard §12) so a normal
+   * admin never sees the Developer-tools entrypoint.
+   */
+  isDeveloper?: boolean;
 } = {}) {
-  if (!DEV_PANEL_PRESENT) return null;
+  if (!DEV_PANEL_PRESENT || !isDeveloper) return null;
   return (
     <div
       data-testid="admin-dev-tools-row"
