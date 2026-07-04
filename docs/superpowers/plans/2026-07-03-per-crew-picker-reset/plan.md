@@ -134,11 +134,14 @@ describe("reset_crew_member_selection RPC", () => {
         where name = 'Bob' and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)});
       rollback;
     `);
-    const result = out.match(/result=(\S+)/)?.[1];
-    const alice = out.match(/alice=(\S+)/)?.[1];
-    const bob = out.match(/bob=(\S+)/)?.[1];
+    // NOTE: match the FULL line value, not \S+ — Postgres timestamptz::text contains a SPACE
+    // between date and time ("2026-07-03 12:00:00.123+00"), so \S+ would compare only the date.
+    // `.` does not cross newlines in JS (no /s flag) and psql -qAt emits one value per line.
+    const result = out.match(/result=(.+)/)?.[1];
+    const alice = out.match(/alice=(.+)/)?.[1];
+    const bob = out.match(/bob=(.+)/)?.[1];
     expect(result).not.toBe("null");        // a timestamp was returned
-    expect(alice).toBe(result);             // the TARGET row actually holds the returned stamp
+    expect(alice).toBe(result);             // TARGET row holds the exact returned stamp (full precision)
     expect(bob).toBe("null");               // the bystander was NOT touched
   });
 
@@ -432,13 +435,28 @@ test("realtime subscriber-token denies selection_reset with 401", async () => {
   const r = await realtimeAuthWith({ kind: "selection_reset", expectedEpoch: 4, expectedCrewMemberId: CREW_ID });
   expect(r).toMatchObject({ ok: false, status: 401, error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED", reason: "selection_reset" });
 });
-test("validatePickerAssetSession denies selection_reset (unauthorized)", async () => {
+test("validatePickerAssetSession denies selection_reset with the UNAUTHORIZED (401) response, not stale (410)", async () => {
+  // Live code distinguishes unauthorized() [401] (no_selection|epoch_stale|removed_from_roster group)
+  // from stale() [410] (show_unavailable|identity_invalidated). selection_reset must join the 401 group.
   const r = await assetSessionWith({ kind: "selection_reset", expectedEpoch: 4, expectedCrewMemberId: CREW_ID });
-  expect(r.ok).toBe(false); // unauthorized() response
+  expect(r.ok).toBe(false);
+  expect(r.response.status).toBe(401); // NOT 410 — asserts the correct group, catching mis-routing
+  // Contrast pin: a stale kind returns 410, proving the 401 assertion is discriminating.
+  const stale = await assetSessionWith({ kind: "show_unavailable" });
+  expect(stale.response.status).toBe(410);
 });
-test("report route denies a selection_reset crew cookie (non-admin falls through to admin path)", async () => {
+test("report route denies a selection_reset crew cookie with 401 (not 410/500) — falls through to admin path", async () => {
+  // report distinguishes 410 (identity_invalidated|show_unavailable) and 500 (infra_error) from the
+  // fall-through admin path. A non-admin selection_reset must land on the admin-auth fall-through → 401,
+  // exactly like epoch_stale, NOT be mis-mapped to 410/500.
   const r = await reportAuthWith({ kind: "selection_reset", expectedEpoch: 4, expectedCrewMemberId: CREW_ID }); // non-admin session
   expect(r.ok).toBe(false);
+  expect(r.status).toBe(401);
+  // Contrast pins proving the assertion discriminates:
+  const claimed = await reportAuthWith({ kind: "identity_invalidated", reason: "claimed_after_pick", expectedEpoch: 4, expectedCrewMemberId: CREW_ID });
+  expect(claimed.status).toBe(410);
+  const epochStale = await reportAuthWith({ kind: "epoch_stale", expectedEpoch: 4, expectedCrewMemberId: CREW_ID }); // non-admin
+  expect(epochStale.status).toBe(401); // selection_reset must match epoch_stale exactly
 });
 ```
 
@@ -604,6 +622,19 @@ test("reset-everyone calls resetPickerEpoch", async () => {
   await userEvent.click(screen.getByRole("button", { name: /reset everyone/i }));
   await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
   expect(spy).toHaveBeenCalledWith({ showId: SHOW_ID });
+});
+// Compound transition (written RED, before impl — the transition audit in Step 5 only VERIFIES these):
+test("changing the selected member while a per-member confirm is pending resets the pending confirm", async () => {
+  render(<PickerResetControl showId={SHOW_ID} crew={[
+    { id: "aaaaaaaa-0000-0000-0000-000000000000", name: "Alice", role: "A2" },
+    { id: "bbbbbbbb-0000-0000-0000-000000000000", name: "Bob", role: "A2" },
+  ]} />);
+  await userEvent.selectOptions(screen.getByRole("combobox"), "aaaaaaaa-0000-0000-0000-000000000000");
+  await userEvent.click(screen.getByRole("button", { name: /reset alice/i })); // → confirm state (Alice)
+  expect(screen.getByRole("button", { name: /confirm/i })).toBeInTheDocument();
+  await userEvent.selectOptions(screen.getByRole("combobox"), "bbbbbbbb-0000-0000-0000-000000000000"); // switch target
+  // the stale Alice confirm must NOT remain — no confirm button targeting the previous member
+  expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull();
 });
 ```
 
