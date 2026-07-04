@@ -848,14 +848,16 @@ describe("§H compound (a): jump-link clicked during an in-flight nav glide — 
       expect(navActiveId(q, "rail")).toBe("warnings");
       // The old timer's 1ms remainder passed long ago inside this window — if
       // the jump had NOT restarted the timer, this frame would re-derive.
+      // (The frame is also in-flight scroll progress, which itself restarts
+      // the fallback — Task 14's §A2 condition-3 semantics.)
       act(() => {
         vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
       });
       scrollAt(content, absTop(1) + 10);
       expect(navActiveId(q, "rail")).toBe("warnings"); // still suppressed
-      // …and the NEW full timeout releases.
+      // …and a FULL idle window with no further scroll progress releases.
       act(() => {
-        vi.advanceTimersByTime(1);
+        vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
       });
       scrollAt(content, absTop(1) + 10);
       expect(navActiveId(q, "rail")).toBe(defs[1]!.id);

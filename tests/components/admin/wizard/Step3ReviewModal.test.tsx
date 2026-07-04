@@ -1545,18 +1545,28 @@ describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec �
     expect(navActiveId(q, "rail")).toBe(defs[0]!.id);
   });
 
-  test("timeout release: held at TIMEOUT−1ms, re-derives after NAV_SCROLL_SETTLE_TIMEOUT_MS (zero-event/interrupted glides)", () => {
+  test("timeout release (zero-event glide): idle for NAV_SCROLL_SETTLE_TIMEOUT_MS with no scroll progress → released; in-flight progress RESTARTS the fallback (Task 14)", () => {
     const { q, defs, content, absTop } = setup();
     const target = defs[defs.length - 1]!;
     fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
     const unrelated = absTop(1) + 10;
+    // In-flight progress restarts the fallback (Task 14 real-browser finding:
+    // healthy glides can exceed the window — a mid-glide scroll frame is
+    // neither zero-event nor interrupted, so it pushes the timeout out).
     act(() => {
       vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
     });
-    scrollAt(content, unrelated);
-    expect(navActiveId(q, "rail")).toBe(target.id); // still suppressed
+    scrollAt(content, unrelated); // progress at T−1 → held AND restarted
+    expect(navActiveId(q, "rail")).toBe(target.id);
     act(() => {
-      vi.advanceTimersByTime(1);
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    scrollAt(content, unrelated); // pre-restart remainder never fires → held
+    expect(navActiveId(q, "rail")).toBe(target.id);
+    // Zero-event/interrupted core: a FULL idle window with no scroll progress
+    // releases; the next scroll frame re-derives from position.
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
     });
     scrollAt(content, unrelated);
     expect(navActiveId(q, "rail")).toBe(defs[1]!.id); // released — spy re-derives
@@ -1607,15 +1617,16 @@ describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec �
     scrollAt(content, absTop(defs.length - 1) - 8);
     expect(navActiveId(q, "rail")).toBe(second.id);
     // The FIRST click's timeout (1ms away when replaced) was cleared: at
-    // NEW-timeout−1 the suppression still holds…
+    // NEW-timeout−1 the suppression still holds (this scroll frame is also
+    // in-flight progress, which restarts the fallback — Task 14)…
     act(() => {
       vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
     });
     scrollAt(content, absTop(1) + 10);
     expect(navActiveId(q, "rail")).toBe(second.id);
-    // …and releases only at the NEW timeout.
+    // …and releases after a FULL idle window with no further scroll progress.
     act(() => {
-      vi.advanceTimersByTime(1);
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
     });
     scrollAt(content, absTop(1) + 10);
     expect(navActiveId(q, "rail")).toBe(defs[1]!.id);

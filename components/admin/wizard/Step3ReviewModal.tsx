@@ -87,7 +87,11 @@ export const DURATION_FAST_FALLBACK_MS = 120;
  *  pairing — same drift-guard rationale as the fallback constants above). */
 export const WARNING_HIGHLIGHT_MS = 1600;
 /** §A2 fallback release of the nav-click scroll-spy suppression when a
- *  programmatic glide never settles (zero-event and interrupted glides). */
+ *  programmatic glide never settles (zero-event and interrupted glides).
+ *  Measured from the click/jump AND from every suppressed scroll-progress
+ *  frame (the spy's evaluate restarts it while the glide is in flight), so a
+ *  healthy glide longer than this window is NOT cut short — see the restart
+ *  comment in the scroll-spy effect (Task 14 real-browser finding). */
 export const NAV_SCROLL_SETTLE_TIMEOUT_MS = 700;
 /** §A2 settle tolerance: |scrollTop − target| at/below this many px releases
  *  the nav-click scroll-spy suppression. */
@@ -325,6 +329,12 @@ export function Step3ReviewModal({
       // actually has a size; the initial-render default (first section)
       // stands until then.
       if (el.clientHeight === 0 && el.scrollHeight === 0) return;
+      const tops: Array<{ id: SectionId; top: number }> = [];
+      for (const s of sections) {
+        const sectionEl = sectionElsRef.current.get(s.id);
+        if (sectionEl) tops.push({ id: s.id, top: sectionTopFor(el, sectionEl) });
+      }
+      if (tops.length === 0) return;
       // §A2: while a nav-click/jump glide is in flight, hold `active` constant
       // instead of deriving from intermediate positions (§H N1). Release on
       // settle or bottom-clamp and fall through to derivation the SAME frame;
@@ -342,16 +352,43 @@ export function Step3ReviewModal({
           targetTop !== null && targetTop >= maxScrollTop - NAV_SCROLL_SETTLE_EPSILON_PX;
         const bottomClamped =
           targetIsBottom && el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
-        if (settled || bottomClamped)
+        // Arrival consistency (Task 14 real-browser finding, part 2): the
+        // settled ε (2px) is WIDER than the pure rule's bottom-clamp tolerance
+        // (1px), so a decelerating glide can enter the ε-zone at e.g.
+        // maxTop−1.8 where the same-frame derivation still yields the
+        // SECOND-TO-LAST section — a 1-2 frame flicker right at the end of a
+        // bottom-clamped glide (observed in the §K11 frame sampler). Only
+        // complete the release when the derivation at the CURRENT position
+        // already equals the derivation at the DESTINATION; otherwise hold one
+        // more frame (the glide finishes at the exact target, and the
+        // debounced timeout below still backstops a stalled glide).
+        const arrivalConsistent =
+          targetTop === null ||
+          activeSectionFor(el.scrollTop, el.clientHeight, el.scrollHeight, tops) ===
+            activeSectionFor(targetTop, el.clientHeight, el.scrollHeight, tops);
+        if ((settled || bottomClamped) && arrivalConsistent) {
           releaseSpySuppression(); // fall through same frame
-        else return; // hold active constant (§H N1)
+        } else {
+          // §A2 condition-3 semantics (Task 14 real-browser finding): the
+          // fallback timeout covers ZERO-EVENT and INTERRUPTED glides — a
+          // glide still producing scroll progress is neither, so every
+          // suppressed scroll frame pushes the fallback back out (this
+          // handler only runs from the pane's scroll listener). Without the
+          // restart, any healthy glide longer than NAV_SCROLL_SETTLE_TIMEOUT_MS
+          // (measured: ~973ms for a 3156px two-pane glide at 1280×800 with a
+          // realistic diagrams+warnings fixture) resumed the spy mid-flight
+          // and re-introduced the §H N1 flicker near the end of long glides
+          // (first intermediate active observed at ~714ms — the timer firing).
+          // Zero-event glides still release exactly at the timeout: no scroll
+          // frame ever runs this restart.
+          if (spySettleTimerRef.current !== null) clearTimeout(spySettleTimerRef.current);
+          spySettleTimerRef.current = setTimeout(
+            releaseSpySuppression,
+            NAV_SCROLL_SETTLE_TIMEOUT_MS,
+          );
+          return; // hold active constant (§H N1)
+        }
       }
-      const tops: Array<{ id: SectionId; top: number }> = [];
-      for (const s of sections) {
-        const sectionEl = sectionElsRef.current.get(s.id);
-        if (sectionEl) tops.push({ id: s.id, top: sectionTopFor(el, sectionEl) });
-      }
-      if (tops.length === 0) return;
       setActive(activeSectionFor(el.scrollTop, el.clientHeight, el.scrollHeight, tops));
     }
 
