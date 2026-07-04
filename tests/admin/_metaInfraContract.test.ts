@@ -249,6 +249,12 @@ const infraRegistry = [
       "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)",
   },
   {
+    helper: "fetchHealthRollup",
+    path: "lib/admin/healthRollup.ts",
+    contract:
+      "admin_alerts app-health rollup: exact count:'exact', head:true probes ONLY (total over HEALTH_CODES → short-circuit {kind:'ok'} at 0; degraded head count → worst weight; parallel per-code head counts for the popover summaries). Every await destructures { data, count, error }; construction throw / returned {error} / non-number count / any await throw → { kind:'infra_error' }; data:null is NORMAL for a head probe (validated solely on typeof count === 'number', never array-shape)",
+  },
+  {
     helper: "getActiveWatchedFolder",
     path: "lib/appSettings/getWatchedFolderId.ts",
     contract:
