@@ -88,20 +88,25 @@ since an admin mutation must carry a success outcome (`+2` module-function failu
 | `_SignInOrSkipGate.tsx` (inline) | Thin form-action wrapper; delegates to `clearIdentityAndSkip` (grandfathered). |
 | `components/auth/IdentityChip.tsx` (inline) | Thin form-action wrapper; delegates to `clearIdentity` (grandfathered). |
 
-**C. Grandfather — crew-facing picker actions (`KNOWN_UNINSTRUMENTED`,
-`BL-CREW-PICKER-OBSERVABILITY`), 9 functions across 6 files:**
+**C. Grandfather — crew-facing picker actions (`KNOWN_UNINSTRUMENTED`, 9 per-function rows,
+`BL-CREW-PICKER-OBSERVABILITY`):**
 
-- **5 file-scoped entries** (each fully uninstrumented, `emit-calls = 0` — verified):
-  `lib/auth/picker/{cleanupStaleEntry,clearIdentity,resetCrewMemberSelection,resetPickerEpoch,rotateShareToken}.ts`
-  — covers `cleanupStaleEntry`/`cleanupStaleEntryCore`, `clearIdentity`/`clearIdentityAndSkip`/`clearIdentityCore`,
-  `resetCrewMemberSelection`, `resetPickerEpoch`, `rotateShareToken`.
-- **1 function-scoped entry:** `lib/auth/picker/selectIdentity.ts :: selectIdentityCore` —
-  the directly-callable exported core that does not emit. Its sibling `selectIdentity`
-  already emits in-body (`log.warn` at `selectIdentity.ts:56`) and is deliberately **not**
-  ledgered, so a regression that removes its emit still fails the guard.
+Nine explicit `{ file, fn, backlog }` rows (no file-only form — §4.3):
 
-These are crew/system operations, not admin actions; `logAdminOutcome` is semantically wrong
-for them and a crew-telemetry taxonomy is out of scope for this change.
+| File :: function |
+| --- |
+| `lib/auth/picker/cleanupStaleEntry.ts` :: `cleanupStaleEntry`, `cleanupStaleEntryCore` |
+| `lib/auth/picker/clearIdentity.ts` :: `clearIdentity`, `clearIdentityAndSkip`, `clearIdentityCore` |
+| `lib/auth/picker/resetCrewMemberSelection.ts` :: `resetCrewMemberSelection` |
+| `lib/auth/picker/resetPickerEpoch.ts` :: `resetPickerEpoch` |
+| `lib/auth/picker/rotateShareToken.ts` :: `rotateShareToken` |
+| `lib/auth/picker/selectIdentity.ts` :: `selectIdentityCore` |
+
+`selectIdentity` itself already emits in-body (`log.warn` at `selectIdentity.ts:56`) and is
+deliberately **not** ledgered, so a regression removing its emit still fails. A *new*
+exported action added to any of these files is not in the ledger → it fails as a new dark
+surface. These are crew/system operations, not admin actions; `logAdminOutcome` is
+semantically wrong for them and a crew-telemetry taxonomy is out of scope for this change.
 
 ## 4. The discovery meta-test
 
@@ -160,8 +165,19 @@ rather than re-implement directive scanning, so the two audits cannot drift.
 ### 4.2 Acceptance predicate (the floor)
 
 A **surface unit** (a route file, or an individual exported/inline action function) passes
-iff the relevant AST scope (whole route file, or that function's body subtree) contains at
-least one **code-carrying emit** — a `CallExpression` matching **any** of:
+iff the relevant AST scope contains at least one **code-carrying emit** — a `CallExpression`
+matching **any** of the clauses (a)/(b)/(c) below. The **scope** differs by kind:
+
+- **Route file:** the whole file is scanned (the emit may live in a file-level helper the
+  handler delegates to — the established pattern). Nested descent is fine here.
+- **Action function (module or inline):** only the function's **own body** counts, and the
+  scan **does NOT descend into nested function / arrow / method / class bodies** defined
+  inside it (Codex R4 F3). It DOES descend through control-flow blocks (`if`/`try`/`for`/
+  `while`/`switch`). This prevents a false pass from an *unused* nested emitter — e.g. an
+  action that declares `async function unused() { await logAdminOutcome(...) }` but never
+  calls it, then returns silently, must FAIL. (Consequence: an action whose only emit is
+  genuinely inside a live callback must hoist it or add an exemption; verified zero current
+  actions rely on a nested-closure emit, so this breaks nothing.)
 
 - **(a)** callee is the identifier `logAdminOutcome` (code-carrying by type contract —
   `AdminOutcome.code` is required) **AND the call is the operand of an `AwaitExpression`**.
@@ -211,25 +227,37 @@ correct telemetry — forcing `logAdminOutcome` on a webhook/token route would b
 1. **`// no-telemetry: <reason>`** — an inline line comment (matched
    `/^\s*\/\/\s*no-telemetry:/` per-line, mirroring the `canonicalize-exempt` precedent in
    `tests/admin/no-inline-email-normalization.test.ts`). For **permanent** non-mutations and
-   delegators. Reason text is required (the regex demands a trailing `:`). **Scope:** a
-   `// no-telemetry:` comment appearing **anywhere in a function's body span** exempts that
-   function; a comment **before the first surface unit** (file-leading) exempts the whole
-   file (used for route delegators / whole-file non-mutation files). The meta-test maps each
-   comment to the narrowest enclosing surface unit by line range; a function-body exemption
-   does NOT leak to sibling functions. Opt-out is always visible at the source. Read-only
-   exported actions in a `"use server"` module (e.g. `getStagedResult`, `listFixtures` in
-   `dev/actions.ts`) use this with a `read-only accessor (no mutation)` reason — forcing an
-   explicit "this action does not mutate" acknowledgment rather than a silent pass.
+   delegators. Reason text is required (the regex demands a trailing `:`). **Scope — no
+   whole-file exemption for action-bearing files (Codex R4 F2):**
+   - For a **route file** or a file with **no server-action surfaces** (e.g.
+     `test-auth/set-session/route.ts`), a **file-leading** `// no-telemetry:` (before the
+     first surface unit) exempts the file — safe, because such a file has at most one
+     surface unit and adding a second mutating surface to a `route.ts` trips the
+     route-multiplicity assertion.
+   - For any **module-level `"use server"` file or a file containing function-scoped inline
+     actions**, a file-leading comment is **rejected** (the test errors: "use a per-function
+     exemption"). Each exemption MUST sit **inside the body span of the specific action
+     function** it exempts; it never leaks to a sibling or to a later-added action. This is
+     what keeps the per-function default-fail intact when an action is appended to an
+     already-partially-exempt module.
+   The meta-test maps each comment to the narrowest enclosing surface unit by line range.
+   Read-only exported actions in a `"use server"` module (e.g. `getStagedResult`,
+   `listFixtures` in `dev/actions.ts`) use a per-function exemption with a `read-only
+   accessor (no mutation)` reason — forcing an explicit "this action does not mutate"
+   acknowledgment rather than a silent pass.
 2. **`KNOWN_UNINSTRUMENTED`** — a centralized
-   `ReadonlyArray<{ file: string; fn?: string; backlog: string }>` in the test. A **debt
-   ledger** for surfaces we intend to instrument later, each carrying a backlog ref. An entry
-   with only `file` exempts every mutation function in that file (whole-subsystem deferral —
-   used for the 5 `lib/auth/picker/*` files under `BL-CREW-PICKER-OBSERVABILITY`); an entry
-   with `file` + `fn` exempts one function. Distinct intent from `// no-telemetry:`
+   `ReadonlyArray<{ file: string; fn: string; backlog: string }>` in the test. A **debt
+   ledger** for surfaces we intend to instrument later, each carrying a backlog ref.
+   **Entries are always per-function `{ file, fn, backlog }` — there is no file-only /
+   whole-file form (Codex R4 F1):** a file-only entry would silently exempt a *future*
+   action added to that file, recreating the default-fail hole. So the 5 crew-picker files
+   are ledgered as **9 explicit per-function rows** (each exported picker action +
+   `*Core`). A newly-added exported action in a ledgered file is not in the ledger → it
+   FAILS as a new dark surface, exactly as intended. Distinct intent from `// no-telemetry:`
    (permanent) — a reviewer reading the ledger sees all deferred observability debt in one
-   place. Hygiene: every entry's `file` must exist on disk (stale entries fail); a
-   `file`-only entry whose file has become fully instrumented, or a `file`+`fn` entry whose
-   function now emits or no longer exists, fails — forcing ledger cleanup.
+   place. Hygiene: every entry's `file` must exist and `fn` must still be a discovered
+   surface in it; a ledgered function that now emits, or no longer exists, fails — forcing
+   cleanup.
 
 ### 4.4 Failure output
 
@@ -328,7 +356,7 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 > uninstrumented-by-default failures, not silent omissions.
 
 Also add a `BL-CREW-PICKER-OBSERVABILITY` entry to `BACKLOG.md` describing the deferred
-crew-picker telemetry taxonomy (the 5 grandfathered `lib/auth/picker/*` actions).
+crew-picker telemetry taxonomy (the 9 grandfathered `lib/auth/picker/*` functions).
 
 ## 7. Relationship to existing guards (disagreement-loop preempt)
 
@@ -394,20 +422,25 @@ crew-picker telemetry taxonomy (the 5 grandfathered `lib/auth/picker/*` actions)
    with no emit MUST fail — Codex R3 F1), **admin-gate tightening** (an action whose body
    calls `requireAdmin` passes with `await logAdminOutcome` but FAILS with only
    `log.error("X_FAILED", { code })` — Codex R3 F2; a non-admin action with the same
-   `log.error` passes), and the negative-regression flip (§4.5).
+   `log.error` passes), **nested-emitter rejection** (an action with an unused nested
+   `async function u(){ await logAdminOutcome(...) }` and a silent return MUST fail — Codex
+   R4 F3; a live emit in an `if`/`try` block passes), **file-leading exemption rejection**
+   (a file-leading `// no-telemetry:` in a `"use server"` module errors; a per-function one
+   works and does NOT cover a sibling — Codex R4 F2), and the negative-regression flip (§4.5).
 2. **Live-surface test** — the walk runs against the repo and asserts zero unaccounted
    surface units. After seeding, this is green.
 3. **Route-multiplicity assertion** — a dedicated assertion that no `route.ts` exports >1
    mutating method (the tripwire that keeps route file-level scoping equivalent to
    per-handler); prove it can fail via an in-memory two-mutating-method route string.
-4. **Ledger hygiene** — a `KNOWN_UNINSTRUMENTED` `file`-only entry for a now-fully-instrumented
-   or non-existent file fails; a `file`+`fn` entry whose function now emits or no longer
-   exists fails (forces cleanup).
-4. **Per-surface instrumentation tests** — for each newly-instrumented action, a sink-spy
+4. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
+   NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
+   whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
+   cleanup).
+5. **Per-surface instrumentation tests** — for each newly-instrumented action, a sink-spy
    test asserting the success path emits the expected `code` (and no emit on the failure
    branch). Derive expectations from the action's own result shape; do not assert against a
    container that also renders the value.
-5. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
+6. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
    (file emits the registered code; code stays out of §12.4).
 
 ## 11. Verification commands
