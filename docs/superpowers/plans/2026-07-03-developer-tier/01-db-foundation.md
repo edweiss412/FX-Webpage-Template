@@ -32,6 +32,13 @@ function runPsql(sql: string): string {
     input: sql, encoding: "utf8",
   }).trim();
 }
+// psql `raise notice` goes to STDERR, which execFileSync's return value discards;
+// to OBSERVE a constraint violation we run the bad statement bare (ON_ERROR_STOP=1
+// aborts → nonzero exit → execFileSync throws) and read the thrown error's stderr.
+function tryPsql(sql: string): { ok: boolean; out: string } {
+  try { return { ok: true, out: runPsql(sql) }; }
+  catch (e) { return { ok: false, out: String((e as { stderr?: string }).stderr ?? e) }; }
+}
 const claims = (obj: Record<string, unknown>) => JSON.stringify(obj).replaceAll("'", "''");
 
 describe("developer-tier: admin_emails.is_developer + is_developer()", () => {
@@ -47,21 +54,14 @@ describe("developer-tier: admin_emails.is_developer + is_developer()", () => {
     const email = `dev-check-${randomUUID()}@example.com`;
     // revoked_by is NON-NULL so admin_emails_revoke_atomicity is SATISFIED and
     // the ONLY constraint that can fire is admin_emails_developer_requires_active.
-    // Assert the specific constraint name (SQLERRM), not any check_violation.
-    const out = runPsql(`
-      begin;
-      set local role postgres;
-      do $$ begin
-        begin
-          insert into public.admin_emails(email, is_developer, revoked_at, revoked_by)
-          values ('${email}', true, now(), gen_random_uuid());
-          raise notice 'INSERTED_BAD';
-        exception when check_violation then raise notice 'CHECK_BLOCKED:%', SQLERRM;
-        end;
-      end $$;
-      rollback;`);
-    expect(out).toContain("CHECK_BLOCKED");
-    expect(out).toContain("admin_emails_developer_requires_active");
+    // Run the bad INSERT as a BARE statement (not a DO-block whose `raise notice`
+    // would go to stderr and be discarded); ON_ERROR_STOP=1 aborts and tryPsql
+    // captures the thrown error's stderr, which carries the constraint name.
+    const res = tryPsql(`
+      insert into public.admin_emails(email, is_developer, revoked_at, revoked_by)
+      values ('${email}', true, now(), gen_random_uuid());`);
+    expect(res.ok).toBe(false);
+    expect(res.out).toContain("admin_emails_developer_requires_active");
   });
 
   test("is_developer() email arm: active is_developer row => true; revoked => false", () => {
