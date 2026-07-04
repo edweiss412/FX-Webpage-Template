@@ -77,7 +77,7 @@ import type {
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
-import { isRenderableDiagramStub } from "@/lib/admin/stagedDiagramGuards";
+import { isRenderableDiagramStub, trustedDriveFolderHref } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -1765,22 +1765,6 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
 /** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
 export const DIAGRAM_TILE_CAP = 12;
 
-/** Folder-row href revalidation (spec §B3): parse + exact-host drive.google.com
- *  + https/http only, http upgraded to https. Anything else → no link. */
-function trustedDriveFolderHref(raw: unknown): string | null {
-  if (typeof raw !== "string") return null;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (url.hostname !== "drive.google.com") return null;
-  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  if (url.protocol === "http:") url.protocol = "https:";
-  return url.toString();
-}
-
 /** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
  *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
  *  documented revert — next/image drops cookies). */
@@ -1922,7 +1906,10 @@ export const REPORT_MESSAGE_MAX_CHARS = 2000;
 /** Payload parse-warnings cap (spec §D3). */
 export const REPORT_PARSE_WARNINGS_CAP = 50;
 /** Rendered whenever a failure code resolves to no usable dougFacing copy —
- *  the status line is never empty and never a raw code (invariant 5). */
+ *  the status line is never empty and never a raw code (invariant 5).
+ *  Spec §D3 sanctions this exported generic fallback for codes whose catalog
+ *  entry has dougFacing: null (e.g. ADMIN_SESSION_LOOKUP_FAILED). */
+// not-subject:M5-D8 — spec-§D3-sanctioned generic fallback constant, not an inline callsite literal.
 export const REPORT_GENERIC_ERROR_COPY = "Couldn’t send the report. Try again in a moment.";
 
 type ReportSectionStatus =

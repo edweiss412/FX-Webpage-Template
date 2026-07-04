@@ -98,6 +98,13 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Per-sheet Re-scan (M-rescan): same admin chokepoint as the other onboarding
   // mutators; handleRescanSheet calls requireAdmin() before parsing the body.
   { path: "app/api/admin/onboarding/rescan-sheet/route.ts", chain: ["requireAdmin"] },
+  // Step-3 modal follow-ups (2026-07-03 spec §B1): read-only staged-diagram
+  // preview bytes; requireAdminIdentity runs first, mirroring the staged
+  // approve/unapprove siblings.
+  {
+    path: "app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route.ts",
+    chain: ["requireAdmin"],
+  },
   {
     path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
     chain: ["requireAdmin"],

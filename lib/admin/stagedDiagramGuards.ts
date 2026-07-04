@@ -41,3 +41,24 @@ export function isTrustedDiagramContentUrl(raw: string): boolean {
   const h = url.hostname.toLowerCase(); // canonicalize-exempt: URL host comparison, not email normalization.
   return TRUSTED_DIAGRAM_HOSTS.some((d) => h === d || h.endsWith("." + d));
 }
+
+/**
+ * Folder-row href revalidation (spec §B3): parse + exact-host
+ * drive.google.com + https/http only, http upgraded to https. Anything else
+ * → no link. Lives here (not in components/) so the crew-surface source-
+ * hygiene scan (tests/cross-cutting/noRawDriveHostsInCrewSurface.test.ts)
+ * stays literal-free in components/ — admin UI consumes this via import.
+ */
+export function trustedDriveFolderHref(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.hostname !== "drive.google.com") return null;
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (url.protocol === "http:") url.protocol = "https:";
+  return url.toString();
+}
