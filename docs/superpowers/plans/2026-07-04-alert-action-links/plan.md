@@ -806,7 +806,7 @@ async function renderBanner() {
 }
 
 describe("AlertBanner global action links", () => {
-  it("global LIVE_ROW_CONFLICT with only folder_id renders the Drive-folder fallback link", async () => {
+  it("global LIVE_ROW_CONFLICT with only folder_id renders the Drive-folder fallback link AND keeps the Mark-resolved form", async () => {
     const folder_id = "fold-9";
     rows.value = [globalRow("LIVE_ROW_CONFLICT", { folder_id })];
     const { getByTestId } = await renderBanner();
@@ -818,6 +818,13 @@ describe("AlertBanner global action links", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(link.textContent).toContain("Open Drive folder");
+    // Spec §7.2: the link is a SIBLING BEFORE the Mark-resolved form — a
+    // broken `actionLink ? <a> : <form>` implementation must fail here.
+    const idInput = getByTestId("admin-alert-id-input");
+    expect(idInput).toBeInTheDocument();
+    expect(
+      link.compareDocumentPosition(idInput) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("per-show row with a registered code renders Check it and NO action link (split rule)", async () => {
@@ -848,6 +855,8 @@ describe("AlertBanner global action links", () => {
     rows.value = [globalRow("REPORT_ORPHANED_LOST_LEASE", { orphan_url })];
     let result = await renderBanner();
     expect(result.getByTestId("admin-alert-action-link")).toHaveAttribute("href", orphan_url);
+    // Resolve form coexists with the link (spec §7.2 sibling rule).
+    expect(result.getByTestId("admin-alert-id-input")).toBeInTheDocument();
     cleanup();
     vi.resetModules();
 
