@@ -149,7 +149,7 @@ describe("report issue body templates", () => {
       {
         kind: "crew",
         source: "google",
-        showId: baseBody.show_id,
+        showId: baseBody.show_id as string,
         crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
         email: "alex.crew@example.com",
         name: "Alex Crew",
@@ -176,7 +176,7 @@ describe("report issue body templates", () => {
       {
         kind: "crew",
         source: "google",
-        showId: baseBody.show_id,
+        showId: baseBody.show_id as string,
         crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
         roleFlags: ["A1"],
       },

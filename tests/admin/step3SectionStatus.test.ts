@@ -7,7 +7,12 @@
  */
 import { describe, expect, test } from "vitest";
 import type { ParseWarning } from "@/lib/parser/types";
-import { sectionForWarning, deriveSectionStatuses } from "@/lib/admin/step3SectionStatus";
+import {
+  sectionForWarning,
+  deriveSectionStatuses,
+  warningsBySection,
+  type SectionId,
+} from "@/lib/admin/step3SectionStatus";
 
 // ── Test helpers ──
 function warn(kind?: string, severity: "warn" | "info" = "warn"): ParseWarning {
@@ -189,5 +194,169 @@ describe("deriveSectionStatuses", () => {
     const result = deriveSectionStatuses(warnings, narrowSections);
     expect(result.flagged).toEqual(new Set(["warnings"]));
     expect(result.flaggedCount).toBe(1);
+  });
+});
+
+describe("warningsBySection", () => {
+  const renderedSections = new Set([
+    "venue",
+    "event",
+    "crew",
+    "contacts",
+    "schedule",
+    "agenda",
+    "hotels",
+    "transport",
+    "rooms",
+    "diagrams",
+    "packlist",
+    "billing",
+    "report",
+  ] as const);
+
+  test("index fidelity: indices are positions in the FULL input array, info rows included", () => {
+    const warnings = [
+      warn("crew", "info"),
+      warn("crew", "warn"),
+      warn("rooms", "info"),
+      warn("unknown_section", "warn"),
+    ];
+    const map = warningsBySection(warnings, renderedSections);
+    expect(map.get("crew")).toEqual([{ warning: warnings[1], index: 1 }]);
+    expect(map.get("warnings")).toEqual([{ warning: warnings[3], index: 3 }]);
+    // rooms only has an info-severity warning → no entry
+    expect(map.has("rooms")).toBe(false);
+  });
+
+  test("mapped/unmapped/info rules mirror deriveSectionStatuses", () => {
+    const warnings = [
+      warn("crew", "warn"), // mapped + rendered → crew
+      warn("agenda", "warn"), // mapped + rendered → agenda
+      warn("unknown_section", "warn"), // unmapped → warnings
+      warn("crew", "info"), // info → absent from every value list
+    ];
+    const map = warningsBySection(warnings, renderedSections);
+    expect(map.get("crew")).toEqual([{ warning: warnings[0], index: 0 }]);
+    expect(map.get("agenda")).toEqual([{ warning: warnings[1], index: 1 }]);
+    expect(map.get("warnings")).toEqual([{ warning: warnings[2], index: 2 }]);
+    // info-severity warning must not appear in ANY value list
+    for (const list of map.values()) {
+      expect(list.some((entry) => entry.warning === warnings[3])).toBe(false);
+    }
+  });
+
+  test("mapped + NOT rendered → warnings bucket", () => {
+    const narrowSections = new Set([
+      "venue",
+      "event",
+      "crew",
+      "contacts",
+      "schedule",
+      "hotels",
+      "transport",
+      "rooms",
+      "diagrams",
+      "packlist",
+      "billing",
+      "report",
+    ] as const);
+    const warnings = [warn("agenda", "warn")];
+    const map = warningsBySection(warnings, narrowSections);
+    expect(map.get("warnings")).toEqual([{ warning: warnings[0], index: 0 }]);
+    expect(map.has("agenda")).toBe(false);
+  });
+
+  test("diagrams/report never flagged: fabricated kinds land in warnings bucket, never own key", () => {
+    const warnings = [warn("diagrams", "warn"), warn("report", "warn")];
+    const map = warningsBySection(warnings, renderedSections);
+    expect(map.has("diagrams")).toBe(false);
+    expect(map.has("report")).toBe(false);
+    expect(map.get("warnings")).toEqual([
+      { warning: warnings[0], index: 0 },
+      { warning: warnings[1], index: 1 },
+    ]);
+  });
+
+  const warningMixes: { name: string; warnings: ParseWarning[] }[] = [
+    { name: "empty", warnings: [] },
+    { name: "single mapped warn", warnings: [warn("crew", "warn")] },
+    { name: "single unmapped warn", warnings: [warn("unknown_section", "warn")] },
+    { name: "info only", warnings: [warn("crew", "info")] },
+    {
+      name: "mixed mapped + unmapped + info",
+      warnings: [warn("crew", "warn"), warn("unknown_section", "warn"), warn("hotels", "info")],
+    },
+    {
+      name: "multiple mapped, some unrendered",
+      warnings: [warn("crew", "warn"), warn("agenda", "warn"), warn("financials", "warn")],
+    },
+    {
+      name: "diagrams/report fabricated kinds",
+      warnings: [warn("diagrams", "warn"), warn("report", "warn"), warn("crew", "warn")],
+    },
+  ];
+
+  test.each(warningMixes)(
+    "no-false-All-clean property: $name",
+    ({ warnings }: { warnings: ParseWarning[] }) => {
+      const map = warningsBySection(warnings, renderedSections);
+      const hasWarnSeverity = warnings.some((w) => w.severity === "warn");
+      const totalMapped = Array.from(map.values()).reduce((sum, list) => sum + list.length, 0);
+      const status = deriveSectionStatuses(warnings, renderedSections);
+      if (hasWarnSeverity) {
+        expect(totalMapped).toBeGreaterThanOrEqual(1);
+        expect(status.flaggedCount).toBeGreaterThanOrEqual(1);
+      }
+    },
+  );
+
+  test.each(warningMixes)(
+    "derivation consistency: $name",
+    ({ warnings }: { warnings: ParseWarning[] }) => {
+      const map = warningsBySection(warnings, renderedSections);
+      const status = deriveSectionStatuses(warnings, renderedSections);
+      const mapKeys = new Set<SectionId>(map.keys());
+      expect(status.flagged).toEqual(mapKeys);
+      expect(status.flaggedCount).toBe(mapKeys.size);
+    },
+  );
+});
+
+describe("deriveSectionStatuses derives from warningsBySection", () => {
+  const renderedSections = new Set([
+    "venue",
+    "event",
+    "crew",
+    "contacts",
+    "schedule",
+    "agenda",
+    "hotels",
+    "transport",
+    "rooms",
+    "diagrams",
+    "packlist",
+    "billing",
+    "report",
+  ] as const);
+
+  test("flagged set equals the key set of warningsBySection", () => {
+    const warnings = [
+      warn("crew", "warn"),
+      warn("agenda", "warn"),
+      warn("unknown_section", "warn"),
+      warn("crew", "info"),
+    ];
+    const map = warningsBySection(warnings, renderedSections);
+    const status = deriveSectionStatuses(warnings, renderedSections);
+    expect(status.flagged).toEqual(new Set(map.keys()));
+    expect(status.flaggedCount).toBe(map.size);
+  });
+
+  test("diagrams/report kinds never produce a flagged diagrams/report key", () => {
+    const warnings = [warn("diagrams", "warn"), warn("report", "warn")];
+    const status = deriveSectionStatuses(warnings, renderedSections);
+    expect(status.flagged.has("diagrams" as SectionId)).toBe(false);
+    expect(status.flagged.has("report" as SectionId)).toBe(false);
+    expect(status.flagged).toEqual(new Set(["warnings"]));
   });
 });

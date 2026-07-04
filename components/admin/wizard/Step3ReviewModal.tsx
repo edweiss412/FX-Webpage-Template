@@ -35,8 +35,10 @@
  */
 import {
   Fragment,
+  useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -46,9 +48,14 @@ import Link from "next/link";
 import { AlertTriangle, Check, ChevronRight, ExternalLink, X } from "lucide-react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
+import {
+  deriveSectionStatuses,
+  warningsBySection,
+  type SectionId,
+} from "@/lib/admin/step3SectionStatus";
 import {
   dateSummarySegments,
+  NotPublishableNote,
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
@@ -74,6 +81,26 @@ export const DURATION_NORMAL_FALLBACK_MS = 220;
  *  mirrors `--duration-fast: 120ms` (app/globals.css). Same drift-guard
  *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
 export const DURATION_FAST_FALLBACK_MS = 120;
+/** §E4 one-shot warning-row highlight duration (follow-ups spec §2/§H N3).
+ *  MUST equal the 1600ms literal in app/globals.css's
+ *  `[data-step3-warning-flash]` keyframe (the transitions test pins the
+ *  pairing — same drift-guard rationale as the fallback constants above). */
+export const WARNING_HIGHLIGHT_MS = 1600;
+/** §A2 fallback release of the nav-click scroll-spy suppression when a
+ *  programmatic glide never settles (zero-event and interrupted glides).
+ *  Measured from the click/jump AND from every suppressed scroll-progress
+ *  frame (the spy's evaluate restarts it while the glide is in flight), so a
+ *  healthy glide longer than this window is NOT cut short — see the restart
+ *  comment in the scroll-spy effect (Task 14 real-browser finding). */
+export const NAV_SCROLL_SETTLE_TIMEOUT_MS = 700;
+/** §A2 settle tolerance: |scrollTop − target| at/below this many px releases
+ *  the nav-click scroll-spy suppression. */
+export const NAV_SCROLL_SETTLE_EPSILON_PX = 2;
+/** §A3 sliding rail indicator's vertical inset inside the active rail item —
+ *  matches the retired per-item `inset-y-3` span (12px). Painted geometry,
+ *  but derived at runtime from measured rects (never a static class), so it
+ *  lives here beside the interaction constants it composes with. */
+export const INDICATOR_INSET_PX = 12;
 
 /**
  * Pure scroll-spy rule (spec §6.3a): the active section is the LAST one whose
@@ -143,6 +170,14 @@ export function Step3ReviewModal({
     const rendered = new Set<SectionId>(sections.map((s) => s.id));
     return deriveSectionStatuses(data.warnings, rendered);
   }, [sections, data.warnings]);
+  // §E3 callout map: warn-severity warnings keyed by section (index = FULL
+  // warnings-array position — the §E4 jump-target key). Derived from the SAME
+  // helper deriveSectionStatuses refactored onto (§E2), so flags and callouts
+  // can never disagree.
+  const bySection = useMemo(
+    () => warningsBySection(data.warnings, new Set(sections.map((s) => s.id))),
+    [sections, data.warnings],
+  );
   // Row-local warnings dot (§6.2): red iff ≥1 warn-severity warning exists,
   // MAPPED OR NOT — the checks row summarizes the whole list. Deliberately
   // different from the §7 flagged-set rule (which only adds `warnings` for
@@ -158,23 +193,117 @@ export function Step3ReviewModal({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const sectionElsRef = useRef(new Map<SectionId, HTMLElement>());
 
+  // §D3a active-section plumbing: a stable-identity reader over a ref kept in
+  // sync with `active`, so ReportIssueSection gets a stale-free read AT SUBMIT
+  // TIME. NOT render optimization — the chrome provider below keeps passing a
+  // fresh inline object each render (unchanged, spec §D3a).
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+  const getActiveSection = useCallback((): SectionId => activeRef.current, []);
+
   /** Rail/chip status-dot tone (§6.2/§6.3). */
   function dotToneClass(id: SectionId): string {
     const review = id === "warnings" ? hasWarnRow : flagged.has(id);
     return review ? "bg-status-review" : "bg-status-positive";
   }
 
+  // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────
+  // While a programmatic glide is in flight the rAF spy must NOT re-derive
+  // `active` from intermediate positions (§H N1 — the indicator hopped across
+  // every section between here and there). All state is refs: no re-renders,
+  // unmount-safe teardown.
+  const spySuppressedRef = useRef(false);
+  const spyTargetTopRef = useRef<number | null>(null);
+  const spySettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function releaseSpySuppression() {
+    spySuppressedRef.current = false;
+    spyTargetTopRef.current = null;
+    if (spySettleTimerRef.current !== null) {
+      clearTimeout(spySettleTimerRef.current);
+      spySettleTimerRef.current = null;
+    }
+  }
+
+  /** §A2: clamp the target, hold the spy until settle/clamp/timeout/user-input.
+   *  Already-at-target → release immediately (no scroll event will fire).
+   *  A second call replaces the target and restarts the timeout (no queuing). */
+  function beginSuppressedScroll(scroller: HTMLElement, targetTop: number): number {
+    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const clamped = Math.min(Math.max(0, targetTop), maxTop);
+    if (Math.abs(scroller.scrollTop - clamped) <= NAV_SCROLL_SETTLE_EPSILON_PX) {
+      releaseSpySuppression();
+      return clamped;
+    }
+    spySuppressedRef.current = true;
+    spyTargetTopRef.current = clamped;
+    if (spySettleTimerRef.current !== null) clearTimeout(spySettleTimerRef.current);
+    spySettleTimerRef.current = setTimeout(releaseSpySuppression, NAV_SCROLL_SETTLE_TIMEOUT_MS);
+    return clamped;
+  }
+
   /** Click override (§6.3a): set active immediately + scroll the content pane
    *  to `sectionTop − 8` using the container-relative coordinate contract. JS
    *  passes no `behavior` — the pane's `motion-safe` CSS smooth-scroll governs.
+   *  The clicked id stays `active` for the whole §A2 suppressed window on BOTH
+   *  navs (shared state — no flicker on the chip rail either).
    *  (jsdom has no Element#scrollTo; tests stub it — guard keeps this safe.) */
   function handleNavClick(id: SectionId) {
     setActive(id);
     const scroller = contentRef.current;
     const target = sectionElsRef.current.get(id);
     if (!scroller || !target || typeof scroller.scrollTo !== "function") return;
-    scroller.scrollTo({ top: sectionTopFor(scroller, target) - 8 });
+    const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+    scroller.scrollTo({ top });
   }
+
+  // ── §E4 warning jump + one-shot highlight (§H N3) ──────────────────────────
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightedElRef = useRef<HTMLElement | null>(null);
+
+  /** One highlight at a time: cancel the pending timer and strip the
+   *  attribute from whichever row currently carries it. */
+  function clearWarningHighlight() {
+    if (highlightTimerRef.current !== null) {
+      clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = null;
+    }
+    highlightedElRef.current?.removeAttribute("data-step3-warning-flash");
+    highlightedElRef.current = null;
+  }
+
+  /** §E4 jump: `index` = FULL warnings-array position (the callout entry's
+   *  key); `null` = the "+N more" section-top jump (plain nav-click
+   *  semantics, no highlight). */
+  function jumpToWarning(index: number | null) {
+    if (index === null) {
+      handleNavClick("warnings"); // "+N more": plain nav-click semantics, no highlight
+      return;
+    }
+    setActive("warnings");
+    const scroller = contentRef.current;
+    // Container-scoped attribute query — NO id attributes (twin-nav rule §9.4).
+    const target = scroller?.querySelector<HTMLElement>(`[data-warning-index="${index}"]`);
+    if (scroller && target && typeof scroller.scrollTo === "function") {
+      // §A2: the jump engages the SAME scroll-spy suppression as a rail click
+      // (beginSuppressedScroll clamps to [0, max] — the old Math.max(0, …)
+      // lives inside it now).
+      const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+      scroller.scrollTo({ top });
+    }
+    clearWarningHighlight(); // one highlight at a time
+    if (target) {
+      target.setAttribute("data-step3-warning-flash", "");
+      highlightedElRef.current = target;
+      highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
+    }
+  }
+
+  // Unmount hygiene (§H compound: drag-dismiss or unmount during highlight →
+  // timer cleared in effect teardown).
+  useEffect(() => clearWarningHighlight, []);
 
   // Deterministic scroll-spy (§6.3a): a rAF-throttled PASSIVE `scroll`
   // listener on the content pane recomputes every rendered section's
@@ -206,6 +335,60 @@ export function Step3ReviewModal({
         if (sectionEl) tops.push({ id: s.id, top: sectionTopFor(el, sectionEl) });
       }
       if (tops.length === 0) return;
+      // §A2: while a nav-click/jump glide is in flight, hold `active` constant
+      // instead of deriving from intermediate positions (§H N1). Release on
+      // settle or bottom-clamp and fall through to derivation the SAME frame;
+      // timeout and user-input releases happen outside this handler.
+      if (spySuppressedRef.current) {
+        const targetTop = spyTargetTopRef.current;
+        const settled =
+          targetTop !== null && Math.abs(el.scrollTop - targetTop) <= NAV_SCROLL_SETTLE_EPSILON_PX;
+        // Bottom-clamp releases ONLY when the pending target is itself the bottom —
+        // otherwise an upward click made while parked at the bottom would release on
+        // the first barely-moved frame and re-derive the bottom section (the exact
+        // flicker this fix removes; plan-review R3 LOW).
+        const maxScrollTop = el.scrollHeight - el.clientHeight;
+        const targetIsBottom =
+          targetTop !== null && targetTop >= maxScrollTop - NAV_SCROLL_SETTLE_EPSILON_PX;
+        const bottomClamped =
+          targetIsBottom && el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+        // Arrival consistency (Task 14 real-browser finding, part 2): the
+        // settled ε (2px) is WIDER than the pure rule's bottom-clamp tolerance
+        // (1px), so a decelerating glide can enter the ε-zone at e.g.
+        // maxTop−1.8 where the same-frame derivation still yields the
+        // SECOND-TO-LAST section — a 1-2 frame flicker right at the end of a
+        // bottom-clamped glide (observed in the §K11 frame sampler). Only
+        // complete the release when the derivation at the CURRENT position
+        // already equals the derivation at the DESTINATION; otherwise hold one
+        // more frame (the glide finishes at the exact target, and the
+        // debounced timeout below still backstops a stalled glide).
+        const arrivalConsistent =
+          targetTop === null ||
+          activeSectionFor(el.scrollTop, el.clientHeight, el.scrollHeight, tops) ===
+            activeSectionFor(targetTop, el.clientHeight, el.scrollHeight, tops);
+        if ((settled || bottomClamped) && arrivalConsistent) {
+          releaseSpySuppression(); // fall through same frame
+        } else {
+          // §A2 condition-3 semantics (Task 14 real-browser finding): the
+          // fallback timeout covers ZERO-EVENT and INTERRUPTED glides — a
+          // glide still producing scroll progress is neither, so every
+          // suppressed scroll frame pushes the fallback back out (this
+          // handler only runs from the pane's scroll listener). Without the
+          // restart, any healthy glide longer than NAV_SCROLL_SETTLE_TIMEOUT_MS
+          // (measured: ~973ms for a 3156px two-pane glide at 1280×800 with a
+          // realistic diagrams+warnings fixture) resumed the spy mid-flight
+          // and re-introduced the §H N1 flicker near the end of long glides
+          // (first intermediate active observed at ~714ms — the timer firing).
+          // Zero-event glides still release exactly at the timeout: no scroll
+          // frame ever runs this restart.
+          if (spySettleTimerRef.current !== null) clearTimeout(spySettleTimerRef.current);
+          spySettleTimerRef.current = setTimeout(
+            releaseSpySuppression,
+            NAV_SCROLL_SETTLE_TIMEOUT_MS,
+          );
+          return; // hold active constant (§H N1)
+        }
+      }
       setActive(activeSectionFor(el.scrollTop, el.clientHeight, el.scrollHeight, tops));
     }
 
@@ -215,12 +398,60 @@ export function Step3ReviewModal({
     }
 
     scroller.addEventListener("scroll", onScroll, { passive: true });
+    // §A2 user-input release: manual interaction cancels the suppression
+    // instantly so the spy follows the user, not the interrupted glide.
+    scroller.addEventListener("wheel", releaseSpySuppression, { passive: true });
+    scroller.addEventListener("touchstart", releaseSpySuppression, { passive: true });
+    scroller.addEventListener("pointerdown", releaseSpySuppression, { passive: true });
     evaluate(); // initial state (§6.3a): rule evaluated once on mount
     return () => {
       scroller.removeEventListener("scroll", onScroll);
+      scroller.removeEventListener("wheel", releaseSpySuppression);
+      scroller.removeEventListener("touchstart", releaseSpySuppression);
+      scroller.removeEventListener("pointerdown", releaseSpySuppression);
+      releaseSpySuppression(); // clears the settle timer; refs only — unmount safe
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
+    // releaseSpySuppression touches refs only — safe to omit from deps (same
+    // convention as clearPanelDragStyles in the mode-boundary effect below).
   }, [sections]);
+
+  // ── §A3 sliding rail indicator (desktop rail only) ─────────────────────────
+  // ONE shared indicator, positioned from the ACTIVE rail button's measured
+  // rect — replaces the per-item conditionally-mounted span so the accent bar
+  // can slide between items instead of teleporting.
+  const railRef = useRef<HTMLElement | null>(null);
+  const railItemRefs = useRef(new Map<SectionId, HTMLButtonElement>());
+  const [railIndicator, setRailIndicator] = useState<{ y: number; h: number } | null>(null);
+  const [indicatorTransitionsOn, setIndicatorTransitionsOn] = useState(false);
+  const hasMeasuredRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const nav = railRef.current;
+    const btn = railItemRefs.current.get(active);
+    if (!nav || !btn) {
+      setRailIndicator(null); // hidden until the next successful measure (§A3 guard)
+      return;
+    }
+    const navRect = nav.getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    if (btnRect.height === 0 && navRect.height === 0) {
+      setRailIndicator(null); // unmeasurable (jsdom / display:none) → hidden
+      return;
+    }
+    // Container-relative technique, NOT offsetTop (same contract as
+    // sectionTopFor above; parent-spec §6.3a).
+    const y = btnRect.top - navRect.top + nav.scrollTop + INDICATOR_INSET_PX;
+    const h = btnRect.height - 2 * INDICATOR_INSET_PX;
+    setRailIndicator({ y, h });
+    if (!hasMeasuredRef.current) {
+      hasMeasuredRef.current = true;
+      // First paint lands WITHOUT transition classes; enable on the next frame
+      // so the indicator never slides in from translateY(0) on mount (§A3).
+      const raf = requestAnimationFrame(() => setIndicatorTransitionsOn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [active, sections]);
 
   // Initial focus → close button; Tab-trap inside the panel; restore focus to
   // the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)
@@ -442,9 +673,13 @@ export function Step3ReviewModal({
   const client = data.pr.show.client_label || null;
   const segs = dateSummarySegments(data.pr.show.dates);
   const sheetLink = buildSheetDeepLink(dfid);
+  // Finalize-demoted gate (spec §C3): derived from data the modal already
+  // receives — no new prop. Dirty rescan is the RESCAN_REVIEW_REQUIRED subtype
+  // (⇒ lastFinalizeFailureCode != null), so the footer branches dirty first.
+  const isFinalizeDemoted = data.row.lastFinalizeFailureCode != null;
 
-  // Result-bearing publish (spec §9.1): ALWAYS request true (idempotent
-  // approve, never a toggle); close only on a true resolution.
+  // Result-bearing publish (spec §9.1): the unchecked slot requests true;
+  // close only on a true resolution.
   async function handlePublish() {
     setPublishState("pending");
     let ok = false;
@@ -460,12 +695,27 @@ export function Step3ReviewModal({
     setPublishState("error");
   }
 
-  const publishLabel =
-    publishState === "pending"
-      ? "Selecting…"
-      : checked
-        ? "Selected to publish"
-        : "Publish this show";
+  // Unpublish (spec §C2): request false, stay open on success — the checked
+  // prop flips via the card's settlement (§9.2 waiter queue, untouched), so
+  // the slot swaps to "Publish this show" (instant, §H N5).
+  async function handleUnpublish() {
+    setPublishState("pending");
+    let ok = false;
+    try {
+      ok = await onRequestSetChecked(false);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      setPublishState("idle");
+      return;
+    }
+    setPublishState("error"); // same affordance as the publish failure path
+  }
+
+  // The checked slot owns its own labels ("Unpublish" / "Removing…") below —
+  // this pair is the unchecked publish CTA's only.
+  const publishLabel = publishState === "pending" ? "Selecting…" : "Publish this show";
 
   return (
     <div
@@ -630,12 +880,30 @@ export function Step3ReviewModal({
           data-testid={`wizard-step3-card-${dfid}-review-main`}
           className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
         >
-          {/* Side rail — two-pane mode only (§6.2). */}
+          {/* Side rail — two-pane mode only (§6.2). `relative` anchors the §A3
+              sliding indicator (first child below). */}
           <nav
+            ref={railRef}
             aria-label="Review sections"
             data-testid={`wizard-step3-card-${dfid}-review-rail`}
-            className="hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-3 lg:flex"
+            className="relative hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-3 lg:flex"
           >
+            {/* §11 T6′: animated — the shared indicator slides via transition-[transform,height] duration-fast ease-out-quart (§A3/§A4) */}
+            {railIndicator !== null ? (
+              <span
+                aria-hidden="true"
+                data-testid={`wizard-step3-card-${dfid}-review-rail-indicator`}
+                className={`absolute top-0 left-0 w-1 rounded-r-pill bg-accent ${
+                  indicatorTransitionsOn
+                    ? "transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none"
+                    : ""
+                }`}
+                style={{
+                  transform: `translateY(${railIndicator.y}px)`,
+                  height: `${railIndicator.h}px`,
+                }}
+              />
+            ) : null}
             {STEP3_SECTION_GROUPS.map((group) => {
               const groupSections = sections.filter((s) => s.group === group);
               if (groupSections.length === 0) return null;
@@ -653,6 +921,10 @@ export function Step3ReviewModal({
                       <button
                         key={s.id}
                         type="button"
+                        ref={(el) => {
+                          if (el) railItemRefs.current.set(s.id, el);
+                          else railItemRefs.current.delete(s.id);
+                        }}
                         data-testid={`wizard-step3-card-${dfid}-review-rail-item-${s.id}`}
                         aria-current={isActive ? "true" : undefined}
                         onClick={() => handleNavClick(s.id)}
@@ -660,13 +932,6 @@ export function Step3ReviewModal({
                           isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
                         }`}
                       >
-                        {/* §11 T6: instant — deliberate (indicator mounts with the active item; position does not slide) */}
-                        {isActive ? (
-                          <span
-                            aria-hidden="true"
-                            className="absolute inset-y-3 left-0 w-1 rounded-r-pill bg-accent"
-                          />
-                        ) : null}
                         <s.Icon
                           aria-hidden="true"
                           className={`size-4 shrink-0 ${
@@ -686,10 +951,13 @@ export function Step3ReviewModal({
                             {s.railCount(data)}
                           </span>
                         ) : null}
-                        <span
-                          aria-hidden="true"
-                          className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
-                        />
+                        {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                        {!s.hideDot ? (
+                          <span
+                            aria-hidden="true"
+                            className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                          />
+                        ) : null}
                       </button>
                     );
                   })}
@@ -724,10 +992,13 @@ export function Step3ReviewModal({
                 >
                   <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
                   {s.label}
-                  <span
-                    aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
-                  />
+                  {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                  {!s.hideDot ? (
+                    <span
+                      aria-hidden="true"
+                      className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                    />
+                  ) : null}
                 </button>
               );
             })}
@@ -754,7 +1025,20 @@ export function Step3ReviewModal({
                     §5.2 panel card (see step3ReviewSections.tsx) — the body's
                     own count can never drift from the heading. */}
                 <Step3SectionChromeContext.Provider
-                  value={{ Icon: s.Icon, label: s.label, flagged: flagged.has(s.id) }}
+                  value={{
+                    Icon: s.Icon,
+                    label: s.label,
+                    flagged: flagged.has(s.id),
+                    getActiveSection,
+                    dfid,
+                    sectionId: s.id,
+                    // §E3: callout entries for every flagged section EXCEPT
+                    // `warnings` (its body IS the warning list — circular).
+                    // exactOptional discipline: ABSENT, never undefined.
+                    ...(s.id !== "warnings" && bySection.has(s.id)
+                      ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
+                      : {}),
+                  }}
                 >
                   {s.render(data)}
                 </Step3SectionChromeContext.Provider>
@@ -765,10 +1049,14 @@ export function Step3ReviewModal({
 
         {/* Footer (spec §9.1). Sheet-mode bottom padding adds the device safe
             area so the controls are never covered by the iOS home indicator;
-            ≥sm restores the plain token padding. */}
+            ≥sm restores the plain token padding. `relative` is load-bearing:
+            below sm the RescanSheetButton overlay result anchors to the FOOTER
+            (its own wrapper is `sm:relative` only) so a coded result spans
+            from the footer's left edge instead of clipping off-screen at
+            390px (impeccable audit P1 — see RescanSheetButton.tsx). */}
         <footer
           data-testid={`wizard-step3-card-${dfid}-review-footer`}
-          className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+          className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
         >
           {/* §11 T10: instant — deliberate (footer swaps on isDirtyRescan/props change; server truth) */}
           {isDirtyRescan ? (
@@ -790,6 +1078,25 @@ export function Step3ReviewModal({
                 <ChevronRight aria-hidden="true" className="size-4" />
               </Link>
             </>
+          ) : isFinalizeDemoted ? (
+            /* §11: instant — deliberate (demoted slot follows server truth;
+               spec §C2). Non-rescan finalize demotion (spec §C3): the row
+               cannot be published as-is — no publish/unpublish button; the
+               card's NotPublishableNote copy replaces it (recovery flows
+               through the next scan, so Re-scan still renders). */
+            <>
+              <div className="min-w-0 flex-1">
+                <NotPublishableNote
+                  dfid={dfid}
+                  testId={`wizard-step3-card-${dfid}-review-not-publishable`}
+                />
+              </div>
+              <RescanSheetButton
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                resultPlacement="overlay"
+              />
+            </>
           ) : (
             <>
               <span
@@ -806,29 +1113,37 @@ export function Step3ReviewModal({
                   Couldn&apos;t update the publish selection. Try again.
                 </span>
               ) : null}
-              <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
-              <button
-                type="button"
-                data-testid={`wizard-step3-card-${dfid}-review-publish`}
-                onClick={handlePublish}
-                disabled={publishState === "pending"}
-                aria-busy={publishState === "pending" || undefined}
-                className={`inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm px-4 text-sm font-semibold whitespace-nowrap transition-colors duration-fast disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none ${
-                  /* Checked resting state demotes to a quiet positive
-                     treatment (spec §9.1, ratified via impeccable critique
-                     2026-07-03); unchecked + pending keep the accent CTA.
-                     Click behavior is identical in both states. */
-                  checked && publishState !== "pending"
-                    ? "border border-border-strong bg-surface text-status-positive-text hover:bg-surface-sunken"
-                    : "bg-accent text-accent-text hover:bg-accent-hover"
-                }`}
-              >
-                {/* §11 T7/C7: instant — deliberate (check icon swaps with checked; no animation) */}
-                {checked && publishState !== "pending" ? (
-                  <Check aria-hidden="true" className="size-4" />
-                ) : null}
-                {publishLabel}
-              </button>
+              <RescanSheetButton
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                resultPlacement="overlay"
+              />
+              {/* §11 N5: instant — deliberate (publish ↔ unpublish slot follows the checked prop; spec §C2/§H N5) */}
+              {checked ? (
+                <button
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-review-publish`}
+                  onClick={handleUnpublish}
+                  disabled={publishState === "pending"}
+                  aria-busy={publishState === "pending" || undefined}
+                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                >
+                  {/* Quiet/secondary treatment, no Check icon (spec §C2); exact
+                      weights design-stage-tunable under impeccable. */}
+                  {publishState === "pending" ? "Removing…" : "Unpublish"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-review-publish`}
+                  onClick={handlePublish}
+                  disabled={publishState === "pending"}
+                  aria-busy={publishState === "pending" || undefined}
+                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                >
+                  {publishLabel}
+                </button>
+              )}
             </>
           )}
         </footer>

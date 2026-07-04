@@ -4,7 +4,9 @@
  *
  * Pins the Step-3 review section REGISTRY (`step3Sections` + STEP3_SECTION_GROUPS),
  * the hardened warning-title derivation (`reviewWarningTitle`), and the restyled
- * section bodies moved out of Step3SheetCard.tsx.
+ * section bodies moved out of Step3SheetCard.tsx. Extended by follow-ups Task 5
+ * (spec 2026-07-03-step3-modal-followups.md §B2/§D2): the conditional `diagrams`
+ * def, the unconditional `report` def (hideDot), and both navs' dot consumption.
  *
  * Concrete failure modes each block catches:
  *  - reviewWarningTitle matrix: a persisted warning whose `message` IS the raw
@@ -23,12 +25,28 @@
  * label scans are scoped `within(...)` the section's own testid container so a
  * sibling can never satisfy an assertion by accident.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { isMessageCode } from "@/lib/messages/lookup";
-import type { CrewMemberRow, ParseResult, ParseWarning, PullSheetCase } from "@/lib/parser/types";
+import type {
+  CrewMemberRow,
+  EmbeddedImageStub,
+  LinkedFolderItemStub,
+  ParseResult,
+  ParseWarning,
+  PullSheetCase,
+} from "@/lib/parser/types";
+
+// The review modal (rendered by the hideDot nav tests below) mounts
+// RescanSheetButton, which calls useRouter().refresh().
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+// (vi.mock is hoisted above imports, so plain import order is safe here.)
+import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import {
+  BreakdownSection,
+  DIAGRAM_TILE_CAP,
+  DiagramsBreakdown,
   reviewWarningTitle,
   step3Sections,
   STEP3_SECTION_GROUPS,
@@ -38,14 +56,72 @@ import {
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
-// effect; no test here renders it, but the module graph pulls next/navigation
-// via nothing — no router mock needed. Keep RTL clean between tests.
+// effect; no test here renders it (the hideDot modal tests use an empty
+// agendaBaseline, so the agenda def never mounts). Keep RTL clean between
+// tests.
 afterEach(() => cleanup());
 
 const DFID = "drive-abc-123";
 const WSID = "00000000-1111-4222-8333-444444444444";
 
 const GENERIC_FALLBACK = "A parse issue was recorded for this sheet.";
+
+// ── §B2 diagram fixtures ─────────────────────────────────────────────────────
+// A minimally-valid ENRICHED stub (shape: EmbeddedImageStub, lib/parser/types.ts)
+// and the linked-folder variants. Counts below always derive from these arrays'
+// own lengths (anti-tautology), never restated literals.
+
+const VALID_STUB: EmbeddedImageStub = {
+  sheetTab: "Diagrams",
+  objectId: "obj-1",
+  mimeType: "image/png",
+  contentUrl: "https://lh3.googleusercontent.com/d/obj-1",
+  sheetsRevisionId: "rev-1",
+  embeddedFingerprint: "fp_abc",
+  recovery_disposition: "normal",
+  snapshotPath: null,
+};
+
+function folderItem(id: string): LinkedFolderItemStub {
+  return {
+    driveFileId: id,
+    mimeType: "image/png",
+    drive_modified_time: "2026-07-01T00:00:00Z",
+    headRevisionId: `head-${id}`,
+    md5Checksum: "d41d8cd98f00b204e9800998ecf8427e",
+    snapshotPath: null,
+  };
+}
+
+/** Embedded image only — the brief's canonical presence fixture. */
+const EMBEDDED_DIAGRAMS: ParseResult["diagrams"] = {
+  linkedFolder: null,
+  embeddedImages: [VALID_STUB],
+  linkedFolderItems: [],
+};
+
+/** Folder link only — present in the registry but NO rail count (§B2). */
+const FOLDER_ONLY_DIAGRAMS: ParseResult["diagrams"] = {
+  linkedFolder: {
+    driveFolderId: "f1",
+    driveFolderUrl: "https://drive.google.com/drive/folders/f1",
+  },
+  embeddedImages: [],
+  linkedFolderItems: [],
+};
+
+/** BOTH railCount terms non-zero, so a dropped term fails the sum assertion. */
+const MIXED_DIAGRAMS: ParseResult["diagrams"] = {
+  linkedFolder: {
+    driveFolderId: "f1",
+    driveFolderUrl: "https://drive.google.com/drive/folders/f1",
+  },
+  embeddedImages: [VALID_STUB],
+  linkedFolderItems: [folderItem("file-1"), folderItem("file-2")],
+};
+
+/** Non-empty agenda baseline (gates the conditional `agenda` def). */
+const AGENDA_ITEM = { label: "Agenda PDF", badge: null, href: null, block: null };
 
 function warning(overrides: Partial<ParseWarning> = {}): ParseWarning {
   return { severity: "warn", code: "SOME_CODE", message: "", ...overrides };
@@ -164,7 +240,9 @@ describe("reviewWarningTitle (spec §8 hardening matrix)", () => {
 
 // ── Registry (spec §6.1) ────────────────────────────────────────────────────
 
-describe("step3Sections registry (spec §6.1)", () => {
+describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
+  // `report` is UNCONDITIONAL and always LAST (§D2); `diagrams` is conditional
+  // (like agenda) and sits after `rooms`, before `packlist` (§B2).
   const EXPECTED_NO_AGENDA = [
     "venue",
     "event",
@@ -177,6 +255,7 @@ describe("step3Sections registry (spec §6.1)", () => {
     "packlist",
     "billing",
     "warnings",
+    "report",
   ];
   const EXPECTED_WITH_AGENDA = [
     "venue",
@@ -191,6 +270,38 @@ describe("step3Sections registry (spec §6.1)", () => {
     "packlist",
     "billing",
     "warnings",
+    "report",
+  ];
+  const EXPECTED_WITH_DIAGRAMS = [
+    "venue",
+    "event",
+    "crew",
+    "contacts",
+    "schedule",
+    "hotels",
+    "transport",
+    "rooms",
+    "diagrams",
+    "packlist",
+    "billing",
+    "warnings",
+    "report",
+  ];
+  const EXPECTED_WITH_BOTH = [
+    "venue",
+    "event",
+    "crew",
+    "contacts",
+    "schedule",
+    "agenda",
+    "hotels",
+    "transport",
+    "rooms",
+    "diagrams",
+    "packlist",
+    "billing",
+    "warnings",
+    "report",
   ];
   const LABELS: Record<string, string> = {
     venue: "Venue",
@@ -202,9 +313,11 @@ describe("step3Sections registry (spec §6.1)", () => {
     hotels: "Hotels",
     transport: "Transport",
     rooms: "Rooms & scope",
+    diagrams: "Diagrams",
     packlist: "Pack list",
     billing: "Billing & docs",
     warnings: "Parse warnings",
+    report: "Report an issue",
   };
   const GROUPS: Record<string, string> = {
     venue: "The show",
@@ -216,9 +329,11 @@ describe("step3Sections registry (spec §6.1)", () => {
     hotels: "Logistics",
     transport: "Logistics",
     rooms: "Gear",
+    diagrams: "Gear",
     packlist: "Gear",
     billing: "Money",
     warnings: "Checks",
+    report: "Checks",
   };
   const COUNTED = ["crew", "contacts", "schedule", "hotels", "rooms", "packlist", "warnings"];
 
@@ -234,33 +349,70 @@ describe("step3Sections registry (spec §6.1)", () => {
     ]);
   });
 
-  test("11 defs without an agenda baseline; 12 (agenda after schedule) with one", () => {
+  test("12 defs base; 13 with agenda; 13 with diagrams; 14 with both (order exact, report always last)", () => {
     const without = step3Sections(sectionData());
     expect(without.map((s) => s.id)).toEqual(EXPECTED_NO_AGENDA);
 
-    const withAgenda = step3Sections(
-      sectionData(
-        {},
-        {
-          agendaBaseline: [{ label: "Agenda PDF", badge: null, href: null, block: null }],
-        },
-      ),
-    );
+    const withAgenda = step3Sections(sectionData({}, { agendaBaseline: [AGENDA_ITEM] }));
     expect(withAgenda.map((s) => s.id)).toEqual(EXPECTED_WITH_AGENDA);
+
+    const withDiagrams = step3Sections(sectionData({ diagrams: EMBEDDED_DIAGRAMS }));
+    expect(withDiagrams.map((s) => s.id)).toEqual(EXPECTED_WITH_DIAGRAMS);
+
+    const withBoth = step3Sections(
+      sectionData({ diagrams: EMBEDDED_DIAGRAMS }, { agendaBaseline: [AGENDA_ITEM] }),
+    );
+    expect(withBoth.map((s) => s.id)).toEqual(EXPECTED_WITH_BOTH);
+  });
+
+  test("diagrams presence gate (§B2): absent for all-empty AND missing pr.diagrams; any one signal renders it", () => {
+    // Fixture default: all-empty diagrams object → absent (catches the
+    // conditional insert regressing to unconditional / badge-section drift).
+    expect(step3Sections(sectionData()).some((s) => s.id === "diagrams")).toBe(false);
+    // pr.diagrams deleted entirely (untrusted persisted JSONB) → absent, no throw.
+    const gone = sectionData();
+    delete (gone.pr as unknown as Record<string, unknown>).diagrams;
+    expect(step3Sections(gone).some((s) => s.id === "diagrams")).toBe(false);
+    // Each single signal of the gate is sufficient on its own.
+    for (const diagrams of [
+      FOLDER_ONLY_DIAGRAMS,
+      EMBEDDED_DIAGRAMS,
+      { linkedFolder: null, embeddedImages: [], linkedFolderItems: [folderItem("file-9")] },
+    ]) {
+      const defs = step3Sections(sectionData({ diagrams }));
+      expect(
+        defs.some((s) => s.id === "diagrams"),
+        `presence for ${JSON.stringify(diagrams.linkedFolder)}/${diagrams.embeddedImages.length}/${diagrams.linkedFolderItems.length}`,
+      ).toBe(true);
+      // Order invariant holds for every conditional shape.
+      expect(defs.map((s) => s.id).join(",")).toContain("rooms,diagrams,packlist");
+    }
   });
 
   test("labels and groups are exact; every group value is a member of STEP3_SECTION_GROUPS", () => {
     const defs = step3Sections(
-      sectionData(
-        {},
-        { agendaBaseline: [{ label: "Agenda PDF", badge: null, href: null, block: null }] },
-      ),
+      sectionData({ diagrams: EMBEDDED_DIAGRAMS }, { agendaBaseline: [AGENDA_ITEM] }),
     );
+    // All 14 defs (both conditionals present) iterate the maps.
+    expect(defs.map((s) => s.id)).toEqual(EXPECTED_WITH_BOTH);
     for (const def of defs) {
       expect(def.label).toBe(LABELS[def.id]);
       expect(def.group).toBe(GROUPS[def.id]);
       expect(STEP3_SECTION_GROUPS).toContain(def.group);
       expect(typeof def.Icon).not.toBe("undefined");
+    }
+  });
+
+  test("hideDot is present-true ONLY on report (§D2); every other def leaves it absent", () => {
+    const defs = step3Sections(
+      sectionData({ diagrams: MIXED_DIAGRAMS }, { agendaBaseline: [AGENDA_ITEM] }),
+    );
+    expect(defs.filter((s) => s.hideDot === true).map((s) => s.id)).toEqual(["report"]);
+    for (const def of defs) {
+      if (def.id !== "report") {
+        // exactOptionalPropertyTypes: absent, never `hideDot: undefined`.
+        expect(def.hideDot, `hideDot for ${def.id}`).toBeUndefined();
+      }
     }
   });
 
@@ -271,6 +423,7 @@ describe("step3Sections registry (spec §6.1)", () => {
       if (COUNTED.includes(def.id)) {
         expect(def.railCount, `railCount for ${def.id}`).not.toBeNull();
       } else {
+        // venue/event/transport/billing — and report, ALWAYS null (§D2).
         expect(def.railCount, `railCount for ${def.id}`).toBeNull();
       }
     }
@@ -284,6 +437,78 @@ describe("step3Sections registry (spec §6.1)", () => {
     // Contacts: block count as rendered today — fixture has no client contact
     // and no contacts → 0.
     expect(defById(defs, "contacts").railCount!(d)).toBe(0);
+  });
+
+  test("diagrams railCount (§B2): embedded+folder-item sum when > 0; folder-link-only → null", () => {
+    const d = sectionData({ diagrams: MIXED_DIAGRAMS });
+    const defs = step3Sections(d);
+    // Counted subset extends with diagrams when the sum is non-zero.
+    for (const def of defs) {
+      if ([...COUNTED, "diagrams"].includes(def.id)) {
+        expect(def.railCount, `railCount for ${def.id}`).not.toBeNull();
+      } else {
+        expect(def.railCount, `railCount for ${def.id}`).toBeNull();
+      }
+    }
+    // BOTH terms are non-zero in the fixture, so a dropped term fails here.
+    expect(d.pr.diagrams.embeddedImages.length).toBeGreaterThan(0);
+    expect(d.pr.diagrams.linkedFolderItems.length).toBeGreaterThan(0);
+    expect(defById(defs, "diagrams").railCount!(d)).toBe(
+      d.pr.diagrams.embeddedImages.length + d.pr.diagrams.linkedFolderItems.length,
+    );
+    // Folder-link-only: the section renders but shows NO rail count.
+    const folderOnly = sectionData({ diagrams: FOLDER_ONLY_DIAGRAMS });
+    expect(defById(step3Sections(folderOnly), "diagrams").railCount).toBeNull();
+  });
+});
+
+// ── Modal navs consume hideDot (§D2) + diagrams dot tone (§B2) ──────────────
+
+describe("Step3ReviewModal navs — hideDot + diagrams dot tone (spec §B2/§D2)", () => {
+  function renderModal(d: SectionData) {
+    return render(
+      <Step3ReviewModal
+        data={d}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={async () => true}
+        onClose={() => {}}
+      />,
+    );
+  }
+  const DOT = '[class*="bg-status-"]';
+  const railItem = (q: ReturnType<typeof render>, id: string) =>
+    q.getByTestId(`wizard-step3-card-${DFID}-review-rail-item-${id}`);
+  const chipItem = (q: ReturnType<typeof render>, id: string) =>
+    q.getByTestId(`wizard-step3-card-${DFID}-review-chip-item-${id}`);
+
+  test("report renders NO status dot in EITHER nav; warnings keeps its dot in both", () => {
+    const q = renderModal(sectionData());
+    // Catches: one nav consuming hideDot while the other still renders a dot.
+    expect(railItem(q, "report").querySelector(DOT)).toBeNull();
+    expect(chipItem(q, "report").querySelector(DOT)).toBeNull();
+    // Sibling sanity: the dot span itself was not removed wholesale.
+    expect(railItem(q, "warnings").querySelector(DOT)).not.toBeNull();
+    expect(chipItem(q, "warnings").querySelector(DOT)).not.toBeNull();
+  });
+
+  test("diagrams dot is ALWAYS bg-status-positive — even with a warn whose fabricated kind is 'diagrams'", () => {
+    // Task 1 contract: KIND_TO_SECTION maps nothing to `diagrams`; a fabricated
+    // diagram-kind warn falls to the warnings bucket (row-local red), never to
+    // the diagrams rail dot. Catches: a dotToneClass/KIND_TO_SECTION regression.
+    const d = sectionData({
+      diagrams: EMBEDDED_DIAGRAMS,
+      warnings: [
+        { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind: "diagrams" } },
+      ],
+    });
+    const q = renderModal(d);
+    const railDot = railItem(q, "diagrams").querySelector(DOT)!;
+    expect(railDot.className).toMatch(/\bbg-status-positive\b/);
+    const chipDot = chipItem(q, "diagrams").querySelector(DOT)!;
+    expect(chipDot.className).toMatch(/\bbg-status-positive\b/);
+    // The warn registered somewhere: the warnings row-local dot is red.
+    expect(railItem(q, "warnings").querySelector(DOT)!.className).toMatch(/\bbg-status-review\b/);
   });
 });
 
@@ -409,6 +634,33 @@ describe("section bodies — empty-state copy preserved (registry render)", () =
   });
 });
 
+// ── BreakdownSection count widening (Task 7 — count: number | null) ─────────
+
+describe("BreakdownSection — count={null} on the legacy (no-chrome) path", () => {
+  test("label renders with NO count span — catches the legacy h4 rendering '(null)' or '()'", () => {
+    const q = render(
+      <BreakdownSection testId="x-breakdown-null-count" label="Report an issue" count={null}>
+        <span>body</span>
+      </BreakdownSection>,
+    );
+    const h4 = q.getByTestId("x-breakdown-null-count").querySelector("h4")!;
+    expect(h4).not.toBeNull();
+    expect(h4.textContent).toContain("Report an issue");
+    expect(h4.textContent).not.toContain("(");
+  });
+
+  test("numeric count still renders on the legacy path (widening is source-compatible)", () => {
+    const q = render(
+      <BreakdownSection testId="x-breakdown-num-count" label="Crew" count={7}>
+        <span>body</span>
+      </BreakdownSection>,
+    );
+    expect(q.getByTestId("x-breakdown-num-count").querySelector("h4")!.textContent).toContain(
+      "(7)",
+    );
+  });
+});
+
 // ── Warnings body (spec §3.10 + §8) ─────────────────────────────────────────
 
 describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", () => {
@@ -447,5 +699,271 @@ describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", 
     const q = renderBody(d, "warnings");
     const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     expect(panel.textContent).toContain("No parse warnings for this sheet.");
+  });
+});
+
+describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
+  // All queries are scoped `within(...)` the section's own testid container so
+  // a sibling can never satisfy an assertion by accident (anti-tautology).
+  const SECTION_TESTID = `wizard-step3-card-${DFID}-section-diagrams`;
+  const TILE_PREFIX = `wizard-step3-card-${DFID}-diagram-tile-`;
+
+  /** A fully valid EmbeddedImageStub. `alt` is ABSENT by default so the
+   *  alt-fallback test derives from `sheetTab`, never a hardcoded literal. */
+  function diagramStub(overrides: Partial<EmbeddedImageStub> = {}): EmbeddedImageStub {
+    return {
+      sheetTab: "DIAGRAMS",
+      objectId: "obj-1",
+      mimeType: "image/png",
+      contentUrl: "https://lh3.googleusercontent.com/img-1",
+      sheetsRevisionId: "rev-1",
+      embeddedFingerprint: "fp-1",
+      recovery_disposition: "normal",
+      snapshotPath: null,
+      ...overrides,
+    };
+  }
+
+  function folderItem(n: number): LinkedFolderItemStub {
+    return {
+      driveFileId: `folder-file-${n}`,
+      mimeType: "image/png",
+      drive_modified_time: "2026-01-01T00:00:00Z",
+      headRevisionId: `head-${n}`,
+      md5Checksum: `md5-${n}`,
+      snapshotPath: null,
+    };
+  }
+
+  function diagramsOf(overrides: Partial<ParseResult["diagrams"]> = {}): ParseResult["diagrams"] {
+    return { linkedFolder: null, embeddedImages: [], linkedFolderItems: [], ...overrides };
+  }
+
+  function renderDiagrams(diagrams: ParseResult["diagrams"]) {
+    const utils = render(
+      <DiagramsBreakdown dfid={DFID} wizardSessionId={WSID} diagrams={diagrams} />,
+    );
+    const container = utils.getByTestId(SECTION_TESTID);
+    return { container, scoped: within(container) };
+  }
+
+  test("caps the grid at DIAGRAM_TILE_CAP tiles with a derived '+N more' note (catches: unbounded grid blowing up the pane)", () => {
+    // Build in a loop; every expectation derives from stubs.length, never a literal.
+    const stubs = Array.from({ length: DIAGRAM_TILE_CAP + 3 }, (_, i) =>
+      diagramStub({
+        objectId: `obj-${i}`,
+        contentUrl: `https://lh3.googleusercontent.com/img-${i}`,
+      }),
+    );
+    const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: stubs }));
+    const tiles = container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`);
+    expect(tiles.length).toBe(DIAGRAM_TILE_CAP);
+    expect(
+      scoped.getByText(
+        `+${stubs.length - DIAGRAM_TILE_CAP} more — all images are snapshotted when the show publishes.`,
+      ),
+    ).toBeTruthy();
+    // Count summary reflects ALL valid stubs (not the capped subset).
+    expect(scoped.getByText(`${stubs.length} embedded images`)).toBeTruthy();
+  });
+
+  test("null-contentUrl stub renders the placeholder upfront with NO <img> (catches: an <img src> fetch attempt for an unfetchable stub)", () => {
+    const { container, scoped } = renderDiagrams(
+      diagramsOf({ embeddedImages: [diagramStub({ contentUrl: null })] }),
+    );
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    expect(within(tile).getByText("Preview unavailable")).toBeTruthy();
+    expect(tile.querySelector("img")).toBeNull();
+    expect(container.querySelectorAll("img").length).toBe(0);
+  });
+
+  test("folder-only: folder-link anchor (target/rel), file count derived from fixture, NO grid", () => {
+    const items = [folderItem(1), folderItem(2)];
+    const { container, scoped } = renderDiagrams(
+      diagramsOf({
+        linkedFolder: {
+          driveFolderId: "f1",
+          driveFolderUrl: "https://drive.google.com/drive/folders/f1",
+        },
+        linkedFolderItems: items,
+      }),
+    );
+    const link = scoped.getByTestId(`wizard-step3-card-${DFID}-diagram-folder-link`);
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    // Focus ring-offset color matches the bg-bg content pane (impeccable
+    // critique P2 — Tailwind's default offset is white → dark-mode halo).
+    expect(link.className.split(/\s+/)).toContain("focus-visible:ring-offset-bg");
+    expect(container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`).length).toBe(0);
+    expect(scoped.getByText(`${items.length} files`)).toBeTruthy();
+  });
+
+  test("hostile folder URL → counts text renders, NO <a> anywhere in the body (catches: unvalidated href)", () => {
+    const items = [folderItem(1), folderItem(2)];
+    const { container, scoped } = renderDiagrams(
+      diagramsOf({
+        linkedFolder: {
+          driveFolderId: "x",
+          driveFolderUrl: "https://evil.example/drive/folders/x",
+        },
+        linkedFolderItems: items,
+      }),
+    );
+    expect(container.querySelectorAll("a").length).toBe(0);
+    expect(scoped.getByText(`${items.length} files`)).toBeTruthy();
+  });
+
+  test("http://drive.google.com folder URL is upgraded to https before rendering the anchor", () => {
+    const { scoped } = renderDiagrams(
+      diagramsOf({
+        linkedFolder: {
+          driveFolderId: "f1",
+          driveFolderUrl: "http://drive.google.com/drive/folders/f1",
+        },
+      }),
+    );
+    const link = scoped.getByTestId(`wizard-step3-card-${DFID}-diagram-folder-link`);
+    const href = link.getAttribute("href");
+    expect(href?.startsWith("https://drive.google.com/")).toBe(true);
+  });
+
+  test("§K8 malformed-element fixture: exactly ONE tile, header count (1), no crash, no corrupt substrings (catches: client-side dereference of corrupt staged JSON incl. the alt-fallback sheetTab read)", () => {
+    const validStub = diagramStub({ objectId: "valid-1", alt: "Stage plot" });
+    // Spec §K8 verbatim shape — only `validStub` survives the shared predicate.
+    const embeddedImages = [
+      null,
+      { objectId: 123 },
+      { objectId: "x", mimeType: "image/png", contentUrl: null }, // missing sheetTab
+      { ...validStub, alt: 7 },
+      validStub,
+    ] as unknown as EmbeddedImageStub[];
+    const { container } = renderDiagrams(diagramsOf({ embeddedImages }));
+    const tiles = container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`);
+    expect(tiles.length).toBe(1);
+    expect(container.textContent).toContain("(1)");
+    expect(container.textContent).not.toContain("(5)");
+    expect(container.innerHTML).not.toContain("[object Object]");
+    expect(container.innerHTML).not.toContain("undefined");
+  });
+
+  test("alt fallback derives from the stub's sheetTab when alt is absent", () => {
+    const stub = diagramStub(); // no alt
+    const { container } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("alt")).toBe(`Diagram from ${stub.sheetTab}`);
+  });
+
+  test("alt: '' (and whitespace-only) falls back for BOTH the img alt and the anchor aria-label — a persisted empty alt must never yield a nameless link (impeccable audit P2, WCAG 2.4.4/4.1.2)", () => {
+    for (const empty of ["", "   "]) {
+      const stub = diagramStub({ alt: empty });
+      const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+      const fallback = `Diagram from ${stub.sheetTab}`;
+      const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+      expect(tile.tagName).toBe("A");
+      expect(tile.getAttribute("aria-label")).toBe(fallback);
+      expect(container.querySelector("img")?.getAttribute("alt")).toBe(fallback);
+      cleanup();
+    }
+  });
+
+  test("a real alt names both the img and the wrapping anchor (aria-label mirrors alt)", () => {
+    const stub = diagramStub({ alt: "Stage plot" });
+    const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    expect(tile.getAttribute("aria-label")).toBe("Stage plot");
+    expect(tile.querySelector("img")?.getAttribute("alt")).toBe("Stage plot");
+  });
+
+  test("tile img src (and wrapping anchor href) is the Task-3 staged-diagram route URL derived from the fixture", () => {
+    const stub = diagramStub({ objectId: "obj-abc_123" });
+    const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    const img = tile.querySelector("img");
+    const expected = `/api/admin/onboarding/staged-diagram/${WSID}/${DFID}/${encodeURIComponent(stub.objectId)}`;
+    expect(img?.getAttribute("src")).toBe(expected);
+    expect(tile.tagName).toBe("A");
+    expect(tile.getAttribute("href")).toBe(expected);
+  });
+});
+
+// ── RoomsBreakdown — room notes visual separation (spec §F, Task 11) ────────
+// The room-detail list currently blends into the gear-scope grid above it.
+// This inset container (mt-2 rounded-md bg-surface-sunken px-3 py-2) + "Room
+// notes" eyebrow gives it a distinct visual scope. Concrete failure modes:
+//  - inset container missing → notes still flush against the scope grid.
+//  - eyebrow missing/mis-scoped → operator can't tell where "scope" ends and
+//    "notes" begins.
+//  - pl-7 retained → double-indent (old scheme relied on padding, not a box).
+//  - a border-l side-stripe sneaking in → spec §F absolute ban.
+//  - the sibling gear-scope grid's class string drifting → accidental
+//    restyle of L768-793 while touching the neighboring detail block.
+describe("RoomsBreakdown — room notes inset separation (spec §F, Task 11)", () => {
+  function detailRoomData(): SectionData {
+    return sectionData({
+      rooms: [
+        {
+          kind: "gs",
+          name: "GRAND BALLROOM",
+          dimensions: "60' x 45'",
+          floor: null,
+          setup: "18 tables of 7",
+          set_time: null,
+          show_time: null,
+          strike_time: null,
+          audio: "(1) QU32",
+          video: null,
+          lighting: null,
+          scenic: null,
+          power: null,
+          digital_signage: null,
+          other: null,
+          notes: null,
+        },
+      ],
+    });
+  }
+
+  test("detail <ul> keeps its testid and sits inside a rounded-md bg-surface-sunken px-3 py-2 inset container", () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
+    const container = detail.closest(".bg-surface-sunken");
+    expect(container).not.toBeNull();
+    expect(container!.className).toContain("rounded-md");
+    expect(container!.className).toContain("px-3");
+    expect(container!.className).toContain("py-2");
+  });
+
+  test('an eyebrow reading "Room notes" precedes the detail <ul> inside the inset container', () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
+    const container = detail.closest(".bg-surface-sunken") as HTMLElement;
+    const scoped = within(container);
+    const eyebrow = scoped.getByText("Room notes");
+    expect(container.textContent!.indexOf("Room notes")).toBeLessThan(
+      container.textContent!.indexOf("Dimensions:"),
+    );
+    expect(container.contains(eyebrow)).toBe(true);
+  });
+
+  test("detail <ul> no longer carries pl-7; label spans are font-medium text-text-strong, values render in text-text", () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
+    expect(detail.className).not.toContain("pl-7");
+    expect(detail.className).toContain("text-text");
+    const labelSpan = within(detail).getByText("Dimensions:");
+    expect(labelSpan.className).toContain("font-medium");
+    expect(labelSpan.className).toContain("text-text-strong");
+  });
+
+  test("gear-scope grid is unchanged (L768-793 sibling, byte-pinned class string)", () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const scope = getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    expect(scope.className).toBe("mt-1.5 flex flex-col gap-1 text-xs text-text-subtle");
+  });
+
+  test("no side-stripe: no border-l class anywhere in the rooms body HTML (spec §F absolute ban)", () => {
+    const { container } = renderBody(detailRoomData(), "rooms");
+    expect(container.innerHTML).not.toContain("border-l");
   });
 });

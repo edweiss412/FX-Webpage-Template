@@ -28,6 +28,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -37,12 +38,16 @@ import {
   BedDouble,
   CalendarDays,
   ChevronRight,
+  ExternalLink,
   FileText,
+  ImageOff,
+  Images,
   Info,
   LayoutGrid,
   Lightbulb,
   Mail,
   MapPin,
+  MessageSquareWarning,
   Package,
   Phone,
   Receipt,
@@ -72,6 +77,7 @@ import type {
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import { isRenderableDiagramStub, trustedDriveFolderHref } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -246,8 +252,94 @@ export type Step3SectionChrome = {
   label: string;
   /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). */
   flagged: boolean;
+  /**
+   * Follow-ups spec §D3a: stable-identity reader for the modal's shared
+   * `active` nav section, consumed by `ReportIssueSection` AT SUBMIT TIME for
+   * a stale-free `viewerVisibleSection`. Optional — existing provider mounts
+   * stay valid; exactOptionalPropertyTypes: present or ABSENT, never
+   * `undefined`. NOT a render-stability contract (the provider keeps passing
+   * a fresh inline object each render).
+   */
+  getActiveSection?: () => SectionId;
+  /**
+   * Follow-ups spec §E3: the section's warn-severity warning entries from
+   * `warningsBySection` (index = position in the FULL warnings array — the
+   * jump-target key). Passed by the modal for every flagged section EXCEPT
+   * `warnings` (its body IS the warning list — a callout would be circular).
+   * Optional/ABSENT everywhere else (exactOptionalPropertyTypes).
+   */
+  calloutEntries?: readonly { warning: ParseWarning; index: number }[];
+  /**
+   * Follow-ups spec §E4: jump callback — a full-array warning index scrolls
+   * to that row + flashes it; `null` is the "+N more" section-top jump
+   * (plain §A2 nav-click semantics, no highlight).
+   */
+  onJumpToWarning?: (index: number | null) => void;
+  /** Testid parts for the §E3 callout (`-section-${id}-flag-callout`) — the
+   *  modal (sole provider) always passes both; optional so existing provider
+   *  mounts in section tests stay valid. */
+  dfid?: string;
+  sectionId?: SectionId;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
+
+// §E3 callout row cap (spec §2 named constant): at most this many warning
+// titles render inline; the remainder collapses to "+N more in Parse warnings".
+export const CALLOUT_MAX_ENTRIES = 3;
+
+/**
+ * §E3 inline flag callout: a compact warning-tone block at the top of a
+ * flagged section's panel card linking each mapped warning to its row in the
+ * Parse-warnings section. Titles go through `reviewWarningTitle` — the §8
+ * hardening (invariant 5, no raw machine tokens) applies transitively.
+ */
+function SectionFlagCallout({
+  dfid,
+  sectionId,
+  entries,
+  onJump,
+}: {
+  dfid: string;
+  sectionId: SectionId;
+  entries: readonly { warning: ParseWarning; index: number }[];
+  onJump: (index: number | null) => void;
+}) {
+  const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
+  const extra = entries.length - shown.length;
+  return (
+    <div
+      data-testid={`wizard-step3-card-${dfid}-section-${sectionId}-flag-callout`}
+      className="flex flex-col gap-1 rounded-md border border-border-strong bg-warning-bg px-3 py-2 text-xs text-warning-text"
+    >
+      {shown.map(({ warning, index }) => {
+        const title = reviewWarningTitle(warning); // §8 hardening applies transitively
+        return (
+          <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="min-w-0 wrap-break-word font-medium">{title}</span>
+            <button
+              type="button"
+              onClick={() => onJump(index)}
+              className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              View details<span className="sr-only"> for {title}</span>
+            </button>
+          </div>
+        );
+      })}
+      {/* §H N2: instant — deliberate (overflow line follows the entry count; static with section render) */}
+      {extra > 0 ? (
+        <button
+          type="button"
+          onClick={() => onJump(null)}
+          className="inline-flex min-h-tap-min items-center self-start font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        >
+          +{extra} more in Parse warnings
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
@@ -290,6 +382,20 @@ function ModalSectionChrome({
           flagged ? "border-border-strong" : "border-border"
         }`}
       >
+        {/* §H N2: instant — deliberate (callout presence is static with the
+            section render — no mount animation; spec §E3 first child) */}
+        {chrome.calloutEntries &&
+        chrome.calloutEntries.length > 0 &&
+        chrome.onJumpToWarning &&
+        chrome.dfid !== undefined &&
+        chrome.sectionId !== undefined ? (
+          <SectionFlagCallout
+            dfid={chrome.dfid}
+            sectionId={chrome.sectionId}
+            entries={chrome.calloutEntries}
+            onJump={chrome.onJumpToWarning}
+          />
+        ) : null}
         {children}
       </div>
     </>
@@ -307,7 +413,8 @@ export function BreakdownSection({
 }: {
   testId: string;
   label: string;
-  count: number;
+  /** null → no count (non-list-shaped bodies, e.g. report — Task 7). */
+  count: number | null;
   children: React.ReactNode;
 }) {
   const chrome = useContext(Step3SectionChromeContext);
@@ -323,7 +430,8 @@ export function BreakdownSection({
   return (
     <section data-testid={testId} className="flex flex-col gap-1.5">
       <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        {label} <span className="tabular-nums text-text-subtle">({count})</span>
+        {label}{" "}
+        {count !== null ? <span className="tabular-nums text-text-subtle">({count})</span> : null}
       </h4>
       {children}
     </section>
@@ -800,16 +908,22 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[]
                     value: String(r[f.key] ?? "").trim(),
                   })).filter((d) => d.value.length > 0);
                   return detail.length > 0 ? (
-                    <ul
-                      data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
-                      className="mt-1 flex flex-col gap-0.5 pl-7 text-xs text-text-subtle"
-                    >
-                      {detail.map((d) => (
-                        <li key={d.label} className="wrap-break-word">
-                          <span className="font-medium text-text">{d.label}:</span> {d.value}
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="mt-2 rounded-md bg-surface-sunken px-3 py-2">
+                      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                        Room notes
+                      </p>
+                      <ul
+                        data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
+                        className="mt-1 flex flex-col gap-0.5 text-xs text-text"
+                      >
+                        {detail.map((d) => (
+                          <li key={d.label} className="wrap-break-word">
+                            <span className="font-medium text-text-strong">{d.label}:</span>{" "}
+                            {d.value}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : null;
                 })()}
               </li>
@@ -1102,6 +1216,9 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
                 <li
                   key={`${w.code}-${i}`}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
+                  // §E4 jump-target key: same FULL-array index as the testid —
+                  // the modal's container-scoped query hook (no `id`s, §9.4).
+                  data-warning-index={i}
                   className="flex gap-3"
                 >
                   {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
@@ -1569,6 +1686,33 @@ export function AgendaBreakdown({
   );
 }
 
+/**
+ * audit idx39/#180: the minimal "needs attention — not publishable" indicator for a
+ * row demoted by a NON-RESCAN finalize failure code (DRIVE_FETCH_FAILED,
+ * STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …). The publish
+ * checkbox/button is suppressed for these (matching Step3Review.selectableRows + the
+ * server /approve refusal), so this note replaces it and tells the operator the row
+ * can't be published as-is. Plain-English only (invariant 5 — never the raw §12.4
+ * code). Shares the warm warning treatment (warning-bg + strong border + icon) with
+ * RescanReviewBanner; no reapply link, since recovery for these codes flows through
+ * the next scan, not a per-item reapply choice.
+ *
+ * Shared export (spec §C2): rendered by Step3SheetCard (default testid — card
+ * output byte-identical) AND by the Step3ReviewModal footer's demoted branch
+ * (modal-scoped `testId`).
+ */
+export function NotPublishableNote({ dfid, testId }: { dfid: string; testId?: string }) {
+  return (
+    <div
+      data-testid={testId ?? `wizard-step3-card-${dfid}-not-publishable`}
+      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+    >
+      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <p className="text-sm font-medium">This sheet needs attention before it can be published.</p>
+    </div>
+  );
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
  * Section registry (spec §6.1) — the single source of truth the review modal
  * (Task 4+) renders: rail items, chip rail, content-pane sections.
@@ -1597,6 +1741,12 @@ export type Step3SectionDef = {
   Icon: LucideIcon;
   /** Rail count for the list-shaped subset (§6.1); null → no rail count. */
   railCount: ((d: SectionData) => number) | null;
+  /**
+   * Follow-ups spec §D2: present-`true` ONLY on `report` — BOTH navs (desktop
+   * rail + mobile chips) render no status dot for it. exactOptionalPropertyTypes:
+   * present-`true` or ABSENT, never `hideDot: undefined`.
+   */
+  hideDot?: true;
   /** The restyled section body. */
   render: (d: SectionData) => React.ReactNode;
 };
@@ -1612,11 +1762,341 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
   "Checks",
 ];
 
+/** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
+export const DIAGRAM_TILE_CAP = 12;
+
+/** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
+ *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
+ *  documented revert — next/image drops cookies). */
+function DiagramTile({
+  src,
+  alt,
+  testId,
+  hasContentUrl,
+}: {
+  src: string;
+  alt: string;
+  testId: string;
+  hasContentUrl: boolean;
+}) {
+  const [failed, setFailed] = useState(!hasContentUrl);
+  if (failed) {
+    return (
+      <span
+        data-testid={testId}
+        className="grid aspect-4/3 w-full place-items-center gap-1 rounded-md border border-border bg-surface-sunken text-center"
+      >
+        <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+        <span className="text-xs text-text-subtle">Preview unavailable</span>
+      </span>
+    );
+  }
+  return (
+    /* aria-label mirrors the img alt (impeccable audit P2): the anchor's
+       accessible name must never be empty even if the alt computation ever
+       regresses to "" (nameless-link guard, WCAG 2.4.4/4.1.2). */
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={alt}
+      data-testid={testId}
+      className="block"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- staged-diagram
+          preview route is admin-cookie-authed; next/image drops cookies (same
+          documented revert as components/diagrams/Gallery.tsx). */}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="aspect-4/3 w-full rounded-md border border-border bg-surface-sunken object-cover"
+      />
+    </a>
+  );
+}
+
 /**
- * The §6.1 registry. 12 defs when the row has an agenda baseline, 11 without
- * (`agenda` renders — rail entry AND section — only when the baseline is
- * non-empty, the same gate the card uses today). Every other section always
- * renders (empty states preserved); `warnings` always renders (§3.10).
+ * Diagrams section body (follow-ups spec §B3): count summary (zero parts
+ * omitted), capped thumbnail grid, and the revalidated folder row.
+ * Element-level guard mirrors the preview route (§B1): the SAME shared
+ * predicate filters the untrusted persisted JSONB BEFORE any dereference —
+ * invalid elements are excluded from tiles, counts, and cap math.
+ */
+export function DiagramsBreakdown({
+  dfid,
+  wizardSessionId,
+  diagrams,
+}: {
+  dfid: string;
+  wizardSessionId: string;
+  diagrams: ParseResult["diagrams"] | null | undefined;
+}) {
+  const stubs = arr(diagrams?.embeddedImages).filter(isRenderableDiagramStub);
+  const folderItems = arr(diagrams?.linkedFolderItems);
+  const folderHref = diagrams?.linkedFolder
+    ? trustedDriveFolderHref((diagrams.linkedFolder as { driveFolderUrl?: unknown }).driveFolderUrl)
+    : null;
+  const hasFolder = diagrams?.linkedFolder != null;
+  const shown = stubs.slice(0, DIAGRAM_TILE_CAP);
+  const extra = stubs.length - shown.length;
+  const summaryParts: string[] = [];
+  if (stubs.length > 0) {
+    summaryParts.push(`${stubs.length} embedded image${stubs.length === 1 ? "" : "s"}`);
+  }
+  if (folderItems.length > 0) {
+    summaryParts.push(`${folderItems.length} folder file${folderItems.length === 1 ? "" : "s"}`);
+  }
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-section-diagrams`}
+      label="Diagrams"
+      count={stubs.length + folderItems.length}
+    >
+      {summaryParts.length > 0 ? (
+        <p className="text-xs text-text-subtle">{summaryParts.join(" · ")}</p>
+      ) : null}
+      {shown.length > 0 ? (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {shown.map((stub, i) => (
+            <DiagramTile
+              key={`${stub.objectId}-${i}`}
+              testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
+              src={`/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`}
+              // `?? ` only catches null/undefined — a persisted `alt: ""`
+              // rendered a nameless link (impeccable audit P2); blank/space
+              // alts fall back to the generic sheet-tab string too.
+              alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
+              hasContentUrl={stub.contentUrl != null}
+            />
+          ))}
+        </div>
+      ) : null}
+      {extra > 0 ? (
+        <p className="text-xs text-text-subtle">
+          +{extra} more — all images are snapshotted when the show publishes.
+        </p>
+      ) : null}
+      {hasFolder ? (
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-text">
+          {folderHref !== null ? (
+            <a
+              data-testid={`wizard-step3-card-${dfid}-diagram-folder-link`}
+              href={folderHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />
+            </a>
+          ) : null}
+          {folderItems.length > 0 ? (
+            <span className="text-text-subtle">{folderItems.length} files</span>
+          ) : null}
+        </p>
+      ) : null}
+    </BreakdownSection>
+  );
+}
+
+/** Report message textarea cap (spec §D3). */
+export const REPORT_MESSAGE_MAX_CHARS = 2000;
+/** Payload parse-warnings cap (spec §D3). */
+export const REPORT_PARSE_WARNINGS_CAP = 50;
+/** Rendered whenever a failure code resolves to no usable dougFacing copy —
+ *  the status line is never empty and never a raw code (invariant 5).
+ *  Spec §D3 sanctions this exported generic fallback for codes whose catalog
+ *  entry has dougFacing: null (e.g. ADMIN_SESSION_LOOKUP_FAILED). */
+// not-subject:M5-D8 — spec-§D3-sanctioned generic fallback constant, not an inline callsite literal.
+export const REPORT_GENERIC_ERROR_COPY = "Couldn’t send the report. Try again in a moment.";
+
+type ReportSectionStatus =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "success" }
+  | { kind: "error"; copy: string };
+
+function reportAttemptStorageKey(wizardSessionId: string, driveFileId: string): string {
+  // Scoped to wizard session AND drive file (spec §D3): a later wizard session
+  // for the same file is a DIFFERENT report and must not be swallowed as a
+  // duplicate of a stale attempt (mirrors ReportModal's surfaceId-validated
+  // reuse, components/shared/ReportModal.tsx:110-133; rotate-on-success :327).
+  return `fxav-report-attempt-wizard-${wizardSessionId}-${driveFileId}`;
+}
+
+function mintOrReuseAttemptKey(storageKey: string): string {
+  try {
+    const existing = window.sessionStorage.getItem(storageKey);
+    if (existing) return existing;
+    const minted = crypto.randomUUID();
+    window.sessionStorage.setItem(storageKey, minted);
+    return minted;
+  } catch {
+    return crypto.randomUUID(); // storage unavailable — still send, just unlinkable
+  }
+}
+
+function rotateAttemptKey(storageKey: string): void {
+  try {
+    window.sessionStorage.removeItem(storageKey);
+  } catch {
+    /* storage unavailable — nothing persisted to rotate */
+  }
+}
+
+/** Single resolution rule for EVERY failure (spec §D3): cataloged dougFacing
+ *  if non-null/non-empty after trim, else the exported generic fallback. */
+function reportErrorCopy(code: string | null): string {
+  if (code !== null && isMessageCode(code)) {
+    const copy = messageFor(code as MessageCode).dougFacing;
+    if (copy != null && copy.trim().length > 0) return copy;
+  }
+  return REPORT_GENERIC_ERROR_COPY;
+}
+
+/**
+ * Report-an-issue section body (follow-ups spec §D3): explainer + labeled
+ * textarea + idempotent submit to `POST /api/report` + copy-only status line.
+ * `viewerVisibleSection` is read from the chrome context's `getActiveSection`
+ * AT SUBMIT TIME (§D3a); outside the chrome context the field is omitted.
+ * Modal unmount mid-flight is fire-and-forget by construction — the persisted
+ * key makes a retry after reopen a duplicate → success (§D3 guards). Draft
+ * persistence is mount-local only (spec-accepted).
+ */
+export function ReportIssueSection({ data }: { data: SectionData }) {
+  const { dfid, wizardSessionId, row, warnings } = data;
+  const chrome = useContext(Step3SectionChromeContext);
+  const [draft, setDraft] = useState("");
+  const [status, setStatus] = useState<ReportSectionStatus>({ kind: "idle" });
+  const textareaId = useId();
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = draft.trim();
+    if (message.length === 0 || status.kind === "pending") return;
+    setStatus({ kind: "pending" });
+    const storageKey = reportAttemptStorageKey(wizardSessionId, dfid);
+    const idempotency_key = mintOrReuseAttemptKey(storageKey);
+    const payload = {
+      surface: "admin",
+      show_id: null,
+      showTitle: row.stagedShowTitle ?? row.driveFileName ?? null,
+      showSlug: null,
+      idempotency_key,
+      message,
+      reporterUrl: window.location.href,
+      ...(chrome?.getActiveSection ? { viewerVisibleSection: chrome.getActiveSection() } : {}),
+      userAgent: navigator.userAgent,
+      parseWarnings: warnings.slice(0, REPORT_PARSE_WARNINGS_CAP),
+      fieldRef: {
+        kind: "wizard-step3",
+        driveFileId: dfid,
+        wizardSessionId,
+        driveFileName: row.driveFileName ?? null,
+        stagedShowTitle: row.stagedShowTitle ?? null,
+      },
+    };
+    try {
+      // not-subject-to-meta: internal Next API fetch, not a Supabase client call
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      let parsed: { ok?: boolean; code?: string } = {};
+      try {
+        parsed = (await res.json()) as typeof parsed;
+      } catch {
+        parsed = {};
+      }
+      if (res.ok && parsed.ok === true) {
+        // created / duplicate / recovered all count as success (spec §D3).
+        rotateAttemptKey(storageKey);
+        setDraft("");
+        setStatus({ kind: "success" });
+        return;
+      }
+      if (res.status === 410 && parsed.code === "REPORT_HORIZON_EXPIRED") {
+        rotateAttemptKey(storageKey); // terminal — a retry is a NEW report
+        setStatus({ kind: "error", copy: reportErrorCopy("REPORT_HORIZON_EXPIRED") });
+        return;
+      }
+      const code = parsed.code ?? (res.status >= 500 ? "REPORT_PIPELINE_FAILED" : null);
+      setStatus({ kind: "error", copy: reportErrorCopy(code) });
+    } catch {
+      setStatus({ kind: "error", copy: reportErrorCopy("NETWORK_UNREACHABLE") });
+    }
+  }
+
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-section-report`}
+      label="Report an issue"
+      count={null}
+    >
+      <p className="text-sm text-text-subtle">
+        Spotted something wrong or missing that the checks above didn&rsquo;t flag? Send it to the
+        developer.
+      </p>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
+          What&rsquo;s wrong or missing?
+        </label>
+        <textarea
+          id={textareaId}
+          data-testid={`wizard-step3-card-${dfid}-report-textarea`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={REPORT_MESSAGE_MAX_CHARS}
+          rows={3}
+          /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
+             minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
+             surface fill together make the field read as a field. */
+          className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            data-testid={`wizard-step3-card-${dfid}-report-submit`}
+            disabled={draft.trim().length === 0 || status.kind === "pending"}
+            aria-busy={status.kind === "pending" || undefined}
+            /* Quiet secondary treatment (impeccable critique P2): the report
+               path must not compete with the footer's accent Publish CTA —
+               same border/surface recipe as the footer Unpublish button.
+               ring-offset-bg matches the content pane surface. */
+            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          >
+            Send report
+          </button>
+          <span
+            data-testid={`wizard-step3-card-${dfid}-report-status`}
+            role="status"
+            aria-live="polite"
+            className={`min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`}
+          >
+            {/* §D3 status line — instant text swaps (spec §H N7) */}
+            {status.kind === "pending"
+              ? "Sending…"
+              : status.kind === "success"
+                ? "Sent — thanks. The developer will take a look."
+                : status.kind === "error"
+                  ? status.copy
+                  : ""}
+          </span>
+        </div>
+      </form>
+    </BreakdownSection>
+  );
+}
+
+/**
+ * The §6.1 registry (+ follow-ups §B2/§D2). 12 defs base; `agenda` (rail entry
+ * AND section, only when the baseline is non-empty — the same gate the card
+ * uses today) and `diagrams` (§B2 gate below) are each conditional → 13/13/14.
+ * Every other section always renders (empty states preserved); `warnings`
+ * always renders (§3.10); `report` is unconditional and ALWAYS last (§D2).
  */
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
@@ -1712,6 +2192,36 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       railCount: (s) => s.rooms.length,
       render: (s) => <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />,
     },
+  );
+  // §B2 gate: conditional like agenda — present iff the untrusted-JSONB
+  // diagrams object exists AND carries any signal (folder link, embedded
+  // images, or pinned folder items). Same shape (plus linkedFolderItems) as
+  // the card's `hasDiagrams` badge gate (Step3SheetCard.tsx), so badge and
+  // section presence agree whenever the badge shows.
+  const dg = d.pr.diagrams;
+  const diagramCount = arr(dg?.embeddedImages).length + arr(dg?.linkedFolderItems).length;
+  if (dg != null && (dg.linkedFolder != null || diagramCount > 0)) {
+    defs.push({
+      id: "diagrams",
+      label: "Diagrams",
+      group: "Gear",
+      Icon: Images, // lucide glyph — design-stage-tunable under impeccable (spec §L)
+      railCount:
+        diagramCount > 0
+          ? (s) =>
+              arr(s.pr.diagrams?.embeddedImages).length +
+              arr(s.pr.diagrams?.linkedFolderItems).length
+          : null, // folder-link-only → no rail count (spec §B2)
+      render: (s) => (
+        <DiagramsBreakdown
+          dfid={s.dfid}
+          wizardSessionId={s.wizardSessionId}
+          diagrams={s.pr.diagrams}
+        />
+      ),
+    });
+  }
+  defs.push(
     {
       id: "packlist",
       label: "Pack list",
@@ -1736,6 +2246,15 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // Both severities — the rail count counts list rows (§3.3).
       railCount: (s) => s.warnings.length,
       render: (s) => <WarningsBreakdown dfid={s.dfid} warnings={s.warnings} />,
+    },
+    {
+      id: "report",
+      label: "Report an issue",
+      group: "Checks",
+      Icon: MessageSquareWarning, // design-stage-tunable (spec §L)
+      railCount: null,
+      hideDot: true, // spec §D2 — the only section without a status dot
+      render: (s) => <ReportIssueSection data={s} />,
     },
   );
   return defs;

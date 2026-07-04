@@ -641,6 +641,40 @@ body {
   }
 }
 
+/* Re-scan result overlay (spec 2026-07-03 §G / §H N4): the modal footer's
+   RescanSheetButton floats its result above the button; entrance reuses the
+   existing fast pop-in. Exit is instant (no exit animation). */
+[data-rescan-overlay-result] {
+  animation: step3-details-pop-in var(--duration-fast) var(--ease-out-quart);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-rescan-overlay-result] {
+    animation: none;
+  }
+}
+
+/* Step-3 review modal: one-shot warning-row highlight after a callout jump
+   (spec 2026-07-03 §E4). Motion-safe: background fade over WARNING_HIGHLIGHT_MS
+   (1600ms — keep in sync with Step3ReviewModal.tsx). Reduced motion: steady
+   tint, removed with the attribute. */
+@keyframes step3-warning-flash {
+  from {
+    background-color: var(--color-warning-bg);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+[data-step3-warning-flash] {
+  animation: step3-warning-flash 1600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-step3-warning-flash] {
+    animation: none;
+    background-color: var(--color-warning-bg);
+  }
+}
+
 /*
  * /help long-form prose typography.
  *

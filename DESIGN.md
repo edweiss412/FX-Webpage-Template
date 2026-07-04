@@ -250,6 +250,9 @@ Behavioral gesture/scroll thresholds are NOT visual tokens — they never produc
 - `SCROLL_SPY_OFFSET_PX = 90` — the review modal's scroll-spy anchor line: a section becomes "active" once its top passes this many px below the content pane's top.
 - `DRAG_DISMISS_THRESHOLD_PX = 110` — sheet-mode drag distance past which release dismisses the modal.
 - `DRAG_SLOP_PX = 6` — max pointer travel still treated as a tap (click) rather than a drag.
+- `NAV_SCROLL_SETTLE_TIMEOUT_MS = 700` — review-modal nav click / warning jump: fallback release of the scroll-spy suppression when a programmatic glide never settles.
+- `NAV_SCROLL_SETTLE_EPSILON_PX = 2` — settle tolerance (px) that releases the nav-click scroll-spy suppression.
+- `WARNING_HIGHLIGHT_MS = 1600` — one-shot warning-row highlight duration after a callout jump-link (paired with the `step3-warning-flash` keyframe in `app/globals.css`).
 
 ---
 
