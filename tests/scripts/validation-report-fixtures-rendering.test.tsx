@@ -11,13 +11,14 @@
  *     Anti-tautology: asserted against the MESSAGE_CATALOG literal, NOT just a
  *     non-null messageFor() round-trip.
  *   • 2 admin_alerts-surfacing outcomes (lookup-inconclusive, orphaned-lost-lease):
- *     the HARNESS's seeded row survives AlertBanner's SELECT predicate (NOT
- *     excluded as info-severity), proving AlertBanner's admin-RLS SELECT shape
- *     (components/admin/AlertBanner.tsx:97) would return it.
- *   • AlertBanner RENDER of REPORT_LOOKUP_INCONCLUSIVE under the anti-tautology
- *     DOM-clone guard — clone the tree, remove the message element, assert the
- *     dougFacing copy does not appear elsewhere (so the pass depends on the
- *     message element rendering it, not a stray sibling).
+ *     alert-audience-split reclassified BOTH as `audience: "health"` (developer
+ *     report-subsystem diagnostics Doug cannot action). They now flow to the
+ *     dev HealthAlertsPanel, NOT Doug's AlertBanner. Group B proves the HARNESS's
+ *     seeded rows are EXCLUDED by AlertBanner's real SELECT predicate
+ *     (DOUG_SURFACE_EXCLUDED_CODES, components/admin/AlertBanner.tsx:113); Group C
+ *     proves AlertBanner does not render them and the raw code never leaks
+ *     (invariant 5). Their render coverage lives in the health surface's own
+ *     suite (tests/components/healthAlertsPanel.test.tsx).
  */
 import { afterAll, beforeAll, afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -30,6 +31,8 @@ import {
   type MessageCode,
 } from "@/lib/messages/catalog";
 import { messageFor } from "@/lib/messages/lookup";
+import { DOUG_SURFACE_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { safeValidationCleanup } from "../db/_validation-cleanup-helpers";
 import {
   LOCAL_SERVICE_ROLE_KEY,
@@ -238,55 +241,66 @@ describe("Group B — harness rows survive AlertBanner SELECT predicate", () => 
     safeValidationCleanup();
   });
 
-  test("AlertBanner SELECT shape returns both harness codes (not info-severity excluded)", async () => {
+  test("AlertBanner's real SELECT predicate EXCLUDES both harness codes (now health-audience)", async () => {
+    // Mirror AlertBanner's ACTUAL exclusion (DOUG_SURFACE_EXCLUDED_CODES,
+    // AlertBanner.tsx:113) — NOT just the info-severity list. alert-audience-split
+    // reclassified both report codes as health, so Doug's banner SELECT must now
+    // filter them out. Seeded fixtures + this predicate prove the routing on a
+    // live row set.
     let query = supabase
       .from("admin_alerts")
       .select("code, context")
       .is("resolved_at", null)
       .like("context->>validation_tag", "m12-fixture-%");
-    if (INFO_SEVERITY_CODES.length > 0) {
-      query = query.not("code", "in", `(${INFO_SEVERITY_CODES.map((c) => `"${c}"`).join(",")})`);
+    if (DOUG_SURFACE_EXCLUDED_CODES.length > 0) {
+      query = query.not(
+        "code",
+        "in",
+        `(${DOUG_SURFACE_EXCLUDED_CODES.map((c) => `"${c}"`).join(",")})`,
+      );
     }
     const { data, error } = await query.order("raised_at", { ascending: false });
     expect(error).toBeNull();
     const codes = (data ?? []).map((r) => (r as { code: string }).code);
-    // The harness's seeded codes must be present (not filtered out) — proving
-    // AlertBanner's admin-RLS SELECT shape would surface them.
-    expect(codes).toContain("REPORT_LOOKUP_INCONCLUSIVE");
-    expect(codes).toContain("REPORT_ORPHANED_LOST_LEASE");
+    // Both are health-audience → excluded from Doug's banner (they surface on the
+    // dev HealthAlertsPanel instead).
+    expect(codes).not.toContain("REPORT_LOOKUP_INCONCLUSIVE");
+    expect(codes).not.toContain("REPORT_ORPHANED_LOST_LEASE");
   });
 
-  test("neither harness code is itself an info-severity code (would never reach the banner)", () => {
+  test("both harness codes are health-audience (in the Doug-surface exclusion set)", () => {
+    for (const code of ["REPORT_LOOKUP_INCONCLUSIVE", "REPORT_ORPHANED_LOST_LEASE"]) {
+      expect(HEALTH_CODES).toContain(code);
+      expect(DOUG_SURFACE_EXCLUDED_CODES).toContain(code);
+    }
+    // …and they are NOT info-severity (a distinct, orthogonal exclusion axis).
     expect(INFO_SEVERITY_CODES).not.toContain("REPORT_LOOKUP_INCONCLUSIVE");
     expect(INFO_SEVERITY_CODES).not.toContain("REPORT_ORPHANED_LOST_LEASE");
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Group C — AlertBanner render with anti-tautology DOM-clone guard
+// Group C — AlertBanner EXCLUDES the (now health-audience) harness codes
 // ─────────────────────────────────────────────────────────────────────
 
-describe("Group C — AlertBanner renders harness admin_alerts code", () => {
+describe("Group C — AlertBanner excludes the health-audience harness codes", () => {
   afterEach(() => {
     cleanup();
     mockState.rows = [];
   });
 
-  // The two codes the harness routes through AlertBanner.
-  const ALERT_BANNER_CODES = [
+  // alert-audience-split reclassified both report codes as health; they route to
+  // the dev HealthAlertsPanel, so Doug's AlertBanner must NOT render them.
+  const HEALTH_ROUTED_CODES = [
     "REPORT_LOOKUP_INCONCLUSIVE",
     "REPORT_ORPHANED_LOST_LEASE",
   ] as const satisfies readonly MessageCode[];
 
-  for (const code of ALERT_BANNER_CODES) {
-    test(`renders dougFacing copy for '${code}' (anti-tautology DOM clone)`, async () => {
-      // Topmost = target code; a DIFFERENT code queued as an older sibling so
-      // the queue-chip path engages and we can prove the message came from the
-      // message element, not the sibling.
-      const sibling: MessageCode =
-        code === "REPORT_LOOKUP_INCONCLUSIVE"
-          ? "REPORT_ORPHANED_LOST_LEASE"
-          : "REPORT_LOOKUP_INCONCLUSIVE";
+  for (const code of HEALTH_ROUTED_CODES) {
+    test(`AlertBanner does not surface '${code}' and never leaks the raw code`, async () => {
+      // Seed the code as the ONLY unresolved global alert. AlertBanner's SELECT
+      // excludes DOUG_SURFACE_EXCLUDED_CODES (the mock builder honors `.not(in)`),
+      // so the health code is filtered out and the banner has nothing to show.
       setRows([
         {
           id: `target-${code}`,
@@ -295,38 +309,21 @@ describe("Group C — AlertBanner renders harness admin_alerts code", () => {
           show_id: "11111111-1111-4111-8111-111111111111",
           context: { validation_tag: `m12-fixture-${code}` },
           shows: { slug: "validation-r1" },
-        },
-        {
-          id: `sibling-${sibling}`,
-          code: sibling,
-          raised_at: "2026-05-27T09:00:00Z",
-          show_id: "11111111-1111-4111-8111-111111111111",
-          context: null,
-          shows: { slug: "validation-r1" },
+          resolved_at: null,
         },
       ]);
-      const { getByTestId, container } = render(await AlertBanner());
+      const { queryByTestId, container } = render(await AlertBanner());
 
+      // No message panel renders (the only candidate row was health-excluded).
+      expect(queryByTestId("error-explainer-message")).toBeNull();
+      expect(queryByTestId("admin-alert-message")).toBeNull();
+
+      // Invariant 5: the raw code string never leaks into the DOM, and neither
+      // does its Doug copy — it belongs to the health panel now, not the banner.
       const literal = MESSAGE_CATALOG[code].dougFacing;
       expect(typeof literal).toBe("string");
-      // The message element renders the TARGET code's catalog copy.
-      expect(getByTestId("error-explainer-message").textContent).toBe(literal);
-
-      // Anti-tautology: clone the rendered tree, remove BOTH legitimate render
-      // sites of the target's dougFacing, and assert the copy does NOT appear
-      // anywhere else (e.g. via the queue chip or the OLDER SIBLING alert's
-      // render). RECON-1 (spec §3.3) renders the top alert's message twice — the
-      // full block in the panel's `error-explainer-message` AND the inline
-      // truncated `admin-alert-message` one-liner in the <summary> — so both must
-      // be removed before the "not elsewhere" check. The line-319 assertion above
-      // still genuinely depends on `error-explainer-message` rendering the literal.
-      const clone = container.cloneNode(true) as HTMLElement;
-      clone
-        .querySelectorAll(
-          '[data-testid="error-explainer-message"], [data-testid="admin-alert-message"]',
-        )
-        .forEach((el) => el.remove());
-      expect(clone.innerHTML).not.toContain(literal as string);
+      expect(container.innerHTML).not.toContain(code);
+      expect(container.innerHTML).not.toContain(literal as string);
     });
   }
 });
