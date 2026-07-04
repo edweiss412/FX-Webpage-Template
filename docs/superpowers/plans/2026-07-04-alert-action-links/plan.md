@@ -20,17 +20,20 @@
 - TDD per task, commit per task (`feat(admin):` / `test(admin):`), `--no-verify` on commits (worktree), so `pnpm format:check` must pass before push.
 - UI files touched (`components/`) → invariant-8 impeccable dual-gate runs at close-out, before the whole-diff Codex review.
 
-**Meta-test inventory (mandatory declaration):** CREATES `tests/messages/_metaAlertActionsContract.test.ts` (Task 2). EXTENDS none. `tests/auth/_metaInfraContract.test.ts` N/A — the registry makes zero Supabase calls; both components' existing fetches are untouched. Advisory-lock topology N/A — no `pg_advisory*` surface touched.
+**Meta-test inventory (mandatory declaration):** CREATES `tests/messages/_metaAlertActionsContract.test.ts` (Task 1 — written in the same red step as the unit tests so both are failing before the registry module exists, preserving TDD invariant 1). EXTENDS none. `tests/auth/_metaInfraContract.test.ts` N/A — the registry makes zero Supabase calls; both components' existing fetches are untouched. Advisory-lock topology N/A — no `pg_advisory*` surface touched.
 
 **Layout-dimensions task: N/A** — no fixed-dimension parent; the link is a `self-start` inline anchor in a `flex flex-col gap-2` list item and a `flex flex-wrap` action slot. **Transition-audit task: N/A** — no transition inventory in the spec; links are statically present or absent per server render (spec §7.1).
 
 ---
 
-### Task 1: Action registry module
+### Task 1: Action registry module + structural meta-test
 
 **Files:**
 - Create: `lib/adminAlerts/alertActions.ts`
 - Test: `tests/adminAlerts/alertActions.test.ts`
+- Test: `tests/messages/_metaAlertActionsContract.test.ts`
+
+TDD shape: BOTH test files are written first and are genuinely red — every test in both files fails while `@/lib/adminAlerts/alertActions` does not exist (unresolvable import). Implementing the registry turns both green. The meta-test's raise-site pins additionally get a negative-verification step (they pin PRE-EXISTING files, so their bite is proven by mutation, not by red-green against the registry).
 
 **Interfaces:**
 - Consumes: `buildSheetDeepLink(driveFileId: string | null | undefined, anchor?)` → `string | null` (`lib/sheet-links/buildSheetDeepLink.ts`); `driveFolderUrl(folderId: string | null | undefined)` → `string | null` (`lib/drive/driveFolderUrl.ts`).
@@ -202,12 +205,16 @@ describe("resolveAlertAction dispatch", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Write the failing meta-test**
 
-Run: `pnpm vitest run tests/adminAlerts/alertActions.test.ts`
-Expected: FAIL — cannot resolve `@/lib/adminAlerts/alertActions`.
+The meta-test code lives in the "Meta-test file" block below (after this task's step list, to keep the steps readable). Write it to `tests/messages/_metaAlertActionsContract.test.ts` exactly as given. Contracts (spec §6): raise-site fidelity via bounded regexes anchoring the code literal and consumed field in ONE match; show-scoping pins for the three slug-dependent codes; a 3-match count for the three `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` producer branches; target-existence pins; registry↔spec parity + 42-code universe membership. All eleven regex counts were verified empirically against live files during plan review (the `ROLE_FLAGS_NOTICE` constructor pin anchors on `as const` specifically because the bare code literal also matches the type definition at `lib/sync/phase2.ts:120-127` — 2 matches without it, 1 with).
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 3: Run both test files to verify they fail**
+
+Run: `pnpm vitest run tests/adminAlerts/alertActions.test.ts tests/messages/_metaAlertActionsContract.test.ts`
+Expected: BOTH FAIL — cannot resolve `@/lib/adminAlerts/alertActions` (the module does not exist yet).
+
+- [ ] **Step 4: Write the implementation**
 
 ```ts
 // lib/adminAlerts/alertActions.ts
@@ -327,35 +334,26 @@ export function resolveAlertAction(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run both test files to verify they pass, plus the messages suite**
 
-Run: `pnpm vitest run tests/adminAlerts/alertActions.test.ts`
-Expected: PASS (all cases).
+Run: `pnpm vitest run tests/adminAlerts/alertActions.test.ts tests/messages/`
+Expected: ALL PASS (the messages suite hosts the M8 namespace scanner and catalog gates — the new meta-test file adds no `code:`-stamped log calls and no catalog rows, so nothing there should move).
 
-- [ ] **Step 5: Typecheck and commit**
+- [ ] **Step 6: Negative-verification (prove the raise-site pins bite)**
+
+Temporarily rename `drive_file_id` → `driveFileId` inside the `LIVE_ROW_CONFLICT` context in `lib/sync/runOnboardingScan.ts` (NOT the sibling `logSync` payload above it), run the meta-test, and confirm the `LIVE_ROW_CONFLICT` row FAILS. Revert (`git checkout -- lib/sync/runOnboardingScan.ts`), re-run to green, and confirm a clean tree with `git status`. Record the result in the handoff doc.
+
+- [ ] **Step 7: Typecheck and commit**
 
 Run: `pnpm typecheck`
 Expected: clean.
 
 ```bash
-git add lib/adminAlerts/alertActions.ts tests/adminAlerts/alertActions.test.ts
-git commit --no-verify -m "feat(admin): per-code alert action registry with fail-quiet guards"
+git add lib/adminAlerts/alertActions.ts tests/adminAlerts/alertActions.test.ts tests/messages/_metaAlertActionsContract.test.ts
+git commit --no-verify -m "feat(admin): per-code alert action registry, unit tests, structural meta-test"
 ```
 
----
-
-### Task 2: Structural meta-test (raise-site fidelity + scope pins + parity)
-
-**Files:**
-- Create: `tests/messages/_metaAlertActionsContract.test.ts`
-
-**Interfaces:**
-- Consumes: `ALERT_ACTIONS`, `ALERT_ACTION_CODES` from Task 1.
-- Produces: nothing runtime; pins the contracts of spec §6.
-
-Spec §6.1 requires each pattern to anchor the code literal and the consumed field in ONE bounded match (whole-file field greps are tautology-prone — `runOnboardingScan.ts:824-829` has a sibling `logSync` payload with `drive_file_id`). §6.1 also pins show-scoping for the three slug-dependent codes and asserts a match COUNT of 3 for the three `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` producer branches.
-
-- [ ] **Step 1: Write the test (it must pass immediately against live code — it is a structural pin, not red-green TDD; verify it FAILS when any pinned file is text-mutated, step 3)**
+**Meta-test file** (written verbatim in Step 2):
 
 ```ts
 // tests/messages/_metaAlertActionsContract.test.ts
@@ -395,7 +393,9 @@ const RAISE_SITE_PINS: RaiseSitePin[] = [
   {
     code: "ROLE_FLAGS_NOTICE",
     file: "lib/sync/phase2.ts",
-    pattern: /code: "ROLE_FLAGS_NOTICE"[\s\S]{0,160}?context: \{[\s\S]{0,60}?drive_file_id:/g,
+    // `as const` anchors the CONSTRUCTOR (:422-431) — the bare literal also
+    // matches the roleFlagsNotice TYPE definition at :120-127 (2 matches).
+    pattern: /code: "ROLE_FLAGS_NOTICE" as const,[\s\S]{0,160}?context: \{[\s\S]{0,60}?drive_file_id:/g,
     expectedMatches: 1,
     pins: "drive_file_id enters the notice context at the constructor",
   },
@@ -500,11 +500,14 @@ describe("alert-action registry parity (spec §6.3)", () => {
   test("every registry key is in the 42-code ADMIN_ALERTS_CODES universe", () => {
     // Parse the sibling meta-test's source — do NOT import it (its top level
     // registers tests; importing would re-register them in this suite).
+    // noUncheckedIndexedAccess: index accesses stay string | undefined, so
+    // narrow via ?? "" after the runtime assertion.
     const source = read("tests/messages/_metaAdminAlertCatalog.test.ts");
     const block = source.match(/const ADMIN_ALERTS_CODES = \[([\s\S]*?)\] as const;/);
-    expect(block).not.toBeNull();
+    const body = block?.[1] ?? "";
+    expect(body.length).toBeGreaterThan(0);
     const universe = new Set(
-      Array.from((block as RegExpMatchArray)[1].matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1]),
+      Array.from(body.matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1] ?? ""),
     );
     for (const code of ALERT_ACTION_CODES) {
       expect(universe.has(code), `${code} missing from ADMIN_ALERTS_CODES`).toBe(true);
@@ -513,30 +516,9 @@ describe("alert-action registry parity (spec §6.3)", () => {
 });
 ```
 
-- [ ] **Step 2: Run and verify it passes against live code**
-
-Run: `pnpm vitest run tests/messages/_metaAlertActionsContract.test.ts`
-Expected: PASS. If any pin count is off, fix the REGEX against the live file text (the spec's line citations are authoritative for where the raise sites are) — do not weaken to a whole-file grep.
-
-- [ ] **Step 3: Negative-verification (prove the pins bite)**
-
-Temporarily rename `drive_file_id` → `driveFileId` inside the `LIVE_ROW_CONFLICT` context in `lib/sync/runOnboardingScan.ts` (NOT the logSync payload above it), run the meta-test, and confirm the `LIVE_ROW_CONFLICT` row FAILS. Revert (`git checkout -- lib/sync/runOnboardingScan.ts`). Then run `git status` to confirm a clean tree.
-
-- [ ] **Step 4: Run the whole messages suite (M8 namespace scanner + catalog gates live here)**
-
-Run: `pnpm vitest run tests/messages/`
-Expected: PASS — the new file adds no `code:`-stamped log calls and no catalog rows.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/messages/_metaAlertActionsContract.test.ts
-git commit --no-verify -m "test(admin): structural contract pinning alert-action registry to raise sites"
-```
-
 ---
 
-### Task 3: PerShowAlertSection renders the action link
+### Task 2: PerShowAlertSection renders the action link
 
 **Files:**
 - Modify: `components/admin/PerShowAlertSection.tsx` (row render region ~:231-283; place the link directly after `HelpAffordance` at ~:248-251)
@@ -744,7 +726,7 @@ git commit --no-verify -m "feat(admin): per-code action links in per-show alert 
 
 ---
 
-### Task 4: AlertBanner renders the action link for global rows
+### Task 3: AlertBanner renders the action link for global rows
 
 **Files:**
 - Modify: `components/admin/AlertBanner.tsx` (compute after `isWatchAlert` at :228; render inside the action slot `div[data-testid="admin-alert-action"]` at :454, as a sibling BEFORE the branch ternary)
@@ -936,7 +918,7 @@ git commit --no-verify -m "feat(admin): per-code action links for global alerts 
 
 ---
 
-### Task 5: Full-suite sweep, format, handoff scaffold
+### Task 4: Full-suite sweep, format, handoff scaffold
 
 **Files:**
 - Create: `docs/superpowers/plans/2026-07-04-alert-action-links/handoff.md`
@@ -953,7 +935,7 @@ If format:check flags the new/edited files, run `pnpm prettier --write <files>` 
 
 - [ ] **Step 3: Handoff doc**
 
-Write `handoff.md` recording: task→commit map, test evidence (suite counts), the meta-test's negative-verification result (Task 2 step 3), and a §12 placeholder for impeccable critique/audit dispositions (filled at close-out).
+Write `handoff.md` recording: task→commit map, test evidence (suite counts), the meta-test's negative-verification result (Task 1 step 6), and a §12 placeholder for impeccable critique/audit dispositions (filled at close-out).
 
 - [ ] **Step 4: Commit**
 
