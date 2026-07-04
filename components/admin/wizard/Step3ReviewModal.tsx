@@ -38,6 +38,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -85,6 +86,17 @@ export const DURATION_FAST_FALLBACK_MS = 120;
  *  `[data-step3-warning-flash]` keyframe (the transitions test pins the
  *  pairing — same drift-guard rationale as the fallback constants above). */
 export const WARNING_HIGHLIGHT_MS = 1600;
+/** §A2 fallback release of the nav-click scroll-spy suppression when a
+ *  programmatic glide never settles (zero-event and interrupted glides). */
+export const NAV_SCROLL_SETTLE_TIMEOUT_MS = 700;
+/** §A2 settle tolerance: |scrollTop − target| at/below this many px releases
+ *  the nav-click scroll-spy suppression. */
+export const NAV_SCROLL_SETTLE_EPSILON_PX = 2;
+/** §A3 sliding rail indicator's vertical inset inside the active rail item —
+ *  matches the retired per-item `inset-y-3` span (12px). Painted geometry,
+ *  but derived at runtime from measured rects (never a static class), so it
+ *  lives here beside the interaction constants it composes with. */
+export const INDICATOR_INSET_PX = 12;
 
 /**
  * Pure scroll-spy rule (spec §6.3a): the active section is the LAST one whose
@@ -193,16 +205,54 @@ export function Step3ReviewModal({
     return review ? "bg-status-review" : "bg-status-positive";
   }
 
+  // ── §A2 nav-click scroll-spy suppression ───────────────────────────────────
+  // While a programmatic glide is in flight the rAF spy must NOT re-derive
+  // `active` from intermediate positions (§H N1 — the indicator hopped across
+  // every section between here and there). All state is refs: no re-renders,
+  // unmount-safe teardown.
+  const spySuppressedRef = useRef(false);
+  const spyTargetTopRef = useRef<number | null>(null);
+  const spySettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function releaseSpySuppression() {
+    spySuppressedRef.current = false;
+    spyTargetTopRef.current = null;
+    if (spySettleTimerRef.current !== null) {
+      clearTimeout(spySettleTimerRef.current);
+      spySettleTimerRef.current = null;
+    }
+  }
+
+  /** §A2: clamp the target, hold the spy until settle/clamp/timeout/user-input.
+   *  Already-at-target → release immediately (no scroll event will fire).
+   *  A second call replaces the target and restarts the timeout (no queuing). */
+  function beginSuppressedScroll(scroller: HTMLElement, targetTop: number): number {
+    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const clamped = Math.min(Math.max(0, targetTop), maxTop);
+    if (Math.abs(scroller.scrollTop - clamped) <= NAV_SCROLL_SETTLE_EPSILON_PX) {
+      releaseSpySuppression();
+      return clamped;
+    }
+    spySuppressedRef.current = true;
+    spyTargetTopRef.current = clamped;
+    if (spySettleTimerRef.current !== null) clearTimeout(spySettleTimerRef.current);
+    spySettleTimerRef.current = setTimeout(releaseSpySuppression, NAV_SCROLL_SETTLE_TIMEOUT_MS);
+    return clamped;
+  }
+
   /** Click override (§6.3a): set active immediately + scroll the content pane
    *  to `sectionTop − 8` using the container-relative coordinate contract. JS
    *  passes no `behavior` — the pane's `motion-safe` CSS smooth-scroll governs.
+   *  The clicked id stays `active` for the whole §A2 suppressed window on BOTH
+   *  navs (shared state — no flicker on the chip rail either).
    *  (jsdom has no Element#scrollTo; tests stub it — guard keeps this safe.) */
   function handleNavClick(id: SectionId) {
     setActive(id);
     const scroller = contentRef.current;
     const target = sectionElsRef.current.get(id);
     if (!scroller || !target || typeof scroller.scrollTo !== "function") return;
-    scroller.scrollTo({ top: sectionTopFor(scroller, target) - 8 });
+    const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+    scroller.scrollTo({ top });
   }
 
   // ── §E4 warning jump + one-shot highlight (§H N3) ──────────────────────────
@@ -233,9 +283,11 @@ export function Step3ReviewModal({
     // Container-scoped attribute query — NO id attributes (twin-nav rule §9.4).
     const target = scroller?.querySelector<HTMLElement>(`[data-warning-index="${index}"]`);
     if (scroller && target && typeof scroller.scrollTo === "function") {
-      // Task 10 threads beginSuppressedScroll(scroller, top) through here so a
-      // jump engages the same §A2 suppression as a rail click.
-      scroller.scrollTo({ top: Math.max(0, sectionTopFor(scroller, target) - 8) });
+      // §A2: the jump engages the SAME scroll-spy suppression as a rail click
+      // (beginSuppressedScroll clamps to [0, max] — the old Math.max(0, …)
+      // lives inside it now).
+      const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+      scroller.scrollTo({ top });
     }
     clearWarningHighlight(); // one highlight at a time
     if (target) {
@@ -273,6 +325,27 @@ export function Step3ReviewModal({
       // actually has a size; the initial-render default (first section)
       // stands until then.
       if (el.clientHeight === 0 && el.scrollHeight === 0) return;
+      // §A2: while a nav-click/jump glide is in flight, hold `active` constant
+      // instead of deriving from intermediate positions (§H N1). Release on
+      // settle or bottom-clamp and fall through to derivation the SAME frame;
+      // timeout and user-input releases happen outside this handler.
+      if (spySuppressedRef.current) {
+        const targetTop = spyTargetTopRef.current;
+        const settled =
+          targetTop !== null && Math.abs(el.scrollTop - targetTop) <= NAV_SCROLL_SETTLE_EPSILON_PX;
+        // Bottom-clamp releases ONLY when the pending target is itself the bottom —
+        // otherwise an upward click made while parked at the bottom would release on
+        // the first barely-moved frame and re-derive the bottom section (the exact
+        // flicker this fix removes; plan-review R3 LOW).
+        const maxScrollTop = el.scrollHeight - el.clientHeight;
+        const targetIsBottom =
+          targetTop !== null && targetTop >= maxScrollTop - NAV_SCROLL_SETTLE_EPSILON_PX;
+        const bottomClamped =
+          targetIsBottom && el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+        if (settled || bottomClamped)
+          releaseSpySuppression(); // fall through same frame
+        else return; // hold active constant (§H N1)
+      }
       const tops: Array<{ id: SectionId; top: number }> = [];
       for (const s of sections) {
         const sectionEl = sectionElsRef.current.get(s.id);
@@ -288,12 +361,60 @@ export function Step3ReviewModal({
     }
 
     scroller.addEventListener("scroll", onScroll, { passive: true });
+    // §A2 user-input release: manual interaction cancels the suppression
+    // instantly so the spy follows the user, not the interrupted glide.
+    scroller.addEventListener("wheel", releaseSpySuppression, { passive: true });
+    scroller.addEventListener("touchstart", releaseSpySuppression, { passive: true });
+    scroller.addEventListener("pointerdown", releaseSpySuppression, { passive: true });
     evaluate(); // initial state (§6.3a): rule evaluated once on mount
     return () => {
       scroller.removeEventListener("scroll", onScroll);
+      scroller.removeEventListener("wheel", releaseSpySuppression);
+      scroller.removeEventListener("touchstart", releaseSpySuppression);
+      scroller.removeEventListener("pointerdown", releaseSpySuppression);
+      releaseSpySuppression(); // clears the settle timer; refs only — unmount safe
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
+    // releaseSpySuppression touches refs only — safe to omit from deps (same
+    // convention as clearPanelDragStyles in the mode-boundary effect below).
   }, [sections]);
+
+  // ── §A3 sliding rail indicator (desktop rail only) ─────────────────────────
+  // ONE shared indicator, positioned from the ACTIVE rail button's measured
+  // rect — replaces the per-item conditionally-mounted span so the accent bar
+  // can slide between items instead of teleporting.
+  const railRef = useRef<HTMLElement | null>(null);
+  const railItemRefs = useRef(new Map<SectionId, HTMLButtonElement>());
+  const [railIndicator, setRailIndicator] = useState<{ y: number; h: number } | null>(null);
+  const [indicatorTransitionsOn, setIndicatorTransitionsOn] = useState(false);
+  const hasMeasuredRef = useRef(false);
+
+  useLayoutEffect(() => {
+    const nav = railRef.current;
+    const btn = railItemRefs.current.get(active);
+    if (!nav || !btn) {
+      setRailIndicator(null); // hidden until the next successful measure (§A3 guard)
+      return;
+    }
+    const navRect = nav.getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    if (btnRect.height === 0 && navRect.height === 0) {
+      setRailIndicator(null); // unmeasurable (jsdom / display:none) → hidden
+      return;
+    }
+    // Container-relative technique, NOT offsetTop (same contract as
+    // sectionTopFor above; parent-spec §6.3a).
+    const y = btnRect.top - navRect.top + nav.scrollTop + INDICATOR_INSET_PX;
+    const h = btnRect.height - 2 * INDICATOR_INSET_PX;
+    setRailIndicator({ y, h });
+    if (!hasMeasuredRef.current) {
+      hasMeasuredRef.current = true;
+      // First paint lands WITHOUT transition classes; enable on the next frame
+      // so the indicator never slides in from translateY(0) on mount (§A3).
+      const raf = requestAnimationFrame(() => setIndicatorTransitionsOn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [active, sections]);
 
   // Initial focus → close button; Tab-trap inside the panel; restore focus to
   // the trigger on unmount. (WCAG 2.4.3 / 2.1.2 — shared hook.)
@@ -722,12 +843,30 @@ export function Step3ReviewModal({
           data-testid={`wizard-step3-card-${dfid}-review-main`}
           className="flex min-h-0 flex-1 flex-col items-stretch lg:flex-row"
         >
-          {/* Side rail — two-pane mode only (§6.2). */}
+          {/* Side rail — two-pane mode only (§6.2). `relative` anchors the §A3
+              sliding indicator (first child below). */}
           <nav
+            ref={railRef}
             aria-label="Review sections"
             data-testid={`wizard-step3-card-${dfid}-review-rail`}
-            className="hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-3 lg:flex"
+            className="relative hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface px-2 pb-3 lg:flex"
           >
+            {/* §11 T6′: animated — the shared indicator slides via transition-[transform,height] duration-fast ease-out-quart (§A3/§A4) */}
+            {railIndicator !== null ? (
+              <span
+                aria-hidden="true"
+                data-testid={`wizard-step3-card-${dfid}-review-rail-indicator`}
+                className={`absolute top-0 left-0 w-1 rounded-r-pill bg-accent ${
+                  indicatorTransitionsOn
+                    ? "transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none"
+                    : ""
+                }`}
+                style={{
+                  transform: `translateY(${railIndicator.y}px)`,
+                  height: `${railIndicator.h}px`,
+                }}
+              />
+            ) : null}
             {STEP3_SECTION_GROUPS.map((group) => {
               const groupSections = sections.filter((s) => s.group === group);
               if (groupSections.length === 0) return null;
@@ -745,6 +884,10 @@ export function Step3ReviewModal({
                       <button
                         key={s.id}
                         type="button"
+                        ref={(el) => {
+                          if (el) railItemRefs.current.set(s.id, el);
+                          else railItemRefs.current.delete(s.id);
+                        }}
                         data-testid={`wizard-step3-card-${dfid}-review-rail-item-${s.id}`}
                         aria-current={isActive ? "true" : undefined}
                         onClick={() => handleNavClick(s.id)}
@@ -752,13 +895,6 @@ export function Step3ReviewModal({
                           isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
                         }`}
                       >
-                        {/* §11 T6: instant — deliberate (indicator mounts with the active item; position does not slide) */}
-                        {isActive ? (
-                          <span
-                            aria-hidden="true"
-                            className="absolute inset-y-3 left-0 w-1 rounded-r-pill bg-accent"
-                          />
-                        ) : null}
                         <s.Icon
                           aria-hidden="true"
                           className={`size-4 shrink-0 ${

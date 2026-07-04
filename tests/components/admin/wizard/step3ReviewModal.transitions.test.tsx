@@ -17,7 +17,7 @@
  * | T3 | open → drag | `transition: none` + `animation: none`; transform tracks pointer. |
  * | T4 | drag → open (release below threshold) | Transform to 0, `--duration-fast`, transform-only. |
  * | T5 | drag → closed (release past threshold) | Transform to 100%, `--duration-normal` + `--ease-out-quart`. |
- * | T6 | activeSection change | Rail/chip background + indicator: `transition-colors duration-fast`; indicator position does NOT slide. |
+ * | T6′ | activeSection change | Rail/chip BUTTONS: `transition-colors duration-fast` only; the shared rail indicator SLIDES — `transition-[transform,height] duration-fast ease-out-quart motion-reduce:transition-none` (Task 10, spec §A3/§A4 — supersedes the Task-9 "position does NOT slide" pin). |
  * | T7 | checked false ↔ true | Instant swap — deliberate. |
  * | T7b | publish idle → pending → (closed / error) | Instant label/disabled swaps + instant error note. |
  * | T8 | rescanPending false ↔ true | Existing RescanSheetButton label/aria-busy swap — instant. |
@@ -34,7 +34,10 @@
  * dot-span conditionals, one per nav, spec §D2; Task 8 swapped one site for
  * another, net 0: the checked Check-icon conditional was REMOVED with the
  * "Selected to publish" slot and the `{checked ?` publish↔unpublish slot swap
- * was ADDED, §11 N5. The footer's demoted arm is a chained ternary
+ * was ADDED, §11 N5; Task 10 swapped one site for another, net 0: the
+ * per-item indicator span (`{isActive ?`, T6) was REMOVED and the shared
+ * `{railIndicator !== null ?` ternary was ADDED — the ONE site classified
+ * ANIMATED (T6′, §A3/§A4). The footer's demoted arm is a chained ternary
  * (`) : isFinalizeDemoted ? (`) covered by the head site's T10 marker — same
  * convention as the header chip's chained `flaggedCount` arm), so a new
  * conditional added later without classification fails this test until marked.
@@ -229,10 +232,10 @@ describe("§11 T3-T5: drag states — re-asserted table values (Task 7 owns the 
   });
 });
 
-// ── T6: activeSection change (spec §11 T6) ──────────────────────────────────
+// ── T6′: activeSection change (spec §11 T6′; Task 10 spec §A3/§A4) ───────────
 
-describe("§11 T6: activeSection change — transition-colors duration-fast on both navs; indicator does not slide", () => {
-  test("every rail item and chip item carries transition-colors duration-fast", () => {
+describe("§11 T6′: activeSection change — transition-colors on both navs' BUTTONS; the shared rail indicator slides", () => {
+  test("every rail item and chip item carries transition-colors duration-fast and NO transform/height transition (§A4: no transform transitions on items)", () => {
     const { q } = renderModal();
     // Read the registry-order ids straight off the rendered rail (anti-tautology:
     // derived from the DOM the component actually produced, not a hardcoded list).
@@ -247,21 +250,78 @@ describe("§11 T6: activeSection change — transition-colors duration-fast on b
     for (const el of [...railItems, ...chipItems]) {
       expect(el.className).toMatch(/\btransition-colors\b/);
       expect(el.className).toMatch(/\bduration-fast\b/);
+      expect(el.className).not.toMatch(/transition-\[/);
     }
   });
 
-  test("the active-item indicator mounts with the active rail item but never carries a position-slide transition (§11: 'position does not slide')", () => {
-    const { q } = renderModal();
-    const firstId = (() => {
+  test("the SHARED indicator (aria-hidden, first child of the rail nav) carries the slide transition after first measure — the ONE sanctioned T6 pin flip (Task 10)", () => {
+    // jsdom computes no layout: give the rail nav + its buttons non-zero
+    // rects so the §A3 measurement effect renders the indicator, and queue
+    // rAF so the transition-enable tick can be flushed deterministically.
+    const originalRects = Element.prototype.getBoundingClientRect;
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+    const queue: FrameRequestCallback[] = [];
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const t = this.getAttribute("data-testid") ?? "";
+      let top = 0;
+      let height = 0;
+      if (t === tid("rail")) {
+        top = 40;
+        height = 400;
+      } else if (t.includes("-review-rail-item-")) {
+        const items = Array.from(document.querySelectorAll('[data-testid*="-review-rail-item-"]'));
+        top = 48 + items.indexOf(this) * 48;
+        height = 44;
+      }
+      return {
+        top,
+        bottom: top + height,
+        left: 0,
+        right: 0,
+        width: 0,
+        height,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      queue.push(cb);
+      return queue.length;
+    }) as typeof requestAnimationFrame;
+    window.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    try {
+      const { q } = renderModal();
+      act(() => {
+        for (const cb of queue.splice(0)) cb(0);
+      });
       const rail = q.getByTestId(tid("rail"));
-      const active = rail.querySelector('[aria-current="true"]');
-      return active!.getAttribute("data-testid")!;
-    })();
-    const activeItem = q.getByTestId(firstId);
-    const indicator = activeItem.querySelector(".bg-accent")!;
-    expect(indicator).not.toBeNull();
-    // No transform/left/transition classes — it appears with the item, it never slides.
-    expect(indicator.className).not.toMatch(/transition|duration|translate/);
+      const indicator = q.getByTestId(tid("rail-indicator"));
+      expect(indicator.getAttribute("aria-hidden")).toBe("true");
+      expect(rail.firstElementChild).toBe(indicator);
+      const classes = indicator.className.split(/\s+/);
+      for (const c of [
+        "transition-[transform,height]",
+        "duration-fast",
+        "ease-out-quart",
+        "motion-reduce:transition-none",
+      ]) {
+        expect(classes).toContain(c);
+      }
+      // No per-item indicator spans remain inside any rail item.
+      for (const item of Array.from(
+        rail.querySelectorAll<HTMLElement>('[data-testid*="-rail-item-"]'),
+      )) {
+        expect(item.querySelector(".bg-accent")).toBeNull();
+      }
+    } finally {
+      Element.prototype.getBoundingClientRect = originalRects;
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+    }
   });
 });
 
@@ -468,11 +528,18 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     expect(unclassified).toEqual([]);
   });
 
-  test("all 10 currently-known sites classify as INSTANT (none are animated) — pins the §11 table's 'deliberate instant' rows", () => {
+  test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 9 are INSTANT (§11 'deliberate instant' rows)", () => {
     const lines = MODAL_SRC.split("\n");
     const hits = findConditionalLines(MODAL_SRC);
+    const animated = hits.filter((idx) => {
+      const { classified, instant } = isClassified(lines, idx);
+      return classified && !instant;
+    });
+    expect(animated).toHaveLength(1);
+    expect(lines[animated[0]!]).toContain("railIndicator");
     for (const idx of hits) {
       const { instant } = isClassified(lines, idx);
+      if (idx === animated[0]) continue;
       expect(instant).toBe(true);
     }
   });

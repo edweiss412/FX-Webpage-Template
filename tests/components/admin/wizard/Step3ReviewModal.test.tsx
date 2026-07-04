@@ -48,6 +48,9 @@ import {
   DRAG_SLOP_PX,
   DURATION_FAST_FALLBACK_MS,
   DURATION_NORMAL_FALLBACK_MS,
+  INDICATOR_INSET_PX,
+  NAV_SCROLL_SETTLE_EPSILON_PX,
+  NAV_SCROLL_SETTLE_TIMEOUT_MS,
   SCROLL_SPY_OFFSET_PX,
   Step3ReviewModal,
   WARNING_HIGHLIGHT_MS,
@@ -898,17 +901,20 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     }
   });
 
-  test("active rail item: bg-surface-sunken + w-1 rounded-r-pill bg-accent indicator; inactive has neither", () => {
+  test("active rail item: bg-surface-sunken; NO per-item accent span in ANY item (Task 10 — the shared nav-level indicator replaced them, spec §A3)", () => {
     const { q, d } = renderModal();
-    const first = step3Sections(d)[0]!;
+    const defs = step3Sections(d);
+    const first = defs[0]!;
     const activeItem = q.getByTestId(tid(`rail-item-${first.id}`));
     expect(activeItem.className).toMatch(/\bbg-surface-sunken\b/);
-    const indicator = activeItem.querySelector(".bg-accent");
-    expect(indicator).not.toBeNull();
-    expect(indicator!.className).toMatch(/\bw-1\b/);
-    expect(indicator!.className).toMatch(/\brounded-r-pill\b/);
-    const idle = q.getByTestId(tid("rail-item-warnings"));
-    expect(idle.querySelector(".bg-accent")).toBeNull();
+    // The retired per-item conditional span (inset-y-3 accent bar) is GONE —
+    // from the active item AND every other item (the indicator is the single
+    // nav-level element pinned by the Task-10 sliding-indicator suite below).
+    for (const s of defs) {
+      const item = q.getByTestId(tid(`rail-item-${s.id}`));
+      expect(item.querySelector(".bg-accent")).toBeNull();
+      expect(item.querySelector(".inset-y-3")).toBeNull();
+    }
   });
 
   test("warnings dot is ROW-LOCAL: info-only warnings → positive dot while the count still shows", () => {
@@ -1303,6 +1309,486 @@ describe("Step3ReviewModal — scroll-spy wiring (Task 6, spec §6.3a)", () => {
     } finally {
       restoreRects();
     }
+  });
+});
+
+// ── Nav-click scroll-spy suppression (Task 10, spec §A2; §H N1) ──────────────
+
+describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec §A2)", () => {
+  let restoreRects: (() => void) | null = null;
+  let restoreRaf: (() => void) | null = null;
+  let originalScrollTo: PropertyDescriptor | undefined;
+  let hadScrollTo = false;
+
+  afterEach(() => {
+    restoreRects?.();
+    restoreRects = null;
+    restoreRaf?.();
+    restoreRaf = null;
+    if (hadScrollTo) {
+      if (originalScrollTo) {
+        Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+      } else {
+        delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+      }
+      hadScrollTo = false;
+      originalScrollTo = undefined;
+    }
+    vi.useRealTimers();
+  });
+
+  /** Harness per the task-10 brief: fake timers, rAF mapped onto 0ms fake
+   *  timeouts (a SYNCHRONOUS rAF stub would break the component's throttle —
+   *  `rafId = requestAnimationFrame(evaluate)` assigns AFTER the callback
+   *  already reset rafId to null, permanently wedging the gate; manual
+   *  assignment, NOT vi.stubGlobal, for deterministic restore order vs
+   *  useFakeTimers), prototype `scrollTo` stub, and DYNAMIC per-element
+   *  geometry: the content pane is the coordinate origin (rect.top always 0);
+   *  each section's viewport-relative top = absoluteTop − content.scrollTop —
+   *  exactly what a real scrolled pane reports — so `sectionTopFor` recovers
+   *  the absolute container-relative top at ANY scroll position. */
+  function setup(
+    opts: {
+      d?: SectionData;
+      clientHeight?: number;
+      /** scrollHeight as a function of the section count n. */
+      scrollHeight?: (n: number) => number;
+      /** Absolute container-relative top of section i (of n). */
+      absTop?: (i: number, n: number) => number;
+    } = {},
+  ) {
+    vi.useFakeTimers();
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+      setTimeout(() => cb(0), 0) as unknown as number) as typeof requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) =>
+      clearTimeout(id as unknown as ReturnType<typeof setTimeout>)) as typeof cancelAnimationFrame;
+    restoreRaf = () => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+    };
+    originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    hadScrollTo = true;
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: scrollTo,
+      configurable: true,
+      writable: true,
+    });
+
+    const { q, d } = renderModal(opts.d ? { d: opts.d } : {});
+    const defs = step3Sections(d);
+    const n = defs.length;
+    const content = q.getByTestId(tid("content"));
+    const clientHeight = opts.clientHeight ?? 600;
+    const scrollHeight = (opts.scrollHeight ?? ((k: number) => k * 1000 + 400))(n);
+    Object.defineProperty(content, "clientHeight", { value: clientHeight, configurable: true });
+    Object.defineProperty(content, "scrollHeight", { value: scrollHeight, configurable: true });
+    const absTopOf = opts.absTop ?? ((i: number) => i * 1000);
+    const absTops = new Map<Element, number>();
+    defs.forEach((s, i) => absTops.set(q.getByTestId(tid(`section-${s.id}`)), absTopOf(i, n)));
+    const originalRects = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const abs = absTops.get(this);
+      const top = this === content || abs === undefined ? 0 : abs - content.scrollTop;
+      return {
+        top,
+        bottom: top,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    restoreRects = () => {
+      Element.prototype.getBoundingClientRect = originalRects;
+    };
+    return {
+      q,
+      d,
+      defs,
+      content,
+      scrollTo,
+      clientHeight,
+      scrollHeight,
+      maxTop: scrollHeight - clientHeight,
+      absTop: (i: number) => absTopOf(i, n),
+      tops: defs.map((s, i) => ({ id: s.id, top: absTopOf(i, n) })),
+    };
+  }
+
+  /** aria-current holder's section id, read off the given nav. */
+  function navActiveId(q: ReturnType<typeof renderModal>["q"], nav: "rail" | "chiprail"): string {
+    const item = nav === "rail" ? "rail-item-" : "chip-item-";
+    const current = q.getByTestId(tid(nav)).querySelector('[aria-current="true"]');
+    expect(current).not.toBeNull();
+    return current!.getAttribute("data-testid")!.replace(tid(item), "");
+  }
+
+  /** One scroll "frame": set the position, dispatch, and run the 0ms
+   *  rAF-timeout so the throttled evaluate() executes for THIS event. */
+  function scrollAt(content: HTMLElement, top: number) {
+    content.scrollTop = top;
+    fireEvent.scroll(content);
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+  }
+
+  test("§H N1: after a far rail click, aria-current NEVER visits any id other than {pre-click, clicked} across intermediate glide frames — on BOTH navs", () => {
+    const { q, defs, content, scrollTo, clientHeight, scrollHeight, absTop, tops } = setup();
+    expect(navActiveId(q, "rail")).toBe(defs[0]!.id); // pre-click
+    const target = defs[defs.length - 1]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+    // Clicked id is active immediately, before any scroll event fires.
+    expect(navActiveId(q, "rail")).toBe(target.id);
+    expect(navActiveId(q, "chiprail")).toBe(target.id);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    // Simulate the smooth glide's intermediate frames. Sanity per frame: the
+    // pure rule WOULD derive a different id — only suppression holds it.
+    const intermediates = [1, Math.floor(defs.length / 2), defs.length - 2].map(
+      (i) => absTop(i) + 10,
+    );
+    for (const top of intermediates) {
+      expect(activeSectionFor(top, clientHeight, scrollHeight, tops)).not.toBe(target.id);
+      scrollAt(content, top);
+      expect(navActiveId(q, "rail")).toBe(target.id);
+      expect(navActiveId(q, "chiprail")).toBe(target.id); // shared state — chip rail benefits too
+    }
+  });
+
+  test("settled release falls through to derivation on the SAME frame (|scrollTop − target| ≤ ε)", () => {
+    // Custom geometry: the LAST section sits only 50px below the second-to-last
+    // (inside SCROLL_SPY_OFFSET_PX), so the settled position derives a
+    // DIFFERENT id than the clicked one — proving the release fell through to
+    // derivation within the SAME scroll dispatch (not a later frame).
+    const { q, defs, content, absTop } = setup({
+      absTop: (i, n) => (i === n - 1 ? (n - 2) * 1000 + 50 : i * 1000),
+    });
+    const clicked = defs[defs.length - 2]!;
+    const slidesTo = defs[defs.length - 1]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${clicked.id}`)));
+    const targetTop = absTop(defs.length - 2) - 8; // sectionTopFor − 8 (unclamped here)
+    // Mid-glide frame far from the target: held.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(clicked.id);
+    // Within epsilon of the target: released + derived on this SAME dispatch.
+    scrollAt(content, targetTop + NAV_SCROLL_SETTLE_EPSILON_PX);
+    expect(navActiveId(q, "rail")).toBe(slidesTo.id);
+  });
+
+  test("bottom-clamp release: a target that IS the bottom releases when the pane hits the bottom, even outside ε", () => {
+    // scrollHeight small enough that the last section's target exceeds maxTop
+    // → beginSuppressedScroll clamps it to the bottom.
+    const { q, defs, content, scrollHeight, maxTop, absTop } = setup({
+      scrollHeight: (n) => (n - 1) * 1000 + 400,
+    });
+    const target = defs[defs.length - 1]!;
+    expect(absTop(defs.length - 1) - 8).toBeGreaterThan(maxTop); // fixture sanity: clamped
+    fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+    // The pane resizes mid-glide (e.g. viewport change): the glide stops at the
+    // NEW bottom, 50px short of the clamped target — outside ε, so only the
+    // bottom-clamp condition can release.
+    Object.defineProperty(content, "clientHeight", { value: 650, configurable: true });
+    const newBottom = scrollHeight - 650;
+    expect(Math.abs(newBottom - maxTop)).toBeGreaterThan(NAV_SCROLL_SETTLE_EPSILON_PX);
+    scrollAt(content, newBottom);
+    // Released (derivation at the bottom picks the last section = clicked id);
+    // the NEXT frame re-derives freely — no timers advanced, no user input.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+  });
+
+  test("upward-from-bottom HOLD: parked at the bottom, clicking a target well above max scroll does NOT release on a still-at-bottom frame", () => {
+    const { q, defs, content, maxTop } = setup();
+    // Park at the bottom — derivation puts the LAST section active.
+    scrollAt(content, maxTop);
+    expect(navActiveId(q, "rail")).toBe(defs[defs.length - 1]!.id);
+    // Click the FIRST section (target clamps to 0 — nowhere near the bottom).
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[0]!.id}`)));
+    expect(navActiveId(q, "rail")).toBe(defs[0]!.id);
+    // Glide barely started: a scroll frame still AT the bottom satisfies the
+    // naive bottom-clamp check — but the target is not the bottom, so the
+    // suppression must HOLD (a release here would re-derive the bottom
+    // section: the reported flicker's edge case).
+    scrollAt(content, maxTop);
+    expect(navActiveId(q, "rail")).toBe(defs[0]!.id);
+  });
+
+  test("timeout release: held at TIMEOUT−1ms, re-derives after NAV_SCROLL_SETTLE_TIMEOUT_MS (zero-event/interrupted glides)", () => {
+    const { q, defs, content, absTop } = setup();
+    const target = defs[defs.length - 1]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+    const unrelated = absTop(1) + 10;
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    scrollAt(content, unrelated);
+    expect(navActiveId(q, "rail")).toBe(target.id); // still suppressed
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    scrollAt(content, unrelated);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id); // released — spy re-derives
+  });
+
+  test.each(["wheel", "touchstart", "pointerdown"] as const)(
+    "user-input release: %s on the scroller cancels the override — the next scroll re-derives instantly",
+    (eventType) => {
+      const { q, defs, content, absTop } = setup();
+      const target = defs[defs.length - 1]!;
+      fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+      const unrelated = absTop(1) + 10;
+      scrollAt(content, unrelated);
+      expect(navActiveId(q, "rail")).toBe(target.id); // suppressed before the input
+      if (eventType === "wheel") fireEvent.wheel(content);
+      else if (eventType === "touchstart") fireEvent.touchStart(content);
+      else fireEvent.pointerDown(content);
+      scrollAt(content, unrelated);
+      expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+    },
+  );
+
+  test("pre-scroll immediate release: already within ε of the target → suppression never engages (no scroll event will fire)", () => {
+    const { q, defs, content, scrollTo, absTop } = setup();
+    const k = Math.floor(defs.length / 2);
+    // Park exactly at section k's click target.
+    scrollAt(content, absTop(k) - 8);
+    expect(navActiveId(q, "rail")).toBe(defs[k]!.id);
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[k]!.id}`)));
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: absTop(k) - 8 });
+    // A subsequent scroll re-derives IMMEDIATELY — no timer advance, no user
+    // input — proving no suppression window was opened.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+  });
+
+  test("replace-not-queue: a second nav click mid-suppression replaces the target and restarts the timeout", () => {
+    const { q, defs, content, absTop } = setup();
+    const first = defs[defs.length - 1]!;
+    const second = defs[defs.length - 3]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${first.id}`)));
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    fireEvent.click(q.getByTestId(tid(`rail-item-${second.id}`)));
+    expect(navActiveId(q, "rail")).toBe(second.id);
+    // The FIRST click's target no longer releases: settling at it holds.
+    scrollAt(content, absTop(defs.length - 1) - 8);
+    expect(navActiveId(q, "rail")).toBe(second.id);
+    // The FIRST click's timeout (1ms away when replaced) was cleared: at
+    // NEW-timeout−1 the suppression still holds…
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(second.id);
+    // …and releases only at the NEW timeout.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+  });
+
+  test("unmount mid-suppression: no timer leaks; scroll + wheel/touchstart/pointerdown listeners all removed", () => {
+    const { q, defs, content } = setup();
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[defs.length - 1]!.id}`)));
+    const removeSpy = vi.spyOn(content, "removeEventListener");
+    q.unmount();
+    expect(() => vi.runAllTimers()).not.toThrow();
+    const removed = removeSpy.mock.calls.map((c) => c[0]);
+    for (const type of ["scroll", "wheel", "touchstart", "pointerdown"]) {
+      expect(removed).toContain(type);
+    }
+  });
+
+  test("§E4 jump threads the SAME suppression: after a warning jump, intermediate frames hold 'warnings'; timeout still releases", () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q, defs, content, absTop } = setup({ d });
+    // Park mid-pane so the jump target (container-relative li top − 8) differs
+    // from the current position by more than ε.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+    const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+    fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+    expect(navActiveId(q, "rail")).toBe("warnings");
+    // Mid-glide frame at an unrelated position: held on 'warnings'.
+    scrollAt(content, absTop(2) + 10);
+    expect(navActiveId(q, "rail")).toBe("warnings");
+    // Timeout releases the jump's suppression exactly like a rail click's.
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
+    });
+    scrollAt(content, absTop(2) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[2]!.id);
+  });
+});
+
+// ── Sliding rail indicator (Task 10, spec §A3) ───────────────────────────────
+
+describe("Step3ReviewModal — sliding rail indicator (Task 10, spec §A3)", () => {
+  // Stubbed rail geometry (jsdom computes no layout). Values are arbitrary but
+  // non-zero; every expectation below is DERIVED from these constants + the
+  // exported INDICATOR_INSET_PX — never restated literals.
+  const NAV_TOP = 40;
+  const NAV_HEIGHT = 400;
+  const FIRST_ITEM_OFFSET = 8; // first button's top below the nav's top
+  const ITEM_STRIDE = 48;
+  const ITEM_HEIGHT = 44;
+
+  let restoreRects: (() => void) | null = null;
+  let restoreRaf: (() => void) | null = null;
+
+  afterEach(() => {
+    restoreRects?.();
+    restoreRects = null;
+    restoreRaf?.();
+    restoreRaf = null;
+  });
+
+  /** Per-element rects keyed by data-testid: the rail nav and its item
+   *  buttons get real-looking geometry; everything else stays 0 (so the
+   *  scroll-spy's zero-pane guard keeps it inert). Installed BEFORE render —
+   *  the measurement useLayoutEffect runs on mount. */
+  function stubRailGeometry() {
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const t = this.getAttribute("data-testid") ?? "";
+      let top = 0;
+      let height = 0;
+      if (t === tid("rail")) {
+        top = NAV_TOP;
+        height = NAV_HEIGHT;
+      } else if (t.includes("-review-rail-item-")) {
+        const items = Array.from(document.querySelectorAll('[data-testid*="-review-rail-item-"]'));
+        top = NAV_TOP + FIRST_ITEM_OFFSET + items.indexOf(this) * ITEM_STRIDE;
+        height = ITEM_HEIGHT;
+      }
+      return {
+        top,
+        bottom: top + height,
+        left: 0,
+        right: 0,
+        width: 0,
+        height,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    restoreRects = () => {
+      Element.prototype.getBoundingClientRect = original;
+    };
+  }
+
+  /** Queue-based rAF: callbacks run only when flush() is called, so the test
+   *  can observe the FIRST paint (before the transition-enable tick). */
+  function stubRafQueue() {
+    const queue: FrameRequestCallback[] = [];
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      queue.push(cb);
+      return queue.length;
+    }) as typeof requestAnimationFrame;
+    window.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    restoreRaf = () => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+    };
+    return {
+      flush: () =>
+        act(() => {
+          for (const cb of queue.splice(0)) cb(0);
+        }),
+    };
+  }
+
+  function expectedY(itemIndex: number, navScrollTop = 0): number {
+    // y = btnRect.top − navRect.top + nav.scrollTop + INDICATOR_INSET_PX (§A3)
+    return FIRST_ITEM_OFFSET + itemIndex * ITEM_STRIDE + navScrollTop + INDICATOR_INSET_PX;
+  }
+  const EXPECTED_H = ITEM_HEIGHT - 2 * INDICATOR_INSET_PX;
+
+  test("exactly ONE indicator: aria-hidden, FIRST child of the rail nav (nav is `relative`); per-item spans gone; transform/height derived from the active button's rect", () => {
+    stubRailGeometry();
+    const { flush } = stubRafQueue();
+    const { q } = renderModal();
+    flush();
+    const rail = q.getByTestId(tid("rail"));
+    expect(rail.className).toMatch(/\brelative\b/);
+    const indicator = q.getByTestId(tid("rail-indicator"));
+    expect(indicator.getAttribute("aria-hidden")).toBe("true");
+    expect(rail.firstElementChild).toBe(indicator);
+    // ONE indicator element in the whole modal; ZERO per-item accent spans.
+    expect(
+      q.getByTestId(tid("modal")).querySelectorAll(`[data-testid="${tid("rail-indicator")}"]`),
+    ).toHaveLength(1);
+    expect(rail.querySelectorAll(".inset-y-3")).toHaveLength(0);
+    const accentEls = rail.querySelectorAll(".bg-accent");
+    expect(accentEls).toHaveLength(1);
+    expect(accentEls[0]).toBe(indicator);
+    for (const c of ["absolute", "left-0", "w-1", "rounded-r-pill", "bg-accent"]) {
+      expect(indicator.className.split(/\s+/)).toContain(c);
+    }
+    // Active = first registry section (index 0): position from ITS stubbed rect.
+    expect(indicator.style.transform).toBe(`translateY(${expectedY(0)}px)`);
+    expect(indicator.style.height).toBe(`${EXPECTED_H}px`);
+  });
+
+  test("first mount applies position WITHOUT transition classes; the enable tick adds them (no slide-in from 0; motion-reduce collapse included)", () => {
+    stubRailGeometry();
+    const { flush } = stubRafQueue();
+    const { q } = renderModal();
+    const indicator = q.getByTestId(tid("rail-indicator"));
+    // BEFORE the enable tick: measured position, NO transition classes — the
+    // first paint must not animate from translateY(0) (and reduced-motion
+    // first-mount cannot animate either: there is nothing to transition).
+    expect(indicator.style.transform).toBe(`translateY(${expectedY(0)}px)`);
+    expect(indicator.className).not.toMatch(/transition-\[/);
+    flush();
+    const classes = q.getByTestId(tid("rail-indicator")).className.split(/\s+/);
+    for (const c of [
+      "transition-[transform,height]",
+      "duration-fast",
+      "ease-out-quart",
+      "motion-reduce:transition-none",
+    ]) {
+      expect(classes).toContain(c);
+    }
+  });
+
+  test("clicking another rail item slides the indicator: transform re-measured from that button's rect + nav.scrollTop; transition classes retained", () => {
+    stubRailGeometry();
+    const { flush } = stubRafQueue();
+    const { q, d } = renderModal();
+    flush();
+    const defs = step3Sections(d);
+    const k = 3;
+    const rail = q.getByTestId(tid("rail"));
+    rail.scrollTop = 60; // pins the `+ nav.scrollTop` term of the §A3 formula
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[k]!.id}`)));
+    const indicator = q.getByTestId(tid("rail-indicator"));
+    expect(indicator.style.transform).toBe(`translateY(${expectedY(k, 60)}px)`);
+    expect(indicator.style.height).toBe(`${EXPECTED_H}px`);
+    expect(indicator.className).toMatch(/transition-\[transform,height\]/);
+  });
+
+  test("unmeasurable geometry (jsdom zeros — no stub) → indicator hidden (null render); rail items render normally", () => {
+    const { q } = renderModal();
+    expect(q.queryByTestId(tid("rail-indicator"))).toBeNull();
+    expect(
+      q.getByTestId(tid("rail")).querySelectorAll('[data-testid*="-review-rail-item-"]').length,
+    ).toBeGreaterThan(0);
   });
 });
 
