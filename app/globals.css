@@ -89,6 +89,8 @@
   --color-status-review-text: var(--color-status-review-text-runtime);
   --color-status-warn: var(--color-status-warn-runtime);
   --color-status-warn-text: var(--color-status-warn-text-runtime);
+  --color-status-degraded: var(--color-status-degraded-runtime);
+  --color-status-degraded-text: var(--color-status-degraded-text-runtime);
   --color-status-idle: var(--color-text-faint);
   --color-status-idle-text: var(--color-text-subtle);
 
@@ -265,6 +267,8 @@
   --color-status-review-text-runtime: #6e4e00;
   --color-status-warn-runtime: #b26a16;
   --color-status-warn-text-runtime: #7a3d00;
+  --color-status-degraded-runtime: #b3261e;
+  --color-status-degraded-text-runtime: #ffffff;
 
   color-scheme: light;
 }
@@ -307,6 +311,8 @@
     --color-status-review-text-runtime: #f0c860;
     --color-status-warn-runtime: #e9a23a;
     --color-status-warn-text-runtime: #f0b454;
+    --color-status-degraded-runtime: #e5534b;
+    --color-status-degraded-text-runtime: #1a1a1a;
 
     color-scheme: dark;
   }
@@ -342,6 +348,8 @@
   --color-status-review-text-runtime: #f0c860;
   --color-status-warn-runtime: #e9a23a;
   --color-status-warn-text-runtime: #f0b454;
+  --color-status-degraded-runtime: #e5534b;
+  --color-status-degraded-text-runtime: #1a1a1a;
 
   color-scheme: dark;
 }
