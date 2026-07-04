@@ -60,8 +60,8 @@ Only 2 files need a shape change; everything else auto-generalizes (`.total` / `
 
 ### Task 4 — `DataQualityBadge`: bounded accessible name
 
-**RED** (`tests/components/admin/ShowsTable.test.tsx` badge tests): with a >4-class summary, assert `aria-label` = `"${total} data gap(s): "` + `formatDataGapBreakdown(...)` (≤4 classes + "+N more"), queried by `role=img` accessible name, expected derived from the helper (not hardcoded). Assert no raw `_`-code token in the name (clone tree, strip sibling panels per anti-tautology rule).
-**GREEN:** build the badge name via the helper.
+**RED** (`tests/components/admin/ShowsTable.test.tsx` badge tests): with a >4-class summary, assert **both** the badge `aria-label` AND its `title` attribute equal `"${total} data gap(s): "` + `formatDataGapBreakdown(...)` (≤4 classes + "+N more") — the spec bounds both (Codex plan R2 MEDIUM: don't leave `title` on the unbounded 22-class join). Query by `role=img` accessible name + read the `title` attr; expected derived from the helper (not hardcoded). Assert no raw `_`-code token in either (clone tree, strip sibling panels per anti-tautology rule).
+**GREEN:** build both the badge accessible name and `title` via the helper.
 **Commit:** `fix(admin): bound the data-quality badge accessible name via the shared cap helper`
 
 ### Task 5 — `ShowsTable` `DataGapsChip`: bounded title
@@ -78,7 +78,7 @@ Only 2 files need a shape change; everything else auto-generalizes (`.total` / `
 
 ### Task 7 — Impeccable dual-gate (invariant 8) — UI surfaces
 
-Run `/impeccable critique` AND `/impeccable audit` on the diff (touched UI: `DataQualityBadge.tsx`, `ShowsTable.tsx` chip, `PerShowAlertSection.tsx`, the **19** new `DATA_GAP_CLASS_LABELS` copy strings — 22 counted − 3 reused from #289). Fix HIGH/CRITICAL or defer via `DEFERRED.md`. Copy focus: the 18 labels are plain-language, lowercase, mid-sentence, pluralize under `+s`, no jargon, **no em dash** (absolute ban). Record findings + dispositions.
+Run `/impeccable critique` AND `/impeccable audit` on the diff (touched UI: `DataQualityBadge.tsx`, `ShowsTable.tsx` chip, `PerShowAlertSection.tsx`, the **19** new `DATA_GAP_CLASS_LABELS` copy strings — 22 counted − 3 reused from #289). Fix HIGH/CRITICAL or defer via `DEFERRED.md`. Copy focus: the 19 new labels are plain-language, mid-sentence, pluralize under `+s`, no jargon, **no em dash** (absolute ban). Record findings + dispositions.
 **Commit:** `fix(admin): impeccable dual-gate — data-gap label copy + badge/chip polish` (only if changes)
 
 ### Task 8 — Full verification + adversarial review (cross-model)
