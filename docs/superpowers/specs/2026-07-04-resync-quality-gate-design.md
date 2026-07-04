@@ -17,195 +17,173 @@ The **detection already exists**: `runInvariants` (`lib/parser/invariants.ts:250
 
 ## 2. Goal
 
-Promote **count-based material shrinkage** (`MI-6` crew, `MI-7` section) on an existing published show from **notify-only auto-apply → staged-for-review**, so the live show retains last-good until an admin approves (accept the smaller roster) or rejects (keep last-good). This is audit recommendation #2 verbatim: *"Promote MI-6/MI-7 shrinkage from notify-only to staged-for-review."*
+On a scheduled (cron) re-sync of an existing published show, **material shrinkage (`MI-6` crew, `MI-7` section) must not auto-apply.** Instead, **retain last-good** (serve the previous roster/blocks unchanged — no clobber) and **raise a pushed admin alert** so a human is signaled. The admin resolves by either accepting the shrink (a manual re-sync applies it) or leaving it until Doug fixes the sheet (the next clean cron re-sync applies and the alert auto-resolves).
 
-**Non-goal (explicitly out of scope):** a general "new parse materially worse than last-good" comparator (audit lists this as *"consider…"*, optional). `MI-6`/`MI-7` **are** the comparator; a second one is YAGNI. De-literalizing anchors is work item #3. MI-7b behavior change is excluded (§6).
+This is audit recommendation #2's sanctioned option ("…or at minimum a pushed admin alert"), **chosen by the product owner** over the fuller "staged-for-review" path because the whole-parse review UI was deliberately retired in Phase 6 (resolution #21 cutover) and staging would require reversing that ratified decision (§10). Retain-last-good + alert prevents the exact data-loss vector, aligns with the current Phase-6 architecture (ChangesFeed + admin alerts, no whole-parse review mount), and is far smaller.
+
+**Non-goals (out of scope):** a general "materially worse than last-good" comparator (`MI-6`/`MI-7` **are** the comparator); staging / a whole-parse review UI (owner-declined, §10); de-literalizing anchors (work item #3); any `MI-7b` behavior change (D3).
 
 ## 3. Resolved decisions
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| D1 | **Stage-for-review**, not alert-only. | An alert-only fix (audit's *"at minimum"*) fires **after** `applyParseResult` has already `deleteCrewMembersNotIn`'d the live rows — it reports the loss, it does not prevent it. Staging is the only option that actually stops the clobber. |
-| D2 | **Reuse the existing `existing_staged` machinery**; add **no** new schema and **no** new admin-alert code. (One new §12.4 *message* code — `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`, §4c — is the sole catalog addition, for the combined-case approve refusal.) | `pending_syncs` already supports existing-show rows (no `show_id` FK; keyed on `drive_file_id`; `20260501001000_internal_and_admin.sql:138-183`). The staging write path already branches on `show` existence (`phase1.ts:397-399` calls `updateShowPendingReview`). The `existing_staged` inbox variant (`lib/admin/needsAttention.ts:102,315`), digest push (`lib/notify/digest.ts:97` → "Changes staged for review"), per-show `?review=` surface, `applyStagedCore` UPDATE path, and `discardStaged` reject variants are all live and tested. `MI-6_CREW_SHRINKAGE` / `MI-7_SECTION_SHRINKAGE` already have §12.4 catalog rows (`lib/messages/catalog.ts:706,719`) and generated codes (`spec-codes.ts:527,533`). |
-| D3 | **Gate `MI-6` and `MI-7` only**; leave `MI-7b`, `MI-11`, and asset-drift in their current lanes. | `MI-6`/`MI-7` are count-based **material** shrinkage (the audit's exact target). `MI-7b` (keyed preservation, `invariants.ts:329-360`) fires on **any benign room/hotel/contact rename** (memory `feedback_parser_rename_restages_via_mi7b`: "any rename re-stages once") — gating it would re-create the exact review-backlog problem the PF34 cutover eliminated. `MI-11` (email identity change) correctly routes to per-crew `sync_holds`. Asset drift is notify-only by design. |
-| D4 | **ALL material-shrinkage stages — including MI-11 co-occurrence — so last-good is preserved in every case.** When `MI-6`/`MI-7` fire on an existing show, the whole parse stages regardless of `MI-11`. The staged row **persists any co-occurring `MI-11` items** so the existing fail-closed guard protects approval (see below). Only when there is NO shrinkage does an `MI-11`-only parse continue to `auto_apply_with_holds` (unchanged). | The audit goal is "no shrink clobber," so the combined shrink+email case must NOT auto-apply (that still full-replaces via `applyParseResult` — Codex R2 finding). Staging preserves last-good. The staged-**apply** path is **fail-closed on `MI-11`**: `applyStaged.ts:1257-1266` (`P2-F7`) `throw`s `Phase2GateBypassError` when a staged row carries an `MI-11` item (the legacy whole-parse apply would call `runPhase2` with `mi11Items: []` → email applies ungated). By persisting the `MI-11` items in the staged row, approval of a combined parse is fail-closed — no clobber, no ungated email. The apply route catches the throw and returns the dedicated cataloged `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED` code (§4c) so the admin sees a clean "keep the current version" message, not a 500. Primary resolution: reject/`defer_until_modified`. Completing approve-with-holds for the combined case (persist + convert `MI-11` → holds, reversing `P2-F7`) is `BL-RESYNC-STAGE-MI11-HOLDS` (§13). |
-| D5 | **Scope to existing shows only** (`show != null`). | `MI-6`/`MI-7` require a prior snapshot and return early when `prior === null` (`invariants.ts:238`), so they can never fire first-seen. The `!show` auto-publish branch (`phase1.ts:354-370`) is disjoint. |
-| D6 | **Existing-show reject supports `defer_until_modified` only** (plus the existing `try_again`); `permanent_ignore` stays **invalid** for existing shows. | A rejected shrink must not re-stage the same sheet (Finding 2), which `defer_until_modified` solves (watermark → skip until `modifiedTimeAdvanced`). `permanent_ignore` is an **unconditional** skip until manually cleared (`runScheduledCronSync.ts:2147-2148`) — it could permanently freeze a published show's auto-updates (Codex R2 finding), a broader behavior with no use case here. The reject route already forwards `defer_until_modified` (`app/api/admin/show/staged/[stagedId]/discard/route.ts:41-82`); the consumer is `drive_file_id`-keyed and show-agnostic (`runScheduledCronSync.ts:2150-2152`). Only the **write** side is blocked — `discardStaged.ts:504-505` refuses non-`try_again` when a show exists. §4b enables `defer_until_modified` there and keeps `permanent_ignore` rejected for existing shows. |
+| D1 | **Retain-last-good + pushed admin alert** (product-owner decision 2026-07-04), NOT staging. | Staging (audit's primary rec) needs the whole-parse review UI that Phase 6 retired (`tests/app/admin/perShowPage.test.tsx:373-388` pins its absence: "the legacy live whole-parse review mount (ParsePanel) is RETIRED… no invariant stages a whole parse anymore"). Retain+alert prevents the clobber, aligns with Phase 6, and is far smaller. Owner chose it explicitly. |
+| D2 | **Mirror the existing hard-fail retain path**, with a distinct outcome + code. | The hard-fail branch (`phase1.ts:288-313` → `runScheduledCronSync.ts:2777-2806`) already implements "retain last-good, don't apply, raise a per-show admin alert, resolve stale peers." The shrink-hold is the same shape with a new outcome `shrink_held` and a new code `RESYNC_SHRINK_HELD` (parse succeeded, so it is NOT `parse_error`/`PARSE_ERROR_LAST_GOOD`). |
+| D3 | **Hold on `MI-6` and `MI-7` only.** Leave `MI-7b`, `MI-11`, asset-drift in their current lanes. | `MI-6`/`MI-7` are count-based **material** shrinkage (the audit's exact target). `MI-7b` (keyed preservation, `invariants.ts:329-360`) fires on **any benign rename** (memory `feedback_parser_rename_restages_via_mi7b`) — holding it would nag on normal edits. `MI-11` (email identity change) alone keeps routing to `auto_apply_with_holds`. Asset drift stays notify-only. |
+| D4 | **Manual re-sync is the "accept" path — it overrides the hold and applies.** | Manual re-sync (`runManualSyncForShow`, `mode: "manual"`) is an explicit admin action; it already "re-applies even a held/suppressed show" (`runManualSyncForShow.ts:430,436` — DEF-3 overrides deferrals). The hold is gated on `args.mode !== "manual"`, so a manual re-sync applies the shrink (accepting the smaller roster) and the resolve-site clears the alert. A combined shrink+`MI-11` manual re-sync flows through the normal `auto_apply_with_holds` path (email still held). |
+| D5 | **`MI-11` co-occurrence needs no special handling.** | Because the hold **applies nothing**, a shrink+email-change parse cannot clobber and cannot apply an ungated email. It simply holds last-good. (This is why retain-last-good is simpler than staging, which had to fail-close the approve path against `MI-11`.) |
+| D6 | **Scope to existing shows only** (`show != null`), cron mode only. | `MI-6`/`MI-7` require a prior snapshot (`invariants.ts:238`) so they never fire first-seen. The `!show` first-seen/auto-publish branch (`phase1.ts:354-370`) is disjoint. |
+| D7 | **No `last_sync_status` enum change.** The alert is the signal; last-good keeps its `ok` status. | Avoids a DB CHECK/enum migration and touching every status consumer (`StaleFooter`/`syncStatus`/`driveConnectionHealth`). The pushed `RESYNC_SHRINK_HELD` alert is the "held" signal (the audit's actual gap was *no pushed signal*). The alert's lifecycle is `auto`, resolved at the apply-success site (D2, §4c). |
 
-## 4. Architecture — the behavioral change
+## 4. Architecture
 
-The primary production change is in `runPhase1` (`lib/sync/phase1.ts`), narrowing the PF34 filter so material-shrinkage items on an existing show route into `triggeredReviewItems` (→ `upsertLivePendingSync`) instead of being dropped. A secondary change in `discardStaged` (§4b) makes the reject path defer-capable for existing shows so a rejected shrink cannot re-stage.
+### 4a. `lib/sync/phase1.ts` — the hold decision
 
-**Before** (`phase1.ts:337-345`):
-
-```ts
-const mi11Items = reviewItems.filter(
-  (item): item is Extract<TriggeredReviewItem, { invariant: "MI-11" }> =>
-    item.invariant === "MI-11",
-);
-
-// The staging branch (`upsertLivePendingSync`) is now reserved for SENTINELS + hard-fail ONLY [PF34].
-let triggeredReviewItems: TriggeredReviewItem[] = sentinel ? [sentinel] : [];
-```
-
-**After:**
+Where PF34 currently drops `MI-6`/`MI-7` to `pass`, add a hold branch. `MI-6`/`MI-7` items live in `reviewItems` (from `withLeadToggleSafetyNet(...)` when `runInvariants` returns `{outcome:"stage"}`, `phase1.ts:317-329`). Insert **before** the existing `triggeredReviewItems`/`mi11`/`pass` logic:
 
 ```ts
-const mi11Items = reviewItems.filter(
-  (item): item is Extract<TriggeredReviewItem, { invariant: "MI-11" }> =>
-    item.invariant === "MI-11",
-);
-
 // Re-sync quality gate (audit finding #3): count-based MATERIAL shrinkage (MI-6 crew,
-// MI-7 section) on an EXISTING published show stages the whole parse for review instead
-// of auto-clobbering live data. MI-7b (benign renames) and asset drift stay notify-only —
-// narrowing PF34, not reversing it. MI-6/MI-7 require a prior (invariants.ts:238), so
-// `show` is always non-null when they fire; the `show &&` guard documents the scope.
-const materialShrinkItems: TriggeredReviewItem[] = show
-  ? reviewItems.filter(
-      (item) => item.invariant === "MI-6" || item.invariant === "MI-7",
-    )
+// MI-7 section) on an EXISTING published show HOLDS last-good instead of auto-clobbering.
+// A scheduled (cron/push) re-sync does NOT apply; it retains last-good and the caller raises
+// RESYNC_SHRINK_HELD. A MANUAL re-sync is the admin's explicit accept — it skips the hold and
+// applies (mode "manual", runManualSyncForShow.ts:284). MI-6/MI-7 require a prior
+// (invariants.ts:238) so `show` is always non-null here; the guard documents the scope.
+const materialShrinkItems = show
+  ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
   : [];
-
-// When staging for shrinkage, PERSIST any co-occurring MI-11 items in the staged row so the
-// fail-closed P2-F7 guard (applyStaged.ts:1264) protects approval — a combined shrink+email
-// parse can never be approved into an ungated email apply. Last-good is preserved either way
-// (approve is fail-closed → STAGED_APPROVE_EMAIL_CHANGE_BLOCKED; reject/defer keeps last-good). D4.
-const stageForShrink = materialShrinkItems.length > 0;
-
-let triggeredReviewItems: TriggeredReviewItem[] = [
-  ...(sentinel ? [sentinel] : []),
-  ...(stageForShrink ? [...materialShrinkItems, ...mi11Items] : []),
-];
+if (materialShrinkItems.length > 0 && args.mode !== "manual") {
+  const message = describeShrink(materialShrinkItems); // e.g. "crew 5→2; rooms 4→1"
+  return {
+    outcome: "shrink_held",
+    code: "RESYNC_SHRINK_HELD",
+    message,
+    shrinkItems: materialShrinkItems,
+    showId: show!.showId,
+  };
+}
 ```
 
-When `stageForShrink` is true the existing `triggeredReviewItems.length > 0` branch (`phase1.ts:372-401`) stages the parse via `upsertLivePendingSync`, calls `updateShowPendingReview` (existing-show path already present at `:397-399`), and returns `{ outcome: "stage", ... }`. When there is no shrinkage, `stageForShrink` is false; an `MI-11`-only parse then reaches `if (mi11Items.length > 0) return { outcome: "auto_apply_with_holds", mi11Items }` (`phase1.ts:406-408`) — unchanged.
+`shrink_held` is a new `Phase1Result` variant. phase1 writes **nothing** to `shows` (last-good and its `ok` status stay; no `applyParseResult`). No `last_seen_modified_time` advance — identical to the hard-fail retain posture, so a subsequent unchanged cron re-evaluates and the caller re-raises the (deduped) alert; a fixed sheet (new `modifiedTime`) re-evaluates to `pass`/`auto_apply_with_holds`.
 
-### 4b. `discardStaged` — existing-show `defer_until_modified` (Finding 2 fix)
+### 4b. `lib/sync/runScheduledCronSync.ts` — caller branch (raise alert)
 
-`lib/sync/discardStaged.ts` currently refuses any non-`try_again` reject when a show exists (`:504-505` → `INVALID_REVIEWER_ACTION`) and only writes a deferral on the `!show` branch (`:514-524`). The change: allow **`defer_until_modified`** for existing shows (keep `permanent_ignore` rejected — D6) and write the deferral in the `if (show)` branch (in addition to `restoreShowStatus`), so a rejected shrink watermarks `deferred_at_modified_time = stagedModifiedTime` and the cron consumer (`runScheduledCronSync.ts:2150-2152`) skips it until the sheet's `modifiedTime` advances. Concretely, replace the `show && variant !== "try_again"` blanket reject with `show && variant !== "try_again" && variant !== "defer_until_modified"`, and in the `if (show)` branch also call `upsertLiveDeferral({ deferredKind: "defer_until_modified", deferredAtModifiedTime: pending.stagedModifiedTime, ... })`. `try_again` for an existing show is unchanged (restore status + delete pending → re-processes next cron, which re-stages if the sheet is still shrunk — an explicit "retry now" choice).
+Mirror the `hard_fail` branch (`2777-2806`). Add:
 
-**UI affordance:** the per-show `existing_staged` reject control must expose the `defer_until_modified` action ("Keep current version") in addition to `try_again`. The route already forwards it; only the UI needs the control. (Opus-owned per the UI-always-Opus rule; a one-control addition, no new layout/token surface — invariant-8 impeccable gate engaged at milestone close-out.)
+```ts
+if (phase1.outcome === "shrink_held") {
+  const result = { outcome: "shrink_held" as const, code: phase1.code, showId: phase1.showId };
+  await logSync(txDeps, driveFileId, result);
+  const show = await tx.readShowForPhase1(driveFileId);
+  if (show?.showId) {
+    const upsertAdminAlert = requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked");
+    await upsertAdminAlert({
+      showId: show.showId,
+      code: "RESYNC_SHRINK_HELD",
+      context: { drive_file_id: driveFileId, sheet_name: show.priorParseResult.show.title, detail: phase1.message },
+    });
+  }
+  return result;
+}
+```
 
-### 4c. Apply route — graceful fail-closed on the combined case (Finding 1)
+`upsertAdminAlert` dedupes on `(coalesce(show_id::text,''), code) where resolved_at is null` (one open row per show+code; context replaced). Same tx-bound helper the hard-fail branch uses — no new Supabase call boundary.
 
-The live staged-apply route (`app/api/admin/show/staged/[stagedId]/apply/route.ts`) must catch `Phase2GateBypassError` (thrown by P2-F7 when a staged row carries an `MI-11` item) and return a **new dedicated cataloged code `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`** — a clean fail-closed refusal, not a 500, with recovery copy that steers to the correct action (NOT the generic "refresh and try again" of `INVALID_REVIEWER_ACTION`, which would loop the admin). The staged row and last-good are left intact so the admin resolves via reject/`defer_until_modified` or a sheet fix. P2-F7 itself is unchanged (still fail-closed).
+### 4c. Resolve-site (lifecycle `auto`)
 
-**New §12.4 message code** (admin/operator-facing; mirrors the `INVALID_REVIEWER_ACTION` catalog shape — `dougFacing`/`crewFacing` null, `adminSurface` per that peer):
+`RESYNC_SHRINK_HELD` is lifecycle **`auto`** (an inbox-routed code MUST be `auto` — `tests/messages/_metaAdminAlertCatalog.test.ts:704-707`). Its resolve-site is the **apply-success branch** (`runScheduledCronSync.ts:2844`, `phase1.outcome === "pass" || "auto_apply_with_holds"`): after a successful apply, call `resolveAdminAlert(tx, showId, "RESYNC_SHRINK_HELD")` (`lib/adminAlerts/resolveAdminAlert.ts:25`) — idempotent (no-op if none open). A successful apply means the held condition is gone (Doug restored the crew → clean re-sync, OR the admin accepted via manual re-sync). The `resolveSites` entry in `ADMIN_ALERTS_LIFECYCLE` points at this site.
 
-- **Code:** `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`
-- **Admin-facing copy (recovery-oriented):** "This update also changes a crew member's email, so it can't be applied automatically. Keep the current version, or fix the sheet and re-sync."
-- **Rendered by:** `StagedReviewCard` via `messageFor`/`ErrorExplainer` (through the catalog — no raw code in UI).
-- **Lockstep (3-way + gates):** master spec §12.4 row + helpfulContext appendix → `pnpm gen:spec-codes` (`lib/messages/__generated__/spec-codes.ts`) → hand-authored producer in `lib/messages/catalog.ts` → `pnpm gen:internal-code-enums`. Plus: `app/help/errors/_families.ts` mapping (a staged/review family so "Other" stays empty), `tests/messages/codes*.test.ts` coverage/parity (x1/x2), and run the FULL `tests/messages` suite before push. (Same drill as `VERSION_AMBIGUOUS` in work item #1.)
+## 5. New §12.4 admin-alert code — `RESYNC_SHRINK_HELD`
 
-**UI nicety (optional, in the UI task):** `StagedReviewCard` MAY additionally disable "Apply changes" for a row whose `triggeredReviewItems` contains an `MI-11` item and show the recovery note inline, so the refusal is proactive rather than post-click. The route-level code is the load-bearing contract; the disabled button is polish.
+A pushed admin alert (an `AdminAlertCode`, which is also a §12.4 catalog code). Full lockstep:
 
-### Why every guard already holds
+| Touchpoint | Change |
+|---|---|
+| `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union, ~:1-35) | add `\| "RESYNC_SHRINK_HELD"` |
+| `tests/messages/_metaAdminAlertCatalog.test.ts` `ADMIN_ALERTS_CODES` (~:58) | add code |
+| …`WRITE_SITES` (~:108) | add the `runScheduledCronSync.ts` shrink-hold raise site |
+| …`ADMIN_ALERTS_LIFECYCLE` (~:313) | `{ class: "auto", resolveSites: [<apply-success site>] }` |
+| `docs/…/2026-04-30-fxav-crew-pages-v1.md` §12.4 | new row (after `PARSE_ERROR_LAST_GOOD`) + helpfulContext appendix line |
+| `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` | regenerate + commit |
+| `lib/messages/catalog.ts` | producer row (mirror `PARSE_ERROR_LAST_GOOD` shape: `adminSurface:"inbox"`, non-null `dougFacing` admin copy, `crewFacing:null`, title, `helpHref`) |
+| `pnpm gen:internal-code-enums` → `internal-code-enums.ts` | regenerate + commit |
+| `app/help/errors/_families.ts` | map into a sync/review family (keep "Other" empty) |
+| `tests/messages/*` (x1 catalog parity, x2 no-raw-codes, codes-coverage) | must pass; run the FULL `tests/messages` suite before push |
 
-- **Debounce does not swallow it.** `mi8DebounceReason` (`phase1.ts:176`) returns `null` (no debounce) whenever any non-`MI-8`/`MI-8b` item is present. A parse with an `MI-6`/`MI-7` item never early-returns at `phase1.ts:330-331`.
-- **Items are present in `reviewItems`.** When `runInvariants` returns `{ outcome: "stage", triggeredItems }` (`invariants.ts:811`), `phase1.ts:317-324` wraps them via `withLeadToggleSafetyNet` into `invariantItems`, which flow into `reviewItems` (`phase1.ts:329`). The filter finds them there.
-- **Live rows preserved.** The stage branch never calls `applyParseResult`. `updateShowPendingReview` (`runScheduledCronSync.ts:834-838`) only sets `last_sync_status = 'pending_review'`; `crew_members`/`rooms`/`hotels`/`contacts` are untouched. The crew page keeps serving last-good.
-- **`pending_review` is display-benign on a published show.** Consumed only by `StaleFooter` / `lib/admin/syncStatus.ts` / `driveConnectionHealth.ts` as a passive status tier — it does **not** unpublish or hide the crew page.
+**Admin-facing copy (recovery-oriented):** title "Re-sync held — sheet lost data" / body "This sheet's latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet." (`dougFacing` = this admin copy; `crewFacing` = null — crew never see it.)
 
-## 5. Data flow
+## 6. Data flow
 
 ```
-cron re-sync (existing published show)
+cron/push re-sync (existing published show)
   → parseSheet → runInvariants(prior, next)
-     ├─ MI-6/MI-7 shrink present (ANY MI-11)  → outcome:"stage", triggeredItems
-     │     → phase1: materialShrinkItems (+ co-occurring MI-11) → upsertLivePendingSync
-     │        → pending_syncs row (wizard_session_id NULL = LIVE)
-     │        → updateShowPendingReview → shows.last_sync_status='pending_review'
-     │        → live crew/rooms/hotels/contacts UNTOUCHED (last-good served)
-     │     ── SIGNAL ──
-     │        → Needs Attention inbox: variant "existing_staged" (needsAttention.ts:315)
-     │        → notify digest push: "Changes staged for review" (digest.ts:97)
-     │     ── REVIEW (admin, per-show ?review= surface) ──
-     │        → APPROVE, no MI-11 in row  → applyStagedCore (UPDATE) → smaller parse applied
-     │        → APPROVE, MI-11 in row     → P2-F7 fail-closed → route returns
-     │                  STAGED_APPROVE_EMAIL_CHANGE_BLOCKED ("keep current version"); NO apply, NO clobber
-     │        → REJECT ("Keep current version") → discardStaged(defer_until_modified)
-     │                  → deferral watermark @ stagedModifiedTime → cron skips until
-     │                    the sheet is edited again → NO re-stage loop
-     └─ MI-11 only / asset drift / MI-7b       → auto-apply (unchanged)
+     ├─ MI-6 crewDrop>1 OR MI-7 section shrink (mode != manual)
+     │     → phase1 outcome "shrink_held" — NO applyParseResult (last-good served)
+     │     → caller raises RESYNC_SHRINK_HELD (upsertAdminAlert, dedupe per show)
+     │        → pushed to admin alerts surface + notify digest
+     │     ── ADMIN RESOLVES ──
+     │        accept (legit shrink) → manual re-sync (mode "manual") → hold skipped → applies
+     │                                → resolve-site clears the alert
+     │        mistake → wait; Doug fixes sheet → clean cron re-sync applies
+     │                                → resolve-site clears the alert
+     ├─ MI-6/MI-7 present AND mode == manual → applies (accept; MI-11 still held if present)
+     └─ MI-11 only / asset drift / MI-7b / crewDrop==1 → auto-apply (unchanged)
 ```
 
-## 6. Guard conditions & edge cases
+## 7. Guard conditions & edge cases
 
-| Case | Behavior | Where it's handled |
-|------|----------|--------------------|
-| `MI-6`/`MI-7` + `MI-11` in one parse | **Stages** (last-good preserved). Staged row persists the `MI-11` item, so **approve is fail-closed** (P2-F7 → route returns `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`, "keep current version"); no apply, no clobber, no ungated email. Resolved by reject/`defer_until_modified` or a sheet fix (which re-evaluates to `auto_apply_with_holds` once crew is restored). | §4/§4c, D4; `applyStaged.ts:1264-1266`. |
-| `MI-6`/`MI-7` + asset drift (no MI-11) | Whole parse stages; asset-drift feed rows not written this pass (re-derived on approve's apply). | Stage branch returns before asset-drift feed writes. |
-| Repeated cron with same shrunk sheet (before reject) | `upsertLivePendingSync` upserts on `drive_file_id` (`runScheduledCronSync.ts:786`) → updates the existing staged row, no duplicate. | Existing upsert. |
-| Admin rejects, Doug hasn't fixed sheet | Reject uses `defer_until_modified` → writes a deferral watermark at `stagedModifiedTime`; cron consumer (`runScheduledCronSync.ts:2150-2152`) skips until `modifiedTimeAdvanced`. No re-stage loop. When Doug edits again (new `modifiedTime`), it re-evaluates. | §4b `discardStaged` change + existing show-agnostic consumer. |
-| Admin rejects with `try_again` (transient) | Restore status + delete pending → re-processes next cron; re-stages if still shrunk. Explicit "retry now" choice. | `discardStaged` `try_again` (unchanged). |
-| Admin attempts `permanent_ignore` on an existing show | Rejected — `INVALID_REVIEWER_ACTION` (D6). Prevents permanently freezing a published show's auto-updates. | `discardStaged.ts:504-505` keeps `permanent_ignore` invalid for existing shows. |
-| First-seen sheet with "shrinkage" | Impossible — `MI-6`/`MI-7` need a prior (`invariants.ts:238`). | `show` guard (D5). |
-| `MI-7b` keyed rename (room renamed, count stable) | Auto-applies (notify-only) — unchanged. Avoids staging benign renames. | Excluded from filter (D3). |
-| `MI-7` transportation populated→null | Stages (it is an `MI-7` item, `invariants.ts:317-325`). | Included by filter. |
-| Legitimate large crew removal (Doug really cut 3 people) | Stages; admin approves → smaller roster applied. The "accept legit shrink" affordance is the whole point of staging over retain-last-good. | `applyStagedCore` approve path. |
-| Published-lifecycle interaction (unpublish/republish while a live pending_sync exists) | Governed by the existing `existing_staged` machinery + publish gate; not newly introduced by this change. | Watchpoint — test coverage in §8. |
-
-## 7. Blast radius
-
-**Production files changed (4):**
-1. `lib/sync/phase1.ts` — the routing narrowing; stage shrinkage (persisting co-occurring MI-11) (§4). ~10 lines.
-2. `lib/sync/discardStaged.ts` — allow `defer_until_modified` (not `permanent_ignore`) for existing shows + write the deferral in the `show` branch (§4b). ~10 lines.
-3. `app/api/admin/show/staged/[stagedId]/apply/route.ts` — catch `Phase2GateBypassError` → return the new `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED` code (§4c). ~5 lines.
-4. The `existing_staged` review UI — expose the `defer_until_modified` ("Keep current version") reject action, and surface the combined-case approve refusal message (§4b/§4c). UI, Opus-owned.
-
-**What does NOT change:**
-- **No schema change.** `pending_syncs` and `deferred_ingestions` already hold existing-show rows; the deferral consumer is already `drive_file_id`-keyed and show-agnostic.
-- **One new §12.4 message code: `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`** (§4c) — the combined-case approve refusal. The shrink invariants themselves (`MI-6_CREW_SHRINKAGE`, `MI-7_SECTION_SHRINKAGE`) are already catalogued (`catalog.ts:706,719`; `spec-codes.ts:527,533`) and unchanged. The one new code goes through the full lockstep (spec §12.4 + `gen:spec-codes` + `catalog.ts` + `gen:internal-code-enums` + `_families.ts` + `tests/messages` coverage/x1/x2).
-- **No new admin-alert code.** Staging signals via inbox + digest (existing copy). `_metaAdminAlertCatalog` untouched — the new code is a message/lookup code, not an `admin_alerts` lifecycle code.
-- **No `applyParseResult` change.** The gate is upstream of apply.
-- **No `runInvariants` change.** Detection thresholds reused as-is.
-- **`applyStaged` P2-F7 fail-closed guard preserved** (not reversed). It is intentionally **provoked only on attempted approval** of a staged row carrying an `MI-11` item (D4): the throw is caught by the apply route and mapped to the dedicated cataloged refusal code (§4c). The combined-case phase1 staging test and the route-catch test are required coverage (§8.4-8.5).
-- **No advisory-lock topology change.** `phase1` runs under the per-show `withShowLock` (`lib/sync/lockedShowTx.ts`, `hashtext('show:'||drive_file_id)`); `discardStaged` already owns its per-show lock/tx (`discardStaged.ts:101` comment). No new holder, no nesting. Meta-test `tests/auth/advisoryLockRpcDeadlock.test.ts` unaffected (no new SECURITY DEFINER function).
+| Case | Behavior | Where |
+|------|----------|-------|
+| `MI-6`/`MI-7` + `MI-11` (cron) | Holds — applies nothing, so no clobber AND no ungated email. `MI-11` rides along unused. | D5; `phase1` hold branch precedes the `mi11` branch. |
+| `MI-6`/`MI-7` + `MI-11` (manual accept) | Hold skipped → `auto_apply_with_holds` → shrink applied, email held. | D4; `phase1.ts:406-408`. |
+| `MI-6`/`MI-7` + asset drift (cron) | Holds; asset-drift feed rows not written this pass. | Hold branch returns first. |
+| crew drop of exactly 1 (`crewDrop==1`) | Auto-applies (not `>1`). | `invariants.ts:251`. |
+| `MI-7b` benign rename, stable count | Auto-applies (not held). | Excluded from filter (D3). |
+| Repeated cron, sheet unchanged | Re-evaluates → re-`shrink_held`; `upsertAdminAlert` dedupes → one open row. Same posture as hard-fail retry. | `upsert` conflict clause. |
+| Doug fixes the sheet | New `modifiedTime` → clean cron re-sync → `pass`/`auto_apply_with_holds` → resolve-site clears alert. | §4c. |
+| Manual re-sync of a genuinely-shrunk sheet | Applies the smaller roster (explicit accept) + resolves the alert. | D4, §4c. |
+| First-seen shrink | Impossible — `MI-6`/`MI-7` need a prior. | D6. |
+| Show archived/unpublished mid-hold | Governed by existing archive/publish gates; the hold writes nothing to `shows`, so no lifecycle interaction is introduced. | — |
 
 ## 8. Testing strategy (TDD)
 
-All new tests are unit/decision-rule level over the existing `phase1` fakes plus a DB-backed staging assertion; derive expectations from fixture dimensions (not hardcoded).
+Derive expectations from fixture dimensions (not hardcoded).
 
-1. **Decision-rule: MI-6 crew shrink stages (existing show).** Prior 5 crew → next 2 crew (`crewDrop=3>1`); assert `outcome === "stage"`, `triggeredReviewItems` contains the `MI-6` item, and `upsertLivePendingSync` was called. Concrete failure it catches: a routing regression that drops `MI-6` back to auto-apply. (`tests/sync/phase1.decision-rule.test.ts`.)
-2. **Decision-rule: MI-7 section shrink stages (existing show).** Prior 4 rooms → next 1 (`nc < pc/2`); assert staged. Also transportation populated→null stages.
-3. **Decision-rule: benign drift still auto-applies.** (a) `MI-11`-only email change + crew **growth** → `outcome === "auto_apply_with_holds"`, NO live pending_sync (this is exactly the `cutover.retireLivePendingSyncs.test.ts:57` scenario — assert it stays green). (b) `MI-7b` rename with stable count → auto-applies, not staged. (c) crew drop of exactly 1 (`crewDrop=1`, not `>1`) → auto-applies. Failure it catches: over-staging benign renames / off-by-one on the `MI-6` threshold.
-4. **Decision-rule: MI-11 co-occurrence STILL stages, persisting MI-11 (Finding 1).** Prior 5 crew with Alice@old → next 2 crew with Alice@new (`crewDrop=3>1` **and** an `MI-11` email change). Assert `outcome === "stage"`, the staged `triggeredReviewItems` contains BOTH an `MI-6` item AND the `MI-11` item, and NO clobber. Concrete failure it catches: routing the combined case to auto-apply (clobber) OR staging without the MI-11 item (which would let approve bypass the email gate).
-5. **Combined-case approve is fail-closed (Finding 1, apply path).** Given a staged row carrying `MI-6`+`MI-11`, calling the live apply path throws `Phase2GateBypassError`; the route (`.../apply/route.ts`) returns `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED` (not a 500), and live crew rows are **unchanged** (no apply). Failure it catches: an ungated email apply / a data clobber / an uncaught 500 on approve.
-6. **DB-backed staging integration.** Seed a published show + 5 crew; run the pipeline with a 2-crew parse (no email change); assert (a) a LIVE `pending_syncs` row exists (`wizard_session_id IS NULL`), (b) `shows.last_sync_status = 'pending_review'`, (c) the 5 live `crew_members` rows are **still present** (last-good retained, not clobbered). Failure it catches: the core data-loss bug — apply running despite the gate.
-7. **Reject → defer → no re-stage loop (Finding 2).** DB-backed: stage an existing-show shrink; reject with `defer_until_modified`; assert a `deferred_ingestions` row exists with `deferred_at_modified_time = stagedModifiedTime`; then run the cron decision (deferral gate) against the SAME `modifiedTime` → `skipped (deferred_modtime)`; and against an ADVANCED `modifiedTime` → proceeds (re-evaluates). Also assert `discardStaged` accepts `defer_until_modified` for an existing show, and STILL returns `INVALID_REVIEWER_ACTION` for `permanent_ignore` on an existing show (Finding 2 narrowing). Failure it catches: the re-stage loop, the existing-show reject regression, and the permanent-freeze over-reach.
-8. **Cutover regression.** `tests/sync/cutover.retireLivePendingSyncs.test.ts` must stay green unchanged (its MI-11+growth scenario has no pure shrinkage, so the narrowed filter doesn't touch it). Cross-reference in the new decision-rule test that the cutover's "never inserts a live pending_sync" claim now reads "for benign drift" — pure shrinkage is the deliberate, narrow exception.
-9. **Approve round-trip (existing coverage check).** Confirm `applyStagedCore` UPDATE path covers the existing-show approve of a pure shrink (apply the smaller parse). Extend only if a gap surfaces.
+1. **phase1: MI-6 crew shrink (cron) → `shrink_held`.** Prior 5 crew → next 2 (`crewDrop=3>1`), `mode:"cron"`; assert `outcome==="shrink_held"`, `code:"RESYNC_SHRINK_HELD"`, and NO apply/`upsertLivePendingSync`. (`tests/sync/phase1.decision-rule.test.ts`.)
+2. **phase1: MI-7 section shrink (cron) → `shrink_held`.** Prior 4 rooms → 1 (`nc<pc/2`); also transportation populated→null. Assert held.
+3. **phase1: MI-6/MI-7 (mode `"manual"`) → NOT held.** Same shrink but `mode:"manual"` → `outcome` is `pass`/`auto_apply_with_holds` (applies). Catches: the accept path silently holding.
+4. **phase1: MI-6 + MI-11 (cron) → `shrink_held`.** Prior 5/Alice@old → next 2/Alice@new; assert held (no apply → no clobber, no ungated email). Catches: routing the combined case to auto-apply.
+5. **phase1: benign drift unchanged.** (a) MI-11-only + crew growth → `auto_apply_with_holds`, no hold (matches `cutover.retireLivePendingSyncs.test.ts:57`, stays green). (b) MI-7b rename stable count → applies. (c) `crewDrop==1` → applies. Catches: over-holding benign edits / off-by-one.
+6. **DB-backed: hold retains last-good + raises alert.** Seed published show + 5 crew; run cron pipeline with a 2-crew parse; assert (a) the 5 live `crew_members` rows are **still present** (no clobber), (b) an open `admin_alerts` row `code=RESYNC_SHRINK_HELD` for the show, (c) `shows.last_sync_status` unchanged (`ok`). Catches: the core data-loss bug + missing signal.
+7. **DB-backed: resolution on apply.** After a hold, run a clean re-sync (crew restored) OR a manual re-sync (accept); assert the open `RESYNC_SHRINK_HELD` alert is resolved (`resolved_at` set). Catches: a stuck-open alert (lifecycle `auto` contract).
+8. **Meta-tests stay green:** `_metaAdminAlertCatalog` (new code registered: union + `ADMIN_ALERTS_CODES` + `WRITE_SITES` + `LIFECYCLE` class `auto` + resolveSite; non-null `dougFacing`); x1 catalog parity; x2 no-raw-codes; `cutover.retireLivePendingSyncs.test.ts` (unchanged — this design never inserts a live `pending_sync`).
 
 ## 9. Disagreement-loop preempt (for adversarial review)
 
 **EXPLICITLY DO NOT RELITIGATE:**
 
-- **"This reverses the PF34 / `retire_live_pending_syncs` cutover."** It narrows it, it does not reverse it. The cutover (`supabase/migrations/20260608000004_retire_live_pending_syncs.sql`) is a **one-shot residue sweep** — there is no CHECK/trigger forbidding future live rows. Its guarding test (`tests/sync/cutover.retireLivePendingSyncs.test.ts:57`) asserts only that **benign** drift (MI-11 email change + crew **growth**) never stages — it never exercises shrinkage. Material shrinkage is a distinct, higher-severity class the cutover deliberately did not consider. Benign drift still auto-applies exactly as PF34 intended.
-- **"MI-11 + shrinkage still clobbers / bypasses the identity gate."** Addressed by D4 (revised) — the combined case NOW stages (last-good preserved, no clobber), persisting the MI-11 item so approve is fail-closed via P2-F7 (`applyStaged.ts:1264-1266`) → `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`, never an ungated email apply. The only limitation is that a combined parse cannot be one-click *approved* (it must be rejected/deferred or fixed at the sheet); wiring approve-with-holds is `BL-RESYNC-STAGE-MI11-HOLDS` (§13). This is a deliberate fail-closed limitation, not a data-safety gap.
-- **"permanent_ignore should be allowed for existing shows too."** Rejected by D6 — `permanent_ignore` unconditionally freezes a published show's auto-updates with no modified-time escape; the use case only needs `defer_until_modified`. Keeping it invalid for existing shows is deliberate (`discardStaged.ts:504-505`).
-- **"Add a general worse-than-last-good comparator."** Out of scope by decision D2/§2 — the audit lists it as optional ("consider…"); `MI-6`/`MI-7` are the comparator.
-- **"Gate MI-7b too."** Excluded by D3 with rationale — MI-7b fires on benign renames and would re-create the review-backlog problem PF34 fixed.
-- **"Raise a dedicated admin alert."** Rejected by D2 — staging already pushes via the digest (`digest.ts:97`) and surfaces in the inbox (`needsAttention.ts:315`), consistent with every other staged item. A bespoke alert would duplicate the signal and add the full `_metaAdminAlertCatalog` + §12.4 lockstep for no marginal signal.
+- **"Use staged-for-review (the audit's primary rec) instead of an alert."** The product owner explicitly chose retain-last-good + alert on 2026-07-04 **because** staging requires un-retiring the whole-parse review UI that Phase 6 deliberately removed (`tests/app/admin/perShowPage.test.tsx:373-388` pins the retirement; `app/admin/show/[slug]/page.tsx` mounts `ChangesFeed`, not `ParsePanel`/`StagedReviewCard`). Reversing a ratified architectural decision is a separate, larger arc — `BL-RESYNC-STAGED-REVIEW-UI` (§13). This design is the audit's sanctioned alternative and fully prevents the data-loss clobber.
+- **"MI-11 + shrinkage bypasses the identity gate / clobbers."** No — the hold **applies nothing** (D5). No clobber, no ungated email. A manual accept flows through the normal `auto_apply_with_holds` (email held).
+- **"This re-inserts live `pending_syncs` / reverses the PF34 cutover."** No — this design never writes a `pending_sync`; it retains last-good like the hard-fail path. `cutover.retireLivePendingSyncs.test.ts` stays green unchanged.
+- **"Add a general worse-than-last-good comparator."** Out of scope — `MI-6`/`MI-7` are the comparator (audit lists a general one as optional "consider…").
+- **"Gate MI-7b too."** Excluded (D3) — MI-7b fires on benign renames; holding it would nag on normal edits.
+- **"The held show should change `last_sync_status`."** Deliberately not (D7) — last-good is genuinely fine (`ok`); the pushed alert is the signal (the audit's actual gap). Avoids a status-enum migration + consumer churn.
 
-## 10. Routing / flag lifecycle
+## 10. Why staging was declined (context)
 
-There is no new boolean flag. The routing decision is code-level (the filter). For completeness, the one config flag in the neighborhood — `getAutoPublishCleanFirstSeen` (`phase1.ts:360`) — is **not consulted** by this change: it gates only the `!show` clean-first-seen branch, which is disjoint from the material-shrink branch (D5).
+Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the per-show page: `app/admin/show/[slug]/page.tsx` mounts `ChangesFeed`; `tests/app/admin/perShowPage.test.tsx:373-388` asserts `staged-review-apply` / `staged-review-read-only` / `admin-show-parse-warnings-section` are absent, with the comment "no invariant stages a whole parse anymore." Staging `MI-6`/`MI-7` would reintroduce exactly what Phase 6 retired and require rebuilding that admin review surface (Apply / Keep-current) plus rewriting the pinning test. The owner declined that scope in favor of retain-last-good + alert. Filed as `BL-RESYNC-STAGED-REVIEW-UI` (§13) if a richer review workflow is wanted later.
 
 ## 11. Meta-test inventory
 
-- **Creates/extends:** none structurally new. Adds decision-rule + DB-staging + reject-defer tests under `tests/sync/`.
-- **Must stay green:** `tests/sync/cutover.retireLivePendingSyncs.test.ts`, `tests/sync/phase1.decision-rule.test.ts`, `tests/sync/discardStaged.test.ts`, `tests/messages/*` (unchanged catalog), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no new lock holder), `tests/auth/_metaInfraContract.test.ts` (no new Supabase call boundary — `phase1` routing is pure in-memory; the `discardStaged` deferral write reuses the existing `upsertLiveDeferral` primitive, already registered).
-- **Advisory-lock topology:** unchanged; no `pg_advisory*` edit. `phase1` runs inside the already-locked pipeline; `discardStaged` already owns its per-show lock.
-- **UI / invariant 8:** the `existing_staged` reject control is a UI surface (`components/`/`app/` non-api). The one-control `defer_until_modified` addition engages the invariant-8 impeccable dual-gate (`/impeccable critique` + `audit`) at milestone close-out; HIGH/CRITICAL fixed or deferred via `DEFERRED.md`.
+- **Extends:** `tests/messages/_metaAdminAlertCatalog.test.ts` (new `RESYNC_SHRINK_HELD` across union / `ADMIN_ALERTS_CODES` / `WRITE_SITES` / `ADMIN_ALERTS_LIFECYCLE`), and the §12.4 three-way lockstep (x1/x2/codes-coverage).
+- **Must stay green:** `tests/sync/cutover.retireLivePendingSyncs.test.ts` (no live `pending_sync` written), `tests/app/admin/perShowPage.test.tsx` (unchanged — no review UI added), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no new lock holder; the raise runs inside the already-locked cron tx), `tests/auth/_metaInfraContract.test.ts` (reuses the existing tx-bound `upsertAdminAlert` helper — no new call boundary).
+- **Advisory-lock topology:** unchanged; the shrink-hold branch and the alert raise both run inside the existing per-show `withShowLock` cron tx.
 
 ## 12. Numeric sweep
 
-- `MI-6` threshold: `crewDrop > 1` (i.e., a drop of ≥2). Reused verbatim from `invariants.ts:251`. Not re-declared.
-- `MI-7` threshold: `nc < pc/2 || pc <= 2` for hotels/rooms/contacts; transportation populated→null. Reused verbatim from `invariants.ts:266,284,302,317`.
-- Staging condition: material-shrink items present (exactly 2 gated invariant tags: `MI-6`, `MI-7`); co-occurring `MI-11` items are persisted into the staged row but are NOT part of the staging trigger.
-- Production files changed: 4 (`phase1.ts`, `discardStaged.ts`, the live apply route, one reject-UI control). New test surfaces: `tests/sync/phase1.decision-rule.test.ts` (extend), a DB-staging test, `tests/sync/discardStaged.test.ts` (extend), and a combined-case fail-closed apply test. No new fixtures, no schema, no new admin-alert code. ONE new §12.4 message code (`STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`) with full lockstep.
+- `MI-6` threshold `crewDrop > 1`; `MI-7` `nc < pc/2 || pc <= 2` (transportation populated→null) — reused verbatim from `invariants.ts:251,266,284,302,317`.
+- Held invariant tags: exactly 2 (`MI-6`, `MI-7`).
+- New production edit sites: `phase1.ts` (hold branch + `Phase1Result` variant), `runScheduledCronSync.ts` (caller branch + resolve-site), `upsertAdminAlert.ts` (union). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New DB schema: 0. New `last_sync_status` values: 0.
 
 ## 13. Backlog
 
-- **`BL-RESYNC-STAGE-MI11-HOLDS`** (files to `BACKLOG.md` at implementation): make the MI-6/MI-7 **+ MI-11** combined staged case one-click **approvable** (today it stages + fail-closes on approve → `STAGED_APPROVE_EMAIL_CHANGE_BLOCKED`, so the admin must reject/defer or fix the sheet). The full fix converts the persisted `MI-11` items into `sync_holds` on approve (email held, shrink applied), which requires replacing the `applyStaged` P2-F7 throw (`:1264-1266`) with correct hold derivation + `reviewerChoices`/`deriveAuthSideEffects` wiring, under its own security-boundary review + test. Deferred because (a) the combined case is rare, (b) this arc already preserves last-good and the identity gate for it (data-safe), and (c) reversing a fail-closed security boundary warrants a dedicated arc, not a rider on this one.
+- **`BL-RESYNC-STAGED-REVIEW-UI`** (files to `BACKLOG.md`): if a richer "review the diff and approve the smaller roster inline" workflow is wanted, restore/replace the whole-parse review surface for existing-show staged parses (un-retire or re-home `StagedReviewCard` with existing-show mode; expose Apply / Keep-current; update `perShowPage.test.tsx` retirement pins). Deferred by owner decision (§10) — retain-last-good + alert already prevents the data loss; this is a UX enhancement, not a safety gap.
