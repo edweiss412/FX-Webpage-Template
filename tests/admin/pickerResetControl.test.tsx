@@ -136,6 +136,22 @@ describe("PickerResetControl", () => {
     expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
   });
 
+  // PCR-1 item (c): DESIGN §focus specifies a ring PLUS a 2px offset. Every
+  // focusable control (idle + confirm) must carry the offset, not just the ring.
+  test("(c) every focusable control carries the DESIGN focus-ring offset", () => {
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    const checkAll = () => {
+      const focusables = container.querySelectorAll("button, select");
+      expect(focusables.length).toBeGreaterThan(0);
+      focusables.forEach((el) =>
+        expect((el as HTMLElement).className).toContain("focus-visible:ring-offset-2"),
+      );
+    };
+    checkAll(); // idle: select, per-member Reset, reset-everyone
+    fireEvent.click(screen.getByTestId("picker-reset-member-button")); // → confirm
+    checkAll(); // confirm + cancel
+  });
+
   // PCR-1 item (b): the row label is a heading (sits under the panel's <h3>),
   // not a plain <p>, so the control is reachable in the SR heading outline.
   test("(b) the row label is a heading", () => {

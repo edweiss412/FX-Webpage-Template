@@ -39,6 +39,29 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     expect(idleBtn().textContent).toContain("Reset picker selections");
   });
 
+  // PCR-1 item (c): DESIGN §focus specifies a ring PLUS a 2px offset. Every
+  // focusable control (idle + confirm) must carry the offset, not just the ring.
+  test("(c) every focusable control carries the DESIGN focus-ring offset", () => {
+    const { container } = render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    const checkAll = () => {
+      const focusables = container.querySelectorAll("button, select");
+      expect(focusables.length).toBeGreaterThan(0);
+      focusables.forEach((el) =>
+        expect((el as HTMLElement).className).toContain("focus-visible:ring-offset-2"),
+      );
+    };
+    checkAll(); // idle button
+    fireEvent.click(idleBtn()); // → confirm
+    checkAll(); // confirm + cancel
+  });
+
   // PCR-1 item (b): the compact row label is a heading (sits under the panel's
   // <h3>), not a plain <p>, so the control appears in the SR heading outline.
   test("(b) the compact row label is a heading", () => {

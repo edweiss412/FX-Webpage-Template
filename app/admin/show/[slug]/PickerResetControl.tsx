@@ -207,7 +207,7 @@ export function PickerResetControl({
           aria-busy={isResolving}
           aria-describedby={warningId}
           data-testid="picker-reset-confirm-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isResolving ? "Resetting…" : "Confirm reset"}
         </button>
@@ -216,7 +216,7 @@ export function PickerResetControl({
           onClick={onCancel}
           disabled={isResolving}
           data-testid="picker-reset-cancel-button"
-          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
         >
           Cancel
         </button>
@@ -252,7 +252,7 @@ export function PickerResetControl({
               value={selectedId}
               disabled={isResolving}
               onChange={(e) => onSelectChange(e.target.value)}
-              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-2 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:opacity-60"
+              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-2 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60"
             >
               {crew.map((row) => (
                 <option key={row.id} value={row.id}>
@@ -267,7 +267,7 @@ export function PickerResetControl({
               onClick={() => enterConfirm("member")}
               data-testid="picker-reset-member-button"
               aria-label={`Reset ${selectedLabel}`}
-              className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              className="inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               <RefreshCw aria-hidden="true" size={14} />
               Reset
@@ -286,7 +286,7 @@ export function PickerResetControl({
           data-testid="picker-reset-all-button"
           // Secondary/broader action: neutral + de-emphasized (accent is reserved for the confirm
           // CTA, so it never out-ranks the primary per-member Reset). Tap-min for the venue floor.
-          className="inline-flex min-h-tap-min items-center self-start rounded-sm text-xs text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline"
+          className="inline-flex min-h-tap-min items-center self-start rounded-sm text-xs text-text-subtle underline underline-offset-2 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:text-text-faint disabled:no-underline"
         >
           Reset everyone&rsquo;s pick
         </button>
