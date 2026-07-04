@@ -38,11 +38,13 @@ import {
   CalendarDays,
   ChevronRight,
   FileText,
+  Images,
   Info,
   LayoutGrid,
   Lightbulb,
   Mail,
   MapPin,
+  MessageSquareWarning,
   Package,
   Phone,
   Receipt,
@@ -1597,6 +1599,12 @@ export type Step3SectionDef = {
   Icon: LucideIcon;
   /** Rail count for the list-shaped subset (§6.1); null → no rail count. */
   railCount: ((d: SectionData) => number) | null;
+  /**
+   * Follow-ups spec §D2: present-`true` ONLY on `report` — BOTH navs (desktop
+   * rail + mobile chips) render no status dot for it. exactOptionalPropertyTypes:
+   * present-`true` or ABSENT, never `hideDot: undefined`.
+   */
+  hideDot?: true;
   /** The restyled section body. */
   render: (d: SectionData) => React.ReactNode;
 };
@@ -1613,10 +1621,78 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
 ];
 
 /**
- * The §6.1 registry. 12 defs when the row has an agenda baseline, 11 without
- * (`agenda` renders — rail entry AND section — only when the baseline is
- * non-empty, the same gate the card uses today). Every other section always
- * renders (empty states preserved); `warnings` always renders (§3.10).
+ * Diagrams section body (follow-ups spec §B3).
+ * Task 6 (this plan) completes this body — thumbnail grid, folder row, and the
+ * §B3 untrusted-JSONB element guards. This Task-5 shell renders the chrome +
+ * header count only (final testid already in place) so the registry entry
+ * lands green; `wizardSessionId` is accepted now because Task 6's preview-URL
+ * grid consumes it.
+ */
+export function DiagramsBreakdown(props: {
+  dfid: string;
+  wizardSessionId: string;
+  diagrams: ParseResult["diagrams"] | null | undefined;
+}) {
+  const count =
+    arr(props.diagrams?.embeddedImages).length + arr(props.diagrams?.linkedFolderItems).length;
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${props.dfid}-section-diagrams`}
+      label="Diagrams"
+      count={count}
+    >
+      {null}
+    </BreakdownSection>
+  );
+}
+
+/**
+ * Report-an-issue section body (follow-ups spec §D3).
+ * Task 7 (this plan) completes this body — the report form, submit pipeline,
+ * and status line. This Task-5 shell renders the chrome (no count — the
+ * section is not list-shaped) + the §D3 explainer line only, with the final
+ * testid already in place. Chrome-context handling mirrors AgendaBreakdown's
+ * count-less shape above.
+ */
+export function ReportIssueSection({ data }: { data: SectionData }) {
+  const chrome = useContext(Step3SectionChromeContext);
+  const body = (
+    <p className="text-sm text-text">
+      Spotted something wrong or missing that the checks above didn’t flag? Send it to the
+      developer.
+    </p>
+  );
+  if (chrome) {
+    return (
+      <section
+        data-testid={`wizard-step3-card-${data.dfid}-section-report`}
+        className="flex min-w-0 flex-col"
+      >
+        <ModalSectionChrome chrome={chrome} count={null}>
+          {body}
+        </ModalSectionChrome>
+      </section>
+    );
+  }
+  return (
+    <section
+      data-testid={`wizard-step3-card-${data.dfid}-section-report`}
+      className="flex flex-col gap-2"
+    >
+      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        Report an issue
+      </p>
+      {body}
+    </section>
+  );
+}
+
+/**
+ * The §6.1 registry (+ follow-ups §B2/§D2). 12 defs base; `agenda` (rail entry
+ * AND section, only when the baseline is non-empty — the same gate the card
+ * uses today) and `diagrams` (§B2 gate below) are each conditional → 13/13/14.
+ * Every other section always renders (empty states preserved); `warnings`
+ * always renders (§3.10); `report` is unconditional and ALWAYS last (§D2).
  */
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
@@ -1712,6 +1788,36 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       railCount: (s) => s.rooms.length,
       render: (s) => <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />,
     },
+  );
+  // §B2 gate: conditional like agenda — present iff the untrusted-JSONB
+  // diagrams object exists AND carries any signal (folder link, embedded
+  // images, or pinned folder items). Same shape (plus linkedFolderItems) as
+  // the card's `hasDiagrams` badge gate (Step3SheetCard.tsx), so badge and
+  // section presence agree whenever the badge shows.
+  const dg = d.pr.diagrams;
+  const diagramCount = arr(dg?.embeddedImages).length + arr(dg?.linkedFolderItems).length;
+  if (dg != null && (dg.linkedFolder != null || diagramCount > 0)) {
+    defs.push({
+      id: "diagrams",
+      label: "Diagrams",
+      group: "Gear",
+      Icon: Images, // lucide glyph — design-stage-tunable under impeccable (spec §L)
+      railCount:
+        diagramCount > 0
+          ? (s) =>
+              arr(s.pr.diagrams?.embeddedImages).length +
+              arr(s.pr.diagrams?.linkedFolderItems).length
+          : null, // folder-link-only → no rail count (spec §B2)
+      render: (s) => (
+        <DiagramsBreakdown
+          dfid={s.dfid}
+          wizardSessionId={s.wizardSessionId}
+          diagrams={s.pr.diagrams}
+        />
+      ),
+    });
+  }
+  defs.push(
     {
       id: "packlist",
       label: "Pack list",
@@ -1736,6 +1842,15 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // Both severities — the rail count counts list rows (§3.3).
       railCount: (s) => s.warnings.length,
       render: (s) => <WarningsBreakdown dfid={s.dfid} warnings={s.warnings} />,
+    },
+    {
+      id: "report",
+      label: "Report an issue",
+      group: "Checks",
+      Icon: MessageSquareWarning, // design-stage-tunable (spec §L)
+      railCount: null,
+      hideDot: true, // spec §D2 — the only section without a status dot
+      render: (s) => <ReportIssueSection data={s} />,
     },
   );
   return defs;

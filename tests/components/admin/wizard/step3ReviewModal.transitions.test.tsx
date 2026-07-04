@@ -30,7 +30,8 @@
  * curated regex scan; each site must carry EITHER an animation/transition
  * class or the `§11: instant — deliberate` marker comment on the line
  * immediately above it. The scan ALSO asserts the total conditional-render
- * count equals the curated list length (8), so a new conditional added later
+ * count equals the curated list length (10 — Task 5 added the two hideDot
+ * dot-span conditionals, one per nav, spec §D2), so a new conditional added later
  * without classification fails this test until marked.
  *
  * Anti-tautology: T10/C7 assertions read the rerendered DOM via the SAME
@@ -446,9 +447,9 @@ function isClassified(
 }
 
 describe("§11 source-marker audit — every conditional-render site in Step3ReviewModal.tsx is classified", () => {
-  test("exactly 8 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
+  test("exactly 10 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
     const hits = findConditionalLines(MODAL_SRC);
-    expect(hits.length).toBe(8);
+    expect(hits.length).toBe(10);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
@@ -462,7 +463,7 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     expect(unclassified).toEqual([]);
   });
 
-  test("all 8 currently-known sites classify as INSTANT (none are animated) — pins the §11 table's 'deliberate instant' rows", () => {
+  test("all 10 currently-known sites classify as INSTANT (none are animated) — pins the §11 table's 'deliberate instant' rows", () => {
     const lines = MODAL_SRC.split("\n");
     const hits = findConditionalLines(MODAL_SRC);
     for (const idx of hits) {

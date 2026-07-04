@@ -686,10 +686,13 @@ export function Step3ReviewModal({
                             {s.railCount(data)}
                           </span>
                         ) : null}
-                        <span
-                          aria-hidden="true"
-                          className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
-                        />
+                        {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                        {!s.hideDot ? (
+                          <span
+                            aria-hidden="true"
+                            className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                          />
+                        ) : null}
                       </button>
                     );
                   })}
@@ -724,10 +727,13 @@ export function Step3ReviewModal({
                 >
                   <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
                   {s.label}
-                  <span
-                    aria-hidden="true"
-                    className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
-                  />
+                  {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                  {!s.hideDot ? (
+                    <span
+                      aria-hidden="true"
+                      className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                    />
+                  ) : null}
                 </button>
               );
             })}

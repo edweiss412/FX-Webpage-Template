@@ -738,6 +738,11 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     for (const s of step3Sections(d)) {
       const item = q.getByTestId(tid(`rail-item-${s.id}`));
       const dot = item.querySelector(".bg-status-review, .bg-status-positive");
+      if (s.hideDot) {
+        // §D2: report is the only def with hideDot — its rail item has NO dot.
+        expect(dot).toBeNull();
+        continue;
+      }
       expect(dot).not.toBeNull();
       const expectRed = s.id === "warnings" ? true : flagged.has(s.id);
       expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bbg-status-positive\b/);
@@ -792,7 +797,12 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
         expect(classes).toContain(c);
       }
       expect(chip.querySelector(".tabular-nums")).toBeNull(); // chips never show counts
-      expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+      if (s.hideDot) {
+        // §D2: report is the only def with hideDot — its chip has NO dot.
+        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).toBeNull();
+      } else {
+        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+      }
       // Label ONLY — a stray count/extra text would change textContent.
       expect(chip.textContent).toBe(s.label);
     }
@@ -957,7 +967,7 @@ describe("Step3ReviewModal — rail/chip click navigation (Task 5; shares Task 6
     withScrollToStub((scrollTo) => {
       const { q, d } = renderModal();
       const defs = step3Sections(d);
-      const target = defs[defs.length - 1]!; // warnings — far from the initial active
+      const target = defs[defs.length - 1]!; // report (§D2 last) — far from the initial active
       fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
       const rail = q.getByTestId(tid("rail"));
       const chiprail = q.getByTestId(tid("chiprail"));
