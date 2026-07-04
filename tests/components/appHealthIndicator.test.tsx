@@ -99,7 +99,7 @@ describe("AppHealthPopover (Doug) — summaries, overflow, closing line", () => 
     expect(pop.textContent).toContain("2 more");
     // The literally-true closing reassurance — no outbound notification path exists.
     expect(pop.textContent).toContain(
-      "No action needed from you — the developer can see this in system health.",
+      "No action needed from you. The developer can see this in system health.",
     );
     // R1 finding 2: never claim the developer "has been notified".
     expect(pop.textContent).not.toContain("notified");

@@ -10,7 +10,7 @@
  * Color+label pairing (never color-only — the color-blind floor, cf.
  * StatusIndicator): the dot's hue is ALWAYS paired with an `aria-label`/`title`
  * naming the state.
- *   degraded → bg-status-degraded (red, §11 token) · notice → bg-status-warn
+ *   degraded → bg-status-degraded (red; DESIGN.md §1.1/§1.2 token) · notice → bg-status-warn
  *   (amber) · ok → bg-status-positive (green) · infra_error → bg-status-idle
  *   (neutral "status unknown").
  *

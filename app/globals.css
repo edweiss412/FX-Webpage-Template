@@ -615,6 +615,18 @@ body {
     transform: translateY(0);
   }
 }
+/* General responsive-sheet entrance (transform-only, DESIGN.md §5.4). Referenced
+   by AppHealthPopover and ReportModal via `animate-[sheet-rise_...]`; both had
+   been referencing this name before it was defined, so the rise silently no-op'd.
+   Reduced-motion callers pair it with `motion-reduce:animate-none`. */
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
 @keyframes step3-details-pop-in {
   from {
     opacity: 0;

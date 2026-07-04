@@ -27,10 +27,10 @@ import type { HealthStatus } from "@/lib/admin/healthRollup";
 
 // R6.2 fallback (spec §6.2): count>0 but every dougSummary deduped to empty.
 const EMPTY_SUMMARY_FALLBACK =
-  "Some background systems need attention. No action needed from you — this is visible in system health for the developer.";
+  "Some background systems need attention. No action needed from you. This is visible in system health for the developer.";
 // R1 finding 2 (spec §6.4): the ONLY closing reassurance — literally true.
 const CLOSING_REASSURANCE =
-  "No action needed from you — the developer can see this in system health.";
+  "No action needed from you. The developer can see this in system health.";
 
 export function AppHealthPopover({
   rollup,
@@ -68,14 +68,14 @@ export function AppHealthPopover({
       {/* Scrim / tap-out. motion-safe transition; disabled under reduced motion. */}
       <button
         type="button"
-        aria-label="Close"
+        aria-label="Dismiss"
         data-testid="app-health-popover-backdrop"
         onClick={onClose}
         className="absolute inset-0 bg-text-strong/40 motion-safe:transition-opacity motion-safe:duration-fast"
       />
       <div
         ref={containerRef}
-        className="relative w-full max-w-[420px] rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)] motion-reduce:animate-none"
+        className="relative w-full max-w-[420px] rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
       >
         {/* Mobile drag-handle affordance (visual only). */}
         <div

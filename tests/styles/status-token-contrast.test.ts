@@ -101,6 +101,26 @@ describe("status-token contrast floors (DESIGN.md §1.3)", () => {
     }
   }
 
+  // status-degraded (alert-audience-split) has a DIFFERENT text contract than
+  // positive/review/warn: the -text token is white/near-black rendered ON the
+  // filled degraded pill (`bg-status-degraded text-status-degraded-text`, cf.
+  // HealthAlertsPanel.tsx), NOT colored text on the page surface. So its dot
+  // clears the >=3:1 graphical floor on bg/surface, but its text clears the
+  // >=4.5:1 AA floor against the FILL, not the surface.
+  for (const mode of MODES) {
+    const dot = tokenIn(mode.src, "--color-status-degraded-runtime");
+    const text = tokenIn(mode.src, "--color-status-degraded-text-runtime");
+
+    it(`${mode.name}: status-degraded dot clears the >=3:1 graphical floor on bg and surface`, () => {
+      expect(contrast(dot, mode.bg)).toBeGreaterThanOrEqual(DOT_FLOOR);
+      expect(contrast(dot, mode.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    });
+
+    it(`${mode.name}: status-degraded-text clears the >=4.5:1 AA floor on the degraded fill`, () => {
+      expect(contrast(text, dot)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+  }
+
   it("positive hue is NOT green (color-blind floor §1) — it is a teal (blue ≈ green)", () => {
     // A green (e.g. the prototype's #2F7D4F) has blue well below green
     // (b/g ≈ 0.63). The calm teal we ship has blue nearly level with green
