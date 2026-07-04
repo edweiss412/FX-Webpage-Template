@@ -6,7 +6,7 @@ import type { LogRecord } from "@/lib/log/types";
 
 // S3: report-submission success (a genuine 201-created) previously left only a `reports`
 // DB row + a GitHub issue — no app_events breadcrumb tying request→outcome. Each
-// 201-created path now emits a fail-open `void log.info` REPORT_SUBMITTED forensic
+// 201-created path now emits a fail-open `void log.info` CREW_REPORT_SUBMITTED forensic
 // breadcrumb (showId + issueUrl). Recovered/duplicate/error paths do NOT emit (no false
 // "submitted" trace).
 
@@ -54,7 +54,7 @@ describe("submitReport success telemetry (S3)", () => {
     cleanupReportFixtures(showId, [adminIdentity]);
   });
 
-  test("201-created emits exactly one REPORT_SUBMITTED info with showId + issueUrl", async () => {
+  test("201-created emits exactly one CREW_REPORT_SUBMITTED info with showId + issueUrl", async () => {
     const sink: LogRecord[] = [];
     setLogSink((r) => {
       sink.push(r);
@@ -64,7 +64,7 @@ describe("submitReport success telemetry (S3)", () => {
     const result = await submitReport({ kind: "admin", email: adminIdentity }, body(key));
     expect(result.status).toBe(201);
 
-    const rec = sink.filter((r) => r.code === "REPORT_SUBMITTED");
+    const rec = sink.filter((r) => r.code === "CREW_REPORT_SUBMITTED");
     expect(rec).toHaveLength(1);
     expect(rec[0]!.level).toBe("info");
     expect(rec[0]!.source).toBe("reports.submit");
@@ -74,7 +74,7 @@ describe("submitReport success telemetry (S3)", () => {
     );
   });
 
-  test("duplicate (200) emits NO REPORT_SUBMITTED breadcrumb", async () => {
+  test("duplicate (200) emits NO CREW_REPORT_SUBMITTED breadcrumb", async () => {
     const key = "018f2f4c-8f54-4c28-9f56-b0b1b2b3b4b5";
 
     // First create (suppress the setup emit) → 201.
@@ -83,13 +83,13 @@ describe("submitReport success telemetry (S3)", () => {
     expect(first.status).toBe(201);
 
     // Re-submitting the same idempotency key resolves to a 200 duplicate — no new create,
-    // so no REPORT_SUBMITTED breadcrumb.
+    // so no CREW_REPORT_SUBMITTED breadcrumb.
     const sink: LogRecord[] = [];
     setLogSink((r) => {
       sink.push(r);
     });
     const second = await submitReport({ kind: "admin", email: adminIdentity }, body(key));
     expect(second.status).toBe(200);
-    expect(sink.some((r) => r.code === "REPORT_SUBMITTED")).toBe(false);
+    expect(sink.some((r) => r.code === "CREW_REPORT_SUBMITTED")).toBe(false);
   });
 });

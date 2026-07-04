@@ -309,7 +309,7 @@ const NEW_FORENSIC_CODES = new Set([
   // ambiguous-email terminal (alert-SUCCEEDED path) durable warn — DISTINCT from the §12.4
   // user-facing AMBIGUOUS_EMAIL_BINDING catalog code (kept as the return value).
   "LIVE_STAGED_DISCARD_AUTH_INFRA",
-  "REPORT_SUBMITTED",
+  "CREW_REPORT_SUBMITTED",
   "AMBIGUOUS_EMAIL_BINDING_DETECTED",
 ]);
 

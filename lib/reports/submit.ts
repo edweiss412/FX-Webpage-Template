@@ -945,7 +945,7 @@ async function expiredLeaseRetry(
   // Recovered / duplicate / in-flight / error paths do NOT reach here, so no false trace.
   void log.info("report submitted", {
     source: "reports.submit",
-    code: "REPORT_SUBMITTED",
+    code: "CREW_REPORT_SUBMITTED",
     showId: ageRow.show_id ?? body.show_id,
     issueUrl: issue.htmlUrl,
   });
@@ -1076,7 +1076,7 @@ export async function submitReport(
       // Duplicate / in-flight / recovered / 429 / 502 paths return earlier, so no false trace.
       void log.info("report submitted", {
         source: "reports.submit",
-        code: "REPORT_SUBMITTED",
+        code: "CREW_REPORT_SUBMITTED",
         showId: body.show_id,
         issueUrl: issue.htmlUrl,
       });
