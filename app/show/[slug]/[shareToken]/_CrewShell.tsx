@@ -35,6 +35,7 @@
  *      no retryHref per §4.14) rather than an unrestricted page.
  */
 import type { JSX } from "react";
+import { after } from "next/server";
 
 import { IdentityChip } from "@/components/auth/IdentityChip";
 import { TerminalFailure } from "@/components/auth/TerminalFailure";
@@ -50,6 +51,7 @@ import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
+import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
 import {
@@ -170,6 +172,34 @@ export async function CrewShell({
         code: "CREW_PROJECTION_ALERT_UPSERT_FAILED",
         error: e,
       });
+    }
+  } else {
+    // S6: healthy render — resolve any open TILE_PROJECTION_FETCH_FAILED alert.
+    // Scheduled via after() so the resolve write never adds response latency;
+    // the resolve is fail-quiet (same posture as the raise above) with its own
+    // forensic log code (app_events-only, §12.4-scanner-exempt like the raise's).
+    // not-subject-to-meta: best-effort observability write, fail-quiet
+    const doResolve = async () => {
+      try {
+        await resolveAdminAlert({ showId, code: "TILE_PROJECTION_FETCH_FAILED" });
+      } catch (e) {
+        void log.warn("projection-alert resolve failed (fail-quiet):", {
+          source: "crew.shell",
+          code: "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
+          error: e,
+        });
+      }
+    };
+    // Outside a request scope after() throws synchronously. Unlike
+    // WrappedSection's failure-path raise, this fires on EVERY healthy render,
+    // so a fire-and-forget fallback leaks a pending promise past test teardown
+    // (CI shard flake: EnvironmentTeardownError via pending onUserConsoleLog).
+    // The write is best-effort by contract and every real crew render has a
+    // request scope, so outside one we skip — the next healthy request resolves.
+    try {
+      after(doResolve);
+    } catch {
+      // no request scope: skip (best-effort; see comment above)
     }
   }
 

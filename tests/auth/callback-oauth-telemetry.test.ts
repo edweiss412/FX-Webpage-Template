@@ -115,6 +115,25 @@ describe("OAuth callback session-exchange telemetry", () => {
     });
   });
 
+  test("getUser resolves a user with NO email → OAUTH_NO_EMAIL_RESOLVED (warn), callback still redirects", async () => {
+    // Silent-before proof: pre-change this canonicalize→null branch returned with no log.
+    await withCapture(async (sink, GET) => {
+      state.serverClient.auth.getUser.mockResolvedValue({
+        data: { user: { email: null } },
+        error: null,
+      });
+      const res = await GET(req());
+      // Control flow UNCHANGED: the callback still completes its redirect.
+      expect(res.status).toBe(302);
+      const rec = sink.filter((r) => r.code === "OAUTH_NO_EMAIL_RESOLVED");
+      expect(rec).toHaveLength(1);
+      expect(rec[0]!.level).toBe("warn");
+      // Bare anomaly marker — no email ADDRESS and no actor hash (nothing to attribute).
+      expect(JSON.stringify(rec[0]!)).not.toContain("@");
+      expect(rec[0]!.actorHash).toBeNull();
+    });
+  });
+
   test("is_admin infra_error (admin path) → 503 + OAUTH_IS_ADMIN_INFRA_ERROR", async () => {
     await withCapture(async (sink, GET) => {
       state.adminResult = { ok: false, reason: "infra_error" };

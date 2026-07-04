@@ -7,6 +7,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import type { LogRecord } from "@/lib/log/types";
 
 const state = vi.hoisted(() => ({
   show: {} as Record<string, unknown>,
@@ -38,6 +39,9 @@ const state = vi.hoisted(() => ({
   errorOnFromTable: null as string | null,
   // ignored_warnings.fingerprint rows returned by loadIgnoredWarnings (data-quality ignore).
   ignoredFingerprints: [] as string[],
+  // Correlation-tail: the two silent catch blocks (readToken + readfinalizeowned_b2 rpc).
+  tokenThrows: false as boolean,
+  finalizeRpcThrows: false as boolean,
 }));
 
 // Async Server Component children can't be client-rendered by RTL — stub them.
@@ -85,6 +89,7 @@ vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:
 vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: async () => {
     state.tokenReadCalls += 1;
+    if (state.tokenThrows) throw new Error("META: token read fault");
     return state.token;
   },
 }));
@@ -139,10 +144,13 @@ vi.mock("@/lib/supabase/server", () => ({
       };
       return builder;
     },
-    rpc: async (fn: string) =>
-      fn === "readfinalizeowned_b2"
-        ? { data: state.finalizeOwned, error: null }
-        : { data: null, error: null },
+    rpc: async (fn: string) => {
+      if (fn === "readfinalizeowned_b2") {
+        if (state.finalizeRpcThrows) throw new Error("META: readfinalizeowned_b2 fault");
+        return { data: state.finalizeOwned, error: null };
+      }
+      return { data: null, error: null };
+    },
   }),
 }));
 
@@ -200,6 +208,8 @@ beforeEach(() => {
   state.throwOnFromTable = null;
   state.errorOnFromTable = null;
   state.ignoredFingerprints = [];
+  state.tokenThrows = false;
+  state.finalizeRpcThrows = false;
 });
 afterEach(() => {
   cleanup();
@@ -875,5 +885,141 @@ describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => 
     state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
     await renderPage();
     expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull();
+  });
+});
+
+// Correlation/coverage tail (2026-07-03): the per-show read-fault emits gain
+// slug/showId correlation, and the two previously-silent catch blocks (share-token
+// read + readfinalizeowned_b2 rpc) now emit a fail-open forensic warn WITHOUT
+// changing the fallback (token=null / NOT-finalize-owned). setLogSink capture.
+describe("per-show page read-fault correlation + silent-catch coverage", () => {
+  let sink: LogRecord[] = [];
+  beforeEach(async () => {
+    sink = [];
+    const log = await import("@/lib/log");
+    log.setLogSink((r) => {
+      sink.push(r);
+    });
+  });
+  afterEach(async () => {
+    const log = await import("@/lib/log");
+    log.resetLogSink();
+  });
+
+  it("crew_members lookup returned error → ADMIN_SHOW_CREW_LOOKUP_FAILED carries slug + showId", async () => {
+    state.errorOnFromTable = "crew_members";
+    await renderPage();
+    // fallback UNCHANGED: the calm crew-lookup-failed notice still renders.
+    expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeInTheDocument();
+    const rec = sink.find((r) => r.code === "ADMIN_SHOW_CREW_LOOKUP_FAILED");
+    if (!rec) throw new Error("expected ADMIN_SHOW_CREW_LOOKUP_FAILED emit");
+    expect(rec.level).toBe("error");
+    expect(rec.showId).toBe("s1"); // showId is a reserved field → promoted to the record column
+    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
+  });
+
+  it("readToken failure → ADMIN_SHOW_TOKEN_READ_FAILED warn (slug+showId), crew-link hidden (token=null)", async () => {
+    // Silent-before proof: pre-change the readToken catch returned null with NO log.
+    state.tokenThrows = true;
+    await renderPage();
+    // Fallback UNCHANGED: token=null → the token-dependent crew-link surfaces hide.
+    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
+    const rec = sink.find((r) => r.code === "ADMIN_SHOW_TOKEN_READ_FAILED");
+    if (!rec) throw new Error("expected ADMIN_SHOW_TOKEN_READ_FAILED emit");
+    expect(rec.level).toBe("warn");
+    expect(rec.showId).toBe("s1");
+    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
+  });
+
+  it("readfinalizeowned_b2 rpc throw → ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED warn (slug+showId), fails toward Held", async () => {
+    // Silent-before proof: the rpc catch swallowed the throw with no log.
+    state.show = { ...baseShow, published: false, archived: false };
+    state.finalizeRpcThrows = true;
+    await renderPage();
+    // Fallback UNCHANGED: finalizeOwned stays false → the neutral "Held" pill (NOT "Publishing…").
+    const pill = screen.getByTestId("admin-show-status-pill").textContent ?? "";
+    expect(pill).toMatch(/Held/);
+    expect(pill).not.toMatch(/Publishing/);
+    const rec = sink.find((r) => r.code === "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED");
+    if (!rec) throw new Error("expected ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED emit");
+    expect(rec.level).toBe("warn");
+    expect(rec.showId).toBe("s1");
+    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
+  });
+});
+
+// Structural anti-regression guard (Codex PR7 R2): the behavioral tests above drive
+// three representative branches, but the page has ~10 ADMIN_SHOW_* read-fault emits and
+// the others are hard to drive individually (some fire before `show` resolves). This
+// parses the page source and asserts EVERY log.error/log.warn call whose 2nd-arg
+// top-level `code` starts with "ADMIN_SHOW_" carries a top-level `slug` field — so a
+// future edit that drops slug correlation from any of them fails here, not silently.
+// (Mirrors the AST approach in tests/log/_metaAdminOutcomeContract.test.ts; `typescript`
+// is a dep. showId is NOT asserted structurally — the pre-`show`-resolution emits
+// legitimately can't carry it; slug is the invariant correlator on all of them.)
+describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () => {
+  it("every ADMIN_SHOW_* read-fault log call has a top-level slug field", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const ts = (await import("typescript")).default;
+    const file = join(process.cwd(), "app/admin/show/[slug]/page.tsx");
+    const src = readFileSync(file, "utf8");
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+
+    const offenders: string[] = [];
+    const visit = (node: import("typescript").Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === "log" &&
+        (node.expression.name.text === "error" || node.expression.name.text === "warn")
+      ) {
+        const arg2 = node.arguments[1];
+        if (arg2 && ts.isObjectLiteralExpression(arg2)) {
+          let code: string | null = null;
+          let hasSlug = false;
+          for (const p of arg2.properties) {
+            // `code: "..."` is a PropertyAssignment; `slug` (shorthand for `slug: slug`)
+            // is a ShorthandPropertyAssignment — accept BOTH forms for the slug field.
+            if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) {
+              if (p.name.text === "code" && ts.isStringLiteralLike(p.initializer)) {
+                code = p.initializer.text;
+              }
+              if (p.name.text === "slug") hasSlug = true;
+            } else if (ts.isShorthandPropertyAssignment(p) && p.name.text === "slug") {
+              hasSlug = true;
+            }
+          }
+          if (code && code.startsWith("ADMIN_SHOW_") && !hasSlug) offenders.push(code);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+
+    // Sanity: the scan actually found the ADMIN_SHOW_* family (guards against a
+    // vacuous pass if the file is renamed or the codes change shape).
+    const allCodes: string[] = [];
+    const collect = (node: import("typescript").Node): void => {
+      if (
+        ts.isPropertyAssignment(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === "code"
+      ) {
+        if (
+          ts.isStringLiteralLike(node.initializer) &&
+          node.initializer.text.startsWith("ADMIN_SHOW_")
+        )
+          allCodes.push(node.initializer.text);
+      }
+      ts.forEachChild(node, collect);
+    };
+    collect(sf);
+    expect(allCodes.length).toBeGreaterThanOrEqual(7);
+    expect(
+      offenders,
+      `these ADMIN_SHOW_* emits are missing a slug field: ${offenders.join(", ")}`,
+    ).toEqual([]);
   });
 });

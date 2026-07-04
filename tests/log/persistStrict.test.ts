@@ -10,6 +10,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { persistAppEventStrict } from "@/lib/log/persist";
+import { runWithRequestContext } from "@/lib/log/requestContext";
 
 const insertMock = mocks.insertMock;
 
@@ -60,5 +61,47 @@ describe("persistAppEventStrict", () => {
     });
     const inserted = insertMock.mock.calls[0]![0] as { context: Record<string, unknown> };
     expect(JSON.stringify(inserted.context)).not.toContain("doug@example.com");
+  });
+
+  // Failure mode caught (finding #4): the strict writer bypasses buildRecord, so
+  // unlike the logger path it never auto-filled requestId/showId from ALS — guard
+  // rows lost their request/show correlation. Mirror the logger's precedence:
+  // explicit value (incl. explicit null) wins; only undefined/absent falls to ALS.
+  test("auto-fills request_id/show_id from ALS when the caller omits them", async () => {
+    insertMock.mockResolvedValue({ error: null });
+    await runWithRequestContext({ requestId: "r1", showId: "s1" }, async () => {
+      await persistAppEventStrict(RECORD); // RECORD carries no requestId/showId
+    });
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ request_id: "r1", show_id: "s1" }),
+    );
+  });
+
+  test("explicit request_id/show_id override ALS (explicit wins)", async () => {
+    insertMock.mockResolvedValue({ error: null });
+    await runWithRequestContext({ requestId: "r1", showId: "s1" }, async () => {
+      await persistAppEventStrict({ ...RECORD, requestId: "explicit-r", showId: "explicit-s" });
+    });
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ request_id: "explicit-r", show_id: "explicit-s" }),
+    );
+  });
+
+  test("explicit null request_id/show_id override ALS (null = 'no correlation')", async () => {
+    insertMock.mockResolvedValue({ error: null });
+    await runWithRequestContext({ requestId: "r1", showId: "s1" }, async () => {
+      await persistAppEventStrict({ ...RECORD, requestId: null, showId: null });
+    });
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ request_id: null, show_id: null }),
+    );
+  });
+
+  test("outside any ALS scope, omitted request_id/show_id stay null", async () => {
+    insertMock.mockResolvedValue({ error: null });
+    await persistAppEventStrict(RECORD);
+    expect(insertMock).toHaveBeenCalledWith(
+      expect.objectContaining({ request_id: null, show_id: null }),
+    );
   });
 });

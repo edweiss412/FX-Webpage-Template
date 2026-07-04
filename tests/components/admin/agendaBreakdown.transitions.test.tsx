@@ -35,7 +35,7 @@ import type { AgendaExtraction } from "@/lib/agenda/types";
 import {
   AgendaBreakdown,
   __resetAgendaThrottleForTests,
-} from "@/components/admin/wizard/Step3SheetCard";
+} from "@/components/admin/wizard/step3ReviewSections";
 
 const WIZARD_SESSION_ID = "22222222-2222-2222-2222-222222222222";
 const DFID = "drive-transition-test";

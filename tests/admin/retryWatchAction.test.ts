@@ -87,9 +87,14 @@ describe("retryWatchSubscriptionFormAction", () => {
     expect(resolveAdminAlertSpy).not.toHaveBeenCalled();
     expect(revalidatePathSpy).not.toHaveBeenCalled();
     expect(logInfoSpy).toHaveBeenCalledTimes(1);
-    const [message, fields] = logInfoSpy.mock.calls[0] as unknown as [string, { source: string }];
+    const [message, fields] = logInfoSpy.mock.calls[0] as unknown as [
+      string,
+      { source: string; code?: string },
+    ];
     expect(message).toEqual(expect.stringContaining("skip"));
     expect(fields.source).toBe("admin.watchRetry");
+    // Info-WITH-code so the deliberate no-op PERSISTS (info persists only with a code).
+    expect(fields.code).toBe("WATCH_RETRY_NO_FOLDER_SKIPPED");
   });
 
   test("folder infra_error → REJECTS with the typed WatchRetryInfraError (kind discriminator), no subscribe, no revalidate", async () => {

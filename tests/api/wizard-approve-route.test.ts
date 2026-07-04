@@ -5,6 +5,10 @@ import {
   handleWizardStagedApprove,
   type WizardApproveRouteTx,
 } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
+import { setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
+import { hashForLog } from "@/lib/email/hashForLog";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 
 // Mock the durable-outcome logger so the OUTCOME-REF emission is observable
 // WITHOUT writing app_events, and so the 409-superseded + post-success
@@ -387,5 +391,54 @@ describe("Task D3 — approve sets durable publish-intent (lightweight, real DB)
     expect(await response.json()).toEqual({ ok: false, code: "SYNC_INFRA_ERROR" });
     // The log is emitted only AFTER withRowTx resolves; a rejected wrapper skips it.
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+  });
+
+  // No DB: an injected withRowTx + fakeTx returns a row carrying RESCAN_REVIEW_REQUIRED
+  // so the dirty-rescan guard refuses (200 + cataloged code, ZERO mutation). Pins the
+  // fail-open forensic breadcrumb (previously this refusal wrote no server trace).
+  test("dirty-rescan refusal (RESCAN_REVIEW_REQUIRED) emits STAGE_APPROVE_RESCAN_REQUIRED (hashed actor) and does NOT mutate/logAdminOutcome", async () => {
+    const fakeTx = {
+      async queryOne<T>(sqlText: string): Promise<T> {
+        if (/select ps\.triggered_review_items/i.test(sqlText)) {
+          return {
+            triggered_review_items: [{ id: "rev-rescan-1" }],
+            last_finalize_failure_code: RESCAN_REVIEW_REQUIRED,
+          } as T;
+        }
+        // The approve UPDATE / manifest UPDATE must NEVER run on the refusal path.
+        throw new Error(`unexpected mutation on the rescan-refusal path: ${sqlText}`);
+      },
+    } as unknown as WizardApproveRouteTx;
+
+    const sink: LogRecord[] = [];
+    setLogSink((r) => {
+      sink.push(r);
+    });
+    try {
+      const response = await handleWizardStagedApprove(req(), context, {
+        requireAdminIdentity: async () => ({ email: ADMIN_EMAIL }),
+        withRowTx: async <R>(
+          _driveFileId: string,
+          fn: (tx: WizardApproveRouteTx) => Promise<R> | R,
+        ): Promise<R> => fn(fakeTx),
+      });
+
+      // Control flow UNCHANGED: HTTP 200 + the cataloged code, no mutation.
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ ok: false, code: RESCAN_REVIEW_REQUIRED });
+      // Refusal path never emits a durable success outcome.
+      expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+
+      const rec = sink.find((r) => r.code === "STAGE_APPROVE_RESCAN_REQUIRED");
+      if (!rec) throw new Error("expected STAGE_APPROVE_RESCAN_REQUIRED emit");
+      expect(rec.level).toBe("warn");
+      expect(rec.driveFileId).toBe(DRIVE_FILE_ID);
+      expect((rec.context as { wizardSessionId?: string })?.wizardSessionId).toBe(SESSION);
+      // Actor is the canonicalized admin, hashed — never raw.
+      expect(rec.actorHash).toBe(hashForLog(CANONICAL_ADMIN_EMAIL));
+      expect(JSON.stringify(rec)).not.toContain(ADMIN_EMAIL);
+    } finally {
+      resetLogSink();
+    }
   });
 });

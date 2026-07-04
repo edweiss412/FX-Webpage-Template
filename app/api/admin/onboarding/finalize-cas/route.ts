@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
@@ -738,6 +739,15 @@ async function runFinalizeCas(
 
   const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
   if (unresolved > 0) {
+    // Stuck-finisher breadcrumb (non-convergent terminal): fail-open, hashed
+    // actor, never changes the 409 (invariant 9).
+    void log.warn("finalize precondition refused", {
+      source: "api.admin.onboarding.finalize-cas",
+      code: "FINALIZE_PRECONDITION_REFUSED",
+      wizardSessionId,
+      actorHash: hashForLog(actorEmail),
+      result: "ONBOARDING_NOT_RESOLVED",
+    });
     return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
       unresolved_manifest_count: unresolved,
     });
@@ -748,6 +758,15 @@ async function runFinalizeCas(
   // unpromoted, checkpoint NOT final_cas_done).
   const legacyAmbiguous = await legacyAmbiguousManifestRows(tx, wizardSessionId);
   if (legacyAmbiguous.length > 0) {
+    // Stuck-finisher breadcrumb (non-convergent terminal): fail-open, hashed
+    // actor, never changes the 409 (invariant 9).
+    void log.warn("finalize precondition refused", {
+      source: "api.admin.onboarding.finalize-cas",
+      code: "FINALIZE_PRECONDITION_REFUSED",
+      wizardSessionId,
+      actorHash: hashForLog(actorEmail),
+      result: "ONBOARDING_LEGACY_ROW_AMBIGUOUS",
+    });
     return errorResponse(409, "ONBOARDING_LEGACY_ROW_AMBIGUOUS", {
       per_row: legacyAmbiguous.map((driveFileId) => ({
         drive_file_id: driveFileId,
