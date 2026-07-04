@@ -108,11 +108,11 @@ export function PickerResetControl({
     clearAutoRevert();
     setUi("resolving");
     // not-subject:M5-D8 — this control's outcome copy (success AND error) is admin-authored inline
-    // BY DESIGN (spec §6.2): the picker message catalog is crew-facing and would misattribute an
+    // BY DESIGN (spec §6.2): the picker message catalog is crew-oriented and would misattribute an
     // admin reset ("That crew member was just removed… Pick yourself…"). Spec §2.4/§8 also forbid
     // adding new §12.4 codes for this feature. So these strings intentionally do NOT route through
-    // messageFor(); they are Doug-facing admin copy on an admin-only surface. No raw error CODE is
-    // ever rendered (codes are mapped to these sentences here).
+    // the crew message catalog; they are Doug-facing admin copy on an admin-only surface. No raw
+    // error CODE is ever rendered (codes are mapped to these sentences here).
     startTransition(async () => {
       if (scope === "all") {
         const r = await resetPickerEpoch({ showId });
