@@ -96,24 +96,32 @@ Replace the current eyebrow + `h2 "Review & publish your sheets"` + subhead (`St
 - Drop the "Step 3 of 3" eyebrow **text** (`wizard-step3-eyebrow`, `Step3Review.tsx:930-936`) — the redesigned stepper now names the step visibly. Removing the eyebrow requires updating any test asserting `wizard-step3-eyebrow` (§9).
 - **Composed summary** `<p data-testid="wizard-step3-summary">` (renamed from the static subhead) — see the copy catalog below.
 
-**Count definitions** (all derived from `rows: Step3Row[]`, filters only — never NaN):
-- `cleanRows` = `staged | applied` (`isCleanRow`, `Step3Review.tsx:500-502`).
+**Count definitions** (all derived from `rows: Step3Row[]`, filters only — never NaN; the partition mirrors the live `publishRows`/`selectableRows` split at `Step3Review.tsx:644-655`):
+- `cleanRows` = `publishRows` = rows with `staged | applied` (`isCleanRow`, `Step3Review.tsx:500-502,644`).
+- `selectableRows` = `publishRows.filter(hasReviewablePreview(r) && !r.lastFinalizeFailureCode)` (`Step3Review.tsx:653-655`) — the only rows with a real checkbox / publish-intent.
+- `noDetailsRows` = clean rows with **no reviewable preview** (`!hasReviewablePreview` — `parseResult` null/`!pr.show`); rendered as the "couldn't read" card (`data-no-details`, `Step3SheetCard.tsx:308-320`). No checkbox, no Review/View, excluded from `selectableRows`.
+- `demotedRows` = clean rows with `lastFinalizeFailureCode != null` (`isFinalizeDemoted`, `Step3SheetCard.tsx:237`); checkbox suppressed, "review before publishing" banner + re-apply, excluded from `selectableRows`.
 - `blockingRows` = `hard_failed | live_row_conflict | discard_retryable` (`BLOCKING_STATUSES`, `Step3Review.tsx:614-619`).
 - `skippedRows` = `skipped_non_sheet`.
-- A clean row **needs a look** iff `summarizeDataGaps(stripLegacyUnknownFieldAnchors(arr(pr.warnings))).total > 0` **OR** `row.lastFinalizeFailureCode != null` (stale-review). Otherwise **ready**.
-- `readyCount`, `needsLookCount` (both over `cleanRows`); `cleanCount = readyCount + needsLookCount`; `blockingCount = blockingRows.length`; `sheetCount = rows.length − skippedRows.length` (skipped are "not a Google Sheet", so excluded from "sheets parsed").
+- **ready** = a **selectable** row with `summarizeDataGaps(stripLegacyUnknownFieldAnchors(arr(pr.warnings))).total === 0`. `readyCount` = count of those.
+- **needs a look** = every clean row that is not ready: `needsLookCount = cleanRows.length − readyCount` (i.e. selectable-with-warnings + `demotedRows` + `noDetailsRows`). Each such card shows its specific state; the headline groups them.
+- `blockingCount = blockingRows.length`; `sheetCount = rows.length − skippedRows.length` (skipped are "not a Google Sheet", excluded from "sheets parsed").
+
+**Verb/noun agreement** (the mock reads "1 **needs** a quick look"): nouns use `n===1?"":"s"` ("sheet"/"sheets"); the verb "need" is the inverse — `needsVerb = n===1 ? "needs" : "need"`, and the pronoun clause is `n===1 ? "it goes" : "they go"`. Never emit "1 need".
 
 **Copy catalog** (plaintext; no raw codes; `n===1 ? "" : "s"` pluralization; "needs a look" span uses `text-warning-text`):
 
 | Condition | Rendered summary (`wizard-step3-summary`) |
 | --- | --- |
+Let `cleanCount = cleanRows.length` (= `readyCount + needsLookCount`).
+
 | `rows.length === 0` | *(no summary paragraph — the empty card at §4.5 renders instead)* |
 | `cleanCount === 0` (only blocking / set-aside) | "**{sheetCount} sheet{s}** parsed from your Drive folder." *(readiness clause omitted; blocking handled by the resolution line below)* |
-| `cleanCount > 0`, `needsLookCount === 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. **All {cleanCount} ready** to publish. Nothing publishes until you say so." |
-| `cleanCount > 0`, `needsLookCount > 0`, `readyCount > 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. **{readyCount} ready** to publish — *{needsLookCount} need{s} a quick look* before {needsLookCount===1?"it goes":"they go"} live. Nothing publishes until you say so." |
-| `cleanCount > 0`, `readyCount === 0` (all clean need a look) | "**{sheetCount} sheet{s}** parsed from your Drive folder. *{needsLookCount} need{s} a quick look* before {…} live. Nothing publishes until you say so." |
+| `cleanCount > 0`, `needsLookCount === 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. **All {readyCount} ready** to publish. Nothing publishes until you say so." |
+| `cleanCount > 0`, `needsLookCount > 0`, `readyCount > 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. **{readyCount} ready** to publish — *{needsLookCount} {needsVerb} a quick look* before {needsLookCount===1?"it goes":"they go"} live. Nothing publishes until you say so." |
+| `cleanCount > 0`, `readyCount === 0` (all clean need a look) | "**{sheetCount} sheet{s}** parsed from your Drive folder. *{needsLookCount} {needsVerb} a quick look* before {needsLookCount===1?"it goes":"they go"} live. Nothing publishes until you say so." |
 
-`sheetCount` guard: if `sheetCount === 0` but `cleanCount+blockingCount > 0` (all rows skipped-only can't co-occur with cleanCount>0), the `cleanCount===0` branch applies; when only skipped rows exist, `sheetCount===0` → "**0 sheets** parsed…" reads fine and the set-aside Skipped section explains them.
+where `needsVerb = needsLookCount===1 ? "needs" : "need"` (so the singular reads "1 **needs** a quick look before it goes live"). `sheetCount` guard: if only skipped rows exist, `sheetCount===0` → "**0 sheets** parsed…" reads fine and the Skipped set-aside section explains them; the `cleanCount===0` branch applies (no readiness clause).
 
 **Resolution status line** (`wizard-step3-resolution-status`, `Step3Review.tsx:982-992`) — keep verbatim, including `data-all-resolved` / `data-unresolved-count` / `data-blocking-count` attributes (wizard chrome + tests depend on them). Its copy already handles the blocking case ("Clear the sheets under Needs your attention to finish setup.").
 
@@ -131,28 +139,37 @@ Each clean row is a compact card (`Step3SheetCard`), **one row of content**:
 - **checkbox** — `wizard-step3-checkbox-${driveFileId}` (`Step3SheetCard.tsx:115`), lifted optimistic `checked`/`onToggleChecked`, unchanged. `applied` rows render checked (existing rule).
 - **title** — plain text (NOT a link): `pr.show.title ?? row.stagedShowTitle ?? row.driveFileName ?? row.driveFileId`. New testid `wizard-step3-card-${dfid}-title`. The old **`-title-link`** anchor to the sheet is **removed** from the card face (the "open in Google Sheet" affordance already lives in the modal header). `Step3SheetCard.tsx:152`.
 - **meta line** — `client · dates · venue`, segments joined by a `·` separator, **each segment omitted when absent** (never an empty segment or a dangling dot): client `pr.show.client_label` (testid `-client`), dates `dateSummarySegments(pr.show.dates).join(" · ")` (testid `-dates`), venue `venueDisplay(pr.show.venue).name` (testid `-venue`). City is folded away (dropped from the card face; still in the modal). If **all three** are absent, render nothing (no meta line).
-- **right cluster:**
-  - clean-with-warnings (`total > 0` or stale): a **"N need a look" chip** (`data-testid="wizard-step3-card-${dfid}-review-chip"`) = `status-review` dot + `bg-warning-bg text-warning-text` pill (dot+text paired, DESIGN.md §1.3), where N = `summarizeDataGaps(...).total`; **+ primary Review button**.
-  - clean-no-warnings: **ghost View button** only, no chip.
-  - button testid stays `wizard-step3-card-${dfid}-more` (modal-open trigger, `Step3SheetCard.tsx:517-530`); **visible label** becomes "Review" (warn) / "View" (clean). Opens `Step3ReviewModal` (mount-on-open, `:548-570`) unchanged.
-- The **card border** is warn-tinted (`border-border-strong`, warm via `bg-surface`) when needs-a-look; neutral `border-border` otherwise. (No warn-*border* token exists; use `border-border-strong` per §6.)
+- **right cluster** — depends on the row variant:
+  - **selectable, data-gap warnings** (`total > 0`): a chip (`data-testid="wizard-step3-card-${dfid}-review-chip"`) = `bg-status-review` dot + `bg-warning-bg text-warning-text` pill (dot + text paired, DESIGN.md §1.3), label **"{total} {total===1?'needs':'need'} a look"**; **+ a "Review" button**.
+  - **selectable, no warnings** (`total === 0`): a **"View" button** only, no chip.
+  - **demoted / stale-review** (`lastFinalizeFailureCode != null`, see below): a chip with the **non-numeric** label **"Needs another look"** (`bg-status-review` dot; NO count — a demoted row can have `total === 0`, so a numeric chip would render "0"); the card carries the existing banner + re-apply; button label "Review". No checkbox.
+  - **no-details** (`!hasReviewablePreview`, see below): no chip and **no Review/View button** (there is no modal to open); the "couldn't read" copy is the card body.
+- **Button treatment (accent-budget safe):** neither Review nor View is a filled-accent CTA. **View** = `ghost` (`text-text-subtle hover:bg-surface-sunken`); **Review** = `outline` (`border-border-strong bg-surface text-text-strong`). The single filled-accent CTA on the page stays the **Publish** button in the bar (plus the one active step pill and checked checkboxes), keeping accent ≤10% (DESIGN.md:11) even for an unbounded list of Review rows. The warn signal is carried by the chip, not an accent fill.
+- Button testid stays `wizard-step3-card-${dfid}-more` (modal-open trigger, `Step3SheetCard.tsx:517-530`); **visible label** becomes "Review" (has warnings/demoted) / "View" (no warnings). Opens `Step3ReviewModal` (mount-on-open, `:548-570`) unchanged. Absent on the no-details card.
+- **Card border**: warn-tinted `border-border-strong` when needs-a-look (warnings/demoted); neutral `border-border` otherwise. (No warn-*border* token exists; use `border-border-strong` per §6.)
 
-**Removed from the card face** (detail now lives in the modal): the collapsed `<dl>` summary (`-summary`, `-dates`/`-venue`/`-city` in the dl form — note `-dates`/`-venue` are **re-added** on the compact meta line above, `-city` dropped), the per-class data-gap chips (`-data-gaps`, `-data-gap-${key}`), the `Diagrams ✓` / `Reel ✓` badges (`-badge-diagrams`, `-badge-reel`), and the standalone `-publish-live` label. Each removal drives a test update (§9). The **rescan** affordance (`wizard-step3-rescan-review-${dfid}`, `Step3SheetCard.tsx:196`) is retained on the stale-review variant.
+**Removed from the *selectable* card face** (detail now lives in the modal): the collapsed `<dl>` summary (`-summary`, `-dates`/`-venue`/`-city` in the dl form — note `-dates`/`-venue` are **re-added** on the compact meta line above, `-city` dropped), the per-class data-gap chips (`-data-gaps`, `-data-gap-${key}`), the `Diagrams ✓` / `Reel ✓` badges (`-badge-diagrams`, `-badge-reel`), and the standalone `-publish-live` label. The `-title-link` anchor is dropped **from the selectable card** (title → plain `-title` text) but **retained on the non-selectable variants** (no-details `Step3SheetCard.tsx:316` and demoted `:397`, which keep `SheetTitleLink`). Each removal drives a test update (§9). The **rescan** affordance (`wizard-step3-rescan-review-${dfid}`, `Step3SheetCard.tsx:196`) is retained on the demoted/stale-review variant.
 
-**Stale-review variant** (`row.lastFinalizeFailureCode != null`, currently `Step3SheetCard.tsx:178-201`): checkbox **suppressed**; card shows the "This sheet changed since you reviewed it. Review it before publishing." callout (verbatim copy) + Review button + rescan. It counts as **needs-a-look** (chip shown) but contributes **0** to `readyCount`/publish-intent (already excluded from selectable rows). Warn treatment.
+**Demoted / stale-review variant** (`isFinalizeDemoted` = `row.lastFinalizeFailureCode != null` — **any** finalize-failure code, not only `RESCAN_REVIEW_REQUIRED`; `Step3SheetCard.tsx:230-240`): checkbox **suppressed**; card shows the existing "review before publishing" banner (verbatim copy at the current `Step3SheetCard.tsx:178-201`) + Review button + rescan (`wizard-step3-rescan-review-${dfid}`). Chip = the non-numeric "Needs another look" (never a "0"). Contributes **0** to `readyCount`/publish-intent (already excluded from `selectableRows`). Warn treatment.
+
+**No-details variant** (`!pr || !pr.show` → `!hasReviewablePreview`; the current `data-no-details` card at `Step3SheetCard.tsx:308-320`): **no checkbox, no chip, no Review/View button/modal** (there is nothing to review). Card body = the title (via `SheetTitleLink`, which retains the `-title-link` testid) + the verbatim "We couldn't read the details of this sheet." warn copy. Excluded from `selectableRows` and from `readyCount`; folds into `needsLookCount` for the headline. Neutral-warn card. Restyle to the compact list idiom (`data-no-details` attribute + `-summary` testid preserved).
 
 ### 4.4 Sticky publish bar (`Step3PublishBar` + re-homed `FinalizeButton`)
 
 A new bottom bar, `position: sticky; bottom: 0`, full-width within the Step-3 container, `bg-surface/88 backdrop-blur border-t border-border`, `z`-above content, safe-area padding on mobile. Rendered by `Step3ReviewWithFinalize` when `rows.length > 0` (matching the current `FinalizeButton` render guard `:53`).
 
 **Idle row layout:** `[ "<b>N</b> of <total> selected to publish" ]  [spacer]  [Back]  [FinalizeButton primary]`.
-- **count** — `data-testid="wizard-step3-publish-count"` **moves here** from the header select-all block (`Step3Review.tsx:530,561`). It reads `<b>{publishCount}</b> of {selectableTotal} selected to publish`, `tabular-nums`. Both derive from the existing `Step3PublishCounts` overlay (`Step3ReviewWithFinalize.tsx:45-48`): `publishCount = counts.publishCount` (checked/`applied`); `selectableTotal = counts.publishCount + counts.uncheckedCleanCount` (checked + unchecked clean = all selectable clean rows; excludes stale/blocking). No new count source is added. Guard: `selectableTotal === 0` → "0 of 0 selected to publish" (bar still shows; Publish disabled by `finishable`). **Select-all** stays in the header (§4.2 note) — the bar shows the count only, not the select-all control. The header's `Step3PublishHeader` (`Step3Review.tsx:519-561`) is refactored to render select-all **without** the count (the count's two current sites there are removed; the moved testid is single-sourced in the bar).
+- **count** — `data-testid="wizard-step3-publish-count"` **moves here** from the header select-all block (`Step3Review.tsx:530,561`). It reads `<b>{selectedCount}</b> of {selectableTotal} selected to publish`, `tabular-nums`. **These must come from `selectableRows`, NOT from the existing `publishCount`/`uncheckedCleanCount`** — the current `onCountsChange` overlay reports over `publishRows` (so `publishCount + uncheckedCleanCount == publishRows.length`, *including* demoted/no-details rows per `Step3Review.tsx:811-817`), whereas the header's "N of M" already uses `selectableRows` (`appliedCount`/`cleanCount`, `Step3Review.tsx:805-806`). So: **extend `Step3PublishCounts` (`Step3Review.tsx:105-108`)** with two fields sourced from the already-computed selectable counts — `selectableTotal = cleanCount (= selectableRows.length)` and `selectedCount = appliedCount (= selectableRows.filter(isChecked).length)`. The FinalizeButton's existing `publishCount`/`uncheckedCleanCount` (over `publishRows`) are **unchanged** (its "Publish N shows" label and finalize behavior keep their current semantics). Guard: `selectableTotal === 0` → "0 of 0 selected to publish" (bar still shows; Publish disabled by `finishable`). **Select-all** stays in the header (§4.2 note) — the bar shows the count only, not the select-all control. The header's `Step3PublishHeader` (`Step3Review.tsx:519-561`) is refactored to render select-all **without** the count (the count's two current sites there are removed; the moved testid is single-sourced in the bar).
 - **Back** — a `<Link href="/admin?step=2" data-testid="wizard-step3-back">` styled ghost, `ChevronLeft` + "Back". (Distinct testid from the top `wizard-back-link`, which is absent on step 3.) Same read-only safety as `BackLink` (§ `OnboardingWizard.tsx:156-160`).
 - **FinalizeButton** — re-homed **unchanged in behavior**: same props (`wizardSessionId`, `disabled={!finishable}`, `publishCount`, `uncheckedCleanCount`), same idle label "Publish N shows & finish setup", same soft-confirm, NDJSON streaming, race_row / cas_per_row / error / complete states, focus management, SR announcer, all testids (`wizard-finalize*`). Only its **container and idle-button chrome** adapt to the bar (`size="lg" inline selfStart shadow` already bar-friendly).
 
-**Running / terminal coexistence with the thin bar** (design decision, §1 approved): the bar container is a **flex column, auto-height, anchored to the bottom**. `FinalizeButton` renders its own surfaces inside the bar in this order (top→bottom): terminal/transient panels (soft-confirm dialog, `ProgressPanel`, race_row/cas_per_row/error/complete) **above** the idle button row. Because the bar is bottom-anchored and grows upward, these panels appear **above** the count/Back/Publish row without a portal and without cramping — matching the mock's "panels float above the bar." The common idle + running states keep the bar thin (the `ProgressPanel` is a compact determinate bar); the rare error/race panels grow the bar upward — acceptable, as publishing is the operator's committed focus at that moment. **No `FinalizeButton` internal state is lifted or split.** Focus (`panelRef`/`alertRef`), `role="alert"`/`role="status"`, and the streaming contract are byte-for-byte preserved.
+**Running / terminal coexistence with the thin bar** (design decision, §1 approved): today `FinalizeButton`'s root is `<div class="flex flex-col gap-3">` rendering, in order, `[sr-announcer] → [button|ProgressPanel] → [confirm] → [race] → [cas] → [error] → [complete]` (`FinalizeButton.tsx:422-543`) — i.e. its transient/terminal panels render **below** the trigger. A wrapper alone therefore **cannot** float those panels above the count/Back/Publish row. Getting the mock's "panels above the bar" requires a **layout-only** change to `FinalizeButton`. The change is explicitly bounded to presentation:
 
-Concretely, `Step3PublishBar` renders `{children}` where `Step3ReviewWithFinalize` passes the count + Back + `<FinalizeButton/>`; the bar's flex-col + `flex-col-reverse`-on-the-panels approach is an implementation detail satisfying DI-3 (§7).
+- **Preserved verbatim** (do NOT touch): the `ButtonState` state machine, `runLoop`/`readFinalizeBatch`/`readFinalizeCas`, the fetch/NDJSON streaming contract, `completedRef`/`grandTotalRef`, focus effects (`panelRef`/`alertRef` + the `useEffect` keyed on `state.kind`), every `role`/`aria`/`data-testid`, the soft-confirm dialog + its focus trap, and all copy.
+- **May change**: only the root container's child **order/placement** so panels sit above the trigger — via an optional prop (e.g. `panelPlacement?: "above" | "below"`, default `"below"` = current behavior; the bar passes `"above"`) implemented as a CSS/order-only concern (`flex-col-reverse` on the root reverses the visual stack — the hidden sr-announcer's position is immaterial), OR the equivalent explicit reordering. This is view-layer, keeps `FinalizeButton.test.tsx` green (testids unchanged), and is the ONLY edit to the component.
+- **Acceptable fallback** (if `"above"` proves risky under impeccable/adversarial review): keep the natural order (panels below the trigger) with the bar growing upward from the bottom edge — the operator is mid-publish/committed, so a downward-growing panel under a bottom-sticky bar is the failure mode to avoid, which either ordering prevents because the bar is bottom-anchored and its content lays out within the viewport. The plan picks one during implementation and pins it with the DI-3 real-browser assertion (§7).
+
+`Step3PublishBar` composes `[count][spacer][Back][<FinalizeButton panelPlacement="above"/>]` in an `items-end` row so the trigger baseline aligns with the count/Back while panels stack upward over the button column. No `FinalizeButton` state is lifted or split.
 
 ### 4.5 Edge-case reconciliation
 
@@ -180,14 +197,14 @@ Concretely, `Step3PublishBar` renders `{children}` where `Step3ReviewWithFinaliz
 | Accent hover | `bg-accent-hover` | globals.css:57 |
 | Neutral surfaces | `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` | :47-49 |
 | Borders | `border-border`, `border-border-strong` | :54-55 |
-| Needs-a-look chip / warn plate | `bg-warning-bg text-warning-text` + `status-review` dot | :61-62; StatusIndicator |
+| Needs-a-look chip / warn plate | `bg-warning-bg text-warning-text` pill + a `bg-status-review` dot | globals.css:61-62; `bg-status-review` utility globals.css:88 / `StatusIndicator.tsx:18` |
 | Info / set-aside quiet | `bg-surface-sunken text-text` (info tone) | toneClasses `Step3Review.tsx:156-163` |
 | Radii | `rounded-sm/md/lg/pill` (6/12/16/999) | :189-192 |
 | Shadow | `shadow-(--shadow-tile)` | :231 |
 | Spacing | `p-tile-pad`(20) `gap-section-gap`(32) `min-h-tap-min`(44) | :163,165,155 |
 | Focus | `ring-focus-ring` `duration-fast` | :64,196 |
 
-**No new token is introduced.** There is **no success/green token**; "done" step and "ready" count use neutral (`text-text-subtle` / `text-text-strong`) treatment. The single accent (`--color-accent`) stays ≤10% coverage (DESIGN.md:11) — it appears only on the one active step pill, the primary Publish/Review CTAs, and the checked checkbox, exactly as today.
+**No new token is introduced.** The needs-a-look dot reuses the existing `bg-status-review` utility (`app/globals.css:88`) — the same status hue `StatusIndicator` uses; the spec does **not** invent a `status-review` class (the utility is `bg-status-review`). There is **no success/green token**; "done" step and "ready" count use neutral (`text-text-subtle` / `text-text-strong`) treatment. The single accent (`--color-accent`) stays ≤10% coverage (DESIGN.md:11): after this change it appears only on the **one active step pill**, the **single Publish CTA in the bar**, and **checked checkboxes** — Review/View buttons are deliberately non-accent (§4.3), so an unbounded list of Review rows cannot breach the budget.
 
 ---
 
@@ -224,23 +241,23 @@ No new `AnimatePresence`/ternary animations are introduced; every state swap abo
 
 ## 9. DOM / test-contract delta
 
-**Preserved testids** (assert unchanged): `onboarding-wizard`, `wizard-step-indicator`, `wizard-step-indicator-{1,2,3}`, `wizard-back-link` (steps 1–2), `wizard-step3`, `wizard-step3-heading`, `wizard-step3-card-grid`, `wizard-step3-select-all`, `wizard-step3-publish-count` (moved to bar), `wizard-step3-checkbox-*`, `wizard-step3-resolution-status` (+ its data-attrs), `wizard-step3-needs-attention` (+ children), `wizard-step3-ignored/-deferred/-skipped`, `wizard-step3-empty`, `wizard-step3-row-*`, all `wizard-finalize*`, `wizard-step3-rescan-review-*`.
+**Preserved testids** (assert unchanged): `onboarding-wizard`, `wizard-step-indicator`, `wizard-step-indicator-{1,2,3}`, `wizard-back-link` (steps 1–2), `wizard-step3`, `wizard-step3-heading`, `wizard-step3-card-grid`, `wizard-step3-select-all`, `wizard-step3-publish-count` (moved to bar), `wizard-step3-checkbox-*`, `wizard-step3-resolution-status` (+ its data-attrs), `wizard-step3-needs-attention` (+ children), `wizard-step3-ignored/-deferred/-skipped`, `wizard-step3-empty`, `wizard-step3-row-*`, all `wizard-finalize*`, `wizard-step3-rescan-review-*`, and the **no-details/demoted card** contract `wizard-step3-card-${dfid}` + `data-no-details="true"` (no-details) + `-summary` + `-title-link` (both non-selectable variants keep `SheetTitleLink`).
 
-**Removed** (tests updated in the same task): `wizard-step3-eyebrow`; card face `-title-link`, `-summary` (dl), `-city`, `-data-gaps`, `-data-gap-${key}`, `-badge-diagrams`, `-badge-reel`, `-publish-live`.
+**Removed from the *selectable* card only** (tests updated in the same task; the no-details variant is unaffected): `wizard-step3-eyebrow` (header); and on the selectable card `-title-link` (→ plain `-title`), `-summary` (dl), `-city`, `-data-gaps`, `-data-gap-${key}`, `-badge-diagrams`, `-badge-reel`, `-publish-live`.
 
-**Added:** `wizard-step3-summary`, `wizard-step3-card-${dfid}-title`, `-client`, `-review-chip`, `wizard-step3-back` (bar).
+**Added:** `wizard-step3-summary` (header), `wizard-step3-card-${dfid}-title`, `-client`, `-review-chip`, `wizard-step3-back` (bar).
 
-**Test files to reconcile** (each change lands with its test edit — TDD): `components/admin/wizard/Step3Review.test.tsx`, `Step3ReviewWithFinalize.test.tsx`, `step3ReviewSections.test.tsx`, `tests/components/admin/onboardingWizardNav.test.tsx`, `step3NeedsAttention.test.tsx`, `OnboardingWizard.test.tsx`, `step3Checkbox.test.tsx`, `admin/FinalizeButton.test.tsx` (behavior unchanged — assert re-home didn't break it). **Anti-tautology:** where a test scans for a label also rendered by a sibling (e.g. "Review" appears on both the card button and the modal), scope the query to the card subtree (clone + remove modal) before asserting.
+**Test files to reconcile** (each change lands with its test edit — TDD): `tests/components/admin/wizard/Step3Review.test.tsx`, `Step3ReviewWithFinalize.test.tsx`, `step3ReviewSections.test.tsx`, `step3PublishSettlement.test.tsx`; `tests/components/step3SheetCard.test.tsx` (asserts `-title-link`, `-summary`, badges, data-gaps, no-details at `:356,459,529,566` — the biggest delta) and `tests/components/step3SheetCard.transitions.test.tsx` (live-region/transition coverage `:116`); `tests/components/admin/onboardingWizardNav.test.tsx`, `step3NeedsAttention.test.tsx`, `OnboardingWizard.test.tsx`, `step3Checkbox.test.tsx`; `tests/components/admin/FinalizeButton.test.tsx` (behavior unchanged — assert the re-home + `panelPlacement` prop didn't break any testid/state). **Anti-tautology:** where a test scans for a label also rendered by a sibling (e.g. "Review" appears on both the card button and the modal), scope the query to the card subtree (clone + remove modal) before asserting.
 
 ---
 
 ## 10. Guard conditions (per prop/input)
 
 - `rows = []` → empty state (§4.5); no summary, no bar.
-- `parseResult == null` on a clean row → warnings empty → `total 0` → treated as **ready**, no chip; title falls back to `stagedShowTitle ?? driveFileName ?? driveFileId`; meta line omitted if `pr.show` absent.
-- `client_label` / `dates` / `venue` individually null → that meta segment omitted (no empty dot).
-- `dataGaps.total === 0` → View (no chip). `> 0` → Review + chip "N need a look".
-- `lastFinalizeFailureCode != null` → stale-review variant (no checkbox), needs-a-look, 0 publish-intent.
+- `parseResult == null` / `!pr.show` on a clean row → **no-details variant** (§4.3), NOT "ready": `data-no-details` "couldn't read" card, no checkbox, no chip, no Review/View, excluded from `selectableRows` and `readyCount`, folded into `needsLookCount`. Title falls back via `SheetTitleLink` to `driveFileName ?? driveFileId`.
+- `client_label` / `dates` / `venue` individually null → that meta segment omitted (no empty dot); all three absent → no meta line. (Only reachable on a selectable card, which by definition has `pr.show`.)
+- `dataGaps.total === 0` on a selectable row → **View**, no chip. `> 0` → **Review** + chip "{total} {total===1?'needs':'need'} a look".
+- `lastFinalizeFailureCode != null` (any code) → demoted/stale-review variant (no checkbox), needs-a-look, non-numeric "Needs another look" chip, 0 publish-intent, excluded from `selectableRows`.
 - `publishCount` NaN — impossible (integer filter counts); `selectableTotal === 0` → bar shows "0 of 0", Publish disabled via `finishable`.
 - `step`/`maxReachedStep` typed `1|2|3` — total map, no fallthrough.
 - Reduced motion — inherited from existing components / global `motion-reduce` rules; the native `<progress>` and modal already honor it.
@@ -259,7 +276,7 @@ No new `AnimatePresence`/ternary animations are introduced; every state swap abo
 ## 12. Non-goals / do-not-relitigate (reviewer preempt)
 
 - **No green/success color** — no such token exists (§6); the mock's green is intentionally dropped. Cite globals.css @theme + StatusIndicator.
-- **No finalize/backend change** — `FinalizeButton` behavior and the streaming/advisory-lock/RPC contract are untouched; only its container changes. Cite `FinalizeButton.tsx` diff = chrome only.
+- **No finalize/backend change** — the `FinalizeButton` state machine, fetch/NDJSON-streaming contract, advisory-lock/RPC paths, focus refs, and testids are untouched. The ONLY `FinalizeButton` edit is a **layout-only** optional `panelPlacement` prop (default = current order) so the bar can stack its panels above the action row (§4.4). Cite `FinalizeButton.tsx` diff = container/child-order only.
 - **Modal unchanged** — opened from the new buttons; not restyled.
 - **Select-all stays in the header**, not the bar (the bar shows the count only) — deliberate, keeps the bar thin and the select-all discoverable with the list.
 - **Dropping inline card expansion** is intentional (detail → modal), ratified in brainstorming.
