@@ -33,7 +33,12 @@ type MockState = {
 const state: MockState = {
   sessionEmail: null,
   show: { picker_epoch: 1, published: true, archived: false },
-  crew: { id: CREW_ID, email: "alice@example.com", claimed_via_oauth_at: null, selections_reset_at: null },
+  crew: {
+    id: CREW_ID,
+    email: "alice@example.com",
+    claimed_via_oauth_at: null,
+    selections_reset_at: null,
+  },
   throwService: false,
   throwAuth: false,
   authError: false,
@@ -86,7 +91,12 @@ beforeEach(() => {
   Object.assign(state, {
     sessionEmail: null,
     show: { picker_epoch: 1, published: true, archived: false },
-    crew: { id: CREW_ID, email: "alice@example.com", claimed_via_oauth_at: null, selections_reset_at: null },
+    crew: {
+      id: CREW_ID,
+      email: "alice@example.com",
+      claimed_via_oauth_at: null,
+      selections_reset_at: null,
+    },
     throwService: false,
     throwAuth: false,
     authError: false,

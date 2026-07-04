@@ -51,7 +51,9 @@ describe("PickerResetControl", () => {
     render(<PickerResetControl showId={SHOW_ID} crew={[]} />);
     expect(screen.queryByTestId("picker-reset-member-select")).toBeNull();
     expect(screen.getByText(/No crew to reset yet/)).toBeTruthy();
-    expect((screen.getByTestId("picker-reset-all-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("picker-reset-all-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   test("empty name+role → id-derived placeholder label", () => {
@@ -67,7 +69,9 @@ describe("PickerResetControl", () => {
   test("per-member reset calls resetCrewMemberSelection with the selected id", async () => {
     mockMember.mockResolvedValue({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
     render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.change(screen.getByTestId("picker-reset-member-select"), { target: { value: ALICE } });
+    fireEvent.change(screen.getByTestId("picker-reset-member-select"), {
+      target: { value: ALICE },
+    });
     fireEvent.click(screen.getByTestId("picker-reset-member-button"));
     await act(async () => {
       fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
@@ -85,7 +89,9 @@ describe("PickerResetControl", () => {
       await flush();
     });
     await waitFor(() => {
-      expect(screen.getByTestId("picker-reset-error").textContent).toMatch(/no longer on the roster/i);
+      expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
+        /no longer on the roster/i,
+      );
     });
     const catalog = getDougFacing("PICKER_CREW_MEMBER_NOT_FOUND");
     if (catalog) expect(container.textContent).not.toContain(catalog);
@@ -100,7 +106,9 @@ describe("PickerResetControl", () => {
       await flush();
     });
     await waitFor(() => {
-      expect(screen.getByTestId("picker-reset-error").textContent).toMatch(/couldn.t reset the picker/i);
+      expect(screen.getByTestId("picker-reset-error").textContent).toMatch(
+        /couldn.t reset the picker/i,
+      );
     });
     expect(container.textContent).not.toMatch(/PICKER_[A-Z_]+/);
   });
@@ -118,7 +126,9 @@ describe("PickerResetControl", () => {
 
   test("compound: changing the selected member while a per-member confirm is pending resets the confirm", () => {
     render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
-    fireEvent.change(screen.getByTestId("picker-reset-member-select"), { target: { value: ALICE } });
+    fireEvent.change(screen.getByTestId("picker-reset-member-select"), {
+      target: { value: ALICE },
+    });
     fireEvent.click(screen.getByTestId("picker-reset-member-button")); // → confirm (Alice)
     expect(screen.getByTestId("picker-reset-confirm-button")).toBeTruthy();
     fireEvent.change(screen.getByTestId("picker-reset-member-select"), { target: { value: BOB } });

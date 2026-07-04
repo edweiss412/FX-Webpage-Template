@@ -14,7 +14,10 @@ type ResetCrewMemberSelectionResult =
   | { ok: true; reset_at: string }
   | {
       ok: false;
-      code: "PICKER_CREW_MEMBER_NOT_FOUND" | "PICKER_RESOLVER_LOOKUP_FAILED" | "PICKER_INVALID_INPUT";
+      code:
+        | "PICKER_CREW_MEMBER_NOT_FOUND"
+        | "PICKER_RESOLVER_LOOKUP_FAILED"
+        | "PICKER_INVALID_INPUT";
     };
 
 export async function resetCrewMemberSelection(input: {

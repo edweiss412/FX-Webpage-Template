@@ -25,17 +25,17 @@ beforeEach(() => {
 describe("resetCrewMemberSelection", () => {
   test("requires admin before calling the RPC", async () => {
     vi.mocked(requireAdmin).mockRejectedValue(new Error("forbidden"));
-    await expect(resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID })).rejects.toThrow(
-      "forbidden",
-    );
+    await expect(
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    ).rejects.toThrow("forbidden");
     expect(createSupabaseServerClient).not.toHaveBeenCalled();
     expect(rpc).not.toHaveBeenCalled();
   });
 
   test("admin happy path returns reset_at and calls the cookie-bound RPC", async () => {
-    await expect(resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID })).resolves.toEqual(
-      { ok: true, reset_at: RESET_AT },
-    );
+    await expect(
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: true, reset_at: RESET_AT });
     expect(rpc).toHaveBeenCalledWith("reset_crew_member_selection", {
       p_show_id: SHOW_ID,
       p_crew_member_id: CREW_ID,
@@ -44,29 +44,29 @@ describe("resetCrewMemberSelection", () => {
 
   test("RPC returned-error → PICKER_RESOLVER_LOOKUP_FAILED", async () => {
     rpc.mockResolvedValueOnce({ data: null, error: { message: "db failed" } });
-    await expect(resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID })).resolves.toEqual(
-      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
-    );
+    await expect(
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
   });
 
   test("RPC thrown fault → PICKER_RESOLVER_LOOKUP_FAILED", async () => {
     rpc.mockRejectedValueOnce(new Error("network"));
-    await expect(resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID })).resolves.toEqual(
-      { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" },
-    );
+    await expect(
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
   });
 
   test("NULL data (not-found) → PICKER_CREW_MEMBER_NOT_FOUND (distinct from infra)", async () => {
     rpc.mockResolvedValueOnce({ data: null, error: null });
-    await expect(resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID })).resolves.toEqual(
-      { ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" },
-    );
+    await expect(
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_CREW_MEMBER_NOT_FOUND" });
   });
 
   test("bad UUID → PICKER_INVALID_INPUT and no RPC call", async () => {
-    await expect(resetCrewMemberSelection({ showId: "nope", crewMemberId: CREW_ID })).resolves.toEqual(
-      { ok: false, code: "PICKER_INVALID_INPUT" },
-    );
+    await expect(
+      resetCrewMemberSelection({ showId: "nope", crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
     expect(rpc).not.toHaveBeenCalled();
   });
 

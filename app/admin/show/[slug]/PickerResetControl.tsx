@@ -30,10 +30,7 @@ export type PickerResetCrewRow = { id: string; name: string; role: string | null
 
 type Scope = "member" | "all";
 type UiState = "idle" | "confirm" | "resolving";
-type Outcome =
-  | { kind: "ok"; message: string }
-  | { kind: "error"; message: string }
-  | null;
+type Outcome = { kind: "ok"; message: string } | { kind: "error"; message: string } | null;
 
 /** Non-blank label for a roster option: name → role → id-derived placeholder. */
 function memberLabel(row: PickerResetCrewRow): string {
@@ -110,9 +107,16 @@ export function PickerResetControl({
   const onConfirm = () => {
     clearAutoRevert();
     setUi("resolving");
+    // not-subject:M5-D8 — this control's outcome copy (success AND error) is admin-authored inline
+    // BY DESIGN (spec §6.2): the picker message catalog is crew-facing and would misattribute an
+    // admin reset ("That crew member was just removed… Pick yourself…"). Spec §2.4/§8 also forbid
+    // adding new §12.4 codes for this feature. So these strings intentionally do NOT route through
+    // messageFor(); they are Doug-facing admin copy on an admin-only surface. No raw error CODE is
+    // ever rendered (codes are mapped to these sentences here).
     startTransition(async () => {
       if (scope === "all") {
         const r = await resetPickerEpoch({ showId });
+        // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
         setOutcome(
           r.ok
             ? { kind: "ok", message: "Everyone will pick again on their next visit." }
@@ -122,14 +126,20 @@ export function PickerResetControl({
       }
       const r = await resetCrewMemberSelection({ showId, crewMemberId: selectedId });
       if (r.ok) {
-        setOutcome({ kind: "ok", message: `Reset ${selectedLabel}. They'll pick again next visit.` });
+        // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
+        setOutcome({
+          kind: "ok",
+          message: `Reset ${selectedLabel}. They'll pick again next visit.`,
+        });
       } else if (r.code === "PICKER_CREW_MEMBER_NOT_FOUND") {
+        // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
         setOutcome({
           kind: "error",
           message:
             "That crew member is no longer on the roster, so there's nothing to reset. Refresh to see the current roster.",
         });
       } else {
+        // not-subject:M5-D8 — admin-authored inline copy (see rationale above).
         setOutcome({ kind: "error", message: "Couldn't reset the picker. Please try again." });
       }
     });
