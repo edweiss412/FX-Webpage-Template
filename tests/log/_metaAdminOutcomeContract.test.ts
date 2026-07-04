@@ -296,6 +296,8 @@ const NEW_FORENSIC_CODES = new Set([
   "FINALIZE_PRECONDITION_REFUSED",
   // Wizard staged-approve dirty-rescan refusal (returns 200 + cataloged code, was unlogged).
   "STAGE_APPROVE_RESCAN_REQUIRED",
+  // OAuth callback: exchange succeeded but getUser resolved no email → silent no-op → anomaly warn.
+  "OAUTH_NO_EMAIL_RESOLVED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
