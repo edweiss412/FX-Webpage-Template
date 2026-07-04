@@ -2,15 +2,15 @@
 
 Spec: `docs/superpowers/specs/2026-07-04-alert-action-links.md` (Codex-APPROVED, 10 rounds).
 Plan: `docs/superpowers/plans/2026-07-04-alert-action-links/plan.md` (Codex-APPROVED, 6 rounds).
-Branch: `feat/alert-action-links` off `origin/main` 9fe749a7. Autonomous-ship pipeline (user gates waived 2026-07-04).
+Branch: `feat/alert-action-links` off `origin/main` (rebased onto 8e82a297 after PRs #285/#286 merged mid-flight; original base 9fe749a7). Autonomous-ship pipeline (user gates waived 2026-07-04).
 
 ## Task → commit map
 
 | Task | Commit | Scope |
 | --- | --- | --- |
-| 1 — registry + unit tests + structural meta-test | 8659d950 | `lib/adminAlerts/alertActions.ts`, `tests/adminAlerts/alertActions.test.ts`, `tests/messages/_metaAlertActionsContract.test.ts` |
-| 2 — per-show row link | f5982c5c | `components/admin/PerShowAlertSection.tsx`, `tests/components/admin/perShowAlertActionLink.test.tsx` |
-| 3 — banner global link | af8d2911 | `components/admin/AlertBanner.tsx`, `tests/components/admin/alertBannerActionLink.test.tsx` |
+| 1 — registry + unit tests + structural meta-test | c5e4624c | `lib/adminAlerts/alertActions.ts`, `tests/adminAlerts/alertActions.test.ts`, `tests/messages/_metaAlertActionsContract.test.ts` |
+| 2 — per-show row link | ceb094d2 | `components/admin/PerShowAlertSection.tsx`, `tests/components/admin/perShowAlertActionLink.test.tsx` |
+| 3 — banner global link | 7e4ec956 | `components/admin/AlertBanner.tsx`, `tests/components/admin/alertBannerActionLink.test.tsx` |
 | prettier normalization | (chore commit after Task 3) | 4 test files, whitespace only |
 
 Each task ran red→green TDD with an independent reviewer pass (Spec ✅ / Quality Approved, zero findings, all three rounds). Reviewers independently re-ran the suites and typecheck.
@@ -28,7 +28,7 @@ Mutating `drive_file_id` → `driveFileId` inside the `LIVE_ROW_CONFLICT` alert 
 
 ## §12 Impeccable dual-gate dispositions (invariant 8)
 
-Both gates ran on the diff to `components/admin/PerShowAlertSection.tsx` (f5982c5c) + `components/admin/AlertBanner.tsx` (af8d2911), canonical v3 preflight (PRODUCT.md loaded, register=product, deterministic detector run).
+Both gates ran on the diff to `components/admin/PerShowAlertSection.tsx` (ceb094d2) + `components/admin/AlertBanner.tsx` (7e4ec956), canonical v3 preflight (PRODUCT.md loaded, register=product, deterministic detector run).
 
 **`/impeccable critique`** — two isolated assessments. Assessment B (deterministic `npx impeccable --json` on both components): zero findings. Assessment A (independent LLM design review): AI-slop verdict CLEAN (both anchors are near-verbatim copies of established affordances); heuristics 35/40; zero P0/P1. Dispositions of its P2/P3 items:
 
