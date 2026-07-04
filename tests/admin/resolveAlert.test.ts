@@ -39,6 +39,7 @@
  * (verified pattern from tests/admin/parseAndStage-auth.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { hashForLog } from "@/lib/email/hashForLog";
 
 // Hoisted shared mock state. Each test mutates `chainResult` (what
 // .update().eq().is() resolves to) and `userEmail` (what .auth.getUser()
@@ -47,6 +48,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const mockState = vi.hoisted(() => ({
   chainResult: { error: null as null | { message: string } },
   userEmail: "admin@fxav.test" as string | null | undefined,
+  getUserError: null as null | { message: string },
   updateSpy: vi.fn(),
   fromSpy: vi.fn(),
   filters: [] as Array<{ method: "eq" | "is"; column: string; value: unknown }>,
@@ -86,7 +88,7 @@ vi.mock("@/lib/supabase/server", () => ({
       auth: {
         getUser: async () => ({
           data: { user: { email: mockState.userEmail } },
-          error: null,
+          error: mockState.getUserError,
         }),
       },
     };
@@ -109,6 +111,7 @@ describe("resolveAdminAlertFormAction", () => {
   beforeEach(() => {
     mockState.chainResult = { error: null };
     mockState.userEmail = "admin@fxav.test";
+    mockState.getUserError = null;
     mockState.updateSpy.mockClear();
     mockState.fromSpy.mockClear();
     mockState.filters = [];
@@ -252,5 +255,60 @@ describe("resolveAdminAlertFormAction", () => {
     const m6Call = consoleErrorSpy.mock.calls[0];
     if (!m6Call) throw new Error("expected console.error to have been called");
     expect(String(m6Call[0])).toContain("canonicalized email is null");
+    // Correlation: no actor to hash (email is null), so the alert id is the
+    // stable in-scope correlator for which resolve hit this branch.
+    const m6Fields = m6Call[1] as { code?: string; alertId?: string };
+    expect(m6Fields.code).toBe("ADMIN_RESOLVE_CANONICAL_EMAIL_NULL");
+    expect(m6Fields.alertId).toBe(VALID_UUID);
+  });
+
+  // ============ Correlation tail: throw-path durable forensic breadcrumbs ============
+
+  test("getUser returned error → THROWS and logs ADMIN_ALERT_RESOLVE_FAILED (stage:getUser), no revalidate", async () => {
+    // Silent-before proof: pre-change this branch threw to the error boundary
+    // with NO app_events row. Now a fail-open forensic breadcrumb fires first.
+    mockState.getUserError = { message: "auth down" };
+
+    await expect(resolveAdminAlertFormAction(fd({ id: VALID_UUID }))).rejects.toThrow(
+      /getUser failed.*auth down/,
+    );
+
+    // Never fell through to the write, never revalidated.
+    expect(mockState.updateSpy).not.toHaveBeenCalled();
+    expect(revalidatePathSpy).not.toHaveBeenCalled();
+
+    const emit = consoleErrorSpy.mock.calls.find(
+      (c) => (c[1] as { code?: string })?.code === "ADMIN_ALERT_RESOLVE_FAILED",
+    );
+    if (!emit) throw new Error("expected an ADMIN_ALERT_RESOLVE_FAILED emit");
+    const fields = emit[1] as { code?: string; stage?: string; alertId?: string };
+    expect(fields.stage).toBe("getUser");
+    expect(fields.alertId).toBe(VALID_UUID);
+  });
+
+  test("UPDATE error → THROWS and logs ADMIN_ALERT_RESOLVE_FAILED (stage:update) with hashed actor", async () => {
+    // Silent-before proof: the UPDATE-error throw previously left no durable record.
+    mockState.chainResult = { error: { message: "rls denied" } };
+
+    await expect(resolveAdminAlertFormAction(fd({ id: VALID_UUID }))).rejects.toThrow(
+      /UPDATE failed.*rls denied/,
+    );
+    expect(revalidatePathSpy).not.toHaveBeenCalled();
+
+    const emit = consoleErrorSpy.mock.calls.find(
+      (c) => (c[1] as { code?: string })?.code === "ADMIN_ALERT_RESOLVE_FAILED",
+    );
+    if (!emit) throw new Error("expected an ADMIN_ALERT_RESOLVE_FAILED emit");
+    const fields = emit[1] as {
+      code?: string;
+      stage?: string;
+      alertId?: string;
+      actorHash?: string;
+    };
+    expect(fields.stage).toBe("update");
+    expect(fields.alertId).toBe(VALID_UUID);
+    // Hashed actor only — never the raw email (invariant 9).
+    expect(fields.actorHash).toBe(hashForLog("admin@fxav.test"));
+    expect(JSON.stringify(emit)).not.toContain("admin@fxav.test");
   });
 });

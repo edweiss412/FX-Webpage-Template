@@ -283,6 +283,11 @@ const NEW_FORENSIC_CODES = new Set([
   // reel/diagram/agenda asset proxy routes so a crew-reported broken asset leaves
   // a server trace of which show/asset/why.
   "ASSET_UNAVAILABLE",
+  // Correlation/coverage tail (2026-07-03) — low/info correlation + genuinely-silent
+  // branches given forensic codes (all inside log.* spans; NOT cataloged).
+  // ADMIN_ALERT_RESOLVE_FAILED is REUSED (already registered above) by the
+  // resolveAdminAlertFormAction throws; not re-listed.
+  "WATCH_RETRY_NO_FOLDER_SKIPPED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

@@ -27,6 +27,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { log } from "@/lib/log";
 import { getActiveWatchedFolder } from "@/lib/appSettings/getWatchedFolderId";
 import { subscribeToWatchedFolder } from "@/lib/drive/watch";
@@ -73,6 +74,18 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     // no-op and the page would revalidate as if nothing happened). Throw
     // so the Next.js error boundary renders, consistent with the
     // not-subject-to-meta exemption's "propagation IS the contract" rule.
+    // Durable forensic breadcrumb BEFORE the throw: the error-boundary render
+    // leaves no app_events row, so a repeated auth outage on the resolve action
+    // is otherwise invisible. Fail-open (`void`) — a logger fault must not
+    // change the propagation contract (invariant 9). No email is resolvable
+    // here, so no actorHash.
+    void log.error("resolveAdminAlert getUser failed", {
+      source: "admin.actions",
+      code: "ADMIN_ALERT_RESOLVE_FAILED",
+      stage: "getUser",
+      alertId: id,
+      error: userError,
+    });
     throw new Error(
       `[resolveAdminAlertFormAction] supabase.auth.getUser failed: ${userError.message}`,
     );
@@ -87,6 +100,9 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     void log.error("requireAdmin returned but canonicalized email is null", {
       source: "admin.actions",
       code: "ADMIN_RESOLVE_CANONICAL_EMAIL_NULL",
+      // No actor to hash (email is null); the alert id is the only stable
+      // in-scope correlator for which resolve hit this defense-in-depth branch.
+      alertId: id,
     });
     return;
   }
@@ -118,6 +134,18 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     // contradicts the not-subject-to-meta exemption's "propagation IS
     // the contract" rule. Throw so the Next.js error boundary renders,
     // matching the getUser returned-error fix above.
+    //
+    // Durable forensic breadcrumb BEFORE the throw (the error-boundary render
+    // persists no app_events row). Reuses ADMIN_ALERT_RESOLVE_FAILED (the same
+    // code the RPC alert-resolve routes stamp). Hashed actor only; fail-open.
+    void log.error("resolveAdminAlert UPDATE failed", {
+      source: "admin.actions",
+      code: "ADMIN_ALERT_RESOLVE_FAILED",
+      stage: "update",
+      actorHash: hashForLog(resolvedBy),
+      alertId: id,
+      error: updateError,
+    });
     throw new Error(
       `[resolveAdminAlertFormAction] admin_alerts UPDATE failed: ${updateError.message}`,
     );
@@ -141,7 +169,13 @@ export async function retryWatchSubscriptionFormAction(_formData: FormData): Pro
     throw new WatchRetryInfraError("folder_read");
   }
   if ("kind" in folder) {
-    await log.info("watch retry skipped: no folder configured", { source: "admin.watchRetry" });
+    // Info-WITH-code so this deliberate no-op PERSISTS (lib/log shouldPersist:
+    // info persists only with a code). Otherwise a "retry did nothing" report
+    // has no durable server-side trace of the no-folder skip.
+    await log.info("watch retry skipped: no folder configured", {
+      source: "admin.watchRetry",
+      code: "WATCH_RETRY_NO_FOLDER_SKIPPED",
+    });
     return;
   }
 
