@@ -20,7 +20,7 @@ import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import {
   AgendaBreakdown,
   __resetAgendaThrottleForTests,
-} from "@/components/admin/wizard/Step3SheetCard";
+} from "@/components/admin/wizard/step3ReviewSections";
 
 const WIZARD_SESSION_ID = "11111111-1111-1111-1111-111111111111";
 const DFID = "drive-agenda-1";

@@ -39,9 +39,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // developer-gated (developer-tier §6 row 5: the page's own
   // requireDeveloperIdentity chain; the admin layout still admin-gates the shell).
   { path: "app/admin/observability/page.tsx", chain: ["requireDeveloper"] },
-  // Step-3 redesign — Ignored-sheets admin view. Calls requireAdminIdentity()
-  // defensively (layout also admin-gates).
-  { path: "app/admin/ignored-sheets/page.tsx", chain: ["requireAdmin"] },
+  // (Removed: app/admin/ignored-sheets/page.tsx — the standalone Ignored-sheets
+  // view was folded into the dashboard's collapsed disclosure. The un-ignore API
+  // route below is the surviving admin-gated surface.)
   // Developer-tier §6: /admin/dev + its two dim harnesses are developer-gated
   // (requireDeveloper REPLACES requireAdmin; developer ⟹ admin, spec §2).
   { path: "app/admin/dev/page.tsx", chain: ["requireDeveloper"] },

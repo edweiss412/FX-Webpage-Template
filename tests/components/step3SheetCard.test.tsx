@@ -481,7 +481,7 @@ describe("Step3SheetCard — title deep link + wrapping", () => {
     // it carries no aria-expanded, and no dialog exists until it is clicked.
     expect(btn.getAttribute("aria-haspopup")).toBe("dialog");
     expect(btn.getAttribute("aria-expanded")).toBeNull();
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-details-dialog`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-modal`)).toBeNull();
     // Persistent (non-hover) chevron affordance.
     expect(btn.querySelector("svg")).not.toBeNull();
   });
@@ -633,8 +633,10 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
 
 describe("Step3SheetCard — breakdown (§4.3)", () => {
   function expand(q: ReturnType<typeof render>) {
+    // "More" now opens <Step3ReviewModal>; the scrolling content pane hosts
+    // every registry section (the retired dialog's `-breakdown` body).
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
-    return q.getByTestId(`wizard-step3-card-${DFID}-breakdown`);
+    return q.getByTestId(`wizard-step3-card-${DFID}-review-content`);
   }
   // Non-null indexer for the fixtures we build with known length (the project
   // runs noUncheckedIndexedAccess).
@@ -775,19 +777,20 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
     expect(region.getByText("Role we didn't recognize")).toBeTruthy();
   });
 
-  test("the breakdown is mounted ONLY while the details dialog is open (absent, not merely inert, when closed)", () => {
-    // A day with >6 entries means the breakdown contains a focusable "Show all"
-    // button; when the dialog is closed the WHOLE breakdown is out of the DOM, so
-    // that control is unreachable by construction (no `inert` bookkeeping needed).
+  test("the section bodies are mounted ONLY while the review modal is open (absent, not merely inert, when closed)", () => {
+    // A day with >6 entries means the schedule section contains a focusable
+    // "Show all" button; when the modal is closed the WHOLE body is out of the
+    // DOM, so that control is unreachable by construction (no `inert`
+    // bookkeeping needed).
     const FIX = parseResult({ runOfShow: runOfShow(1, 9) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    // Closed: no breakdown, no dialog, no Show-all control in the DOM at all.
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-breakdown`)).toBeNull();
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-details-dialog`)).toBeNull();
+    // Closed: no content pane, no modal, no Show-all control in the DOM at all.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-content`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-modal`)).toBeNull();
     expect(q.queryByText("Show all 9 times")).toBeNull();
-    // Open: the breakdown mounts inside the dialog; its controls are reachable.
+    // Open: the sections mount inside the modal; their controls are reachable.
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-breakdown`)).not.toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-content`)).not.toBeNull();
     expect(q.queryByText("Show all 9 times")).not.toBeNull();
   });
 
@@ -817,47 +820,52 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
   });
 
   // Layout intent (real geometry verified in the e2e harness): inside the details
-  // dialog the breakdown lays its sections out as a balanced 2-column flow in the
-  // desktop popup (1 column in the mobile sheet), bounded by the dialog width —
-  // not a single narrow column. jsdom can't compute columns, so this pins the
-  // class contract; the browser assertion in tests/e2e/step3-grid-layout.spec.ts
-  // proves >1 column at the popup width.
-  test("breakdown uses a balanced 2-column flow in the popup (1 column in the sheet)", () => {
+  // modal (spec 2026-07-02 §6) the section bodies render as REGISTRY panels in
+  // one scrolling content pane — the retired dialog's balanced column flow
+  // (`-breakdown-grid`) is gone entirely. Real geometry is Task 10's e2e spec.
+  test("'More' mounts the review modal's registry sections — the retired column-flow breakdown grid is gone", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const grid = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-grid`);
-    // 2 columns at the sm popup width; 1 column in the mobile sheet (default).
-    expect(grid.className).toMatch(/\bsm:columns-2\b/);
-    expect(grid.className).toMatch(/\bcolumns-1\b/);
-    // Sections stay intact across a column break.
-    expect(grid.className).toContain("break-inside-avoid");
-    // It is NOT the old single-track flex column.
-    expect(grid.className).not.toMatch(/\bflex-col\b/);
+    const content = expand(q);
+    // The retired columns machinery is not in the DOM under ANY testid.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-breakdown-grid`)).toBeNull();
+    // Every carried section body renders inside the modal's content pane.
+    for (const sec of ["crew", "schedule", "rooms", "hotels", "venue", "warnings"]) {
+      const body = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-${sec}`);
+      expect(content.contains(body)).toBe(true);
+    }
   });
 
-  test("warnings render in a dedicated FULL-WIDTH bordered panel BELOW the data grid, not inside it", () => {
+  test("warnings render as the registry's OWN checks section, not nested inside another section's panel", () => {
     const FIX = parseResult({
       warnings: [{ severity: "warn" as const, code: "SCHEDULE_TIME_UNPARSED", message: "x" }],
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const breakdown = expand(q);
-    const grid = within(breakdown).getByTestId(`wizard-step3-card-${DFID}-breakdown-grid`);
-    const panel = within(breakdown).getByTestId(`wizard-step3-card-${DFID}-warnings-panel`);
-    const warnings = within(breakdown).getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
-    // The warnings section lives inside the dedicated panel, NOT inside the column grid.
-    expect(panel.contains(warnings)).toBe(true);
-    expect(grid.contains(warnings)).toBe(false);
-    // A full-border callout (DESIGN.md: full border, never a side-stripe accent).
-    expect(panel.className).toMatch(/\bborder\b/);
-    expect(panel.className).not.toMatch(/\bborder-[lrtb]\b/);
+    const content = expand(q);
+    const section = within(content).getByTestId(
+      `wizard-step3-card-${DFID}-review-section-warnings`,
+    );
+    const warnings = within(content).getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    // The warnings body lives inside the warnings SECTION…
+    expect(section.contains(warnings)).toBe(true);
+    // …and inside no other registry section (e.g. it never leaks into schedule).
+    const schedule = within(content).getByTestId(
+      `wizard-step3-card-${DFID}-review-section-schedule`,
+    );
+    expect(schedule.contains(warnings)).toBe(false);
   });
 
-  test("no warnings panel when there are no warnings (no empty bordered box)", () => {
+  test("zero warnings still renders the checks section with the AFFIRMATIVE empty state (spec §3.10 — never an absent panel)", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
     );
-    expand(q);
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-panel`)).toBeNull();
+    const content = expand(q);
+    expect(
+      within(content).queryByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`),
+    ).not.toBeNull();
+    expect(
+      within(content).getByTestId(`wizard-step3-card-${DFID}-warnings-empty`).textContent,
+    ).toContain("No parse warnings");
   });
 });
 
@@ -881,7 +889,7 @@ describe("Step3SheetCard — UNKNOWN_FIELD row-label surfacing + legacy shim (Pa
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
-    const panel = q.getByTestId(`wizard-step3-card-${DFID}-warnings-panel`);
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     // The two entries share the generic title but are distinguishable by label.
     expect(within(panel).queryByText("Floor Plan")).not.toBeNull();
     expect(within(panel).queryByText("GS Podium Type")).not.toBeNull();
@@ -901,7 +909,7 @@ describe("Step3SheetCard — UNKNOWN_FIELD row-label surfacing + legacy shim (Pa
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
-    const panel = q.getByTestId(`wizard-step3-card-${DFID}-warnings-panel`);
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
   });
 });

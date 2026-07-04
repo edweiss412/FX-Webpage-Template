@@ -198,6 +198,14 @@ const NEW_FORENSIC_CODES = new Set([
   "DRIVE_WEBHOOK_INFRA_FAULT",
   "DRIVE_WATCH_RENEWAL_FAILED",
   "DRIVE_WATCH_INFRA_FAULT",
+  // Drive-webhook telemetry completeness (2026-07-03): findings #17/#18/#19/#6 —
+  // token-invalid per-event forensic warn on the security-relevant 401 ingress,
+  // channel activation + stop-failure lifecycle events, and the stale-pending
+  // sweep downgraded warn→info-with-code (inside log.* spans; NOT cataloged).
+  "DRIVE_WEBHOOK_TOKEN_INVALID",
+  "DRIVE_WATCH_ACTIVATED",
+  "DRIVE_WATCH_STOP_FAILED",
+  "DRIVE_WATCH_STALE_PENDING_SWEPT",
   "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
   // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
   "UNPUBLISH_INFRA_FAILED",
@@ -259,6 +267,7 @@ const NEW_FORENSIC_CODES = new Set([
   "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED",
   "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_THREW",
   "CREW_PROJECTION_ALERT_UPSERT_FAILED",
+  "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
   "PICKER_IDENTITY_CLAIMED_TAMPER",
   "APP_EVENTS_READ_RETURNED_ERROR",
   "APP_EVENTS_READ_THREW",
@@ -275,6 +284,33 @@ const NEW_FORENSIC_CODES = new Set([
   // reel/diagram/agenda asset proxy routes so a crew-reported broken asset leaves
   // a server trace of which show/asset/why.
   "ASSET_UNAVAILABLE",
+  // Correlation/coverage tail (2026-07-03) — low/info correlation + genuinely-silent
+  // branches given forensic codes (all inside log.* spans; NOT cataloged).
+  // ADMIN_ALERT_RESOLVE_FAILED is REUSED (already registered above) by the
+  // resolveAdminAlertFormAction throws; not re-listed.
+  "WATCH_RETRY_NO_FOLDER_SKIPPED",
+  // Per-show admin page (page.tsx) two silent catch blocks → fail-open warns.
+  "ADMIN_SHOW_TOKEN_READ_FAILED",
+  "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+  // Finalize + finalize-cas non-convergent 409 precondition refusals → ONE code
+  // with a `result` discriminator (ONBOARDING_NOT_RESOLVED / ONBOARDING_LEGACY_ROW_AMBIGUOUS).
+  "FINALIZE_PRECONDITION_REFUSED",
+  // Wizard staged-approve dirty-rescan refusal (returns 200 + cataloged code, was unlogged).
+  "STAGE_APPROVE_RESCAN_REQUIRED",
+  // OAuth callback: exchange succeeded but getUser resolved no email → silent no-op → anomaly warn.
+  "OAUTH_NO_EMAIL_RESOLVED",
+  // Live pending-ingestion retry: the two inner route-level Drive-fetch catches that
+  // return 502 (distinct from the PR-1 outer PENDING_INGESTION_RETRY_FAILED throw guard).
+  "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
+  // Cleanup tail (2026-07-03) — final logging-audit stragglers (all inside log.* spans;
+  // NOT cataloged). S1: live-staged discard bare-requireAdmin AdminInfraError → typed 500
+  // forensic breadcrumb. S3: report-submission 201-created success breadcrumb (crew/user
+  // submit — NOT an admin mutation, so a plain log.info not logAdminOutcome). S4:
+  // ambiguous-email terminal (alert-SUCCEEDED path) durable warn — DISTINCT from the §12.4
+  // user-facing AMBIGUOUS_EMAIL_BINDING catalog code (kept as the return value).
+  "LIVE_STAGED_DISCARD_AUTH_INFRA",
+  "CREW_REPORT_SUBMITTED",
+  "AMBIGUOUS_EMAIL_BINDING_DETECTED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
@@ -336,7 +372,7 @@ describe("_metaAdminOutcomeContract", () => {
 const REPO_ROOT = join(__dirname, "..", "..");
 
 // {file, code, level, anchor} — anchor is a substring UNIQUE WITHIN THE FILE that
-// identifies the intended call. For 34 string-message sites it is the FULL QUOTED
+// identifies the intended call. For 35 string-message sites it is the FULL QUOTED
 // message literal (incl. both quotes) so a prefix-overlapping sibling (finalize-cas
 // non-stream vs stream) is distinguished. selectIdentity uses a unique JSON-blob token.
 const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
@@ -526,6 +562,12 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
     anchor: '"projection-alert upsert failed (fail-quiet):"',
   },
   {
+    file: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
+    code: "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
+    level: "warn",
+    anchor: '"projection-alert resolve failed (fail-quiet):"',
+  },
+  {
     file: "lib/auth/picker/selectIdentity.ts",
     code: "PICKER_IDENTITY_CLAIMED_TAMPER",
     level: "warn",
@@ -608,9 +650,9 @@ function findLogErrorWarnCalls(
 describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   const codes = NULLCODE_BATCH2_STAMPS.map((r) => r.code);
 
-  test("35 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
-    expect(NULLCODE_BATCH2_STAMPS.length).toBe(35);
-    expect(new Set(codes).size).toBe(35);
+  test("36 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
+    expect(NULLCODE_BATCH2_STAMPS.length).toBe(36);
+    expect(new Set(codes).size).toBe(36);
     for (const c of codes) expect(NEW_FORENSIC_CODES.has(c), `${c} must be registered`).toBe(true);
   });
 

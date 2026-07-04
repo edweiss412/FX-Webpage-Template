@@ -2,6 +2,7 @@ import type { AuthFailureCode } from "@/lib/auth/constants";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
 
@@ -230,6 +231,19 @@ export async function validateGoogleSession(
         code: "ADMIN_SESSION_LOOKUP_FAILED",
       };
     }
+    // S4: the alert SUCCEEDED, so this ambiguous-email terminal previously left NO
+    // durable app_events row (only the admin_alert — a separate channel; the throws path
+    // above logs its own stage). Emit a fail-open forensic warn (invariant 9) so the
+    // binding collision is durably correlated. The code is DISTINCT from the §12.4
+    // user-facing AMBIGUOUS_EMAIL_BINDING catalog code (kept as the return value);
+    // actor identity is a HASH, never the raw email.
+    void log.warn("ambiguous email binding", {
+      source: "auth/validateGoogleSession",
+      code: "AMBIGUOUS_EMAIL_BINDING_DETECTED",
+      showId: context.showId,
+      actorHash: hashForLog(email),
+      crewMemberCount: rows.length,
+    });
     return {
       kind: "terminal_failure",
       status: 500,

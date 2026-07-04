@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, test, vi } from "vitest";
 import type { LogRecord } from "@/lib/log/types";
+import { hashForLog } from "@/lib/email/hashForLog";
 
 // Audit finding #4 + "missing error serialization" + #20 invariant-9 hardening.
 // validateGoogleSession has SIX ADMIN_SESSION_LOOKUP_FAILED emits; pre-fix all
@@ -185,6 +186,53 @@ describe("validateGoogleSession telemetry (finding #4)", () => {
       const rec = lastFailure(sink);
       expect(rec.context.stage).toBe("ambiguous_alert_threw");
       expect((rec.context.error as { message?: string }).message).toBe("alert upsert threw");
+    });
+  });
+
+  // S4: the ambiguous-email terminal previously left a durable app_events row ONLY when
+  // the alert THREW (the catch above logs stage:ambiguous_alert_threw). When the alert
+  // SUCCEEDS, only the admin_alert (a separate channel) recorded it — no app_events trace.
+  // A fail-open forensic warn (AMBIGUOUS_EMAIL_BINDING_DETECTED — DISTINCT from the §12.4
+  // user-facing AMBIGUOUS_EMAIL_BINDING return code) now correlates the collision durably.
+  const ambiguousRows = [
+    { id: "crew-a", show_id: showId, email: "alice@fxav.net" },
+    { id: "crew-b", show_id: showId, email: "alice@fxav.net" },
+  ];
+
+  test("ambiguous email (alert SUCCEEDS) → AMBIGUOUS_EMAIL_BINDING_DETECTED warn + unchanged terminal", async () => {
+    await withCapture(async (sink, validateGoogleSession) => {
+      state.userEmail = "alice@fxav.net";
+      state.crewRows = ambiguousRows;
+      // state.alertThrow stays null → the alert upsert SUCCEEDS.
+      const r = await validateGoogleSession(req(), { showId });
+      // Terminal return is byte-preserved: still the §12.4 catalog code.
+      expect(r).toEqual({
+        kind: "terminal_failure",
+        status: 500,
+        code: "AMBIGUOUS_EMAIL_BINDING",
+      });
+      const warns = sink.filter((x) => x.code === "AMBIGUOUS_EMAIL_BINDING_DETECTED");
+      expect(warns).toHaveLength(1);
+      expect(warns[0]!.level).toBe("warn");
+      expect(warns[0]!.source).toBe("auth/validateGoogleSession");
+      expect(warns[0]!.showId).toBe(showId);
+      expect(warns[0]!.actorHash).toBe(hashForLog("alice@fxav.net"));
+      expect(warns[0]!.actorHash).not.toBe("alice@fxav.net"); // hashed, never raw
+      expect(warns[0]!.context.crewMemberCount).toBe(2);
+    });
+  });
+
+  test("ambiguous email (alert THROWS) → stage logged, but NO AMBIGUOUS_EMAIL_BINDING_DETECTED", async () => {
+    await withCapture(async (sink, validateGoogleSession) => {
+      state.userEmail = "alice@fxav.net";
+      state.crewRows = ambiguousRows;
+      state.alertThrow = new Error("alert upsert threw");
+      const r = await validateGoogleSession(req(), { showId });
+      // The throws path returns ADMIN_SESSION_LOOKUP_FAILED BEFORE the detected-warn.
+      expect(r).toMatchObject({ kind: "terminal_failure", code: "ADMIN_SESSION_LOOKUP_FAILED" });
+      expect(sink.some((x) => x.code === "AMBIGUOUS_EMAIL_BINDING_DETECTED")).toBe(false);
+      // Its own stage IS logged (the pre-existing durable trace for the throws path).
+      expect(sink.some((x) => x.context.stage === "ambiguous_alert_threw")).toBe(true);
     });
   });
 

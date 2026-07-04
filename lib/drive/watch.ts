@@ -58,6 +58,7 @@ export type WatchTx = {
   deleteOldStopped(): Promise<void>;
   sweepStalePending(cutoffIso: string): Promise<string[]>;
   hasLiveActiveChannel(folderId: string, nowIso: string): Promise<boolean>;
+  resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string): Promise<void>;
 };
 
 export type SubscribeOrphanReason = "watch_create_failed" | "activate_failed_after_watch_created";
@@ -276,6 +277,21 @@ class PostgresWatchTx implements WatchTx {
     );
     return rows.length > 0;
   }
+
+  async resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string): Promise<void> {
+    await this.rows(
+      `
+        update public.admin_alerts a
+           set resolved_at = now()
+         where a.show_id is null and a.code = 'WEBHOOK_TOKEN_INVALID' and a.resolved_at is null
+           and not exists (
+             select 1 from public.drive_watch_channels c
+              where c.id = a.context->>'channel_id'
+                and c.watched_folder_id = $1 and c.status = 'active' and c.expires_at > $2::timestamptz)
+      `,
+      [folderId, nowIso],
+    );
+  }
 }
 
 function fromDbRow(row: {
@@ -443,7 +459,19 @@ export async function subscribeToWatchedFolder(
   }
 
   try {
-    return await runTx((tx) => activateWithTx(tx, folderId, watch));
+    const activated = await runTx((tx) => activateWithTx(tx, folderId, watch));
+    // Finding #19: durable per-channel lifecycle event on the single activation-
+    // success chokepoint. Every activation route (initial subscribe, refresh
+    // renewal, reconcile recovery, admin manual-retry) funnels through here, so
+    // one fail-open emit correlates channel creation across all callers.
+    void log.info("drive watch activated", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_ACTIVATED",
+      channelId: watch.id,
+      watchedFolderId: folderId,
+      expiresAt: watch.expiration,
+    });
+    return activated;
   } catch (err) {
     const errorClass = classifyWatchError(err);
     const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
@@ -561,8 +589,17 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     for (const channel of candidates) {
       try {
         await stopChannel({ id: channel.id, resourceId: channel.resourceId });
-      } catch {
+      } catch (error) {
         // Best-effort cleanup: Drive may already have dropped an orphaned channel.
+        // Finding #18: the swallowed error left GC failures untraceable. Emit a
+        // fail-open forensic warn but stay non-fatal — still mark the row stopped
+        // below (control flow UNCHANGED).
+        void log.warn("drive watch channel stop failed", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_STOP_FAILED",
+          channelId: channel.id,
+          error,
+        });
       }
       await runTx((tx) =>
         callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
@@ -626,8 +663,12 @@ export async function reconcileWatchChannels(
     );
     sweptPending = swept.length;
     if (swept.length > 0) {
-      await log.warn("stale pending watch channels swept", {
+      // Finding #6: this is routine, non-actionable hygiene (spec §3.2.1 — silent
+      // sweep, ZERO admin_alerts). Downgraded warn→info to move it off the warn
+      // stream; info-WITH-code still persists to app_events for forensic history.
+      await log.info("stale pending watch channels swept", {
         source: "drive.watch.reconcile",
+        code: "DRIVE_WATCH_STALE_PENDING_SWEPT",
         sweptIds: swept,
       });
     }
@@ -654,8 +695,12 @@ export async function reconcileWatchChannels(
   }
   if ("kind" in folder) {
     // no_folder_configured → vacuous-healthy: nothing to watch; clear any stale alert.
+    // WEBHOOK_TOKEN_INVALID is global (show_id is null) with a single-open-row
+    // dedup, so an unconditional resolve is correct here — there is no folder
+    // to scope a channel-liveness predicate against.
     try {
       await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+      await resolve({ showId: null, code: "WEBHOOK_TOKEN_INVALID" });
     } catch {
       faults.push("alert_resolve_write");
     }
@@ -690,6 +735,11 @@ export async function reconcileWatchChannels(
   if (live && !renewalFailed) {
     try {
       await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+      await runTx((tx) =>
+        callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+          tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+        ),
+      );
     } catch {
       faults.push("alert_resolve_write");
     }
@@ -718,6 +768,11 @@ export async function reconcileWatchChannels(
         outcome = "recovered";
         try {
           await resolve({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+          await runTx((tx) =>
+            callWatchTx("admin_alerts.resolve_webhook_token_invalid", () =>
+              tx.resolveStaleWebhookTokenInvalid(folder.folderId, now().toISOString()),
+            ),
+          );
         } catch {
           faults.push("alert_resolve_write");
         }

@@ -25,6 +25,7 @@ import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 
@@ -1176,6 +1177,17 @@ async function executeFinalizeBatch(
         });
       }
       if (approvedRows.length === 0 && unresolved > 0) {
+        // Durable breadcrumb for a STUCK finisher: this non-convergent 409 refusal
+        // otherwise returned with no server trace of who hit it or why. Fail-open,
+        // hashed actor; never changes the 409 (invariant 9). Skips the idempotent
+        // re-poll 200s above and WIZARD_SESSION_SUPERSEDED (which already alerts).
+        void log.warn("finalize precondition refused", {
+          source: "api.admin.onboarding.finalize",
+          code: "FINALIZE_PRECONDITION_REFUSED",
+          wizardSessionId,
+          actorHash: hashForLog(finalizerEmail),
+          result: "ONBOARDING_NOT_RESOLVED",
+        });
         return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
           unresolved_manifest_count: unresolved,
         });

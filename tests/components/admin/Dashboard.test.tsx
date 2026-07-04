@@ -67,7 +67,9 @@ afterEach(() => {
   vi.resetModules();
 });
 
-async function renderDashboard(options: { bucket?: "active" | "archived" } = {}) {
+async function renderDashboard(
+  options: { bucket?: "active" | "archived"; folderName?: string | null } = {},
+) {
   const { Dashboard } = await import("@/components/admin/Dashboard");
   render(await Dashboard(options));
 }
@@ -80,6 +82,27 @@ describe("Dashboard composition", () => {
     expect(screen.getByTestId("admin-active-shows-empty")).toBeInTheDocument();
     expect(screen.getByTestId("admin-needs-attention-empty")).toBeInTheDocument();
     expect(screen.getByTestId("help-affordance--dashboard-footer--tour")).toBeInTheDocument();
+  });
+
+  it("titles the shows table with the watched Drive folder name under a 'Watched folder' eyebrow (falls back to 'Active shows')", async () => {
+    await renderDashboard({ folderName: "fxav-test-shows" });
+    const table = screen.getByTestId("shows-table");
+    expect(within(table).getByRole("heading", { name: "fxav-test-shows" })).toBeInTheDocument();
+    expect(within(table).getByTestId("shows-heading-eyebrow")).toHaveTextContent("Watched folder");
+    expect(within(table).queryByRole("heading", { name: "Active shows" })).toBeNull();
+    cleanup();
+    await renderDashboard({ folderName: null });
+    const fallback = screen.getByTestId("shows-table");
+    expect(within(fallback).getByRole("heading", { name: "Active shows" })).toBeInTheDocument();
+    expect(within(fallback).queryByTestId("shows-heading-eyebrow")).toBeNull();
+  });
+
+  it("renders the ignored-sheets disclosure (collapsed) below the split, with its help affordance", async () => {
+    await renderDashboard();
+    // Collapsed by default: the toggle + help are present, the panel is not.
+    expect(screen.getByTestId("ignored-sheets-toggle")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("ignored-sheets-panel")).toBeNull();
+    expect(screen.getByTestId("help-affordance--ignored-sheets-page--tooltip")).toBeInTheDocument();
   });
 
   it("the two-col split container carries items-stretch (DESIGN §7)", async () => {

@@ -1,8 +1,8 @@
-import { Activity, FileX, Inbox, LayoutGrid, Settings } from "lucide-react";
+import { Activity, Inbox, LayoutGrid, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 
 export type NavItem = {
-  id: "dashboard" | "attention" | "ignored-sheets" | "settings" | "observability";
+  id: "dashboard" | "attention" | "settings" | "observability";
   label: string;
   short: string;
   href: string;
@@ -29,18 +29,9 @@ export const NAV: NavItem[] = [
     Icon: Inbox,
     mobileOnly: true,
   },
-  // Task E2 (spec §6.3) — durably-ignored sheets, with a per-row un-ignore.
-  // A management/recovery surface reachable on both desktop and mobile (Doug
-  // works mostly on desktop). Unpublished (Held) shows are no longer a separate
-  // destination — they appear in the dashboard's Active-shows list with a "Held"
-  // status pill (fetchDashboardData reads archived=false, incl. unpublished).
-  {
-    id: "ignored-sheets",
-    label: "Ignored sheets",
-    short: "Ignored",
-    href: "/admin/ignored-sheets",
-    Icon: FileX,
-  },
+  // Ignored sheets are no longer a top-level nav destination. They live in a
+  // collapsed-by-default disclosure table BELOW the dashboard's main shows table
+  // (components/admin/IgnoredSheetsDisclosure), reachable from /admin directly.
   { id: "settings", label: "Settings", short: "Settings", href: "/admin/settings", Icon: Settings },
   // Observability "Activity" — the app-event log + cron-health diagnostics page.
   // A DESKTOP-nav destination only (desktopOnly): it never appears in the mobile
@@ -67,18 +58,16 @@ export function shouldRenderOverflow(destinationCount: number): boolean {
 }
 
 // Settings owns /admin/settings*; Attention owns /admin/needs-attention*;
-// Dashboard owns /admin and everything else under /admin (incl. /admin/show/*).
+// Dashboard owns /admin and everything else under /admin (incl. /admin/show/*
+// and the former /admin/ignored-sheets, now a dashboard disclosure).
 export function isNavItemActive(id: NavItem["id"], pathname: string): boolean {
   const inSettings = pathname === "/admin/settings" || pathname.startsWith("/admin/settings/");
   const inAttention =
     pathname === "/admin/needs-attention" || pathname.startsWith("/admin/needs-attention/");
-  const inIgnoredSheets =
-    pathname === "/admin/ignored-sheets" || pathname.startsWith("/admin/ignored-sheets/");
   const inObservability =
     pathname === "/admin/observability" || pathname.startsWith("/admin/observability/");
   if (id === "settings") return inSettings;
   if (id === "attention") return inAttention;
-  if (id === "ignored-sheets") return inIgnoredSheets;
   if (id === "observability") return inObservability;
-  return !inSettings && !inAttention && !inIgnoredSheets && !inObservability;
+  return !inSettings && !inAttention && !inObservability;
 }

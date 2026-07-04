@@ -11,6 +11,9 @@ import {
   handleOnboardingFinalizeStream,
 } from "@/app/api/admin/onboarding/finalize/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
+import { setLogSink, resetLogSink } from "@/lib/log";
+import type { LogRecord } from "@/lib/log/types";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { W1, FakeFinalizeDb, pending, deps, json, request, parseResult } from "./_finalizeFake";
 
 function applyRequest(wizardSessionId: string, driveFileId: string, stagedId: string): Request {
@@ -421,6 +424,33 @@ describe("POST /api/admin/onboarding/finalize", () => {
       code: "ONBOARDING_NOT_RESOLVED",
       unresolved_manifest_count: 1,
     });
+  });
+
+  test("ONBOARDING_NOT_RESOLVED 409 emits FINALIZE_PRECONDITION_REFUSED (hashed actor, result discriminator) without changing the 409", async () => {
+    // Silent-before proof: pre-change this stuck-finisher 409 left no server trace.
+    const sink: LogRecord[] = [];
+    setLogSink((r) => {
+      sink.push(r);
+    });
+    try {
+      const db = new FakeFinalizeDb();
+      db.unresolvedManifestCount = 1;
+
+      const response = await handleOnboardingFinalize(request(), deps(db));
+      // Control flow / status UNCHANGED.
+      expect(response.status).toBe(409);
+      expect(await json(response)).toMatchObject({ code: "ONBOARDING_NOT_RESOLVED" });
+
+      const rec = sink.find((r) => r.code === "FINALIZE_PRECONDITION_REFUSED");
+      if (!rec) throw new Error("expected FINALIZE_PRECONDITION_REFUSED emit");
+      expect(rec.level).toBe("warn");
+      expect((rec.context as { result?: string })?.result).toBe("ONBOARDING_NOT_RESOLVED");
+      // deps() binds requireAdminIdentity → doug@example.com; actor is hashed, never raw.
+      expect(rec.actorHash).toBe(hashForLog("doug@example.com"));
+      expect(JSON.stringify(rec)).not.toContain("doug@example.com");
+    } finally {
+      resetLogSink();
+    }
   });
 
   test("rejects an already-complete checkpoint when unresolved manifest rows remain", async () => {

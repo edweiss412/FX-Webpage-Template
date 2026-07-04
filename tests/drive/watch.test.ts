@@ -34,7 +34,7 @@ type WatchRow = {
 
 class FakeWatchTx {
   rows: WatchRow[] = [];
-  alerts: Array<{ code: string; context: Record<string, unknown> }> = [];
+  alerts: Array<{ code: string; context: Record<string, unknown>; resolved?: boolean }> = [];
   operations: string[] = [];
   now = new Date("2026-05-09T12:00:00.000Z");
 
@@ -131,6 +131,39 @@ class FakeWatchTx {
         Date.parse(row.expiresAt) > now,
     );
   }
+
+  async resolveStaleWebhookTokenInvalid(folderId: string, nowIso: string) {
+    this.operations.push("resolveStaleWebhookTokenInvalid");
+    const now = Date.parse(nowIso);
+    const liveChannelIds = new Set(
+      this.rows
+        .filter(
+          (row) =>
+            row.watchedFolderId === folderId &&
+            row.status === "active" &&
+            row.expiresAt !== null &&
+            Date.parse(row.expiresAt) > now,
+        )
+        .map((row) => row.id),
+    );
+    for (const alert of this.alerts) {
+      if (
+        alert.code === "WEBHOOK_TOKEN_INVALID" &&
+        !alert.resolved &&
+        !liveChannelIds.has(String(alert.context.channel_id))
+      ) {
+        alert.resolved = true;
+      }
+    }
+  }
+}
+
+function seedOpenWebhookTokenInvalidAlert(tx: FakeWatchTx, channelId: string) {
+  tx.alerts.push({
+    code: "WEBHOOK_TOKEN_INVALID",
+    context: { channel_id: channelId },
+    resolved: false,
+  });
 }
 
 function seedActiveExpiring(tx: FakeWatchTx, folderIds: string[]) {
@@ -647,7 +680,43 @@ describe("reconcileWatchChannels", () => {
     expect(deps.maybeEscalateWatchOrphaned).not.toHaveBeenCalled();
   });
 
-  test("vacuous: no folder → resolve stale alert, no subscribe", async () => {
+  test("healthy: open WEBHOOK_TOKEN_INVALID alert naming a channel that is NOT the folder's live active channel → resolved", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1", "live-channel");
+    seedOpenWebhookTokenInvalidAlert(tx, "stale-channel");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("healthy");
+    expect(tx.operations).toContain("resolveStaleWebhookTokenInvalid");
+    expect(tx.alerts[0]).toMatchObject({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "stale-channel" },
+      resolved: true,
+    });
+  });
+
+  test("healthy: open WEBHOOK_TOKEN_INVALID alert naming the CURRENT live channel → untouched", async () => {
+    const tx = new FakeWatchTx();
+    seedLiveActive(tx, "folder-1", "live-channel");
+    seedOpenWebhookTokenInvalidAlert(tx, "live-channel");
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx);
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.outcome).toBe("healthy");
+    expect(tx.operations).toContain("resolveStaleWebhookTokenInvalid");
+    expect(tx.alerts[0]).toMatchObject({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "live-channel" },
+      resolved: false,
+    });
+  });
+
+  test("vacuous: no folder → resolve stale WATCH_CHANNEL_ORPHANED alongside the global WEBHOOK_TOKEN_INVALID alert, no subscribe", async () => {
     const tx = new FakeWatchTx();
     const { reconcileWatchChannels } = await import("@/lib/drive/watch");
     const deps = reconcileDeps(tx, {
@@ -661,11 +730,16 @@ describe("reconcileWatchChannels", () => {
       showId: null,
       code: "WATCH_CHANNEL_ORPHANED",
     });
+    expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
+      showId: null,
+      code: "WEBHOOK_TOKEN_INVALID",
+    });
     expect(deps.subscribeToWatchedFolder).not.toHaveBeenCalled();
   });
 
-  test("no live channel → exactly one subscribe; active → recovered + resolve", async () => {
+  test("no live channel → exactly one subscribe; active → recovered + resolve (WATCH_CHANNEL_ORPHANED and stale WEBHOOK_TOKEN_INVALID)", async () => {
     const tx = new FakeWatchTx();
+    seedOpenWebhookTokenInvalidAlert(tx, "old-channel");
     const { reconcileWatchChannels } = await import("@/lib/drive/watch");
     const deps = reconcileDeps(tx);
 
@@ -677,6 +751,12 @@ describe("reconcileWatchChannels", () => {
     expect(deps.resolveAdminAlert).toHaveBeenCalledWith({
       showId: null,
       code: "WATCH_CHANNEL_ORPHANED",
+    });
+    expect(tx.operations).toContain("resolveStaleWebhookTokenInvalid");
+    expect(tx.alerts[0]).toMatchObject({
+      code: "WEBHOOK_TOKEN_INVALID",
+      context: { channel_id: "old-channel" },
+      resolved: true,
     });
   });
 
@@ -1168,5 +1248,110 @@ describe("Drive watch telemetry", () => {
     expect(fault.source).toBe("drive.watch");
     expect(fault.context.operation).toBe("drive_watch_channels.list_gc_candidates");
     expect(fault.context.error).toMatchObject({ message: "gc candidate query failed" });
+  });
+
+  test("subscribeToWatchedFolder logs one DRIVE_WATCH_ACTIVATED info on activation success", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => ({
+        id: "new-channel",
+        resourceId: "resource-1",
+        expiration: "2026-05-10T13:00:00.000Z",
+      })),
+    });
+
+    expect(result).toEqual({ outcome: "active", channelId: "new-channel" });
+    const activated = records().filter((r) => r.code === "DRIVE_WATCH_ACTIVATED");
+    expect(activated).toHaveLength(1);
+    expect(activated[0]!.level).toBe("info");
+    expect(activated[0]!.source).toBe("drive.watch");
+    expect(activated[0]!.context).toMatchObject({
+      channelId: "new-channel",
+      watchedFolderId: "folder-1",
+      expiresAt: "2026-05-10T13:00:00.000Z",
+    });
+  });
+
+  test("subscribeToWatchedFolder does NOT log DRIVE_WATCH_ACTIVATED when activation orphans", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => {
+        throw new Error("Drive unavailable");
+      }),
+    });
+
+    expect(records().filter((r) => r.code === "DRIVE_WATCH_ACTIVATED")).toEqual([]);
+  });
+
+  test("gcWatchChannels logs DRIVE_WATCH_STOP_FAILED but still marks the channel stopped (control flow unchanged)", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "orphaned-channel",
+      status: "orphaned",
+      watchedFolderId: "folder-1",
+      webhookSecret: "secret-1",
+      resourceId: "resource-1",
+      expiresAt: null,
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+    const stopChannel = vi.fn(async () => {
+      throw new Error("channels.stop 404");
+    });
+
+    const result = await gcWatchChannels({ tx, stopChannel });
+
+    // Non-fatal: the row is STILL marked stopped and returned despite the Drive fault.
+    expect(result).toEqual({ stopped: ["orphaned-channel"] });
+    expect(tx.rows.map((row) => row.status)).toEqual(["stopped"]);
+
+    const warns = records().filter((r) => r.code === "DRIVE_WATCH_STOP_FAILED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.level).toBe("warn");
+    expect(warns[0]!.source).toBe("drive.watch");
+    expect(warns[0]!.context).toMatchObject({ channelId: "orphaned-channel" });
+    expect(warns[0]!.context.error).toMatchObject({ message: "channels.stop 404" });
+  });
+
+  test("stale-pending sweep persists as DRIVE_WATCH_STALE_PENDING_SWEPT info, off the warn stream", async () => {
+    const tx = new FakeWatchTx();
+    const cutoff = tx.now.getTime() - STALE_PENDING_MAX_AGE_MS;
+    tx.rows.push({
+      id: "stale-1",
+      status: "pending",
+      watchedFolderId: "folder-1",
+      webhookSecret: "s1",
+      resourceId: null,
+      expiresAt: null,
+      createdAt: new Date(cutoff - 1000).toISOString(),
+    });
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi.fn().mockResolvedValue({ kind: "no_folder_configured" }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.sweptPending).toBe(1);
+    const swept = records().filter((r) => r.code === "DRIVE_WATCH_STALE_PENDING_SWEPT");
+    expect(swept).toHaveLength(1);
+    expect(swept[0]!.level).toBe("info");
+    expect(swept[0]!.source).toBe("drive.watch.reconcile");
+    expect(swept[0]!.context).toMatchObject({ sweptIds: ["stale-1"] });
+    // Downgraded off the warn stream: no warn-level record for this hygiene action.
+    expect(
+      records().filter(
+        (r) => r.message === "stale pending watch channels swept" && r.level === "warn",
+      ),
+    ).toEqual([]);
   });
 });

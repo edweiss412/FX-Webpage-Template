@@ -198,4 +198,123 @@ describe("runDiagramGc", () => {
     expect(retried).toEqual([currentRev]);
     expect(result.pendingPrefixesDeleted).toBe(0);
   });
+
+  // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4). The gc run must
+  // call resolveClearedStuckAlerts immediately after emitStuckAlerts, in the same pass, so a
+  // stuck alert whose underlying ledger row no longer matches the raise predicate gets cleared
+  // in the same cycle it would otherwise have been re-raised. The fake tx below implements the
+  // real anti-join predicate from diagramGc.ts:307-310/323-327 in JS against fixture ledger rows
+  // whose timestamps are derived from the fixture `now` (never hardcoded wall-clock), so the
+  // test proves runDiagramGc threads a single consistent `now` through both raise and resolve —
+  // not just that some function got called.
+  test("resolves a cleared PROMOTE_STUCK alert while a still-stuck row's alert stays open", async () => {
+    const now = new Date("2026-05-10T00:00:00.000Z");
+    const clearedShowId = "22222222-2222-4222-8222-222222222222";
+    const stuckShowId = "33333333-3333-4333-8333-333333333333";
+    const events: string[] = [];
+    const openAlerts = new Set([clearedShowId, stuckShowId]);
+    const resolvedAlerts = new Set<string>();
+
+    // Fixture ledger rows: cleared row was promoted after its promote attempt started (so it no
+    // longer matches "promoted_at is null"); stuck row's promote_started_at is still >15min
+    // before `now` and promoted_at is still null, so it still matches the raise predicate.
+    const pendingRows = [
+      {
+        showId: clearedShowId,
+        promoteStartedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        promotedAt: new Date(now.getTime() - 1 * 60 * 1000),
+      },
+      {
+        showId: stuckShowId,
+        promoteStartedAt: new Date(now.getTime() - 20 * 60 * 1000),
+        promotedAt: null as Date | null,
+      },
+    ];
+    const stillStuckPromote = (showId: string) =>
+      pendingRows.some(
+        (row) =>
+          row.showId === showId &&
+          row.promoteStartedAt &&
+          row.promotedAt === null &&
+          row.promoteStartedAt.getTime() < now.getTime() - 15 * 60 * 1000,
+      );
+
+    await runDiagramGc({
+      now,
+      storage: storage([]).storage,
+      tx: {
+        listShows: async () => [],
+        claimPendingRows: async () => [],
+        deletePromotedRows: async () => 0,
+        deletePendingRow: async () => undefined,
+        emitStuckAlerts: async (calledNow) => {
+          events.push(`emit:${calledNow.toISOString()}`);
+        },
+        resolveClearedStuckAlerts: async (calledNow) => {
+          events.push(`resolve:${calledNow.toISOString()}`);
+          for (const showId of openAlerts) {
+            if (!stillStuckPromote(showId)) resolvedAlerts.add(showId);
+          }
+        },
+      },
+    });
+
+    expect(events).toEqual([`emit:${now.toISOString()}`, `resolve:${now.toISOString()}`]);
+    expect(resolvedAlerts.has(clearedShowId)).toBe(true);
+    expect(resolvedAlerts.has(stuckShowId)).toBe(false);
+  });
+
+  test("resolves a cleared DELETE_STUCK alert while a still-stuck row's alert stays open", async () => {
+    const now = new Date("2026-05-10T00:00:00.000Z");
+    const clearedShowId = "44444444-4444-4444-8444-444444444444";
+    const stuckShowId = "55555555-5555-4555-8555-555555555555";
+    const openAlerts = new Set([clearedShowId, stuckShowId]);
+    const resolvedAlerts = new Set<string>();
+
+    // Delete-stuck predicate (diagramGc.ts:323-327) has no interval offset: it's raised whenever
+    // claim_expires_at < now(). Cleared row has since been promoted (promoted_at set); stuck row
+    // is still mid-delete with an already-expired claim.
+    const pendingRows = [
+      {
+        showId: clearedShowId,
+        deleteStartedAt: new Date(now.getTime() - 10 * 60 * 1000),
+        promotedAt: new Date(now.getTime() - 1 * 60 * 1000),
+        claimExpiresAt: new Date(now.getTime() - 1 * 60 * 1000),
+      },
+      {
+        showId: stuckShowId,
+        deleteStartedAt: new Date(now.getTime() - 10 * 60 * 1000),
+        promotedAt: null as Date | null,
+        claimExpiresAt: new Date(now.getTime() - 1 * 60 * 1000),
+      },
+    ];
+    const stillStuckDelete = (showId: string) =>
+      pendingRows.some(
+        (row) =>
+          row.showId === showId &&
+          row.deleteStartedAt &&
+          row.promotedAt === null &&
+          row.claimExpiresAt.getTime() < now.getTime(),
+      );
+
+    await runDiagramGc({
+      now,
+      storage: storage([]).storage,
+      tx: {
+        listShows: async () => [],
+        claimPendingRows: async () => [],
+        deletePromotedRows: async () => 0,
+        deletePendingRow: async () => undefined,
+        emitStuckAlerts: async () => undefined,
+        resolveClearedStuckAlerts: async () => {
+          for (const showId of openAlerts) {
+            if (!stillStuckDelete(showId)) resolvedAlerts.add(showId);
+          }
+        },
+      },
+    });
+
+    expect(resolvedAlerts.has(clearedShowId)).toBe(true);
+    expect(resolvedAlerts.has(stuckShowId)).toBe(false);
+  });
 });

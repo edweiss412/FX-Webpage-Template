@@ -13,24 +13,39 @@ export interface AdminOutcome {
   wizardSessionId?: string;
   showId?: string;
   result?: string; // sub-outcome, e.g. "reapplied" | "all_batches_complete"
-  extra?: Record<string, unknown>; // spreads into app_events.context
+  // Spreads into app_events.context. actorEmail above is hashed; extra{} is NOT — it
+  // passes only through the logger's sanitizeContext EMAIL-redaction net (proven by
+  // tests/log/logAdminOutcomeIntegration.test.ts). That net redacts emails ONLY, so
+  // callers MUST NOT put other PII here (phone numbers, tokens, raw crew names, IPs).
+  // Keep extra{} to low-cardinality forensic detail.
+  extra?: Record<string, unknown>;
 }
 
 // The message IS the code (a stable, low-cardinality event name); detail lives in
 // result/extra. `await`ed for durability — callers emit it AFTER the mutating tx
 // commits (post-wrapper), never inside the advisory-lock tx.
 export async function logAdminOutcome(o: AdminOutcome): Promise<void> {
-  await log.info(o.code, {
-    // `extra` is spread FIRST so it can NEVER override the reserved telemetry
-    // fields below — the persisted code always equals the outcome code, and actor
-    // attribution derives only from hashForLog(actorEmail).
-    ...(o.extra ?? {}),
-    code: o.code,
-    source: o.source,
-    ...(o.actorEmail ? { actorHash: hashForLog(o.actorEmail) } : {}),
-    ...(o.driveFileId ? { driveFileId: o.driveFileId } : {}),
-    ...(o.showId ? { showId: o.showId } : {}),
-    ...(o.wizardSessionId ? { wizardSessionId: o.wizardSessionId } : {}),
-    ...(o.result ? { result: o.result } : {}),
-  });
+  // Telemetry must NEVER throw over an already-committed mutation (invariant 9).
+  // Callers emit this AFTER their mutating tx commits (post-wrapper); if buildRecord/
+  // sanitizeContext threw synchronously, or a custom/default sink rejected, an
+  // un-wrapped `await log.info(...)` would let the throw escape over the committed
+  // write. This single wrapper CENTRALLY protects every callsite at once
+  // (archive/unarchive/setPublished/finalize/…) — no per-callsite try/catch needed.
+  try {
+    await log.info(o.code, {
+      // `extra` is spread FIRST so it can NEVER override the reserved telemetry
+      // fields below — the persisted code always equals the outcome code, and actor
+      // attribution derives only from hashForLog(actorEmail).
+      ...(o.extra ?? {}),
+      code: o.code,
+      source: o.source,
+      ...(o.actorEmail ? { actorHash: hashForLog(o.actorEmail) } : {}),
+      ...(o.driveFileId ? { driveFileId: o.driveFileId } : {}),
+      ...(o.showId ? { showId: o.showId } : {}),
+      ...(o.wizardSessionId ? { wizardSessionId: o.wizardSessionId } : {}),
+      ...(o.result ? { result: o.result } : {}),
+    });
+  } catch {
+    /* best-effort: telemetry must never throw over a committed mutation (invariant 9) */
+  }
 }
