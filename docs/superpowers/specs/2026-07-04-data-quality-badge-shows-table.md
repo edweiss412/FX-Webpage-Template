@@ -429,13 +429,19 @@ none.
      empty panel (invariant 9, R10 F1)").
    - **Add a behavioral test** in the `describe("fetchDashboardData")` block (`:537`): seed one
      `shows` row (so the helper proceeds past the empty-shows short-circuit into wave-2, per the
-     `crew_members` test at `:577-587`), set `infraMock.throwOnFromTable = "shows_internal"` (and a
-     second case with a **returned** `{ error }` if the mock supports it — it does, per the ignored
-     read at `:234`), and assert the result is **NOT** `infra_error`, that `dataGapsDegraded === true`,
-     and that rows are present with no `dataGaps`. This pins BOTH the boundary discipline (the read
-     itself returns a typed `infra_error`) AND the caller's degrade-visible posture. **Note:** do
+     `crew_members` test at `:577-587`) and set `infraMock.throwOnFromTable = "shows_internal"`, then
+     assert the result is **NOT** `infra_error`, that `dataGapsDegraded === true`, and that rows are
+     present with no `dataGaps`. This pins BOTH the boundary discipline (the read returns a typed
+     `infra_error` on a **thrown** fault) AND the caller's degrade-visible posture. **Note:** do
      **not** add `"shows_internal"` to the existing `test.each` throw-matrix at `:562` (those assert
      → `infra_error`; `shows_internal` degrades, so it needs its own assertion).
+   - **Mock scope caveat (round-2 correction).** The shared `infraMock` (`:46-107`) supports only the
+     **thrown**-fault paths (`throwOnConstruct` / `throwOnFrom` / `throwOnFromTable`) and hardcodes
+     `error: null` (`:57`) — it has **no** returned-`{ error }` injection. So the meta-test covers the
+     thrown path only; the **returned-`{ error }`** degrade path is covered separately in the focused
+     `fetchDashboardData` test (T3, which uses its own mock able to resolve `{ data:null, error:{…} }`).
+     Do **not** claim the meta-test mock exercises returned-error, and do **not** extend the shared
+     mock for this feature (out of scope — the focused test already covers that path).
    This EXTEND is the direct fix for the round-1 finding that the inventory wrongly claimed
    `_metaInfraContract` was auth-only.
 2. **`tests/components/admin/dataGapsTransitionAudit.test.tsx` — EXTEND.** Add the three new source
@@ -462,8 +468,9 @@ No new §12.4 code → no catalog / `spec-codes` / `codes-coverage` touchpoints.
 4. **Task L (layout, real browser):** the badge does not inflate row height / stays in the title
    cell; Playwright `getBoundingClientRect`, not jsdom.
 5. **Invariant-8 impeccable dual-gate** (`/impeccable critique` + `/impeccable audit`) on the UI diff
-   — `DataQualityBadge.tsx` + `ShowsTable.tsx` + `ArchivedShowRow.tsx` — before cross-model review;
-   HIGH/CRITICAL fixed or `DEFERRED.md`.
+   — `DataQualityBadge.tsx` + `ShowsTable.tsx` + `ArchivedShowRow.tsx` + `Dashboard.tsx` (the §3.5
+   degraded notice makes `Dashboard.tsx` a user-visible UI surface under invariant 8, `AGENTS.md:20`)
+   — before cross-model review; HIGH/CRITICAL fixed or `DEFERRED.md`.
 
 ---
 
