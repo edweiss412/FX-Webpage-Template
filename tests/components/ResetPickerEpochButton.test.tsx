@@ -62,6 +62,33 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     checkAll(); // confirm + cancel
   });
 
+  // PCR-1 (a) regression (Codex R3): the visible outcome banner must never
+  // render beside the still-"resolving" confirm row — it appears only at rest.
+  test("(regression) success banner does not render beside the resolving confirm row", async () => {
+    let resolve!: (v: unknown) => void;
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await Promise.resolve();
+    });
+    // resolving: the "Resetting…" confirm button is present; NO banner yet
+    expect(screen.getByTestId("admin-reset-picker-epoch-confirm-button")).toBeTruthy();
+    expect(screen.queryByTestId("admin-reset-picker-epoch-ok")).toBeNull();
+    await act(async () => {
+      resolve({ ok: true, new_epoch: 9 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // settled: confirm row gone, banner shown
+    expect(screen.queryByTestId("admin-reset-picker-epoch-confirm-button")).toBeNull();
+    expect(screen.getByTestId("admin-reset-picker-epoch-ok")).toBeTruthy();
+  });
+
   // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; the
   // refused banner persists until the admin acts on it.
   test("(d) success banner auto-dismisses after the window", async () => {

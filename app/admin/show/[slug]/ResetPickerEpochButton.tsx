@@ -256,8 +256,12 @@ export function ResetPickerEpochButton({
     >
       {stateBody}
       {liveRegion}
-      {okBanner}
-      {errorBanner}
+      {/* Visible banners render only at rest (idle), never beside the resolving
+          confirm row — the sr-only liveRegion above still announces immediately
+          regardless of ui, so gating the VISIBLE banner costs no announce delay
+          (Codex R3 — restores the prior idle-only banner placement). */}
+      {ui === "idle" ? okBanner : null}
+      {ui === "idle" ? errorBanner : null}
     </div>
   );
 }

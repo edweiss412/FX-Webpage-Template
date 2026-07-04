@@ -168,7 +168,11 @@ export function PickerResetControl({
       <div className="sr-only" role="status" aria-live="polite">
         {outcome?.kind === "ok" ? outcome.message : ""}
       </div>
-      {outcome?.kind === "ok" && (
+      {/* Visible banners render only at rest (idle), never beside the resolving
+          confirm actions — the sr-only region above still announces immediately
+          regardless of ui, so gating the VISIBLE banner costs no announce delay
+          (Codex R3 — keeps both controls flash-free and consistent). */}
+      {ui === "idle" && outcome?.kind === "ok" && (
         // aria-hidden: the sr-only region above is the single SR source for the
         // success; this visible banner is purely decorative so the message is
         // not exposed to the a11y tree twice (Codex R2 LOW).
@@ -183,7 +187,7 @@ export function PickerResetControl({
           {outcome.message}
         </p>
       )}
-      {outcome?.kind === "error" && (
+      {ui === "idle" && outcome?.kind === "error" && (
         <p
           data-testid="picker-reset-error"
           role="alert"

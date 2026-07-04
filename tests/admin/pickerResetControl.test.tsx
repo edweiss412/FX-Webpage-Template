@@ -152,6 +152,33 @@ describe("PickerResetControl", () => {
     checkAll(); // confirm + cancel
   });
 
+  // PCR-1 (a) regression (Codex R3): the visible outcome banner must never
+  // render beside the still-"resolving" confirm actions — it appears only at rest.
+  test("(regression) success banner does not render beside the resolving confirm actions", async () => {
+    let resolve!: (v: unknown) => void;
+    mockMember.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await Promise.resolve();
+    });
+    // resolving: the "Resetting…" confirm button is present; NO banner yet
+    expect(screen.getByTestId("picker-reset-confirm-button")).toBeTruthy();
+    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+    await act(async () => {
+      resolve({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // settled: confirm actions gone, banner shown
+    expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
+    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
+  });
+
   // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; an ERROR
   // banner persists until the admin acts on it.
   const DISMISS_MS = 5_000;
