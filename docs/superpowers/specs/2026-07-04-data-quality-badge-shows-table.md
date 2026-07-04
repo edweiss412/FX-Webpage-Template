@@ -71,14 +71,26 @@ const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResul
       return { kind: "infra_error", message: `shows_internal data-gaps query failed: ${error.message}` };
     }
     for (const r of (data ?? []) as ReadonlyArray<{ show_id: string; parse_warnings: unknown }>) {
-      // Defensive: `parse_warnings` is plain `jsonb default '[]'` with NO array/element CHECK
-      // (supabase/migrations/20260501001000_internal_and_admin.sql:1-5). A non-array value would
-      // make summarizeDataGaps's `for…of` throw and — because this loops over ALL rows — one
-      // malformed row would degrade EVERY badge. Normalize per-row exactly like the per-show reader
-      // (app/admin/show/[slug]/page.tsx:329): non-array → treat as no warnings.
-      const pw = Array.isArray(r.parse_warnings) ? (r.parse_warnings as ParseWarning[]) : null;
-      const summary = summarizeDataGaps(pw);
-      if (summary.total > 0) byShow.set(r.show_id, summary); // store only non-empty (§2.3)
+      // Defensive, PER-ROW: `parse_warnings` is plain `jsonb default '[]'` with NO array/element
+      // CHECK (supabase/migrations/20260501001000_internal_and_admin.sql:4). Two failure shapes:
+      //  (a) a non-ARRAY value (e.g. `{}` / a string) — summarizeDataGaps's `for…of` throws.
+      //      Guard with Array.isArray, exactly like the per-show reader
+      //      (app/admin/show/[slug]/page.tsx:329): non-array → treat as no warnings.
+      //  (b) a valid array with a malformed ELEMENT (e.g. `[null]`) — summarizeDataGaps dereferences
+      //      `w.severity`/`w.code` (lib/parser/dataGaps.ts:63-67) and throws on `null`.
+      // Because this loops over ALL rows inside the outer try/catch, either shape on ONE row would
+      // otherwise degrade EVERY badge. So the summarize is wrapped in a PER-ROW try/catch: a
+      // malformed row is skipped (no badge for that row only); valid rows are unaffected. This is a
+      // malformed-DATA guard, distinct from the read-fault degraded notice (§3.5) — a corrupt blob is
+      // not an infra fault, so it degrades one row silently rather than tripping the table-level
+      // notice.
+      if (!Array.isArray(r.parse_warnings)) continue;
+      try {
+        const summary = summarizeDataGaps(r.parse_warnings as ParseWarning[]);
+        if (summary.total > 0) byShow.set(r.show_id, summary); // store only non-empty (§2.3)
+      } catch {
+        // malformed element in an otherwise-valid array → skip this row only
+      }
     }
     return byShow;
   } catch (err) {
@@ -395,12 +407,14 @@ container that also renders the count elsewhere. Expected label strings are **de
   degraded signal (invariant 9).
 - **T3b — degraded notice renders.** A `Dashboard` render with `dataGapsDegraded:true` shows
   `dashboard-data-quality-degraded` (plain copy, no raw code literal); with `false`, it is absent.
-- **T3c — malformed `parse_warnings` does not throw or cross-contaminate.** Seed two `shows_internal`
-  rows: one with a **non-array** `parse_warnings` (e.g. `{}` or a string), one with a valid gappy
-  array. `fetchDashboardData` must NOT throw / degrade, must return the malformed row with **no**
-  `dataGaps`, and must still return the valid row's `dataGaps.total > 0`. Failure mode: a single
-  malformed persisted row throwing in `summarizeDataGaps` and collapsing every badge on the dashboard
-  (the `Array.isArray` guard in §2.1 prevents this).
+- **T3c — malformed `parse_warnings` does not throw or cross-contaminate.** Seed **three**
+  `shows_internal` rows: (i) a **non-array** `parse_warnings` (e.g. `{}` or a string), (ii) a valid
+  **array with a malformed element** (e.g. `[null]`), and (iii) a valid gappy array.
+  `fetchDashboardData` must NOT throw / degrade (`dataGapsDegraded` stays false — this is malformed
+  DATA, not an infra fault), must return rows (i) and (ii) with **no** `dataGaps`, and must still
+  return row (iii)'s `dataGaps.total > 0`. Failure mode: a single malformed persisted row (non-array
+  **or** bad element) throwing in `summarizeDataGaps` and collapsing every badge on the dashboard
+  (the `Array.isArray` guard **plus** the per-row try/catch in §2.1 both prevent this).
 - **T4 — badge renders + accessible name (component).** `tests/components/admin/ShowsTable.test.tsx`:
   a row with `dataGaps:{ total:3, classes:{FIELD_UNREADABLE:2, UNKNOWN_SECTION_HEADER:1,
   BLOCK_DISAPPEARED:0} }` renders `shows-data-quality-<slug>` whose accessible name (queried via
