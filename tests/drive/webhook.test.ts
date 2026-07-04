@@ -634,6 +634,7 @@ describe("/api/drive/webhook observability logging", () => {
     const tx = {
       readActiveWatchChannel: vi.fn(async () => activeChannel()),
       upsertAdminAlert: vi.fn(async () => undefined),
+      resolveWebhookTokenInvalidForChannel: vi.fn(async () => undefined),
     };
 
     const response = await handleDriveWebhook(
@@ -665,6 +666,7 @@ describe("/api/drive/webhook observability logging", () => {
     const tx = {
       readActiveWatchChannel: vi.fn(async () => activeChannel()),
       upsertAdminAlert: vi.fn(async () => undefined),
+      resolveWebhookTokenInvalidForChannel: vi.fn(async () => undefined),
     };
 
     const response = await handleDriveWebhook(
@@ -693,6 +695,7 @@ describe("/api/drive/webhook observability logging", () => {
     const tx = {
       readActiveWatchChannel: vi.fn(async () => activeChannel()),
       upsertAdminAlert: vi.fn(async () => undefined),
+      resolveWebhookTokenInvalidForChannel: vi.fn(async () => undefined),
     };
 
     await handleDriveWebhook(request(headers({ "X-Goog-Resource-State": "add" })), {
@@ -718,6 +721,7 @@ describe("/api/drive/webhook observability logging", () => {
     const tx = {
       readActiveWatchChannel: vi.fn(async () => activeChannel()),
       upsertAdminAlert: vi.fn(async () => undefined),
+      resolveWebhookTokenInvalidForChannel: vi.fn(async () => undefined),
     };
     const boom = new Error("scheduler exploded");
 
