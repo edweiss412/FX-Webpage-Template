@@ -240,7 +240,8 @@ actions and routes:
    broad floor.
 2. **Registry membership, not a file/body scan.** An admin surface satisfies the floor ONLY by
    membership in the shared `AUDITABLE_MUTATIONS` registry (extracted to a module both tests
-   import — §9), OR a `// no-telemetry:` exemption. It does **NOT** pass merely because the
+   import — §9), OR an explicit `ADMIN_SURFACE_EXEMPTIONS` row (§4.3 item 2 — a bare
+   `// no-telemetry:` is REJECTED on an admin surface). It does **NOT** pass merely because the
    file/body contains an `await logAdminOutcome(...)` — that is defeatable by an unused,
    delegated, or wrong-branch emit (Codex R8/R10). A new admin surface not in the registry
    (and not exempt) FAILS discovery. (This supersedes the earlier per-function-scan rule for
@@ -333,11 +334,14 @@ surface kinds. Reads are exempt (§4.3).
 ### 4.4 Failure output
 
 On failure the test lists each offending **surface unit** — `file :: fn` for actions,
-`file :: POST` for routes — with its `kind` (route / module-action / inline-action) and the
-three resolution paths (add a code-carrying emit in that function/file, add a
-`// no-telemetry: <reason>`, or add a `KNOWN_UNINSTRUMENTED` ledger entry with a backlog
-ref). No hidden truncation — every offender is printed. The route-multiplicity assertion
-(no `route.ts` exports >1 mutating method) reports separately with its own remediation note.
+`file :: POST` for routes — with its `kind` (route / module-action / inline-action), and
+remediation paths **scoped to whether it is an admin surface**: for a **non-admin** surface,
+add a code-carrying emit, a `// no-telemetry: <reason>`, or a `KNOWN_UNINSTRUMENTED` ledger
+row; for an **admin** surface (admin route / `require*`-gated action), the ONLY paths are a
+registered `AUDITABLE_MUTATIONS` row **plus** executable behavioral coverage, or an explicit
+`ADMIN_SURFACE_EXEMPTIONS` row — the message must NOT offer bare `// no-telemetry:` /
+`KNOWN_UNINSTRUMENTED` for admin surfaces. No hidden truncation — every offender is printed.
+The route-multiplicity assertion (no `route.ts` exports >1 mutating method) reports separately.
 
 ### 4.5 Non-tautology (mandatory negative-regression)
 
@@ -427,22 +431,27 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 > **10. Every mutation surface is instrumented — no surface is silently dark.** Every
 > mutation surface unit — each mutating HTTP route handler (`POST`/`PUT`/`PATCH`/`DELETE`),
 > each exported action in a module-level `"use server"` file, and each function-scoped inline
-> `"use server"` action — MUST carry at least one code-carrying telemetry emit
-> (`await logAdminOutcome(...)`, or `log.<info|warn|error>` with a `SHOUTY_SNAKE` code as the
-> message or a `code:` field), OR an inline `// no-telemetry: <reason>` exemption, OR a
-> `KNOWN_UNINSTRUMENTED` debt-ledger row with a backlog ref. Checked **per function** for
-> actions (an emit in one exported action does not satisfy a sibling) and per file for routes
-> (each route file has exactly one mutating handler, asserted). **Admin mutations must
-> satisfy this via `await logAdminOutcome` specifically** — a success outcome, not a
-> failure-only log — for both **admin-gated actions** (body calls
-> `require{Admin,Developer}[Identity]`) AND **mutating routes under `app/api/admin/**`**
-> (path-based; `require*`-detection is not used for routes, to avoid a false positive on
-> crew routes that read admin identity for role-detection, e.g. `app/api/report`). Beyond
-> this floor, success-path
-> outcome *precision* for named admin mutations (which code, which branch) remains the
-> registry guard's (`_metaAdminOutcomeContract`) and audits' job — the two are complementary.
-> Enforced by `tests/log/_metaMutationSurfaceObservability.test.ts`. New mutation surfaces are
-> uninstrumented-by-default failures, not silent omissions.
+> `"use server"` action — MUST be covered, with the mechanism depending on whether it is an
+> admin surface:
+>
+> - **Non-admin surfaces** (crew/system actions; infra routes NOT under `app/api/admin`) MUST
+>   carry at least one code-carrying emit (`await logAdminOutcome(...)`, or
+>   `log.<info|warn|error>` with a `SHOUTY_SNAKE` code as the message or a `code:` field), OR
+>   an inline `// no-telemetry: <reason>` exemption, OR a `KNOWN_UNINSTRUMENTED` debt-ledger
+>   row with a backlog ref. Checked per function for actions, per file for routes.
+> - **Admin mutations** — **admin-gated actions** (body calls
+>   `require{Admin,Developer}[Identity]`) AND **mutating routes under `app/api/admin/**`**
+>   (path-based; `require*`-detection is not used for routes, to avoid a false positive on crew
+>   routes that read admin identity for role-detection, e.g. `app/api/report`) — MUST satisfy
+>   a stricter contract: membership in the `AUDITABLE_MUTATIONS` registry PLUS executable
+>   success-branch behavioral proof (a sink-spy that records only after observing the code on
+>   the committed success branch), OR an explicit `ADMIN_SURFACE_EXEMPTIONS` row (delegator to
+>   a registered surface, or a verified read-only accessor). A bare `// no-telemetry:` or
+>   `KNOWN_UNINSTRUMENTED` row is **invalid** for an admin surface.
+>
+> Enforced by `tests/log/_metaMutationSurfaceObservability.test.ts` (static discovery) and
+> `tests/log/adminOutcomeBehavior.test.ts` (executable admin behavioral coverage). New mutation
+> surfaces are uninstrumented-by-default failures, not silent omissions.
 
 Add two `BACKLOG.md` entries: `BL-CREW-PICKER-OBSERVABILITY` (the 6 grandfathered non-admin
 `lib/auth/picker/*` functions; the 3 admin-gated picker mutations are instrumented now, not
