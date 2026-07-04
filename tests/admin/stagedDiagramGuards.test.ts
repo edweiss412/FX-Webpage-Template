@@ -6,8 +6,9 @@
 // boundary that prevents the Drive bearer token (sent by
 // snapshotFetchEmbeddedImageBytesTimed) from being exfiltrated to an
 // attacker-controlled origin (SSRF class) via a corrupt persisted contentUrl.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
+  hasStagedPreviewSource,
   isRenderableDiagramStub,
   isTrustedDiagramContentUrl,
 } from "@/lib/admin/stagedDiagramGuards";
@@ -164,4 +165,40 @@ describe("isTrustedDiagramContentUrl", () => {
   it("rejects an unparseable URL", () => {
     expect(isTrustedDiagramContentUrl("::::")).toBe(false);
   });
+});
+
+describe("isRenderableDiagramStub — media fields", () => {
+  const base = { objectId: "o", mimeType: "image/png", sheetTab: "T" };
+  test.each([
+    [{ ...base }, true], // both absent
+    [{ ...base, mediaPartName: "xl/media/image1.png", embeddedFingerprint: "fp" }, true],
+    [{ ...base, embeddedFingerprint: null }, true],
+    [{ ...base, mediaPartName: 7 }, false],
+    [{ ...base, embeddedFingerprint: 7 }, false],
+    [{ ...base, mediaPartName: { evil: true } }, false],
+  ])("shape %#", (stub, ok) => expect(isRenderableDiagramStub(stub)).toBe(ok));
+});
+
+describe("hasStagedPreviewSource", () => {
+  const base = { objectId: "o", mimeType: "image/png", sheetTab: "T" } as never;
+  test.each([
+    [{ ...base, contentUrl: "https://lh3.googleusercontent.com/x" }, true],
+    [{ ...base, contentUrl: "https://google.com.evil.net/x" }, false], // untrusted string URL — must match the route's 404
+    [
+      {
+        ...base,
+        contentUrl: "https://google.com.evil.net/x",
+        mediaPartName: "xl/media/image1.png",
+        embeddedFingerprint: "fp",
+      },
+      false,
+    ], // corrupt mixed shape — string contentUrl is authoritative
+    [{ ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: "fp" }, true],
+    [
+      { ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: null },
+      false,
+    ], // restage-only
+    [{ ...base, contentUrl: null, embeddedFingerprint: "fp" }, false], // no part name
+    [{ ...base, contentUrl: null }, false],
+  ])("source %#", (stub, ok) => expect(hasStagedPreviewSource(stub)).toBe(ok));
 });
