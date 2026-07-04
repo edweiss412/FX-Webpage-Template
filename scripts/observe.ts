@@ -1,6 +1,6 @@
 // scripts/observe.ts
 import { pathToFileURL } from "node:url";
-import { MESSAGE_CATALOG, isMessageCode } from "@/lib/messages/lookup";
+import { MESSAGE_CATALOG, isMessageCode, type MessageCatalogEntry } from "@/lib/messages/lookup";
 import { parseObserveArgs } from "./observe/args";
 import { resolveTarget } from "./observe/env";
 import { collectEvents } from "./observe/collect";
@@ -15,6 +15,15 @@ import { queryEvents as realQueryEvents } from "@/lib/observe/query/events";
 import { getCronHealth as realGetCronHealth } from "@/lib/observe/query/cronHealth";
 import { queryAlerts as realQueryAlerts } from "@/lib/observe/query/alerts";
 import { queryChangeLog as realQueryChangeLog } from "@/lib/observe/query/changeLog";
+import { clampLimit } from "@/lib/observe/query";
+
+// Infra/usage errors: JSON object on stderr when --json (agent-parseable), else plain text.
+function fail(
+  message: string,
+  json: boolean,
+): { stdout: string; stderr: string; exitCode: number } {
+  return { stdout: "", stderr: json ? JSON.stringify({ error: message }) : message, exitCode: 1 };
+}
 
 export function resolveCodeText(code: string | undefined): string {
   if (code === undefined) {
@@ -28,10 +37,13 @@ export function resolveCodeText(code: string | undefined): string {
   if (!isMessageCode(code)) {
     return `Code "${code}" is not in the message catalog (may be a forensic log-only code).`;
   }
-  const e = MESSAGE_CATALOG[code];
+  // Widened type: a const entry lacking a `severity` key is still assignable to
+  // MessageCatalogEntry (severity is optional), making `.severity` type-safe.
+  const e: MessageCatalogEntry = MESSAGE_CATALOG[code];
   const lines = [
     code,
     e.title ? `title: ${e.title}` : "",
+    e.severity ? `severity: ${e.severity}` : "",
     e.dougFacing ? `admin: ${e.dougFacing}` : "",
     e.crewFacing ? `crew: ${e.crewFacing}` : "",
     e.helpfulContext ? `context: ${e.helpfulContext}` : "",
@@ -54,7 +66,7 @@ export async function runObserve(
   deps: ObserveDeps,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const parsed = parseObserveArgs(argv);
-  if (parsed.kind === "error") return { stdout: "", stderr: parsed.message, exitCode: 1 };
+  if (parsed.kind === "error") return fail(parsed.message, argv.includes("--json"));
   const { command } = parsed;
 
   if (command === "help") {
@@ -66,34 +78,36 @@ export async function runObserve(
 
   // All DB commands go through the --env guardrail first.
   const target = resolveTarget(parsed.env, deps.env);
-  if (target.kind === "error") return { stdout: "", stderr: target.message, exitCode: 1 };
+  if (target.kind === "error") return fail(target.message, parsed.json);
 
   if (command === "cron") {
     const r = await deps.getCronHealth();
-    if (r.kind === "infra_error") return { stdout: "", stderr: r.message, exitCode: 1 };
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
     return { stdout: formatCron(r.jobs, parsed.json, deps.nowMs), stderr: "", exitCode: 0 };
   }
   if (command === "alerts") {
     const r = await deps.queryAlerts(parsed.alertFilters);
-    if (r.kind === "infra_error") return { stdout: "", stderr: r.message, exitCode: 1 };
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
     return { stdout: formatAlerts(r.alerts, parsed.json), stderr: "", exitCode: 0 };
   }
   if (command === "changes") {
     const r = await deps.queryChangeLog(parsed.changeFilters);
-    if (r.kind === "infra_error") return { stdout: "", stderr: r.message, exitCode: 1 };
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
     return { stdout: formatChanges(r.changes, parsed.json), stderr: "", exitCode: 0 };
   }
   if (command === "events" || command === "tail") {
-    const limit = parsed.limit ?? (command === "tail" ? 20 : 100);
+    // Clamp to the CLI contract (1..500; command-specific default). collectEvents
+    // does not clamp, so the clamp MUST happen here (Codex whole-diff finding).
+    const limit = clampLimit(parsed.limit, command === "tail" ? 20 : 100);
     // tail --follow is handled by the entry runner (loop); here we do one poll.
     const r = await collectEvents(deps.queryEvents, parsed.eventFilters, limit);
-    if (r.kind === "infra_error") return { stdout: "", stderr: r.message, exitCode: 1 };
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
     if (command === "tail" && parsed.json) {
       return { stdout: r.events.map(formatEventLineNdjson).join(""), stderr: "", exitCode: 0 };
     }
     return { stdout: formatEvents(r.events, parsed.json), stderr: "", exitCode: 0 };
   }
-  return { stdout: "", stderr: `unhandled command ${command}`, exitCode: 1 };
+  return fail(`unhandled command ${command}`, parsed.json);
 }
 
 const USAGE = `pnpm observe <events|alerts|cron|changes|codes|tail> [flags]
@@ -152,6 +166,9 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
   const seen = new Set<string>();
   let high: { occurredAt: string; id: string } | null = null;
   const intervalMs = parsed.interval * 1000;
+  // First poll prints the most-recent `limit` rows as the baseline (default 20 for tail);
+  // thereafter only genuinely-new rows (Codex whole-diff finding — was printing the full page).
+  const baseline = clampLimit(parsed.limit, 20);
   let first = true;
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -160,7 +177,8 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
       process.stderr.write(`[tail] ${r.message}\n`);
     } else {
       const chrono = [...r.events].reverse();
-      for (const e of chrono) {
+      const rows = first ? chrono.slice(-baseline) : chrono;
+      for (const e of rows) {
         if (seen.has(e.id)) continue;
         const newer =
           !high ||

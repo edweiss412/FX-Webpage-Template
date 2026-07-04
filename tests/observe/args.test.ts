@@ -71,4 +71,10 @@ describe("parseObserveArgs", () => {
     expect(parseObserveArgs(["bogus"]).kind).toBe("error");
     expect(parseObserveArgs(["events", "--nope"]).kind).toBe("error");
   });
+  test("--help / -h / no-args resolve to the help command (not an unknown-flag error)", () => {
+    expect(parseObserveArgs(["--help"])).toMatchObject({ kind: "ok", command: "help" });
+    expect(parseObserveArgs(["-h"])).toMatchObject({ kind: "ok", command: "help" });
+    expect(parseObserveArgs([])).toMatchObject({ kind: "ok", command: "help" });
+    expect(parseObserveArgs(["events", "--help"])).toMatchObject({ kind: "ok", command: "help" });
+  });
 });

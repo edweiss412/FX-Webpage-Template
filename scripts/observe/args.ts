@@ -56,13 +56,15 @@ export function parseObserveArgs(argv: string[]): ParsedArgs {
         open: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         follow: { type: "boolean", default: false },
+        help: { type: "boolean", short: "h", default: false },
       },
     });
   } catch (e) {
     return { kind: "error", message: e instanceof Error ? e.message : "bad arguments" };
   }
   const { values, positionals } = parsed;
-  const command = (positionals[0] ?? "help") as string;
+  // `--help`/`-h`, or no subcommand, resolves to the help screen.
+  const command = (values.help ? "help" : (positionals[0] ?? "help")) as string;
   if (!COMMANDS.includes(command as ObserveCommand)) {
     return {
       kind: "error",

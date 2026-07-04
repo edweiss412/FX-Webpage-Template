@@ -7,6 +7,23 @@ const okEvents = async () => ({
   hasMore: false,
   nextCursor: null,
 });
+function ev(id: string) {
+  return {
+    id,
+    occurredAt: "2026-07-03T00:00:00.000Z",
+    level: "info" as const,
+    source: "s",
+    message: "m",
+    code: null,
+    requestId: null,
+    showId: null,
+    driveFileId: null,
+    actorHash: null,
+    context: {},
+    showTitle: null,
+    showSlug: null,
+  };
+}
 const deps = {
   queryEvents: okEvents,
   getCronHealth: async () => ({ kind: "ok" as const, jobs: [] }),
@@ -49,5 +66,60 @@ describe("runObserve", () => {
     });
     expect(r.exitCode).toBe(1);
     expect(r.stderr.toLowerCase()).toContain("refusing non-local");
+  });
+
+  // Codex whole-diff findings ↓
+  test("--json infra_error → JSON {error} on stderr", async () => {
+    const r = await runObserve(["events", "--json"], {
+      ...deps,
+      queryEvents: async () => ({ kind: "infra_error" as const, message: "down" }),
+    });
+    expect(r.exitCode).toBe(1);
+    expect(JSON.parse(r.stderr)).toEqual({ error: "down" });
+  });
+  test("--json guardrail refusal is also JSON", async () => {
+    const r = await runObserve(["events", "--json"], {
+      ...deps,
+      env: { SUPABASE_URL: "https://x.supabase.co", SUPABASE_SECRET_KEY: "k" },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(JSON.parse(r.stderr)).toHaveProperty("error");
+  });
+  test("events --limit clamps to 500 (raw 1000 does not over-return)", async () => {
+    const rows = Array.from({ length: 600 }, (_, i) => ev(`e${i}`));
+    const r = await runObserve(["events", "--limit", "1000", "--json"], {
+      ...deps,
+      queryEvents: async () => ({
+        kind: "ok" as const,
+        events: rows,
+        hasMore: false,
+        nextCursor: null,
+      }),
+    });
+    expect(r.exitCode).toBe(0);
+    expect(JSON.parse(r.stdout).length).toBe(500); // clamped, not 600
+  });
+  test("tail (non-follow) baseline defaults to 20 rows", async () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ev(`t${i}`));
+    const r = await runObserve(["tail", "--json"], {
+      ...deps,
+      queryEvents: async () => ({
+        kind: "ok" as const,
+        events: rows,
+        hasMore: false,
+        nextCursor: null,
+      }),
+    });
+    expect(r.exitCode).toBe(0);
+    // tail --json emits NDJSON; count lines
+    expect(r.stdout.trim().split("\n").length).toBe(20);
+  });
+  test("--help and no-args → usage on stdout, exit 0", async () => {
+    const help = await runObserve(["--help"], deps);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toContain("pnpm observe");
+    const none = await runObserve([], deps);
+    expect(none.exitCode).toBe(0);
+    expect(none.stdout).toContain("pnpm observe");
   });
 });
